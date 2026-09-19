@@ -16,7 +16,7 @@
 // names exactly which Layers may carry it.
 package layerscope
 
-import "github.com/ctxloom/ctxloom/internal/paths"
+import "github.com/ctxloom/ctxloom/internal/core/paths"
 
 // Layer is one rung of the config resolution chain, in ASCENDING precedence
 // (a higher Layer's value wins the merge) — see internal/shared/confload's

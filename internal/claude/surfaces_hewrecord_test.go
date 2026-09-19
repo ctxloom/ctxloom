@@ -16,10 +16,10 @@ import (
 	yamlv3 "gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/confpatch"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 

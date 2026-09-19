@@ -16,7 +16,7 @@
 // CTXLOOM_MCP_SOCKET scrubbed by testsupport.EnvKeys — never becomes.
 //
 // So every assertion here reads the coordinator's own durable run-registry
-// journal, runs.jsonl, straight off disk (internal/agentcoord/coord/statedir.go's
+// journal, runs.jsonl, straight off disk (internal/core/coord/statedir.go's
 // documented layout, ~/.ctxloom/coord/<project-key>/runs.jsonl under this
 // scenario's isolated HOME). This is not a weaker observable than "roster" —
 // it is the SAME data: consumer.go's listRunsSnapshot (roster's real backing
@@ -38,8 +38,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // j002100AgentSpec is one delegated child's fixture identity: which profile it

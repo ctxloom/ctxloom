@@ -16,16 +16,16 @@ Status: COMPLETE (see foot of document for the tally).
 | `internal/signing/countersign` | the approvals STORE: content-addressed `.sig` files + unsigned markers + display `index.yaml`; readability state machine | ~1.1k |
 | `internal/signing/allowedsigners` | OpenSSH `allowed_signers` parser/store/union; `TrustedForNamespace` | ~1.4k |
 | `internal/signing/agentkey` | zero-config key discovery (git `user.signingkey` → sole ssh-agent identity) | ~0.8k |
-| `internal/trust` | VOCABULARY only: `Decision`, `Source`, `State`, `ItemKind`, `Ref`, `BundleRef`, `CanonicalRepoURL`, `BuiltinSigner` | ~1.0k |
+| `internal/core/trust` | VOCABULARY only: `Decision`, `Source`, `State`, `ItemKind`, `Ref`, `BundleRef`, `CanonicalRepoURL`, `BuiltinSigner` | ~1.0k |
 | `internal/content/attest` | tree-form signing/verification over a manifest (`SignBundle`, `VerifyBundle`, `resolvePublisher`) | ~0.5k |
-| `internal/bundles` (readers, pipeline, admit, authorizer, `bundles.go` payload builders) | where publisher signatures are VERIFIED at read, where preimages are BUILT, where the gate is CONSULTED | partial |
+| `internal/core/bundles` (readers, pipeline, admit, authorizer, `bundles.go` payload builders) | where publisher signatures are VERIFIED at read, where preimages are BUILT, where the gate is CONSULTED | partial |
 | `internal/operations` (`trust.go`, `trust_gate.go`, `countersign_records.go`, `review.go`, `sign.go`, `signable.go`, `publisher_declaration.go`, `forget.go`, `sync.go`) | the decision function `EffectiveTrust`, the gate, the review/sign/signer/sync operations | partial |
-| `internal/config` (`trustroot.go`, `config_bundles.go`, `tree_bundles.go`, reader assembly in `config.go`) | trust-root assembly, reader wiring, the exec chokes (MCP/hooks), the gate-as-config-field | partial |
+| `internal/core/config` (`trustroot.go`, `config_bundles.go`, `tree_bundles.go`, reader assembly in `config.go`) | trust-root assembly, reader wiring, the exec chokes (MCP/hooks), the gate-as-config-field | partial |
 | `internal/remote` (`pull.go`, `retract.go`, `bundle_reader.go`, `lockfile.go`) | fetch, pin, retraction probe | partial |
 | `internal/lm/backends` (`managed.go`) | the run-time delivery of gated MCP/hooks/commands to an engine | partial |
 | `internal/cli` (`review.go`, `sign.go`, `signer.go`, `bundle_trust.go`, `deps_pull.go`, `deps_check.go`, `deps_reconcile.go`, `bundle_push_cli.go`, `trust_interactive.go`) | the verbs | partial |
 
-Stated-architecture inputs read: `docs/trust-model.md` (all of §Item states, §Decision function, §Trusted publishers, §Review ceremony, §Countersignature gating, §Storage, §Enforcement points, §Known gaps), `internal/config/preimage_wire_parity_test.go` (the brief named it under `tests/arch/`; it lives in `internal/config`, build tag `arch`), `tests/arch/credential_gitignore_test.go`, `tests/arch/layering_test.go`. Taskloom rows read: varied-tinfoil, unhelpful-skeptic (Archived), accurate-fox (Done), backstage-rink (Done), unsigned-marine (To Do), delighted-cough (Ruled, open), surgical-written (seam 4 — agentcoord spool, not this seam).
+Stated-architecture inputs read: `docs/trust-model.md` (all of §Item states, §Decision function, §Trusted publishers, §Review ceremony, §Countersignature gating, §Storage, §Enforcement points, §Known gaps), `internal/core/config/preimage_wire_parity_test.go` (the brief named it under `tests/arch/`; it lives in `internal/core/config`, build tag `arch`), `tests/arch/credential_gitignore_test.go`, `tests/arch/layering_test.go`. Taskloom rows read: varied-tinfoil, unhelpful-skeptic (Archived), accurate-fox (Done), backstage-rink (Done), unsigned-marine (To Do), delighted-cough (Ruled, open), surgical-written (seam 4 — agentcoord spool, not this seam).
 
 ### Entry points traced
 
@@ -50,22 +50,22 @@ Delivery-time chokes (no verb; reached from `run`, `context`, `hooks apply`, age
 |---|---|---|
 | the single decision function | `operations.EffectiveTrust` | `internal/operations/trust.go` |
 | the single `bundles.Authorizer` implementation | `operations.contentGate.Admit` | `internal/operations/trust_gate.go` |
-| content pipeline (fragments, commands, skills) | `bundles.Pipeline.deliver` / `deliverSkill` → `bundles.Decide` → gate | `internal/bundles/pipeline.go`, `internal/bundles/authorizer.go` |
-| exec choke — bundle MCP | `config.extractMCPFromBundle` → `bundles.Decide` | `internal/config/config_bundles.go` |
+| content pipeline (fragments, commands, skills) | `bundles.Pipeline.deliver` / `deliverSkill` → `bundles.Decide` → gate | `internal/core/bundles/pipeline.go`, `internal/core/bundles/authorizer.go` |
+| exec choke — bundle MCP | `config.extractMCPFromBundle` → `bundles.Decide` | `internal/core/config/config_bundles.go` |
 | exec choke — bundle hooks | `config.extractHooksFromBundle` → `bundles.Decide` | same |
 | exec choke — profile-declared hooks | `backends.gateProfileHooks` → `backends.gateProfileExec` → `bundles.Decide` | `internal/lm/backends/managed.go` |
 | gate construction for a run | `operations.NewExecutableTrustGate`, `operations.exposurePipelineGated` | `internal/operations/trust_gate.go` |
 | gate hand-off to the engine payload | `backends.AssembleManagedConfig(backend, workDir, gate, profiles)` | `internal/lm/backends/managed.go` |
-| gate carried as config state | `config.Config.SetExecutableTrustGate` / `ExecutableTrustGate()` (default `bundles.AdmitAll()`) | `internal/config/config_bundles.go` |
+| gate carried as config state | `config.Config.SetExecutableTrustGate` / `ExecutableTrustGate()` (default `bundles.AdmitAll()`) | `internal/core/config/config_bundles.go` |
 
 Read-time verification (publisher signature), one per reader:
 
 | reader | verifies via | posture it stamps | file |
 |---|---|---|---|
-| project (`NewProjectReader`) and builtin (`NewBuiltinReader`) — same type `localFSReader` | `localFSReader.signatureFactsFor` → `bundles.readSignatureFacts` → `signing.VerifyPublisher`; tree form additionally `localFSReader.treeIntegrityFacts` → `attest.VerifyBundle` | `TrustCtxLocal` | `internal/bundles/reader_localfs.go`, `reader_local_tree.go` |
-| installed remote tree (`NewRepoFSReader`, one per lockfile entry) | `repoFSReader.verifyTree` → `attest.VerifyBundle` | `TrustCtxRemote` | `internal/bundles/reader_repofs.go`, wired by `config.treeBundleReader` |
-| companion loadout (`NewCompanionReader`) | `companionReader.read` → `bundles.readSignatureFacts` | `TrustCtxLocal`, `ProvenanceCompanion` | `internal/bundles/reader_companion.go` |
-| pull-time / version-resolver read of a remote tree | `bundles.ReadRemoteRef` → `bundles.verifyRemoteTree` → `attest.VerifyBundle` | none (returns a bare `*Bundle`) | `internal/bundles/remote_ref_read.go`; callers `config.bundleVersionResolver`, `operations/depgraph.go` |
+| project (`NewProjectReader`) and builtin (`NewBuiltinReader`) — same type `localFSReader` | `localFSReader.signatureFactsFor` → `bundles.readSignatureFacts` → `signing.VerifyPublisher`; tree form additionally `localFSReader.treeIntegrityFacts` → `attest.VerifyBundle` | `TrustCtxLocal` | `internal/core/bundles/reader_localfs.go`, `reader_local_tree.go` |
+| installed remote tree (`NewRepoFSReader`, one per lockfile entry) | `repoFSReader.verifyTree` → `attest.VerifyBundle` | `TrustCtxRemote` | `internal/core/bundles/reader_repofs.go`, wired by `config.treeBundleReader` |
+| companion loadout (`NewCompanionReader`) | `companionReader.read` → `bundles.readSignatureFacts` | `TrustCtxLocal`, `ProvenanceCompanion` | `internal/core/bundles/reader_companion.go` |
+| pull-time / version-resolver read of a remote tree | `bundles.ReadRemoteRef` → `bundles.verifyRemoteTree` → `attest.VerifyBundle` | none (returns a bare `*Bundle`) | `internal/core/bundles/remote_ref_read.go`; callers `config.bundleVersionResolver`, `operations/depgraph.go` |
 
 Retraction: `remote.CheckRetracted` (network, sync time) → `remote.Puller.resolveRetraction` (fail-stale) → `remote.LockEntry.Retracted/RetractionCheckedAt` (disk) → `operations.lockfileRetraction.Retracted` (exposure time, via `RetractionRecords` seam).
 
@@ -408,8 +408,8 @@ Solid = direction the stated architecture expects (cli → operations → {confi
 flowchart TB
   cli["internal/cli"]
   ops["internal/operations"]
-  cfg["internal/config"]
-  bnd["internal/bundles"]
+  cfg["internal/core/config"]
+  bnd["internal/core/bundles"]
   lmb["internal/lm/backends"]
   rem["internal/remote"]
   att["internal/content/attest"]
@@ -418,7 +418,7 @@ flowchart TB
   cs["internal/signing/countersign"]
   as["internal/signing/allowedsigners"]
   ak["internal/signing/agentkey"]
-  tr["internal/trust"]
+  tr["internal/core/trust"]
 
   cli --> ops
   cli --> cfg
@@ -475,7 +475,7 @@ Ranked by blast radius within each category; the cross-category top three are ma
 ### 4.1 DUPLICATION
 
 **D-1 ★ Two publisher-verification adapters producing two structs for one concept.**
-`bundles.readSignatureFacts(payload, sig, root) signatureFacts` (`internal/bundles/reader.go`) and `attest.resolvePublisher(payload, sigs, root, now) attestation` (`internal/content/attest/attest.go`) both wrap `signing.VerifyPublisher` and both derive the same four-valued outcome {verified(principal) | tampered(detail) | untrusted(fingerprint) | none}. `bundles.signatureFacts{signature, signer, principal, detail, fingerprint}` and `attest.attestation{principal, detail, tamper, fingerprint}` are the same value under two names; `repoFSReader.verifyTree` is a hand-written converter from the second to the first. The `attest` form is the more complete (handles a SigSet, i.e. multiple signatures per namespace). `readSignatureFacts` additionally re-derives "was the key trusted?" from whether `SignatureKeyFingerprint` parses (`facts.signer = SignerTrusted` inside the `err != nil` arm) — a side-channel inference of a fact `VerifyInNamespace` already knew and discarded.
+`bundles.readSignatureFacts(payload, sig, root) signatureFacts` (`internal/core/bundles/reader.go`) and `attest.resolvePublisher(payload, sigs, root, now) attestation` (`internal/content/attest/attest.go`) both wrap `signing.VerifyPublisher` and both derive the same four-valued outcome {verified(principal) | tampered(detail) | untrusted(fingerprint) | none}. `bundles.signatureFacts{signature, signer, principal, detail, fingerprint}` and `attest.attestation{principal, detail, tamper, fingerprint}` are the same value under two names; `repoFSReader.verifyTree` is a hand-written converter from the second to the first. The `attest` form is the more complete (handles a SigSet, i.e. multiple signatures per namespace). `readSignatureFacts` additionally re-derives "was the key trusted?" from whether `SignatureKeyFingerprint` parses (`facts.signer = SignerTrusted` inside the `err != nil` arm) — a side-channel inference of a fact `VerifyInNamespace` already knew and discarded.
 Settle: make `attest.attestation` the one result type (export it), have `readSignatureFacts` call `attest.resolvePublisher` over a one-element SigSet, and delete the `verifyTree` converter.
 
 **D-2 ★ Two tree verifiers with two refusal policies.**
@@ -546,10 +546,10 @@ Settle: as D-4.
 **LB-3 lm/backends makes a trust decision.** `backends.gateProfileHooks` / `gateProfileExec` / `hookExecPayload` (`internal/lm/backends/managed.go`) mint a ref (`backends.itemRefFor` → `parseSourceRef`), build an exec preimage by copying `wire.Hook` back into `bundles.BundleHook`, and call `bundles.Decide`. This is the engine-adapter layer deciding what is trusted, using a hand-rolled reverse converter (see SA-5 for why that copy is a liability).
 Settle: profile hooks are gated where bundle hooks are — in the resolver that produces `ResolvedProfile.Hooks` (profiles/operations), with the preimage built from the `BundleHook` that was resolved, before conversion to wire.
 
-**LB-4 config makes trust decisions.** `config.extractMCPFromBundle`, `config.extractHooksFromBundle`, `config.resolveBuiltinBundleMCPServers`, `config.resolveBuiltinBundleHooks` (`internal/config/config_bundles.go`) call `bundles.Decide` — the config layer consults the gate — and the gate reaches them as a MUTABLE FIELD (`Config.execGate`) set by operations/backends/coord. `operations.MaterializeProfile` has to save/replace/defer-restore that field to call into config. The config layer is below operations in the stated architecture; a trust decision consulted there means operations cannot see, test, or override it without mutating shared state.
+**LB-4 config makes trust decisions.** `config.extractMCPFromBundle`, `config.extractHooksFromBundle`, `config.resolveBuiltinBundleMCPServers`, `config.resolveBuiltinBundleHooks` (`internal/core/config/config_bundles.go`) call `bundles.Decide` — the config layer consults the gate — and the gate reaches them as a MUTABLE FIELD (`Config.execGate`) set by operations/backends/coord. `operations.MaterializeProfile` has to save/replace/defer-restore that field to call into config. The config layer is below operations in the stated architecture; a trust decision consulted there means operations cannot see, test, or override it without mutating shared state.
 Settle: the exec extractors take the `bundles.Authorizer` as a parameter from their operations caller (they already do for builtin ones); delete `Config.execGate`, `SetExecutableTrustGate`, `ExecutableTrustGate`.
 
-**LB-5 trust → remote.** `internal/trust` (the vocabulary package) imports `internal/remote` for `NormalizeRef`, `NormalizeURL`, `LocalSource`, `CompanionSource`. Consequently `remote` cannot name `trust.Ref`, and `remote.LockEntry`/`Puller` speak in strings (`refStr`, `localName`, `canonical`) that every consumer re-parses (`remote.ParseReference` appears 8× in cli alone).
+**LB-5 trust → remote.** `internal/core/trust` (the vocabulary package) imports `internal/remote` for `NormalizeRef`, `NormalizeURL`, `LocalSource`, `CompanionSource`. Consequently `remote` cannot name `trust.Ref`, and `remote.LockEntry`/`Puller` speak in strings (`refStr`, `localName`, `canonical`) that every consumer re-parses (`remote.ParseReference` appears 8× in cli alone).
 Settle: move URL/ref normalisation into `internal/refuri` (which both already import) and have `trust` depend on `refuri` only.
 
 ### 4.4 MISSING LAYER
@@ -568,27 +568,27 @@ Settle: `remote.Installed(baseDir) []InstalledBundle{Canonical, Entry LockEntry,
 
 **W-1** `internal/operations/oneshot.go`: "must stay byte-identical to pre-P3; gate construction runs the trust baseline + opens the store" — a perf workaround that disables a security gate. → DP-2.
 
-**W-2** `internal/config/config_bundles.go` (`Config.ExecutableTrustGate` doc): "a nil authorizer withholds everything downstream … and a management path asking for a config's gate is not a fault. A config nobody attached a gate to is a MANAGEMENT/LISTING config" — the fail-open default justified by a category the type system does not express. → DP-1.
+**W-2** `internal/core/config/config_bundles.go` (`Config.ExecutableTrustGate` doc): "a nil authorizer withholds everything downstream … and a management path asking for a config's gate is not a fault. A config nobody attached a gate to is a MANAGEMENT/LISTING config" — the fail-open default justified by a category the type system does not express. → DP-1.
 
-**W-3** `internal/bundles/reader.go` `readSignatureFacts`: `if _, fperr := signing.SignatureKeyFingerprint(armoredSig); fperr == nil { facts.signer = SignerTrusted }` inside the tamper arm — infers "the key was trusted" from "the blob parses", because `VerifyInNamespace` folds that fact into an error string. Works only because `VerifyInNamespace` returns a parse error before the trust check. → D-1.
+**W-3** `internal/core/bundles/reader.go` `readSignatureFacts`: `if _, fperr := signing.SignatureKeyFingerprint(armoredSig); fperr == nil { facts.signer = SignerTrusted }` inside the tamper arm — infers "the key was trusted" from "the blob parses", because `VerifyInNamespace` folds that fact into an error string. Works only because `VerifyInNamespace` returns a parse error before the trust check. → D-1.
 
-**W-4** `internal/bundles/loader_skills.go`: `mode, perr := strconv.ParseUint(m.Mode, 8, 32); if perr != nil { mode = 0644 }` — a field of the signed skill manifest is defaulted on parse failure rather than withheld. Unfiled.
+**W-4** `internal/core/bundles/loader_skills.go`: `mode, perr := strconv.ParseUint(m.Mode, 8, 32); if perr != nil { mode = 0644 }` — a field of the signed skill manifest is defaulted on parse failure rather than withheld. Unfiled.
 
 **W-5** `internal/remote/pull.go` `resolveRetraction`: `lockfile, lerr := p.lockfileManager.Load(); if lerr != nil { return false, "", time.Time{}, nil }` — an unreadable lockfile at pull time reads as "not retracted", skips the confirm prompt, and `updateLockfile` then overwrites the entry with `Retracted:false`. The exposure-time twin (`lockfileRetraction.retractionReadable`) is fail-closed; the sync-time half is not. Unfiled.
 
 **W-6** `internal/operations/sync.go` `checkInstalledRetraction`: `if err != nil { return false, "" }` and `puller.(RetractionChecker)` type assertion — an error or an injected puller without the interface silently means "not retracted" and nothing is recorded. Unfiled.
 
-**W-7** `internal/config/config.go` `remoteBundleReaders`: the discarded `LoadAllBytes` result. → DP-5.
+**W-7** `internal/core/config/config.go` `remoteBundleReaders`: the discarded `LoadAllBytes` result. → DP-5.
 
 **W-8** `internal/operations/signable.go`: "PLACEMENT NOTE (escalate, do not restructure): trust.ItemKind today has no member for 'a whole bundle file' … bundleSignable.Kind() returns the literal trust.ItemKind("bundle") … a stage-2 placement question for a human to decide" — an escalation recorded in a comment; `Signable` has exactly one implementer. Unfiled decision.
 
-**W-9** `internal/config/trustroot.go` `filterSuppressedPrincipals` doc: cites `store.go:100` and `store.go:35` — line-number bindings in a comment (both already stale: `decide` is at a different line).
+**W-9** `internal/core/config/trustroot.go` `filterSuppressedPrincipals` doc: cites `store.go:100` and `store.go:35` — line-number bindings in a comment (both already stale: `decide` is at a different line).
 
 **W-10** `internal/operations/trust.go` `SetItemTrust` / `SetBlacklist`: `_ = store.AppendIndex(...)` — ignored write error on the display index; a failed index write means `review --list` under-reports an UPDATE as NEW (`LatestApprove` reads it). Acceptable if documented as such at the call; it is not.
 
 **W-11** `internal/remote/retract.go` `CheckRetracted`: "Ambiguous at this seam … indistinguishable here without a not-found sentinel on Fetcher" — the fetcher interface lacks an `ErrNotFound` distinction for the manifest, so every remote that publishes no manifest (the ordinary case) takes the fail-stale fallback and warns after 14 days. Design gap, documented in the doc as accepted; unfiled as a `Fetcher` interface change.
 
-**W-12** `internal/operations/sync.go`: `syncLockStep`, `syncHooksStep` package-level function variables; `internal/config/config_bundles.go`: `hookPreimage`, `mcpPreimage` package-level function variables; `internal/lm/backends/managed.go`: `loadConfigFn`. Test seams travelling as globals through the trust path.
+**W-12** `internal/operations/sync.go`: `syncLockStep`, `syncHooksStep` package-level function variables; `internal/core/config/config_bundles.go`: `hookPreimage`, `mcpPreimage` package-level function variables; `internal/lm/backends/managed.go`: `loadConfigFn`. Test seams travelling as globals through the trust path.
 
 ### 4.6 STATED-VS-ACTUAL (`docs/trust-model.md` vs code)
 
@@ -604,7 +604,7 @@ Settle: correct the gap to "`--key` flag only".
 **SA-4 Enforcement-points table vs code.** The table lists seven chokes. Actual: all seven funnel through ONE `Authorizer` (`contentGate.Admit`), which is stronger than stated; but the table omits the profile-declared-hooks choke (`backends.gateProfileHooks`), which is a distinct code path with its own preimage construction (LB-3), and omits that `TrustStamper` bypasses the `Authorizer` and calls `EffectiveTrust` directly with a re-loaded signer.
 Settle: add both rows; or make `TrustStamper` consult the gate.
 
-**SA-5 Parity gate covers one direction; the other exists and is unguarded.** `internal/config/preimage_wire_parity_test.go` proves every signed field of `BundleHook.ContentPayload` survives into `wire.Hook`. `backends.hookExecPayload` copies `wire.Hook → BundleHook{Matcher, Command, Type, Prompt, PreToolFallback}` by hand — the reverse direction. A signed field added to `BundleHook` and carried by the forward converter passes the parity gate and is silently dropped here, so a profile-declared hook's preimage differs from the same hook's bundle preimage: an approval recorded from `review` (which uses `BundleHook.ContentPayload` on the bundle) will not verify at `gateProfileExec`, and the hook is withheld with the reason "pending review" — fail-closed but unexplained. The `Hook.PreToolFallback` incident the test describes is exactly this shape.
+**SA-5 Parity gate covers one direction; the other exists and is unguarded.** `internal/core/config/preimage_wire_parity_test.go` proves every signed field of `BundleHook.ContentPayload` survives into `wire.Hook`. `backends.hookExecPayload` copies `wire.Hook → BundleHook{Matcher, Command, Type, Prompt, PreToolFallback}` by hand — the reverse direction. A signed field added to `BundleHook` and carried by the forward converter passes the parity gate and is silently dropped here, so a profile-declared hook's preimage differs from the same hook's bundle preimage: an approval recorded from `review` (which uses `BundleHook.ContentPayload` on the bundle) will not verify at `gateProfileExec`, and the hook is withheld with the reason "pending review" — fail-closed but unexplained. The `Hook.PreToolFallback` incident the test describes is exactly this shape.
 Settle: extend the parity test to round-trip `BundleHook → wire.Hook → hookExecPayload` and assert byte-equal preimages; better, LB-3's fix removes the reverse copy.
 
 **SA-6 "Signing/verification is CLI-only and is never exposed over MCP."** Holds: no `mcp__ctxloom__*` tool reaches `signing`, `countersign`, or `AddSigner` (the MCP server package does not import them — reverse-import map in §3). Stated and true; recorded so the synthesis pass does not re-check.
@@ -699,7 +699,7 @@ func Union(stores ...*Store) *Store
 func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discovered, error)
 //   IN: explicitKey. OUT: Discovered{Signer, Fingerprint,…}. HID: git config user.signingkey (cwd repo), SSH_AUTH_SOCK, key files.
 
-// internal/trust/trust.go
+// internal/core/trust/trust.go
 type Ref struct { RepoURL string; Bundle string; Kind ItemKind; Name string; IsLocal bool; IsBuiltin bool; IsCompanion bool }
 func (r Ref) Key() string          // HID: remote.NormalizeRef
 func (r Ref) CanonicalURL() string // builtin → "builtin:ctxloom"; local → remote.LocalSource; else CanonicalRepoURL(RepoURL)
@@ -713,14 +713,14 @@ func VerifyBundle(ctx context.Context, b content.Bundle, root signing.TrustRoot,
 type BundleVerdict struct { Bundle BundleID; Manifest content.Manifest; Verdict Verdict; Contents error; Items []ItemVerdict }
 type Verdict struct { Status Status; Principal string; Authority Authority; Detail string; UntrustedSignerFingerprint string }
 
-// internal/bundles/reader.go
+// internal/core/bundles/reader.go
 type BundleRead struct { Bundle *Bundle; Provenance ProvenanceClass; ref string; layout paths.BundleLayout; alsoIn []paths.BundleLayout; trustCtx TrustCtx; signature Signature; signer Signer; signatureDetail string; untrustedFingerprint string }
 func (r BundleRead) Claimed() bool; TrustCtx() TrustCtx; Signature() Signature; Signer() Signer; UntrustedSignerFingerprint() string
 func readSignatureFacts(payload, armoredSig []byte, root signing.TrustRoot) signatureFacts   // HID: time.Now()
 func (f signatureFacts) stamp(b *Bundle)   // the ONLY caller of Bundle.StampSigner
 func (b *Bundle) Signer() string; func (b *Bundle) StampSigner(signer string)
 
-// internal/bundles/authorizer.go, admit.go, pipeline.go
+// internal/core/bundles/authorizer.go, admit.go, pipeline.go
 type Authorizer = admission.Authorizer[Exposure, Reason]   // Admit(Exposure) Verdict
 type Verdict = admission.Decision[Reason]                  // { Allow bool; Reason Reason; Detail string }
 type Exposure struct { Read BundleRead; Ref trust.Ref; RefStr string; Bytes []byte; Form ContentForm }
@@ -755,7 +755,7 @@ type Signable interface { Kind() trust.ItemKind; PublisherPreimage() ([]byte, er
 func SignItem(fs afero.Fs, item Signable, signer ssh.Signer) error
 const DeclaredPublishersPath = ".github/allowed_signers"
 
-// internal/config
+// internal/core/config
 func (c *Config) TrustRoot() *allowedsigners.Store           // HID: embedded + ~/.ctxloom/allowed_signers + .ctxloom/allowed_signers + distrusted_signers, re-read per call
 func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer); func (c *Config) ExecutableTrustGate() bundles.Authorizer  // default AdmitAll
 func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root signing.TrustRoot) (bundles.Reader, error)

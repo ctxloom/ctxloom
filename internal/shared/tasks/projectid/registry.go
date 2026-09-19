@@ -18,7 +18,7 @@ import (
 	"github.com/gofrs/flock"
 	"gopkg.in/yaml.v3"
 
-	corepaths "github.com/ctxloom/ctxloom/internal/paths"
+	corepaths "github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
@@ -28,7 +28,7 @@ import (
 // lockFileMode and lockDirMode are the modes this registry's advisory-lock
 // sidecar and its parent directory are created with, before umask — not
 // group- or world-WRITABLE, matching every other lock site in this project
-// (see internal/shared/agent/rmw_lock.go's identically-reasoned pair).
+// (see internal/core/agent/rmw_lock.go's identically-reasoned pair).
 const (
 	lockFileMode = 0o644
 	lockDirMode  = 0o755

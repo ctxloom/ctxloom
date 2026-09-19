@@ -16,7 +16,7 @@ const personalURL = "https://github.com/ben/ctxloom-personal"
 // TestCanonicalizeShortRef pins the short-name → canonical grammar: bare names
 // stay local, "<remote>/<bundle>" (with or without a selector) expands to the
 // canonical URL, the local file wins a collision, and any selector rides through
-// unchanged. Mirrors internal/profiles/grammar_test.go's spelling→identity pins.
+// unchanged. Mirrors internal/core/profiles/grammar_test.go's spelling→identity pins.
 func TestCanonicalizeShortRef(t *testing.T) {
 	tests := []struct {
 		name        string

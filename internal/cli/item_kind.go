@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // The fragment/command item vocabulary and its reference grammar: the kind names

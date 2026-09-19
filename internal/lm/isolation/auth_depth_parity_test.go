@@ -28,7 +28,7 @@ import (
 // So the test varies everything that DOES differ between an owner's run and a
 // delegated child's — the agent id, the session harp, and the run env the
 // coordinator stamps a child with (CTXLOOM_RUN_DEPTH, a literal here because
-// internal/agentcoord/coord imports this package and cannot be imported back)
+// internal/core/coord imports this package and cannot be imported back)
 // — and asserts the credential mount in the rendered MountPlan is the same
 // rw mount of the same host file every time. A future gate that keyed the
 // mount's ReadOnly, its presence, or its source on any of those inputs turns

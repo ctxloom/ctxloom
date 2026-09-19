@@ -19,7 +19,7 @@ var startHostRunner = pb.StartHostRunner
 // from here would be an import cycle. The copy is not left unguarded —
 // TestEnvCellWorkDir_MatchesTheCanonicalCoordConstant (an EXTERNAL test
 // package, so it adds no production edge) fails if the two ever drift. See
-// internal/agentcoord/coord/identity.go's EnvCellWorkDir doc for the
+// internal/core/coord/identity.go's EnvCellWorkDir doc for the
 // canonical source of truth on this variable's meaning and lifecycle.
 const envCellWorkDir = "CTXLOOM_CELL_WORKDIR"
 

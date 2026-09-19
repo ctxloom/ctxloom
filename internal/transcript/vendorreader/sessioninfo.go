@@ -1,6 +1,6 @@
 package vendorreader
 
-import "github.com/ctxloom/ctxloom/internal/shared/agent"
+import "github.com/ctxloom/ctxloom/internal/core/agent"
 
 // SessionInfoBuilder accumulates ChatSessionInfo fields discovered while
 // scanning or decoding a vendor transcript for session-level metadata, latching each field onto its FIRST non-empty/

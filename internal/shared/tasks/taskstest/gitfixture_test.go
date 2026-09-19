@@ -12,7 +12,7 @@ import (
 
 // sanctionedWorktreeFixtureFiles are the only files allowed to build a real
 // linked worktree by hand, and they must match RealGitWorktreeFixture's doc:
-// this package (the canonical body), internal/config's frozen acceptance gate
+// this package (the canonical body), internal/core/config's frozen acceptance gate
 // (byte-for-byte unmodifiable, so it keeps its own copy), the acceptance
 // suite's TestEnvironment, which must route git through its own isolated
 // env/dir plumbing and so cannot call the canonical body at all, and J001300's

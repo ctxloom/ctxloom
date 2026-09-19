@@ -7,7 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // Role tags per the plan's §4a mockup: fixed-width prefixes so the feed

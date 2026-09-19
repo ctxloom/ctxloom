@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // HOST-CONTROLLED MCP DISCOVERY (fix/host-controlled-mcp-discovery)

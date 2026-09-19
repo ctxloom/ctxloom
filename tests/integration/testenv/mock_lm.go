@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	ctxloomconfig "github.com/ctxloom/ctxloom/internal/config"
+	ctxloomconfig "github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 

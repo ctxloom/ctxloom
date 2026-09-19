@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Compile-time assertion that Mock offers the optional StructuredChat capability.
@@ -31,7 +31,7 @@ var _ agent.StructuredChat = (*Mock)(nil)
 //     parking on each TerminalResponse in turn, then echoes what it observed
 //     ("mock chat: terminal output=... killed=..."). Exercises the SAME
 //     forwarding carrier a real engine's terminal/* call rides
-//     (internal/shared/agent.TerminalRequest/TerminalResponse) — this file
+//     (internal/core/agent.TerminalRequest/TerminalResponse) — this file
 //     never talks to tmux directly, only to whatever answers on the other end.
 //   - "TOOLS": the turn emits the FULL entry vocabulary a real engine produces
 //     — thinking, tool_use, tool_result, assistant — before completing. A

@@ -5,8 +5,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // mdMeta is the YAML front-matter DTO for the .md content kinds.
@@ -294,7 +294,7 @@ type Command struct {
 	// these keys, so they are not an opaque passthrough.
 	//
 	// The type is defined in THIS package (see exports.go), not imported from
-	// internal/bundles: importing bundles here would point the dependency the
+	// internal/core/bundles: importing bundles here would point the dependency the
 	// wrong way and become a cycle once bundles consumes this package.
 	Exports EngineExports
 }

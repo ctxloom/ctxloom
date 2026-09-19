@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // The approach vocabulary is an OPEN SET declared per engine. The failure
@@ -28,7 +28,7 @@ import (
 // shared by a second engine stops being flagged on its own.
 
 // sharedAgentDir is the shared delivery seam this gate sweeps.
-const sharedAgentDir = "internal/shared/agent"
+const sharedAgentDir = "internal/core/agent"
 
 func TestArch_SharedAgent_NamesNoEngineOnlyApproach(t *testing.T) {
 	names := backends.List()

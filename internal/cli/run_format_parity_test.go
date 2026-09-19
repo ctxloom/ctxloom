@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // TestStructuredArms_RejectUnknownFormatAlike pins --format handling across

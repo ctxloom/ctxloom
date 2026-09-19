@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // execForms is the single LAYOUT form an executable surface carries: the BASE

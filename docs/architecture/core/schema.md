@@ -18,7 +18,7 @@ dependency reaches the production binary.
 
 ### Non-responsibilities
 
-- Turning validation errors into user-facing warnings — `internal/config/unknown_keys.go`
+- Turning validation errors into user-facing warnings — `internal/core/config/unknown_keys.go`
   (`classifyValidationError`); see [config.md](./config.md).
 - Deciding what to do about an unknown key — `internal/shared/confload` and the strictness layer.
 - Authoring the schemas — `resources/schema/input/*.json` (hand-maintained, three files).
@@ -76,7 +76,7 @@ flowchart TD
 - `convertToJSON` (`schema.go:132`) is documented as converting YAML-parsed data to
   JSON-compatible types; it is a no-op deep copy — yaml.v3 already yields
   `map[string]interface{}`, and both switch arms rebuild identical values.
-- `internal/config/unknown_keys.go:191 knownKeysAt` re-implements path resolution over the *raw*
+- `internal/core/config/unknown_keys.go:191 knownKeysAt` re-implements path resolution over the *raw*
   `map[string]any`; an `anyOf` node is a `[]any` there, so the type assertion at
   `unknown_keys.go:211` fails and the walk returns nil. `schemaChild` already solves this.
 - `ValidateBytes("")` fails loudly only because both embedded schemas declare a root

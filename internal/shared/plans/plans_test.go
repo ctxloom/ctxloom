@@ -191,7 +191,7 @@ func TestList_FindsNestedPlanFiles(t *testing.T) {
 
 // TestPlan_JSONShape_IncludesSessions pins that Plan.Sessions has no
 // in-repo reader (rg -n '\.Sessions\b' --type go -g '!*_test.go' finds only
-// unrelated idx.Sessions hits in internal/sessions and
+// unrelated idx.Sessions hits in internal/core/sessions and
 // internal/shared/plans/scoped.go). Its only possible consumer is the
 // out-of-repo VS Code Plan view, whose wire contract this package cannot
 // observe breaking. Rather than delete the field on unverifiable evidence,

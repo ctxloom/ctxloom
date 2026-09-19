@@ -2,7 +2,7 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"testing"
 
 	"github.com/spf13/afero"

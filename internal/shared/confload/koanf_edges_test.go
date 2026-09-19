@@ -142,7 +142,7 @@ func TestKoanf_CaseSensitiveKeysPreserved(t *testing.T) {
 		"profiles": map[string]any{
 			"definitions": map[string]any{
 				"go-developer": map[string]any{
-					"variables": map[string]any{"TargetPackage": "internal/config"},
+					"variables": map[string]any{"TargetPackage": "internal/core/config"},
 				},
 			},
 		},
@@ -163,7 +163,7 @@ func TestKoanf_CaseSensitiveKeysPreserved(t *testing.T) {
 	assert.False(t, hasLoweredKey, "CTXLOOM_MOCK_RESPONSE must not be lower-cased")
 
 	vars := merged["profiles"].(map[string]any)["definitions"].(map[string]any)["go-developer"].(map[string]any)["variables"].(map[string]any)
-	assert.Equal(t, "internal/config", vars["TargetPackage"])
+	assert.Equal(t, "internal/core/config", vars["TargetPackage"])
 	_, hasLoweredVar := vars["targetpackage"]
 	assert.False(t, hasLoweredVar, "the template variable name must not be lower-cased")
 }

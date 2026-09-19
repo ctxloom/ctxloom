@@ -3,9 +3,9 @@ package grpc
 import (
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file holds the Go<->proto converters for the host-assembled

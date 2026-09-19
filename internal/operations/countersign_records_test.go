@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 func newKeypair(t *testing.T) (ssh.Signer, ssh.PublicKey) {

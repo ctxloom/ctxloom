@@ -1,9 +1,9 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // CapabilityLoss reports, for one resolved engine binding, which parts of the

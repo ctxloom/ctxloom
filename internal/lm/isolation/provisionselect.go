@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Selecting a Provisioner.

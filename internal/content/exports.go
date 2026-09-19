@@ -4,7 +4,7 @@ package content
 // surfaces as that engine's slash command, or whether a skill is enabled for it.
 //
 // It is ONE struct keyed by engine name rather than a near-identical struct per
-// engine (the per-engine export configs in internal/bundles). Those differ only
+// engine (the per-engine export configs in internal/core/bundles). Those differ only
 // in which of these fields they use, and mirroring them here would mean a shape
 // per engine to keep in step with a new engine's arrival. A
 // map keyed by engine name also means a NEW ENGINE needs no change to this

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // TestStartContainerOwnedRun_NilCoordinatorRefusesTheLaunch pins the owned-run

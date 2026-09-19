@@ -6,8 +6,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -143,7 +143,7 @@ func fixtureCommandBody(name string) string {
 // bundle every "a git remote ... serving a ctxloom bundle" family of steps
 // seeds or advances — a TRUE TREE (envelope with no inline item keys, each
 // item in its own file), because `deps pull` refuses a single-file bundle
-// outright now and internal/bundles/tree_read.go's readEnvelope refuses an
+// outright now and internal/core/bundles/tree_read.go's readEnvelope refuses an
 // envelope that still declares items inline.
 //
 // fragName/fragContent parameterize the ONE fragment every caller varies

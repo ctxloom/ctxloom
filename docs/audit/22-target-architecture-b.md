@@ -1198,12 +1198,12 @@ Net LOC direction per package (estimate; the direction is what this document sta
 | `internal/lm/grpc` | −3,000 (generated code included) | the whole package; `Launch` proto lands in `agentcoord` (+400 generated) |
 | `internal/vpio/goplugin`, `vpio/dockerexec` | −600 | replaced by `hostpty` (+150) and `attach` (+150) |
 | `internal/mcp` | −1,200 | stdio server, forward, discovery, coord host, PATH A tools |
-| `internal/agentcoord/coord` | −900 | second inbox, second scaffold, harness spec codec, spawner plan, owner-run tail, `discover` |
-| `internal/shared/agent` | −2,000 | split three ways; `launch_backend.go`'s selection/reroot, `contextfile.go`, `settings_io.go`, `chat*.go` deleted |
-| `internal/config` | −700 | bundle loaders, gate, companions, globals, memo |
+| `internal/core/coord` | −900 | second inbox, second scaffold, harness spec codec, spawner plan, owner-run tail, `discover` |
+| `internal/core/agent` | −2,000 | split three ways; `launch_backend.go`'s selection/reroot, `contextfile.go`, `settings_io.go`, `chat*.go` deleted |
+| `internal/core/config` | −700 | bundle loaders, gate, companions, globals, memo |
 | `internal/lm/isolation` | −500 | four registries, `SpawnClient`/`FactoryForWorkspace`/`containerRunner`, env parsing, own predicates |
 | `internal/memory` | −300 | `CompactionConfig` seams, store re-opens, `defaultLLMPlugin`, `distill.go`'s request body |
-| `internal/sessions` | −200 | `MigrateIndex`, `index_upgrade.go`; the `fsstore` split is a move |
+| `internal/core/sessions` | −200 | `MigrateIndex`, `index_upgrade.go`; the `fsstore` split is a move |
 | `internal/claude` → `engines/claude` | −400 | `SessionConfigDir`, `mcpEntries`, path computation, the `settingsRecord.desired` round-trip |
 | NEW `composite` | +900 | mostly moves from config/backends/operations; net new is `Trust`, `Package`, `Select`, `Assemble` |
 | NEW `launch` | +600 | mostly moves; net new is `Source`, `Launch`, `Cell`, `Resolve` |
@@ -1327,7 +1327,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // TestEngine_Mock_Conforms is the shape every engine package copies verbatim
@@ -1427,7 +1427,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/delivery/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // TestRoute_UncarriedKind_RefusesUnlessAccepted proposes the no-fallback rule:
@@ -1523,12 +1523,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord/grpc/coordgrpc"
+	"github.com/ctxloom/ctxloom/internal/core/coord/grpc/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/engine"
 	"github.com/ctxloom/ctxloom/internal/launch"
 	"github.com/ctxloom/ctxloom/internal/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // TestResolve_FiveSources_OneResolver is the table the audit asked for: every

@@ -64,7 +64,7 @@ type BundleSignatureSource interface {
 // FetcherFactory MUST be a cached factory (see NewCachedFetcherFactory).
 //
 // BundleReader is intentionally bytes-only — it has no knowledge of bundle
-// YAML structure. Callers in higher layers parse via internal/bundles.
+// YAML structure. Callers in higher layers parse via internal/core/bundles.
 // This keeps the remote package free of an upward dependency on bundles
 // and lets the same fetcher work for the review-flow tool that returns
 // raw YAML verbatim to the model.
@@ -101,7 +101,7 @@ type BundleReaderOption func(*BundleReader)
 //
 // WHEN NOT TO WIRE IT: a caller that resolves tree bundles some OTHER way must
 // leave it nil, and then keeps the refusal (ErrTreeBundleUnreadable) that tells
-// it to. internal/config does exactly that — it assembles a tree bundle from
+// it to. internal/core/config does exactly that — it assembles a tree bundle from
 // the tree `deps pull` INSTALLED, because a skill package needs a real
 // directory on disk (bundles.Bundle.FSDir) that a fetched-into-memory tree
 // cannot provide, and because verifying the installed bytes is strictly
@@ -274,7 +274,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 // detached signature — out of the tree at the pinned SHA.
 //
 // The tree's "bundle.yaml" is the counterpart of a single-file bundle's whole
-// document: it is what internal/bundles reads a bundle's name, version and item
+// document: it is what internal/core/bundles reads a bundle's name, version and item
 // lists out of, in both forms. So the suffix parameter keeps meaning exactly
 // what it means on the single-file path — the sibling ".sig" of the document
 // just read — which is why the two forms need no second signature convention

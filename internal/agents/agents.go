@@ -2,7 +2,7 @@
 // of an LLM engine to one or more composed profiles.
 //
 // "Agent" here always means this BINDING — not the running engine process
-// (internal/shared/agent), not the container image an engine runs in
+// (internal/core/agent), not the container image an engine runs in
 // (isolation's "agent image"), and not Claude Code's native sub-agents
 // (.claude/agents/). When ambiguity threatens, say "agent (binding)".
 //
@@ -24,7 +24,7 @@
 // This package owns only the entity type and its value vocabulary. Resolution
 // (composing the profiles into one context and applying the engine override)
 // lives in internal/operations, which has the profile loader and backend
-// selection; the source itself lives in internal/config, which owns
+// selection; the source itself lives in internal/core/config, which owns
 // config.yaml.
 package agents
 
@@ -288,7 +288,7 @@ type EscalationRung struct {
 
 // RetiredLLMKey is the pre-rename spelling of Agent.LLM.
 //
-// It is refused rather than ignored: internal/config decodes the `agents:` key
+// It is refused rather than ignored: internal/core/config decodes the `agents:` key
 // leniently, so an untouched `engine:` would be dropped in silence and the
 // binding would fall back to the profiles' llm — a different model, chosen by
 // nobody, reported as success. config.findRetiredAgentKey is the refusal.
@@ -305,7 +305,7 @@ var ErrRetiredLLMKey = errors.New(
 // Unlike RetiredLLMKey this is a removal, not a rename: whether a run may
 // delegate is now decided by its position in the tree (its depth against
 // delegation.depth), not declared per binding. It is refused for the same
-// reason all the same: internal/config decodes `agents:` leniently, so an
+// reason all the same: internal/core/config decodes `agents:` leniently, so an
 // untouched `coordinator: true` would be dropped in silence, and the binding
 // that was written to delegate would quietly become one that cannot — reported
 // as success. Real configs carry it, this repo's own among them.

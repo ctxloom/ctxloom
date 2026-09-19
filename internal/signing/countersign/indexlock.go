@@ -8,7 +8,7 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // WHY THIS FILE EXISTS, in one sentence: every write in this package is

@@ -27,7 +27,7 @@ version selects, and the version ranges ctxloom carries readers for — what
 you need when a transcript refuses to convert, since reading a vendor's own
 transcript store refuses rather than guessing at an unvalidated format;
 companion detection + loadout probing (taskloom/ltk/...); every
-paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
+paths.TierLocal path (internal/core/paths.Layout) this checkout is missing — the
 local-only state (the dirty-tree-commit acknowledgement, the task-log
 project-id marker, distilled sessions, review's cached diff objects) that a
 fresh clone has no way to learn it lacks anywhere else; and, always, a stated

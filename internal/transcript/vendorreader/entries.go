@@ -3,7 +3,7 @@ package vendorreader
 import (
 	"encoding/json"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // nonEmptyRaw normalizes a zero-length json.RawMessage to nil so that "this

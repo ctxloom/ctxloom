@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // intp is a local helper: Hook.Order is a POINTER so that "no order declared" is

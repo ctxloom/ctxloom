@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/shared/agent"
+import "github.com/ctxloom/ctxloom/internal/core/agent"
 
 // This file is the name→EngineCLI seam: the single place a caller that holds
 // only a backend NAME turns it into that backend's engine-CLI declarations

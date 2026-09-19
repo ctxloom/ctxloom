@@ -257,7 +257,7 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 // CLAUDE.md and the root AGENTS.md belong here too (a worktree
 // orphan-accumulation fix): they are TRACKED per-agent context surfaces
 // (claude.ClaudeCodeHookWriter.WriteContext, codex.CodexHookWriter.WriteContext
-// — internal/shared/agent/managedcontext.go's doc names all three: CLAUDE.md,
+// — internal/core/agent/managedcontext.go's doc names all three: CLAUDE.md,
 // .agents/AGENTS.md, codex's AGENTS.md), and WriteManagedContext DELETES the
 // file outright when the merged content is empty and the file was wholly
 // ctxloom's. Omitting them here left isolation/worktree.go's

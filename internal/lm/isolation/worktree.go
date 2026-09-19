@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 

@@ -40,7 +40,7 @@
 //     all — "absent" means "this agent has emitted literally nothing", which
 //     is information, not a read failure.
 //   - An agent parked awaiting APPROVAL is NOT stalled and must never be
-//     reaped. An approval rung (internal/agentcoord/coord/approval.go,
+//     reaped. An approval rung (internal/core/coord/approval.go,
 //     ladder.go) can legitimately hold a child for minutes.
 //
 // # Three states that must never be conflated

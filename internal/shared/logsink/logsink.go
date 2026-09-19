@@ -20,7 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // MaxBytes is the size at which the log is rolled aside at open. Bounded

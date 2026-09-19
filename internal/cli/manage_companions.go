@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // Companion-binary status for `manage check`. Companions are separate binaries

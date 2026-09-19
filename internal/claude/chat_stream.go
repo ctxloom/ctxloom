@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // This file maps claude-code's `--output-format stream-json` events to ctxloom's

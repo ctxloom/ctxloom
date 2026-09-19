@@ -15,20 +15,20 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
-	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/internal/version"
 )
 
@@ -136,7 +136,7 @@ version selects, and the version ranges ctxloom carries readers for — what
 you need when a transcript refuses to convert, since reading a vendor's own
 transcript store refuses rather than guessing at an unvalidated format;
 companion detection + loadout probing (taskloom/ltk/...); every
-paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
+paths.TierLocal path (internal/core/paths.Layout) this checkout is missing — the
 local-only state (the dirty-tree-commit acknowledgement, the task-log
 project-id marker, distilled sessions, review's cached diff objects) that a
 fresh clone has no way to learn it lacks anywhere else; and, always, a stated
@@ -761,7 +761,7 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) doctorCheck {
 	// ANY schema violation this config carries was being reported as
 	// "config valid"). cfg.GetWarnings() is EVERY load-time warning
 	// (WarnKindRead/Parse/Validate/UnknownKey/MigrationLossy/LayerScope) --
-	// see internal/config/warnings.go's own doc: "EVERY kind declared below
+	// see internal/core/config/warnings.go's own doc: "EVERY kind declared below
 	// is fatal-class in strict mode". Doctor's own contract (doctor.feature:
 	// "why its exit code is not the verdict") means this stays doctorWarn,
 	// never a process exit change -- warn IS this command's fail-loud signal.

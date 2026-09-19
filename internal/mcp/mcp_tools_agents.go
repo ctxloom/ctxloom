@@ -10,9 +10,9 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -20,7 +20,7 @@ import (
 )
 
 // Agent-delegation tools (agent_run / agent_send / agent_recv / agent_stop),
-// backed by the runtime coordinator (internal/agentcoord/coord). One process
+// backed by the runtime coordinator (internal/core/coord). One process
 // plays one of two roles, fixed by environment at startup:
 //
 //   - COORDINATOR HOST (no CTXLOOM_COORD_URL): this server owns delegation.

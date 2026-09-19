@@ -97,7 +97,7 @@ flowchart TD
 | `RawPolicy` | `record.go:269` | `off \| lossy-only \| all`, applied by `fileRecorder.rawToPersist` (`recorder.go:105`) |
 
 **Why the mirrors exist.** `agent.SessionEntry` & co. carry **no json tags**
-(`internal/shared/agent/backend.go`, `chat.go`), so marshalling the in-memory types directly
+(`internal/core/agent/backend.go`, `chat.go`), so marshalling the in-memory types directly
 would make the on-disk format hostage to Go field renames. That is a legitimate schema boundary.
 The cost is **four hand-edited sites per field** (agent type → payload struct → to-payload
 converter at `record.go:308-414` → from-payload converter at `history.go:239-285`) with nothing
@@ -287,7 +287,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 
 ## 7. Where this subsystem meets others
 
-- **`internal/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
+- **`internal/core/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
   `Entry.CanonicalTranscriptPath` is filled by `sessions.fillCanonicalTranscript` using the same
   resolver `GetSession` calls independently.
 - **`internal/operations/vendorreader*.go`** owns adapter registration, locator discovery, the

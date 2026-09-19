@@ -14,7 +14,7 @@ import (
 // TaskStoreRoot resolves the directory a TASK STORE's project identity
 // should key on for dir. It is a NEW, narrower seam than FindRoot/WorkDir:
 // those stay worktree-distinct on purpose (task brown-canal, 2026-07-10 —
-// see worktreeSignpost in internal/config/config.go), because sessions and
+// see worktreeSignpost in internal/core/config/config.go), because sessions and
 // the runtime coordinator each need their OWN identity per worktree. Tasks
 // are different: "tasks aren't context" — an agent working in an ephemeral
 // linked worktree that finds something outside its own remit needs to file
@@ -29,7 +29,7 @@ import (
 // respected here rather than silently overridden.
 //
 // This opt-out keys on the marker while findAppDir/worktreeSignpost (in
-// internal/config/config.go) key on the .ctxloom DIRECTORY, and the two are
+// internal/core/config/config.go) key on the .ctxloom DIRECTORY, and the two are
 // meant to differ: config resolution is asking "which config governs here",
 // which a checked-out .ctxloom genuinely answers, whereas this function is
 // asking "whose identity is this", which only the marker answers.

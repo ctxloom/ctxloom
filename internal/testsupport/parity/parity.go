@@ -533,7 +533,7 @@ func trueKeys(t *testing.T, raw []byte) []string {
 // sorted. Exported because bool ISOLATION — set one bool alone, require exactly
 // one true leaf, at a key no other bool lands on — is the only shape that can
 // tell a carried bool from a fanned one, and gates outside this package need
-// it: internal/config's T10 signed-preimage↔wire parity reuses it rather than
+// it: internal/core/config's T10 signed-preimage↔wire parity reuses it rather than
 // keeping a second copy that could drift in what it counts as a leaf.
 func TrueKeys(t *testing.T, raw []byte) []string {
 	t.Helper()

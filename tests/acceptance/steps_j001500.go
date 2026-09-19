@@ -23,7 +23,7 @@ import (
 	"github.com/cucumber/godog"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -72,7 +72,7 @@ func j001500Of(w *World) *j001500State {
 // j001500TreeEnvelope is every j001500 fixture's tree envelope — no inline
 // item keys, because `deps pull` refuses a single-file bundle outright now
 // (nothing materializes a document — remote.Puller.installPulledItem) and a
-// remote tree bundle is read through internal/bundles/tree_read.go's
+// remote tree bundle is read through internal/core/bundles/tree_read.go's
 // readEnvelope, which refuses one that still declares items inline.
 const j001500TreeEnvelope = "version: \"1.0.0\"\n"
 
@@ -308,7 +308,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// The warning has to say the ATTESTATION is the problem, and it has to
 		// name the item — "something was withheld" is not a diagnosis. For a
 		// TREE bundle (this fixture) the wording is ErrTreeBundleWithheld's
-		// (internal/bundles/reader_repofs.go's verifyTree, wrapping
+		// (internal/core/bundles/reader_repofs.go's verifyTree, wrapping
 		// attest.VerifyBundle's Contents mismatch), not bundles.Reason.Explain's
 		// per-item ReasonTampered rendering: a tree-form tamper is caught at
 		// BUNDLE LOAD, before any item is individually classified, so the

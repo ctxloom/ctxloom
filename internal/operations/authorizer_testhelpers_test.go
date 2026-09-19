@@ -6,9 +6,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // mustParseProducerRef parses ref — an item ref a MIGRATED producer emitted
@@ -139,7 +139,7 @@ func admitExec(t *testing.T, g *contentGate, read bundles.BundleRead, ref string
 // here the ref IS the row's statement of where the content came from, and the
 // reads that would carry it are pinned separately
 // (TestEffectiveTrust_UnsetPostureWithholds, and the reader tests in
-// internal/bundles).
+// internal/core/bundles).
 func postureCtxOf(ref trust.Ref) bundles.TrustCtx {
 	if ref.IsBuiltin || ref.IsCompanion || ref.IsLocal {
 		return bundles.TrustCtxLocal

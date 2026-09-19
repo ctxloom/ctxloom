@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // HarpTranscript is one vendor log in a harp's lineage — the harp dir holds

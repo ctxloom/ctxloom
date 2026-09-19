@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // RetractionVerdict is CheckRetracted's three-valued outcome. A bool cannot

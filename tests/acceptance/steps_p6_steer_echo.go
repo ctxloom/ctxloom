@@ -31,7 +31,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // p6State is one P6 cell's fixture: which cell it is (the ledger key its steer

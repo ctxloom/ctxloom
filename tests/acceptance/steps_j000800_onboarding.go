@@ -101,7 +101,7 @@ func j000800LockedSHA(raw string) (string, error) {
 }
 
 // j000800GuidanceEnvelope is the tree envelope every signed j000800 remote
-// bundle carries — no inline item keys (internal/bundles/tree_read.go's
+// bundle carries — no inline item keys (internal/core/bundles/tree_read.go's
 // readEnvelope refuses one that still declares items inline), the single
 // "guidance" fragment living in its own file instead (j000800GuidanceTreeItems).
 const j000800GuidanceEnvelope = "version: \"1.0.0\"\n"

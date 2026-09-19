@@ -107,7 +107,7 @@ commands are the exception even there: `.claude/commands/` has no redirect flag.
 ## Isolation axes
 
 Engine choice is independent of *where* the engine runs. Two axes meet only at
-launch (`isolation.Axes`), and both are defined in `internal/config/config.go`.
+launch (`isolation.Axes`), and both are defined in `internal/core/config/config.go`.
 
 | Axis | Level | Values | Set by | Governs |
 |---|---|---|---|---|

@@ -1,6 +1,6 @@
-# internal/config
+# internal/core/config
 
-`internal/config` resolves and holds a project's effective configuration: it discovers the `.ctxloom` app directory, reads and layers the project and home `config.yaml` files, runs the schema-version upgrade pipeline, validates against the JSON schema, applies env/CLI overrides, and hands out a `*Config` through copy-on-read accessors. It also owns the persist path — the lock-and-merge transaction that is the only supported way to write `config.yaml` — plus three things that hang off the same receiver: inline-profile inheritance resolution, the content-loader factories (`SeededBundleLoader`, `GetProfileLoader`), and the signing trust root.
+`internal/core/config` resolves and holds a project's effective configuration: it discovers the `.ctxloom` app directory, reads and layers the project and home `config.yaml` files, runs the schema-version upgrade pipeline, validates against the JSON schema, applies env/CLI overrides, and hands out a `*Config` through copy-on-read accessors. It also owns the persist path — the lock-and-merge transaction that is the only supported way to write `config.yaml` — plus three things that hang off the same receiver: inline-profile inheritance resolution, the content-loader factories (`SeededBundleLoader`, `GetProfileLoader`), and the signing trust root.
 
 The contract it owns: one `*Config` value that every other package reads, whose persisted fields are authored YAML and whose remaining fields are load-time derived state that is never written back.
 
@@ -21,13 +21,13 @@ The contract it owns: one `*Config` value that every other package reads, whose 
 
 ## Non-responsibilities
 
-- Bundle parsing, item resolution and the trust gate mechanism — `internal/bundles`, see `./bundles.md`. This package builds the `Loader` and supplies the seed maps; it does not resolve items.
-- Profile *loading* from disk, the `profiles.Loader`, and the resolved-profile type used by bundle-shipped profiles — `internal/profiles`, see `./profiles.md`. Only inline (`profiles.definitions`) inheritance is resolved here.
+- Bundle parsing, item resolution and the trust gate mechanism — `internal/core/bundles`, see `./bundles.md`. This package builds the `Loader` and supplies the seed maps; it does not resolve items.
+- Profile *loading* from disk, the `profiles.Loader`, and the resolved-profile type used by bundle-shipped profiles — `internal/core/profiles`, see `./profiles.md`. Only inline (`profiles.definitions`) inheritance is resolved here.
 - Remote registries, lockfiles and clone caches — `internal/remote`, see `./remote.md`. This package reads the lockfile only to seed pinned bundles.
-- Signature verification, trust decisions and grant records — `internal/signing` and `internal/trust`, see `./trust.md`. This package assembles the trust root and calls `signing.VerifyPublisher`; it does not decide.
+- Signature verification, trust decisions and grant records — `internal/signing` and `internal/core/trust`, see `./trust.md`. This package assembles the trust root and calls `signing.VerifyPublisher`; it does not decide.
 - Printing warnings and arming the strict gate — `internal/cli` (`printConfigWarnings`, `failOnFindings`) and `internal/shared/strictness`.
 - Applying resolved config to a launched engine (settings files, hooks, MCP wiring) — `internal/lm/backends` and `internal/operations`, see `./operations.md`.
-- Path construction — `internal/paths` owns every `.ctxloom` subpath, including the home root (`paths.HomeConfigDir`).
+- Path construction — `internal/core/paths` owns every `.ctxloom` subpath, including the home root (`paths.HomeConfigDir`).
 
 ## Data flow
 
@@ -99,26 +99,26 @@ flowchart TD
 
 | Type | file:line | What it carries |
 |---|---|---|
-| `Config` | `internal/config/config.go:71` | ~28 unexported fields in four disjoint groups: the 21 persisted document fields; the resolved-workspace handle (`appPaths`, `appRoot`, `appDir`, `source`, `fs`, `injectedFS`); load diagnostics (`warnings`, `pendingUpgrade`, `homePendingUpgrade`); loader factories and memos (`execGate`, `companionSeed`, `companionProbe`, `lmDefaultOverlay`) |
-| `configDoc` | `internal/config/config.go:308` | Exported-field mirror of the 21 persisted fields with `yaml:"…,omitempty"` tags; what yaml.v3 actually reads and writes |
-| `Draft` (alias of `configDoc`) | `internal/config/config_manager.go:63` | The public mutation shape passed to `Manager.Update` |
-| `Snapshot` (alias of `Config`) | `internal/config/config_manager.go:20` | Declared name with no use anywhere in the tree |
-| `ConfigSource` | `internal/config/config.go:43` | `SourceProject` (the zero value) vs `SourceHome`; decides whether a home layer participates |
-| `LoadOption` / `loadOptions` | `internal/config/config.go:427` / `:429` | `fs afero.Fs`, `appDir string`, `overrides *confload.Overrides` |
-| `Manager` | `internal/config/config_manager.go:72` | The `[]LoadOption` a write transaction re-loads with; no other state |
-| `Fixture` | `internal/config/fixture.go:18` | Exported mirror of all 28 `Config` fields; the only construction path that bypasses `Load` |
-| `LMConfig` / `LLMConfig` / `RoleDefaults` | `internal/config/config_types.go:40` / `:14` / `:33` | The `llm:` block: label→entry registry, entry `Type`/`Role`/`Permissions` plus an opaque `Body map[string]any` decoded by the backend, and the `primary`/`fast` role map |
-| `Profile` | `internal/config/config_types.go:117` | The inline profile authoring shape: identity, `Parents`, content selection (fragments/commands/skills/bundles/variables), wiring (`Hooks`, `MCP`), and subtraction (`ExcludeFragments`, `ExcludeMCP`, `DenyTools` at `:165`) |
-| `ProfilesConfig` | `internal/config/config_types.go:172` | One-field wrapper preserving the `profiles.definitions` nesting |
-| `SettingsConfig` / `SignConfig` | `internal/config/config_types.go:177` / `:190` | The `config:` bag: `UseDistilled`, `EssenceMaxChars`, `Statusline`, `Sign{Default,Key}` — each read through a nil-safe defaulting getter |
-| `SyncConfig` / `UIConfig` / `EditorConfig` | `internal/config/config_types.go:253` / `config.go:544` / `:538` | `sync.auto_sync` tri-state; `ui.prefix_key` + `ui.surround`; `editor.command` + `editor.args` |
-| `FragmentRef` | `internal/config/config_types.go:75` | `Name` + `Priority` (serialized) plus a transient `Version` (`yaml:"-"`); a byte-for-byte duplicate of `profiles.FragmentRef` kept to break an import cycle |
-| `profileBuilder` | `internal/config/config_resolve.go:15` | Depth-first inheritance accumulator: seven parallel `(Set, order slice)` pairs, fragment priorities, hook dedup keys, merge targets, exclusion/deny sets |
-| `Warning` / `WarningKind` | `internal/config/warnings.go:33` / `:8` | One pre-rendered load diagnostic and its class: `read`, `parse`, `validate`, `unknown-key`, `migration-lossy` |
-| `CompanionStatus` | `internal/config/companions.go:55` | One companion probe result: `Bin`, `Path` (empty means not installed), `Version`, `Err` |
-| `companionSeedState` | `internal/config/config.go:1809` | Per-`Config` `sync.Once` + cached `map[string]*bundles.Bundle` of companion loadouts |
-| `BuiltinFragment` | `internal/config/config_bundles.go:500` | One always-on fragment from a builtin or companion bundle: `Name`, `Content`, `Installation` |
-| five `Upgrader` structs | `internal/config/config_migrate.go:63, 127, 294, 373, 451, 525` | One config schema generation each (v1→2 … v5→6) plus the unversioned agent-profile canonicalizer |
+| `Config` | `internal/core/config/config.go:71` | ~28 unexported fields in four disjoint groups: the 21 persisted document fields; the resolved-workspace handle (`appPaths`, `appRoot`, `appDir`, `source`, `fs`, `injectedFS`); load diagnostics (`warnings`, `pendingUpgrade`, `homePendingUpgrade`); loader factories and memos (`execGate`, `companionSeed`, `companionProbe`, `lmDefaultOverlay`) |
+| `configDoc` | `internal/core/config/config.go:308` | Exported-field mirror of the 21 persisted fields with `yaml:"…,omitempty"` tags; what yaml.v3 actually reads and writes |
+| `Draft` (alias of `configDoc`) | `internal/core/config/config_manager.go:63` | The public mutation shape passed to `Manager.Update` |
+| `Snapshot` (alias of `Config`) | `internal/core/config/config_manager.go:20` | Declared name with no use anywhere in the tree |
+| `ConfigSource` | `internal/core/config/config.go:43` | `SourceProject` (the zero value) vs `SourceHome`; decides whether a home layer participates |
+| `LoadOption` / `loadOptions` | `internal/core/config/config.go:427` / `:429` | `fs afero.Fs`, `appDir string`, `overrides *confload.Overrides` |
+| `Manager` | `internal/core/config/config_manager.go:72` | The `[]LoadOption` a write transaction re-loads with; no other state |
+| `Fixture` | `internal/core/config/fixture.go:18` | Exported mirror of all 28 `Config` fields; the only construction path that bypasses `Load` |
+| `LMConfig` / `LLMConfig` / `RoleDefaults` | `internal/core/config/config_types.go:40` / `:14` / `:33` | The `llm:` block: label→entry registry, entry `Type`/`Role`/`Permissions` plus an opaque `Body map[string]any` decoded by the backend, and the `primary`/`fast` role map |
+| `Profile` | `internal/core/config/config_types.go:117` | The inline profile authoring shape: identity, `Parents`, content selection (fragments/commands/skills/bundles/variables), wiring (`Hooks`, `MCP`), and subtraction (`ExcludeFragments`, `ExcludeMCP`, `DenyTools` at `:165`) |
+| `ProfilesConfig` | `internal/core/config/config_types.go:172` | One-field wrapper preserving the `profiles.definitions` nesting |
+| `SettingsConfig` / `SignConfig` | `internal/core/config/config_types.go:177` / `:190` | The `config:` bag: `UseDistilled`, `EssenceMaxChars`, `Statusline`, `Sign{Default,Key}` — each read through a nil-safe defaulting getter |
+| `SyncConfig` / `UIConfig` / `EditorConfig` | `internal/core/config/config_types.go:253` / `config.go:544` / `:538` | `sync.auto_sync` tri-state; `ui.prefix_key` + `ui.surround`; `editor.command` + `editor.args` |
+| `FragmentRef` | `internal/core/config/config_types.go:75` | `Name` + `Priority` (serialized) plus a transient `Version` (`yaml:"-"`); a byte-for-byte duplicate of `profiles.FragmentRef` kept to break an import cycle |
+| `profileBuilder` | `internal/core/config/config_resolve.go:15` | Depth-first inheritance accumulator: seven parallel `(Set, order slice)` pairs, fragment priorities, hook dedup keys, merge targets, exclusion/deny sets |
+| `Warning` / `WarningKind` | `internal/core/config/warnings.go:33` / `:8` | One pre-rendered load diagnostic and its class: `read`, `parse`, `validate`, `unknown-key`, `migration-lossy` |
+| `CompanionStatus` | `internal/core/config/companions.go:55` | One companion probe result: `Bin`, `Path` (empty means not installed), `Version`, `Err` |
+| `companionSeedState` | `internal/core/config/config.go:1809` | Per-`Config` `sync.Once` + cached `map[string]*bundles.Bundle` of companion loadouts |
+| `BuiltinFragment` | `internal/core/config/config_bundles.go:500` | One always-on fragment from a builtin or companion bundle: `Name`, `Content`, `Installation` |
+| five `Upgrader` structs | `internal/core/config/config_migrate.go:63, 127, 294, 373, 451, 525` | One config schema generation each (v1→2 … v5→6) plus the unversioned agent-profile canonicalizer |
 
 ## Key functions
 
@@ -256,7 +256,7 @@ flowchart TD
 9. **Migration is triggered on load and written only on consent.** Every layer read runs `configUpgrades` (`upgrade.go:10`) against its document; a document below `CurrentConfigVersion = 6` (`config_migrate.go:52`) is upgraded in memory and the rewritten bytes are held as an `upgrade.Pending` on `Config.pendingUpgrade` / `homePendingUpgrade`. Nothing reaches disk until `CommitUpgrade`/`CommitHomeUpgrade`, which the CLI calls only after prompting.
 10. **Migrations rewrite `yaml.Node` documents, so comments and key order survive an upgrade** (`config_migrate.go:61`) — the opposite of the persist path (invariant 7).
 11. **Authored vs derived.** Authored (persisted, mirrored in `Config`, `configDoc`, `Fixture`, and `applyConfigSections`): `version`, `llm`, `editor`, `config`, `sync`, `hooks`, `mcp`, `profiles`, `agents`, `default_agent`, `workspace`, `dirty_tree_handler`, `dirty_tree_commit_ack`, `runtime`, `delegation`, the five `isolation_*` keys, `ui`. Derived (never written back): `appPaths`, `appRoot`, `appDir`, `source`, `fs`, `injectedFS`, `warnings`, `pendingUpgrade`, `homePendingUpgrade`, `execGate`, `companionSeed`, `companionProbe`, `lmDefaultOverlay`.
-12. **Every persisted field must be declared in four hand-maintained places** — `Config` (`config.go:71`), `configDoc` (`config.go:308`), `Fixture` (`fixture.go:19`) and `applyConfigSections` (`config_save.go:233`) — plus `toDoc`/`fromDoc`/`ToFixture`/`NewFixture`. Only the `configDoc`↔JSON-schema pair is test-gated (`internal/config/arch_test.go:66`), and only at the top level.
+12. **Every persisted field must be declared in four hand-maintained places** — `Config` (`config.go:71`), `configDoc` (`config.go:308`), `Fixture` (`fixture.go:19`) and `applyConfigSections` (`config_save.go:233`) — plus `toDoc`/`fromDoc`/`ToFixture`/`NewFixture`. Only the `configDoc`↔JSON-schema pair is test-gated (`internal/core/config/arch_test.go:66`), and only at the top level.
 13. **`Load()` is memoized; the memo is keyed by `ambientStamp()`** (`config.go:1103`) — resolved app dir, per-layer stat, and the overrides stamp — and is bypassed whenever any `LoadOption` is passed. `LoadFresh` never consults it; `Invalidate()` drops it.
 14. **Accessors are copy-on-read.** Every exported `Get*` (`accessors.go:274-405`) returns a value or a deep copy so no caller can mutate the shared `*Config`. The two documented exceptions in the code are `GetPendingUpgrade`/`GetHomePendingUpgrade`, which return the `*upgrade.Pending` pointer.
 15. **Agents come only from the `agents:` config key.** There is no directory source; a `.ctxloom/agents` directory still holding definitions is never read and raises a fatal `ClassMigration` finding (`config.retiredAgentsDirSignpost`).
@@ -266,9 +266,9 @@ flowchart TD
 
 ## Boundaries
 
-**Called in by:** `cmd/ctxloom` (override install, companion switch), `internal/cli` (~35 `Load` sites, `Manager.Update` writes, doctor, startup reporting), `internal/operations` (agent management, context assembly, profiles, trust, init), `internal/lm/backends` (the four `ResolveBundle*` resolvers, `ExecutableTrustGate`, statusline settings), `internal/agentcoord/coord` (trust gate injection before spawning children, `GetDelegationConcurrency`/`GetDelegationDepth`), `tests/integration/testenv`.
+**Called in by:** `cmd/ctxloom` (override install, companion switch), `internal/cli` (~35 `Load` sites, `Manager.Update` writes, doctor, startup reporting), `internal/operations` (agent management, context assembly, profiles, trust, init), `internal/lm/backends` (the four `ResolveBundle*` resolvers, `ExecutableTrustGate`, statusline settings), `internal/core/coord` (trust gate injection before spawning children, `GetDelegationConcurrency`/`GetDelegationDepth`), `tests/integration/testenv`.
 
-**Calls out to:** `internal/paths` (every `.ctxloom` subpath), `internal/schema` (`ConfigValidator`), `internal/shared/confload` (overrides, merge), `internal/shared/upgrade` (the pipeline and `yaml.Node` helpers), `internal/shared/strictness` (fatal findings), `internal/shared/wire` (MCP and hooks types), `internal/shared/collections`, `internal/bundles` (`Loader`, `ParseBundle`, `ContentGate`) — see `./bundles.md`, `internal/profiles` (`Loader`, `Profile`) — see `./profiles.md`, `internal/remote` (registry, lockfile, clone cache) — see `./remote.md`, `internal/signing` (`VerifyPublisher`, loadout envelopes) and `internal/allowedsigners` — see `./trust.md`, `internal/agents`, `internal/projectroot`, `internal/clidiag`, `resources` (embedded default config, schema, builtin bundles), plus `$PATH` subprocess execs of companion binaries.
+**Calls out to:** `internal/core/paths` (every `.ctxloom` subpath), `internal/schema` (`ConfigValidator`), `internal/shared/confload` (overrides, merge), `internal/shared/upgrade` (the pipeline and `yaml.Node` helpers), `internal/shared/strictness` (fatal findings), `internal/core/wire` (MCP and hooks types), `internal/shared/collections`, `internal/core/bundles` (`Loader`, `ParseBundle`, `ContentGate`) — see `./bundles.md`, `internal/core/profiles` (`Loader`, `Profile`) — see `./profiles.md`, `internal/remote` (registry, lockfile, clone cache) — see `./remote.md`, `internal/signing` (`VerifyPublisher`, loadout envelopes) and `internal/allowedsigners` — see `./trust.md`, `internal/agents`, `internal/projectroot`, `internal/clidiag`, `resources` (embedded default config, schema, builtin bundles), plus `$PATH` subprocess execs of companion binaries.
 
 ## Where documented and real behavior diverge
 

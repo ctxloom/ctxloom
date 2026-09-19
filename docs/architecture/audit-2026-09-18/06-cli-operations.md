@@ -10,7 +10,7 @@ Status: COMPLETE (see the tail for the section inventory).
 
 **Stated architecture read first.**
 - `tests/arch/layering_test.go` — `layeringRules` table. The rule governing this seam is `operations-must-not-import-cli` (zero allowlist entries) plus `clifmt-must-not-import-ctxloom` (`pkg/clifmt` is the outermost edge). Its doc comment records that T20's per-flow rule `cli/<flow> -> operations/<flow> -> domain` is FUTURE work "once the per-flow package split lands". **There is no rule that cli must go THROUGH operations** — only that operations may not import back.
-- `tests/arch/lean_binaries_arch_test.go` — `TestArch_LeanBinaries_DoNotLinkEngineDescriptors`: `go list -deps` of `./cmd/ltk` and `./cmd/taskloom` must not contain `internal/lm/engine`, `internal/lm/engines`, `internal/lm/backends`, `internal/bundles`. Only those two binaries are gated.
+- `tests/arch/lean_binaries_arch_test.go` — `TestArch_LeanBinaries_DoNotLinkEngineDescriptors`: `go list -deps` of `./cmd/ltk` and `./cmd/taskloom` must not contain `internal/lm/engine`, `internal/lm/engines`, `internal/lm/backends`, `internal/core/bundles`. Only those two binaries are gated.
 - `tests/arch/engine_identity_arch_test.go` — `TestArch_Operations_DoesNotImportEnginePlugins` (operations must not import `internal/claude` etc.).
 - `docs/architecture/cli/README.md` (+ 13 sibling pages). Pinned to commit `0f59fbae` with line numbers. States: "the intended direction is `cmd/ctxloom` → `internal/cli` → `internal/operations` → domain, and no file in the package reaches past `operations`, `config`, `isolation`, or `resources` into domain internals. Its contract to callers is: parse flags, load config, call exactly one `operations` function, and render the result through `emit()`." It admits six thick files and lists invariants I1–I10.
 - `GLOSSARY.md` — defines neither `operations`, `cliemit`, `clifmt` nor "thin surface"; the vocabulary doc is silent on this seam.
@@ -28,7 +28,7 @@ Status: COMPLETE (see the tail for the section inventory).
 | cobra `Use:` strings in `internal/cli` | — | 167 (≈150 leaf verbs in ~30 families) |
 | Files the README names that no longer exist | `mcp_runner.go`, `mcp_forward.go`, `coord_host.go`, `coord_*.go`, `mcp_tools_triggers.go`, `mcp_resources.go`, `memory.go` | moved/deleted |
 
-**Packages read.** `internal/cli/*.go` (all 120 production files, signatures + the RunE bodies of every verb), `internal/operations` (exported surface + the entry points cli calls), `internal/shared/cliemit`, `pkg/clifmt`, `internal/shared/clidiag`, `internal/shared/confload`, `internal/config` (Load/LoadFresh/overrides), `cmd/{ctxloom,taskloom,ltk,harp,archlint,mockengine,probe-mcp-server,gen-schemas,validate}/main.go`, `internal/taskloom`, `internal/ltk`, `internal/shared/*` touched by the binaries, `tests/arch/*`, `tests/acceptance/cli_coverage_gate_test.go`.
+**Packages read.** `internal/cli/*.go` (all 120 production files, signatures + the RunE bodies of every verb), `internal/operations` (exported surface + the entry points cli calls), `internal/shared/cliemit`, `pkg/clifmt`, `internal/shared/clidiag`, `internal/shared/confload`, `internal/core/config` (Load/LoadFresh/overrides), `cmd/{ctxloom,taskloom,ltk,harp,archlint,mockengine,probe-mcp-server,gen-schemas,validate}/main.go`, `internal/taskloom`, `internal/ltk`, `internal/shared/*` touched by the binaries, `tests/arch/*`, `tests/acceptance/cli_coverage_gate_test.go`.
 
 **Entry points traced** (each is `package.Symbol` + file; the graphs in §2 follow these):
 
@@ -80,7 +80,7 @@ flowchart LR
     FMTGUARD["cli.formatWasHonored (package global)"]
     DEBT["cli.formatDebtAllowlist (27 keys)"]
   end
-  subgraph config["internal/config"]
+  subgraph config["internal/core/config"]
     SETCOMP["config.SetCompanionsDisabled (global)"]
     INSTOV["config.InstallOverridesFromFlags (global funnel)"]
     LOAD["config.Load (memoized)"]
@@ -387,7 +387,7 @@ flowchart LR
     EXP["cli.exportRunnerMCPSocket"]
     GATE["cli.phaseGates.close"]
   end
-  subgraph coord["internal/agentcoord/coord"]
+  subgraph coord["internal/core/coord"]
     HOME["coord.NewHome"]
     EH["coord.NewEngineHost"]
     TI["coord.NewTerminalInjector"]
@@ -456,7 +456,7 @@ flowchart LR
     LTKE["internal/ltk/{app,engine,ir,rules,scm,shellenv,state}"]
     TASKS["internal/shared/tasks/* (store, operations, tagschema…)"]
     ENG["internal/lm/engines + backends"]
-    BUND["internal/bundles"]
+    BUND["internal/core/bundles"]
     CONFP["internal/confpatch"]
   end
   CLIFMT["pkg/clifmt"]
@@ -487,7 +487,7 @@ flowchart LR
   PROBE --> IOX
 ```
 
-`TestArch_LeanBinaries_DoNotLinkEngineDescriptors` gates only the `TL` and `LTK` nodes against `ENG` and `BUND`. `HARP`, `PROBE`, `ARCH`, `VAL`, `GENS` are ungated; `MOCK` legitimately links `ENG`. **Both lean binaries already link the engine plugin `internal/claude`** — measured with `go list -deps`: `cmd/ltk → internal/ltk/engine → internal/claude` and `cmd/taskloom → internal/taskloom/engine → internal/claude` (each companion's "install me into the engine's settings" adapter reuses claude's settings-file knowledge). So the near-miss the brief mentions was structural, not accidental: `f8403d65d` placed a `bundles`-typed decision in `internal/claude`, which would have dragged `internal/bundles` into ltk and taskloom through that chain; `439a5c6c4` moved it out to `cli/skill_mates_decide.go`. The gate's real front line is `internal/claude`'s own import list (today: `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire`), and nothing pins that list (see F-11).
+`TestArch_LeanBinaries_DoNotLinkEngineDescriptors` gates only the `TL` and `LTK` nodes against `ENG` and `BUND`. `HARP`, `PROBE`, `ARCH`, `VAL`, `GENS` are ungated; `MOCK` legitimately links `ENG`. **Both lean binaries already link the engine plugin `internal/claude`** — measured with `go list -deps`: `cmd/ltk → internal/ltk/engine → internal/claude` and `cmd/taskloom → internal/taskloom/engine → internal/claude` (each companion's "install me into the engine's settings" adapter reuses claude's settings-file knowledge). So the near-miss the brief mentions was structural, not accidental: `f8403d65d` placed a `bundles`-typed decision in `internal/claude`, which would have dragged `internal/core/bundles` into ltk and taskloom through that chain; `439a5c6c4` moved it out to `cli/skill_mates_decide.go`. The gate's real front line is `internal/claude`'s own import list (today: `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire`), and nothing pins that list (see F-11).
 
 ## 3. Delegation / layer graph
 
@@ -501,7 +501,7 @@ flowchart TB
   OPS["internal/operations (85 files, 29.0k, flat)"]
   EMIT["shared/cliemit → pkg/clifmt"]
   GLUE["shared/{clidiag,strictness,confload,iox,harpmarker,tokens,upgrade,watch,…}"]
-  CFG["internal/config"]
+  CFG["internal/core/config"]
   ISO["internal/lm/isolation"]
   RES["resources"]
 
@@ -777,7 +777,7 @@ Also stale in the same README (pinned to `0f59fbae`, with line numbers): `cli.Ex
 | config | direct `config.Load()` (`gatherCtxloomInfo`, `skillMatesOutput`), `config.Load(config.WithAppDir(...))` (`agentSetupNudge`); none through `GetConfig` |
 | output | hand-built JSON to stdout in each |
 
-The harp literal is not a cli-only problem: `"CTXLOOM_SESSION_HARP"` appears as a string in 12 production files across `cli`, `agentcoord/coord`, `lm/grpc`, `lm/isolation`, `mcp`, `memory` while `agent.SessionHarpEnv` exists (`internal/shared/agent/launch_backend.go`) — the same value under two names along one path.
+The harp literal is not a cli-only problem: `"CTXLOOM_SESSION_HARP"` appears as a string in 12 production files across `cli`, `agentcoord/coord`, `lm/grpc`, `lm/isolation`, `mcp`, `memory` while `agent.SessionHarpEnv` exists (`internal/core/agent/launch_backend.go`) — the same value under two names along one path.
 
 **Settles it.** One `cli.hookInvocation(cmd) (raw []byte, harp string, cfg *config.Config, err)` helper plus per-kind decoders in `internal/claude`; a vocabulary-adoption-style test (the repo already has `tests/arch/vocabulary_adoption_test.go`) that fails on the literal outside its const.
 
@@ -847,7 +847,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 - `cmd/harp`, `cmd/probe-mcp-server`, `cmd/validate`, `cmd/gen-schemas`, `cmd/archlint` are not in the gate. `cmd/validate` links `internal/schema` + `internal/version`; harmless today, unchecked.
 - `procsec.HardenAtStartup` (`cmd/ctxloom/main.go`) says *"first and for every ctxloom process without exception … any ctxloom process can be the one holding the coordinator credential"*, but `cmd/taskloom` and `cmd/ltk` — spawned inside sessions as MCP servers and hooks with the session env — do not call it. Whether the coordinator credential reaches their environment is a seam-2/4 question (handoff §7); if it does, the exception the comment denies exists.
 
-**Settles it.** A `layeringRule{from: "internal/claude", forbid: ["internal/bundles", "internal/config", "internal/lm", "internal/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
+**Settles it.** A `layeringRule{from: "internal/claude", forbid: ["internal/core/bundles", "internal/core/config", "internal/lm", "internal/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
 
 ---
 
@@ -905,7 +905,7 @@ func GetConfigForUpdate() (*config.Config, error)
 func rootPersistentPreRunE(cmd *cobra.Command, args []string) error
 // INPUT: cmd.Flags() (--degraded, --no-companions, --config-set, --format). OUTPUT: error (unstamped build, unsupported format). HIDDEN OUTPUTS: strictness.SetDegraded, config.SetCompanionsDisabled, config.InstallOverridesFromFlags, clidiag.SetStructured, formatWasHonored=false.
 
-// internal/config
+// internal/core/config
 func Load(opts ...LoadOption) (*Config, error)        // memoized; HIDDEN: override funnel, companions flag, files
 func LoadFresh(opts ...LoadOption) (*Config, error)
 func InstallOverridesFromFlags(fs *pflag.FlagSet) error // writes a process global

@@ -29,7 +29,7 @@ its own copy, which is what keeps a fake in step with the driver.
 
 ## 2. Permission tiers — what each `PermissionMode` becomes
 
-`agent.PermissionMode` (`internal/shared/agent/permissions.go:15-33`) is one
+`agent.PermissionMode` (`internal/core/agent/permissions.go:15-33`) is one
 vocabulary; an engine maps it to its own mechanism.
 
 | Tier | claude-code |
@@ -42,7 +42,7 @@ vocabulary; an engine maps it to its own mechanism.
 
 ### `EnforcesReadOnlyPlan` — where `plan` collapses
 
-`CollapsePlanIfUnenforced` (`internal/shared/agent/permissions.go:116-121`) turns
+`CollapsePlanIfUnenforced` (`internal/core/agent/permissions.go:116-121`) turns
 `plan` into `default` for any backend that cannot enforce a genuine read-only tier,
 so `plan` never runs unrestrained. Applied at `internal/cli/run.go:1499`
 (interactive) and `internal/operations/oneshot.go:417` (headless fan-out).
@@ -71,7 +71,7 @@ One further permission fact:
 ### The deny-list reality check
 
 **`ManagedConfig.DenyTools` reaches the launch path** since `40b49a7f`. The Go
-struct carries it (`internal/shared/agent/backend.go:362`) and so does the proto
+struct carries it (`internal/core/agent/backend.go:362`) and so does the proto
 (`repeated string deny_tools = 7`, `internal/lm/grpc/llm.proto`); `ManagedConfigToProto`
 and `managedConfigFromProto` both carry it. See [the plugin wire](grpc-wire.md).
 
@@ -177,7 +177,7 @@ interactive-pty gap.
 
 ## 7. One-shot driving and resume
 
-Two gates in `internal/agentcoord/coord/spawner.go`, `resumeCapableBackends`
+Two gates in `internal/core/coord/spawner.go`, `resumeCapableBackends`
 and `oneShotSupportedBackends`; both name `claude-code` alone.
 
 `driving: oneshot` on a backend outside their intersection **fails loud** rather

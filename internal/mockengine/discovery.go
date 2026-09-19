@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Resolver supplies the ambient facts the discovery walk resolves probe roots

@@ -124,7 +124,7 @@ fails with "harp %q has no session_id bound".
 
 - **A missing context file delivers zero context, emits no warning, and exits 0.**
   `agent.ReadContextFile` returns `("", nil)` on ENOENT
-  (`internal/shared/agent/contextfile.go:176-178`), so the hook's `if err != nil`
+  (`internal/core/agent/contextfile.go:176-178`), so the hook's `if err != nil`
   warn branch (`hook_inject_context.go:88-93`) never fires for the most likely
   failure. The file lives under `.ctxloom/cache/context/`, which `.gitignore:133`
   ignores, while the hash is baked into the **committed** `settings.json` — so on

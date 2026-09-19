@@ -10,18 +10,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord/coordtest"
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord/coordtest"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // The delegation CONFORMANCE suite (agent_run intent, queue, D3, recursion,
 // send FIFO, resume, parked-recv slot yield, roster, inject, agent_stop) now
 // lives against the coordinator's public API in
-// internal/agentcoord/coord/conformance_test.go — one state, one place. These
+// internal/core/coord/conformance_test.go — one state, one place. These
 // CLI-level tests pin only the tool-handler plumbing onto that coordinator and
 // the no-config guard.
 

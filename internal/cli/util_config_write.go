@@ -27,8 +27,8 @@ import (
 	"github.com/spf13/cobra"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )

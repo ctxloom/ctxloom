@@ -29,7 +29,7 @@ import (
 )
 
 // This trio is a cross-process wire contract — ctxloom's own
-// probe (internal/config/companions.go) execs a companion binary as
+// probe (internal/core/config/companions.go) execs a companion binary as
 // `<bin> Subcommand --FormatFlag FormatJSON` — previously duplicated as bare
 // string literals on BOTH sides with no shared constant and no test
 // exercising both real sides together. Because a broken probe took a silent

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // writeFile writes rel (which may contain slashes) under dir, creating parents.

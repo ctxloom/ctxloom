@@ -1,8 +1,8 @@
 //go:build arch
 
-// SESSION-STORE PATH SEGMENTS LIVE IN internal/paths.
+// SESSION-STORE PATH SEGMENTS LIVE IN internal/core/paths.
 //
-// internal/paths is documented (docs/architecture/core/paths.md) as "the
+// internal/core/paths is documented (docs/architecture/core/paths.md) as "the
 // single declarative source of truth for ctxloom's on-disk layout"; its own
 // contract statement is explicit: "if a path segment appears as a string
 // literal anywhere else in the repo, that is a duplication of this package."
@@ -16,7 +16,7 @@
 // segment right next to it is spelled correctly.
 //
 // That co-occurrence is this gate's detection signal, not a literal
-// blacklist: a filepath.Join (or path.Join) call outside internal/paths that
+// blacklist: a filepath.Join (or path.Join) call outside internal/core/paths that
 // ALREADY references the paths package (proving it is building somewhere
 // under the ctxloom-managed tree) and ALSO carries a bare string literal or a
 // same-package CONST identifier as one of its other segments is exactly the
@@ -36,7 +36,7 @@
 // variable (harpDir, dir, essencePath, …) is never a const, so it is never
 // flagged; the moment one WOULD need to be a const to hold a segment name
 // (discover.DirName = "coord", coord's local coordDirName alias) is the
-// moment it belongs in internal/paths instead.
+// moment it belongs in internal/core/paths instead.
 package arch
 
 import (
@@ -54,7 +54,7 @@ import (
 
 // pathAuthorityExemptDir is the one directory this gate does not apply to —
 // it is the vocabulary itself, not a consumer of it.
-const pathAuthorityExemptDir = "internal/paths"
+const pathAuthorityExemptDir = "internal/core/paths"
 
 // segmentLiteralPattern is what "looks like a path segment" for this gate's
 // purposes: letters, digits, dot, dash, underscore. It exists to keep glob
@@ -71,7 +71,7 @@ var segmentLiteralPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // Generated MECHANICALLY by running this gate with an empty map and
 // transcribing every reported violation. The violations found were fixed at
 // the source rather than allowlisted: the "coord" and "endpoint.json"
-// segments now live in internal/paths (CoordDirName/CoordEndpointFileName),
+// segments now live in internal/core/paths (CoordDirName/CoordEndpointFileName),
 // coord and discover consume them, and remote.PublishPath references
 // paths.BundlesDir instead of duplicating it.
 var pathAuthorityAllowed = map[string]string{}
@@ -288,7 +288,7 @@ func suspectSegment(arg ast.Expr, consts map[string]bool) (string, bool) {
 }
 
 // TestArch_PathAuthority_SessionStoreLiteralsLiveInPaths is the gate: every
-// filepath.Join/path.Join call outside internal/paths that references the
+// filepath.Join/path.Join call outside internal/core/paths that references the
 // paths package AND carries a bare literal or local-const segment must
 // either not exist, or be named (with a reason) in pathAuthorityAllowed.
 func TestArch_PathAuthority_SessionStoreLiteralsLiveInPaths(t *testing.T) {
@@ -306,7 +306,7 @@ func TestArch_PathAuthority_SessionStoreLiteralsLiveInPaths(t *testing.T) {
 			continue
 		}
 		t.Errorf("%s:%d (%s) builds a path alongside a paths.* reference using segment(s) %v that "+
-			"internal/paths does not name — every ctxloom path segment must be a named constant there "+
+			"internal/core/paths does not name — every ctxloom path segment must be a named constant there "+
 			"(docs/architecture/core/paths.md). If this is a deliberate, reviewed exception, add %q to "+
 			"pathAuthorityAllowed in tests/arch/path_authority_test.go naming the fix required to remove it.",
 			v.file, v.line, v.symbol, v.segments, v.key())

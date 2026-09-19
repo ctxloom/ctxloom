@@ -32,9 +32,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -47,7 +47,7 @@ import (
 // workDir is still needed to scope ListSessions/CurrentSession to "this
 // project's sessions" (there is no per-project canonical directory; harps
 // live in one flat ~/.ctxloom/sessions/<harp>/ root), resolved via the
-// harp<->project index (internal/sessions.Store).
+// harp<->project index (internal/core/sessions.Store).
 type CanonicalHistory struct {
 	workDir string
 	store   sessions.Store

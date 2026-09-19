@@ -15,7 +15,7 @@ import (
 //
 // The two are kept apart rather than collapsed to bytes because collapsing them
 // is precisely the data loss this type exists to remove. A tree's items live in
-// files BESIDE its manifest, and internal/bundles refuses a tree manifest that
+// files BESIDE its manifest, and internal/core/bundles refuses a tree manifest that
 // declares any item inline, so a tree reduced to its bundle.yaml is an envelope
 // whose every item map is empty — a bundle that loads, assembles and delivers
 // nothing, with no error anywhere. A caller that wants the whole bundle must be

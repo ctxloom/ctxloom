@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/spf13/afero"

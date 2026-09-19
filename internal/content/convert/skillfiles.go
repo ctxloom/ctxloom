@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // SkillFilesFromDir is the Options.SkillFiles reader for a bundle authored on a

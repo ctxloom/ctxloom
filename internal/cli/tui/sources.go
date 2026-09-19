@@ -5,7 +5,7 @@ import (
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
@@ -21,7 +21,7 @@ type Sources struct {
 	Watch func(ctx context.Context, harp string) (*Feed, error)
 	// Inject delivers user-typed text into harp through the serving
 	// coordinator, returning the delivery mode it reports (coord.Delivery*,
-	// internal/agentcoord/coord). Nil when no coordinator is hosted.
+	// internal/core/coord). Nil when no coordinator is hosted.
 	Inject func(harp, text string) (string, error)
 	// Now is the export-filename clock; nil means time.Now.
 	Now func() time.Time

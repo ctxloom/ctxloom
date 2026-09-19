@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // PaneHost is Terminals.host's production caller: it owns one live pane

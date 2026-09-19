@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // A timed-out agent_recv is two different events depending on who parked.

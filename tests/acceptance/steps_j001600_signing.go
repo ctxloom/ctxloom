@@ -55,11 +55,11 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
@@ -429,7 +429,7 @@ func j001600FragmentFileBody(content string) string {
 // This is a TREE and not the document j001600BundleYAML renders (the shape
 // every OTHER bundle in this file still uses, which is fine: those are never
 // published — see j001600SeedFromDisk's callers) because this one is. A
-// remote bundle is read through internal/bundles/tree_read.go's readEnvelope,
+// remote bundle is read through internal/core/bundles/tree_read.go's readEnvelope,
 // which REFUSES an envelope that still declares items inline — and `deps
 // pull` refuses a single-file bundle outright before that (nothing
 // materializes a document; remote.Puller.installPulledItem). Both refusals

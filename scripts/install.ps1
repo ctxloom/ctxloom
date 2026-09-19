@@ -200,7 +200,7 @@ function Install-SignedBinary {
 
         The signature is named for the INSTALLED file rather than the archived
         one. Admission reads the resolved binary path with ".sig" appended
-        (internal/config resolveCompanionPath + companionSigSuffix), and on
+        (internal/core/config resolveCompanionPath + companionSigSuffix), and on
         Windows that resolved path carries the .exe suffix, so an archived
         "<name>.sig" has to land as "<name>.exe.sig".
 

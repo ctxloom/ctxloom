@@ -40,7 +40,7 @@ When the document is complete, file `agent_report` with scope FINAL containing: 
 
 # YOUR SEAM — 5. TRUST, SIGNING, REMOTE. Output file: 05-trust-signing-remote.md
 
-internal/signing (preimage contracts: FragmentPreimage/1, ctxloom-command/1, ctxloom-skill/1, ExecPreimageContract/2, CountersignContract; signer store), internal/trust, internal/remote (fetch, pin, review/accept/reject), internal/bundles' signing hooks (bundle sign, .sigs/), the CLI verbs (review, signer, deps pull, bundle sign) and operations behind them, and where verification happens at DELIVERY time (link to seam 3: which delivery calls verify, which trust the index).
+internal/signing (preimage contracts: FragmentPreimage/1, ctxloom-command/1, ctxloom-skill/1, ExecPreimageContract/2, CountersignContract; signer store), internal/core/trust, internal/remote (fetch, pin, review/accept/reject), internal/core/bundles' signing hooks (bundle sign, .sigs/), the CLI verbs (review, signer, deps pull, bundle sign) and operations behind them, and where verification happens at DELIVERY time (link to seam 3: which delivery calls verify, which trust the index).
 - docs/trust-model.md is normative — read it first; diff against code.
 - Duplication: is the preimage computed in one place per item kind, or re-derived at call sites (last night two test packages re-spelt it and went stale — internal/cli vs internal/operations fixtures)? Is there one verifier or several? One notion of "approved" or several (per-item approval vs whole-bundle sig vs countersign)?
 - tests/arch/preimage_wire_parity_test.go, credential_gitignore_test.go encode stated rules — diff.

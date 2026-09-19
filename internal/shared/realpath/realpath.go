@@ -3,8 +3,8 @@
 //
 // It is a LEAF, importing nothing but the standard library, and that is
 // structural rather than tidy. Two callers need this fact and NEITHER may
-// import the other: internal/paths owns the on-disk layout, while
-// internal/shared/tasks/taskstest guards test isolation, and internal/paths's
+// import the other: internal/core/paths owns the on-disk layout, while
+// internal/shared/tasks/taskstest guards test isolation, and internal/core/paths's
 // own tests reach taskstest through internal/testsupport. A helper living in
 // either package puts an import cycle in the other's test binary. A leaf below
 // both is the only home where the rule can be stated once instead of copied.

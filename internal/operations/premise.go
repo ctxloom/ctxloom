@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // PremiseIndexEntry is one row of the premise index: the fragment NAME a

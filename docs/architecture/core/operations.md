@@ -1,8 +1,8 @@
 # internal/operations
 
 `internal/operations` is the frontend-neutral orchestration layer: every CLI command, MCP
-tool call routes through a function here rather than touching `internal/bundles`,
-`internal/config`, `internal/remote`, `internal/profiles` or `internal/lm` directly. Its
+tool call routes through a function here rather than touching `internal/core/bundles`,
+`internal/core/config`, `internal/remote`, `internal/core/profiles` or `internal/lm` directly. Its
 contract is the package ABI — `f(ctx, cfg|mgr, XxxRequest) (*XxxResult, error)` with
 JSON-tagged DTOs — which is what lets one implementation back three frontends. It owns no
 storage; it owns *sequencing*: bootstrap, sync, lock, trust, assemble, apply, launch.
@@ -36,9 +36,9 @@ session can grep straight to it.
 ## Non-responsibilities
 
 - Rendering and output formatting — `internal/cli` (the ABI's stated rule).
-- Storage: bundle files (`internal/bundles`), config (`internal/config`), lockfile and clones
-  (`internal/remote`), profiles (`internal/profiles`), countersignatures (`internal/signing/countersign`).
-- Path vocabulary — `internal/paths`; see [paths.md](./paths.md).
+- Storage: bundle files (`internal/core/bundles`), config (`internal/core/config`), lockfile and clones
+  (`internal/remote`), profiles (`internal/core/profiles`), countersignatures (`internal/signing/countersign`).
+- Path vocabulary — `internal/core/paths`; see [paths.md](./paths.md).
 - Engine process management — `internal/lm/*`.
 
 ## The content pipeline through this package
@@ -258,7 +258,7 @@ flowchart LR
 
 | Function | file:line | Contract |
 |---|---|---|
-| `ListSessions` / `ListSessionsForProject` / `ListAllSessions` / `GetSession` / `RenameSession` / `ForgetSession` / `AssignSession` / `MarkSessionEnded` / `BindSession` | `sessions.go:53,65,83,167,176,186,197,208,254` | The ADR-0019 facade over `internal/sessions.Store`; the three list entry points reconcile the index first. |
+| `ListSessions` / `ListSessionsForProject` / `ListAllSessions` / `GetSession` / `RenameSession` / `ForgetSession` / `AssignSession` / `MarkSessionEnded` / `BindSession` | `sessions.go:53,65,83,167,176,186,197,208,254` | The ADR-0019 facade over `internal/core/sessions.Store`; the three list entry points reconcile the index first. |
 | `ResolvePreviousSession` / `selectPreviousEntry` | `sessions.go:118,133` | Previous-session selection for memory recall, skipping the active harp and non-materializable entries. |
 | `SessionIndexUpgrade` | `sessions.go:239` | Returns the pending schema upgrade plus its commit closure. |
 | `WatchSessionFeed` / `watchLiveFeed` / `watchStoreFeed` / `adaptConsumerFeed` | `sessionfeed.go:96,133,460,264` | Unified observation feed: prefer a live coordinator over gRPC, fall back to the recorded store. `adaptConsumerFeed` folds live item-lifecycle deltas back into whole `agent.SessionEntry` values with seq-based gap detection. |
@@ -320,14 +320,14 @@ flowchart LR
 ## Boundaries
 
 - **Called by:** `internal/cli` (all porcelain), the MCP server,
-  `internal/cli/tui`, and `internal/agentcoord/coord` (`AssignSession`, `MarkSessionEnded`,
+  `internal/cli/tui`, and `internal/core/coord` (`AssignSession`, `MarkSessionEnded`,
   `WatchSessionFeed`, `ResolveAgent`, `PrepareAgentChat`).
-- **Calls:** `internal/bundles`, `internal/config`, `internal/remote`, `internal/profiles`,
-  `internal/trust`, `internal/signing`, `internal/agents`, `internal/sessions`, `internal/lm/*`,
-  `internal/git`, `internal/paths`, `internal/projectroot`, `internal/shared/*`.
-- **Injected downward:** the content gate into `internal/bundles`, the executable gate into
-  `internal/config` — so neither domain package imports the trust decision.
-- **One inward consumer:** `internal/agentcoord/coord` imports `operations`, so `sessionfeed.go`
+- **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/remote`, `internal/core/profiles`,
+  `internal/core/trust`, `internal/signing`, `internal/agents`, `internal/core/sessions`, `internal/lm/*`,
+  `internal/git`, `internal/core/paths`, `internal/projectroot`, `internal/shared/*`.
+- **Injected downward:** the content gate into `internal/core/bundles`, the executable gate into
+  `internal/core/config` — so neither domain package imports the trust decision.
+- **One inward consumer:** `internal/core/coord` imports `operations`, so `sessionfeed.go`
   cannot import `coord` back and speaks its gRPC service over a bare client with two duplicated
   constants (`sessionfeed.go:158`).
 

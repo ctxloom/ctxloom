@@ -25,7 +25,7 @@ import (
 // error: this call site is fault-tolerant by design (a bad project-identity
 // resolution degrades the task store, it never blocks a session launch). In
 // practice a stale pointer will already have raised a FATAL pre-launch
-// strictness finding (worktreeSignpost, internal/config) unless the caller
+// strictness finding (worktreeSignpost, internal/core/config) unless the caller
 // passed --degraded -- itself an explicit "keep going" choice this mirrors.
 func taskStoreWorkDir(workDir string) string {
 	redirected, err := projectroot.TaskStoreRoot(afero.NewOsFs(), workDir)

@@ -3,7 +3,7 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // WriteSkillFiles materializes claude's Agent Skills surface: every enabled

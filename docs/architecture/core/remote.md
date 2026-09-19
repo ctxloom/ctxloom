@@ -8,7 +8,7 @@ read bytes and write publications. Its contract is: **every byte of third-party 
 agent ever sees is fetched at a commit SHA that the lockfile pinned**, and every trust
 decision upstream keys off a canonical string produced here. It performs no trust
 evaluation and no signature verification of its own — it delivers `(bytes, signature)` pairs
-and lets `internal/trust` / `internal/config` decide.
+and lets `internal/core/trust` / `internal/core/config` decide.
 
 ## Responsibilities
 
@@ -36,14 +36,14 @@ and lets `internal/trust` / `internal/config` decide.
 
 ## Non-responsibilities
 
-- Signature verification and publisher trust — `internal/trust` and
-  `internal/config` (`config.verifyBundlePublisher`); see [trust.md](./trust.md).
+- Signature verification and publisher trust — `internal/core/trust` and
+  `internal/core/config` (`config.verifyBundlePublisher`); see [trust.md](./trust.md).
 - Trust-state evaluation and exposure gating (`EffectiveTrust`, retraction withholding),
   lock rebuild/upgrade orchestration, and the `deps pull`/`sync` command flows —
   `internal/operations`; see [operations.md](./operations.md).
-- Bundle parsing, item loading and skill materialization — `internal/bundles`; see
+- Bundle parsing, item loading and skill materialization — `internal/core/bundles`; see
   [bundles.md](./bundles.md).
-- Resolver/profile composition and config seeding — `internal/config`; see
+- Resolver/profile composition and config seeding — `internal/core/config`; see
   [config.md](./config.md).
 - Materializing pulled content onto disk: a pull records a pin only. Nothing in this
   package writes content files (`pull.go:393` is a string formatter, not a writer).
@@ -295,7 +295,7 @@ flowchart TD
    is the commit a selector resolved to; it changes only when the constraint is
    re-resolved (`upgrade`), never on a relock that leaves `RequestedVersion` unchanged
    (`internal/remote/types.go:148`). Content integrity is the detached `.sig` verified by
-   `internal/trust`/`internal/config`, not by anything here.
+   `internal/core/trust`/`internal/core/config`, not by anything here.
 6. **The `.sig` sibling convention.** A bundle's signature is the same repo path with a
    `.sig` suffix, fetched at the same locked SHA
    (`internal/remote/bundle_reader.go:138,147`). An absent signature is reported as
@@ -374,22 +374,22 @@ flowchart TD
 
 **Callers (inbound).** Seven internal packages import `remote`:
 
-- `internal/config` — `loadRemoteBundleSeed` calls `LoadAllBytes` over a
+- `internal/core/config` — `loadRemoteBundleSeed` calls `LoadAllBytes` over a
   `CachingBundleReader` and hands each `(bytes, signature)` pair to
   `signing.VerifyPublisher`; also wires `LocalRefFetcher`/`LocalGitVCSFactory` for pinned
   local reads.
 - `internal/operations` — owns pull/sync/lock/upgrade/publish command flows, constructs
   `Puller`, `PublishManager`, `RepoCache`, `Resolver` and `LockfileStore`, and is the only
   other writer of `lock.yaml`.
-- `internal/trust` — consumes `NormalizeURL` and canonical reference strings for publisher
+- `internal/core/trust` — consumes `NormalizeURL` and canonical reference strings for publisher
   identity.
-- `internal/bundles`, `internal/profiles`, `internal/lm/backends`, `internal/cli` —
+- `internal/core/bundles`, `internal/core/profiles`, `internal/lm/backends`, `internal/cli` —
   consume the reference grammar (`CanonicalBundleRef`, `CanonicalizeShortRef`,
   `ParseReference`) and registry/lockfile reads.
 
 **Dependencies (outbound).** Only leaf/shared packages: `internal/errs` (sentinels
 `ErrRemoteContentNotFound`, `ErrRemoteNotFound`, `ErrRemoteNotMaterialized`),
-`internal/paths` (`RepoContentPrefix`, `CacheDir`, `BundlesDir`, `LockFileName`),
+`internal/core/paths` (`RepoContentPrefix`, `CacheDir`, `BundlesDir`, `LockFileName`),
 `internal/shared/clidiag`, `internal/shared/collections`, `internal/shared/iox`
 (`WriteFileAtomicFs`). External: `go-git`, `go-github` v60, `afero`, `yaml.v3`, and the
 system `git` binary (git ≥ 2.31 for `GIT_CONFIG_*`). No inner-imports-outer violation

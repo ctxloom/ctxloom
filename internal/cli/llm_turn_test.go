@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // TestRunStartHandoff_RoundTripFileOnly proves the §5.A4 handoff: the host

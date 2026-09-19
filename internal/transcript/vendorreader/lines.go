@@ -17,7 +17,7 @@ import (
 // hard-fail the ENTIRE file on the first such line, which is exactly the
 // degrade-to-partial contract vendorreader.VendorAdapter's doc comment promises
 // and must not violate. Mirrors agent.SessionStore.ParseSessionFile's
-// identical reasoning (internal/shared/agent/sessionstore.go).
+// identical reasoning (internal/core/agent/sessionstore.go).
 //
 // This is the ONE copy of the primitive. Every adapter means the same thing
 // by it — "split on newlines, trim, drop empties" — so a second copy has no

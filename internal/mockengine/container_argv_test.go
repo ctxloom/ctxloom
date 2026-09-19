@@ -3,8 +3,8 @@ package mockengine_test
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // The container tests spawn the mock with a HAND-WRITTEN vendor argv: there is

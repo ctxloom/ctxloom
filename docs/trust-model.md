@@ -939,7 +939,7 @@ never permitted in the committable project store.
 13. **`runtime: host` is not a security boundary between agents.** Two agents
     launched with the host runtime run as the same OS user. The coordinator
     bearer credential (`CTXLOOM_COORD_CRED`) that `Coordinator.Identify`
-    (`internal/agentcoord/coord/coordinator.go`) accepts as sole proof of
+    (`internal/core/coord/coordinator.go`) accepts as sole proof of
     caller identity is exec-time process environment: `/proc/<pid>/environ`
     exposes it, for that process's entire lifetime, to any other process
     running as the same user, and unsetting the variable after reading it does

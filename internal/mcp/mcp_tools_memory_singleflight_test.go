@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // TestSingleflightDistill_ConcurrentCallersShareOneDistillation is the

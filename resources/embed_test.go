@@ -102,7 +102,7 @@ func TestGetExampleConfig(t *testing.T) {
 // TestGetExampleConfig_MatchesOnDiskFile pins U155-F03 as REFUTED, not dead:
 // the finding is that GetExampleConfig's only callers are tests
 // (internal/schema/schema_test.go's "embedded example config is valid" and
-// internal/config/arch_test.go's TestArch_ConfigSchema_ShippedConfigsValidate,
+// internal/core/config/arch_test.go's TestArch_ConfigSchema_ShippedConfigsValidate,
 // both build-tagged `arch` or plain, in OTHER packages). Those are not
 // throwaway reach-only tests -- they are the schema-drift regression gate for
 // resources/example-config.yaml, the file cmd/validate also treats as a
@@ -154,7 +154,7 @@ func TestGetDefaultRemotes(t *testing.T) {
 // embedded builtin bundle (signature-envelope spec §4.3, S8): its content
 // (fragment, hooks, MCP server) now ships from its own binary's loadout
 // (`taskloom loadout --format json`, cmd/taskloom/loadout.yaml), discovered
-// on PATH — see internal/config's ProbeCompanionLoadouts and
+// on PATH — see internal/core/config's ProbeCompanionLoadouts and
 // TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated. This
 // replaces the old TestGetBuiltinBundle, which asserted the OPPOSITE
 // (taskloom.yaml present and non-empty) — that fixture is gone by design.

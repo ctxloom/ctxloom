@@ -36,11 +36,11 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -89,7 +89,7 @@ func tsOf(w *World) *tsState {
 // tsTreeEnvelope is every trust-surface fixture's tree envelope — no inline
 // item keys, because `deps pull` refuses a single-file bundle outright now
 // (nothing materializes a document — remote.Puller.installPulledItem) and a
-// remote tree bundle is read through internal/bundles/tree_read.go's
+// remote tree bundle is read through internal/core/bundles/tree_read.go's
 // readEnvelope, which refuses one that still declares items inline.
 const tsTreeEnvelope = "version: \"1.0.0\"\n"
 
@@ -783,7 +783,7 @@ func tsReportedContentForms(w *World) string {
 // block to the project's config.yaml (which ensureProjectWithEngine's
 // buildJ000200Config never emits one of, so this is additive, never a collision —
 // see steps_j000200_common.go's addMockAlongside for the same read-then-append
-// convention). internal/config has no CLI setter for this value; a direct
+// convention). internal/core/config has no CLI setter for this value; a direct
 // config.yaml edit is the only way a black-box CLI-driving test can toggle it.
 func tsSetUseDistilled(w *World, use bool) error {
 	body, err := w.env.ReadFile(".ctxloom/config.yaml")

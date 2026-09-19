@@ -5,13 +5,13 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // This file is claude's DECLARATION on the unified surface-delivery seam
-// (internal/shared/agent/cells.go, declaration.go): each approach claude
+// (internal/core/agent/cells.go, declaration.go): each approach claude
 // supports as a value implementing agent.Approach, and Surfaces — the one
 // place claude's surface membership is stated. Every approach here WRAPS an
 // existing claude writer verbatim — appendFlagDelivery (contextdelivery.go),

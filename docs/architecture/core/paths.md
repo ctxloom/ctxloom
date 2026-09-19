@@ -1,6 +1,6 @@
-# internal/paths
+# internal/core/paths
 
-`internal/paths` is the single declarative source of truth for ctxloom's on-disk layout: 36
+`internal/core/paths` is the single declarative source of truth for ctxloom's on-disk layout: 36
 constants naming every directory and file, 39 pure functions joining them under two
 roots — the **home root** (`~/.ctxloom/...`, keyed by harp) and a **project app dir**
 (`<appPath>/...`, supplied by the caller) — and the layout classification itself
@@ -150,7 +150,7 @@ this package.
 | `HomeDistrustedSignersPath` | `~/.ctxloom/distrusted_signers` | 1 |
 | `TriggerCacheDir` | `~/.ctxloom/cache/triggers` | 1 |
 | `HomeCoordDir` | `~/.ctxloom/coord` — root of one project-keyed subdirectory per live/recent coordinator | 1 |
-| `CoordProjectStateDir` | `~/.ctxloom/coord/<project-key>` — one project's coordinator state dir (`internal/agentcoord/coord`'s owner lock + journals) | 1 |
+| `CoordProjectStateDir` | `~/.ctxloom/coord/<project-key>` — one project's coordinator state dir (`internal/core/coord`'s owner lock + journals) | 1 |
 
 ### Project app dir (pure, no error return unless noted)
 

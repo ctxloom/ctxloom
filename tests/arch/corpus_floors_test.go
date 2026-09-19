@@ -88,7 +88,7 @@ type corpusCounts struct {
 // can be broken by a bad prefix while the module-wide count stays healthy.
 var engineScopes = []string{
 	"internal/claude",
-	"internal/shared/agent",
+	"internal/core/agent",
 }
 
 // walkCorpus reads the module once and counts what the rules depend on seeing.

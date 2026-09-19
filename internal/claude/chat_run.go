@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // This file implements the StructuredChat capability for claude-code over its
@@ -263,7 +263,7 @@ func (b *ClaudeCode) chatArgs(req agent.ChatRequest, mcpConfigPath string) []str
 //
 // The document shape and write itself (mode 0o600, Env preserved verbatim —
 // load-bearing for the coordinator's CTXLOOM_MCP_SOCKET stamp, see
-// injectMCPSocketEnv in internal/agentcoord/coord/enginehost.go) are owned by
+// injectMCPSocketEnv in internal/core/coord/enginehost.go) are owned by
 // agent.WriteChatMCPConfigFile; this function only manages the scratch
 // directory a single Chat call needs the file to live in.
 func writeChatMCPConfig(servers []agent.ChatMCPServer) (path string, cleanup func(), err error) {

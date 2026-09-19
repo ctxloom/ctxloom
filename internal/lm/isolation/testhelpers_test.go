@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/claude/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/testsupport"

@@ -83,7 +83,7 @@ func (v *ConfigValidator) ValidateBytes(data []byte) error {
 
 // KnownPath reports whether path names a location the config schema
 // recognizes, independent of whether any config currently holds a value
-// there. This is the seam internal/config wires into
+// there. This is the seam internal/core/config wires into
 // internal/shared/confload.Product.KnownPath, so env/CLI override resolution
 // can tell a legitimate-but-unset key (case 3: created silently) apart from a
 // genuinely unrecognized one (case 4: created with a warning) -- see

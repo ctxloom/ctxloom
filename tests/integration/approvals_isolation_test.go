@@ -5,8 +5,8 @@ package integration
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // isolatedApprovals points the USER countersignature store — the home-scoped

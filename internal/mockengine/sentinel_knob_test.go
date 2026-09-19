@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // CTXLOOM_MOCK_EXIT_CODE is the mock's fault-INJECTION channel: a test sets it

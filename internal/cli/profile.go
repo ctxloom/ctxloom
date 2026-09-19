@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -186,7 +186,7 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 func profileCreateDirs(cfg *config.Config) []string {
 	dirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
 	if len(dirs) == 0 {
-		// Mirror the len(AppPaths)==0 guard the rest of internal/config uses
+		// Mirror the len(AppPaths)==0 guard the rest of internal/core/config uses
 		// before indexing AppPaths[0]; a directly-constructed Config can carry
 		// an empty slice, which would otherwise panic here.
 		appPaths := cfg.GetAppPaths()

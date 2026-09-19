@@ -3,7 +3,7 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // This file is claude-code's ENGINE CLI CONTRACT (agent.EngineCLI): the single

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // doctorSpoolBacklogMarker is the DOCTOR-CHECK-* vocabulary entry for stuck
@@ -24,7 +24,7 @@ const doctorSpoolBacklogMarker = "DOCTOR-CHECK-SPOOL-BACKLOG-t0"
 // live in/ or out/ directory before this check calls it stuck rather than
 // merely slow.
 //
-// It is five times spoolSweepInterval (internal/agentcoord/coord/
+// It is five times spoolSweepInterval (internal/core/coord/
 // spooldelivery.go: 30s, the slow reconciliation cadence on both sides) —
 // generous enough that a startup sweep, a reconnect sweep and a couple of
 // missed periodic ticks all still have room to catch up before this fires,

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // TestBundlePathSeam_PinsTheFormatRootAndEachShape pins the literal path each
@@ -18,7 +18,7 @@ import (
 // ~60 sites, and routing them through the seam was only safe because the seam
 // emitted byte-identical paths. Format v1 is gone, so there is exactly ONE
 // format root left — the pin below is what would redden if the seam silently
-// grew a second one, or silently stopped deriving from internal/paths.
+// grew a second one, or silently stopped deriving from internal/core/paths.
 func TestBundlePathSeam_PinsTheFormatRootAndEachShape(t *testing.T) {
 	t.Parallel()
 
@@ -57,7 +57,7 @@ func TestBundlePathSeam_PinsTheFormatRootAndEachShape(t *testing.T) {
 // because it is a directory (asserting a migration — inline items becoming
 // real item files — that never happened for that fixture). With one format
 // left, both failure modes collapse to the same check: every family's root
-// must be the SAME expression, derived from internal/paths, never restated.
+// must be the SAME expression, derived from internal/core/paths, never restated.
 func TestBundlePathSeam_EveryFamilyDerivesFromTheSameProductionRoot(t *testing.T) {
 	t.Parallel()
 

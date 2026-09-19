@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/memory"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
 // Liveness tells ResolveAndHeal how to treat a harp's canonical transcript

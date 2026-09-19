@@ -58,7 +58,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # fetched from a remote at all — fetchAtLockedSHA resolved a ref to ONE file
   # path and called FetchFile on it, there was no tree fetch anywhere in
   # internal/remote, and a remote bundle WAS "<name>.yaml" by construction —
-  # while internal/bundles/loader.go:389 refuses skills in a single-file
+  # while internal/core/bundles/loader.go:389 refuses skills in a single-file
   # bundle. Jointly unsatisfiable, which is what taskloom task
   # `engaged-chivalry` recorded as impossible.
   #
@@ -124,7 +124,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # --------------------------------------------------------------------------
   # PUBLICATION: one artifact per surface kind, each a genuinely different case.
   #
-  # The kinds are read from internal/bundles/bundles.go's Bundle struct, and
+  # The kinds are read from internal/core/bundles/bundles.go's Bundle struct, and
   # the tree paths from internal/content/testdata/tree — the canonical layout
   # the shipped content package already reads. NOTE two corrections to the
   # obvious guesses, both verified in code rather than assumed:
@@ -231,7 +231,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # is load-bearing. Both are assertable only on the whole package: a scenario
   # that checked SKILL.md alone would miss a dropped scripts/ directory
   # entirely, and one that checked bytes alone would ship a script the model
-  # cannot execute. internal/shared/agent/packagefiles.go goes out of its way
+  # cannot execute. internal/core/agent/packagefiles.go goes out of its way
   # to re-Chmod on every materialize precisely because this bit drifts.
   Scenario: A published skill package arrives whole, with its script still executable
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
@@ -283,7 +283,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # The bucketing half reads each hook's DECODED content.Hook.Event (via
   # Item.Surface, i.e. hookType.Decode), not the ref's path string — the ref
   # path only proves a hook's file sits in the right directory, where the
-  # decoded Event field is what internal/bundles.ReadTree's reader.add
+  # decoded Event field is what internal/core/bundles.ReadTree's reader.add
   # actually keys its per-event grouping on once a real pulled tree becomes
   # the bundle the product merges.
   # --------------------------------------------------------------------------

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // ---------------------------------------------------------------------------

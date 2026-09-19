@@ -3,7 +3,7 @@ package vendorreader
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 

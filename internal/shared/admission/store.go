@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
@@ -49,7 +49,7 @@ const storeVersion = 1
 // parent directory are created with, before umask — not group- or
 // world-WRITABLE, so acquiring the lock stays limited to the owner. This is
 // the advisory-lock convention every lock site in this project shares (see
-// internal/shared/agent/rmw_lock.go's identically-reasoned pair); it is
+// internal/core/agent/rmw_lock.go's identically-reasoned pair); it is
 // deliberately NOT the stricter 0o600/0o700 this store's own DATA file uses
 // (write, below) — the lock sidecar is not the trust-sensitive payload.
 const (
@@ -193,7 +193,7 @@ func (s *Snapshot[K]) Note(rec Record[K]) {
 // LockPathFor derives the sidecar lock file that guards a store's records
 // file. paths.PathFor (home-rooted, beside the file) and
 // paths.ProjectPathFor (inside a project .ctxloom tree, under
-// state/locks/) are the two shapes internal/paths ships; a domain picks
+// state/locks/) are the two shapes internal/core/paths ships; a domain picks
 // whichever matches where ITS store's file actually lives — see
 // WithLockPathFor.
 type LockPathFor func(protected string) (string, error)

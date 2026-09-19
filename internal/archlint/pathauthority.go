@@ -9,7 +9,7 @@ import (
 )
 
 // pathAuthorityExemptDir is the vocabulary itself, not a consumer of it.
-const pathAuthorityExemptDir = "internal/paths"
+const pathAuthorityExemptDir = "internal/core/paths"
 
 // segmentLiteralPattern is what "looks like a path segment" means here:
 // letters, digits, dot, dash, underscore. It keeps glob wildcards and other
@@ -22,14 +22,14 @@ var segmentLiteralPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 var pathAuthorityAllowed = map[string]string{}
 
 // PathAuthorityAnalyzer enforces that ctxloom's on-disk path segments are
-// named in internal/paths and nowhere else.
+// named in internal/core/paths and nowhere else.
 //
-// internal/paths is the single declarative source of truth for the on-disk
+// internal/core/paths is the single declarative source of truth for the on-disk
 // layout. A segment spelled as a literal elsewhere is a SECOND spelling of a
 // fact that paths.Layout cannot see and doctor cannot walk.
 //
 // The detection signal is co-occurrence, not a literal blacklist: a Join call
-// outside internal/paths that ALREADY references the paths package — proving
+// outside internal/core/paths that ALREADY references the paths package — proving
 // it builds somewhere under the ctxloom-managed tree — and ALSO carries a bare
 // literal or a package-level const as another segment. The paths reference
 // shows the author reached for the vocabulary package and then, for this one
@@ -37,7 +37,7 @@ var pathAuthorityAllowed = map[string]string{}
 // rule governs ctxloom's own tree, not every path built anywhere.
 var PathAuthorityAnalyzer = &analysis.Analyzer{
 	Name: "archpathauthority",
-	Doc:  "ctxloom path segments must be named constants in internal/paths, not literals at the call site",
+	Doc:  "ctxloom path segments must be named constants in internal/core/paths, not literals at the call site",
 	Run:  runPathAuthority,
 }
 
@@ -72,7 +72,7 @@ func runPathAuthority(pass *analysis.Pass) (any, error) {
 				return true
 			}
 			pass.Reportf(call.Pos(),
-				"%s builds a path alongside a paths.* reference using segment(s) %v that internal/paths "+
+				"%s builds a path alongside a paths.* reference using segment(s) %v that internal/core/paths "+
 					"does not name — every ctxloom path segment must be a named constant there. If this is "+
 					"a deliberate, reviewed exception, add %q to pathAuthorityAllowed in "+
 					"internal/archlint/pathauthority.go naming the fix required to remove it.",

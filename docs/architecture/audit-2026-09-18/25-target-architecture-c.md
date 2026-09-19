@@ -222,7 +222,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // Name is the registry key and the ONLY spelling of an engine.
@@ -494,8 +494,8 @@ package engine
 import (
 	"github.com/spf13/afero"
 
-	"ctxloom.example/c/internal/shared/agent/present"
-	"ctxloom.example/c/internal/shared/wire"
+	"ctxloom.example/c/internal/core/present"
+	"ctxloom.example/c/internal/core/wire"
 )
 
 // Surfaces is the engine's static approach table per Kind. A Kind absent
@@ -633,9 +633,9 @@ package engine
 import (
 	"encoding/json"
 
-	"ctxloom.example/c/internal/sessions"
-	"ctxloom.example/c/internal/shared/agent/present"
-	"ctxloom.example/c/internal/shared/wire"
+	"ctxloom.example/c/internal/core/sessions"
+	"ctxloom.example/c/internal/core/present"
+	"ctxloom.example/c/internal/core/wire"
 )
 
 // Session is the ENGINE-FACING projection of a resolved launch: what the
@@ -791,8 +791,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"ctxloom.example/c/internal/bundles"
-	"ctxloom.example/c/internal/trust"
+	"ctxloom.example/c/internal/core/bundles"
+	"ctxloom.example/c/internal/core/trust"
 )
 
 // Trust is the gate holder. It is built PER CONFIG GENERATION by
@@ -858,11 +858,11 @@ import (
 	"context"
 	"errors"
 
-	"ctxloom.example/c/internal/bundles"
+	"ctxloom.example/c/internal/core/bundles"
 	"ctxloom.example/c/internal/engine"
-	"ctxloom.example/c/internal/profiles"
-	"ctxloom.example/c/internal/shared/wire"
-	"ctxloom.example/c/internal/trust"
+	"ctxloom.example/c/internal/core/profiles"
+	"ctxloom.example/c/internal/core/wire"
+	"ctxloom.example/c/internal/core/trust"
 )
 
 var (
@@ -1197,8 +1197,8 @@ import (
 
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/engine"
-	"ctxloom.example/c/internal/sessions"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/sessions"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // DynamicKind is a kind only the session's MCP endpoint can carry. Closed.
@@ -1375,11 +1375,11 @@ import (
 	"time"
 
 	"ctxloom.example/c/internal/composite"
-	"ctxloom.example/c/internal/config"
+	"ctxloom.example/c/internal/core/config"
 	"ctxloom.example/c/internal/delivery"
 	"ctxloom.example/c/internal/engine"
-	"ctxloom.example/c/internal/sessions"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/sessions"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // The two isolation axes, as core value types (today's isolation.Axes /
@@ -1578,12 +1578,12 @@ package runner
 import (
 	"context"
 
-	"ctxloom.example/c/internal/agentcoord/coord"
+	"ctxloom.example/c/internal/core/coord"
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/delivery"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/launch"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 type Deps struct {
@@ -1664,9 +1664,9 @@ package spawn
 import (
 	"context"
 
-	"ctxloom.example/c/internal/agentcoord/coord"
+	"ctxloom.example/c/internal/core/coord"
 	"ctxloom.example/c/internal/launch"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 type Spawner struct {
@@ -1761,7 +1761,7 @@ import (
 	"context"
 	"time"
 
-	"ctxloom.example/c/internal/paths"
+	"ctxloom.example/c/internal/core/paths"
 	"ctxloom.example/c/internal/shared/harp"
 )
 
@@ -1933,11 +1933,11 @@ import (
 	"encoding/json"
 	"time"
 
-	"ctxloom.example/c/internal/agentcoord/spool"
-	"ctxloom.example/c/internal/config"
+	"ctxloom.example/c/internal/core/spool"
+	"ctxloom.example/c/internal/core/config"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/launch"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 // Verbs is the coordination verb set — the ONE place a verb is validated and
@@ -2113,7 +2113,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ctxloom.example/c/internal/bundles"
+	"ctxloom.example/c/internal/core/bundles"
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/engine"
 )
@@ -2269,7 +2269,7 @@ import (
 	"io"
 	"time"
 
-	"ctxloom.example/c/internal/paths"
+	"ctxloom.example/c/internal/core/paths"
 )
 
 // ReapPolicy is THE reaper's policy value. Lifetime is the only axis it
@@ -2610,7 +2610,7 @@ import (
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/engine/conformance"
 	"ctxloom.example/c/internal/engines/mock"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // TestEngine_Mock_Conforms is the shape every engine package copies verbatim
@@ -2727,7 +2727,7 @@ import (
 	"ctxloom.example/c/internal/delivery/fsstatic"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/engines/mock"
-	"ctxloom.example/c/internal/shared/agent/present"
+	"ctxloom.example/c/internal/core/present"
 )
 
 // TestRoute_UncarriedKind_RefusesUnlessAccepted proposes the no-fallback
@@ -2876,12 +2876,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"ctxloom.example/c/internal/agentcoord/coord/grpc/coordgrpc"
+	"ctxloom.example/c/internal/core/coord/grpc/coordgrpc"
 	"ctxloom.example/c/internal/composite"
 	"ctxloom.example/c/internal/engine"
 	"ctxloom.example/c/internal/launch"
 	"ctxloom.example/c/internal/launch/launchtest"
-	"ctxloom.example/c/internal/sessions"
+	"ctxloom.example/c/internal/core/sessions"
 )
 
 // TestResolve_FiveSources_OneResolver: every way a launch is asked for goes

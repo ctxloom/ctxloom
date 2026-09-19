@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	tasksp "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
@@ -134,7 +134,7 @@ func declaredProjectPaths() []string {
 // NOT carry a row for:
 //   - `~/.ctxloom/tasks` is taskloom's own log store (internal/shared/tasks/
 //     paths.HomeTasksDir), a sibling vocabulary that aliases
-//     internal/paths.AppDirName without folding into it — see
+//     internal/core/paths.AppDirName without folding into it — see
 //     docs/architecture/core/paths.md's "Where documented and real behavior
 //     diverge" note on tasks/paths.IndexFileName for the same boundary drawn
 //     the other way. Referenced via the constants, not a hand-rolled literal,
@@ -142,7 +142,7 @@ func declaredProjectPaths() []string {
 //   - `~/.ctxloom/logs/ctxloom.log` (paths.HomeLogFilePath) is diagnostic
 //     output every ctxloom process writes at startup, not state whose absence
 //     doctor's local-tier check would ever report — see Presence's doc in
-//     internal/paths for why it has no Layout row at all.
+//     internal/core/paths for why it has no Layout row at all.
 func declaredHomePaths() []string {
 	out := []string{
 		filepath.ToSlash(filepath.Join(tasksp.AppDirName, tasksp.TasksDir)),

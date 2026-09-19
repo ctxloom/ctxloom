@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // MockClient is a test double for the Client interface.

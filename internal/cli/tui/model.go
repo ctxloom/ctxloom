@@ -15,7 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/termui"
 )
@@ -128,7 +128,7 @@ type feedClosedMsg struct {
 }
 type injectResultMsg struct {
 	harp string
-	mode string // coord.Delivery* on success (internal/agentcoord/coord)
+	mode string // coord.Delivery* on success (internal/core/coord)
 	err  error
 }
 type approvalResultMsg struct {

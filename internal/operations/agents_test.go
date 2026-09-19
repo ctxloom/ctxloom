@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // writeFile is a small helper for the agent fixtures.
@@ -55,7 +55,7 @@ func agentTestConfig(root string, subs map[string]agents.Agent) *config.Config {
 
 // agentTestConfigWithDefault is agentTestConfig plus an explicit default_agent
 // (set via the Fixture directly, since Config's fields are unexported outside
-// internal/config and cannot be assigned after construction).
+// internal/core/config and cannot be assigned after construction).
 func agentTestConfigWithDefault(root string, subs map[string]agents.Agent, defaultAgent string) *config.Config {
 	return config.NewFixture(config.Fixture{
 		AppPaths: []string{filepath.Join(root, ".ctxloom")},

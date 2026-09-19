@@ -104,7 +104,7 @@ All three flows go through the seam:
 ## BUNDLE-AS-TREE pivot (2026-07-29) — supersedes embed-in-bundle
 Restructure monolithic bundle.yaml → on-disk DIRECTORY TREE (one file per item/surface), sign each with detached sigs. Eliminates the whole-bundle YAML document parse → FS-walk. Ground truth (scouts):
 - Directory-form bundles ALREADY exist (`Loader.Find`: `<name>.yaml` then `<name>/bundle.yaml`; skills FORCE directory form). Pivot = push fragments/commands/mcp/hooks out of inline maps into files, like skills already are.
-- Reuse `internal/bundles/skill_archive.go` (deterministic pack + HardenedExtract + `SkillManifest{sha256,mode}`).
+- Reuse `internal/core/bundles/skill_archive.go` (deterministic pack + HardenedExtract + `SkillManifest{sha256,mode}`).
 - Pin today = git SHA in `.ctxloom/lock.yaml`; transfer = YAML-in-git-tree + sibling `.yaml.sig`, pulled bytes-only at pinned SHA. Signed manifest-of-hashes is a NEW stronger object layered over/replacing the SHA pin.
 - ORDERING: profile `FragmentRef.priority` ordering must survive (verified a non-issue —
   `profiles.FragmentRef` already round-trips losslessly).
@@ -473,7 +473,7 @@ RESOLVED (2026-07-29):
 
 ### DISTILLED IS PUBLISHED AND SIGNED — and the signable unit is (item, FORM)
 **Decided 2026-07-29; corrects the retracted claim above.** VERIFIED: `Distilled`/`DistilledBy` are
-PUBLISHED bundle fields (`internal/bundles/bundles.go:325-326`, `yaml:"distilled,omitempty"`) —
+PUBLISHED bundle fields (`internal/core/bundles/bundles.go:325-326`, `yaml:"distilled,omitempty"`) —
 distilled content ships WITH the bundle, it is not a local cache derivative. And the existing trust
 model already demands per-form attestation: `bundles.go:388-390` — "blessing the raw form can never
 validate a distilled exposure, and vice-versa."
@@ -847,7 +847,7 @@ distillation, search_library composition (overt-silo), review enumeration, mater
 directory-form remote fetch (engaged-chivalry).
 
 ### Reference addressing — UNCHANGED (verified)
-`Ref.Key()` is already `Bundle + "#" + Kind.Dir() + "/" + Name` (internal/trust/trust.go:204-206) —
+`Ref.Key()` is already `Bundle + "#" + Kind.Dir() + "/" + Name` (internal/core/trust/trust.go:204-206) —
 `Kind.Dir()` ALREADY returns a directory name, so addressing was already tree-shaped and only STORAGE
 was a document. `code-quality#fragments/solid` → `<root>/code-quality/fragments/solid.md`. The `#`
 keeps its natural URL meaning (bundle root vs path within). Ref grammar, profiles, and approval keys

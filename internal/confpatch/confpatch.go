@@ -37,7 +37,7 @@ import (
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Store is the §9.7 application-record store. Records are home-rooted (see

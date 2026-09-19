@@ -10,7 +10,7 @@ set positional-arguments := true
 # test-docker-integration (and its package list), test-arch, plus the
 # generated-protobuf precondition. Imported, not duplicated — the
 # docker-integration recipe used to exist in both files under the same name with different package lists,
-# which is how the whole internal/agentcoord/coord docker suite went unrun in
+# which is how the whole internal/core/coord docker suite went unrun in
 # CI. See build/gates.justfile.
 import "build/gates.justfile"
 
@@ -195,7 +195,7 @@ build-harp: dev-image
 # Regenerate the committed publish-signature siblings for the in-repo
 # companion loadouts (cmd/ltk/loadout.yaml, cmd/taskloom/loadout.yaml) using
 # the ctxloom release key, so `<bin> loadout --format json` verifies as a
-# trusted publisher (internal/config/embedded_signers.allowed_signers)
+# trusted publisher (internal/core/config/embedded_signers.allowed_signers)
 # instead of landing in ctxloom's review-pending path. Runs on the HOST (not
 # delegated to the devcontainer): it needs the private key from ~/.ssh, which
 # the devcontainer never mounts. Unlike `just build` — which only ever reads
@@ -917,7 +917,7 @@ test-acceptance-container: build _ensure-gotmpdir
 #   internal/lm/isolation      — the gRPC container transport + the
 #                                force-removal-on-Kill boundary end to end,
 #                                including a real git worktree mounted in;
-#   internal/agentcoord/coord  — the docker-direct delegated spawn
+#   internal/core/coord  — the docker-direct delegated spawn
 #                                (TestCoordContainerDirect_NoPluginNoPort),
 #                                the owner-owned top-level container runs
 #                                (TestCoordOwnerRun_*) and the container
@@ -1208,7 +1208,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # touched them; that is how an acceptance-suite audit came to report on 25
 # assertions it had not executed. There is no general signal to infer here —
 # a partially tagged package is normal and correct everywhere else in this
-# repo (internal/config, internal/compression and 17 more have tagged test
+# repo (internal/core/config, internal/compression and 17 more have tagged test
 # files that a plain run rightly skips) — so the guard is scoped to the one
 # path whose entire purpose IS the tagged suite, alongside the build case
 # below that already special-cases it. It demands the tag AND a -run filter:

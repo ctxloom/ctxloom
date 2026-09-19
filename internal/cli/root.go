@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
@@ -315,7 +315,7 @@ func init() {
 	rootCmd.PersistentFlags().StringArray(confload.ConfigSetFlagName, nil,
 		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)")
 
-	// Config is loaded via internal/config.Load() which handles the hierarchy:
+	// Config is loaded via internal/core/config.Load() which handles the hierarchy:
 	// 1. Project .ctxloom/config.yaml
 	// 2. Embedded resources
 }

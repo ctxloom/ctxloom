@@ -7,7 +7,7 @@ Feature: The trust surface — what "review" actually controls
   be approved, can it be denied, and does that denial actually hold — in the
   payload the assistant receives?
 
-  A bundle ships five kinds of thing (internal/bundles/bundles.go:38-59):
+  A bundle ships five kinds of thing (internal/core/bundles/bundles.go:38-59):
   fragments, commands, mcp servers, hooks, and profiles. They are not equally
   dangerous. A hook is a shell command the harness runs on a matching tool
   call, with no model in the loop — straight RCE. An MCP server is a binary
@@ -24,7 +24,7 @@ Feature: The trust surface — what "review" actually controls
   it APPEARS.
 
   ENGINE SCOPE: the executable trust gate is applied UPSTREAM of every engine
-  writer (internal/config/config_bundles.go's ResolveBundleMCPServers /
+  writer (internal/core/config/config_bundles.go's ResolveBundleMCPServers /
   ResolveBundleHooks route through one shared c.execGate before any backend
   ever sees the result), so a per-engine bypass is not structurally possible.
   This feature proves the gate on ONE engine (claude-code) and makes no claim
@@ -44,8 +44,8 @@ Feature: The trust surface — what "review" actually controls
 
   PROFILES ARE A DIFFERENT CASE, not a fifth row of the same table: a bundle
   profile is never trust-gated at all (no trust.ItemKind for it — see
-  internal/trust/trust.go's ItemKind: fragment | prompt | mcp | hook, and
-  internal/bundles/bundles.go:46-51's comment). "ctxloom bundle trust"/"ctxloom
+  internal/core/trust/trust.go's ItemKind: fragment | prompt | mcp | hook, and
+  internal/core/bundles/bundles.go:46-51's comment). "ctxloom bundle trust"/"ctxloom
   blacklist" cannot even parse a "#profiles/<name>" selector. The final
   scenario below proves that refusal directly, rather than asserting a
   decision that does not exist.

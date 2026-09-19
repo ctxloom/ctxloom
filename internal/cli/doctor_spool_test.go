@@ -13,8 +13,8 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 

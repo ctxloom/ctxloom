@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"

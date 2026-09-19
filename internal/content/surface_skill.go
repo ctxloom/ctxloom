@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // skillDescriptorName is the file an Agent Skill package must contain.

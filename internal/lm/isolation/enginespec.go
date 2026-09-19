@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // engineContainerSpec is this package's working form of ONE engine's

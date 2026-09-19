@@ -4,8 +4,8 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // Where a test fixture puts an authored bundle, derived from production rather

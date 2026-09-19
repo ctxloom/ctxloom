@@ -249,7 +249,7 @@ TOML integer round-trip does not fail verification.
   empty `result.Backup` when the file was newly created (`:179,183,186`).
 - `util config-write` leaves a *second*, ctxloom-branded backup in the user's
   config directory: `agent.AtomicWriteFile` writes `<path>.ctxloom.bak` and
-  ignores the result (`internal/shared/agent/settings_io.go:140-143`).
+  ignores the result (`internal/core/agent/settings_io.go:140-143`).
 - `containerDiagnose` (`container_cmd.go:137-139`) exists "so the CLI rendering is
   testable with an injected report", but no test ever assigns it — the tests
   inject a `Diagnosis` into `renderContainerCheck` directly.

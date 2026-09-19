@@ -8,7 +8,7 @@ a root that every downstream writer then writes to, which is why a wrong answer 
 fail — it silently writes the right data to the wrong project.
 
 Seven functions, three files, 15 production call sites across `internal/cli`,
-`internal/config`, `internal/operations`, `internal/lm/grpc` and `internal/taskloom/workdir`.
+`internal/core/config`, `internal/operations`, `internal/lm/grpc` and `internal/taskloom/workdir`.
 
 ## Responsibilities
 
@@ -19,8 +19,8 @@ Seven functions, three files, 15 production call sites across `internal/cli`,
 
 ## Non-responsibilities
 
-- What lives at a root — `internal/paths`; see [paths.md](./paths.md).
-- Finding the `.ctxloom` directory itself — `internal/config` (`findAppDir`), which calls
+- What lives at a root — `internal/core/paths`; see [paths.md](./paths.md).
+- Finding the `.ctxloom` directory itself — `internal/core/config` (`findAppDir`), which calls
   `DetectWorktree` per ancestor; see [config.md](./config.md).
 - Git operations — `internal/git` / `gitutil`.
 
@@ -93,7 +93,7 @@ flowchart TD
 ## Boundaries
 
 - **Imports:** `gitutil` (go-git `PlainOpen`), `afero`.
-- **Imported by:** `internal/config` (`findAppDir`, `worktreeSignpost` — called per ancestor on every
+- **Imported by:** `internal/core/config` (`findAppDir`, `worktreeSignpost` — called per ancestor on every
   `config.Load`), `internal/cli`, `internal/operations` (`manage.go`, `hooks.go`),
   `internal/lm/grpc`, `internal/taskloom/workdir`.
 

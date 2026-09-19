@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/content"
-	"github.com/ctxloom/ctxloom/internal/trust"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // zipOf builds a zip whose entries are exactly the given paths, each under a

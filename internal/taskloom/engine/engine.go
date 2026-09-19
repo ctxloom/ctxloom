@@ -14,7 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/confpatch"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // Engine is the MCP-registration facet of an agent: where its MCP config lives

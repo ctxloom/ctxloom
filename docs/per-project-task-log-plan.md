@@ -37,8 +37,8 @@ Status of the remaining threads:
 | MCP handlers | `cmd/mcp_tools_tasks.go:84` | `handleTaskList/Add/SetStatus` → `openSessionTaskStore()` (no operations layer; ADR 0019 gap) |
 | CLI commands | `cmd/tasks_cmd.go:40` | `tasksList/Add/Status/Summary` → `openSessionTaskStore()` |
 | Identity assignment | `cmd/run.go:478` | `sessMgr.AssignHarp(workDir, llmName)`, then `runEnv["CTXLOOM_SESSION_HARP"]` at ~482 |
-| Harp allocator | `internal/sessions/index.go:427` | `generateUniqueHarp(used)` — mint-with-check, file-locked; reuse pattern for project-id and task harps |
-| Paths | `internal/paths/paths.go:62` | `HomeSessionsDir`, `SessionIndexPath`, `HarpDir`; constants `AppDirName`, `SessionsDir`, `IndexFileName` |
+| Harp allocator | `internal/core/sessions/index.go:427` | `generateUniqueHarp(used)` — mint-with-check, file-locked; reuse pattern for project-id and task harps |
+| Paths | `internal/core/paths/paths.go:62` | `HomeSessionsDir`, `SessionIndexPath`, `HarpDir`; constants `AppDirName`, `SessionsDir`, `IndexFileName` |
 | Gitignore | `cmd/init.go:67` | `ensureGitignoreEntry` appends `.ctxloom/ephemeral/`; idempotent check+append |
 | Prior art | — | No existing project-id/registry/marker. `internal/harpmarker` is the session-transcript self-ID, unrelated |
 

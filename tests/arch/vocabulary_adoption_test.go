@@ -734,23 +734,23 @@ var vocabConversionAllowed = map[string]string{
 	"cmd/ltk/check.go#checkFlags.run#internal/ltk/ir.Shell":       "the --shell flag value is asserted into ir.Shell; internal/ltk/ir declares the vocabulary but ships no parser for it — add one and call it here (shellenv.ShellFromPath is the nearest existing membership decision)",
 	"cmd/ltk/evaluate.go#evaluateFlags.run#internal/ltk/ir.Shell": "same --shell assertion as cmd/ltk/check.go; both wait on a parser in internal/ltk/ir",
 
-	"internal/agentcoord/coord/enginehost.go#EngineHost.startRun#internal/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/transcript ships no parser for RawPolicy — add one and call it",
-	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/transcript.RawPolicy":            "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
+	"internal/core/coord/enginehost.go#EngineHost.startRun#internal/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/transcript ships no parser for RawPolicy — add one and call it",
+	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/transcript.RawPolicy":      "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
 
-	"internal/lm/grpc/chat.go#chatStartFromProto#internal/shared/agent.MCPTransport":            "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
-	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionEntryType":  "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",
-	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionSystemKind": "a proto string field asserted into the system-kind enum; same unchecked-wire-value shape",
-	"internal/transcript/history.go#entriesFromRecord#internal/shared/agent.SessionEntryType":   "a stored record's string asserted into the entry-type enum; same unchecked-input shape as the grpc side",
-	"internal/transcript/history.go#entriesFromRecord#internal/shared/agent.SessionSystemKind":  "a stored record's string asserted into the system-kind enum; same unchecked-input shape as the grpc side",
+	"internal/lm/grpc/chat.go#chatStartFromProto#internal/core/agent.MCPTransport":            "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
+	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/core/agent.SessionEntryType":  "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",
+	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/core/agent.SessionSystemKind": "a proto string field asserted into the system-kind enum; same unchecked-wire-value shape",
+	"internal/transcript/history.go#entriesFromRecord#internal/core/agent.SessionEntryType":   "a stored record's string asserted into the entry-type enum; same unchecked-input shape as the grpc side",
+	"internal/transcript/history.go#entriesFromRecord#internal/core/agent.SessionSystemKind":  "a stored record's string asserted into the system-kind enum; same unchecked-input shape as the grpc side",
 
 	"internal/operations/agents.go#SetAgent#internal/agents.DrivingMode":          "a user-set config value asserted into the driving-mode enum; internal/agents ships no parser for DrivingMode",
 	"internal/operations/agents.go#validateAgentAxes#internal/agents.DrivingMode": "same DrivingMode assertion inside the routine that is supposed to be VALIDATING the axes",
 
 	"internal/operations/countersign_records.go#countersignRecords.Approved#internal/signing.Form": "a stored record's form string asserted into signing.Form; internal/signing ships no parser for it",
 	"internal/operations/review.go#reviewEnumerator.classify#internal/signing.Form":                "same signing.Form assertion from the review side",
-	"internal/operations/review.go#reviewEnumerator.classify#internal/bundles.ContentForm":         "a stored string asserted into bundles.ContentForm; internal/bundles ships no parser for it",
+	"internal/operations/review.go#reviewEnumerator.classify#internal/core/bundles.ContentForm":    "a stored string asserted into bundles.ContentForm; internal/core/bundles ships no parser for it",
 
-	"internal/operations/signable.go#bundleSignable.Kind#internal/trust.ItemKind": "MINTS trust.ItemKind(\"bundle\"), a value outside the declared set — the call site's own comment records that no constant names a whole bundle. Either declare it or model a whole bundle as a different type; today the trust tier sees a kind its own vocabulary does not contain",
+	"internal/operations/signable.go#bundleSignable.Kind#internal/core/trust.ItemKind": "MINTS trust.ItemKind(\"bundle\"), a value outside the declared set — the call site's own comment records that no constant names a whole bundle. Either declare it or model a whole bundle as a different type; today the trust tier sees a kind its own vocabulary does not contain",
 
 	"internal/taskloom/config/config.go#Config.ResolveMode#internal/shared/tasks/paths.Mode": "a config string asserted into paths.Mode; internal/shared/tasks/paths ships no parser for it",
 }
@@ -764,22 +764,22 @@ var vocabMembershipAllowed = map[string]string{
 
 	"internal/cli/search.go#resolveSearchTypes#internal/operations.ItemKind":    "re-spells the fragment/command item-kind vocabulary, which is DECLARED TWICE ALREADY (operations.ItemKind and operations.DistillKind are byte-identical two-member enums in one package) and a third time as trust.ItemKind. Consolidating those is the fix; this entry is the consumer that made the split visible",
 	"internal/cli/search.go#resolveSearchTypes#internal/operations.DistillKind": "same site, matching operations.DistillKind — the identical twin of operations.ItemKind",
-	"internal/cli/search.go#resolveSearchTypes#internal/trust.ItemKind":         "same site, matching trust.ItemKind, the third declaration of the item-kind vocabulary",
+	"internal/cli/search.go#resolveSearchTypes#internal/core/trust.ItemKind":    "same site, matching trust.ItemKind, the third declaration of the item-kind vocabulary",
 
-	"internal/cli/session_watch.go#renderWatchEntryText#internal/shared/agent.SessionEntryType":                     "re-spells SessionEntryType members instead of comparing against the exported constants; the entry-type vocabulary has eight such copies across cli, cli/tui, liveness and the two vendor readers",
-	"internal/cli/tui/render.go#roleTag#internal/shared/agent.SessionEntryType":                                     "re-spells five SessionEntryType members; the widest copy",
-	"internal/cli/tui/render.go#itemBodyLines#internal/shared/agent.SessionEntryType":                               "re-spells three SessionEntryType members",
-	"internal/liveness/transcript.go#txScan.entry#internal/shared/agent.SessionEntryType":                           "re-spells three SessionEntryType members",
-	"internal/liveness/transcript.go#txTail.entry#internal/shared/agent.SessionEntryType":                           "re-spells two SessionEntryType members",
-	"internal/transcript/vendorreader/claude/session.go#convertLines#internal/shared/agent.SessionEntryType":        "re-spells two SessionEntryType members while reading a vendor format",
-	"internal/transcript/vendorreader/claude/session.go#sessionScan.observe#internal/shared/agent.SessionEntryType": "re-spells two SessionEntryType members while reading a vendor format",
-	"internal/transcript/vendorreader/claude/session.go#messageEntries#internal/shared/agent.SessionEntryType":      "re-spells four SessionEntryType members while reading a vendor format",
+	"internal/cli/session_watch.go#renderWatchEntryText#internal/core/agent.SessionEntryType":                     "re-spells SessionEntryType members instead of comparing against the exported constants; the entry-type vocabulary has eight such copies across cli, cli/tui, liveness and the two vendor readers",
+	"internal/cli/tui/render.go#roleTag#internal/core/agent.SessionEntryType":                                     "re-spells five SessionEntryType members; the widest copy",
+	"internal/cli/tui/render.go#itemBodyLines#internal/core/agent.SessionEntryType":                               "re-spells three SessionEntryType members",
+	"internal/liveness/transcript.go#txScan.entry#internal/core/agent.SessionEntryType":                           "re-spells three SessionEntryType members",
+	"internal/liveness/transcript.go#txTail.entry#internal/core/agent.SessionEntryType":                           "re-spells two SessionEntryType members",
+	"internal/transcript/vendorreader/claude/session.go#convertLines#internal/core/agent.SessionEntryType":        "re-spells two SessionEntryType members while reading a vendor format",
+	"internal/transcript/vendorreader/claude/session.go#sessionScan.observe#internal/core/agent.SessionEntryType": "re-spells two SessionEntryType members while reading a vendor format",
+	"internal/transcript/vendorreader/claude/session.go#messageEntries#internal/core/agent.SessionEntryType":      "re-spells four SessionEntryType members while reading a vendor format",
 
 	"internal/liveness/transcript.go#txScan.line#internal/transcript.Kind":     "re-spells transcript.Kind members rather than comparing against internal/transcript's own constants, which this package already imports",
 	"internal/liveness/transcript.go#txScan.tailLine#internal/transcript.Kind": "same transcript.Kind re-spelling in the tail path",
 
-	"internal/trust/itemref.go#ParseSelector#internal/shared/ledger.Surface":  "the selector parser re-spells four ledger.Surface members. The engine-surface vocabulary is declared twice — ledger.Surface and agent.ProbeKind overlap on mcp/commands/skills/context — so there is no single owner to route through yet; consolidating those two is the fix",
-	"internal/trust/itemref.go#ParseSelector#internal/shared/agent.ProbeKind": "same site, matching the second declaration of the engine-surface vocabulary",
+	"internal/core/trust/itemref.go#ParseSelector#internal/shared/ledger.Surface": "the selector parser re-spells four ledger.Surface members. The engine-surface vocabulary is declared twice — ledger.Surface and agent.ProbeKind overlap on mcp/commands/skills/context — so there is no single owner to route through yet; consolidating those two is the fix",
+	"internal/core/trust/itemref.go#ParseSelector#internal/core/agent.ProbeKind":  "same site, matching the second declaration of the engine-surface vocabulary",
 }
 
 // vocabParallelAllowed is the PARALLEL LIST rule's shrinking allowlist, keyed

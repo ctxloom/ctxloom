@@ -18,9 +18,9 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/memory"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // nextStepState carries what a scenario generated or observed so a later step

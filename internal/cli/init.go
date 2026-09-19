@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -173,7 +173,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 //
 // This is what makes `ctxloom init` the FOLLOWABLE remedy the rest of the
 // codebase advertises. Both projectroot.TaskStoreRoot and worktreeSignpost
-// (internal/config) tell a user to run init in a linked worktree to make it a
+// (internal/core/config) tell a user to run init in a linked worktree to make it a
 // deliberately separate project, and TaskStoreRoot's opt-out reads the
 // project-id marker — the one piece of .ctxloom that is gitignored
 // (gitignore.PrivateStatePatterns) and so cannot arrive with a checkout.

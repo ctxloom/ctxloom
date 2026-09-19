@@ -3,7 +3,7 @@
 // gave fragments/hooks/MCP: a companion on PATH (ltk's task-runner command)
 // exports as a slash command with no profile wiring required, gated through
 // the identical trust decision every other companion surface goes through —
-// never the builtin nil-gate exemption. See internal/config/companion_loadout_test.go
+// never the builtin nil-gate exemption. See internal/core/config/companion_loadout_test.go
 // for the sibling hooks/MCP/fragments proofs this mirrors.
 package backends
 
@@ -18,9 +18,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 

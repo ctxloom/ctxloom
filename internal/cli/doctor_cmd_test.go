@@ -23,11 +23,11 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
@@ -524,7 +524,7 @@ func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {
 // --- DOCTOR-CHECK-LOCAL-STATE-p6 ---
 
 // TestDoctorCheckLocalTierState_RightState_AllPresent proves a checkout that
-// actually carries every paths.TierLocal path (internal/paths.Layout) reports
+// actually carries every paths.TierLocal path (internal/core/paths.Layout) reports
 // clean — this is the "already used this project for a while" state, not a
 // fresh init's (see the WrongState test below for that one).
 func TestDoctorCheckLocalTierState_RightState_AllPresent(t *testing.T) {
@@ -862,7 +862,7 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 }
 
 // scaffoldLocalTierState creates a stand-in for every paths.TierLocal path
-// (internal/paths.Layout) — the local-only state a FRESH init/machine never
+// (internal/core/paths.Layout) — the local-only state a FRESH init/machine never
 // has (it's exactly what accrues from actually using a project AND this
 // machine: running sessions, using taskloom, reviewing an update, giving a
 // countersignature, trusting a signer, running a coordinator). RootProject

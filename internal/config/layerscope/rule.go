@@ -103,7 +103,7 @@ type Violation struct {
 // not set, using koanf/maps.Flatten to obtain each value's dotted path — never
 // a bespoke recursive map walker. It never mutates values; the caller (which
 // already knows how to remove a key from its own decoded map — see
-// internal/config's use of koanf/maps.Delete) drops what this reports.
+// internal/core/config's use of koanf/maps.Delete) drops what this reports.
 //
 // Flatten treats a slice/array value as a single leaf (it only recurses into
 // map[string]any), which is exactly the granularity Rule.Path addresses: a

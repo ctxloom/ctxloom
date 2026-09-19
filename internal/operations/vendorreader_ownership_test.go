@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
@@ -45,7 +45,7 @@ func TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalT
 
 	// A live structured/ACP recorder opens harp's DEFAULT canonical path —
 	// exactly what internal/lm/grpc/chat.go's GRPCClient.Chat and
-	// internal/agentcoord/coord/enginehost.go's adapt do for a live
+	// internal/core/coord/enginehost.go's adapt do for a live
 	// session — and holds it open (Record, no Close yet) the way a
 	// still-running chat would.
 	rec, err := transcript.NewRecorder(harp, e.Backend)

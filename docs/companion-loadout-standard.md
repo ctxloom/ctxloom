@@ -8,7 +8,7 @@ asks for it, and what each side may assume.
 It is a standalone document because the contract is a CROSS-PROCESS one. It was previously
 stated in four places — `internal/shared/companionloadout`'s package doc, each companion's
 own `loadout.yaml` header, `docs/signature-envelope.spec.md` §4.3, and
-`internal/config/companions.go` — and a contract asserted in four places with nothing
+`internal/core/config/companions.go` — and a contract asserted in four places with nothing
 reconciling them is how the two sides drift.
 
 ## The probe

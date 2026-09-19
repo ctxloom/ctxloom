@@ -1,6 +1,6 @@
 package isolation
 
-import "github.com/ctxloom/ctxloom/internal/shared/agent"
+import "github.com/ctxloom/ctxloom/internal/core/agent"
 
 // Instance-home MATERIAL provisioning.
 //
@@ -74,7 +74,7 @@ func (s Sharing) String() string {
 // value an engine DECLARES it will accept and the value a provisioner reports
 // having delivered are the same fact read from two ends, and two enums would
 // need a conversion whose job is to be the identity — the exact place a
-// mismatch hides. The vocabulary lives in internal/shared/agent because an
+// mismatch hides. The vocabulary lives in internal/core/agent because an
 // engine package must be able to author its own facts without linking this
 // machinery; the machinery (Provisioner, Select, the candidates) lives here.
 type Delivery = agent.MaterialDelivery

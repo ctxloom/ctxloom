@@ -10,7 +10,7 @@ import (
 // something named BindSession. Each entry is a deliberate admission.
 //
 // Manager's and MemStore's own definitions are function DECLARATIONS, not
-// calls, so internal/sessions never needs an entry.
+// calls, so internal/core/sessions never needs an entry.
 var bindSessionAllowedCallers = map[string]string{
 	"internal/cli/session_bind.go":    "the SessionStart hook target; calls operations.BindSession, which calls Manager.BindSession",
 	"internal/operations/sessions.go": "the BindSession façade itself, wrapping Manager.BindSession",

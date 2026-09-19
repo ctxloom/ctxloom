@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // TestLocalPath_AlwaysContainedInCacheRoot is the CLASS gate for the

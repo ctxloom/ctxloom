@@ -14,7 +14,7 @@ import (
 
 	"github.com/aymanbagabas/go-pty"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // initialResizeWait bounds how long RunInteractive waits for the frontend's

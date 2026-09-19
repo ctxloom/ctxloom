@@ -43,7 +43,7 @@ When the document is complete, file `agent_report` with scope FINAL containing: 
 Every way an engine process gets started, traced to the exec/spawn. Known symptom from the human: "one-shots not going through the same startup procedures". Entry points to trace (find more):
 - `ctxloom run` (internal/cli/run.go, run_owned.go; cli.launchEngineWithPrompt), `ctxloom init`'s launch (internal/cli/init_launch.go), oneshot (internal/operations/oneshot.go, operations.RunOneshot), distill/compact one-shots (internal/cli/distiller.go, cli.newLLMDistiller), task triage / init auth probe if they launch anything.
 - `ctxloom llm host <backend> --label` (internal/cli/llm_host.go, llm_runner_common.go) and who spawns it: internal/lm/isolation/none.go, direct_runner.go; the container runners in internal/lm/isolation.
-- The coordinator's spawn: internal/agentcoord/coord/spawner.go (StartRun, Options.Starter), enginehost.go, owner_run.go; coordtest runners.
+- The coordinator's spawn: internal/core/coord/spawner.go (StartRun, Options.Starter), enginehost.go, owner_run.go; coordtest runners.
 - Engine backends: internal/lm/backends (managed.go, LoadSkillExports), internal/claude/chat_run.go, mockengine.
 - LaunchForm and the "resolved once host-side, carried to the plugin" principle (grep LaunchForm) — is it honoured by every path?
 - Harp minting: which paths mint a session harp and which do not (rows scant-undoing, boned-monoxide describe the intended invariant "every run mints a harp").

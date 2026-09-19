@@ -13,8 +13,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // GitCloneFetcher implements Fetcher by reading from a local git clone.

@@ -22,7 +22,7 @@ Everything durable in delegation is one of:
   (`spool.SpoolDirName`), holding `in/`, `out/` and their `consumed/`, `withdrawn/`
   and `failed/` subdirectories (`spool.Dir`, `spool.Dirs`, `spool.FailedDirNames`).
   A message is a file; the file is the payload's only carrier. The package doc of
-  `internal/agentcoord/spool` is the authority on its properties.
+  `internal/core/spool` is the authority on its properties.
 - **The content-addressed artifact store** (`artifactstore.go`), keyed by sha256.
 
 There is no message journal: a message's durability is the fsynced file, and its
@@ -41,18 +41,18 @@ flowchart TD
   CLI["internal/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
   TUI["internal/cli/tui"]
   MCP["internal/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
-  COORD["internal/agentcoord/coord"]
+  COORD["internal/core/coord"]
   PROTO["internal/agentcoord (proto, seqwatch, messagekind)"]
   SCHEMA["internal/agentcoord/mcpschema"]
-  SPOOL["internal/agentcoord/spool"]
+  SPOOL["internal/core/spool"]
   DISC["internal/agentcoord/discover"]
   OPS["internal/operations"]
   ISO["internal/lm/isolation"]
   TRANS["internal/transcript"]
-  CFG["internal/config"]
+  CFG["internal/core/config"]
   AGENTS["internal/agents"]
   LIVE["internal/liveness"]
-  PATHS["internal/paths"]
+  PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
   ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]
 

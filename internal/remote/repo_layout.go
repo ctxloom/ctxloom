@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // The remote half of the bundle layout: where a publish WRITES, where a fetch

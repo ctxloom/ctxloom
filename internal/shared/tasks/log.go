@@ -13,7 +13,7 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/tagschema"
@@ -22,7 +22,7 @@ import (
 // lockFileMode and lockDirMode are the modes this log's advisory-lock
 // sidecar and its parent directory are created with, before umask — not
 // group- or world-WRITABLE, matching every other lock site in this project
-// (see internal/shared/agent/rmw_lock.go's identically-reasoned pair).
+// (see internal/core/agent/rmw_lock.go's identically-reasoned pair).
 const (
 	lockFileMode = 0o644
 	lockDirMode  = 0o755

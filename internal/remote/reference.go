@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -683,7 +683,7 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	remoteName := r.LocalRemoteName()
 	file := r.Path + ".yaml"
 	// Built from paths.CacheBundlesPath rather than re-assembling cache/ +
-	// bundles/ from their parts, so a layout change in internal/paths cannot
+	// bundles/ from their parts, so a layout change in internal/core/paths cannot
 	// silently miss this call site.
 	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, file)
 }

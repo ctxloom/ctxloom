@@ -10,7 +10,7 @@
 // the child itself emits, not a config diff), and that `agent_send`/
 // `agent_recv` carry real content between coordinator and child —
 // previously exercised only at the unit level
-// (internal/agentcoord/coord/*_test.go).
+// (internal/core/coord/*_test.go).
 //
 // j002600 was already taken (steps_j002600_worktree_task_store.go, landed on this
 // base — not one of the features-draft/ placeholders j001000-j002400 reserve), so
@@ -45,8 +45,8 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // j002300AgentSpec is one delegated child's fixture identity: which profile/
@@ -268,7 +268,7 @@ type j002300TranscriptLine struct {
 
 // j002300TranscriptPath returns harp's canonical transcript path under this
 // scenario's isolated HOME (w.env.HomeDir) — built directly rather than via
-// internal/paths' resolver, which would read the OUTER test process's own
+// internal/core/paths' resolver, which would read the OUTER test process's own
 // ambient HOME, not the isolated one a spawned `ctxloom mcp` subprocess
 // actually wrote under (the identical reasoning steps_j002100_delegation.go's
 // j002100JournalRaw already documents for runs.jsonl).

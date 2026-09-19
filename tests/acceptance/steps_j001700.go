@@ -52,7 +52,7 @@ const (
 	// materialize output.
 	j001700RetractReason = "shipped an incorrect deploy step; do not use"
 	// j001700EmbeddedPrincipal is ctxloom's OWN compiled-in publisher principal
-	// (internal/config/embedded_signers.allowed_signers) — scenario 2 targets
+	// (internal/core/config/embedded_signers.allowed_signers) — scenario 2 targets
 	// this REAL identity, not a stand-in, so the finding is about the actual
 	// production trust root.
 	j001700EmbeddedPrincipal = "ben+ctxloom@abbitt.me"

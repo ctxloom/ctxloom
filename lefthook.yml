@@ -36,7 +36,7 @@ pre-commit:
     archlint:
       # Architectural gate: ctxloom's structural rules (internal/archlint) run
       # as go/analysis analyzers over the whole module. An import that crosses
-      # a layer, a path segment spelled outside internal/paths, a raw
+      # a layer, a path segment spelled outside internal/core/paths, a raw
       # filesystem write, an unlocked read-modify-write, a hand-built
       # <ctxloom-reminder> frame — each fails here with the rule and the fix.
       #
@@ -106,7 +106,7 @@ pre-commit:
       # what is being committed is what must verify.
       run: |
         set -euo pipefail
-        signers=internal/config/embedded_signers.allowed_signers
+        signers=internal/core/config/embedded_signers.allowed_signers
         identity=$(grep -v '^#' "$signers" | grep -v '^[[:space:]]*$' | head -1 | awk '{print $1}')
         for yaml in cmd/*/loadout.yaml; do
           sig="$yaml.sig"

@@ -12,14 +12,14 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Signable is the seam every publisher-signable thing implements: it names
-// its own kind (from the shared item-kind taxonomy, internal/trust — never a
+// its own kind (from the shared item-kind taxonomy, internal/core/trust — never a
 // parallel enum), the exact bytes a publisher signature covers, and where
 // the detached ".sig" sibling lives.
 type Signable interface {
@@ -27,13 +27,13 @@ type Signable interface {
 	//
 	// PLACEMENT NOTE (escalate, do not restructure): trust.ItemKind today has
 	// no member for "a whole bundle file" — only fragment/prompt/mcp/hook/skill,
-	// which address items WITHIN a bundle (see internal/trust/trust.go). Rather
-	// than add a new package-level constant to internal/trust (a different
+	// which address items WITHIN a bundle (see internal/core/trust/trust.go). Rather
+	// than add a new package-level constant to internal/core/trust (a different
 	// package, and a taxonomy decision bigger than this behavior-preserving
 	// refactor), bundleSignable.Kind() below returns the literal
 	// trust.ItemKind("bundle") — the existing TYPE, no new type introduced,
 	// just no declared constant for this value yet. Whether "bundle" belongs
-	// in internal/trust as a real constant (and what it should mean for
+	// in internal/core/trust as a real constant (and what it should mean for
 	// EffectiveTrust, which never gates a bundle-as-a-whole today) is a stage-2
 	// placement question for a human to decide, not something to resolve by
 	// restructuring trust.go here.

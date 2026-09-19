@@ -170,7 +170,7 @@ fragments:
       \ the\nisolation it claimed is not degradable, because the launch IS the exposure.\n`--degraded`\
       \ falls back to the HOST, never to a different ownership mode.\n\n## How to write one of these,\
       \ mechanically\n\nReport the finding; let `strictness` decide its fatality:\n\n    strictness.FailOnce(strictness.ClassConfig,\
-      \ \"<the remedy>\", ...)\n\n`internal/profiles/profiles.go` already does exactly this for the\n\
+      \ \"<the remedy>\", ...)\n\n`internal/core/profiles/profiles.go` already does exactly this for the\n\
       empty-profile cases. `strictness` owns the fatal-vs-warn decision centrally and\n`SetDegraded` flips\
       \ it process-wide, which is what makes the guarantee above\nhold everywhere at once.\n\nTherefore,\
       \ at the site of a check:\n\n- **Do NOT branch on degraded state.** No `if strictness.Degraded()`,\

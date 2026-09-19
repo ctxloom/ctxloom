@@ -3,8 +3,8 @@
 //
 // It exists so the answer is the same everywhere. ctxloom refuses an unknown
 // key in more than one place — the config schema's additionalProperties
-// violations (internal/config) and the strict YAML decode of a bundle
-// (internal/bundles) — and "did you mean" is only useful if it is calibrated
+// violations (internal/core/config) and the strict YAML decode of a bundle
+// (internal/core/bundles) — and "did you mean" is only useful if it is calibrated
 // identically at each of them. A second, slightly different edit-distance
 // budget in a second package is how one surface starts suggesting `ui` for
 // `sync` while the other stays quiet.

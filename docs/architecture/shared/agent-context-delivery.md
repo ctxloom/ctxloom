@@ -23,50 +23,50 @@ flowchart TD
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `AssembleContext` | `internal/shared/agent/base.go:169` | Joins non-empty fragment contents. No dedup, no size warning. |
-| `assembleDedupedContext` | `internal/shared/agent/contextfile.go:84` | Joins fragments, deduplicates by sha256 of content, warns above 16KB. |
-| `WriteContextFile` | `internal/shared/agent/contextfile.go:137` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
-| `ReadContextFile` | `internal/shared/agent/contextfile.go:169` | Reads `<hash>.md` back. |
-| `contextFileOptions` | `internal/shared/agent/contextfile.go:39` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |
-| `ContextFileOption` | `internal/shared/agent/contextfile.go:45` | Functional-option type; threaded cross-package by `internal/operations/hooks.go`. |
-| `WithContextFS` | `internal/shared/agent/contextfile.go:49` | Injects the filesystem. |
-| `WithContextStderr` | `internal/shared/agent/contextfile.go:57` | Redirects the warning sink (test-only in practice). |
-| `applyContextOptions` | `internal/shared/agent/contextfile.go:64` | Applies options over the `OsFs` / `os.Stderr` defaults. |
-| `FrameProjectContext` | `internal/shared/agent/context_framing.go:34` | Wraps assembled context in the ctxloom envelope for system-prompt delivery. |
+| `AssembleContext` | `internal/core/agent/base.go:169` | Joins non-empty fragment contents. No dedup, no size warning. |
+| `assembleDedupedContext` | `internal/core/agent/contextfile.go:84` | Joins fragments, deduplicates by sha256 of content, warns above 16KB. |
+| `WriteContextFile` | `internal/core/agent/contextfile.go:137` | Writes the deduped context to `.ctxloom/cache/context/<hash>.md` and returns the hash. |
+| `ReadContextFile` | `internal/core/agent/contextfile.go:169` | Reads `<hash>.md` back. |
+| `contextFileOptions` | `internal/core/agent/contextfile.go:39` | Options bag: `{fs afero.Fs, stderr io.Writer}`. |
+| `ContextFileOption` | `internal/core/agent/contextfile.go:45` | Functional-option type; threaded cross-package by `internal/operations/hooks.go`. |
+| `WithContextFS` | `internal/core/agent/contextfile.go:49` | Injects the filesystem. |
+| `WithContextStderr` | `internal/core/agent/contextfile.go:57` | Redirects the warning sink (test-only in practice). |
+| `applyContextOptions` | `internal/core/agent/contextfile.go:64` | Applies options over the `OsFs` / `os.Stderr` defaults. |
+| `FrameProjectContext` | `internal/core/agent/context_framing.go:34` | Wraps assembled context in the ctxloom envelope for system-prompt delivery. |
 
 ## Chunking
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `ChunkContext` | `internal/shared/agent/contextchunk.go:31` | Splits context on section boundaries, each chunk under `ContextChunkMaxChars`. |
-| `splitOversizedSection` | `internal/shared/agent/contextchunk.go:80` | Line-splits an over-cap section, never mid-line; warns loudly on an over-cap single line. |
+| `ChunkContext` | `internal/core/agent/contextchunk.go:31` | Splits context on section boundaries, each chunk under `ContextChunkMaxChars`. |
+| `splitOversizedSection` | `internal/core/agent/contextchunk.go:80` | Line-splits an over-cap section, never mid-line; warns loudly on an over-cap single line. |
 
 ## Injection hooks
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `NewContextInjectionHooks` | `internal/shared/agent/context_hooks.go:64` | Reads the context file and decides between one whole-content hook and N ordered chunk hooks. |
-| `NewContextInjectionHook` | `internal/shared/agent/context_hooks.go:23` | Builds the single whole-content SessionStart hook. |
-| `NewContextInjectionChunkHook` | `internal/shared/agent/context_hooks.go:37` | Builds hook *k* of *N*. |
-| `absOrSelf` | `internal/shared/agent/context_hooks.go:49` | Absolutizes a path with fallback to the input — the engine may launch from a different cwd. |
-| `shellSingleQuote` | `internal/shared/agent/context_hooks.go:82` | Single-quotes a value for `/bin/sh`; a path-injection security boundary. |
-| `MergeHooksConfig` | `internal/shared/agent/context_hooks.go:90` | Appends `src`'s hook lists into `dest`. |
-| `HookRoute` | `internal/shared/agent/hook_routes.go:12` | Maps one unified hook slice onto an engine-native event name, with a default matcher. |
-| `RouteUnifiedHooks` | `internal/shared/agent/hook_routes.go:25` | Walks routes, applies default matchers, and emits; the hook writer of every backend that delivers hooks routes through it. |
+| `NewContextInjectionHooks` | `internal/core/agent/context_hooks.go:64` | Reads the context file and decides between one whole-content hook and N ordered chunk hooks. |
+| `NewContextInjectionHook` | `internal/core/agent/context_hooks.go:23` | Builds the single whole-content SessionStart hook. |
+| `NewContextInjectionChunkHook` | `internal/core/agent/context_hooks.go:37` | Builds hook *k* of *N*. |
+| `absOrSelf` | `internal/core/agent/context_hooks.go:49` | Absolutizes a path with fallback to the input — the engine may launch from a different cwd. |
+| `shellSingleQuote` | `internal/core/agent/context_hooks.go:82` | Single-quotes a value for `/bin/sh`; a path-injection security boundary. |
+| `MergeHooksConfig` | `internal/core/agent/context_hooks.go:90` | Appends `src`'s hook lists into `dest`. |
+| `HookRoute` | `internal/core/agent/hook_routes.go:12` | Maps one unified hook slice onto an engine-native event name, with a default matcher. |
+| `RouteUnifiedHooks` | `internal/core/agent/hook_routes.go:25` | Walks routes, applies default matchers, and emits; the hook writer of every backend that delivers hooks routes through it. |
 
 ## Chunk-ordering rendezvous
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `AwaitTurn` | `internal/shared/agent/rendezvous.go:57` | flock-based rendezvous so N chunk hooks in N processes exit in order. |
-| `rendezvousDir` | `internal/shared/agent/rendezvous.go:89` | Per-session tempdir path. |
-| `sweepStaleRendezvous` | `internal/shared/agent/rendezvous.go:106` | GCs rendezvous dirs older than one hour. |
-| `sanitizeSessionID` | `internal/shared/agent/rendezvous.go:131` | Allowlists filename-safe runes; a path-injection guard. |
-| `lockPath` | `internal/shared/agent/rendezvous.go:142` | `<dir>/l<n>.lock`. |
-| `markerPath` | `internal/shared/agent/rendezvous.go:146` | `<dir>/started_<n>`. |
-| `writeMarker` | `internal/shared/agent/rendezvous.go:150` | Publishes the started marker. |
-| `waitFreshMarker` | `internal/shared/agent/rendezvous.go:156` | Polls for a recent predecessor marker, deadline-bounded. |
-| `waitPredecessorExit` | `internal/shared/agent/rendezvous.go:169` | Polls until the predecessor's lock is free. |
+| `AwaitTurn` | `internal/core/agent/rendezvous.go:57` | flock-based rendezvous so N chunk hooks in N processes exit in order. |
+| `rendezvousDir` | `internal/core/agent/rendezvous.go:89` | Per-session tempdir path. |
+| `sweepStaleRendezvous` | `internal/core/agent/rendezvous.go:106` | GCs rendezvous dirs older than one hour. |
+| `sanitizeSessionID` | `internal/core/agent/rendezvous.go:131` | Allowlists filename-safe runes; a path-injection guard. |
+| `lockPath` | `internal/core/agent/rendezvous.go:142` | `<dir>/l<n>.lock`. |
+| `markerPath` | `internal/core/agent/rendezvous.go:146` | `<dir>/started_<n>`. |
+| `writeMarker` | `internal/core/agent/rendezvous.go:150` | Publishes the started marker. |
+| `waitFreshMarker` | `internal/core/agent/rendezvous.go:156` | Polls for a recent predecessor marker, deadline-bounded. |
+| `waitPredecessorExit` | `internal/core/agent/rendezvous.go:169` | Polls until the predecessor's lock is free. |
 
 ## Invariants and contracts
 

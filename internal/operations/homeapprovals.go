@@ -3,7 +3,7 @@ package operations
 import (
 	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // The USER (home-scoped) countersignature store is the one piece of ctxloom

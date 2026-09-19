@@ -1,6 +1,6 @@
-# internal/trust (and the trust gate)
+# internal/core/trust (and the trust gate)
 
-`internal/trust` owns the **vocabulary and the addressing** of the trust model: the closed
+`internal/core/trust` owns the **vocabulary and the addressing** of the trust model: the closed
 enumerations (`Decision`, `Source`, `State`, `ItemKind`), the item address (`Ref`), and the
 canonicalization functions that turn an address into the single stable key every approval
 and rejection is stored under. It holds no state and makes no decision. The *decision* is
@@ -15,9 +15,9 @@ evaluated under is `Ref.CanonicalURL() + "|" + Ref.Key()` — nothing else.
 
 ## Responsibilities
 
-- Closed vocabularies: `Decision`, `Source`, `State`, `ItemKind` (`internal/trust/trust.go:32,45,91,110`).
-- The item address `Ref` and its two halves, `CanonicalURL()` and `Key()` (`internal/trust/trust.go:164,211,204`).
-- URL canonicalization, so a rejection cannot be escaped by respelling a URL (`CanonicalRepoURL`, `internal/trust/trust.go:239`).
+- Closed vocabularies: `Decision`, `Source`, `State`, `ItemKind` (`internal/core/trust/trust.go:32,45,91,110`).
+- The item address `Ref` and its two halves, `CanonicalURL()` and `Key()` (`internal/core/trust/trust.go:164,211,204`).
+- URL canonicalization, so a rejection cannot be escaped by respelling a URL (`CanonicalRepoURL`, `internal/core/trust/trust.go:239`).
 - The decision cascade and its result vocabulary (`internal/operations/trust.go:244,127`).
 - The two review mutations: approve (`SetItemTrust`) and reject (`SetBlacklist`).
 - The exposure chokes: content gate, executable gate, listing stamper (`internal/operations/trust_gate.go`).
@@ -28,9 +28,9 @@ evaluated under is `Ref.CanonicalURL() + "|" + Ref.Key()` — nothing else.
 - Countersignature persistence — `internal/signing/countersign` (`Store.write`, `Store.Verified`).
 - Retraction *discovery* (network/manifest) — `internal/remote` (`retract.go`); the decision
   reads only the local `lock.yaml`. See [remote.md](./remote.md).
-- Publisher-signature verification of a whole bundle — `internal/config`
-  (`verifyBundlePublisher`) and `internal/bundles`; see [config.md](./config.md), [bundles.md](./bundles.md).
-- Deciding *which* items exist — `internal/bundles`.
+- Publisher-signature verification of a whole bundle — `internal/core/config`
+  (`verifyBundlePublisher`) and `internal/core/bundles`; see [config.md](./config.md), [bundles.md](./bundles.md).
+- Deciding *which* items exist — `internal/core/bundles`.
 
 ## The address: what the trust gate keys on
 
@@ -44,13 +44,13 @@ constructor for every approval and rejection address.
 
 | Half | Produced by | Values |
 |---|---|---|
-| `CanonicalURL()` | `internal/trust/trust.go:211` | `remote.LocalSource` (`ctxloom:local`) when `IsLocal`; `BuiltinSigner` (`builtin:ctxloom`) when `IsBuiltin`; else `CanonicalRepoURL(RepoURL)` |
-| `Key()` | `internal/trust/trust.go:204` | `<bundle>#<dir>/<name>`, where `dir` comes from `ItemKind.Dir()` (`trust.go:131`): `fragments`, `prompts`, `mcp`, `hooks`, `skills` |
+| `CanonicalURL()` | `internal/core/trust/trust.go:211` | `remote.LocalSource` (`ctxloom:local`) when `IsLocal`; `BuiltinSigner` (`builtin:ctxloom`) when `IsBuiltin`; else `CanonicalRepoURL(RepoURL)` |
+| `Key()` | `internal/core/trust/trust.go:204` | `<bundle>#<dir>/<name>`, where `dir` comes from `ItemKind.Dir()` (`trust.go:131`): `fragments`, `prompts`, `mcp`, `hooks`, `skills` |
 
-`CanonicalRepoURL` (`internal/trust/trust.go:239`) passes through `""`, `ctxloom:local` and
+`CanonicalRepoURL` (`internal/core/trust/trust.go:239`) passes through `""`, `ctxloom:local` and
 `ctxloom:companion`; otherwise it runs `remote.NormalizeURL`, then for `http`/`https` lowercases
 the host, trims a trailing `/`, and lowercases the path only for hosts in
-`knownCaseFoldForges` (`internal/trust/trust.go:224`).
+`knownCaseFoldForges` (`internal/core/trust/trust.go:224`).
 
 ## Trust state machine
 
@@ -58,9 +58,9 @@ Three axes exist, only the first is a declared `State`:
 
 | Axis | Values | Declared at | Persisted? |
 |---|---|---|---|
-| `State` | `pending`, `accepted`, `rejected` | `internal/trust/trust.go:91-100` | only accepted/rejected, as countersignatures |
-| `Decision` | `allow`, `deny` | `internal/trust/trust.go:32-40` | no — recomputed per exposure |
-| `Source` | `rejected`, `retracted`, `local`, `builtin`, `trusted-signer`, `accepted`, `pending` | `internal/trust/trust.go:45-86` | no — recomputed |
+| `State` | `pending`, `accepted`, `rejected` | `internal/core/trust/trust.go:91-100` | only accepted/rejected, as countersignatures |
+| `Decision` | `allow`, `deny` | `internal/core/trust/trust.go:32-40` | no — recomputed per exposure |
+| `Source` | `rejected`, `retracted`, `local`, `builtin`, `trusted-signer`, `accepted`, `pending` | `internal/core/trust/trust.go:45-86` | no — recomputed |
 
 There is no persisted current state and no transition table. **Every exposure recomputes the
 decision from (bytes, store, trust root, lockfile).** The diagram below is therefore the
@@ -242,7 +242,7 @@ approved, so the next review can show a diff rather than the whole item:
 8. **`BuiltinSigner` (`builtin:ctxloom`) is excluded at step 5** — built-in content is allowed at
    step 4 by identity, not by signature.
 9. **Three kind vocabularies must be kept in sync**: `trust.ItemKind`
-   (`internal/trust/trust.go`), the selector strings in `parseTrustSelector`
+   (`internal/core/trust/trust.go`), the selector strings in `parseTrustSelector`
    (`internal/operations/trust.go`), and the composite `signing.AttestationForm` via
    `attestationFormFor` (`internal/operations/countersign_records.go`). Only the first two are
    held by hand: the third is exhaustiveness-tested against `trust.ItemKinds()`, so a kind added
@@ -254,9 +254,9 @@ approved, so the next review can show a diff rather than the whole item:
 ## Boundaries
 
 - **Depends on:** `internal/remote` only (for `NormalizeURL`, `LocalSource`, `CompanionSource`).
-  `internal/trust` has no I/O, no allocation of consequence, and 275 lines.
+  `internal/core/trust` has no I/O, no allocation of consequence, and 275 lines.
 - **Depended on by:** `internal/cli`, `internal/operations`. The gates are injected *downward*
-  into `internal/bundles` (`bundles.WithTrustGate`) and `internal/config`
+  into `internal/core/bundles` (`bundles.WithTrustGate`) and `internal/core/config`
   (`config.SetExecutableTrustGate`), so those packages never import the decision.
 
 ## Where documented and real behavior diverge
@@ -266,7 +266,7 @@ approved, so the next review can show a diff rather than the whole item:
   *retraction* record moves an item toward allow, and for a bundle carrying a verified publisher
   signature it reaches step 5 and is allowed.
 - `Ref`'s field comment claims `IsLocal`/`IsBuiltin` are mutually exclusive
-  (`internal/trust/trust.go:189`); nothing enforces it, and `CanonicalURL` silently prefers builtin
+  (`internal/core/trust/trust.go:189`); nothing enforces it, and `CanonicalURL` silently prefers builtin
   when both are set.
 - `ItemKind.Dir()` falls through to an unchecked `string(k)` passthrough, so an unknown kind
   produces a well-formed but meaningless selector directory rather than an error. The

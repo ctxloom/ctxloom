@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // mcpCmd is the MCP noun. Bare `ctxloom mcp` conforms to the bare-noun ladder

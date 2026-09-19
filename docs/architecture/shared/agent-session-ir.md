@@ -58,30 +58,30 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `Session` | `internal/shared/agent/backend.go:119` | One engine session: metadata plus its ordered entries. |
-| `SessionMeta` | `internal/shared/agent/backend.go:127` | Session identity and time bounds, listable without loading entries. |
-| `SessionEntry` | `internal/shared/agent/backend.go:153` | One normalized conversation turn (16 fields; core set plus the additive IR2 set). |
-| `SessionSystemKind` | `internal/shared/agent/backend.go:228` | String enum classifying a system entry; `SystemKindNotice` is deliberately `""`. |
-| `SessionEntryType` | `internal/shared/agent/backend.go:308` | String enum: user / assistant / tool-use / system etc. |
-| `PlanFile` | `internal/shared/agent/backend.go:147` | A captured plan document attached to an entry. |
-| `PlanEntry` | `internal/shared/agent/backend.go:249` | One line/item of a plan. |
-| `ToolLocation` | `internal/shared/agent/backend.go:258` | File/range a tool call touched. |
-| `ContentBlock` | `internal/shared/agent/backend.go:270` | One structured content block within an entry. |
-| `ToolContentBlock` | `internal/shared/agent/backend.go:283` | One structured block of a tool result. |
-| `SessionStore` | `internal/shared/agent/sessionstore.go:25` | Test-injection seam (`afero.Fs` + home override) that also hosts the shared JSONL parse loop. |
+| `Session` | `internal/core/agent/backend.go:119` | One engine session: metadata plus its ordered entries. |
+| `SessionMeta` | `internal/core/agent/backend.go:127` | Session identity and time bounds, listable without loading entries. |
+| `SessionEntry` | `internal/core/agent/backend.go:153` | One normalized conversation turn (16 fields; core set plus the additive IR2 set). |
+| `SessionSystemKind` | `internal/core/agent/backend.go:228` | String enum classifying a system entry; `SystemKindNotice` is deliberately `""`. |
+| `SessionEntryType` | `internal/core/agent/backend.go:308` | String enum: user / assistant / tool-use / system etc. |
+| `PlanFile` | `internal/core/agent/backend.go:147` | A captured plan document attached to an entry. |
+| `PlanEntry` | `internal/core/agent/backend.go:249` | One line/item of a plan. |
+| `ToolLocation` | `internal/core/agent/backend.go:258` | File/range a tool call touched. |
+| `ContentBlock` | `internal/core/agent/backend.go:270` | One structured content block within an entry. |
+| `ToolContentBlock` | `internal/core/agent/backend.go:283` | One structured block of a tool result. |
+| `SessionStore` | `internal/core/agent/sessionstore.go:25` | Test-injection seam (`afero.Fs` + home override) that also hosts the shared JSONL parse loop. |
 
 ## Functions
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `MainThreadEntries` | `internal/shared/agent/backend.go:297` | Filters out sidechain entries; used by memory compaction and resume. |
-| `NewSessionStore` | `internal/shared/agent/sessionstore.go:35` | Returns `SessionStore{FS: afero.NewOsFs()}`. |
-| `(*SessionStore) ResolveHomeDir` | `internal/shared/agent/sessionstore.go:40` | `HomeDir` override, else `os.UserHomeDir`. |
-| `(*SessionStore) ParseSessionFile` | `internal/shared/agent/sessionstore.go:105` | Opens a JSONL transcript, runs an unbounded `bufio.Reader` loop calling `parseLine` per line, and derives `StartTime`/`EndTime` from the first and last entry. |
-| `SortSessionsMostRecentFirst` | `internal/shared/agent/sessionstore.go:53` | Sorts `[]SessionMeta` descending by `StartTime`. |
-| `MostRecentSession` | `internal/shared/agent/sessionstore.go:62` | Takes `sessions[0]` and loads it via the supplied getter. |
-| `GetCurrentSessionViaListSessions` | `internal/shared/agent/sessionstore.go:78` | `list(workDir)` then `MostRecentSession`. |
-| `GetCurrentSessionViaGetSession` | `internal/shared/agent/sessionstore.go:89` | Adapts a `(workDir, id)` loader onto the above; the only externally-reached entry of the three. |
+| `MainThreadEntries` | `internal/core/agent/backend.go:297` | Filters out sidechain entries; used by memory compaction and resume. |
+| `NewSessionStore` | `internal/core/agent/sessionstore.go:35` | Returns `SessionStore{FS: afero.NewOsFs()}`. |
+| `(*SessionStore) ResolveHomeDir` | `internal/core/agent/sessionstore.go:40` | `HomeDir` override, else `os.UserHomeDir`. |
+| `(*SessionStore) ParseSessionFile` | `internal/core/agent/sessionstore.go:105` | Opens a JSONL transcript, runs an unbounded `bufio.Reader` loop calling `parseLine` per line, and derives `StartTime`/`EndTime` from the first and last entry. |
+| `SortSessionsMostRecentFirst` | `internal/core/agent/sessionstore.go:53` | Sorts `[]SessionMeta` descending by `StartTime`. |
+| `MostRecentSession` | `internal/core/agent/sessionstore.go:62` | Takes `sessions[0]` and loads it via the supplied getter. |
+| `GetCurrentSessionViaListSessions` | `internal/core/agent/sessionstore.go:78` | `list(workDir)` then `MostRecentSession`. |
+| `GetCurrentSessionViaGetSession` | `internal/core/agent/sessionstore.go:89` | Adapts a `(workDir, id)` loader onto the above; the only externally-reached entry of the three. |
 
 ## Invariants and contracts
 

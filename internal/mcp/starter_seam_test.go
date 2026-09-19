@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord/coordtest"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/spool"
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord/coordtest"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
 // TestStarterSeam_MockChildRidesTheSpool names the seam's contract: a

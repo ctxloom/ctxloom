@@ -63,7 +63,7 @@ Scope note: Phase A is 0019-only. It calls the concrete `tasks.Store` (which alr
 
 Introduce the polymorphic bundle loader the ADR names: a port operations depends on, FS adapter today, DB-swappable tomorrow.
 
-- [ ] `internal/bundles`: define the port.
+- [ ] `internal/core/bundles`: define the port.
   - `type Source interface { Load(name) (*Bundle, error); List() ([]*Bundle, error); LoadFile(path) (*Bundle, error) }` — the concrete `Loader` already satisfies this.
   - `type Store interface { Source; Save(*Bundle) error; Delete(name string) error }`.
   - **Untie persistence from the data type:** move `Bundle.Save()`'s `os.WriteFile` into an `fsStore.Save(b)` adapter (FS adapter wrapping `Loader` for reads + write/delete). `Bundle` becomes pure data (a DB adapter keys by name, not `Bundle.Path`). This is the crux and the riskiest edit.

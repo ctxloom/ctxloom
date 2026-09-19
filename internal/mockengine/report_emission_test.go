@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 func emissionRuntime(t *testing.T, reportFile string, stderr, stdout *strings.Builder) *Runtime {

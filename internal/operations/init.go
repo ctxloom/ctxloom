@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
@@ -280,7 +280,7 @@ func roleLabel(registry config.LMConfig, engine, role string) string {
 // this one swallowed instead, which is the opposite.
 //
 // The failure is a build/embed fault rather than anything a user can cause
-// (internal/config/arch_test.go asserts every accessor resolves), so the point
+// (internal/core/config/arch_test.go asserts every accessor resolves), so the point
 // is not that it happens often — it is that when it does, init must not write
 // a hollow config and call it a project.
 func readResource(read func() ([]byte, error), what string) ([]byte, error) {

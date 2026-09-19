@@ -71,7 +71,7 @@ line.
 Each payload mirrors one `agent.ChatEvent` variant field-for-field. The
 canonical transcript does not define its own vocabulary: every entry type and
 event kind is an `agent.SessionEntryType` or a `ChatEvent` variant that
-already exists in `internal/shared/agent`. That is the design decision ADR
+already exists in `internal/core/agent`. That is the design decision ADR
 0035 records.
 
 - **`entry`** — `agent.SessionEntry`, minus `Timestamp` (the envelope's `ts`
@@ -127,7 +127,7 @@ engine's private files after the fact.
 
 - **Structured chat.** The tee at `GRPCClient.Chat`
   (`internal/lm/grpc/chat.go`) and at the delegated-child engine host
-  (`internal/agentcoord/coord/enginehost.go`) records every `ChatEvent`
+  (`internal/core/coord/enginehost.go`) records every `ChatEvent`
   through `transcript.TeeAndClose`. Full fidelity within §4's drops.
 - **Oneshot `Execute`.** No event stream exists, so
   `transcript.RecordOneshot` captures a two-entry transcript — one `user`

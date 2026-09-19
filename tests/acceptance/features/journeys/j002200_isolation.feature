@@ -65,7 +65,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # recording spy script this suite writes, NEVER to a real installed engine
   # — no live credential, no network call, ever, in any scenario in this
   # file. The spy dumps its OWN os.Environ() (exactly what a real engine
-  # process receives — internal/shared/agent/base.go's BuildEnv) plus a `cat`
+  # process receives — internal/core/agent/base.go's BuildEnv) plus a `cat`
   # of whatever credential file its own env points it at, captured from
   # INSIDE the spawned process — the per-agent scratch config-home does not
   # survive past the run (Cleanup removes it unconditionally), so this is the

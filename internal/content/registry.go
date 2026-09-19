@@ -6,8 +6,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Surface is the decoded, typed representation of one item, carrying that

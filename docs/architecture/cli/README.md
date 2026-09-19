@@ -37,7 +37,7 @@ flowchart TD
     THIN --> OPS[["internal/operations — frontend-neutral core"]]
     THICK --> OPS
     THICK --> ISO[["internal/lm/isolation"]]
-    THICK --> COORD[["internal/agentcoord/coord"]]
+    THICK --> COORD[["internal/core/coord"]]
     THICK --> VPIO[["internal/vpio"]]
     OPS --> DOM[["domain: bundles · config · memory · remote · signing · transcript"]]
     FMT --> CE[["shared/cliemit → pkg/clifmt"]]

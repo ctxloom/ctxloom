@@ -54,7 +54,7 @@ flowchart TD
   RI -->|"stderr param ACCEPTED, NEVER READ"| VOID["/dev/null"]
   AU --> LIVE["internal/liveness/probe.go:75<br/>ProcState{Observed:true, Alive:alive}"]
   AU --> REAP["internal/lm/isolation/worktree_reap.go:205<br/>dead ⇒ DELETE worktree"]
-  AU --> SD["internal/agentcoord/coord/statedir.go:76"]
+  AU --> SD["internal/core/coord/statedir.go:76"]
 
   style VOID fill:#fdd,stroke:#900
 ```
@@ -92,9 +92,9 @@ One function, two build-tagged implementations, no types and no state. Exists as
 |---|---|---|---|
 | `internal/liveness` watchdog | `internal/liveness/probe.go:75` | a live child is declared `StateDied` | a reaped child is never noticed |
 | `internal/lm/isolation` reaper | `internal/lm/isolation/worktree_reap.go:205` | a live agent's worktree is deleted | an orphaned worktree lingers |
-| `internal/agentcoord/coord` state lock | `internal/agentcoord/coord/statedir.go:76` | two coordinators share a state dir | a coordinator is locked out of its state |
+| `internal/core/coord` state lock | `internal/core/coord/statedir.go:76` | two coordinators share a state dir | a coordinator is locked out of its state |
 
-Four one-line wrappers re-export it under local names: `coord.PidAlive` (`internal/agentcoord/coord/pidalive_unix.go:9` + `_windows` twin) and `isolation.pidAlive` (`internal/lm/isolation/pidalive_unix.go:12` + twin). The build tags on those four files are ceremony — the platform split already happened inside `pidalive`.
+Four one-line wrappers re-export it under local names: `coord.PidAlive` (`internal/core/coord/pidalive_unix.go:9` + `_windows` twin) and `isolation.pidAlive` (`internal/lm/isolation/pidalive_unix.go:12` + twin). The build tags on those four files are ceremony — the platform split already happened inside `pidalive`.
 
 ## `internal/shared/stderrtail`
 

@@ -7,7 +7,7 @@
 // Extraction is where an archive backend goes wrong. An archive arrives from
 // somewhere else by definition, so its entries are attacker-controlled: a
 // "../../x" name, an absolute path, a symlink pointing out of the root, a
-// device node, a decompression bomb. internal/bundles.HardenedExtract already
+// device node, a decompression bomb. internal/core/bundles.HardenedExtract already
 // refuses every one of those, normalizes modes to exactly 0755/0644 (preserving
 // the load-bearing scripts/ exec bit while never honouring setuid/setgid/sticky
 // or world-writable), and caps total bytes and entry count.
@@ -18,7 +18,7 @@
 //
 // # Why it lives outside internal/content
 //
-// It needs internal/bundles for the extractor, and internal/bundles is meant to
+// It needs internal/core/bundles for the extractor, and internal/core/bundles is meant to
 // consume the content package rather than the reverse. A leaf subpackage means
 // that dependency cannot become a cycle.
 //
@@ -41,8 +41,8 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 

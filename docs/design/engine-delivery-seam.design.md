@@ -1,7 +1,7 @@
 # Engine delivery seam — design
 
 **Status:** proposed, 2026-08-04. Built so far: the read half's types
-(`internal/shared/agent/delivery_state.go`), which are additive.
+(`internal/core/agent/delivery_state.go`), which are additive.
 
 An engine takes CONTENT and knows how to deliver it. It does not care where the
 content came from; it cares what it is.
@@ -39,7 +39,7 @@ Three observed consequences:
 ## The interface
 
 ```go
-// internal/shared/agent
+// internal/core/agent
 
 // EngineDelivery is what an engine implements: given content, place it.
 //
@@ -303,7 +303,7 @@ should not land during the tree-format migration.
    compose-from-write in `operations.regenerateContext` first: a status command
    that rewrites the surface it inspects is its own bug.
 4. Name the PROCESS stage and give it one boundary: profiles + stores in,
-   resolved ordered forms out. Today it is spread across `internal/config` and
+   resolved ordered forms out. Today it is spread across `internal/core/config` and
    `internal/operations`.
 5. `EngineDelivery` — the wide change, landed per engine behind the existing
    `Declaration` / `Approach` seam, once the process stage emits resolved

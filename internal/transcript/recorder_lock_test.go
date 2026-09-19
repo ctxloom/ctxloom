@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -39,7 +39,7 @@ func tryLockProbe(t *testing.T, path string) (unlock func(), acquired bool) {
 
 // TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose asserts a
 // default-path Recorder (no WithPath override — the shape
-// internal/lm/grpc/chat.go and internal/agentcoord/coord/enginehost.go
+// internal/lm/grpc/chat.go and internal/core/coord/enginehost.go
 // construct for a live structured/ACP session) takes the shared ownership
 // lock on ITS OWN canonical path once it actually opens the file (first
 // successful Record, per ensureFile's lazy-open contract), holds it for as

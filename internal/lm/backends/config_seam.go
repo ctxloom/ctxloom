@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/config"
+import "github.com/ctxloom/ctxloom/internal/core/config"
 
 // loadConfigFn is the config-load seam, in the idiom this package already uses
 // for getBuiltinCommandFn: a package-level function value a test can swap.

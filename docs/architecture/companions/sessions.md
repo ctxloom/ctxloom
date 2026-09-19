@@ -1,4 +1,4 @@
-# `internal/sessions` — the harp-keyed session index
+# `internal/core/sessions` — the harp-keyed session index
 
 **What it is.** A single YAML file, `~/.ctxloom/sessions/index.yaml`, binding a generated harp
 name to a backend session ID, a project dir, a transcript path, and a distilled summary — plus
@@ -11,7 +11,7 @@ SessionStart hook binds the backend session ID (`BindSession`); the compactor st
 and a staleness fingerprint (`SetSummary`); `session list` and the MCP memory
 tools read through `Find` / `ListForProject` / `ListAll` / `Reconcile`.
 
-Dependency direction is clean: this package depends on `internal/paths`, `internal/shared/{harp,
+Dependency direction is clean: this package depends on `internal/core/paths`, `internal/shared/{harp,
 iox,upgrade,clidiag}`, and `github.com/gofrs/flock` (a third-party module, not an internal/shared
 package), and nothing above it.
 

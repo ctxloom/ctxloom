@@ -7,7 +7,7 @@ import (
 	hew "github.com/benjaminabbitt/hew/go"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // ownedCandidate is one pointer a caller believes it manages, and — when it has

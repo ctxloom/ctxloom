@@ -13,7 +13,7 @@ STATUS: COMPLETE.
 
 **Stated architecture read first.** `GLOSSARY.md` (pipeline: control-plane → wire → runner → engine; originator is the ONLY process that execs a container runtime; advice applied ONCE), `docs/architecture/cli/run.md`, `docs/architecture/cli/llm-runners.md`, `docs/architecture/shared/agent-launch-lifecycle.md`, `docs/architecture/engines/isolation.md`, `docs/architecture/agentcoord/child-lifecycle.md`, and rows `scant-undoing`, `boned-monoxide`, `concerned-levitator`, `dimmed-epidural`, `tranquil-mutiny`, `broken-jailbreak` (the last is self-corrected: its premise was false; `operations.ResolveInTreeAgentHome` resolves the home cell-orthogonally).
 
-**Packages read.** `internal/cli` (run.go, run_owned.go, init.go, init_launch.go, distiller.go, llm_host.go, llm_serve.go, llm_turn.go, llm_runner_common.go, mcp_runner.go), `internal/operations` (oneshot.go, delegate.go, agents.go, sessions.go, session_distill.go), `internal/lm/isolation` (isolation.go, none.go, worktree.go, container.go, direct_runner.go), `internal/lm/backends` (managed.go, registry), `internal/lm/grpc` (server.go, client), `internal/shared/agent` (launch_backend.go, base_backend.go, exec paths), `internal/claude` (chat_run.go, backend.go), `internal/agentcoord/coord` (spawner.go, children.go, owner_run.go, enginehost.go), `internal/vpio`, `internal/mcp` (coordinator hosting), `tests/arch/*`.
+**Packages read.** `internal/cli` (run.go, run_owned.go, init.go, init_launch.go, distiller.go, llm_host.go, llm_serve.go, llm_turn.go, llm_runner_common.go, mcp_runner.go), `internal/operations` (oneshot.go, delegate.go, agents.go, sessions.go, session_distill.go), `internal/lm/isolation` (isolation.go, none.go, worktree.go, container.go, direct_runner.go), `internal/lm/backends` (managed.go, registry), `internal/lm/grpc` (server.go, client), `internal/core/agent` (launch_backend.go, base_backend.go, exec paths), `internal/claude` (chat_run.go, backend.go), `internal/core/coord` (spawner.go, children.go, owner_run.go, enginehost.go), `internal/vpio`, `internal/mcp` (coordinator hosting), `tests/arch/*`.
 
 ### Entry points traced (each is a distinct way an engine gets started)
 
@@ -22,13 +22,13 @@ STATUS: COMPLETE.
 | E1 | `ctxloom run` (interactive, host/worktree) | `cli.runRun` → `runState.startTransport` (arm `armGoPlugin`) → `runState.launchSession` | `internal/cli/run.go` | human |
 | E2 | `ctxloom run --one-shot` (host/worktree) | same trunk, `st.mode == pb.ExecutionMode_ONESHOT`, same go-plugin arm | `internal/cli/run.go` | human, `ctxloom tasks run` (seed) |
 | E3 | `ctxloom run` container INTERACTIVE | trunk → `armDockerExecInteractive` → `cli.startContainerInteractive` → `isolation.Policy.StartRunner` + `docker exec … ctxloom llm turn` | `internal/cli/run.go`, `internal/cli/llm_turn.go` | human |
-| E4 | `ctxloom run --one-shot` container | trunk → `armOwnedRunContainer` → `cli.startContainerOwnedRun` → `coord.Coordinator.StartOwnedRun` → `coord.OwnedRunStarter` → `isolation.Container.StartRunner` (`ctxloom llm host`) | `internal/cli/run_owned.go`, `internal/agentcoord/coord/owner_run.go` | human |
+| E4 | `ctxloom run --one-shot` container | trunk → `armOwnedRunContainer` → `cli.startContainerOwnedRun` → `coord.Coordinator.StartOwnedRun` → `coord.OwnedRunStarter` → `isolation.Container.StartRunner` (`ctxloom llm host`) | `internal/cli/run_owned.go`, `internal/core/coord/owner_run.go` | human |
 | E5 | `ctxloom init` launch | `cli.launchEngineWithPrompt` (own plugin client + raw terminal pump) | `internal/cli/init_launch.go` | `ctxloom init` |
 | E6 | `ctxloom init` auth probe | `operations.RunOneshot` (sole production caller) | `internal/cli/init_launch.go` → `internal/operations/oneshot.go` | `ctxloom init` |
 | E7 | distill / compact one-shots | `cli.newLLMDistiller` / `cli.newLLMDistillerForLabel` → `llmDistiller.Distill` → own `pb.Client` + `RunStart` | `internal/cli/distiller.go` | `ctxloom session distill`, run exit-time distill (`shellOutDistill` shells out to the CLI) |
-| E8 | delegated child (`agent_run`) | `coord.Coordinator.AgentRun` → `prodSpawner.StartEngine` → `operations.StartAgentEngine` → `isolation.Policy.StartRunner` (`ctxloom llm host`) | `internal/agentcoord/coord/children.go`, `spawner.go`, `internal/operations/delegate.go` | orchestrating agent over MCP |
-| E9 | runner processes (inside container or as child) | `ctxloom llm host|serve|turn <backend> --label` → `cli.standUpRunner` → `grpc` server → `LaunchBackend.Setup` → `ExecuteCLI` → engine exec | `internal/cli/llm_*.go`, `internal/lm/grpc/server.go`, `internal/shared/agent/launch_backend.go` | E3, E4, E8 (host) / E1,E2,E5,E6,E7 (serve, via go-plugin) |
-| E10 | the actual exec | `agent.LaunchBackend.ExecuteCLI` → `RunInteractive`/`RunNonInteractive` → `exec.Cmd`; `claude.ChatRun` (stream-json chat) | `internal/shared/agent/*`, `internal/claude/chat_run.go` | E9 |
+| E8 | delegated child (`agent_run`) | `coord.Coordinator.AgentRun` → `prodSpawner.StartEngine` → `operations.StartAgentEngine` → `isolation.Policy.StartRunner` (`ctxloom llm host`) | `internal/core/coord/children.go`, `spawner.go`, `internal/operations/delegate.go` | orchestrating agent over MCP |
+| E9 | runner processes (inside container or as child) | `ctxloom llm host|serve|turn <backend> --label` → `cli.standUpRunner` → `grpc` server → `LaunchBackend.Setup` → `ExecuteCLI` → engine exec | `internal/cli/llm_*.go`, `internal/lm/grpc/server.go`, `internal/core/agent/launch_backend.go` | E3, E4, E8 (host) / E1,E2,E5,E6,E7 (serve, via go-plugin) |
+| E10 | the actual exec | `agent.LaunchBackend.ExecuteCLI` → `RunInteractive`/`RunNonInteractive` → `exec.Cmd`; `claude.ChatRun` (stream-json chat) | `internal/core/agent/*`, `internal/claude/chat_run.go` | E9 |
 
 (Table extended below as tracing proceeds.)
 
@@ -77,7 +77,7 @@ Observed on the trunk itself (findings below): R10's `AssignSession` failure is 
 
 | Site | Spawns | Symbol / file |
 |---|---|---|
-| X1 | engine CLI (host or in-container), pty or pipes | `backends.RunLaunchSpec` ← `agent.BaseBackend.run` ← `LaunchBackend.ExecuteCLI` — `internal/lm/backends/launcher.go`, `internal/shared/agent/base.go` |
+| X1 | engine CLI (host or in-container), pty or pipes | `backends.RunLaunchSpec` ← `agent.BaseBackend.run` ← `LaunchBackend.ExecuteCLI` — `internal/lm/backends/launcher.go`, `internal/core/agent/base.go` |
 | X2 | engine CLI, stream-json chat (StartRun path) | `claude.ClaudeCode.spawnChatTransport` ← `ClaudeCode.Chat` — `internal/claude/chat_run.go` |
 | X3 | `ctxloom llm serve` (go-plugin, host) | `grpc.dialLLMConnection` ← `grpc.NewSelfInvokingClientForLabelEnv` — `internal/lm/grpc/client.go` |
 | X4 | `ctxloom llm host` (host, transport-free) | `grpc.StartHostRunner` ← `isolation.None.StartRunner` — `internal/lm/grpc/host_runner.go`, `internal/lm/isolation/none.go` |
@@ -200,10 +200,10 @@ flowchart LR
     attachMCP["cli.attachRunnerMCP"]
     readHandoff["cli.readRunStartHandoff"]
   end
-  subgraph config["internal/config"]
+  subgraph config["internal/core/config"]
     Load["config.Load (SECOND load, runner process)"]
   end
-  subgraph coord["internal/agentcoord/coord"]
+  subgraph coord["internal/core/coord"]
     NewEngineHost["coord.NewEngineHost"]
     NewHome["coord.NewHome (dial-home)"]
     EHstartRun["EngineHost.startRun"]
@@ -219,7 +219,7 @@ flowchart LR
     setupT["grpc.runTurnSetup"]
     execReq["grpc.turnExecuteRequest"]
   end
-  subgraph agent["internal/shared/agent"]
+  subgraph agent["internal/core/agent"]
     Setup["LaunchBackend.Setup"]
     viaCells["LaunchBackend.setupViaCells"]
     scratch["agent.sharedScratchDir"]
@@ -295,7 +295,7 @@ flowchart LR
   subgraph dockerexec["internal/vpio/dockerexec"]
     DEL["dockerexec.NewLauncher / Launcher.Start"]
   end
-  subgraph coord["internal/agentcoord/coord"]
+  subgraph coord["internal/core/coord"]
     StartOwned["Coordinator.StartOwnedRun"]
     enqueue["Coordinator.enqueueRun"]
     viaStart["Coordinator.runChildViaStartRun"]
@@ -337,7 +337,7 @@ The `*pb.RunStart` that R15–R19 assembled (with `ManagedConfig`, `Fragments`, 
 
 ```mermaid
 flowchart LR
-  subgraph coord["internal/agentcoord/coord"]
+  subgraph coord["internal/core/coord"]
     AgentRun["Coordinator.AgentRun"]
     Resolve["prodSpawner.Resolve"]
     headless["coord.headlessSafePermission"]
@@ -365,7 +365,7 @@ flowchart LR
     isoGate["operations.isolationGateErr (strictness.Checkpoint/Since)"]
     PStartEngine["PreparedAgentChat.StartEngine"]
   end
-  subgraph agent["internal/shared/agent"]
+  subgraph agent["internal/core/agent"]
     Compose["agent.ComposeChatMCPServers"]
   end
   subgraph isolation["internal/lm/isolation"]
@@ -432,7 +432,7 @@ flowchart LR
   subgraph backends["internal/lm/backends"]
     AMC["backends.AssembleManagedConfig"]
   end
-  subgraph agent["internal/shared/agent"]
+  subgraph agent["internal/core/agent"]
     LFFC["agent.LaunchFormForCell"]
   end
   subgraph isolation["internal/lm/isolation"]
@@ -498,7 +498,7 @@ flowchart LR
     Compactor["memory.Compactor.runDistill"]
     MDistill["memory.Distill (defaultLLMPlugin='claude-code')"]
   end
-  subgraph config["internal/config"]
+  subgraph config["internal/core/config"]
     FastLabel["config.FastLabel / PrimaryLabel"]
     ResolveLLM["config.ResolveLLM"]
   end
@@ -536,11 +536,11 @@ flowchart TB
   cli["internal/cli"]
   operations["internal/operations"]
   mcp["internal/mcp"]
-  coord["internal/agentcoord/coord"]
+  coord["internal/core/coord"]
   isolation["internal/lm/isolation"]
   backends["internal/lm/backends"]
   grpc["internal/lm/grpc (pb + wire)"]
-  agent["internal/shared/agent (runner core)"]
+  agent["internal/core/agent (runner core)"]
   claude["internal/claude"]
   memory["internal/memory"]
   vpio["internal/vpio{,/goplugin,/dockerexec}"]
@@ -738,7 +738,7 @@ flowchart LR
 
 ### F1 — DIVERGENT PATHS: surface delivery depends on the TRANSPORT ARM, not on the agent (highest blast radius)
 
-The runner has two exec tails. `grpc.RunTurn → LaunchBackend.Setup → setupViaCells → deliverSet → ExecuteCLI` (`internal/lm/grpc/server.go`, `internal/shared/agent/launch_backend.go`) delivers the loadout: context surface, hooks, settings, MCP, commands, skills, statusline, deny-tools. `coord.EngineHost.startRun → decodeHarnessSpec → claude.ClaudeCode.Chat → spawnChatTransport` (`internal/agentcoord/coord/enginehost.go`, `internal/claude/chat_run.go`) delivers NOTHING: it execs the binary with `--print --input-format stream-json …`, an MCP config written to `os.MkdirTemp` (not the session home), `cmd.Env = os.Environ()` + `req.Env`, and never calls `Setup`.
+The runner has two exec tails. `grpc.RunTurn → LaunchBackend.Setup → setupViaCells → deliverSet → ExecuteCLI` (`internal/lm/grpc/server.go`, `internal/core/agent/launch_backend.go`) delivers the loadout: context surface, hooks, settings, MCP, commands, skills, statusline, deny-tools. `coord.EngineHost.startRun → decodeHarnessSpec → claude.ClaudeCode.Chat → spawnChatTransport` (`internal/core/coord/enginehost.go`, `internal/claude/chat_run.go`) delivers NOTHING: it execs the binary with `--print --input-format stream-json …`, an MCP config written to `os.MkdirTemp` (not the session home), `cmd.Env = os.Environ()` + `req.Env`, and never calls `Setup`.
 
 Which tail a run gets is decided by `cli.runTransport(policyName, mode)` and by `coord.runChild`:
 - **E4** `ctxloom run --one-shot` under a container runtime: `runState.buildRunRequest` ASSEMBLES `st.managed` via `backends.AssembleManagedConfig`, then `cli.startContainerOwnedRun` forwards only `st.managed.ChatMCPServers()`; hooks/commands/skills/statusline/deny-tools/context-surface are discarded. The same command on the host (E2) delivers all of them.
@@ -798,7 +798,7 @@ Stated: `cli/<flow> → operations/<flow> → domain` (`tests/arch/layering_test
 - `memory → lm/grpc`: a domain package spawning engines (`memory.Distill`).
 - `operations` mediates none of the transport decision: `cli.runTransport` and the three arm functions live in cli.
 
-**Settles it:** two `layeringRule` entries — `internal/cli` may not import `internal/lm/isolation`, `internal/lm/grpc`, `internal/agentcoord/coord`, `internal/memory` (allowlist = today's files, shrinking); `internal/memory` may not import `internal/lm/grpc`.
+**Settles it:** two `layeringRule` entries — `internal/cli` may not import `internal/lm/isolation`, `internal/lm/grpc`, `internal/core/coord`, `internal/memory` (allowlist = today's files, shrinking); `internal/memory` may not import `internal/lm/grpc`.
 
 ### F7 — DATA-FLOW SMELLS (each a defect class, cited)
 
@@ -832,7 +832,7 @@ Stated: `cli/<flow> → operations/<flow> → domain` (`tests/arch/layering_test
 | `cli/llm-runners.md`: `--label` "carried by one global `llmServeLabel`"; "three runner transports skip the config-warning and strictness gates" | `standUpRunner(cmd, backend, backendName, label)` takes the label; `cli.runLLMHost`/`runLLMTurn` call `gates.close(PhaseStartup)`; `loadAndConfigureBackend` calls `config.RecordWarningsTo` |
 | `llm-runners.md`: `readRunStartHandoff` "registers `defer os.Remove` BEFORE the decode, so a corrupt handoff file is deleted" | `os.Remove` runs after a successful `protojson.Unmarshal` |
 | `agentcoord/child-lifecycle.md`: "Two mutually exclusive launch drivers coexist: migrated StartRun … and the legacy go-plugin chat path"; `Spawner` has `Launch`; `driveChild`/`handleChildEvent`/`onTurnBoundary` "FROZEN" | `coord.runChild` calls only `runChildViaStartRun`; `coord.Spawner` = `{Resolve, AssignSession, RecordEngineVersion, StartEngine, …}` with no `Launch`; the legacy driver is deleted, and its operations-side half (`PreparedAgentChat.Start`) is orphaned (F2) |
-| `engines/isolation.md`: `OwnedRunStarter` is "the seam that lets `coord` spawn a runner without importing `lm/isolation`" | `internal/agentcoord/coord` imports `internal/lm/isolation` (type `isolation.EngineStarter` on `Coordinator`) |
+| `engines/isolation.md`: `OwnedRunStarter` is "the seam that lets `coord` spawn a runner without importing `lm/isolation`" | `internal/core/coord` imports `internal/lm/isolation` (type `isolation.EngineStarter` on `Coordinator`) |
 | `shared/agent-launch-lifecycle.md`: `ApplyLocalCLIConfig` "applies … binary path, args, env" | `agent.ApplyLocalCLIConfig(b, binaryPath, args)` — no env |
 | `internal/operations/oneshot.go` comment on `resolvedRunRequest.Profiles`: "Ignored for a none member (which shares the project cwd and writes no managed config)"; `RunOneshot` comment "nothing consults this gate" | `runResolvedAgent` always calls `backends.AssembleManagedConfig(req.Backend, workDir, req.Gate, req.Profiles)` |
 | `oneshot.go` `RunOneshotRequest.Factory` doc: "lets delegated agent_run children … inject a client" | delegated children no longer pass through `RunOneshot` (StartRun path); only tests and the init probe do |
@@ -918,7 +918,7 @@ HIDDEN: reads project + home config and bundle store itself (`workDir`-rooted), 
 ```go
 // internal/lm/grpc/server.go — runner side
 func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdinCleanup func(), stdout, stderr io.Writer, resize <-chan agent.WindowSize, wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer, func())) (*agent.ExecuteResult, error)
-// internal/shared/agent/launch_backend.go
+// internal/core/agent/launch_backend.go
 func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error
 func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, args []string, oneshotStdin io.Reader, modelInfo *ModelInfo, stdout, stderr io.Writer) (*ExecuteResult, error)
 ```
@@ -931,7 +931,7 @@ func (b *ClaudeCode) Chat(parentCtx context.Context, req agent.ChatRequest, in <
 INPUT: `ChatRequest{Model, WorkDir, Env, MCPServers, Permissions, ResumeSessionID, TranscriptRawPolicy, ForwardTerminal, ModelQuirk}`. HIDDEN: `os.MkdirTemp` for `.mcp.json`, `os.Environ()`, `os.Stderr` as the child's stderr, `b.BinaryPath`/`b.Args`.
 
 ```go
-// internal/agentcoord/coord
+// internal/core/coord
 func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRunSpec, start OwnedRunStarter, prompt string) (*RunOutcome, error)
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error)
 // internal/lm/grpc/client.go

@@ -1,9 +1,9 @@
 package backends
 
 import (
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // mockExports resolves mock's per-prompt command export. Every prompt is

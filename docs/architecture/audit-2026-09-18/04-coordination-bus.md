@@ -9,7 +9,7 @@ References are by `package.Symbol` + file. No line numbers.
 
 ## 1. Scope and entry points
 
-**Seam:** the coordination bus — `internal/agentcoord` (proto + `seqwatch.go` + `messagekind.go`), `internal/agentcoord/coord` (the runtime, both coordinator and runner halves), `internal/agentcoord/spool` (the file substrate). Read in full: `coordinator.go`, `children.go`, `consumer.go`, `runchannel.go`, `grpcserver.go`, `httpserver.go`, `runnerlink.go`, `home.go`, `enginehost.go`, `enginehost_control.go`, `spooldelivery.go`, `spooldoorbell.go`, `spoolcourier.go`, `spoolwriter.go`, `spoolowner.go`, `spoolturnresult.go`, `spoolcontrol.go`, `ownerrecv.go`, `owner_run.go`, `launchgate.go`, `drain.go`, `tracked.go`, `liveness.go`, `journal.go`, `folds.go`, `reports.go`, `pendingapproval.go`, `spool/*.go`, `coordination.proto`, plus the callers in `internal/mcp/mcp_runner.go`, `internal/mcp/mcp_tools_agents.go`, `internal/mcp/coord_host.go`. Skimmed: `artifacts*.go`, `homeartifacts.go`, `publish.go`, `checkpoint.go`, `facts.go`, `items.go`, `spawner.go`, `harnessspec.go`, `capabilities.go`.
+**Seam:** the coordination bus — `internal/agentcoord` (proto + `seqwatch.go` + `messagekind.go`), `internal/core/coord` (the runtime, both coordinator and runner halves), `internal/core/spool` (the file substrate). Read in full: `coordinator.go`, `children.go`, `consumer.go`, `runchannel.go`, `grpcserver.go`, `httpserver.go`, `runnerlink.go`, `home.go`, `enginehost.go`, `enginehost_control.go`, `spooldelivery.go`, `spooldoorbell.go`, `spoolcourier.go`, `spoolwriter.go`, `spoolowner.go`, `spoolturnresult.go`, `spoolcontrol.go`, `ownerrecv.go`, `owner_run.go`, `launchgate.go`, `drain.go`, `tracked.go`, `liveness.go`, `journal.go`, `folds.go`, `reports.go`, `pendingapproval.go`, `spool/*.go`, `coordination.proto`, plus the callers in `internal/mcp/mcp_runner.go`, `internal/mcp/mcp_tools_agents.go`, `internal/mcp/coord_host.go`. Skimmed: `artifacts*.go`, `homeartifacts.go`, `publish.go`, `checkpoint.go`, `facts.go`, `items.go`, `spawner.go`, `harnessspec.go`, `capabilities.go`.
 
 ### Entry points traced (each to its process boundary)
 
@@ -64,7 +64,7 @@ flowchart LR
     SMF["spoolMessageForMail"]
     WC["spoolWriterCache.writerFor"]
   end
-  subgraph spool["internal/agentcoord/spool"]
+  subgraph spool["internal/core/spool"]
     WW["spool.Writer.Write"]
     WAS["writeAndSync + syncDir"]
     HM["spool.HomeMapper.Resolve<br/>(reads $HOME)"]
@@ -479,18 +479,18 @@ flowchart TD
   CLI["internal/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
   TUI["internal/cli/tui"]
   MCP["internal/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
-  COORD["internal/agentcoord/coord"]
+  COORD["internal/core/coord"]
   PROTO["internal/agentcoord (proto, seqwatch, messagekind)"]
   SCHEMA["internal/agentcoord/mcpschema"]
-  SPOOL["internal/agentcoord/spool"]
+  SPOOL["internal/core/spool"]
   DISC["internal/agentcoord/discover"]
   OPS["internal/operations"]
   ISO["internal/lm/isolation"]
   TRANS["internal/transcript"]
-  CFG["internal/config"]
+  CFG["internal/core/config"]
   AGENTS["internal/agents"]
   LIVE["internal/liveness"]
-  PATHS["internal/paths"]
+  PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
   ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]
 
@@ -763,7 +763,7 @@ func Withdraw(m PathMapper, ref Ref) (Ref, error)
 func Fail(m PathMapper, ref Ref) error
 type Message struct { V int; ID string; Kind string; FromHarp string; To string; InReplyTo string; OriginID string; Created time.Time; TTLSeconds int; Structured map[string]any; Body string; head *yaml.Node }
 ```
-All INPUT explicit except `HomeMapper.Resolve`, which reads `$HOME` (via `internal/paths`) — the one hidden input, and it is the one every caller uses. `Write` OUTPUT: a file `<seq>.<writerID>.md` (fsynced, dir-synced) — `seq` derives from a directory scan at writer construction (`highestSeq`), which is why writers must be cached per (harp, dir).
+All INPUT explicit except `HomeMapper.Resolve`, which reads `$HOME` (via `internal/core/paths`) — the one hidden input, and it is the one every caller uses. `Write` OUTPUT: a file `<seq>.<writerID>.md` (fsynced, dir-synced) — `seq` derives from a directory scan at writer construction (`highestSeq`), which is why writers must be cached per (harp, dir).
 
 **Coordinator-side courier — `spoolcourier.go`**
 ```go
@@ -807,7 +807,7 @@ message SpoolChanged { string harp = 1; SpoolDir dir = 2; string name = 3; }
 | F4 owner run vs child run, F-DF-5 token/env, U3 kill path, `StartEngine` God-struct | **1 (launch form / resolved paths)** — `operations.PrepareAgentChat`, `isolation.EngineStarter`, `runnerEnv` consumers |
 | F12 transcript import, `EngineHost.startRun`'s recorder, `HarnessSpec.config` blob | **7 (session harp / transcript path)** |
 | F11 D3 vs `pendingapproval.go`, U7 | **5 (preimage / approval)** |
-| F-DF-7 `$HOME`-resolved spool root at 9 sites, `spool.HomeMapper`, `internal/paths` | **6 (config value flag/env/file → use site)** and the path-authority arch test (`tests/arch/path_authority_test.go`, not read here) |
+| F-DF-7 `$HOME`-resolved spool root at 9 sites, `spool.HomeMapper`, `internal/core/paths` | **6 (config value flag/env/file → use site)** and the path-authority arch test (`tests/arch/path_authority_test.go`, not read here) |
 | F8 `terminateRun` layers, F3 inbox reader, F6 stream session — pure seam-4 refactors | none; but F8's `afterTerminal` is where seam 1's "release the host engine like the container" (night report item 6) would land |
 | F1 docs deletion + the unresolved-symbol arch test | all seams (the same test would catch every seam's stale prose) |
 

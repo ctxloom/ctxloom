@@ -124,7 +124,7 @@
 //     signing/review/publish flow. That is deliberate: this package stays a
 //     pure, dependency-free parser/matcher. The well-known-path reading and
 //     embedded/user/project precedence merge (via Union) live in
-//     internal/config.Config.TrustRoot; the resulting Store is the load-
+//     internal/core/config.Config.TrustRoot; the resulting Store is the load-
 //     bearing trust gate consumed by internal/operations (countersign_records.go,
 //     review.go, signer.go) and internal/signing/publisher.go.
 //   - It exposes no CLI.

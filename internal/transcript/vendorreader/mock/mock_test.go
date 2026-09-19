@@ -1,6 +1,6 @@
 // This suite is self-contained and independently triggerable, matching the
 // claude adapter suite's convention: it imports only internal/transcript (the
-// Recorder sink), internal/paths, and internal/testsupport (env/HOME
+// Recorder sink), internal/core/paths, and internal/testsupport (env/HOME
 // isolation) — no other engine's adapter.
 //
 //	go test ./internal/transcript/vendorreader/mock/...
@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/internal/transcript"

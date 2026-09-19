@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/trust"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 func TestAferoTreeFS_ListsAndReadsStoreRelativeSlashPaths(t *testing.T) {

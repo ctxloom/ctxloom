@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -58,7 +58,7 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	// Default output shape (CLI-primary reorg plan, decision 13): a
 	// lightweight projection — harp, single-line summary, start, end,
 	// essence path — never the full Entry (session_id, transcript paths,
-	// etc. stay off this wire; internal/sessions.Entry's own json posture
+	// etc. stay off this wire; internal/core/sessions.Entry's own json posture
 	// is untouched). --full swaps in each session's complete essence body
 	// (see session_full.go); emitSessionRows owns both shapes.
 	return emitSessionRows(cmd, entries, sessionListFull, appDir)

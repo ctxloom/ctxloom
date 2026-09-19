@@ -463,7 +463,7 @@ Both are repeatable; a task carries as many as it needs.
 ### `touches:` — files this task will EDIT
 
 ```
-touches:"internal/agentcoord/coord/children.go"
+touches:"internal/core/coord/children.go"
 ```
 
 **The quotes are REQUIRED.** tagma's tag grammar reserves `/`, so an unquoted
@@ -516,7 +516,7 @@ intersection means those tasks take turns or share a worktree — it is not a
 reason to skip either, only a reason not to run them at once.
 
 This is not hypothetical. Two tasks in this log both edit
-`internal/agentcoord/coord/children.go`, and with nothing recording that, the
+`internal/core/coord/children.go`, and with nothing recording that, the
 collision had to be written into the task bodies as prose. Prose does not
 survive a query.
 

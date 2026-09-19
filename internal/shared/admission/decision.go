@@ -2,7 +2,7 @@
 // ctxloom takes, and the one store that records the human answers behind them.
 //
 // Three gates arrived at the same design independently — content exposure
-// (internal/bundles), companion execution (internal/config) and publish
+// (internal/core/bundles), companion execution (internal/core/config) and publish
 // destinations (internal/remote) — and two of them grew separate
 // trust-on-first-use stores on the same day. This package is that convergence
 // stated once, so the FOURTH gate inherits the six properties the three

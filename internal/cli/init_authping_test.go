@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -202,7 +202,7 @@ func TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly(t *testing.T) {
 // TestDiscoveryRunRequest_StampsTheHarpIntoEnv pins the actual bug fix: the
 // discovery launch's wire request must carry the session's harp under
 // agent.SessionHarpEnv, the SAME key BaseBackend.run reads to populate
-// LaunchSpec.Harp (internal/shared/agent/base.go) and panelaunch.go's
+// LaunchSpec.Harp (internal/core/agent/base.go) and panelaunch.go's
 // runInteractiveInPane refuses outright without ("interactive launch
 // requires a named session"). Before this fix discoveryRunRequest had no way
 // to receive a harp at all — the init discovery launch built its request with

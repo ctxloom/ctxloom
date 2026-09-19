@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // TestCellKindForPolicy pins the host-side mapping the run boundary stamps onto

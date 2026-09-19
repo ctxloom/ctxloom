@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // defaultLLMPlugin is the plugin a distillation call falls back to when the

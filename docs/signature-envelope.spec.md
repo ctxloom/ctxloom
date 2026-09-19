@@ -36,7 +36,7 @@ The planned-not-implemented set, in full, as of 2026-07-13:
 | § | Claim | Actual state |
 |---|---|---|
 | §4.4, §7A.6 | Org drop-in channel: a signed `(x.yaml, x.yaml.sig)` pair dropped into a directory ctxloom reads is verified | **No filesystem load path verifies a `.sig`.** Verification is wired for the remote-git seed and the companion loadout only. A local pair is treated as first-party (allowed unverified); a dropped-in one gets no signer. |
-| §6 | Three keys, three pipelines (release / bundle / per-companion) | **One key.** `internal/config/embedded_signers.allowed_signers` ships a single publish key, which signs both the ctxloom-default bundles and both companion loadouts. `.goreleaser.yml` has **no `signs:` block** — release artifacts are unsigned. |
+| §6 | Three keys, three pipelines (release / bundle / per-companion) | **One key.** `internal/core/config/embedded_signers.allowed_signers` ships a single publish key, which signs both the ctxloom-default bundles and both companion loadouts. `.goreleaser.yml` has **no `signs:` block** — release artifacts are unsigned. |
 | §7 | The embedded defaults are removable (`signer remove` writes a negative entry) | **Not removable.** The embedded trust root is compiled in and unconditionally unioned (`config.TrustRoot`). `operations.RemoveSigner` rewrites only the user/project *file*; there is no negative-entry mechanism, so ctxloom's own key cannot be untrusted. |
 | §7A.4 | `--key` / `sign.key` honored on `review` | **Honored by `sign`, not by `review`.** `resolveReviewSigner` passes an empty explicit key into the discovery chain, so `review` resolves via git config → ssh-agent only. (trust-model.md Known gap 6.) |
 | §9.1.2 | Persisted posture acknowledgment (`approvals.posture`, the `[c]/[p]/[q]` prompt, "warn once ever") | **Warns once per `review` invocation.** There is no `approvals.posture` config key and no three-way prompt. (trust-model.md Known gap 5.) |
@@ -231,9 +231,9 @@ Here is the impedance mismatch that must be understood, or the implementation wi
 be wrong:
 
 **The publisher signs a *file*. The gate exposes an *item*.**
-`Loader.gateContent` (`internal/bundles/loader.go`) never sees file bytes. It is
+`Loader.gateContent` (`internal/core/bundles/loader.go`) never sees file bytes. It is
 fed, from the fragment and command resolution paths in
-`internal/bundles/loader_content.go`, the *decoded scalar value* of one item —
+`internal/core/bundles/loader_content.go`, the *decoded scalar value* of one item —
 `BundleFragment.ContentPayload` / `BundleCommand.ContentPayload` — and the gate
 covers exactly those bytes. A human approves *that fragment*, in *that form*, not
 the whole file.
@@ -683,7 +683,7 @@ envelope rather than a sibling file.
 
 The companion binary owns and emits its own bundle (`cmd/ltk/loadout.go`,
 `cmd/taskloom/loadout.go`), mirroring the `<bin> version --format json` probe
-convention, and ctxloom discovers it at boot (`internal/config/companions.go`).
+convention, and ctxloom discovers it at boot (`internal/core/config/companions.go`).
 This replaced an earlier design in which companion bundles were vendored into
 ctxloom's own binary under `resources/builtin_bundles/`; **those vendored bundles
 are deleted** — that directory now holds only a README.
@@ -832,7 +832,7 @@ not close it and does not widen it.
 ## 6. Three signing surfaces — separate keys, separate pipelines, do not fuse
 
 > **PLANNED — not yet implemented.** The **key separation described here does not
-> exist.** `internal/config/embedded_signers.allowed_signers` ships **exactly one
+> exist.** `internal/core/config/embedded_signers.allowed_signers` ships **exactly one
 > key**, trusted for the publish namespace, and that single key signs both the
 > ctxloom-default bundles (surface 2) and both companion loadouts (surface 3).
 > `.goreleaser.yml` has **no `signs:` block at all** — surface 1 does not exist:
@@ -1268,7 +1268,7 @@ rejected bundle **succeeds**, and its content is then withheld at exposure.
 
 ### 8.1 Plumbing the signer to the gate
 
-`ContentGate` (`internal/bundles/loader.go`) is:
+`ContentGate` (`internal/core/bundles/loader.go`) is:
 
 ```go
 type ContentGate func(ref string, payload []byte, form, signer string) bool
@@ -1733,7 +1733,7 @@ Realistic session: ~10-30 bundles, ~50-200 exposed items.
 | Store index build (readdir) | once per process | one `readdir`, ~ms |
 
 **Worst case is well under 20ms on a cold session.** For comparison, the boot-time
-companion probe (`companionProbeTimeout`, `internal/config/companions.go`) budgets **3 seconds**. This is
+companion probe (`companionProbeTimeout`, `internal/core/config/companions.go`) budgets **3 seconds**. This is
 two orders of magnitude below anything the user can perceive, and it is dwarfed by
 the git object reads happening alongside it.
 

@@ -7,7 +7,7 @@ writer, its `agent.Declaration` of surface approaches (`backends.Declared`),
 its command/skill exporters, and its declared capabilities — without any
 shared code ever type-switching on a concrete engine.
 The interface itself (`agent.Backend`) lives one layer down in
-`internal/shared/agent` so the plugin side can implement it without importing the
+`internal/core/agent` so the plugin side can implement it without importing the
 registry.
 
 The load-bearing design rule: **adding an engine means registering ONE descriptor**
@@ -58,7 +58,7 @@ classDiagram
     Mock ..|> StructuredChat
 ```
 
-`Backend` (`internal/shared/agent/backend.go:65-79`) is deliberately **narrow**:
+`Backend` (`internal/core/agent/backend.go:65-79`) is deliberately **narrow**:
 identity, modes, history, and the `Setup → Execute → Cleanup` lifecycle. It does
 *not* carry hook/command/context/MCP accessors — those are an engine's internal
 setup wiring, reached through the surfaces seam instead, because forcing them
@@ -69,18 +69,18 @@ type's own doc comment).
 
 | Symbol | Location | Meaning |
 |---|---|---|
-| `Backend` | `internal/shared/agent/backend.go:65` | The runner-facing launch contract (7 methods). |
-| `BackendConfig` | `internal/shared/agent/backend.go:22` | Marker interface for an engine's typed config; `BackendType()` is the discriminator. |
-| `ExecutionMode` | `internal/shared/agent/backend.go:29` | `ModeInteractive` (0) / `ModeOneshot` (1). |
-| `SetupRequest` | `internal/shared/agent/backend.go:324-339` | WorkDir, Fragments, Env, Verbosity, `Managed *ManagedConfig`, `CellKind`. |
-| `ManagedConfig` | `internal/shared/agent/backend.go:348-363` | Host-assembled config/bundle payload. **7 fields.** See [the plugin wire](grpc-wire.md). |
-| `ExecuteRequest` | `internal/shared/agent/backend.go:366-397` | Prompt, WorkDir, Mode, Model, Env, DryRun, `Permissions`, Temperature, `CellKind`, Stdin, Resize. No launch form: where surfaces land is resolved by `Setup`, and Execute emits what Setup resolved. |
-| `ExecuteResult` | `internal/shared/agent/backend.go:400-403` | ExitCode + ModelInfo. |
-| `SessionHistory` | `internal/shared/agent/backend.go:95-116` | Transcript reading + `/clear` recovery. Returned by `Backend.History()`. |
-| `Session` / `SessionEntry` | `internal/shared/agent/backend.go:119`, `:153` | The normalized transcript IR (see [transcript IR](#the-transcript-ir)). |
-| `Fragment` | `internal/shared/agent/backend.go:40-48` | One piece of injected context. Distinct from slash commands, which ride `ManagedConfig.Commands`. |
-| `CellKind` | `internal/shared/agent/cells.go:249-264` | Shared / DirectoryIsolated / ProcessIsolated — the resolved isolation cell, decided host-side. |
-| `SurfaceInputs` | `internal/shared/agent/cells.go` | One run's content — everything an engine's approach constructors (`agent.Construct`) consume. Carries no roots; those reach the built approach at `Present`/`Deliver` time. |
+| `Backend` | `internal/core/agent/backend.go:65` | The runner-facing launch contract (7 methods). |
+| `BackendConfig` | `internal/core/agent/backend.go:22` | Marker interface for an engine's typed config; `BackendType()` is the discriminator. |
+| `ExecutionMode` | `internal/core/agent/backend.go:29` | `ModeInteractive` (0) / `ModeOneshot` (1). |
+| `SetupRequest` | `internal/core/agent/backend.go:324-339` | WorkDir, Fragments, Env, Verbosity, `Managed *ManagedConfig`, `CellKind`. |
+| `ManagedConfig` | `internal/core/agent/backend.go:348-363` | Host-assembled config/bundle payload. **7 fields.** See [the plugin wire](grpc-wire.md). |
+| `ExecuteRequest` | `internal/core/agent/backend.go:366-397` | Prompt, WorkDir, Mode, Model, Env, DryRun, `Permissions`, Temperature, `CellKind`, Stdin, Resize. No launch form: where surfaces land is resolved by `Setup`, and Execute emits what Setup resolved. |
+| `ExecuteResult` | `internal/core/agent/backend.go:400-403` | ExitCode + ModelInfo. |
+| `SessionHistory` | `internal/core/agent/backend.go:95-116` | Transcript reading + `/clear` recovery. Returned by `Backend.History()`. |
+| `Session` / `SessionEntry` | `internal/core/agent/backend.go:119`, `:153` | The normalized transcript IR (see [transcript IR](#the-transcript-ir)). |
+| `Fragment` | `internal/core/agent/backend.go:40-48` | One piece of injected context. Distinct from slash commands, which ride `ManagedConfig.Commands`. |
+| `CellKind` | `internal/core/agent/cells.go:249-264` | Shared / DirectoryIsolated / ProcessIsolated — the resolved isolation cell, decided host-side. |
+| `SurfaceInputs` | `internal/core/agent/cells.go` | One run's content — everything an engine's approach constructors (`agent.Construct`) consume. Carries no roots; those reach the built approach at `Present`/`Deliver` time. |
 
 ### Registry API
 
@@ -133,7 +133,7 @@ would forfeit that standing.
 
 ### 2. `PermissionMode` is one vocabulary, mapped per engine
 
-`agent.PermissionMode` (`internal/shared/agent/permissions.go:15-33`) mirrors
+`agent.PermissionMode` (`internal/core/agent/permissions.go:15-33`) mirrors
 claude's `--permission-mode` vocabulary so one vocabulary spans every client. Four
 tiers:
 
@@ -152,7 +152,7 @@ Supporting functions: `String()` (`:36`), `AllowsWithoutPrompt()` (`:53` — onl
 
 ### 3. `plan` collapses on engines that cannot enforce it
 
-`CollapsePlanIfUnenforced` (`internal/shared/agent/permissions.go:116-121`) returns
+`CollapsePlanIfUnenforced` (`internal/core/agent/permissions.go:116-121`) returns
 `PermissionDefault` in place of `PermissionPlan` when the backend has no genuine
 read-only tier — so `plan` **never runs unrestrained**. Its input comes from
 `backends.EnforcesReadOnlyPlan` (`registry.go:148`). Two call sites apply it:
@@ -175,7 +175,7 @@ predicate is pinned so it cannot degrade into "is this backend known?".
 
 ## The transcript IR
 
-`SessionEntry` (`internal/shared/agent/backend.go:153-224`) is the normalized
+`SessionEntry` (`internal/core/agent/backend.go:153-224`) is the normalized
 conversation IR every backend's `History()` produces. Beyond the
 original flat fields (`Timestamp`, `Type`, `Content`, `ToolName`, `ToolInput`,
 `ToolOutput`, `IsError`), the IR2 revision added optional richness — every field

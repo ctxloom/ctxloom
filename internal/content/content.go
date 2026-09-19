@@ -53,8 +53,8 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // BundleID identifies one bundle within a Store. For the tree implementation

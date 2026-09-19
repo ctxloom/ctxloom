@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // SchemaVersion is the canonical transcript envelope's current version. Bump

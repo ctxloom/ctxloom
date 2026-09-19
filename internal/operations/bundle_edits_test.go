@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // applyFragmentEdits merges fragment inputs and reports which names need

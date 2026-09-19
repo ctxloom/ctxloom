@@ -27,7 +27,7 @@
 // was actually handed (isoSpyEnvAllowlist — a CLOSED allowlist, never the
 // whole environment; see that list's doc for the secret-leak hazard the
 // allowlist closes) out of what a real engine process would receive, per
-// internal/shared/agent/base.go's BuildEnv (os.Environ() of the plugin
+// internal/core/agent/base.go's BuildEnv (os.Environ() of the plugin
 // subprocess + the backend's own env + the request env) — plus a `cat` of
 // whatever credential file its own env vars point it at. This is captured
 // from INSIDE the spawned process because the
@@ -77,7 +77,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 

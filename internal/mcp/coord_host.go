@@ -7,9 +7,9 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 

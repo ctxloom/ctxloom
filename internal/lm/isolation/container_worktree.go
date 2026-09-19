@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/git"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // worktreeBase is the worktree-in-container base: the {Workspace: worktree} ×

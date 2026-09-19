@@ -174,10 +174,10 @@ func TestCallerPackageFrom_KeysOnTheTestNotTheHelper(t *testing.T) {
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
 				prefix + "internal/testsupport.Isolate",
-				prefix + "internal/config.TestLoad.func1",
+				prefix + "internal/core/config.TestLoad.func1",
 				"testing.tRunner",
 			},
-			want: "internal/config",
+			want: "internal/core/config",
 		},
 		{
 			name: "an external test package folds into the package it tests",
@@ -186,16 +186,16 @@ func TestCallerPackageFrom_KeysOnTheTestNotTheHelper(t *testing.T) {
 				prefix + "internal/paths_test.TestResolve",
 				"testing.tRunner",
 			},
-			want: "internal/paths",
+			want: "internal/core/paths",
 		},
 		{
 			name: "no testing frame falls back to the innermost foreign package",
 			stack: []string{
 				prefix + "internal/shared/tasks/taskstest.Isolate",
 				prefix + "internal/testsupport.Isolate",
-				prefix + "internal/sessions.setupMain",
+				prefix + "internal/core/sessions.setupMain",
 			},
-			want: "internal/sessions",
+			want: "internal/core/sessions",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

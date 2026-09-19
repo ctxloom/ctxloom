@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -194,7 +194,7 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 // not a full config.Load: agents.*.runtime is ScopeMachine
 // (internal/config/layerscope), so a committed PROJECT file — every clone's
 // copy — no longer has this value take effect on a real Load; that closure is
-// covered by internal/config's own layerscope tests. What this test still
+// covered by internal/core/config's own layerscope tests. What this test still
 // pins is that SetAgent itself writes the byte, never silently discarding it.
 func TestSetAgent_PersistsRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))

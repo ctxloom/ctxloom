@@ -20,9 +20,9 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript"

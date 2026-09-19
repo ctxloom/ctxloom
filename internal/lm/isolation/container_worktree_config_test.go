@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/git"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // newCell builds the two host trees projectConfigMount arbitrates between: the

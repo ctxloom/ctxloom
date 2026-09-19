@@ -1,6 +1,6 @@
-# internal/profiles
+# internal/core/profiles
 
-`internal/profiles` owns the **directory-profile** half of ctxloom's context-composition
+`internal/core/profiles` owns the **directory-profile** half of ctxloom's context-composition
 mechanism: it reads `.ctxloom/profiles/<name>.yaml` (plus bundle-shipped profiles seeded in
 memory), migrates their on-disk schema forward on every load, and resolves a named profile
 plus its parent graph into one flattened `ResolvedProfile` listing the bundles, fragments,
@@ -10,7 +10,7 @@ It is the **fallback leg of a two-source resolver**. `operations.resolveProfile`
 (`internal/operations/context.go:567`) and `lm/backends.assembleManaged*` first try
 `config.ResolveProfile` over the inline `profiles:` map in `config.yaml`, and only fall
 through to `Loader.ResolveProfile` when the name is not inline. Every semantic here therefore
-has a twin in `internal/config/config_resolve.go`, kept in lockstep by hand.
+has a twin in `internal/core/config/config_resolve.go`, kept in lockstep by hand.
 
 ## Responsibilities
 
@@ -22,7 +22,7 @@ has a twin in `internal/config/config_resolve.go`, kept in lockstep by hand.
 
 ## Non-responsibilities
 
-- Inline `profiles:` in `config.yaml` — `internal/config` (`ResolveProfile`); see [config.md](./config.md).
+- Inline `profiles:` in `config.yaml` — `internal/core/config` (`ResolveProfile`); see [config.md](./config.md).
 - Profile CRUD *operations* and import/export — `internal/operations`
   (`profiles.go`, `profile_transfer.go`); see [operations.md](./operations.md).
 - Turning a resolved profile into delivered text — `operations.AssembleContext`.
@@ -64,14 +64,14 @@ flowchart TD
 
 | Type | file:line | What it carries |
 |---|---|---|
-| `Profile` | `internal/profiles/profiles.go:144` | The on-disk document: `Bundles`, `BundleItems`, `Fragments`, `Commands`, `Skills`, `SelectTags`, `Hooks`, `MCP`, `Description`, `Tags`, `LLM`, `Variables`, `ExcludeFragments`, `ExcludeMCP`, `DenyTools`, `Parents`, plus three `yaml:"-"` derived fields (`Name`, `Path`, `Signer`) the loader stamps. |
-| `FragmentRef` | `internal/profiles/profiles.go:33` | `{Name, Priority}`; accepts a bare string or a `{name, priority}` map. Mirror of `config.FragmentRef` (this package cannot import `config`, which imports it). |
-| `Loader` | `internal/profiles/profiles.go:231` | `dirs`, `fs`, `remoteResolver`, `remoteURLResolver`, `pending`/`pendingPaths` (the upgrade ledger), `seeded` (bundle-shipped profiles). |
-| `LoaderOption` | `internal/profiles/profiles.go:258` | Functional option: `WithFS` `:261`, `WithRemoteResolver` `:271`, `WithRemoteURLResolver` `:281`, `WithSeededProfiles` `:292`. |
-| `ResolvedProfile` | `internal/profiles/profiles.go:876` | The flattened answer: 14 fields, of which `Merge` folds 12. `SourceRef` and `Signer` are provenance and are deliberately **not** merged. |
-| `Source` / `Store` (interfaces) | `internal/profiles/store.go:12,22` | The read port (`List`, `Load`, `Exists`) and the read+write port (`+ Save`, `Delete`). Used as field types in five `operations` request structs. |
-| `MemStore` | `internal/profiles/memstore.go:12` | In-memory `Store` proving the operations layer is storage-agnostic (ADR 0026). Referenced only from two `_test.go` files. |
-| `promptSelectorUpgrade` / `retiredParentUpgrade` / `bundleRefCanonicalizeUpgrade` | `internal/profiles/upgrade.go:47,87,162` | The three ordered schema migrations. |
+| `Profile` | `internal/core/profiles/profiles.go:144` | The on-disk document: `Bundles`, `BundleItems`, `Fragments`, `Commands`, `Skills`, `SelectTags`, `Hooks`, `MCP`, `Description`, `Tags`, `LLM`, `Variables`, `ExcludeFragments`, `ExcludeMCP`, `DenyTools`, `Parents`, plus three `yaml:"-"` derived fields (`Name`, `Path`, `Signer`) the loader stamps. |
+| `FragmentRef` | `internal/core/profiles/profiles.go:33` | `{Name, Priority}`; accepts a bare string or a `{name, priority}` map. Mirror of `config.FragmentRef` (this package cannot import `config`, which imports it). |
+| `Loader` | `internal/core/profiles/profiles.go:231` | `dirs`, `fs`, `remoteResolver`, `remoteURLResolver`, `pending`/`pendingPaths` (the upgrade ledger), `seeded` (bundle-shipped profiles). |
+| `LoaderOption` | `internal/core/profiles/profiles.go:258` | Functional option: `WithFS` `:261`, `WithRemoteResolver` `:271`, `WithRemoteURLResolver` `:281`, `WithSeededProfiles` `:292`. |
+| `ResolvedProfile` | `internal/core/profiles/profiles.go:876` | The flattened answer: 14 fields, of which `Merge` folds 12. `SourceRef` and `Signer` are provenance and are deliberately **not** merged. |
+| `Source` / `Store` (interfaces) | `internal/core/profiles/store.go:12,22` | The read port (`List`, `Load`, `Exists`) and the read+write port (`+ Save`, `Delete`). Used as field types in five `operations` request structs. |
+| `MemStore` | `internal/core/profiles/memstore.go:12` | In-memory `Store` proving the operations layer is storage-agnostic (ADR 0026). Referenced only from two `_test.go` files. |
+| `promptSelectorUpgrade` / `retiredParentUpgrade` / `bundleRefCanonicalizeUpgrade` | `internal/core/profiles/upgrade.go:47,87,162` | The three ordered schema migrations. |
 
 ## Key functions
 
@@ -140,18 +140,18 @@ flowchart TD
 8. **A local parent that cannot be resolved is a `strictness` finding, not an error.**
    `resolveProfileRecursive` records the finding and continues, returning `nil`; whether the run
    aborts depends on the caller having opened a strictness window.
-9. **This package cannot import `internal/config`** (the dependency runs the other way), which is
+9. **This package cannot import `internal/core/config`** (the dependency runs the other way), which is
    why `FragmentRef` and the resolution semantics are duplicated in `config_resolve.go`.
 
 ## Boundaries
 
-- **Called by:** `internal/config` (`GetProfileLoader`, `loadBundleProfileSeed`),
+- **Called by:** `internal/core/config` (`GetProfileLoader`, `loadBundleProfileSeed`),
   `internal/operations` (`profileLoader`, `profileLoaderFS`, the CRUD operations),
-  `internal/cli` (`profile.go`, `run.go`'s upgrade-consent prompt), `internal/bundles`,
+  `internal/cli` (`profile.go`, `run.go`'s upgrade-consent prompt), `internal/core/bundles`,
   `internal/lm/backends` (`assembleManagedMCP`, `assembleManagedHooks`, `assembleManagedDenyTools`).
 - **Calls:** `internal/remote` (7 symbols: `CanonicalKey`, `CanonicalProfileKey`,
   `SplitBundleProfileRef`, …), `internal/shared/upgrade`, `internal/shared/strictness`,
-  `internal/errs`, `internal/paths`, `clidiag`.
+  `internal/errs`, `internal/core/paths`, `clidiag`.
 
 ## Where documented and real behavior diverge
 

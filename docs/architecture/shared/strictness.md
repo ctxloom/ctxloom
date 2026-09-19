@@ -2,7 +2,7 @@
 
 `strictness` is ctxloom's fail-loudly policy layer: it turns a warn-and-continue diagnostic at a startup choke into a classified, fix-it-carrying `Finding` that a gate owner can abort on, and it owns the single process-wide `--degraded` switch that reverts every choke back to pure warn-and-continue. Choke sites call `Fail`/`FailOnce`/`Record`; gate owners bracket a region with `Checkpoint()` and read it back with `Since`/`FindingsError`, then abort the process, refuse a session, refuse a delegated child, or refuse one fan member. Findings are collected **per goroutine** — the `window` type exists so a gate only ever sees faults its own goroutine recorded.
 
-It is a leaf package with one internal dependency (`internal/shared/clidiag`) precisely so that the three mutually-unimportable consumers — `internal/cli`, `internal/agentcoord/coord`, `internal/operations` — can all reach it. It does **not** gate parsing or validation itself: parsers and validators call into it, and the decision to stop is always the gate owner's.
+It is a leaf package with one internal dependency (`internal/shared/clidiag`) precisely so that the three mutually-unimportable consumers — `internal/cli`, `internal/core/coord`, `internal/operations` — can all reach it. It does **not** gate parsing or validation itself: parsers and validators call into it, and the decision to stop is always the gate owner's.
 
 ## Structure
 
@@ -117,4 +117,4 @@ flowchart TD
 
 - `FailOnce`'s doc claims "per-process dedup … the finding records at most once"; the real behaviour is that **print** dedup is process-wide (via `clidiag`) while **record** dedup is scoped to the current checkpoint generation, and `TestFailOnce_RefiresAcrossCheckpoints` pins the re-firing.
 - The comment at `strictness.go:106-113` claims "two concurrently-opened windows simply get two different generations … concurrency-safe as-is"; the generation is never captured into the `Mark`, so concurrent windows share the record-dedup scope.
-- `FindingsError`'s doc says all three of `internal/cli`, `internal/agentcoord/coord`, and `internal/operations` used to carry a byte-identical copy of its render; `internal/cli` does not call `FindingsError` today (it renders via `cli.formatFindings`).
+- `FindingsError`'s doc says all three of `internal/cli`, `internal/core/coord`, and `internal/operations` used to carry a byte-identical copy of its render; `internal/cli` does not call `FindingsError` today (it renders via `cli.formatFindings`).

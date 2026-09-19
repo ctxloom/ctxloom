@@ -1,11 +1,11 @@
 package backends
 
 import (
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/engine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"
 )
 

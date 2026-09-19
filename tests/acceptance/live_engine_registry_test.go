@@ -308,7 +308,7 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 // p4ConfigYAML, probeConfigYAML) is built by appending onto, so a key this
 // base carries is a key every probe inherits. Validate it through
 // internal/schema.NewConfigValidator — the same validator the production
-// config loader uses, and the seam internal/config/unknown_keys.go's
+// config loader uses, and the seam internal/core/config/unknown_keys.go's
 // classifyValidationError sits on top of — because the leniency of
 // agents.ParseAgent, which is all these configs were ever parsed by, cannot
 // see a retired key. When the base carries one, every probe built from it

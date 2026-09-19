@@ -3,7 +3,7 @@ package backends
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // RemoveSettings strips ctxloom-managed artifacts from the named backend's

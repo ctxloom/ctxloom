@@ -107,7 +107,7 @@ var degradeBranchAllowed = map[string]degradeExemption{
 		"gates pass their findings through it instead of testing the mode themselves; " +
 		"NonDegradable findings survive that downgrade, which is what makes a refusal " +
 		"non-bypassable at all"},
-	"internal/agentcoord/coord/spawner.go": {sites: 1, why: "TIGHTENS rather than bypasses — " +
+	"internal/core/coord/spawner.go": {sites: 1, why: "TIGHTENS rather than bypasses — " +
 		"after failing a non-headless-safe permission declaration, degraded launches the child " +
 		"at PermissionPlan, the most restrictive headless-safe posture, so the degraded path is " +
 		"strictly safer than the declared one it replaces"},

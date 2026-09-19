@@ -3,8 +3,8 @@
 `internal/lm/grpc` is the **host ↔ engine-backend plugin seam**: a HashiCorp
 go-plugin / gRPC transport plus the complete Go⇄proto marshalling layer for it.
 Everything above it (`internal/cli`, `internal/operations`, `internal/memory`,
-`internal/agentcoord/coord`, `internal/lm/isolation`) thinks purely in
-`internal/shared/agent` types; everything below it — the launch backends — receives
+`internal/core/coord`, `internal/lm/isolation`) thinks purely in
+`internal/core/agent` types; everything below it — the launch backends — receives
 `agent.SetupRequest` / `agent.ExecuteRequest` / `agent.ChatRequest`. The seam exists
 so a backend can run host-local, self-invoked, or containerized without any caller
 changing.
@@ -117,7 +117,7 @@ exclusions each carry a written reason and an anti-rot test.
 
 ### `ManagedConfig` — 7 Go fields, 7 proto fields
 
-| Go field (`internal/shared/agent/backend.go:348-363`) | Proto (`llm.proto:458-478`) | Crosses? |
+| Go field (`internal/core/agent/backend.go:348-363`) | Proto (`llm.proto:458-478`) | Crosses? |
 |---|---|---|
 | `Commands []CommandExport` (`:349`) | `repeated CommandExport commands = 1` | yes |
 | `Skills []SkillExport` (`:350`) | `repeated SkillExport skills = 6` | yes — **added `40b49a7f`** |
@@ -136,8 +136,8 @@ exclusions each carry a written reason and an anti-rot test.
 2. `ManagedConfigToProto` carries them (`managed.go:26`, `:31`).
 3. `managedConfigFromProto` restores them (`managed.go:43`, `:48`).
 4. `internal/lm/grpc/server.go` is the **only** site in the repo that constructs `SetupRequest.Managed`, so there is no in-process bypass — and no bypass is needed any more.
-5. `setupViaCells` reads both into `SurfaceInputs` (`internal/shared/agent/launch_backend.go`).
-6. `SurfaceInputs` is fully wired for them (`internal/shared/agent/cells.go:166`, `:181`), and five of seven registered engines declare a `skillExports` function.
+5. `setupViaCells` reads both into `SurfaceInputs` (`internal/core/agent/launch_backend.go`).
+6. `SurfaceInputs` is fully wired for them (`internal/core/agent/cells.go:166`, `:181`), and five of seven registered engines declare a `skillExports` function.
 
 > **This was broken and it mattered.** Before `40b49a7f`, every engine launched over
 > this wire received **zero** Agent Skills and applied **zero** `deny_tools`, with
@@ -154,14 +154,14 @@ exclusions each carry a written reason and an anti-rot test.
 Proto `Hook` (`llm.proto:516`): `matcher=1, command=2, type=3, prompt=4,
 timeout=5, async=6, scm=7, pre_tool_fallback=8`.
 
-`wire.Hook` (`internal/shared/wire/hooks.go:14-39`) has one field that does not cross:
+`wire.Hook` (`internal/core/wire/hooks.go:14-39`) has one field that does not cross:
 
 - `ContextHash` — correctly excluded (`mapstructure:"-"`, in-process only), and deliberately re-derived agent-side.
 
 **`PreToolFallback` (`hooks.go:38`) crosses since `40b49a7f`** — `hookToProto`
 (`managed.go:180`) and `hookFromProto` (`managed.go:196`) both carry it. It is
 persisted (`yaml:"pre_tool_fallback"`), carried through bundles
-(`internal/bundles/bundles.go:148`, `:639`) and part of the hook **trust
+(`internal/core/bundles/bundles.go:148`, `:639`) and part of the hook **trust
 preimage**. It declares a `session_start` hook safe to re-fire on `PreToolUse`
 for a harness that has no session-start event; every registered engine has one,
 so no writer reads it at launch — the field stays wired for the engine that
@@ -212,10 +212,10 @@ Since `40b49a7f` the proto also carries `runtime = 9` and `resume_session_id = 1
 ### `Fragment` — 7 Go fields, 6 proto fields
 
 Proto (`llm.proto:509-516`): `name, version, tags, content, is_distilled,
-distilled_by`. `agent.Fragment` (`internal/shared/agent/backend.go:40-48`)
+distilled_by`. `agent.Fragment` (`internal/core/agent/backend.go:40-48`)
 additionally carries `Installation`, which the proto lacks. Of the six that do
 cross, only `content` is ever read downstream
-(`internal/shared/agent/contextfile.go`).
+(`internal/core/agent/contextfile.go`).
 
 ### `RunOptions` — 11 fields (`llm.proto:518-542`)
 
@@ -224,7 +224,7 @@ temperature=8, max_tokens=9, cell_kind=11, launch_form=12` (10 is reserved — t
 `server.go:157-160` and `:233-247`.
 
 - `max_tokens` is **dead end to end** — zero hits outside the generated file, and no mirror field on the Go side.
-- `temperature` travels from nowhere to nowhere — two repo hits total: the declaration (`internal/shared/agent/backend.go:381`) and the copy (`server.go:242`). Nothing constructs it; no backend reads it.
+- `temperature` travels from nowhere to nowhere — two repo hits total: the declaration (`internal/core/agent/backend.go:381`) and the copy (`server.go:242`). Nothing constructs it; no backend reads it.
 - `verbosity` bands (`0=silent, 16=commands,32=args, 48+=debug`) exist only in a proto comment.
 
 ### Presence semantics

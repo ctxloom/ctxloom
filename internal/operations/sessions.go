@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
@@ -80,7 +80,7 @@ type PreviousSessionRef struct {
 // This replaces the per-backend GetPreviousSession readers: ctxloom decides
 // WHICH session is previous (and which agent owns it); the agent server only
 // materializes a given id. This also keeps agent modules from
-// importing internal/sessions.
+// importing internal/core/sessions.
 func ResolvePreviousSession(projectDir, activeHarp string) (*PreviousSessionRef, error) {
 	entries, err := ListSessionsForProject(projectDir)
 	if err != nil {

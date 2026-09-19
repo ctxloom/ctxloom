@@ -25,9 +25,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/agent/present"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -453,7 +453,7 @@ const (
 
 // RuntimeAxis says where the agent's engine process executes. It is a type
 // ALIAS of agent.RuntimeAxis, not a second declaration: the vocabulary is
-// defined exactly once, in internal/shared/agent (the lower package this one
+// defined exactly once, in internal/core/agent (the lower package this one
 // already imports for other reasons — see ambient.go/auth.go — so there is no
 // cycle to route around). isolation.RuntimeAxis IS agent.RuntimeAxis; nothing
 // here can drift from it because there is nothing here to drift — the alias

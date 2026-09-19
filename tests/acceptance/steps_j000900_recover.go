@@ -56,7 +56,7 @@ const liveTranscriptRel = "live-session-transcript.jsonl"
 
 // j000900Harp is the harp these scenarios bind their session-index fixture
 // entries to. CTXLOOM_SESSION_HARP is how currentSessionRecoverable finds the
-// entry (the same env var production reads — internal/shared/agent.
+// entry (the same env var production reads — internal/core/agent.
 // SessionHarpEnv), so every scenario that wants a specific recoverability
 // outcome must set it via SetChildEnv (a plain SetEnv is stripped — see
 // steps_session_hooks.go's comment on the ambient-session scrub list).

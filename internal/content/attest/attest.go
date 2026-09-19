@@ -46,8 +46,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // publishNS is the ONE namespace this package reads or writes. It is a constant

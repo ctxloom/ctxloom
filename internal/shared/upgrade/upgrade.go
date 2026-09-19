@@ -4,7 +4,7 @@
 // caller may then prompt the user before persisting (see Pending).
 //
 // An Upgrader is one schema step; a Pipeline is an ordered, composable chain of
-// them. Both config (internal/config) and the retired session index's one-time migration (internal/sessions)
+// them. Both config (internal/core/config) and the retired session index's one-time migration (internal/core/sessions)
 // build a Pipeline from their own Upgraders and run it over the raw file bytes.
 // The layer is YAML-document oriented — Pipeline.Run parses once and re-encodes
 // once — and version-aware via the Version/SetVersion helpers, so an Upgrader
@@ -240,7 +240,7 @@ func ScalarNode(val string) *yaml.Node {
 // wants the report must pass somewhere to put it.
 //
 // It is a plain callback rather than a shared sink type so a step can live in
-// its own package (see internal/config/migrate) without that package and its
+// its own package (see internal/core/config/migrate) without that package and its
 // driver having to agree on a concrete buffer. A nil Reporter is legal and
 // means the caller is not collecting; call it through a step's own helper that
 // nil-checks, never directly.

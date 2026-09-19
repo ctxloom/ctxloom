@@ -201,7 +201,7 @@ var excludedTemplates = map[string]string{}
 // agent_fetch_artifact sit in knownUncoveredRunnerOnlyTools. Their behaviour
 // is pinned at the runner surface against a live coordinator in
 // internal/mcp (mcp_runner_control_test.go) and on the wire in
-// internal/agentcoord/coord (controlwire_test.go); the backfill this ratchet
+// internal/core/coord (controlwire_test.go); the backfill this ratchet
 // waits for is a harness that can drive the runner surface at all.
 const maxKnownUncoveredTotal = 8
 

@@ -8,11 +8,11 @@
 #
 # They drifted. Before this file, `test-docker-integration` existed twice
 # under the same NAME with different package lists — the host copy ran
-# ./internal/lm/isolation/..., ./internal/agentcoord/coord/... and
+# ./internal/lm/isolation/..., ./internal/core/coord/... and
 # ./internal/vpio/dockerexec/...; the container copy (the one
 # .github/workflows/ci.yml actually invokes) ran only
 # ./internal/lm/isolation/.... Every docker-gated test under
-# internal/agentcoord/coord — TestCoordContainerDirect_NoPluginNoPort, the
+# internal/core/coord — TestCoordContainerDirect_NoPluginNoPort, the
 # whole TestCoordOwnerRun_* suite, the TestCoordContainerProgress_* trio —
 # had therefore NEVER executed in CI. Nobody noticed because the two recipes
 # shared a name, and a name is what you grep for.
@@ -28,13 +28,13 @@
 # such a test cannot silently fall outside the gate either.
 #
 # Cost (measured 2026-07-24, rootless docker, warm image cache): the
-# internal/agentcoord/coord suite is ~115s of which the
+# internal/core/coord suite is ~115s of which the
 # TestCoordContainerProgress_* trio is ~75s. That is per-commit money, not
 # nightly money: these guard a defect class that ships SILENTLY (a container
 # child that never receives its prompt looks identical to a healthy one from
 # every cheap signal), and a red nightly on a branch nobody is standing on is
 # noise, not a gate.
-docker_integration_pkgs := "./internal/lm/isolation/... ./internal/agentcoord/coord/... ./internal/agentcoord/spool/... ./internal/vpio/dockerexec/... ./internal/mockengine/... ./internal/testsupport/containercell/..."
+docker_integration_pkgs := "./internal/lm/isolation/... ./internal/core/coord/... ./internal/core/spool/... ./internal/vpio/dockerexec/... ./internal/mockengine/... ./internal/testsupport/containercell/..."
 
 # Run the docker-gated container integration tests: they build minimal images,
 # spawn real containers, and prove the transport / coordinator bus / progress

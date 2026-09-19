@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // The oneshot surface is SHARED across personalities, but its stdout contract is

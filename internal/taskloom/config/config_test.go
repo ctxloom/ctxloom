@@ -91,8 +91,8 @@ func TestConfig_ExplicitFalseBeatsInheritedTrue(t *testing.T) {
 	assert.Equal(t, false, merged["enabled"], "project's explicit false must beat home's inherited true")
 }
 
-// TestConfig_UnknownKeyFailsLoud mirrors internal/config's unknown-key drift
-// gate (see internal/config/unknown_keys.go's doc) for taskloom's own,
+// TestConfig_UnknownKeyFailsLoud mirrors internal/core/config's unknown-key drift
+// gate (see internal/core/config/unknown_keys.go's doc) for taskloom's own,
 // much smaller schema: a key the schema does not recognize (additionalProperties:
 // false at the top level) must not validate silently.
 func TestConfig_UnknownKeyFailsLoud(t *testing.T) {
@@ -258,7 +258,7 @@ func TestHoming_MissingConfigIsSilent(t *testing.T) {
 }
 
 // TestSchema_TopLevelAdditionalPropertiesFalse mirrors
-// internal/config/arch_test.go's TestArch_ConfigSchema_CoversEveryConfigField
+// internal/core/config/arch_test.go's TestArch_ConfigSchema_CoversEveryConfigField
 // for taskloom's own, much smaller schema: additionalProperties:false at the
 // top level is the mechanism TestConfig_UnknownKeyFailsLoud depends on — a
 // schema that lost this would silently accept any key again.
@@ -446,7 +446,7 @@ func TestResolveMode_RejectsUnknownValue(t *testing.T) {
 	assert.Contains(t, err.Error(), "alsobogus")
 }
 
-// TestProduct_NilValidatorLeavesKnownPathNil mirrors internal/config's own
+// TestProduct_NilValidatorLeavesKnownPathNil mirrors internal/core/config's own
 // pin: taskloom builds its confload.Product the same way, so it inherits the
 // same trap. A method value on a nil *schema.ConfigValidator is a non-nil
 // func, which silently converts confload's documented "no schema knowledge"

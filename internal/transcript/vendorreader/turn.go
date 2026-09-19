@@ -1,6 +1,6 @@
 package vendorreader
 
-import "github.com/ctxloom/ctxloom/internal/shared/agent"
+import "github.com/ctxloom/ctxloom/internal/core/agent"
 
 // FlushComplete records *pending as a Complete boundary ChatEvent via
 // record and clears it (sets *pending to nil) ONLY once record has returned

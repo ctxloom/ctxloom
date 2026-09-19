@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/contextmetrics"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 var hookHudCmd = &cobra.Command{

@@ -13,7 +13,7 @@
 // found absent, which is precisely what a silent no-op looks like.
 //
 // THE LAYERS.
-//   - L1 (internal/shared/agent + each backend's enginecli.go) is the single
+//   - L1 (internal/core/agent + each backend's enginecli.go) is the single
 //     declaration of a vendor CLI: its argv grammar, where the prompt travels,
 //     and the context surfaces it probes. This package NEVER restates that; it
 //     reads L1 via the backends resolver (backends.EngineCLIsFor) so a mock-side

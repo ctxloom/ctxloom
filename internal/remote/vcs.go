@@ -14,8 +14,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
 // VCS abstracts reads from a single version-controlled source — one repository

@@ -20,7 +20,7 @@ namespace", and nothing else. It decides no policy: the policy question is deleg
 ## Non-responsibilities
 
 - Which principals are authorized — `internal/signing/allowedsigners` (behind the `TrustRoot`
-  interface) and `internal/config`'s trust-root union; see [config.md](./config.md).
+  interface) and `internal/core/config`'s trust-root union; see [config.md](./config.md).
 - Where countersignatures are stored — `internal/signing/countersign` (`Store`).
 - What an item's payload bytes *are* — `internal/operations.computeItemPayloadPair`; see
   [trust.md](./trust.md).
@@ -81,7 +81,7 @@ flowchart TD
 | `CountersignHeader` | `internal/signing/payload.go:115` | The closed field set bound into a countersignature's preimage: `Assertion`, `Kind`, `Ref`, `Form`. |
 | `LoadoutEnvelope` | `internal/signing/loadout.go:23` | Companion `loadout --format json` output: `Contract` (identity-matched), `Bundle` (base64 of the exact YAML), `Signature` (armored, optional), `Signer` (**advisory only, never trusted**). |
 | `TrustRoot` (interface) | `internal/signing/publisher.go:74` | One method — `TrustedForNamespace` — returning `allowedsigners.Decision`. Declared at the consumer so the namespace check is a mandatory argument, not a forgettable step. |
-| `ErrSignatureTampered` | `internal/signing/publisher.go:41` | The one publisher outcome that is never benign; matched with `errors.Is` at `internal/config/config.go:1953`. |
+| `ErrSignatureTampered` | `internal/signing/publisher.go:41` | The one publisher outcome that is never benign; matched with `errors.Is` at `internal/core/config/config.go:1953`. |
 
 ## Key functions
 
@@ -122,8 +122,8 @@ flowchart TD
 
 ## Boundaries
 
-- **Depended on by:** `internal/bundles` (stale-signature invalidation, skill-archive install gate),
-  `internal/config` (remote bundle publisher verification, companion loadout probe),
+- **Depended on by:** `internal/core/bundles` (stale-signature invalidation, skill-archive install gate),
+  `internal/core/config` (remote bundle publisher verification, companion loadout probe),
   `internal/operations` (`sign`, `push`, `export`, skill publishing, countersign records),
   `internal/cli`, `internal/shared/companionloadout`, `internal/signing/countersign`.
 - **Depends on:** `internal/signing/allowedsigners` (type only), `hiddeco/sshsig`.

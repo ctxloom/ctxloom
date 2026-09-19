@@ -1,7 +1,7 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 

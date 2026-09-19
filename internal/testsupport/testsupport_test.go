@@ -196,7 +196,7 @@ func findUncoveredEnvReads(t *testing.T, dirs []string, known map[string]bool) m
 	// package-qualified name) to the CTXLOOM_* string it was declared equal
 	// to, gathered from every file under dirs before reads are resolved —
 	// declaration and use can be in different packages entirely (e.g.
-	// coord.EnvMCPSocket declared in internal/agentcoord/coord, read from
+	// coord.EnvMCPSocket declared in internal/core/coord, read from
 	// internal/mcp).
 	constValues := map[string]string{}
 	type hit struct {

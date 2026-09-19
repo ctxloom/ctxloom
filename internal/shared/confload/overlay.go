@@ -222,7 +222,7 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 
 // Stamp returns a cheap, deterministic identity for o's raw content — changes
 // whenever any override name or value changes. It exists so a memoized
-// config load (internal/config's ambientStamp) can fold it in alongside a
+// config load (internal/core/config's ambientStamp) can fold it in alongside a
 // config file's own mtime+size stat: an ambient memo built BEFORE overrides
 // were installed (or before they changed) must not be served forever just
 // because no file changed — see the package's consuming caller for the full

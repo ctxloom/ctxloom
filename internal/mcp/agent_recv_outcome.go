@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // What a timed-out agent_recv tells a LEAF to do next. The coord sentinel is

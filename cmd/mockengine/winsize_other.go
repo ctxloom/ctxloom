@@ -5,7 +5,7 @@ package main
 import (
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // resizeNotifications has no SIGWINCH to subscribe to here; a nil channel

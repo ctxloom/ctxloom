@@ -480,7 +480,7 @@ gen-living-docs: build
 # of this file AND by the host justfile) — this is the recipe
 # .github/workflows/ci.yml invokes. It used to be a SECOND, shorter copy of
 # the host recipe under the same name, running only ./internal/lm/isolation/...,
-# so the entire internal/agentcoord/coord docker suite had never executed in
+# so the entire internal/core/coord docker suite had never executed in
 # CI. Running it here requires the devcontainer to see the host's runtime
 # (docker CLI + a shared/mounted daemon socket); CI sets
 # CTXLOOM_REQUIRE_DOCKER=1 so a runner that CANNOT see it fails loudly instead

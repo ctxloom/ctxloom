@@ -41,7 +41,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/schema"
 )
 
@@ -310,7 +310,7 @@ func TestApproachConfigYAML_ActuallyPinsTheApproach(t *testing.T) {
 // any string into Runtime, so a retired spelling survives it. This test runs
 // the SAME rendered bytes through internal/schema.NewConfigValidator, the
 // validator the production config loader uses and the seam
-// internal/config/unknown_keys.go's classifyValidationError sits on top of, so
+// internal/core/config/unknown_keys.go's classifyValidationError sits on top of, so
 // a P1 fixture cannot drift back to a value the schema rejects even if
 // ParseAgent stays lenient forever.
 //

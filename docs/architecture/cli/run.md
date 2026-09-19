@@ -5,7 +5,7 @@ and which of three mutually-exclusive transports* a top-level session launches
 on, then owns the user's terminal (or their stdin/stdout pipes) until the engine
 exits. It is the top of the launch architecture: `cmd/ctxloom` → `runCmd.RunE`
 → (`operations.*` for assembly, `internal/lm/isolation` for the boundary,
-`internal/agentcoord/coord` for the hosted coordinator, `internal/vpio` for the
+`internal/core/coord` for the hosted coordinator, `internal/vpio` for the
 process seam) → the engine binary. Its contract is that the engine is spawned
 exactly once, with exactly one assembled context, under exactly one resolved
 permission posture, and that its exit code reaches the shell.

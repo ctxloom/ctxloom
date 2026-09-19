@@ -3,14 +3,14 @@ package operations
 import (
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // contextSectionSeparator joins the sections of an assembled context. It is the
-// same separator internal/shared/agent's contextSectionSep uses, so a context
+// same separator internal/core/agent's contextSectionSep uses, so a context
 // assembled here and one written by WriteContextFile split on the same
 // boundaries (agent.ChunkContext relies on that).
 const contextSectionSeparator = "\n\n---\n\n"
@@ -38,7 +38,7 @@ const contextSectionSeparator = "\n\n---\n\n"
 //     and collapsing those would silently drop one publisher's content in
 //     favour of another's.
 //   - CONTENT ALONE is too coarse, and is the identity that was already in use
-//     downstream (internal/shared/agent's assembleDedupedContext, now keyed the
+//     downstream (internal/core/agent's assembleDedupedContext, now keyed the
 //     same way as here): two DIFFERENT fragments that happen to say the same
 //     thing are two deliberate authored items, and delivering one of them is
 //     data loss, not deduplication.

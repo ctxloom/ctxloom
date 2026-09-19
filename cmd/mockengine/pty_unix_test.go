@@ -16,9 +16,9 @@ import (
 
 	pty "github.com/aymanbagabas/go-pty"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/mockengine"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // ptyWait bounds every deadline-poll in the pty test. Generous relative to a

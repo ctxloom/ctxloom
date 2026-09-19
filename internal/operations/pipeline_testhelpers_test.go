@@ -1,8 +1,8 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // opPipe wraps a test reader in an UNGATED process stage at cfg's configured

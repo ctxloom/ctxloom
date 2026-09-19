@@ -34,7 +34,7 @@ An audit of every `.go` file under `internal/operations/` (2026-06-01) found:
 
 The question this ADR settles is whether that last item is a leak to remediate.
 
-It is not LLM behavior. `LLMExports` (`internal/bundles/loader_content.go`; was
+It is not LLM behavior. `LLMExports` (`internal/core/bundles/loader_content.go`; was
 `LMPluginConfig` before the plugin→llm rename / bundle-schema flatten in ADR 0022)
 is a *typed, per-backend* config schema: `ClaudeCode` and `Gemini` are named
 struct fields carrying **different** data (Claude has `ArgumentHint`,

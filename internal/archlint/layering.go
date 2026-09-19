@@ -28,7 +28,7 @@ type layeringRule struct {
 var layeringRules = []layeringRule{
 	{
 		Name:   "coord-must-not-import-cli/tui",
-		From:   "internal/agentcoord/coord",
+		From:   "internal/core/coord",
 		Forbid: []string{"internal/cli/tui"},
 	},
 	{
@@ -43,7 +43,7 @@ var layeringRules = []layeringRule{
 	},
 	{
 		Name:   "shared/agent-must-not-import-engine-plugins",
-		From:   "internal/shared/agent",
+		From:   "internal/core/agent",
 		Forbid: []string{"internal/claude"},
 	},
 	{

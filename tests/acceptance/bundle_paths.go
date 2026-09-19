@@ -102,7 +102,7 @@ func singleFileBundlePath(name string) string {
 // FETCHABLE: internal/remote's Puller.fetchItemBytes tries a single file at
 // exactly this composed path first, before ever probing for a tree, which is
 // the mechanism `ctxloom deps pull`/`remote sync` exercise. It is NOT
-// reachable through remote.BundleReader.ReadBundleBytes, which internal/config
+// reachable through remote.BundleReader.ReadBundleBytes, which internal/core/config
 // uses for a different, now-dead read path (see that package's v1-removal
 // commit) — a fixture seeded here is honest input for a PULL-shaped journey,
 // not for anything that reads through BundleReader directly.

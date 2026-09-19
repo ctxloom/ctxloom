@@ -159,9 +159,9 @@ Pure leaf: zero internal imports, no I/O beyond `os.UserHomeDir`. Consumed by `c
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `AppDirName` = `.ctxloom` | `internal/shared/tasks/paths/paths.go:22` | Home/in-tree app dir name. Duplicated by `internal/paths.AppDirName` — the split is drift, not a forced cycle break. |
+| `AppDirName` = `.ctxloom` | `internal/shared/tasks/paths/paths.go:22` | Home/in-tree app dir name. Duplicated by `internal/core/paths.AppDirName` — the split is drift, not a forced cycle break. |
 | `ProjectsDir` = `projects` | `internal/shared/tasks/paths/paths.go:26` | Registry subdir. No consumer outside this file. |
-| `IndexFileName` = `index.yaml` | `internal/shared/tasks/paths/paths.go:29` | The **project registry** index — value-equal to but conceptually distinct from `internal/paths.IndexFileName` (the session index). |
+| `IndexFileName` = `index.yaml` | `internal/shared/tasks/paths/paths.go:29` | The **project registry** index — value-equal to but conceptually distinct from `internal/core/paths.IndexFileName` (the session index). |
 | `TasksDir` = `tasks` | `internal/shared/tasks/paths/paths.go:33` | Home-rooted task-log directory name. |
 | `ProjectMarkerFileName` = `project-id` | `internal/shared/tasks/paths/paths.go:38` | In-tree marker filename. No consumer outside this file. |
 | `TasksLogExt` = `.jsonl` | `internal/shared/tasks/paths/paths.go:41` | Home-mode log extension. |
@@ -282,7 +282,7 @@ Test-isolation primitives for the whole `internal/shared` tree. The tree must st
 
 - `taskstest.ResetProcessOverrides` and `taskstest.ChangeDir` are the canonical bodies; `internal/testsupport` delegates to them. `Isolate` and `ProjectDir` are byte-duplicated in `testsupport` instead of delegating, which is what permits the two `EnvKeys` lists to diverge.
 - `Isolate` clears 3 of the ~18 variables `testsupport.Isolate` clears, and `TestEnvKeysCoversProductionReads` builds its known-set from `testsupport.EnvKeys` only — so `taskstest.EnvKeys` can drift with nothing failing. Tests using `taskstest.Isolate` are not isolated from e.g. `CTXLOOM_MCP_SOCKET`.
-- `RealGitWorktreeFixture` claims to be canonical and sanctions exactly one frozen copy (`internal/config/worktree_signpost_test.go:178`); a third copy exists at `tests/integration/testenv/environment.go:333`. It `t.Skip`s without git on PATH, so all 16 worktree-boundary tests vanish silently in a minimal container while the suite reports PASS.
+- `RealGitWorktreeFixture` claims to be canonical and sanctions exactly one frozen copy (`internal/core/config/worktree_signpost_test.go:178`); a third copy exists at `tests/integration/testenv/environment.go:333`. It `t.Skip`s without git on PATH, so all 16 worktree-boundary tests vanish silently in a minimal container while the suite reports PASS.
 - This package has **zero tests of its own**, and its failure mode is silent by construction: a dropped `EnvKeys` entry or a missed cleanup weakens every dependent test without failing anything.
 
 **Unreachable surfaces**

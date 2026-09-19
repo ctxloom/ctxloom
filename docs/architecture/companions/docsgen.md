@@ -145,7 +145,7 @@ product actually registers, not a hand-maintained list.
   already-committed pages.
 - **`envPrefix` and `dotDir` *reconstruct* values the products already declare.**
   `docsgen.go:74` derives `TASKLOOM_CONFIG_`/`CTXLOOM_CONFIG_` from `Bin`, although
-  `internal/taskloom/config.EnvPrefix` (`config.go:64`) and `internal/config`'s literal
+  `internal/taskloom/config.EnvPrefix` (`config.go:64`) and `internal/core/config`'s literal
   (`config.go:506`) exist; `config.go:46` re-derives the config dir name the same way. The
   entrypoints already thread `ConfigSchema: taskloomconfig.SchemaPath`, so field-threading is the
   established pattern here.

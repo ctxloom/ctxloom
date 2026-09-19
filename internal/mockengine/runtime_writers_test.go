@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Runtime already guards a nil Stdin (readPrompt answers "no prompt arrived"),

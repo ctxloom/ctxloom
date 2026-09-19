@@ -493,5 +493,5 @@ func (m *Monitor) AssessAll(ctx context.Context, targets []Target) []Report {
 
 // Watch was a self-contained poll loop; deleted as test-only and
 // duplicated by the real production driver, coord.livenessWatchdog
-// (internal/agentcoord/coord/liveness.go), which has its own ticker plus the
+// (internal/core/coord/liveness.go), which has its own ticker plus the
 // transition-suppression and Forget-reaping this one lacked.

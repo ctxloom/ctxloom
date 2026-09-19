@@ -1,6 +1,6 @@
 package backends
 
-import "github.com/ctxloom/ctxloom/internal/bundles"
+import "github.com/ctxloom/ctxloom/internal/core/bundles"
 
 // testAuthorizer is the two-valued Authorizer a test reaches for when it is exercising
 // what happens AROUND a decision rather than the decision itself: admit

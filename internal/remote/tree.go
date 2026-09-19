@@ -4,7 +4,7 @@ import (
 	"context"
 	"path"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // TreeFile is one file of a fetched bundle tree: its exact bytes, what the
@@ -61,14 +61,14 @@ type TreeFetchFunc func(ctx context.Context, f Fetcher, owner, repo, root, sha, 
 // BundleManifestName is the file that carries a directory-form bundle's own
 // manifest — the tree's counterpart to the whole of a single-file bundle.
 //
-// It is the layout constant, not a second spelling of it: internal/bundles
+// It is the layout constant, not a second spelling of it: internal/core/bundles
 // imports this package, so it cannot be imported back, and both sides now name
 // paths.BundleManifestName instead of agreeing by hand.
 const BundleManifestName = paths.BundleManifestName
 
 // TreeManifest returns the bundle.yaml bytes of a fetched tree.
 //
-// A tree with no manifest is not a bundle: internal/bundles reads the name,
+// A tree with no manifest is not a bundle: internal/core/bundles reads the name,
 // version and item lists from it, and a tree missing it would install as a pile
 // of files under a bundle's identity that nothing could ever load. Reporting
 // that here — at the fetch, naming the root — is the difference between a

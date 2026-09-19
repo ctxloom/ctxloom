@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/profiles"
 )
 
 // applyListEdits is the shared add/remove primitive behind UpdateProfile's

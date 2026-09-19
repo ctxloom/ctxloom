@@ -14,15 +14,15 @@ import (
 // what must hold the lock.
 var lockDisciplineScopes = []string{
 	"internal/claude",
-	"internal/shared/agent",
+	"internal/core/agent",
 }
 
 // lockDisciplineExemptFiles are the primitives this rule protects usage OF,
 // not usage BY. Scanning them would misattribute their own internal
 // read-then-write shapes to a missing lock the caller is responsible for.
 var lockDisciplineExemptFiles = map[string]bool{
-	"internal/shared/agent/settings_io.go": true,
-	"internal/shared/agent/rmw_lock.go":    true,
+	"internal/core/agent/settings_io.go": true,
+	"internal/core/agent/rmw_lock.go":    true,
 }
 
 var lockReadPattern = regexp.MustCompile(`(?i)^(read|load)`)
@@ -139,5 +139,5 @@ func CalleeName(call *ast.CallExpr) string {
 // lockDisciplineAllowed is the reasoned, symbol-keyed baseline: a durable
 // "file.go#Symbol" reference mapped to why the entry stands.
 var lockDisciplineAllowed = map[string]string{
-	"internal/shared/agent/managedcontext.go#writeManagedContextLocked": "false positive (leaf helper under the caller's lock): writeManagedContextLocked is WriteManagedContext's body, split out for readability and invoked BY NAME from inside WriteManagedContext's own agent.WithFileLock closure (see its doc: \"run under its caller's lock\") — same shape as CodexHookWriter.save above. See this file's header, blind spot 4.",
+	"internal/core/agent/managedcontext.go#writeManagedContextLocked": "false positive (leaf helper under the caller's lock): writeManagedContextLocked is WriteManagedContext's body, split out for readability and invoked BY NAME from inside WriteManagedContext's own agent.WithFileLock closure (see its doc: \"run under its caller's lock\") — same shape as CodexHookWriter.save above. See this file's header, blind spot 4.",
 }

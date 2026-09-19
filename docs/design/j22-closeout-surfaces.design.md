@@ -120,9 +120,9 @@ Everything in this table exists today and is cited by symbol.
 | Whole sweep | `isolation.ReapOrphanedWorktrees(ctx, git.Git) WorktreeReapResult` | `worktree_reap.go:139` | exported **[V]**. Counts only. |
 | Existing CLI→isolation precedent | `cli.sweepOrphanedWorktrees(ctx, io.Writer)` | `internal/cli/startup_helpers.go:178` | **[V]** |
 | git primitives | `git.Git` iface: `WorktreeList`, `WorktreeRemove`, `WorktreePrune`, `IsDirty`, `HasIgnoredContent`, `CommonDir`, `CurrentBranch` | `internal/git/git.go` | **[V]**. `WorktreeRemove` deliberately has no force escape hatch **[V]**. |
-| Harp paths | `paths.HarpDir/HarpPersistDir/HarpEphemeralDir/HarpEssencePath/HarpTranscriptStoreDir/HomeSessionsDir` | `internal/paths/paths.go` | **[V]**. `HarpDir` validates the harp — the traversal chokepoint **[V]**. |
+| Harp paths | `paths.HarpDir/HarpPersistDir/HarpEphemeralDir/HarpEssencePath/HarpTranscriptStoreDir/HomeSessionsDir` | `internal/core/paths/paths.go` | **[V]**. `HarpDir` validates the harp — the traversal chokepoint **[V]**. |
 | Names | `paths.EssenceFileName="essence.md"`, `CanonicalTranscriptFileName="transcript.jsonl"`, `PlanFileExt=".plan.md"`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName` | same | **[V]** |
-| Session index | `sessions.Store` iface + `*Manager` + `*MemStore` | `internal/sessions/{store,index,memstore}.go` | **[V]** |
+| Session index | `sessions.Store` iface + `*Manager` + `*MemStore` | `internal/core/sessions/{store,index,memstore}.go` | **[V]** |
 | Session ops | `operations.GetSession/ForgetSession/ListSessionsForProject` | `internal/operations/sessions.go` | **[V]** |
 | Trust-gated skill read | `operations.GetSkill(ctx, cfg, GetSkillRequest{Name}) (*GetSkillResult, error)` | `internal/operations/skills.go:136` | **[V]**. Already parses `bundle#skills/name` and already returns `errs.ErrSkillWithheld`. |
 | Withheld sentinels | `errs.ErrSkillWithheld`, `errs.ErrCommandWithheld` | `internal/errs/errors.go:33,38` | **[V]** |
@@ -518,16 +518,16 @@ transcripts. Therefore, without a change, `session purge` followed by
 Fix — three lines, one persisted-shape change:
 
 ```go
-// internal/sessions/index.go — sessions.Entry gains:
+// internal/core/sessions/index.go — sessions.Entry gains:
 	// PurgedAt records when `ctxloom session purge` destroyed this session's
 	// machine-written bulk. It is why the row survives its own transcript:
 	// a purged session must stay visible, marked, rather than vanish.
 	PurgedAt *time.Time `yaml:"purged_at,omitempty" json:"purged_at,omitempty"`
 
-// internal/sessions/store.go — Store gains:
+// internal/core/sessions/store.go — Store gains:
 	MarkPurged(harpName string, at time.Time) error
 
-// internal/sessions/index.go and memstore.go each implement it.
+// internal/core/sessions/index.go and memstore.go each implement it.
 
 // internal/operations/sessions.go — isUnrecoverable gains, first:
 	if e.PurgedAt != nil {
@@ -970,7 +970,7 @@ finding.**
 `run -r <name>` resolves through `operations.GetCommand` **[V]**
 (`internal/cli/run.go:528`), which uses `Config.BundleLoader()` **[V]**.
 `BundleLoader` composes **project reader + remote readers + companion reader**
-**[V]** (`internal/config/config.go:2054-2057`). It does **not** include
+**[V]** (`internal/core/config/config.go:2054-2057`). It does **not** include
 `bundles.NewBuiltinReader()` — whose only caller in the entire tree is
 `config_bundles.go:832` **[V]**, a narrow kind-specific resolver.
 

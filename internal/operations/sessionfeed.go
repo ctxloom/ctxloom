@@ -12,11 +12,11 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
@@ -25,13 +25,13 @@ import (
 // feed per harp, one vocabulary (WatchEvent/SessionEntry), two sources behind
 // it. The LIVE TAP — a coordinator currently holding the child's run, reached
 // over its D1 ConsumerService (internal/agentcoord/discover finds candidate
-// coordinators; this package cannot import internal/agentcoord/coord
+// coordinators; this package cannot import internal/core/coord
 // directly — that package imports operations, so the reverse import would
 // cycle) — is preferred; the STORE TAIL (the S0 locators: WatchSession by
 // bound session id, WatchHistoryByPath by located transcript) is the
 // workhorse fallback. Consumers never know which source fed them.
 //
-// D2 note: this package cannot import internal/agentcoord/coord (the cycle
+// D2 note: this package cannot import internal/core/coord (the cycle
 // above), so it cannot construct coord.Identity or read coord's exported
 // vocabulary directly — it speaks the wire contract (internal/agentcoord,
 // the generated proto package, which has no such cycle) over a bare gRPC

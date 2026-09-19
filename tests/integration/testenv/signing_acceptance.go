@@ -15,9 +15,9 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -132,7 +132,7 @@ func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]s
 // remote. root is the remote-relative directory the tree lands in (e.g.
 // remoteSingleFilePublishPath(name) in the acceptance package); envelope is
 // the bundle.yaml body (no inline item keys — see
-// internal/bundles/tree_read.go's readEnvelope); items maps each item's path
+// internal/core/bundles/tree_read.go's readEnvelope); items maps each item's path
 // relative to the tree root (e.g. "fragments/marker.md") to its content.
 //
 // It goes through the PRODUCT's own signing path — content.NewTreeStore plus

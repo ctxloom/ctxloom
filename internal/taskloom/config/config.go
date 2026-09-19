@@ -1,7 +1,7 @@
 // Package config resolves taskloom's own layered configuration — a SEPARATE
 // config surface from ctxloom's (~/.ctxloom/config.yaml): taskloom reads
 // ~/.taskloom/config.yaml and the per-project .taskloom/config.yaml, merged
-// via internal/shared/confload exactly like ctxloom's own internal/config
+// via internal/shared/confload exactly like ctxloom's own internal/core/config
 // does (home < project < TASKLOOM_CONFIG_* env < --config-set), with a
 // EnvPrefix of "TASKLOOM_CONFIG_" so it can never collide with ctxloom's own
 // CTXLOOM_CONFIG_* overrides even though both binaries can run in the same
@@ -60,7 +60,7 @@ const (
 	FileName = "config.yaml"
 
 	// envPrefix mirrors ctxloom's own CTXLOOM_CONFIG_ convention (see
-	// internal/config's ctxloomProduct), scoped to taskloom so the two never
+	// internal/core/config's ctxloomProduct), scoped to taskloom so the two never
 	// collide even when both binaries run in the same process tree.
 	envPrefix = "TASKLOOM_CONFIG_"
 
@@ -231,7 +231,7 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 }
 
 // product builds the confload.Product describing taskloom's own on-disk/env
-// conventions, exactly mirroring internal/config's ctxloomProduct — including
+// conventions, exactly mirroring internal/core/config's ctxloomProduct — including
 // leaving KnownPath NIL when validator is nil (schema failed to load), which
 // is confload's own documented "no schema knowledge available" degradation.
 // See ctxloomProduct's doc for why a method value on a nil pointer would
@@ -341,7 +341,7 @@ func loadRaw(workDir string, fs *pflag.FlagSet) (map[string]any, error) {
 // into Config, validating against the embedded schema first: an unknown key
 // (or any other schema violation) is a returned error naming the offending
 // content, mirroring — for taskloom's own, much smaller schema — the
-// fail-loud unknown-key detection internal/config/unknown_keys.go gives
+// fail-loud unknown-key detection internal/core/config/unknown_keys.go gives
 // ctxloom (additionalProperties:false at the schema's top level already
 // rejects it; this just surfaces that rejection as an error instead of
 // letting it validate silently).

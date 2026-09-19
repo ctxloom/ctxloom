@@ -30,7 +30,7 @@ actually left, and a triage pass cannot tell it from work never started.
 What was completed belongs in the commit message, not here.
 
 Locate the work by SIGNATURE, not by position. Name the function, method,
-type, or exact string to search for — "cloneMCPServer in internal/config",
+type, or exact string to search for — "cloneMCPServer in internal/core/config",
 "the Changed --json branch in cliemit.Resolve" — never "accessors.go:95".
 Line numbers drift on every edit above them and are usually wrong by the
 time anyone reads the task; a symbol name still finds it.

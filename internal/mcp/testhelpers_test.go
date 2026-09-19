@@ -16,7 +16,7 @@ import (
 // Diagnostic-capture and strict-state helpers for this package's tests.
 //
 // Each is a verbatim sibling of the copy internal/cli, internal/lm/isolation
-// and internal/shared/agent already carry: they are three-line wrappers over
+// and internal/core/agent already carry: they are three-line wrappers over
 // process-wide sinks, and every package that touches those sinks keeps its
 // own rather than growing a shared test-only package that every test package
 // would then import. A divergence introduced in one shows up where it

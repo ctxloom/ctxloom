@@ -15,11 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -320,7 +320,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 //
 //	PUBLIC-SEAM altitude (the second test below): BuildInitialConfig reads from
 //	an embed.FS whose contents are asserted present at build time by
-//	internal/config/arch_test.go, so the failure cannot be provoked there. That
+//	internal/core/config/arch_test.go, so the failure cannot be provoked there. That
 //	test pins the shape the swallow used to corrupt — a real init config is
 //	never hollow — rather than the failure itself.
 func TestReadResource_PropagatesTheReadFailureInsteadOfReturningNilBytes(t *testing.T) {

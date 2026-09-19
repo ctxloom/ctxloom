@@ -20,10 +20,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -674,7 +674,7 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 // fragments appended to assembled context (the loader here carries a nil
 // gate — setupContextTestFS's convention — so this proves the injection
 // wiring itself; gating is proven separately in
-// internal/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
+// internal/core/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(

@@ -55,12 +55,12 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // tcLocalRef composes the countersign ref key for a fragment of a

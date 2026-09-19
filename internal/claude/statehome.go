@@ -3,7 +3,7 @@ package claude
 import (
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // HomeLeaf is the directory INSIDE a ctxloom-provisioned instance home

@@ -24,9 +24,9 @@ import (
 
 	"github.com/gofrs/flock"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/transcript"
@@ -36,7 +36,7 @@ import (
 // lockFileMode and lockDirMode are the modes the canonical-transcript
 // ownership lock's sidecar and its parent directory are created with,
 // before umask — not group- or world-WRITABLE, matching every other lock
-// site in this project (see internal/shared/agent/rmw_lock.go's
+// site in this project (see internal/core/agent/rmw_lock.go's
 // identically-reasoned pair).
 const (
 	lockFileMode = 0o644

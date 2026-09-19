@@ -8,17 +8,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // This file carries `profile materialize --surface <kind>=<approach>`: the
 // override, and the help that makes it usable without reading source.
 //
 // The vocabulary is ctxloom's own, which is the problem it has to solve. Every
-// name a user types here is derived from the enums in internal/shared/agent —
+// name a user types here is derived from the enums in internal/core/agent —
 // never restated — so the flag, its error text, its --help table and its shell
 // completion cannot drift from each other or from the code.
 

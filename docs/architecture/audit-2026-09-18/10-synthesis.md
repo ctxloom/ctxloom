@@ -35,7 +35,7 @@ flowchart TB
   subgraph L2["shared + delivery layer"]
     MCP["internal/mcp"]
     BE["internal/lm/backends"]
-    AG["internal/shared/agent (seam + toolbox)"]
+    AG["internal/core/agent (seam + toolbox)"]
     PRES["shared/agent/present"]
     CP["internal/confpatch"]
     LED["shared/ledger"]
@@ -57,22 +57,22 @@ flowchart TB
     DISC["agentcoord/discover"]
   end
   subgraph L5["trust + remote layer"]
-    TR["internal/trust"]
+    TR["internal/core/trust"]
     SIG["internal/signing (+countersign, allowedsigners, agentkey)"]
     ATT["content/attest"]
     REM["internal/remote"]
-    BUN["internal/bundles"]
+    BUN["internal/core/bundles"]
   end
   subgraph L6["sessions + transcript layer"]
-    SESS["internal/sessions"]
+    SESS["internal/core/sessions"]
     TRN["internal/transcript (+vendorreader)"]
     MEM["internal/memory"]
     TC["internal/turnchange"]
   end
   subgraph L7["paths + config layer"]
-    CFG["internal/config"]
-    PROF["internal/profiles"]
-    PATHS["internal/paths"]
+    CFG["internal/core/config"]
+    PROF["internal/core/profiles"]
+    PATHS["internal/core/paths"]
     WIRE["shared/wire"]
   end
 
@@ -193,7 +193,7 @@ flowchart TB
 
 1. **`operations` is the stated mediator and is bypassed from above by every frontend and from below by every domain package.** The SKIP edges out of `CLI` and `MCP` number twelve; `layering_test.go` enforces exactly one rule in this direction (`operations ↛ cli`) and none that says a frontend must go THROUGH operations (S6.F3). The AGAINST edges show the mirror: `backends`, `config`, `coord`, `memory` and `lm/grpc` each do a job (config load, trust decision, MCP composition, engine launch, transcript recording) that the stated architecture assigns a layer above them.
 2. **Three packages are "two programs in one import path".** `agentcoord/coord` compiles the coordinator AND the runner (S4 §3); `shared/agent` is the delivery SEAM and a filesystem TOOLBOX (S3.F20); `internal/mcp` is three server flavours plus coordinator lifecycle (S2.F2). Every AGAINST edge into `AG` and out of `COORD` is a symptom of one of these.
-3. **`internal/config` is the universal carrier.** It is imported by every layer, and three things travel THROUGH it that are not configuration: the executable trust gate (`Config.execGate`, S5.ML-1), the `--config-set` override funnel (a process global, S6.F7), and the bundle readers/trust root (re-parsed per call, S5.DF-1). That is why the gate can be `AdmitAll` in one process and a real gate in a sibling copy of the same config (S5.DP-1, S5.DF-3 ✔).
+3. **`internal/core/config` is the universal carrier.** It is imported by every layer, and three things travel THROUGH it that are not configuration: the executable trust gate (`Config.execGate`, S5.ML-1), the `--config-set` override funnel (a process global, S6.F7), and the bundle readers/trust root (re-parsed per call, S5.DF-1). That is why the gate can be `AdmitAll` in one process and a real gate in a sibling copy of the same config (S5.DP-1, S5.DF-3 ✔).
 4. **The only enforced rules that hold** are `operations ↛ cli`, `coord ↛ cli/tui`, `operations ↛ internal/claude`, `transcript ↛ lm/grpc`, and the two lean-binary gates. Everything drawn as SKIP or AGAINST above is ungated (S2 §1, S5 §3, S6 §1, S7 §3).
 
 ### A2. Unified launch graph — every entry point that starts an engine, joined to what it does and does not run
@@ -597,8 +597,8 @@ flowchart LR
 
 **What the assembled choke graph shows.**
 
-1. **The DECISION is single** (`EffectiveTrust` → `contentGate.Admit`, S5 SA-4 "stronger than stated") — but its **handle is fail-open and untyped**: `Config.ExecutableTrustGate()` returns `AdmitAll` unless one of five sites mutated the config, and `bundles.Decide` skips every step (including REJECTION and retraction) when the authorizer is `AdmitAll` (✔ `internal/config/config_bundles.go`). Fragments are safe from this — `AssembleContext` uses `exposurePipelineGated`'s own gate (✔ `internal/operations/context.go`) — so BYPASS 1 is specifically the EXEC surfaces (MCP, hooks) and the profile-scoped commands/skills loaders in `lm/backends`, which is the worse half.
-2. **`ctxloom mcp serve` in local mode never attaches a gate to its own config** (✔ no `SetExecutableTrustGate` under `internal/mcp`). Its startup `ApplyHooks` IS gated (`operations/hooks.go` sets the gate on a `freshCfg`), so the exposure is bounded: the server's own `ctxServer.cfg`, used by `registerResources`/`ListMCPServers` (`ctxloom://mcp-servers`) and by `handleAgentRun`'s in-process `NewHostedCoordinator → prodSpawner`, reads `AdmitAll` for MCP/hook items — UNTIL `ctxServer.delegation()` lazily constructs a coordinator, because `coord.newProdSpawner` calls `cfg.SetExecutableTrustGate` on the config it is handed (✔ `internal/agentcoord/coord/spawner.go`), i.e. the same `*config.Config` becomes gated as a SIDE EFFECT of the first `agent_run`. That order-dependence is the mutable-field defect (S5.LB-4) in its purest form, and it answers seam 5's open question to seam 2.
+1. **The DECISION is single** (`EffectiveTrust` → `contentGate.Admit`, S5 SA-4 "stronger than stated") — but its **handle is fail-open and untyped**: `Config.ExecutableTrustGate()` returns `AdmitAll` unless one of five sites mutated the config, and `bundles.Decide` skips every step (including REJECTION and retraction) when the authorizer is `AdmitAll` (✔ `internal/core/config/config_bundles.go`). Fragments are safe from this — `AssembleContext` uses `exposurePipelineGated`'s own gate (✔ `internal/operations/context.go`) — so BYPASS 1 is specifically the EXEC surfaces (MCP, hooks) and the profile-scoped commands/skills loaders in `lm/backends`, which is the worse half.
+2. **`ctxloom mcp serve` in local mode never attaches a gate to its own config** (✔ no `SetExecutableTrustGate` under `internal/mcp`). Its startup `ApplyHooks` IS gated (`operations/hooks.go` sets the gate on a `freshCfg`), so the exposure is bounded: the server's own `ctxServer.cfg`, used by `registerResources`/`ListMCPServers` (`ctxloom://mcp-servers`) and by `handleAgentRun`'s in-process `NewHostedCoordinator → prodSpawner`, reads `AdmitAll` for MCP/hook items — UNTIL `ctxServer.delegation()` lazily constructs a coordinator, because `coord.newProdSpawner` calls `cfg.SetExecutableTrustGate` on the config it is handed (✔ `internal/core/coord/spawner.go`), i.e. the same `*config.Config` becomes gated as a SIDE EFFECT of the first `agent_run`. That order-dependence is the mutable-field defect (S5.LB-4) in its purest form, and it answers seam 5's open question to seam 2.
 3. **Three verification adapters, three refusal policies** for one publisher signature (V0 refuses, V1 proceeds, `upgrade_verify` checks a different file) — S5.D-1/D-2/U2. The identity they produce is a `string` that `EffectiveTrust` allows on `!= ""`.
 4. **TAIL B (E4/E8) never reaches `AssembleManagedConfig`**, so the MCP servers a delegated child executes are gated by whatever `prodSpawner` attached at construction — and its `resolveCfg` re-reads config per spawn while `gate` was built from the construction-time config (S4.F-DF-7).
 
@@ -709,7 +709,7 @@ Every doc / glossary / arch-test / load-bearing-comment statement the seams foun
 | `tests/arch/lean_binaries_arch_test.go` | gates `cmd/ltk`, `cmd/taskloom` against `lm/*`+`bundles`; both already link `internal/claude`; `harp`, `probe-mcp-server`, `validate`, `archlint` ungated; the front line is `internal/claude`'s own import list, which no rule pins | S6.F11 |
 | `tests/arch/lock_discipline_test.go`, `ledger_discipline_test.go` | allowlist reason cites "CodexHookWriter.save" (gone); "five packages" (it is two); the ledger gate's "third signal" is a `json:"-"` field that records nothing | S3.F5, S3.F15 |
 | `tests/arch/credential_gitignore_test.go` | listed under trust in the brief; asserts engine credentials only — nothing about `state/trust/objects/`, `approvals`, `allowed_signers` | S5.SA-9 |
-| `internal/config/preimage_wire_parity_test.go` | proves `BundleHook → wire.Hook`; the REVERSE hand copy `backends.hookExecPayload` is unguarded | S5.SA-5 |
+| `internal/core/config/preimage_wire_parity_test.go` | proves `BundleHook → wire.Hook`; the REVERSE hand copy `backends.hookExecPayload` is unguarded | S5.SA-5 |
 | `TestFormatCoverage_AllRootCmdDescendants` | walks tree→registry only; registry key `"agent setup"` (deleted verb) is never reported | S6.F9 |
 | `TestAgentRecvWait_StdioSchemaDescribesTheSameBounds` | pins parity between the two `agent_*` schemas for ONE field | S4.F5 |
 | `internal/archlint` vs `tests/arch` | two copies of every rule; CI runs one (row `unskilled-state`) | rows |
@@ -1022,7 +1022,7 @@ From A2 (launch) and A3 (bus). Each branch, what it skips, the USER-VISIBLE cons
 | `tests/arch/lock_discipline_test.go`, `ledger_discipline_test.go` | allowlist reason cites `CodexHookWriter.save` (gone); "five packages" (two); the ledger's "third signal" is a `json:"-"` field | delete the stale reasons; assert ONE ownership mechanism per target path | S3.F5, S3.F15 |
 | `tests/arch/session_bind_single_writer_arch_test.go` (ratchet shape) | `BindSession` writers | reuse the shape: `memory.NewCompactor(` callers allowlisted to `internal/operations`; `os.RemoveAll` under either harp tree in ≤2 named symbols; `os.ReadDir(HomeSessionsDir)` only via two predicates | S7.F2, F5, F6 |
 | `tests/arch/vocabulary_adoption_test.go` (pattern) | vocabulary literals | forbid the literal `"CTXLOOM_SESSION_HARP"` (and `CTXLOOM_CELL_WORKDIR`, `CTXLOOM_PROJECT_ID`) outside its const declaration | S2.F9, S6.F5, S7 §2.1 |
-| `internal/config/preimage_wire_parity_test.go` | `BundleHook → wire.Hook` | round-trip `BundleHook → wire.Hook → backends.hookExecPayload` and assert byte-equal preimages (or delete the reverse copy with ML-D) | S5.SA-5 |
+| `internal/core/config/preimage_wire_parity_test.go` | `BundleHook → wire.Hook` | round-trip `BundleHook → wire.Hook → backends.hookExecPayload` and assert byte-equal preimages (or delete the reverse copy with ML-D) | S5.SA-5 |
 | `tests/arch/credential_gitignore_test.go` `credentialPaths` | engine credentials in-tree | add `.ctxloom/state/trust/objects/`, `approvals`, `allowed_signers` rows | S5.SA-9 |
 | `TestFormatCoverage_AllRootCmdDescendants` | tree → registry | add registry → tree (fails on `"agent setup"`) | S6.F9 |
 | `TestArch_LeanBinaries…` + `tests/arch` vs `internal/archlint` | two copies of every rule, CI runs one | one source (row `unskilled-state`) | all of the above, twice |
@@ -1133,7 +1133,7 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
   func NewTrustContext(cfg *config.Config, opts ...TrustOption) (*TrustContext, error) // loads root + both stores + lockfile ONCE
   func (t *TrustContext) Gate() bundles.Authorizer
   func WithUngatedListing() TrustOption // the ONLY way to get AdmitAll
-  // internal/config: delete execGate, SetExecutableTrustGate, ExecutableTrustGate; extractMCPFromBundle/extractHooksFromBundle take (gate bundles.Authorizer)
+  // internal/core/config: delete execGate, SetExecutableTrustGate, ExecutableTrustGate; extractMCPFromBundle/extractHooksFromBundle take (gate bundles.Authorizer)
   // internal/signing: type Principal struct{ name string } constructed only by VerifyInNamespace; EffectiveTrustRequest.Signer Principal
   // internal/content/attest: export attestation; bundles.readSignatureFacts calls attest.resolvePublisher over a one-element SigSet; delete repoFSReader.verifyTree's converter
   ```

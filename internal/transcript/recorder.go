@@ -11,8 +11,8 @@ import (
 
 	"github.com/gofrs/flock"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
@@ -20,7 +20,7 @@ import (
 // lockFileMode and lockDirMode are the modes the canonical-transcript
 // ownership lock's sidecar and its parent directory are created with,
 // before umask — not group- or world-WRITABLE, matching every other lock
-// site in this project (see internal/shared/agent/rmw_lock.go's
+// site in this project (see internal/core/agent/rmw_lock.go's
 // identically-reasoned pair).
 const (
 	lockFileMode = 0o644
@@ -30,7 +30,7 @@ const (
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
 // transcript.jsonl. It is the type S2 tees the host-side ChatEvent stream
 // through (internal/lm/grpc/chat.go's GRPCClient.Chat and
-// internal/agentcoord/coord/enginehost.go's adapt) — this package only
+// internal/core/coord/enginehost.go's adapt) — this package only
 // defines the writer; nothing in S1 wires it to those call sites yet.
 type Recorder interface {
 	// Record appends one canonical line for ev, stamping harp/engine/seq/ts.
@@ -254,7 +254,7 @@ func openAppendFile(path string) (io.WriteCloser, error) {
 //
 // A DEFAULT-path recorder (no WithPath override — the two structured/ACP
 // host seams, internal/lm/grpc/chat.go and
-// internal/agentcoord/coord/enginehost.go) also takes a SHARED ownership
+// internal/core/coord/enginehost.go) also takes a SHARED ownership
 // lock on the canonical transcript here, held for the recorder's lifetime
 // and released in Close. This is the other half of the easeful-dial fix:
 // operations.convertVendorTranscript's refresh path takes the matching

@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Runtime is the L2 standard mock runtime: backend-agnostic behaviour wired to

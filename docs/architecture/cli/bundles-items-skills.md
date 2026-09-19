@@ -154,7 +154,7 @@ the built-in prompt.
   `writeViewContent` (`:174`) always emits a trailing newline, so "wrote nothing"
   is visually distinguishable.
 - **Bundle listings are deterministic.** Renderers iterate the sorted accessors
-  `bundle.FragmentNames()` / `PromptNames()` (`internal/bundles/bundles.go:683-690`)
+  `bundle.FragmentNames()` / `PromptNames()` (`internal/core/bundles/bundles.go:683-690`)
   rather than ranging over maps — used at `bundle_list.go:211,219`.
 - **Signing is resolved before any network call.** `pushBundleCfg`
   (`item_helpers.go:569`) checks `--sign`/`--no-sign` mutual exclusion and

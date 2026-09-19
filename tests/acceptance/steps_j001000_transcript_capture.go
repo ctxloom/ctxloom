@@ -27,7 +27,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	mockreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/mock"

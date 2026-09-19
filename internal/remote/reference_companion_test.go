@@ -77,7 +77,7 @@ func TestReference_Companion_StringRoundTrip(t *testing.T) {
 // distinguishable from the retired "builtin:" source ref
 // (trust.IsRetiredBuiltinSpelling) and from ctxloom:local — they are different trust
 // classes (trusted-signer/pending vs the unconditional builtin/local
-// exemptions) and must never be confused. See internal/trust's
+// exemptions) and must never be confused. See internal/core/trust's
 // TestCanonicalRepoURL for the companion-source special case in
 // CanonicalRepoURL (trust cannot be tested from here: remote cannot import
 // trust, which imports remote).

@@ -222,7 +222,7 @@ var pinnedCalls = []pinnedCall{
 			return selectorCall(c, "harp", "GenerateName") || selectorCall(c, "harp", "GenerateNameWithOptions") ||
 				selectorCall(c, "harp", "GenerateShortName") || selectorCall(c, "harp", "UniqueFrom")
 		},
-		permitted: []string{"internal/sessions", "internal/operations", "internal/shared/harp", "cmd/harp"},
+		permitted: []string{"internal/core/sessions", "internal/operations", "internal/shared/harp", "cmd/harp"},
 	},
 	{
 		what:      "constructs the coordinator (coord.New)",
@@ -354,8 +354,8 @@ func engineNameInitPrompt(rel string) bool {
 // leaves.
 var noEngineNameInCoreAllowed = map[string]string{
 	// core packages that name the default engine
-	"internal/config/config_types.go":            "slice 6b: Config.Validate(engine.Registry) checks a configured name against the registry; no default is a literal in core",
-	"internal/bundles/tree_read.go":              "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
+	"internal/core/config/config_types.go":       "slice 6b: Config.Validate(engine.Registry) checks a configured name against the registry; no default is a literal in core",
+	"internal/core/bundles/tree_read.go":         "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
 	"internal/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/memory/distill.go":                 "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
@@ -431,11 +431,11 @@ func TestArch_NoEngineNameInCore_AllowlistIsLive(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // envKeysDeclaringDir is the package that declares the CTXLOOM_* environment
-// keys the runner reads (today internal/agentcoord/coord; core/sessions
+// keys the runner reads (today internal/core/coord; core/sessions
 // after slice 2). The keys themselves are READ from its package-level
 // consts, never listed here: a key added there is covered the moment it is
 // declared.
-const envKeysDeclaringDir = "internal/agentcoord/coord"
+const envKeysDeclaringDir = "internal/core/coord"
 
 // envReadHomes are the directories that may spell those keys or read the
 // process environment (home, cwd, temp, the current user): the declaring
@@ -467,10 +467,10 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
 
 	// core reading the environment for itself
-	"internal/paths/homeguard.go":         "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/paths/paths.go":             "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
-	"internal/config/config.go":           "slice 4: adapters/configload owns the file chain; core/config reads no environment",
-	"internal/shared/agent/rendezvous.go": "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
+	"internal/core/paths/homeguard.go":  "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/paths/paths.go":      "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
+	"internal/core/config/config.go":    "slice 4: adapters/configload owns the file chain; core/config reads no environment",
+	"internal/core/agent/rendezvous.go": "slice 14a: the rendezvous is the engine host's (adapters/runner), handed its temp root",
 
 	// the CLI: HostFacts are computed once by the composition root
 	"internal/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",

@@ -12,7 +12,7 @@ directory, making every well-known write race-free) or, when an engine must
 write into the shared cwd, through the approach's own out-of-cwd form where it
 has one and a loudly-warned well-known write where it does not.
 
-Authority: `internal/shared/agent/declaration.go` (the open set and the
+Authority: `internal/core/agent/declaration.go` (the open set and the
 capabilities), `approach.go` (the well-known names), `presentations.go` (a
 declaration's per-kind half), `cells.go` (the seam, the cells, the builder).
 

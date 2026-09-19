@@ -6,7 +6,7 @@ talks to, the stdio shim that forwards onto it, the legacy standalone stdio
 server that stands a coordinator up itself, the read-only `ctxloom://` resource
 surface, and a handler-free clone of the whole thing for docs generation. This
 is the boundary where an external MCP client meets `internal/operations`
-(content), `internal/agentcoord/coord` (delegation), and
+(content), `internal/core/coord` (delegation), and
 `internal/agentcoord/mcpschema` (the proto-canonical tool routing table). The
 `ctxloom mcp *` command tree — server CRUD and registration — is a much smaller
 concern that happens to share the prefix, and is the only part still in

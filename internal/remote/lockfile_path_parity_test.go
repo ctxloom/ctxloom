@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // The lockfile path must come from paths.LockPath, the package that owns this
@@ -23,7 +23,7 @@ func TestLockfileManagerPath_MatchesPathsLockPath(t *testing.T) {
 
 // Reference.LocalPath must root at paths.CacheBundlesPath rather than
 // re-assemble the cache bundles root from paths.CacheDir + paths.BundlesDir,
-// so a layout change in internal/paths cannot silently miss it. Pins the two
+// so a layout change in internal/core/paths cannot silently miss it. Pins the two
 // to one answer.
 //
 // It deliberately does NOT route through a layout-specific prefix

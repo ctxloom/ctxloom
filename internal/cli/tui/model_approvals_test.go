@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // TestModel_ApprovalsKeyOnEmptyListHintsWithoutOpening pins the "a" key's

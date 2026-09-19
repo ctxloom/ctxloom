@@ -8,7 +8,7 @@
 // exactly the lineage-loss bug BindSession's own
 // displacement-append (see Manager.BindSession's doc comment) exists to
 // prevent. Manager.BindSession and MemStore.BindSession are themselves
-// unit-pinned (internal/sessions' own tests) to append correctly — the
+// unit-pinned (internal/core/sessions' own tests) to append correctly — the
 // open question this gate answers is whether some OTHER code path writes a
 // harp's session_id/transcript_path without going through either of them,
 // bypassing the append entirely.

@@ -29,7 +29,7 @@ package policy
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Reasons a block is withheld. Recorded on the marker so a reader can tell

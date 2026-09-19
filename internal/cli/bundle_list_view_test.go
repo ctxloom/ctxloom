@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // =============================================================================
@@ -317,7 +317,7 @@ func TestBundleViews_CarryNoSchemaTypes(t *testing.T) {
 			return
 		}
 		seen[rt] = true
-		assert.NotContains(t, rt.PkgPath(), "/internal/bundles", "view type %s is a bundles schema type", rt)
+		assert.NotContains(t, rt.PkgPath(), "/internal/core/bundles", "view type %s is a bundles schema type", rt)
 		for i := 0; i < rt.NumField(); i++ {
 			f := rt.Field(i)
 			_, hasYAML := f.Tag.Lookup("yaml")

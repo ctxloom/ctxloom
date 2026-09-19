@@ -22,7 +22,7 @@ the symbol it rests on, so `git grep` settles whether it still holds.
 ```mermaid
 flowchart TD
   PROTO["internal/agentcoord<br/>*.proto — the wire contract"]
-  COORD["internal/agentcoord/coord<br/>the delegation runtime"]
+  COORD["internal/core/coord<br/>the delegation runtime"]
   SCHEMA["internal/agentcoord/mcpschema<br/>the LLM-facing tool surface"]
   GEN["internal/agentcoord/mcpschema/gen<br/>build-time generator"]
   DISC["internal/agentcoord/discover<br/>endpoint discovery (leaf)"]

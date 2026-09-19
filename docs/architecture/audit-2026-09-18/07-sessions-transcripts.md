@@ -10,15 +10,15 @@ Status: COMPLETE — see the end of the document for the section census.
 **Seam.** The session's life on disk — the harp-keyed directory under `~/.ctxloom/sessions/<harp>/`, the sidecar that makes it a session, the transcripts (vendor, canonical, segments) it accumulates, the two derived artifacts (`essence.md`, `next-step.md`), the sweeps that delete parts of it, and the one-shot consumers (distill, compact, recover, previous-session, load-session, turn-change hooks) that read it back. Also the SECOND harp-keyed tree, `<project>/.ctxloom/state/<harp>/home` (the session home), because a reaper is aimed at it.
 
 **Packages read (production files, no tests).**
-`internal/sessions` (manager.go, store.go, memstore.go, sidecar.go, transcript.go, index_upgrade.go) · `internal/paths` (paths.go harp/session resolvers) · `internal/operations` (sessions.go, session_reclaim.go, session_home_reap.go, session_home_sweep.go, harp_artifacts.go, harp_lineage.go, session_adopt.go, session_distill.go, session_source.go, session_essence.go, session_purge.go, sessionfeed.go, turn_transcript.go, vendorreader.go) · `internal/transcript` (record.go, recorder.go, history.go, oneshot.go, coordinated.go, policy/, vendorreader/) · `internal/turnchange` · `internal/memory` (compactor.go, distill.go, nextstep.go, plans.go, selection.go, stamp.go) · `internal/contextmetrics` · `internal/compression` (router/compressor only, as consumed by memory) · `internal/cli` (session_*.go, distiller.go, clean_cmd.go, hook_next_step.go, hook_turn_changed.go, hook_stamp_plan.go, session_bind.go, doctor_transcript_reader.go) · `internal/mcp` (mcp_tools_memory.go, mcp_resources.go, mcp_server.go startup sweeps) · `internal/shared/sessionlock` (liveness predicate shared by every sweep).
+`internal/core/sessions` (manager.go, store.go, memstore.go, sidecar.go, transcript.go, index_upgrade.go) · `internal/core/paths` (paths.go harp/session resolvers) · `internal/operations` (sessions.go, session_reclaim.go, session_home_reap.go, session_home_sweep.go, harp_artifacts.go, harp_lineage.go, session_adopt.go, session_distill.go, session_source.go, session_essence.go, session_purge.go, sessionfeed.go, turn_transcript.go, vendorreader.go) · `internal/transcript` (record.go, recorder.go, history.go, oneshot.go, coordinated.go, policy/, vendorreader/) · `internal/turnchange` · `internal/memory` (compactor.go, distill.go, nextstep.go, plans.go, selection.go, stamp.go) · `internal/contextmetrics` · `internal/compression` (router/compressor only, as consumed by memory) · `internal/cli` (session_*.go, distiller.go, clean_cmd.go, hook_next_step.go, hook_turn_changed.go, hook_stamp_plan.go, session_bind.go, doctor_transcript_reader.go) · `internal/mcp` (mcp_tools_memory.go, mcp_resources.go, mcp_server.go startup sweeps) · `internal/shared/sessionlock` (liveness predicate shared by every sweep).
 
-**Stated architecture consulted.** `GLOSSARY.md` (session, session dir, session home, ctxloom home, scratch); `internal/paths/paths.go` doc comments (the declarative layout); `tests/arch/session_bind_single_writer_arch_test.go`, `session_home_arch_test.go`, `write_discipline_test.go`, `path_authority_test.go`, `layering_test.go`; task rows `docile-tribunal` (Done), `boned-monoxide` (To Do, reaper landed 2026-09-18), `fetal-lance`, `zippy-tint`, `climatic-stroller`, `unusable-overload` (Done).
+**Stated architecture consulted.** `GLOSSARY.md` (session, session dir, session home, ctxloom home, scratch); `internal/core/paths/paths.go` doc comments (the declarative layout); `tests/arch/session_bind_single_writer_arch_test.go`, `session_home_arch_test.go`, `write_discipline_test.go`, `path_authority_test.go`, `layering_test.go`; task rows `docile-tribunal` (Done), `boned-monoxide` (To Do, reaper landed 2026-09-18), `fetal-lance`, `zippy-tint`, `climatic-stroller`, `unusable-overload` (Done).
 
 **Entry points traced** (each followed to its process boundary):
 
 | # | Entry | Symbol + file | Boundary reached |
 |---|---|---|---|
-| E1 | `ctxloom run` pre-launch mint | `operations.AssignSession` `internal/operations/sessions.go` → `sessions.Manager.AssignHarp` `internal/sessions/manager.go` | `os.Mkdir` harp dir; `iox.WriteFileAtomic` session.yaml; `sessionlock.Hold` flock; engine `--version` exec via `backends.ProbeEngineVersion` |
+| E1 | `ctxloom run` pre-launch mint | `operations.AssignSession` `internal/operations/sessions.go` → `sessions.Manager.AssignHarp` `internal/core/sessions/manager.go` | `os.Mkdir` harp dir; `iox.WriteFileAtomic` session.yaml; `sessionlock.Hold` flock; engine `--version` exec via `backends.ProbeEngineVersion` |
 | E2 | `ctxloom run` / `mcp serve` startup sweeps | `operations.SweepOrphanedSessionHomes`, `operations.SweepHarpArtifacts` (called from `cli/run.go` and `mcp/mcp_server.go`) | `os.RemoveAll` `<project>/.ctxloom/state/<harp>`; `os.Rename` harp top-level files → `persist/` |
 | E3 | SessionStart hook (bind) | `cli.bindSessionFromPayload` `internal/cli/session_bind.go` → `operations.BindSession` → `sessions.Manager.BindSession` | sidecar rewrite; `os.Symlink` `engine-transcript-<engine>-<sid>.jsonl` |
 | E4 | TurnEnd hook (next step) | `cli` hook_next_step.go → `memory.WriteNextStep`/`ReadNextStep` `internal/memory/nextstep.go` | `next-step.md` at harp top level |
@@ -32,7 +32,7 @@ Status: COMPLETE — see the end of the document for the section census.
 | E12 | canonical rebuild from vendor | `operations.RefreshVendorTranscript` `internal/operations/vendorreader.go` | rewrites `persist/transcript.jsonl`; writes `segments/<sid>.jsonl` |
 | E13 | `ctxloom session purge/remove/adopt/edit/transcript/watch/essence/query/full` | `cli/session_*.go` → `operations.PurgeSession`, `ApplyAdopt`, `RenameSession`, `ForgetSession`, `WatchSessionFeed`, `HarpTranscripts` | file removes, sidecar rewrites, transcript reads |
 | E14 | `ctxloom doctor` transcript-reader / durability checks | `cli/doctor_transcript_reader.go`, `cli.doctorCheckHarpDurability` `internal/cli/doctor_cmd.go` | reads sidecar + harp top level |
-| E15 | coord liveness | `coord` `internal/agentcoord/coord/liveness.go` reads `paths.HarpCanonicalTranscriptPath` | stat canonical transcript |
+| E15 | coord liveness | `coord` `internal/core/coord/liveness.go` reads `paths.HarpCanonicalTranscriptPath` | stat canonical transcript |
 | E16 | context metrics | `contextmetrics.Append` `internal/contextmetrics/contextmetrics.go` | raw append (write-discipline grandfathered) |
 
 ## 2. Call graphs
@@ -58,7 +58,7 @@ flowchart LR
     rmi[operations.removeSessionInstance]
     open[operations.openSessions]
   end
-  subgraph sess ["internal/sessions/manager.go, transcript.go"]
+  subgraph sess ["internal/core/sessions/manager.go, transcript.go"]
     sopen[sessions.Open]
     migr[sessions.MigrateIndex]
     ah[Manager.AssignHarp]
@@ -154,7 +154,7 @@ flowchart LR
     cdest[operations.canonicalDestination]
     hct[operations.hasCanonicalTranscript]
   end
-  subgraph pathsp ["internal/paths"]
+  subgraph pathsp ["internal/core/paths"]
     hctp[paths.HarpCanonicalTranscriptPath]
     rhctp[paths.ResolveHarpCanonicalTranscriptPath<br/>does I/O: legacy-name fallback]
     segp[paths.ResolveHarpSegmentPath]
@@ -255,7 +255,7 @@ flowchart LR
     rns[memory.ReadNextStep]
     lds[memory.LoadDistilledSession]
   end
-  subgraph sess ["internal/sessions"]
+  subgraph sess ["internal/core/sessions"]
     sopen[sessions.Open]
     find[Manager.Find]
     cte[sessions.CountTranscriptEntries]
@@ -446,7 +446,7 @@ flowchart TB
     operations[internal/operations]
   end
   subgraph domain ["domain"]
-    sessions[internal/sessions]
+    sessions[internal/core/sessions]
     transcript[internal/transcript]
     vendorreader[internal/transcript/vendorreader]
     vrclaude[vendorreader/claude]
@@ -458,12 +458,12 @@ flowchart TB
     grpc[internal/lm/grpc]
     backends[internal/lm/backends]
     isolation[internal/lm/isolation]
-    coord[internal/agentcoord/coord]
-    spool[internal/agentcoord/spool]
+    coord[internal/core/coord]
+    spool[internal/core/spool]
     claudepkg[internal/claude]
   end
   subgraph base ["base"]
-    paths[internal/paths]
+    paths[internal/core/paths]
     sessionlock[shared/sessionlock]
     plans[shared/plans]
     iox[shared/iox]
@@ -703,7 +703,7 @@ flowchart LR
 - Settles it: the merge itself; until then, an arch test that `os.RemoveAll` under either harp tree occurs in ≤2 named symbols, and `ReapOrphanedSessionHomes` uses `enumerate()`-level data (no enrich).
 
 ### F7 — STATED-VS-ACTUAL / NO-BACKWARD-COMPAT: three compatibility shims live on the hot path
-- `sessions.MigrateIndex` `internal/sessions/sidecar.go` runs on EVERY `sessions.Open()` (≈ every façade call), with the whole `internal/sessions/index_upgrade.go` timestamp pipeline (`indexUpgrades`, `tsNormalizeUpgrade`, `normalizeTimestampNode`, `parseTimestamp`) retained solely to parse the retired `index.yaml`. Row `climatic-stroller`'s `time.Now()` fabrication now lives only here. Row `docile-tribunal` says re-init is the upgrade path; the project rule says "no migration period".
+- `sessions.MigrateIndex` `internal/core/sessions/sidecar.go` runs on EVERY `sessions.Open()` (≈ every façade call), with the whole `internal/core/sessions/index_upgrade.go` timestamp pipeline (`indexUpgrades`, `tsNormalizeUpgrade`, `normalizeTimestampNode`, `parseTimestamp`) retained solely to parse the retired `index.yaml`. Row `climatic-stroller`'s `time.Now()` fabrication now lives only here. Row `docile-tribunal` says re-init is the upgrade path; the project rule says "no migration period".
 - `paths.LegacyCanonicalTranscriptFileName` + `paths.ResolveHarpCanonicalTranscriptPath` (the only I/O-doing resolver) — read-fallback to `transcript.acp.jsonl`; and via `operations.canonicalDestination`, the REBUILD writes to whichever name exists, so the legacy name is still a write target, contradicting `HarpCanonicalTranscriptPath`'s "every writer targets this path, never the legacy one".
 - `operations.classifyPurgeFile` `internal/operations/session_purge.go` spells `"transcript.acp.jsonl"` as a bare literal twice, and classifies top-level `transcript.jsonl`.
 - `sessions.linkEngineTranscript` doc: "Existing pre-rename transcript.jsonl symlinks are LEFT ALONE".
@@ -712,8 +712,8 @@ flowchart LR
 ### F8 — LAYER BYPASS: frontends and transport reach past `operations` into `sessions`/`memory`/`transcript`
 - `internal/mcp` → `memory.NewCompactor` ×2, `memory.LoadDistilledSession` ×2, `memory.ReadNextStep` ×2, `sessions.TranscriptStale`; `internal/cli` → `memory.WriteNextStep`, `memory.StampPlanFile`, `transcript.RecordOneshot`, `turnchange.*`, `sessions.Manager` (hook_inject_context); `internal/cli/tui` → `sessions`.
 - `internal/lm/grpc` → constructs `transcript.NewRecorder`, `transcript.NewCoordinatedRecorder`, `transcript.NewCanonicalHistory`, calls `transcript.ParseTranscriptFile` and `sessions.LocateTranscript`. `internal/memory` → `internal/lm/grpc`, `internal/lm/backends`. `transcript ⇏ lm/grpc` is enforced; `memory → lm/grpc` is not; nothing states why siblings differ.
-- `internal/agentcoord/coord/liveness.go` → `paths.HarpCanonicalTranscriptPath`; `internal/agentcoord/spool` → `paths.HarpPersistDir` + own `"spool"` segment.
-- Settles it: add `internal/cli` and `internal/mcp` → forbid `internal/sessions`, `internal/memory`, `internal/transcript` to `layeringRules` with a dated allowlist, and shrink it.
+- `internal/core/coord/liveness.go` → `paths.HarpCanonicalTranscriptPath`; `internal/core/spool` → `paths.HarpPersistDir` + own `"spool"` segment.
+- Settles it: add `internal/cli` and `internal/mcp` → forbid `internal/core/sessions`, `internal/memory`, `internal/transcript` to `layeringRules` with a dated allowlist, and shrink it.
 
 ### F9 — MISSING LAYER: "harp-dir member classification" has no home
 - Four independent classifications of the same directory members: `operations.HarpTopLevelArtifacts` (authored vs owned), `operations.classifyPurgeFile` (machine/derived/authored), `operations.ReclaimScope.members` (ephemeral/persist), `sessions.IsSessionDir`/`isHarpDirCandidate` (is-session). Each hand-lists `paths.*` names; each has drifted (F1, F7).
@@ -724,7 +724,7 @@ flowchart LR
 - Settles it: `HarpTranscripts` reads `Entry.Rotations`+`TranscriptPath`; the symlinks become a human convenience only (or go).
 
 ### F11 — DUPLICATION: two canonical-JSONL readers with different guarantees
-- `transcript.ParseTranscriptFile` `internal/transcript/history.go` — schema-version checked (`SchemaVersionError`), refuses zero-decoded files, tolerates corrupt lines. `sessions.CountTranscriptEntries` `internal/sessions/transcript.go` — kind-only unmarshal, no schema check, silently counts a v2 file. Both are readers of `transcript.Record`; the count lives in the package BELOW the one that owns the schema (`transcript` imports `sessions`, so `sessions` cannot import `transcript.Record`).
+- `transcript.ParseTranscriptFile` `internal/transcript/history.go` — schema-version checked (`SchemaVersionError`), refuses zero-decoded files, tolerates corrupt lines. `sessions.CountTranscriptEntries` `internal/core/sessions/transcript.go` — kind-only unmarshal, no schema check, silently counts a v2 file. Both are readers of `transcript.Record`; the count lives in the package BELOW the one that owns the schema (`transcript` imports `sessions`, so `sessions` cannot import `transcript.Record`).
 - `transcript.CanonicalHistory.ListSessions` fully parses every session's transcript to fill `EntryCount` — O(total transcript bytes) per `list`.
 - Settles it: move `CountTranscriptEntries` into `transcript` (checking `V`) and have `sessions` take an `EntryCounter` func, or invert the import so `sessions` does not know JSONL at all.
 
@@ -737,7 +737,7 @@ flowchart LR
 - Settles it: one client for the whole `Compact`; the row's text updated to name `repairResults`.
 
 ### F14 — STATED-VS-ACTUAL: `path_authority_test` has an empty allowlist yet misses live hand-rolled segments
-- `cli.runStartHandoffFile = "runstart.json"` joined onto a variable holding `paths.HarpPersistDir(harp)` (`cli.writeRunStartHandoff` `internal/cli/llm_turn.go`); `spool.SpoolDirName = "spool"` likewise; `contextmetrics.FileName = "context-metrics.jsonl"`. The gate's signal requires the `paths.` reference to appear IN the same `filepath.Join` call; a variable indirection defeats it. `pathAuthorityAllowed` is `map[string]string{}`, which reads as "clean" while three persist/ leaves are spelled outside `internal/paths`.
+- `cli.runStartHandoffFile = "runstart.json"` joined onto a variable holding `paths.HarpPersistDir(harp)` (`cli.writeRunStartHandoff` `internal/cli/llm_turn.go`); `spool.SpoolDirName = "spool"` likewise; `contextmetrics.FileName = "context-metrics.jsonl"`. The gate's signal requires the `paths.` reference to appear IN the same `filepath.Join` call; a variable indirection defeats it. `pathAuthorityAllowed` is `map[string]string{}`, which reads as "clean" while three persist/ leaves are spelled outside `internal/core/paths`.
 - Settles it: extend the detector to follow a local variable assigned from `paths.*`, or move the three names into `paths`.
 
 ### F15 — DATA-FLOW SMELL: `persist/` (reaper-exempt) receives per-turn machine data
@@ -827,7 +827,7 @@ DATA-FLOW SMELLS (each cited above): the harp is minted once and then re-obtaine
 Annotations: **IN** = input state, **OUT** = output, **HIDDEN** = read from env/globals/files inside.
 
 ```go
-// internal/sessions/store.go — the port (both adapters compile-time checked)
+// internal/core/sessions/store.go — the port (both adapters compile-time checked)
 type Store interface {
 	ListForProject(projectDir string) ([]Entry, error)
 	ListAll() ([]Entry, error)
@@ -845,7 +845,7 @@ type Store interface {
 // NOT on the port: (m *Manager) SetSourceEntries(harpName string, sourceEntries int) error
 //   — memory.Compactor.updateSessionIndex therefore depends on *Manager, not Store.
 
-// internal/sessions/manager.go
+// internal/core/sessions/manager.go
 func Open() (*Manager, error)
 //   IN: none. HIDDEN: $HOME (paths.HomeSessionsDir); MkdirAll root; MigrateIndex (stats index.yaml + marker, may WRITE sidecars and RENAME index.yaml).
 func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error)
@@ -864,11 +864,11 @@ func (m *Manager) Rename(oldName, newName string) error
 func (m *Manager) Forget(harpName string) error
 //   OUT: removes session.yaml only; the directory and its content remain, invisible to IsSessionDir but visible to isHarpDirCandidate.
 
-// internal/sessions/sidecar.go
+// internal/core/sessions/sidecar.go
 func IsSessionDir(root string, e fs.DirEntry) bool          // Lstat root/name/session.yaml; refuses symlinks and invalid harps
 func MigrateIndex(root string) (*MigrationReport, error)     // HIDDEN: index.yaml, .migrated marker, root index lock; writes sidecars under the ROOT lock not the per-harp lock
 
-// internal/sessions/transcript.go
+// internal/core/sessions/transcript.go
 func LocateTranscript(harpName string) (string, bool)        // HIDDEN: WalkDir persist/transcripts, newest .jsonl then .json, skips subagents/
 func ActivityTime(e Entry) time.Time                         // HIDDEN: stat canonical, stat vendor, else StartedAt
 func TranscriptStale(transcriptPath string, stampedEntries int) (stale, known bool)   // known=false when stamped==0 or path=="" or unreadable

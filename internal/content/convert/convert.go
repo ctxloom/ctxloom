@@ -72,11 +72,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/signing"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // Item is one planned tree item: where it goes, which form it is, and the
@@ -468,7 +468,7 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// commandExports maps internal/bundles' four near-identical per-engine structs
+// commandExports maps internal/core/bundles' four near-identical per-engine structs
 // onto the content package's one engine-keyed map. Engines absent from the
 // source struct simply do not appear; nothing is invented.
 func commandExports(l bundles.LLMExports) content.EngineExports {

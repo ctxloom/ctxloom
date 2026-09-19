@@ -15,14 +15,14 @@ here.
 | Page | Package | What it owns |
 |---|---|---|
 | [remote.md](./remote.md) | `internal/remote` | The reference grammar, the remotes registry, the git clone cache, selector→SHA resolution, and `lock.yaml`. |
-| [bundles.md](./bundles.md) | `internal/bundles` | The bundle document, the loader, item kinds, the **content-hash preimage**, skill packages, and the content trust choke. |
-| [config.md](./config.md) | `internal/config` | `config.yaml` discovery, layering, migration and persistence; inline profiles; bundle seeding; the trust root union. |
-| [profiles.md](./profiles.md) | `internal/profiles` | Directory profiles, the schema-upgrade pipeline, and parent-graph resolution into a `ResolvedProfile`. |
+| [bundles.md](./bundles.md) | `internal/core/bundles` | The bundle document, the loader, item kinds, the **content-hash preimage**, skill packages, and the content trust choke. |
+| [config.md](./config.md) | `internal/core/config` | `config.yaml` discovery, layering, migration and persistence; inline profiles; bundle seeding; the trust root union. |
+| [profiles.md](./profiles.md) | `internal/core/profiles` | Directory profiles, the schema-upgrade pipeline, and parent-graph resolution into a `ResolvedProfile`. |
 | [operations.md](./operations.md) | `internal/operations` | The frontend-neutral orchestration layer: bootstrap, sync, lock, assemble, apply, review, launch. |
 | [premise-selection.md](./premise-selection.md) | `internal/operations` | Conditional fragments: withholding, the premise index an agent selects from, and what the mechanism measurably costs and saves. |
-| [trust.md](./trust.md) | `internal/trust` + the gate | The trust vocabulary and addressing, the seven-step decision cascade, the state machine, and the exposure chokes. |
+| [trust.md](./trust.md) | `internal/core/trust` + the gate | The trust vocabulary and addressing, the seven-step decision cascade, the state machine, and the exposure chokes. |
 | [signing.md](./signing.md) | `internal/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |
-| [paths.md](./paths.md) | `internal/paths` | The on-disk layout vocabulary and the three tiers — `content/`, `cache/`, `state/` (user-facing account: [docs/layout.md](../../layout.md)). |
+| [paths.md](./paths.md) | `internal/core/paths` | The on-disk layout vocabulary and the three tiers — `content/`, `cache/`, `state/` (user-facing account: [docs/layout.md](../../layout.md)). |
 | [projectroot.md](./projectroot.md) | `internal/projectroot` | Which directory is the project, worktree classification, and the task-store exception. |
 | [schema.md](./schema.md) | `internal/schema`, `internal/schemagen` | JSON Schema validation and the path oracle; reflected schema publication. |
 
@@ -91,11 +91,11 @@ These hold across every page; each is restated with its citations on the page th
 
 1. **`.ctxloom/content/` is committed and authored. `.ctxloom/cache/` is derived and
    gitignored.** Authored bundles are read only from `content/bundles`
-   (`paths.LocalBundlesPath`, `internal/paths/paths.go:463`); pulled remote copies, git
+   (`paths.LocalBundlesPath`, `internal/core/paths/paths.go:463`); pulled remote copies, git
    clones, trust snapshots and the context cache live under `cache/`
-   (`internal/paths/paths.go:447,483,492`). `cache/bundles` is never a bundle *search* dir —
+   (`internal/core/paths/paths.go:447,483,492`). `cache/bundles` is never a bundle *search* dir —
    authored YAML found there raises a fatal migration finding
-   (`internal/config/config.go:1659`). Deleting `cache/` must lose nothing that
+   (`internal/core/config/config.go:1659`). Deleting `cache/` must lose nothing that
    `ctxloom deps pull` cannot rebuild.
 
 2. **`lock.yaml` is authoritative for the pin, never for the content.** It records
@@ -109,11 +109,11 @@ These hold across every page; each is restated with its citations on the page th
 
    | File | Only writers |
    |---|---|
-   | `.ctxloom/config.yaml` | `Config.saveLocked` (`internal/config/config_save.go:118`, via `Manager.Update` / `Config.Save`), `commitPendingUpgrade` (`config_save.go:56`), and the initial creation by `operations.InitializeProject` (`internal/operations/init.go:76`) |
+   | `.ctxloom/config.yaml` | `Config.saveLocked` (`internal/core/config/config_save.go:118`, via `Manager.Update` / `Config.Save`), `commitPendingUpgrade` (`config_save.go:56`), and the initial creation by `operations.InitializeProject` (`internal/operations/init.go:76`) |
    | `.ctxloom/remotes.yaml` | `Registry.save` (`internal/remote/registry.go:105`) and the initial creation by `operations.InitializeProject` (`internal/operations/init.go:84`) |
    | `.ctxloom/lock.yaml` | `LockfileManager.write` (`internal/remote/lockfile.go`) — reached from `Save` (`:152`) and from the load-time self-heal in `Load` (`:66`). Callers: `Puller.updateLockfile`/`RecordRetraction` inside `internal/remote`, and `internal/operations/lockfile.go:147` through the `LockfileStore` port. **`Save` refuses destructive writes** since `fd0d87d6`: empty-over-populated (`ErrLockfileWouldErase`, opt out with `remote.AllowEmpty()`) and any write over a corrupt file (`ErrLockfileUnreadable`, no override) |
-   | `.ctxloom/profiles/*.yaml` | `profiles.Loader.Save` / `.Delete` / `.CommitUpgrade` (`internal/profiles/profiles.go:612,679,400`) |
-   | `content/bundles/**` | `bundles.fsStore.Save` / `.Delete` (`internal/bundles/store.go:57,119`) |
+   | `.ctxloom/profiles/*.yaml` | `profiles.Loader.Save` / `.Delete` / `.CommitUpgrade` (`internal/core/profiles/profiles.go:612,679,400`) |
+   | `content/bundles/**` | `bundles.fsStore.Save` / `.Delete` (`internal/core/bundles/store.go:57,119`) |
    | countersignatures | `countersign.Store.write`, reached only from `operations.SetItemTrust` / `SetBlacklist` (`internal/operations/trust.go:554,667`) |
 
 4. **The trust gate keys on `Ref.CanonicalURL() + "|" + Ref.Key()`** — built by
@@ -123,7 +123,7 @@ These hold across every page; each is restated with its citations on the page th
    asymmetry is why editing an item clears its approval and never clears its rejection.
 
 5. **The content hash is computed over a per-kind preimage, never over the YAML file.**
-   `hashContent` (`internal/bundles/bundles.go:349`) is the only hash site; the field order of
+   `hashContent` (`internal/core/bundles/bundles.go:349`) is the only hash site; the field order of
    the preimage structs is part of the `ctxloom-exec/1` contract. The identity digest in
    `lock.yaml` is a *git commit SHA*, a different thing — `internal/remote` computes no content
    digest at all.

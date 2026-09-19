@@ -24,7 +24,7 @@ flowchart TD
   end
 
   subgraph out["what a harp becomes — no validator exists"]
-    PATH["paths.HarpDir = filepath.Join(root, harp)<br/>internal/paths/paths.go:182"]
+    PATH["paths.HarpDir = filepath.Join(root, harp)<br/>internal/core/paths/paths.go:182"]
     IDX["sessions index key / rename target"]
     TASK["task-id and project-id primary key"]
   end
@@ -66,7 +66,7 @@ flowchart TD
 
 ## `internal/shared/harp`
 
-Generates pronounceable identifiers from embedded word lists. Shaped as a future extraction (`// API mirrors the Rust crate so a future extraction to github.com/benjaminabbitt/harp-go is mechanical`). Consumers: `cmd/harp`, `internal/sessions`, `internal/shared/tasks`, `internal/shared/tasks/projectid`.
+Generates pronounceable identifiers from embedded word lists. Shaped as a future extraction (`// API mirrors the Rust crate so a future extraction to github.com/benjaminabbitt/harp-go is mechanical`). Consumers: `cmd/harp`, `internal/core/sessions`, `internal/shared/tasks`, `internal/shared/tasks/projectid`.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -84,7 +84,7 @@ Generates pronounceable identifiers from embedded word lists. Shaped as a future
 | `Options{Components int; MaxElementLength int; Separator string; Group string}` | `internal/shared/harp/harp.go:129` | Generation parameters |
 | `(Options).normalize()` | `internal/shared/harp/harp.go:146` | Clamps `Components` to 2..16 (`:147-152`), defaults `Separator` to `-`, falls back to `DefaultGroup` for an empty or unknown group (`:156-158`) |
 | `rngRead` | `internal/shared/harp/harp.go:164` | Entropy seam, `= rand.Read` |
-| `GenerateName() string` | `internal/shared/harp/harp.go:167` | `GenerateNameWithOptions(Options{})` — 3 components. Callers: `internal/sessions/index.go:777,782`, `internal/shared/tasks/projectid/registry.go:280` |
+| `GenerateName() string` | `internal/shared/harp/harp.go:167` | `GenerateNameWithOptions(Options{})` — 3 components. Callers: `internal/core/sessions/index.go:777,782`, `internal/shared/tasks/projectid/registry.go:280` |
 | `GenerateShortName() string` | `internal/shared/harp/harp.go:174` | `Options{Components: 2}`. Caller: `internal/shared/tasks/task.go:154` |
 | `UniqueFrom(used map[string]struct{}, gen func() string) string` | `internal/shared/harp/harp.go:185` | First `gen()` not in `used`, up to 100 tries; then **one unchecked `gen()`** (`:192`). Callers: `internal/shared/tasks/projectid/registry.go:280`, `internal/shared/tasks/task.go:154` |
 | `GenerateNameWithOptions(o Options) string` | `internal/shared/harp/harp.go:197` | Normalizes, picks N-1 adjectives + 1 noun, joins. Caller: `cmd/harp/root.go:102` |
@@ -120,7 +120,7 @@ Read-only, in-process answers to two questions about the git repository enclosin
 
 ## `internal/shared/collections`
 
-A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readability sugar by `internal/bundles`, `internal/config`, `internal/lm/backends`, `internal/operations`, `internal/remote`, and `internal/shared/agent`. The dominant use is the "seen"/"visited" idiom in recursive resolvers (`internal/config/config_resolve.go`, `internal/operations/sync.go`, `internal/bundles/loader.go`).
+A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readability sugar by `internal/core/bundles`, `internal/core/config`, `internal/lm/backends`, `internal/operations`, `internal/remote`, and `internal/core/agent`. The dominant use is the "seen"/"visited" idiom in recursive resolvers (`internal/core/config/config_resolve.go`, `internal/operations/sync.go`, `internal/core/bundles/loader.go`).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -128,11 +128,11 @@ A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readabil
 | `NewSet[T]() Set[T]` | `internal/shared/collections/set.go:35` | `make(Set[T])`. 24 production call sites |
 | `NewSetFrom[T](elements ...T) Set[T]` | `internal/shared/collections/set.go:40` | Length-hinted variadic seeding. 3 call sites |
 | `(Set[T]).Add(v T)` | `internal/shared/collections/set.go:49` | `s[v] = struct{}{}`. 14 production call sites |
-| `(Set[T]).AddAll(values ...T)` | `internal/shared/collections/set.go:54` | Loops `Add`. 3 call sites, all in `internal/bundles/bundles.go:710,712,715` |
-| `(Set[T]).Has(v T) bool` | `internal/shared/collections/set.go:61` | Membership. Passed as a *method value* at `internal/bundles/loader_content.go:485` (`slices.ContainsFunc(info.Tags, tagSet.Has)`). 20+ call sites |
-| `(Set[T]).Items() []T` | `internal/shared/collections/set.go:68` | Pre-sized slice; **order not guaranteed**. 6 call sites, incl. `internal/config/config_resolve.go:270,271,272` |
-| `(Set[T]).Clone() Set[T]` | `internal/shared/collections/set.go:77` | Pre-sized copy. 1 production call site: `internal/config/config_resolve.go:337` (`visited.Clone()` per DAG branch) |
-| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/config/accessors.go:363`, `internal/config/config_bundles.go:301`, `internal/operations/vendorreader_backfill.go:60` |
+| `(Set[T]).AddAll(values ...T)` | `internal/shared/collections/set.go:54` | Loops `Add`. 3 call sites, all in `internal/core/bundles/bundles.go:710,712,715` |
+| `(Set[T]).Has(v T) bool` | `internal/shared/collections/set.go:61` | Membership. Passed as a *method value* at `internal/core/bundles/loader_content.go:485` (`slices.ContainsFunc(info.Tags, tagSet.Has)`). 20+ call sites |
+| `(Set[T]).Items() []T` | `internal/shared/collections/set.go:68` | Pre-sized slice; **order not guaranteed**. 6 call sites, incl. `internal/core/config/config_resolve.go:270,271,272` |
+| `(Set[T]).Clone() Set[T]` | `internal/shared/collections/set.go:77` | Pre-sized copy. 1 production call site: `internal/core/config/config_resolve.go:337` (`visited.Clone()` per DAG branch) |
+| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/core/config/accessors.go:363`, `internal/core/config/config_bundles.go:301`, `internal/operations/vendorreader_backfill.go:60` |
 
 Go 1.25 equivalents, for reference when reading call sites: `NewSet` = `make(map[T]struct{})`, `Items` = `slices.Collect(maps.Keys(s))`, `Clone` = `maps.Clone(s)`, `SortedKeys` = `slices.Sorted(maps.Keys(m))`.
 
@@ -175,9 +175,9 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 - `randIndex` panics on CSPRNG failure — correct, and deliberately different from the load-time panics: silently degrading randomness would be worse. It returns `0` for `n <= 0`, which papers over a caller bug (unreachable today).
 - `pickWord` falls back to `words[0]` after 1000 rejected draws, so an unsatisfiable `MaxElementLength` makes **every generated name a constant** with no signal (the shortest word in either default list is 3 characters, so `--max-len 2` returns the literal `aged-aged-able`).
 - Real vs documented: `UniqueFrom` is documented as best-effort and its doc instructs callers who cannot tolerate a residual collision to check the result against `used`; **neither of its two callers performs that check**, so a duplicate id can be returned and stored. The short-name space is 488,186, and `used` covers only one store, so independent branches share no guard.
-- **There is no harp validator anywhere in the repo** (`rg 'ValidateHarp|IsValidHarp|harpPattern|harpRe|validHarp'` → 0 hits), yet harps are used unvalidated as filesystem path segments by `internal/paths/paths.go:182` (`HarpDir`) and its four derived paths (`HarpEssencePath:192`, `HarpEphemeralDir:202`, `HarpPersistDir:212`, `HarpTranscriptStoreDir:223`). `sessions.Manager.Rename` (`internal/sessions/index.go:625`) validates only non-emptiness and uniqueness.
+- **There is no harp validator anywhere in the repo** (`rg 'ValidateHarp|IsValidHarp|harpPattern|harpRe|validHarp'` → 0 hits), yet harps are used unvalidated as filesystem path segments by `internal/core/paths/paths.go:182` (`HarpDir`) and its four derived paths (`HarpEssencePath:192`, `HarpEphemeralDir:202`, `HarpPersistDir:212`, `HarpTranscriptStoreDir:223`). `sessions.Manager.Rename` (`internal/core/sessions/index.go:625`) validates only non-emptiness and uniqueness.
 - `Groups()` returns map-iteration order, so `harp`'s group listing differs between invocations.
-- `internal/sessions/index.go:772-783` (`generateUniqueHarp`) reimplements `UniqueFrom` line-for-line, including the unchecked fallback; its comment's "5.6M names" figure understates the 3-component space by ~39×.
+- `internal/core/sessions/index.go:772-783` (`generateUniqueHarp`) reimplements `UniqueFrom` line-for-line, including the unchecked fallback; its comment's "5.6M names" figure understates the 3-component space by ~39×.
 
 **Harp marker**
 
@@ -202,7 +202,7 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 **Collections**
 
 - Real vs documented: `set.go:31` says "The zero value is not usable". In fact the **read methods (`Has`, `Items`, `Clone`) are nil-safe and the write methods (`Add`, `AddAll`) panic** on a nil receiver. `internal/operations/items.go:223` already depends on the nil-safe read: `var failed collections.Set[string]` is assigned only inside `switch req.Kind` arms and read unconditionally at `items.go:346`.
-- `Items()` returns map-iteration order and disclaims ordering. Three of its call sites feed `internal/config` resolved-profile fields (`config_resolve.go:270,271,272` → `ExcludeFragments`, `ExcludeMCP`, `DenyTools`), while the sibling `sortedCompanionRefs` (`config_bundles.go:295-301`) exists precisely because that package promises a stable result across runs.
+- `Items()` returns map-iteration order and disclaims ordering. Three of its call sites feed `internal/core/config` resolved-profile fields (`config_resolve.go:270,271,272` → `ExcludeFragments`, `ExcludeMCP`, `DenyTools`), while the sibling `sortedCompanionRefs` (`config_bundles.go:295-301`) exists precisely because that package promises a stable result across runs.
 - `Items()` and `Clone()` return **empty non-nil** values for empty or nil input; neither can fail.
 - The package holds two unrelated concerns — `sorted_keys.go` shares no type, state, or caller pattern with `set.go`, and `SortedKeys` is never called on a `Set`.
 

@@ -184,6 +184,6 @@ include the bar row.
   `Interceptor`/`NewInterceptor`, `ResizeTranslator`/`NewResizeTranslator` and `RosterDigest` have
   zero external references. The genuine external contract is `Controller`, `Options`, `BarInfo`,
   `RosterEntry`, `OverlayGeometry`, `Overlay`, `OverlayFactory`, `ParsePrefixKey`, `CaretHint`.
-- **`RosterEntry.State` is connascent of meaning with `internal/agentcoord/coord`** — the string
+- **`RosterEntry.State` is connascent of meaning with `internal/core/coord`** — the string
   values (`"executing"`, `"ended"`, everything-else) are produced there and consumed by
   `RosterDigest` here, with no shared constant linking them.

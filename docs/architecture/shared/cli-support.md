@@ -40,9 +40,9 @@ flowchart TD
   STR["internal/shared/strictness<br/>Fail → clidiag.Warn"] --> CD
   CONF["internal/shared/confload<br/>case-4 unknown key"] --> CD
 
-  CFG["internal/config · sessions · bundles · profiles"] -->|"Pipeline.Run at load"| UP
+  CFG["internal/core/config · sessions · bundles · profiles"] -->|"Pipeline.Run at load"| UP
   CLI -->|"Pending → prompt → commit"| UP
-  PROBE["internal/config/companions.go<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format json'"]
+  PROBE["internal/core/config/companions.go<br/>execs '&lt;bin&gt; version --format json'<br/>and '&lt;bin&gt; loadout --format json'"]
   CV -.->|"stdout, ad-hoc decoded"| PROBE
   CL -.->|"stdout, signed envelope"| PROBE
 ```
@@ -81,7 +81,7 @@ Fan-out: 12 direct production `Emit` sites (`cmd/taskloom` ×10, `cmd/ltk/versio
 
 ## `internal/shared/cliversion` — the `version --format json` wire shape
 
-Owns the `{name, version}` JSON shape every family binary emits from `<binary> version --format json`, so the shape is declared once. This is the **producer** half of a cross-process contract whose consumer is `internal/config/companions.go:40`, which execs the probe at boot to decide whether a companion (taskloom, ltk, harp) is present and version-compatible.
+Owns the `{name, version}` JSON shape every family binary emits from `<binary> version --format json`, so the shape is declared once. This is the **producer** half of a cross-process contract whose consumer is `internal/core/config/companions.go:40`, which execs the probe at boot to decide whether a companion (taskloom, ltk, harp) is present and version-compatible.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -107,14 +107,14 @@ Locates, enumerates, and reads the `*.plan.md` session-plan documents under `~/.
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `sessionsDirName`, `planExt` | `internal/shared/plans/plans.go:18-20` | `"sessions"` and `".plan.md"` — local re-declarations of `paths.SessionsDir` (`internal/paths/paths.go:97`) and `paths.PlanFileExt` (`:108`). |
+| `sessionsDirName`, `planExt` | `internal/shared/plans/plans.go:18-20` | `"sessions"` and `".plan.md"` — local re-declarations of `paths.SessionsDir` (`internal/core/paths/paths.go:97`) and `paths.PlanFileExt` (`:108`). |
 | `Plan` | `internal/shared/plans/plans.go:24` | The DTO. All five fields are written by `List` and by nothing else. |
 | `Plan.Path` | `internal/shared/plans/plans.go:26` | Absolute path; the exact value `plan show` accepts. Reaches JSON output but not the text table. |
 | `Plan.Name` | `internal/shared/plans/plans.go:28` | Basename minus `.plan.md`; secondary sort key. |
 | `Plan.Title` | `internal/shared/plans/plans.go:30` | Frontmatter `title`, falling back to `Name`. |
 | `Plan.Session` | `internal/shared/plans/plans.go:32` | Owning harp = the directory name; primary sort key. |
 | `Plan.Sessions` | `internal/shared/plans/plans.go:35` | The frontmatter stamp list. No in-repo reader; the VS Code Plan view is the only possible consumer. |
-| `HomeSessionsDir` | `internal/shared/plans/plans.go:40` | `filepath.Join(os.UserHomeDir(), ".ctxloom", "sessions")`. Line-for-line duplicate of `paths.HomeSessionsDir` (`internal/paths/paths.go:162`). |
+| `HomeSessionsDir` | `internal/shared/plans/plans.go:40` | `filepath.Join(os.UserHomeDir(), ".ctxloom", "sessions")`. Line-for-line duplicate of `paths.HomeSessionsDir` (`internal/core/paths/paths.go:162`). |
 | `ListHome` | `internal/shared/plans/plans.go:49` | `HomeSessionsDir` then `List`. |
 | `List` | `internal/shared/plans/plans.go:60` | Walks `<root>/<harp>/*.plan.md` **one level deep**, parses each file's frontmatter, sorts by `(Session, Name)`. A missing root yields `([]Plan{}, nil)`. |
 | `Show` | `internal/shared/plans/plans.go:115` | Validates the `.plan.md` suffix, checks the absolute path is lexically inside `~/.ctxloom/sessions`, then `os.ReadFile`s it. Every rejection returns a distinct error naming the path. |
@@ -123,7 +123,7 @@ Locates, enumerates, and reads the `*.plan.md` session-plan documents under `~/.
 
 ## `internal/shared/upgrade` — the in-memory YAML schema-upgrade primitive
 
-Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators over the root mapping, re-encodes only if some stage reported a change, and returns the new bytes plus the names of the stages that fired — **without ever writing to disk**. Four packages build a `Pipeline` and call `Run` on raw file bytes at load time (`internal/config` with five schema generations, `internal/sessions`, `internal/bundles`, `internal/profiles`); `internal/cli` and `internal/operations` consume only the `Pending` DTO to drive the "rewrite it? [y/N]" prompt. Leaf package, zero internal dependencies. Roughly half its API is a general `yaml.Node` DOM helper set that has nothing upgrade-specific about it (94 of the 105 cross-package references).
+Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators over the root mapping, re-encodes only if some stage reported a change, and returns the new bytes plus the names of the stages that fired — **without ever writing to disk**. Four packages build a `Pipeline` and call `Run` on raw file bytes at load time (`internal/core/config` with five schema generations, `internal/core/sessions`, `internal/core/bundles`, `internal/core/profiles`); `internal/cli` and `internal/operations` consume only the `Pending` DTO to drive the "rewrite it? [y/N]" prompt. Leaf package, zero internal dependencies. Roughly half its API is a general `yaml.Node` DOM helper set that has nothing upgrade-specific about it (94 of the 105 cross-package references).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -150,7 +150,7 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 - `SetSink`'s `restore` closure does an unconditional `Store(prev)`, so it is correct **only under strict LIFO nesting**. Overlapping redirects restore the wrong sink. Five of six call sites use `defer restore()`.
 - `SetSink` guarantees "never a nil writer" only for an **untyped** `nil`; a typed nil (`var f *os.File; SetSink(f)`) takes the non-nil branch and installs a writer that panics on the next warning.
 - The dedup key is the fully-rendered line and **does not include the destination writer**. A message already emitted to a previous sink is permanently suppressed on every later sink — including a per-session diagnostics file installed by `internal/cli/run_terminal_ui.go:182`, which the user is explicitly pointed at.
-- `onceSeen` has no reset and no cap. Several `WarnOnce` sites embed a varying `%v` error inside reconnect loops (`internal/agentcoord/coord/home.go:232,265,354`; `runnerlink.go:227`), so entries multiply in exactly the long-lived processes the package doc names.
+- `onceSeen` has no reset and no cap. Several `WarnOnce` sites embed a varying `%v` error inside reconnect loops (`internal/core/coord/home.go:232,265,354`; `runnerlink.go:227`), so entries multiply in exactly the long-lived processes the package doc names.
 - Write errors are discarded on both paths, deliberately: warnings never block. The named out-of-band observer is `iox.ErrWriter`.
 - `prog` is a per-binary constant passed positionally at every site: 327 of 351 call sites pass the literal `"ctxloom"`, 4 `"taskloom"`, 3 `"ctxloom hook inject-context"`.
 - Layering rule: `clidiag` is the family-wide convention (hence the `prog` parameter); ctxloom-specific concepts such as findings belong **above** it in `internal/shared/strictness`, never inside it.
@@ -169,14 +169,14 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 
 ### cliversion
 
-- `Info`'s two JSON keys are a **cross-process contract**: the producer is any family binary's `version` command, the consumer is `internal/config/companions.go`. Renaming or adding a field breaks companion detection, and the failure surfaces as "companion not detected", not as an error.
-- The consumer does **not** import `Info`; `companionVersion` (`internal/config/companions.go:152-166`) hand-decodes the probe output, so the two sides agree only on the literal string `"version"`. The consumer does reject an empty `version` field (`:166`).
+- `Info`'s two JSON keys are a **cross-process contract**: the producer is any family binary's `version` command, the consumer is `internal/core/config/companions.go`. Renaming or adding a field breaks companion detection, and the failure surfaces as "companion not detected", not as an error.
+- The consumer does **not** import `Info`; `companionVersion` (`internal/core/config/companions.go:152-166`) hand-decodes the probe output, so the two sides agree only on the literal string `"version"`. The consumer does reject an empty `version` field (`:166`).
 - `Render`'s `text` branch prints a bare newline for an unstamped `Version` and returns nil; the `json` branch emits `{"name":"","version":""}`, which the boot probe rejects.
 - `Render` duplicates the format vocabulary (`""`, `"text"`, `"json"`) as a bare string switch rather than using `clifmt.Format`.
 
 ### companionloadout
 
-- The wire contract is three bare string literals duplicated across a process boundary with no shared constant: emitter `Use: "loadout"` (`cli.go:38`) and flag `"format"` (`cli.go:53`); consumer `exec.CommandContext(ctx, path, "loadout", "--format", "json")` (`internal/config/companions.go:260`). Renaming any of them passes the whole test suite.
+- The wire contract is three bare string literals duplicated across a process boundary with no shared constant: emitter `Use: "loadout"` (`cli.go:38`) and flag `"format"` (`cli.go:53`); consumer `exec.CommandContext(ctx, path, "loadout", "--format", "json")` (`internal/core/config/companions.go:260`). Renaming any of them passes the whole test suite.
 - The `"yaml"` branch writes `bundleYAML` **byte-verbatim with no trailing newline** — those exact bytes are what the detached signature covers (signature-envelope spec §3.0). Adding a newline "for consistency" invalidates every committed signature. The `"json"` branch's trailing `Fprintln` is safe because the envelope, not the raw bytes, is the payload there.
 - `Emit` must write through the `io.Writer` it is given (`cmd.OutOrStdout()` from the `RunE`), never `os.Stdout`; that seam is what the package's own tests use.
 - A signature is optional by design: `ReadEmbeddedSig` returns `nil` when no `.sig` is embedded, and `signing.EncodeLoadoutEnvelope` gates on `len(armoredSig) > 0`. It cannot distinguish "no `.sig` committed" from "`.sig` committed but zero bytes", and both produce an unsigned envelope with no error. The guard against accidental unsigned builds lives in each companion's tests (`require.NotEmpty`), not here.
@@ -194,30 +194,30 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 - `List` never returns a partial-failure signal: a per-harp `os.ReadDir` error drops that harp's whole plan set, and a per-file `os.ReadFile` error still emits the entry with `Title` silently falling back to the filename and `Sessions` nil. A missing root deliberately yields an empty list, and `cmd/taskloom/plan.go:56` prints a loud `(no plans)` for it — so an unreadable tree and an empty tree render identically.
 - Sort order is `(Session, Name)`, stable across calls; `Session` is always derived from an `os.ReadDir` entry name, never from user input, so no traversal is reachable through `List`.
 - `Show` is the only user-input path. Containment is **lexical only** — `filepath.Abs` + prefix check, with no `EvalSymlinks` and no regular-file check — so a symlink named `*.plan.md` inside the sessions tree reads its target.
-- Path vocabulary is duplicated: `sessionsDirName`, `planExt`, and `HomeSessionsDir` all re-declare symbols `internal/paths` already owns, and this file imports the *other* `paths` package (`internal/shared/tasks/paths`) for `AppDirName`. Both `paths` packages are verified leaves, so consolidating cannot create an import cycle.
+- Path vocabulary is duplicated: `sessionsDirName`, `planExt`, and `HomeSessionsDir` all re-declare symbols `internal/core/paths` already owns, and this file imports the *other* `paths` package (`internal/shared/tasks/paths`) for `AppDirName`. Both `paths` packages are verified leaves, so consolidating cannot create an import cycle.
 - Three independent enumerators of the same `*.plan.md` files now exist with three different recursion depths and three different error postures: `plans.List`, `internal/lm/grpc.ReadPlanFiles` (`internal/lm/grpc/plans.go:49`), and `plan_watch`'s filter.
 
 ### upgrade
 
 - Stages run **oldest-first** and stage *N* is allowed to depend on stage *N-1* having already fired; the config pipeline genuinely relies on this. Order is the contract, and `Pipeline` is an ordered slice for that reason.
 - `Upgrader.Apply` must be **idempotent**: given a document already at or past its target form it must leave the node untouched and return `false`. Nothing verifies this. `Run` trusts the bool absolutely — it is the sole input to the "did anything happen" decision and to every caller's persist/prompt decision. A stage that mutates and returns `false` has its migration silently discarded (the mutated node is a local); a stage that returns `true` without mutating causes a re-prompt every load.
-- `Apply` has **no error channel**, so a stage that cannot safely migrate a document must either skip or clobber. `internal/config` works around this with a package-global mutex-guarded `migrationWarnings []string` side channel (`internal/config/config_migrate.go:25-26`, drained at `config.go:1471`).
+- `Apply` has **no error channel**, so a stage that cannot safely migrate a document must either skip or clobber. `internal/core/config` works around this with a package-global mutex-guarded `migrationWarnings []string` side channel (`internal/core/config/config_migrate.go:25-26`, drained at `config.go:1471`).
 - `Run` never writes to disk. Persisting is the caller's, gated on user consent via `Pending` — that separation is the package's central design rule.
 - `Run` returns the caller's bytes **verbatim** with `applied == nil` on: unparseable YAML (deliberate — callers re-parse and report), a non-mapping root, no stage firing, **and** an encode failure. The last case reports "already current" after the pipeline demonstrably fired.
 - `_ = enc.Close()` is swallowed and `buf.Bytes()` is returned as authoritative regardless. The writer is a `bytes.Buffer`, so this is currently unreachable.
 - `Run` decodes into a single `yaml.Node`, so **only the first YAML document survives**: `"a: 1\n---\nb: 2\n---\nc: 3\n"` with any firing stage re-encodes to `"a: 1\nversion: 6\n"` with a non-empty `applied`.
 - Comments (head, line, and foot) **do** survive the unmarshal→mutate→encode round trip, as `Pending.Data`'s doc claims. YAML anchors do not survive cleanly: a merge key re-encodes with an injected explicit `!!merge` tag, and `MapValue` does not see through `<<:`.
-- `Pending` carries no invariant and its writers enforce none: `internal/config/config_save.go:60` writes `p.Data` with `iox.WriteFileAtomicFs` after checking only `p == nil` — no length check, no re-parse, no comparison against the file being replaced. `internal/sessions/index.go:203-215` uses the safer pattern (re-stage from fresh bytes under lock).
+- `Pending` carries no invariant and its writers enforce none: `internal/core/config/config_save.go:60` writes `p.Data` with `iox.WriteFileAtomicFs` after checking only `p == nil` — no length check, no re-parse, no comparison against the file being replaced. `internal/core/sessions/index.go:203-215` uses the safer pattern (re-stage from fresh bytes under lock).
 - The mapping helpers all rely on the pairwise `i, i+1 < len(Content)` walk and silently tolerate an odd-length (corrupt) mapping; such a node re-encodes to `"{}\n"` with a nil error from both `Encode` and `Close`. `MapDelete` acts on the first match only, so duplicate keys survive. `EnsureMap` discards a non-mapping value at the key and returns a fresh empty map, with no way to report what it replaced.
 - `Version` returns `0` for a missing key (correct — `0` is the pre-versioning generation) **and** for an unparseable value such as `version: banana`; all five production gates are `>=` comparisons, so `0` replays every migration.
-- No production pipeline nests another: all four literals (`internal/config/upgrade.go:10-16`, `internal/bundles/upgrade.go:14-16`, `internal/sessions/index_upgrade.go:15-17`, `internal/profiles/upgrade.go:31-35`) are flat, and `internal/config/config.go:1461` deliberately flattens with `append(upgrade.Pipeline{}, configUpgrades...)`.
+- No production pipeline nests another: all four literals (`internal/core/config/upgrade.go:10-16`, `internal/core/bundles/upgrade.go:14-16`, `internal/core/sessions/index_upgrade.go:15-17`, `internal/core/profiles/upgrade.go:31-35`) are flat, and `internal/core/config/config.go:1461` deliberately flattens with `append(upgrade.Pipeline{}, configUpgrades...)`.
 
 ## Real vs documented
 
 - `clidiag.Line`'s doc attributes the dedup key to `Warn`/`Fwarn`; the functions that actually dedup are `WarnOnce`/`FwarnOnce`. `Line` also splices `prog` into the format string while `fwarn` passes it as a `%s` argument, so the two renderers of "the same" line differ on a `prog` containing `%`.
 - `clidiag.SetSink`'s doc guarantees it "never installs a nil writer"; the guard catches only an untyped `nil`.
 - `cliemit.Resolve`'s doc treats a missing `--format` flag as benign ("e.g. a unit test that never registered it"); in production it is the mechanism that makes an unwired `--format` invisible rather than merely unhonoured.
-- `cliversion`'s package doc calls `Info` "the single source of truth rather than being re-declared per binary"; the reader of the contract (`internal/config/companions.go`) does not import it and re-implements the decode by hand.
+- `cliversion`'s package doc calls `Info` "the single source of truth rather than being re-declared per binary"; the reader of the contract (`internal/core/config/companions.go`) does not import it and re-implements the decode by hand.
 - `companionloadout.NewCommand`'s doc says "no release signing pipeline exists yet, so every in-repo companion passes nil today"; `just sign-loadouts` exists (`justfile:134-160`), both companions commit a 318-byte `loadout.yaml.sig`, and both ship signed. `nil` is the path for a *third-party* companion, not for the in-repo ones.
 - `companionloadout.Emit` hardcodes the envelope's `signer` argument to `""`, so `LoadoutEnvelope.Signer` — documented as "a hint for error messages" — is never populated by any production caller and never read; the real binary emits no `signer` key at all.
 - `plans.Show`'s doc promises "a crafted path can't read arbitrary files"; the check is lexical containment only and `os.ReadFile` follows symlinks.

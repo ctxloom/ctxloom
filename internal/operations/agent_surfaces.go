@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // ResolveAgentSurfaces parses an agent binding's declared delivery preference

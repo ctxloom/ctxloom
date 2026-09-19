@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // silencedFrom returns the same config with capability-loss reporting silenced,

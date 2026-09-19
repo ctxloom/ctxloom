@@ -64,36 +64,36 @@ classDiagram
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `EngineCLI` | `internal/shared/agent/enginecli.go:214` | One declared process surface of a vendor CLI — the single source of truth for driver and fake alike. |
-| `CLISurface` | `internal/shared/agent/enginecli.go:55` | Which surface a declaration describes (interactive / oneshot / …). |
-| `ValueShape` | `internal/shared/agent/enginecli.go:71` | Whether a flag takes a value and of what shape. |
-| `CLIFlag` | `internal/shared/agent/enginecli.go:91` | One declared argv flag: `{Name, Value}` drive parsing; `{Ignored, Note}` are documentation carried at runtime. |
-| `PromptDelivery` | `internal/shared/agent/enginecli.go:119` | How the user prompt reaches the CLI (positional / flag / stdin / none). |
-| `ProbeKind` | `internal/shared/agent/enginecli.go:136` | Which surface category a probe describes; string-identical to `SurfaceKind`. |
-| `ProbeScope` | `internal/shared/agent/enginecli.go:165` | Where the CLI looks: cwd / home / env-dir / flag-value. |
-| `CLIProbe` | `internal/shared/agent/enginecli.go:189` | One context surface the vendor CLI reads at startup — a tagged union keyed on `Scope`. |
-| `ParsedFlag` | `internal/shared/agent/enginecli.go:315` | One flag occurrence found in argv. |
-| `ParsedArgv` | `internal/shared/agent/enginecli.go:321` | Result of reading argv against a grammar: `{Subcommand, Flags, Positionals}`. |
-| `UndeclaredFlagError` | `internal/shared/agent/enginecli.go:362` | Typed drift report: a flag appeared that the declaration does not list. |
-| `MissingValueError` | `internal/shared/agent/enginecli.go:376` | Typed drift report: a value-taking flag had no value. |
-| `SubcommandError` | `internal/shared/agent/enginecli.go:388` | Typed drift report: the subcommand did not match the declaration. |
-| `EngineCLIProvider` | `internal/shared/agent/enginecli.go:465` | Capability probe — "this backend declares its CLI surfaces". Asserted by the `var _ agent.EngineCLIProvider` line in each declaring backend (`claude/enginecli.go`). |
+| `EngineCLI` | `internal/core/agent/enginecli.go:214` | One declared process surface of a vendor CLI — the single source of truth for driver and fake alike. |
+| `CLISurface` | `internal/core/agent/enginecli.go:55` | Which surface a declaration describes (interactive / oneshot / …). |
+| `ValueShape` | `internal/core/agent/enginecli.go:71` | Whether a flag takes a value and of what shape. |
+| `CLIFlag` | `internal/core/agent/enginecli.go:91` | One declared argv flag: `{Name, Value}` drive parsing; `{Ignored, Note}` are documentation carried at runtime. |
+| `PromptDelivery` | `internal/core/agent/enginecli.go:119` | How the user prompt reaches the CLI (positional / flag / stdin / none). |
+| `ProbeKind` | `internal/core/agent/enginecli.go:136` | Which surface category a probe describes; string-identical to `SurfaceKind`. |
+| `ProbeScope` | `internal/core/agent/enginecli.go:165` | Where the CLI looks: cwd / home / env-dir / flag-value. |
+| `CLIProbe` | `internal/core/agent/enginecli.go:189` | One context surface the vendor CLI reads at startup — a tagged union keyed on `Scope`. |
+| `ParsedFlag` | `internal/core/agent/enginecli.go:315` | One flag occurrence found in argv. |
+| `ParsedArgv` | `internal/core/agent/enginecli.go:321` | Result of reading argv against a grammar: `{Subcommand, Flags, Positionals}`. |
+| `UndeclaredFlagError` | `internal/core/agent/enginecli.go:362` | Typed drift report: a flag appeared that the declaration does not list. |
+| `MissingValueError` | `internal/core/agent/enginecli.go:376` | Typed drift report: a value-taking flag had no value. |
+| `SubcommandError` | `internal/core/agent/enginecli.go:388` | Typed drift report: the subcommand did not match the declaration. |
+| `EngineCLIProvider` | `internal/core/agent/enginecli.go:465` | Capability probe — "this backend declares its CLI surfaces". Asserted by the `var _ agent.EngineCLIProvider` line in each declaring backend (`claude/enginecli.go`). |
 
 ## Functions
 
 | Symbol | file:line | Purpose |
 |---|---|---|
-| `CLIFlag.TakesValue` | `internal/shared/agent/enginecli.go:110` | `Value != ValueNone`; names the grammar concept used in two parse branches. |
-| `ProbeKindOf` | `internal/shared/agent/enginecli.go:162` | Bridges `SurfaceKind` → `ProbeKind` by raw string conversion. |
-| `EngineCLI.LookupFlag` | `internal/shared/agent/enginecli.go:245` | Finds a declared flag by name; returns `(zero, false)` when absent. |
-| `EngineCLI.FlagNames` | `internal/shared/agent/enginecli.go:254` | Every declared flag name, in declaration order. |
-| `EngineCLI.ProbesFor` | `internal/shared/agent/enginecli.go:263` | Probes of one kind, in declaration order. |
-| `EngineCLI.Validate` | `internal/shared/agent/enginecli.go:278` | Rejects a self-inconsistent declaration; errors name engine, surface, and probe kind. |
-| `ParsedArgv.Has` | `internal/shared/agent/enginecli.go:332` | Did the flag occur at all. |
-| `ParsedArgv.Value` | `internal/shared/agent/enginecli.go:339` | First value plus a present bool (the present/empty distinction is the point). |
-| `ParsedArgv.Values` | `internal/shared/agent/enginecli.go:349` | Every occurrence's value. |
-| `EngineCLI.ParseArgv` | `internal/shared/agent/enginecli.go:414` | Reads argv against the grammar; no lenient mode, three typed errors. |
-| `EngineCLIFor` | `internal/shared/agent/enginecli.go:470` | Picks one surface out of a `[]EngineCLI`; returns `(zero, false)`. |
+| `CLIFlag.TakesValue` | `internal/core/agent/enginecli.go:110` | `Value != ValueNone`; names the grammar concept used in two parse branches. |
+| `ProbeKindOf` | `internal/core/agent/enginecli.go:162` | Bridges `SurfaceKind` → `ProbeKind` by raw string conversion. |
+| `EngineCLI.LookupFlag` | `internal/core/agent/enginecli.go:245` | Finds a declared flag by name; returns `(zero, false)` when absent. |
+| `EngineCLI.FlagNames` | `internal/core/agent/enginecli.go:254` | Every declared flag name, in declaration order. |
+| `EngineCLI.ProbesFor` | `internal/core/agent/enginecli.go:263` | Probes of one kind, in declaration order. |
+| `EngineCLI.Validate` | `internal/core/agent/enginecli.go:278` | Rejects a self-inconsistent declaration; errors name engine, surface, and probe kind. |
+| `ParsedArgv.Has` | `internal/core/agent/enginecli.go:332` | Did the flag occur at all. |
+| `ParsedArgv.Value` | `internal/core/agent/enginecli.go:339` | First value plus a present bool (the present/empty distinction is the point). |
+| `ParsedArgv.Values` | `internal/core/agent/enginecli.go:349` | Every occurrence's value. |
+| `EngineCLI.ParseArgv` | `internal/core/agent/enginecli.go:414` | Reads argv against the grammar; no lenient mode, three typed errors. |
+| `EngineCLIFor` | `internal/core/agent/enginecli.go:470` | Picks one surface out of a `[]EngineCLI`; returns `(zero, false)`. |
 
 ## Invariants and contracts
 

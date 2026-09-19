@@ -12,7 +12,7 @@ edge this ADR proposes. They were deleted along with the `MemStore` adapter.
 
 The reason is not a rejection of the principle; it is what the instance turned
 out to be. It had exactly ONE real adapter (`*Loader`) and one test double, and
-the double's only consumer outside `internal/profiles` was the port test proving
+the double's only consumer outside `internal/core/profiles` was the port test proving
 the port existed — an abstraction whose sole client was the test justifying it.
 Retiring it also removed a quiet hazard: the double was more permissive than the
 adapter (it accepted an empty profile the loader refuses), so a test written

@@ -60,7 +60,7 @@ type WorktreeInfo struct {
 // shape: no .git at all, .git is a directory (the main worktree, or a plain
 // non-worktree repo), or .git is a file that isn't a recognized/worktree-
 // shaped gitdir pointer (e.g. a submodule). Those are exactly the cases this
-// feature must leave unaffected (see internal/config's findAppDir /
+// feature must leave unaffected (see internal/core/config's findAppDir /
 // worktreeSignpost, the sole caller as of this writing).
 //
 // It returns a non-nil error when dir is empty (see errNoDir), and when dir's

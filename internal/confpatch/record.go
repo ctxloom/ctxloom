@@ -14,8 +14,8 @@ import (
 	"github.com/spf13/afero"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // Record is hew's §9.7 application record, in Go structs marshaled straight

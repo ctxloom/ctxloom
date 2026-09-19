@@ -88,7 +88,7 @@ Feature: An incident — a bad command ships and must be pulled
   # from the embedded root on every subsequent trust decision. This is not
   # cosmetic: TestVerifyPublisher_SuppressedPrincipal_NoLongerVerifies and
   # TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted
-  # (internal/config) prove content genuinely signed by a suppressed key stops
+  # (internal/core/config) prove content genuinely signed by a suppressed key stops
   # verifying as trusted-publisher — this repo can never forge a signature
   # from ctxloom's actual production key, so those unit tests prove the
   # SUBTRACTION mechanism with a real generated key standing in for it, and

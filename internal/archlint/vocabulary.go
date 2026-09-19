@@ -259,23 +259,23 @@ var vocabConversionAllowed = map[string]string{
 	"cmd/ltk/check.go#checkFlags.run#internal/ltk/ir.Shell":       "the --shell flag value is asserted into ir.Shell; internal/ltk/ir declares the vocabulary but ships no parser for it — add one and call it here (shellenv.ShellFromPath is the nearest existing membership decision)",
 	"cmd/ltk/evaluate.go#evaluateFlags.run#internal/ltk/ir.Shell": "same --shell assertion as cmd/ltk/check.go; both wait on a parser in internal/ltk/ir",
 
-	"internal/agentcoord/coord/enginehost.go#EngineHost.startRun#internal/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/transcript ships no parser for RawPolicy — add one and call it",
-	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/transcript.RawPolicy":            "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
+	"internal/core/coord/enginehost.go#EngineHost.startRun#internal/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/transcript ships no parser for RawPolicy — add one and call it",
+	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/transcript.RawPolicy":      "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
 
-	"internal/lm/grpc/chat.go#chatStartFromProto#internal/shared/agent.MCPTransport":            "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
-	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionEntryType":  "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",
-	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/shared/agent.SessionSystemKind": "a proto string field asserted into the system-kind enum; same unchecked-wire-value shape",
-	"internal/transcript/history.go#entriesFromRecord#internal/shared/agent.SessionEntryType":   "a stored record's string asserted into the entry-type enum; same unchecked-input shape as the grpc side",
-	"internal/transcript/history.go#entriesFromRecord#internal/shared/agent.SessionSystemKind":  "a stored record's string asserted into the system-kind enum; same unchecked-input shape as the grpc side",
+	"internal/lm/grpc/chat.go#chatStartFromProto#internal/core/agent.MCPTransport":            "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
+	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/core/agent.SessionEntryType":  "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",
+	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/core/agent.SessionSystemKind": "a proto string field asserted into the system-kind enum; same unchecked-wire-value shape",
+	"internal/transcript/history.go#entriesFromRecord#internal/core/agent.SessionEntryType":   "a stored record's string asserted into the entry-type enum; same unchecked-input shape as the grpc side",
+	"internal/transcript/history.go#entriesFromRecord#internal/core/agent.SessionSystemKind":  "a stored record's string asserted into the system-kind enum; same unchecked-input shape as the grpc side",
 
 	"internal/operations/agents.go#SetAgent#internal/agents.DrivingMode":          "a user-set config value asserted into the driving-mode enum; internal/agents ships no parser for DrivingMode",
 	"internal/operations/agents.go#validateAgentAxes#internal/agents.DrivingMode": "same DrivingMode assertion inside the routine that is supposed to be VALIDATING the axes",
 
 	"internal/operations/countersign_records.go#countersignRecords.Approved#internal/signing.Form": "a stored record's form string asserted into signing.Form; internal/signing ships no parser for it",
 	"internal/operations/review.go#reviewEnumerator.classify#internal/signing.Form":                "same signing.Form assertion from the review side",
-	"internal/operations/review.go#reviewEnumerator.classify#internal/bundles.ContentForm":         "a stored string asserted into bundles.ContentForm; internal/bundles ships no parser for it",
+	"internal/operations/review.go#reviewEnumerator.classify#internal/core/bundles.ContentForm":    "a stored string asserted into bundles.ContentForm; internal/core/bundles ships no parser for it",
 
-	"internal/operations/signable.go#bundleSignable.Kind#internal/trust.ItemKind": "MINTS trust.ItemKind(\"bundle\"), a value outside the declared set — the call site's own comment records that no constant names a whole bundle. Either declare it or model a whole bundle as a different type; today the trust tier sees a kind its own vocabulary does not contain",
+	"internal/operations/signable.go#bundleSignable.Kind#internal/core/trust.ItemKind": "MINTS trust.ItemKind(\"bundle\"), a value outside the declared set — the call site's own comment records that no constant names a whole bundle. Either declare it or model a whole bundle as a different type; today the trust tier sees a kind its own vocabulary does not contain",
 
 	"internal/taskloom/config/config.go#Config.ResolveMode#internal/shared/tasks/paths.Mode": "a config string asserted into paths.Mode; internal/shared/tasks/paths ships no parser for it",
 }

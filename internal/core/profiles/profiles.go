@@ -13,7 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -1036,7 +1035,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	// Inline hooks fold like the inline profileBuilder: they accumulate
 	// (event-keyed union). Self is applied after parents, so a child's hooks
 	// override the parents'.
-	agent.MergeHooksConfig(&resolved.Hooks, &profile.Hooks)
+	wire.MergeHooksConfig(&resolved.Hooks, &profile.Hooks)
 	maps.Copy(resolved.Variables, profile.Variables)
 	// A profile's own llm overrides any inherited from parents.
 	if profile.LLM != "" {
@@ -1127,7 +1126,7 @@ func (r *ResolvedProfile) Merge(other *ResolvedProfile) {
 	r.Skills = appendUnique(r.Skills, other.Skills...)
 	r.Fragments = appendUniqueFragments(r.Fragments, other.Fragments...)
 	r.BundleItems = appendUnique(r.BundleItems, other.BundleItems...)
-	agent.MergeHooksConfig(&r.Hooks, &other.Hooks)
+	wire.MergeHooksConfig(&r.Hooks, &other.Hooks)
 	for k, v := range other.Variables {
 		if _, exists := r.Variables[k]; !exists {
 			r.Variables[k] = v

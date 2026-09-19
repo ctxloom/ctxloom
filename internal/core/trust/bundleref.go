@@ -145,7 +145,7 @@ func (r BundleRef) String() string {
 // It replaces the CanonicalURL()+"|"+Key() composition, and replacing it is
 // the point (R5). That join was redundant — a canonical URI already carries
 // source, bundle and item in one injective string — and its "|" was a framing
-// hazard: remote.NormalizeRef strips CONTROL characters only, and "|" is 0x7C,
+// hazard: refuri.NormalizeRef strips CONTROL characters only, and "|" is 0x7C,
 // so it passed through, letting source "S" with key "a|b" and source "S|a"
 // with key "b" both render "S|a|b". Here every component is percent-encoded by
 // String's encoder, so no component can spell a delimiter of the string that

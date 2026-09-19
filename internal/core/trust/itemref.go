@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // The item-selector GRAMMAR: the "#<kind>/<name>" half of a reference, and
@@ -41,13 +41,13 @@ func IsRetiredBuiltinSpelling(ask string) bool {
 // something else or to "not found". Those are different faults and they
 // deserve different messages.
 //
-// The set is remote.IsSelfContainedRef's list (ctxloom:local@,
+// The set is refuri.IsSelfContainedRef's list (ctxloom:local@,
 // ctxloom:companion@, git@, any "://") plus IsRetiredBuiltinSpelling. It is
 // deliberately WIDER than the load path's: at a surface where a human types a
 // reference, the pipeline's own identity spellings are retired input, while on
 // the load path the same strings are live identities a reader stamped.
 func IsRetiredAskSpelling(ask string) bool {
-	return IsRetiredBuiltinSpelling(ask) || remote.IsSelfContainedRef(ask)
+	return IsRetiredBuiltinSpelling(ask) || refuri.IsSelfContainedRef(ask)
 }
 
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").

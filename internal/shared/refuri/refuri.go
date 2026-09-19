@@ -6,11 +6,13 @@
 // It sits below both internal/core/trust (which interprets the fragment as a trust
 // item kind and mints BundleRef identities) and internal/adapters/remote (which turns a
 // reference into a FETCH). Those two packages cannot share the grammar by
-// importing each other: trust already imports remote, so the shared syntax has
-// to live under both or be written twice. Written twice is the failure this
-// package exists to prevent — two parsers are two addressing schemes, and a
-// reference accepted by one and refused by the other is a reference whose
-// meaning depends on which door it came through.
+// importing each other: trust is core and may not reach an adapter, so the
+// shared syntax has to live under both or be written twice. Written twice is
+// the failure this package exists to prevent — two parsers are two addressing
+// schemes, and a reference accepted by one and refused by the other is a
+// reference whose meaning depends on which door it came through. The same
+// argument places the repo-URL grammar, the two source tokens and the ingest
+// normalisers here.
 package refuri
 
 import (

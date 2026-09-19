@@ -93,6 +93,11 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	projectDir := filepath.Dir(appDir)
 
 	engineRequested := cmd.Flags().Changed("engine")
+	if !engineRequested {
+		// The flag's default is a registry fact: the engine shipped by
+		// default, resolved here rather than spelled at declaration.
+		manageInstallEngine = backends.DefaultEngineName()
+	}
 	if err := checkEngineKnown(engineRequested, manageInstallEngine); err != nil {
 		return err
 	}
@@ -953,9 +958,9 @@ func init() {
 	manageCmd.AddCommand(manageInstallCmd)
 	manageCmd.AddCommand(manageUninstallCmd)
 	manageCmd.AddCommand(manageCheckCmd)
-	// The default is the engine shipped by default, filled in once the
-	// registry is composed (applyEngineNamedHelp): flags are declared at
-	// init, before any engine is registered.
+	// Empty means the engine shipped by default, resolved at run time from
+	// the registry (runManageInstall); flags are declared at init, before
+	// any engine is registered, and the help names the default once it is.
 	manageInstallCmd.Flags().StringVar(&manageInstallEngine, "engine", "", "AI engine to record when scaffolding")
 	manageInstallCmd.Flags().BoolVar(&manageInstallPrint, "print", false, "Print the steps that would run, without executing")
 

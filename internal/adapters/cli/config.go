@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // configCmd is the top-level home of ctxloom configuration; the old `manage
@@ -238,9 +239,15 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 	if exists {
 		return fmt.Errorf("config already exists: %s", path)
 	}
+	engine := configCreateEngine
+	if engine == "" {
+		// The flag's default is a registry fact: the engine shipped by
+		// default, resolved here rather than spelled at declaration.
+		engine = backends.DefaultEngineName()
+	}
 	if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
 		AppDir: appDir,
-		Engine: configCreateEngine,
+		Engine: engine,
 	}); err != nil {
 		return err
 	}
@@ -280,8 +287,8 @@ func init() {
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configEditCmd)
 	configCmd.AddCommand(configCreateCmd)
-	// The default is the engine shipped by default, filled in once the
-	// registry is composed (applyEngineNamedHelp): flags are declared at
-	// init, before any engine is registered.
+	// Empty means the engine shipped by default, resolved at run time from
+	// the registry (runConfigCreate); flags are declared at init, before
+	// any engine is registered, and the help names the default once it is.
 	configCreateCmd.Flags().StringVar(&configCreateEngine, "engine", "", "AI engine to record in the scaffolded config")
 }

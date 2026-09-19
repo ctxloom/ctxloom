@@ -179,11 +179,10 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 // is the one place that is reached only after registration.
 func applyEngineNamedHelp() {
 	engines := userEngineNames()
-	// The scaffolding flags default to the engine shipped by default — a
-	// registry fact, so it is set here rather than spelled at declaration.
+	// The scaffolding flags' HELP names the engine shipped by default — a
+	// registry fact; the value itself is resolved where each command runs.
 	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine")} {
 		f.DefValue = backends.DefaultEngineName()
-		_ = f.Value.Set(f.DefValue)
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a

@@ -361,7 +361,11 @@ func (r Reason) Explain(detail string) string {
 		// default for any reason added without a case here — pending review is
 		// the safe, actionable answer and never a bare "withheld". The wording
 		// is load-bearing: tests/acceptance/steps_j000200_setup.go asserts on the
-		// "awaiting review" substring.
+		// "awaiting review" substring. The detail names what would admit the
+		// item (an executable: a review record), so the reader learns the fix.
+		if detail != "" {
+			return "awaiting review — run 'ctxloom review' (" + detail + ")"
+		}
 		return "awaiting review — run 'ctxloom review'"
 	}
 }

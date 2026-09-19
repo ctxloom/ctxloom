@@ -55,7 +55,16 @@ type MCPSession struct {
 // harness that speaks the protocol to a spelling no engine uses proves
 // nothing about what engines get.
 func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPSession, error) {
-	return connectMCP(e.AppBinary, agent.CtxloomMCPArgs, e.ProjectDir, e.isolatedEnv(), extraEnv...)
+	return e.StartMCPFrom(e.AppBinary, extraEnv...)
+}
+
+// StartMCPFrom is StartMCP with the server binary named by the caller instead
+// of AppBinary: same argv, same directory, same isolated environment. It
+// exists for a scenario that must run the coordinator from a binary it
+// controls the lifetime of (a copy it can unlink while the process lives),
+// which AppBinary — shared by every scenario in the run — can never be.
+func (e *TestEnvironment) StartMCPFrom(bin string, extraEnv ...string) (*MCPSession, error) {
+	return connectMCP(bin, agent.CtxloomMCPArgs, e.ProjectDir, e.isolatedEnv(), extraEnv...)
 }
 
 // connectMCP spawns bin(args...) as an MCP server over stdio in dir, with

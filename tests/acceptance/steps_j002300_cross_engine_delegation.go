@@ -46,7 +46,10 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -361,6 +364,83 @@ func j002300TranscriptAssistantCount(w *World, harp string, want int) ([]j002300
 	return nil, fmt.Errorf("j002300: transcript for harp %q carries %d assistant entr(y/ies) after 10s, want >= %d", harp, len(assistants), want)
 }
 
+// --- The negative probe: withholding the runner ------------------------------
+
+// j002300WithheldRunnerMarker is the decoy runner's dying words. It exists
+// only here and in the decoy the withhold step writes, so its presence in the
+// launch failure the coordinator's mailbox carries can mean one thing only:
+// the process the coordinator stood up as the child's runner was the decoy,
+// and it was the runner's absence — nothing upstream of it — that failed the
+// run.
+const j002300WithheldRunnerMarker = "J002300-RUNNER-WITHHELD-BY-NEGATIVE-PROBE-7f3a1c"
+
+// j002300WithholdRunner starts this scenario's coordinator so that no runner
+// can stand for any child it spawns, using only behaviour the product already
+// has — no test-only seam is compiled into the binary:
+//
+//  1. The coordinator runs from a COPY of the binary under test, and the copy
+//     is unlinked as soon as the MCP handshake completes. The process keeps
+//     running (the inode lives on), but its own executable path no longer
+//     resolves, so selfexec.Path — the one resolver every self-exec of a
+//     runner goes through — takes its documented upgrade-in-place fallback:
+//     a bare PATH lookup for "ctxloom".
+//  2. PATH is led by a directory holding a decoy `ctxloom`: a script that
+//     prints j002300WithheldRunnerMarker to stderr and exits non-zero. The
+//     spawn therefore starts a process that dies at once, so the coordinator
+//     attributes the failure to the runner's death — with its stderr tail —
+//     rather than to a missing file or to its own dial-home clock.
+//
+// Nothing about the fixture, the tool calls or the child's config differs
+// from the scenarios this probes; only the runner is gone.
+func j002300WithholdRunner(w *World) error {
+	if w.mcp != nil {
+		return errors.New("j002300: the coordinator is already running; the runner must be withheld before its first tool call")
+	}
+	root := filepath.Join(w.env.Root, "withheld-runner")
+	decoyDir := filepath.Join(root, "path")
+	if err := os.MkdirAll(decoyDir, 0o755); err != nil {
+		return fmt.Errorf("j002300: withhold runner: %w", err)
+	}
+	decoy := "#!/bin/sh\necho '" + j002300WithheldRunnerMarker + "' >&2\nexit 86\n"
+	if err := os.WriteFile(filepath.Join(decoyDir, "ctxloom"), []byte(decoy), 0o755); err != nil {
+		return fmt.Errorf("j002300: withhold runner: write decoy: %w", err)
+	}
+	coordinator := filepath.Join(root, "ctxloom")
+	if err := j002300CopyExecutable(w.env.AppBinary, coordinator); err != nil {
+		return fmt.Errorf("j002300: withhold runner: %w", err)
+	}
+	s, err := w.env.StartMCPFrom(coordinator, "PATH="+decoyDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err != nil {
+		return err
+	}
+	// The handshake is done: from here the coordinator's own path is gone and
+	// every runner spawn falls through to the decoy.
+	if err := os.Remove(coordinator); err != nil {
+		_ = s.Close()
+		return fmt.Errorf("j002300: withhold runner: unlink the coordinator's binary: %w", err)
+	}
+	w.mcp = s
+	return nil
+}
+
+// j002300CopyExecutable copies src to dst, executable.
+func j002300CopyExecutable(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// --- Hermetic fixture -------------------------------------------------
 
@@ -519,6 +599,78 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 		})
 
 	// --- Shared: capture a spawned child's harp -----------------------------
+
+	// --- The negative probe -------------------------------------------------
+
+	ctx.Step(`^the coordinator's runner is withheld$`, func(c context.Context) error {
+		return j002300WithholdRunner(worldFrom(c))
+	})
+
+	// The mailbox half of the probe, asserted with the SAME selector the
+	// positive scenario uses: a result-kind message from this child is exactly
+	// what a runner would have written, so one arriving with no runner means
+	// something answered for it. What must be there instead is the launch
+	// failure, carrying the decoy's own dying words — a failure for any other
+	// reason (config, fixture, mint) would not carry them.
+	ctx.Step(`^the received message from "([^"]*)" is the withheld runner's launch failure, and no result carrying its guidance arrived$`,
+		func(c context.Context, self string) error {
+			w := worldFrom(c)
+			j002300 := j002300Of(w)
+			spec, ok := j002300.specs[self]
+			if !ok {
+				return fmt.Errorf("j002300: unknown agent %q", self)
+			}
+			harp, ok := j002300.harps[self]
+			if !ok {
+				return fmt.Errorf("j002300: no session harp remembered for %q", self)
+			}
+			if msg, err := j002300FindMessageFrom(w, harp, coord.KindResult); err == nil {
+				body, _ := msg["body"].(string)
+				return fmt.Errorf("a %q-kind message from %s arrived with no runner standing — something answered for the runner; body:\n%s", coord.KindResult, self, body)
+			}
+			msg, err := j002300FindMessageFrom(w, harp, coord.KindError)
+			if err != nil {
+				return err
+			}
+			body, _ := msg["body"].(string)
+			w.docStepMaterialized = fmt.Sprintf("agent_recv — launch failure from %s (harp %s):\n  body: %s", self, harp, body)
+			if !strings.Contains(body, j002300WithheldRunnerMarker) {
+				return fmt.Errorf("%s's launch failure does not carry the withheld runner's own dying words %q — it failed, but not for the runner's absence; body:\n%s", self, j002300WithheldRunnerMarker, body)
+			}
+			if strings.Contains(body, spec.Guidance) {
+				return fmt.Errorf("the launch failure carries %s's guidance %q, which only a runner-driven turn could have produced; body:\n%s", self, spec.Guidance, body)
+			}
+			return nil
+		})
+
+	// The transcript half: the positive scenarios read the child's own
+	// transcript for its turns; with no runner there must be nothing to read.
+	// Settled, not racing — the launch failure the previous step read is
+	// queued by the run's terminal, after which nothing writes this harp.
+	ctx.Step(`^"([^"]*)" recorded no turn$`, func(c context.Context, self string) error {
+		w := worldFrom(c)
+		j002300 := j002300Of(w)
+		harp, ok := j002300.harps[self]
+		if !ok {
+			return fmt.Errorf("j002300: no session harp remembered for %q", self)
+		}
+		path := j002300TranscriptPath(w, harp)
+		entries, _, _, err := j002300ReadTranscriptEntries(w, harp)
+		if errors.Is(err, fs.ErrNotExist) {
+			w.docStepMaterialized = path + " — absent"
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.Type == "assistant" {
+				return fmt.Errorf("%s recorded a turn with no runner standing — something answered for the runner; %s carries:\n%s", self, path, e.Content)
+			}
+		}
+		w.docStepMaterialized = fmt.Sprintf("%s — %d entr(y/ies), none an assistant turn", path, len(entries))
+		return nil
+	})
 
 	ctx.Step(`^"([^"]*)"'s session harp is remembered$`, func(c context.Context, name string) error {
 		w := worldFrom(c)

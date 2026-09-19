@@ -249,6 +249,60 @@ var layeringRules = []layeringRule{
 		},
 	},
 	{
+		// THE ADAPTER RING (Part 1.1): adapters import core; they do not import
+		// each other or the engines. The two sanctioned edges — cli → operations
+		// (the CLI is a pure frontend over the application services) and a
+		// package's own subpackage (cli → cli/tui; runner → runner/mcp) — are
+		// allowed entries with a reason that says "sanctioned", so IsLive still
+		// confirms they exist. Today's adapter packages are named one by one;
+		// the runner has no package of its own yet (the engine host lives
+		// inside coord until slice 14a), so lm/grpc (the plugin wire) and mcp
+		// (the MCP server, the future runner/mcp) stand for it. Every other
+		// edge is MEASURED and leaves in the slice its reason names.
+		name: "adapters-import-core-not-each-other",
+		from: []string{
+			"internal/cli",
+			"internal/termui",
+			"internal/operations",
+			"internal/lm/grpc",
+			"internal/lm/isolation",
+			"internal/vpio",
+			"internal/remote",
+			"internal/shared/companionloadout",
+			"internal/signing",
+			"internal/content/attest",
+			"internal/config/layerscope",
+			"internal/transcript",
+			"internal/memory",
+			"internal/confpatch",
+			"internal/mcp",
+		},
+		forbid: []string{
+			// the adapters (the from-set again)
+			"internal/cli",
+			"internal/termui",
+			"internal/operations",
+			"internal/lm/grpc",
+			"internal/lm/isolation",
+			"internal/vpio",
+			"internal/remote",
+			"internal/shared/companionloadout",
+			"internal/signing",
+			"internal/content/attest",
+			"internal/config/layerscope",
+			"internal/transcript",
+			"internal/memory",
+			"internal/confpatch",
+			"internal/mcp",
+			// the engines
+			"internal/claude",
+			"internal/mockengine",
+			"internal/lm/engines",
+			"internal/lm/backends",
+		},
+		allowed: map[string]string{},
+	},
+	{
 		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE
 		// LIBRARY independent of ctxloom (ruled 2026-08-22). It is the
 		// outermost edge: adapters import it, it imports nothing of ours.

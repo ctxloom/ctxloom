@@ -29,3 +29,24 @@ func TestFieldSetDiff_ReportsSortedAndDeduplicated(t *testing.T) {
 	assert.Equal(t, []string{"Y", "Z"}, onlyA)
 	assert.Equal(t, []string{"M"}, onlyB)
 }
+
+func TestFieldSetReport_OneSidedDifferenceIsReported(t *testing.T) {
+	left := func() []string { return []string{"A", "B"} }
+	for _, tc := range []struct {
+		name  string
+		right func() []string
+		wants string
+	}{
+		{"only the left carries a name", func() []string { return []string{"A"} }, "only L: B"},
+		{"only the right carries a name", func() []string { return []string{"A", "B", "C"} }, "only R: C"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, ok := FieldSetReport(FieldSetPair{Name: tc.name, Left: left, Right: tc.right, LeftName: "L", RightName: "R"})
+			assert.False(t, ok, "a one-sided difference must not read as parity")
+			assert.Contains(t, msg, tc.wants)
+		})
+	}
+	msg, ok := FieldSetReport(FieldSetPair{Name: "equal", Left: left, Right: left, LeftName: "L", RightName: "R"})
+	assert.True(t, ok)
+	assert.Empty(t, msg)
+}

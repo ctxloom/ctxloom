@@ -1,6 +1,7 @@
 package parity
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -46,19 +47,29 @@ func FieldSetDiff(a, b []string) (onlyA, onlyB []string) {
 	return onlyA, onlyB
 }
 
+// FieldSetReport judges one pair: ok is true when both sides carry the same
+// set; otherwise the message names each side's extra names. It is the pure
+// half of CheckFieldSets so the judgement itself can be tested without a
+// *testing.T to capture.
+func FieldSetReport(p FieldSetPair) (msg string, ok bool) {
+	onlyL, onlyR := FieldSetDiff(p.Left(), p.Right())
+	if len(onlyL) == 0 && len(onlyR) == 0 {
+		return "", true
+	}
+	return fmt.Sprintf("%s and %s do not carry the same field set:\n  only %s: %s\n  only %s: %s\n"+
+		"A field on one side of a boundary and not the other is silent loss on every value that crosses it.",
+		p.LeftName, p.RightName, p.LeftName, strings.Join(onlyL, ", "), p.RightName, strings.Join(onlyR, ", ")), false
+}
+
 // CheckFieldSets runs every pair and fails, naming each side's extra names,
 // when the two sides do not carry the same set.
 func CheckFieldSets(t *testing.T, pairs []FieldSetPair) {
 	t.Helper()
 	for _, p := range pairs {
 		t.Run(p.Name, func(t *testing.T) {
-			onlyL, onlyR := FieldSetDiff(p.Left(), p.Right())
-			if len(onlyL) == 0 && len(onlyR) == 0 {
-				return
+			if msg, ok := FieldSetReport(p); !ok {
+				t.Error(msg)
 			}
-			t.Errorf("%s and %s do not carry the same field set:\n  only %s: %s\n  only %s: %s\n"+
-				"A field on one side of a boundary and not the other is silent loss on every value that crosses it.",
-				p.LeftName, p.RightName, p.LeftName, strings.Join(onlyL, ", "), p.RightName, strings.Join(onlyR, ", "))
 		})
 	}
 }

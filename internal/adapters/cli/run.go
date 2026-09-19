@@ -1829,10 +1829,9 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // materializes exactly such a canonical file — so every session that used
 // /recover got NO final capture at exit, and everything after that /recover
 // was invisible to every later distill: silent no-op, exit 0, looks
-// complete. LivenessFinished now means refresh once, unconditionally — this
-// IS the one call site that semantic change exists for (see
-// operations.Liveness's doc): a canonical file existing here is not evidence
-// it is complete.
+// complete. ResolveAndHeal refreshes once, unconditionally — this IS the
+// call site that rule exists for: a canonical file existing here is not
+// evidence it is complete.
 func convertVendorTranscriptOnExit(harp string) {
 	if harp == "" {
 		return
@@ -1845,7 +1844,7 @@ func convertVendorTranscriptOnExit(harp string) {
 	// path. Reusing it would make the heal abort immediately
 	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
-	src, err := operations.ResolveAndHeal(context.Background(), harp, operations.LivenessFinished)
+	src, err := operations.ResolveAndHeal(context.Background(), harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: look up %s: %v", harp, err)
 		return

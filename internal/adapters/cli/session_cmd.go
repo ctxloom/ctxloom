@@ -366,8 +366,8 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	// ran, and this command used to distill that frozen prefix and report
 	// success. A one-shot CLI process genuinely cannot tell whether the
 	// session it was pointed at is still growing elsewhere, so it heals
-	// unconditionally (LivenessUnknown) every call — slower, and truthful.
-	src, herr := operations.ResolveAndHeal(cmd.Context(), harpName, operations.LivenessUnknown)
+	// unconditionally every call — slower, and truthful.
+	src, herr := operations.ResolveAndHeal(cmd.Context(), harpName)
 	if herr != nil {
 		return herr
 	}

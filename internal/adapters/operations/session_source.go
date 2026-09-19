@@ -9,42 +9,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
-// Liveness tells ResolveAndHeal how to treat a harp's canonical transcript
-// when deciding whether to heal (convert/refresh) it.
-//
-// Every value below causes ResolveAndHeal to refresh — the pre-unification
-// design considered a presence-guarded "skip if a canonical file already
-// exists" verb for a finished session (ConvertVendorTranscript's shape), but
-// that is exactly what made pty-exit capture (cli.convertVendorTranscriptOnExit)
-// a permanent no-op once ANY canonical transcript existed: a mid-session
-// /recover materializes one, and everything the session did afterward was
-// silently lost at exit. A canonical file existing is
-// not evidence it is COMPLETE: LivenessFinished means refresh once, never skip on presence.
-//
-// The three values stay distinct — rather than collapsing to one — because
-// they document DIFFERENT REASONS a caller is asking (a session still being
-// written to vs. one this call believes is over vs. a CLI process that
-// cannot tell either way), which is call-site-relevant even though today's
-// ResolveAndHeal treats them identically; a future caller that genuinely
-// wants the old skip-on-presence behavior can be given a fourth value
-// without renaming the existing three out from under their callers.
-type Liveness int
-
-const (
-	// LivenessFinished: this call is the last look this caller expects to
-	// take at harp's transcript (e.g. process exit) — refresh once,
-	// unconditionally.
-	LivenessFinished Liveness = iota
-	// LivenessLive: the session is still being written to right now (e.g.
-	// recover_session, mid-conversation) — refresh every call, since the
-	// source can have grown since the last one.
-	LivenessLive
-	// LivenessUnknown: the caller cannot tell whether the session can still
-	// grow (a CLI process invoked against an arbitrary harp) — treated like
-	// LivenessFinished: refresh once, never assume the cache is fresh.
-	LivenessUnknown
-)
-
 // ResolvedSource is a harp's session-index entry plus the outcome of trying
 // to heal (convert/refresh) its canonical transcript — the shared result
 // every distillation path resolves down to before it either reads from the
@@ -74,14 +38,18 @@ type ResolvedSource struct {
 }
 
 // ResolveAndHeal is the ONE source-resolution + heal seam every distillation
-// path funnels through: it resolves harp's session-index entry and brings
-// its canonical transcript up to date per live (see the Liveness doc). It
-// never chdirs — callers that need a particular working directory situate
-// the process themselves (see CompactEntry's doc for why that split exists).
+// path funnels through: it resolves harp's session-index entry and refreshes
+// its canonical transcript, unconditionally. A canonical file existing is
+// not evidence it is COMPLETE — a mid-session /recover materializes one, and
+// a presence-guarded skip would silently lose everything the session did
+// afterward — so every caller refreshes once, whatever it believes about the
+// session's state. It never chdirs — callers that need a particular working
+// directory situate the process themselves (see CompactEntry's doc for why
+// that split exists).
 //
 // harp == "" or an unindexed harp resolves to a zero ResolvedSource with no
 // error and Healed == false: there is nothing to heal.
-func ResolveAndHeal(ctx context.Context, harp string, live Liveness) (ResolvedSource, error) {
+func ResolveAndHeal(ctx context.Context, harp string) (ResolvedSource, error) {
 	if harp == "" {
 		return ResolvedSource{}, nil
 	}
@@ -91,12 +59,7 @@ func ResolveAndHeal(ctx context.Context, harp string, live Liveness) (ResolvedSo
 	}
 
 	src := ResolvedSource{Entry: entry}
-	switch live {
-	case LivenessLive, LivenessFinished, LivenessUnknown:
-		// All three refresh today — see the Liveness doc for why they stay
-		// distinct enum values anyway.
-		src.Healed, src.HealErr = RefreshVendorTranscript(ctx, *entry)
-	}
+	src.Healed, src.HealErr = RefreshVendorTranscript(ctx, *entry)
 
 	// Re-resolve after a successful heal: a fresh conversion can populate or
 	// change CanonicalTranscriptPath (computed on read — see sessions.Entry's

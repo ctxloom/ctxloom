@@ -2,7 +2,7 @@
 
 One row per package `go list ./internal/... ./cmd/...` printed at the base of the rename slice. The left column is the path before the move; the right column is the path after it, or `dies in place` for a package the rename paragraph of `30-decided-architecture.md` §1.1 retires (it is deleted, not moved, by the slice named in its source), or `stays` for a package the rings do not restructure.
 
-This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` in `tests/arch` reads it and fails if any left-column path is still a package, if any right-column path is not one, or if any package sits outside `internal/core/`, `internal/adapters/`, `internal/engines/`, `internal/shared/`, the family products, `internal/testsupport/` and `cmd/` without a `dies in place` row here. A `JUDGMENT` source is a placement none of the design's sources decided; it is the rename's call and open to reversal by a later slice.
+This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestArch_Rings_EveryPackageInsideARing` in `tests/arch` read it and fail if any left-column path is still a package, if any right-column path is not one, or if any package sits outside `internal/core/`, `internal/adapters/`, `internal/engines/`, `internal/shared/`, the family products, `internal/testsupport/` and `cmd/` without a `dies in place` row here. A `JUDGMENT` source is a placement none of the design's sources decided; it is the rename's call and open to reversal by a later slice.
 
 | Today | Target | Ring | Source of the placement |
 |---|---|---|---|

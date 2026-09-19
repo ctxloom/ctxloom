@@ -464,9 +464,11 @@ func compileInPackageCopy(t *testing.T, sources []string, body string) (string, 
 			t.Fatal(werr)
 		}
 	}
-	if werr := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module presenttmp\n\ngo 1.25\n"), 0o644); werr != nil {
-		t.Fatal(werr)
-	}
+	// The copy is its own module, but it must resolve the same third-party
+	// imports the real package does (present carries afero.Fs as its
+	// filesystem port), from the module cache and without the network: the
+	// repo's own go.mod and go.sum, with only the module path renamed.
+	writeScratchModule(t, dir)
 	snippet := "package present\n\nfunc snippet() {\n\t" + body + "\n}\n"
 	if werr := os.WriteFile(filepath.Join(dir, "snippet.go"), []byte(snippet), 0o644); werr != nil {
 		t.Fatal(werr)
@@ -475,4 +477,48 @@ func compileInPackageCopy(t *testing.T, sources []string, body string) (string, 
 	cmd.Dir = dir
 	out, berr := cmd.CombinedOutput()
 	return string(out), berr
+}
+
+// writeScratchModule gives the package copy the repo's dependency graph under
+// a throwaway module path, so `go build` in the copy resolves every import the
+// real package has — afero included — from the module cache, exactly as the
+// real build does. Without it the harness rejects a LEGAL composition on a
+// missing module, and every rejection below it proves nothing.
+func writeScratchModule(t *testing.T, dir string) {
+	t.Helper()
+	root := repoRootForHarness(t)
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.SplitN(string(mod), "\n", 2)
+	if !strings.HasPrefix(lines[0], "module ") || len(lines) != 2 {
+		t.Fatalf("unexpected go.mod head: %q", lines[0])
+	}
+	if werr := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module presenttmp\n"+lines[1]), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	sum, err := os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if werr := os.WriteFile(filepath.Join(dir, "go.sum"), sum, 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+}
+
+// repoRootForHarness asks the go tool for the module root: tests run with the
+// package directory as cwd, and `go env GOMOD` names the enclosing go.mod
+// (a runtime.Caller path is trimmed by -trimpath and cannot be walked).
+func repoRootForHarness(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOMOD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gomod := strings.TrimSpace(string(out))
+	if gomod == "" || gomod == os.DevNull {
+		t.Fatal("go env GOMOD names no module")
+	}
+	return filepath.Dir(gomod)
 }

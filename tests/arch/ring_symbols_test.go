@@ -494,7 +494,6 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
 	"internal/adapters/mcp/mcp_runner.go":         "slice 9: runner/mcp is bound by the runner, which holds the session home",
 	"internal/adapters/mcp/mcp_tools_agents.go":   "slice 8: agent_run is a Verbs.Host frame carrying the launch; no cwd is read",
-	"internal/adapters/mcp/mcp_tools_memory.go":   "slice 14a: memory.NewCompactor(entry, source, llm) is handed its paths",
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
 
 	// isolation: handed HostFacts and a CellRequest

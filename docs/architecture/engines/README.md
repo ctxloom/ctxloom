@@ -1,8 +1,9 @@
 # Engine & launch layer
 
 How ctxloom turns "run this agent" into a running vendor engine process. This
-directory documents `internal/lm` (the backend registry, the gRPC plugin wire, the
-isolation seam, and the conformance suite) and the per-engine adapters.
+directory documents `internal/lm` (the backend registry and the gRPC plugin wire,
+both retiring), `internal/adapters/isolation` (the isolation seam) and
+`internal/engines` (the per-engine adapters and the conformance suite).
 
 **The one architectural fact to carry into everything else**: ctxloom holds no
 provider SDK and makes no direct model-API call. Every backend reaches its model by

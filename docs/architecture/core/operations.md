@@ -39,7 +39,7 @@ session can grep straight to it.
 - Storage: bundle files (`internal/core/bundles`), config (`internal/core/config`), lockfile and clones
   (`internal/adapters/remote`), profiles (`internal/core/profiles`), countersignatures (`internal/adapters/signing/countersign`).
 - Path vocabulary — `internal/core/paths`; see [paths.md](./paths.md).
-- Engine process management — `internal/lm/*`.
+- Engine process management — `internal/lm/*` (retiring) and `internal/adapters/isolation`.
 
 ## The content pipeline through this package
 

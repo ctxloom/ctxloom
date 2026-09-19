@@ -477,7 +477,7 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 //
 // CONCURRENCY CAVEAT (found by hand, running two container-axis cells at
 // once during this probe's own development): the "probe" agent name is
-// identical across every cell, so containerName(agentID) — internal/lm/
+// identical across every cell, so containerName(agentID) — internal/adapters/
 // isolation/container.go — differs only in its random suffix, which this
 // function has no way to predict or match against. Two container-axis cells
 // running truly concurrently on the SAME host can race here: this function

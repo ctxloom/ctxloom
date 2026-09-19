@@ -471,6 +471,29 @@ type ManagedConfig struct {
 	DenyTools []string
 }
 
+// Items is the engine-facing projection of the managed payload: what the
+// launch resolver's delivery router routes and the engine's Delegate
+// decides over. Presence is what matters to the router, so the items carry
+// no bytes here.
+func (m *ManagedConfig) Items() engine.Items {
+	if m == nil {
+		return engine.Items{}
+	}
+	items := engine.Items{
+		Commands: make([]engine.CommandItem, len(m.Commands)),
+		Skills:   make([]engine.SkillItem, len(m.Skills)),
+		MCP:      make([]wire.MCPServer, 0, len(m.BundleMCP)),
+		Settings: m.ManageStatusline || len(m.DenyTools) > 0,
+	}
+	for _, srv := range m.BundleMCP {
+		items.MCP = append(items.MCP, srv)
+	}
+	if m.Hooks != nil {
+		items.Hooks = []wire.Hook{{}}
+	}
+	return items
+}
+
 // ExecuteRequest contains the runtime parameters for execution.
 type ExecuteRequest struct {
 	Prompt *Fragment

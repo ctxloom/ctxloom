@@ -68,22 +68,11 @@ type Package struct {
 
 // Surfaces is the managed-surface payload as today's wire carries it. The
 // launch only CARRIES it — from the assembler to the wire codec — and never
-// reads it, so it is opaque here: its type lives with the legacy engine
-// contract this package must not depend on. It is a value the codec asserts
-// back to that type; composite.Package retires it. Counts is what Route
-// needs to know about it.
+// reads it beyond its engine-facing projection, so it is opaque here: its
+// type lives with the legacy engine contract this package must not depend
+// on. The codec asserts it back to that type; composite.Package retires it.
 type Surfaces interface {
-	Counts() SurfaceCounts
-}
-
-// SurfaceCounts is what the delivery router reads off the managed payload:
-// which kinds carry items. The engine's Delegate decides over it.
-type SurfaceCounts struct {
-	Commands int
-	Skills   int
-	Hooks    bool
-	MCP      int
-	Settings bool
+	Items() engine.Items
 }
 
 // EndpointMinter mints the session's MCP endpoint: loopback URL and bearer.

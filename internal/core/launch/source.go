@@ -23,6 +23,12 @@ type Source struct {
 	// Env is the caller's engine passthrough (`run --env`); the identity
 	// carriers are stamped by Resolve and never taken from here.
 	Env map[string]string
+	// Internal marks an internal one-shot (a distill, a triage, the setup
+	// probe): no binding and no profiles are selected — the prompt is the
+	// whole instruction and Label names the engine. It is still a real
+	// session: a harp, an endpoint, the managed surfaces. It exists because
+	// no shipped binding names these runs; a binding for each retires it.
+	Internal bool
 }
 
 // Resume is the resume arm. A non-zero Ref makes Resolve REUSE the session:

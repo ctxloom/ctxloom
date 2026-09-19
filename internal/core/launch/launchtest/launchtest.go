@@ -265,7 +265,7 @@ func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, 
 // surfaces is the empty managed payload.
 type surfaces struct{}
 
-func (surfaces) Counts() launch.SurfaceCounts { return launch.SurfaceCounts{} }
+func (surfaces) Items() engine.Items { return engine.Items{} }
 
 // cells is the Cells double: the host cell is the project root; a container
 // axis is refused as an ownership mismatch when its runtime is not

@@ -260,6 +260,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/agents":                         "slice 4: the adapters/configload split; the agent binding is read through operations.App's Snapshot (measured; Part 1.1 does not place agents)",
 			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/coordgrpc -> internal/lm/grpc":                           "slice 8: EncodeLaunch targets the coordination proto's Launch; the plugin run-start form is deleted in 13",
 			"internal/adapters/cli -> internal/adapters/git":                            "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; Part 1.1 does not place gitignore — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",

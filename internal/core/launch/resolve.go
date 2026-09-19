@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // Resolve is the ONE constructor. Refuses (typed) a zero identity, an agent
@@ -39,16 +38,19 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	asm, err := deps.Assembler.Assemble(ctx, deps.Snapshot, sel.profiles)
-	if err != nil {
-		return Launch{}, err
-	}
-	// Naming a specialisation and delivering none of it is never what the
-	// caller asked for: a profile set that assembled to nothing is a failed
-	// assembly, not a context-free run. A bare launch (no profiles) is
-	// legitimately context-free.
-	if len(sel.profiles) > 0 && strings.TrimSpace(asm.Context) == "" {
-		return Launch{}, fmt.Errorf("%w: profile set %v (check the profiles' fragments and bundles resolve, or drop the profile to run context-free)", ErrContextEmpty, sel.profiles)
+	// A selection with no profiles is context-free BY DECLARATION (an
+	// internal one-shot, a binding that composes nothing): nothing is
+	// assembled, so no default can be composed in its place. Naming a
+	// profile set and delivering none of it is never what the caller asked
+	// for: a set that assembled to nothing is a failed assembly, refused.
+	var asm Assembled
+	if len(sel.profiles) > 0 {
+		if asm, err = deps.Assembler.Assemble(ctx, deps.Snapshot, sel.profiles); err != nil {
+			return Launch{}, err
+		}
+		if strings.TrimSpace(asm.Context) == "" {
+			return Launch{}, fmt.Errorf("%w: profile set %v (check the profiles' fragments and bundles resolve, or drop the profile to run context-free)", ErrContextEmpty, sel.profiles)
+		}
 	}
 
 	label := firstNonEmpty(src.Label, sel.llm, asm.ProfileLLM, cfg.PrimaryLabel())
@@ -146,6 +148,8 @@ type selection struct {
 // set. The binding is ungated config; nothing here touches trust.
 func selectSource(cfg *config.Config, src Source) (selection, error) {
 	switch {
+	case src.Internal:
+		return selection{}, nil
 	case src.Agent != "":
 		return bindingSelection(cfg, src.Agent, src.Degraded)
 	case len(src.Profiles) == 0:
@@ -309,24 +313,16 @@ func imageConfig(cfg *config.Config, eng engine.Name) ImageConfig {
 }
 
 // itemsOf is the engine-facing projection of today's package: the context
-// as one unconditional fragment, the managed surfaces by presence. The
-// engine's Delegate decides over it; nothing here decides.
+// as one unconditional fragment, plus the managed payload's own projection.
+// The engine's Delegate decides over it; nothing here decides.
 func itemsOf(pkg Package) engine.Items {
 	var items engine.Items
+	if pkg.Managed != nil {
+		items = pkg.Managed.Items()
+	}
 	if pkg.Context != "" {
-		items.Fragments = []engine.FragmentItem{{Ref: "context", Body: []byte(pkg.Context)}}
+		items.Fragments = append([]engine.FragmentItem{{Ref: "context", Body: []byte(pkg.Context)}}, items.Fragments...)
 	}
-	if pkg.Managed == nil {
-		return items
-	}
-	c := pkg.Managed.Counts()
-	items.Commands = make([]engine.CommandItem, c.Commands)
-	items.Skills = make([]engine.SkillItem, c.Skills)
-	items.MCP = make([]wire.MCPServer, c.MCP)
-	if c.Hooks {
-		items.Hooks = []wire.Hook{{}}
-	}
-	items.Settings = c.Settings
 	return items
 }
 

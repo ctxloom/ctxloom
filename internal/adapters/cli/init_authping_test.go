@@ -60,6 +60,7 @@ type launchtestAssembler struct{}
 func (launchtestAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (launch.Assembled, error) {
 	return launch.Assembled{}, nil
 }
+func (launchtestAssembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
 func (launchtestAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
 	return &agent.ManagedConfig{}, nil
 }

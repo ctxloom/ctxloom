@@ -178,10 +178,9 @@ func (l *LazyOneShot) End() {
 }
 
 // InternalSource is the Source an internal one-shot asks with: no binding,
-// the label naming its engine (model overridden when the caller says so),
-// the label's request-borne env.
-func InternalSource(cfg *config.Config, label, model, workDir string) launch.Source {
-	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Env: MockControlFor(cfg, label)}
+// the label naming its engine (model overridden when the caller says so).
+func InternalSource(label, model, workDir string) launch.Source {
+	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir}
 }
 
 // StartInternalOneShot mints and resolves an internal one-shot over the
@@ -193,7 +192,7 @@ func StartInternalOneShot(ctx context.Context, cfg *config.Config, label, model,
 	if err != nil {
 		return nil, err
 	}
-	return StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir, ProjectID: projectID}, InternalSource(cfg, label, model, workDir), verbosity)
+	return StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir, ProjectID: projectID}, InternalSource(label, model, workDir), verbosity)
 }
 
 // runtimeCarrier / containerPersister are the narrow capabilities the container

@@ -45,6 +45,11 @@ type Deps struct {
 type Assembler interface {
 	Assemble(ctx context.Context, snap *config.Snapshot, sel Selection) (Assembled, error)
 	Surfaces(ctx context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (Surfaces, error)
+	// LabelEnv is the label's request-borne environment: the engine
+	// passthrough the labeled entry's own config carries (the mock's
+	// test-control map; every real engine's environment is ambient and
+	// carries none). It rides Launch.Env beneath the caller's own.
+	LabelEnv(snap *config.Snapshot, label string) map[string]string
 }
 
 // Selection is what Assemble composes: the profile set, plus the explicit

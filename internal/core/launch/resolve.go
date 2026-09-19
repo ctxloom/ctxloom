@@ -86,8 +86,11 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 
+	passthrough := map[string]string{}
+	maps.Copy(passthrough, deps.Assembler.LabelEnv(deps.Snapshot, label))
+	maps.Copy(passthrough, src.Env)
 	env := sessions.HookEnv(src.Identity)
-	maps.Copy(env, src.Env)
+	maps.Copy(env, passthrough)
 	cell, err := deps.Cells.Prepare(ctx, CellRequest{
 		Axes:        axes,
 		Engine:      eng,
@@ -133,7 +136,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		MCP:        ep,
 		Prompt:     src.Prompt,
 		Resume:     resume,
-		Env:        src.Env,
+		Env:        passthrough,
 	}, nil
 }
 

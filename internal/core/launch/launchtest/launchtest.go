@@ -279,6 +279,8 @@ func (a assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Se
 	return launch.Assembled{Context: fmt.Sprintf("context of %v", sel.Profiles), Profiles: sel.Profiles, ProfileLLM: a.profileLLM}, nil
 }
 
+func (assembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
+
 func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, _ string, _ []string, _ map[string]string) (launch.Surfaces, error) {
 	return surfaces{}, nil
 }

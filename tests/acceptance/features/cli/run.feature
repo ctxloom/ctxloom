@@ -79,6 +79,7 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command succeeds
       And the output contains "MOCK-REPLY"
       And the mock recorded input contains "FRAGMENT-BODY-testing"
+      And the run's session record carries its MCP endpoint
 
     # THE CHARACTERISTIC BUG, in its purest form. A one-shot gets exactly one
     # turn, so an empty prompt asks nothing at all: the run would exit 0, print

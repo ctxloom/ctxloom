@@ -663,7 +663,7 @@ var authPingFactory pb.ClientFactory
 // fails loud, naming the fix for THIS engine; auth itself stays ambient —
 // this is a liveness gate, not a login flow.
 func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
-	src := operations.InternalSource(cfg, engine, "", workDir)
+	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = agent.PermissionBypass
 	probe, err := operations.StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir}, src, 0)
 	if err != nil {
@@ -790,7 +790,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	// decided, for this directory, what an agent here may do. It rides the
 	// flag rung, which the floor reads first.
 	posture, _ := discoveryPermissionMode(cfg)
-	src := operations.InternalSource(cfg, engine, "", workDir)
+	src := operations.InternalSource(engine, "", workDir)
 	src.Mode = enginepkg.Interactive
 	src.Prompt = discoverySessionPrompt(cfg)
 	src.Permission = posture

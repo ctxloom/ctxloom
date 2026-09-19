@@ -149,6 +149,11 @@ func (a assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel laun
 	return launch.Assembled{Context: res.Context, Profiles: res.Profiles, Fragments: res.FragmentsLoaded, ProfileLLM: res.ProfileLLM}, nil
 }
 
+// LabelEnv is the labeled entry's own request-borne environment.
+func (assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
+	return MockControlFor(snap.Config, label)
+}
+
 // Surfaces composes the managed surfaces for the engine, gated by the
 // generation's executable trust gate, scoped to the profiles the context
 // was assembled from; the binding's delivery preference is validated against

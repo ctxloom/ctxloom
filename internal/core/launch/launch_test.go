@@ -240,6 +240,7 @@ type emptyAssembler struct{}
 func (emptyAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (launch.Assembled, error) {
 	return launch.Assembled{}, nil
 }
+func (emptyAssembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
 func (emptyAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
 	return nil, nil
 }

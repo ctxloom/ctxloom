@@ -67,7 +67,7 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 // (withheld).
 func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Pipeline, *config.Config) {
 	t.Helper()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := &contentGate{cfg: cfg, records: records}
 	pipe := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), gate, bundles.LinksUnchecked(), true)
 	return pipe, cfg
@@ -155,7 +155,7 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 // content swap (new hash, no acceptance, untrusted source) returns the item to
 // pending and is withheld; accepting the new content re-exposes it.
 func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	v1 := map[string]*bundles.Bundle{
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
@@ -205,7 +205,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 // to "no candidates found", which the decision function already denies by
 // construction (step 6, the terminal pending default).
 func TestExposureGate_FailClosed(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	// Unparseable ref → withhold (resolve error is fail-closed).
@@ -276,7 +276,7 @@ fragments:
 // this test is the companion proving the OTHER half: a malformed/unrecognized
 // scheme-qualified ref must fail closed instead.
 func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	// "https://github.com/acme/repo" is missing "@bundles/<name>" — it fails
@@ -315,13 +315,13 @@ fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	if _, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: "dev#fragments/blocked"}); err != nil {
 		t.Fatalf("SetBlacklist: %v", err)
 	}
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		return realGated(cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 			"default": {Fragments: []config.FragmentRef{
 				{Name: "dev#fragments/keep"},
 				{Name: "dev#fragments/blocked"},
@@ -329,7 +329,7 @@ fragments:
 		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		}), nil
+		})), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -363,7 +363,7 @@ fragments:
 // address, and an evaluation that fails — since those are exactly the arms a
 // split would have to remember to keep wired.
 func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	g := &contentGate{cfg: cfg, records: fx.records()}
 

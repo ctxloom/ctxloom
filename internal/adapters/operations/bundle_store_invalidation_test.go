@@ -33,7 +33,7 @@ func TestBundleStore_SaveIsVisibleToTheNextRead(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0o755))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	// Resolve BEFORE the write, so the loader is populated and memoized. Without
 	// this the test would pass on a lazily-built loader that never held a stale
@@ -76,7 +76,7 @@ func TestBundleStore_FirstBundleInAFreshProjectIsVisible(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	// Resolve first, while the bundles dir is still absent — this is what fixes
 	// the reader's search path in place.
@@ -112,7 +112,7 @@ func TestMoveBundle_SourceDisappearsFromTheSharedLoader(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	destDir := t.TempDir()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	store := bundleStore(cfg, nil)
 	require.NoError(t, store.Save(&bundles.Bundle{

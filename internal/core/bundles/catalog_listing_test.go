@@ -44,11 +44,11 @@ func TestCatalogInfos_ListsTheResolvableRefNotTheLeafName(t *testing.T) {
 // test proves it was present in the unscoped set first, then that scoping drops
 // exactly it and keeps the remote and companion reads.
 func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
-	unsigned := signatureFacts{signature: SignatureNone, signer: SignerNone}
+	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	acquired := staticReader{reads: []BundleRead{
-		newRead("https://example.test/repo@bundles/pinned", &Bundle{Name: "https://example.test/repo@bundles/pinned", Version: "1.0.0"},
+		NewRead("https://example.test/repo@bundles/pinned", &Bundle{Name: "https://example.test/repo@bundles/pinned", Version: "1.0.0"},
 			ProvenanceRemote, TrustCtxRemote, unsigned),
-		newRead(companionRefPrefix+"ltk", &Bundle{Name: companionRefPrefix + "ltk", Version: "1.0.0"},
+		NewRead(companionRefPrefix+"ltk", &Bundle{Name: companionRefPrefix + "ltk", Version: "1.0.0"},
 			ProvenanceCompanion, TrustCtxLocal, unsigned),
 	}}
 	cat := Resolve(context.Background(),
@@ -137,10 +137,10 @@ func twoBundlesOneDisplayName(t *testing.T) Catalog {
 	builtinBundle.sourceRef = builtinSrc
 	builtinBundle.sourceRefSet = true
 
-	unsigned := signatureFacts{signature: SignatureNone, signer: SignerNone}
+	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	return Resolve(context.Background(), staticReader{reads: []BundleRead{
-		newRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
-		newRead("isolation", builtinBundle, ProvenanceBuiltin, TrustCtxLocal, unsigned),
+		NewRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
+		NewRead("isolation", builtinBundle, ProvenanceBuiltin, TrustCtxLocal, unsigned),
 	}})
 }
 

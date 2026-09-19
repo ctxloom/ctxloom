@@ -33,7 +33,7 @@ commands:
   something-else:
     content: "NOT TOOLING"
 `)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	got := CollectTooling(cfg, nil)
 	require.Len(t, got, 1, "only the tooling command is collected")

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -162,7 +163,7 @@ func anyDistilled(items []DistillBundleItem) bool {
 // invalidatedByDistill checks each successfully-DISTILLED item against the
 // countersignature stores' sidecar index (display-only) for a prior approve
 // record over the DISTILLED form: presence proves invalidation (see
-// countersignRecords.hadPriorApprove). bundleName addresses this as a LOCAL
+// countersign.Records.HadPriorApprove). bundleName addresses this as a LOCAL
 // bundle (ctxloom:local) — the addressing `bundle distill <path>` operates
 // under; best-effort and never errors.
 func invalidatedByDistill(cfg *config.Config, bundleName string, items []DistillBundleItem) []string {
@@ -177,7 +178,7 @@ func invalidatedByDistill(cfg *config.Config, bundleName string, items []Distill
 			continue
 		}
 		ref := trust.Ref{Bundle: bundleName, Kind: tKind, Name: it.Name, IsLocal: true}
-		refStr, refErr := CountersignRef(ref)
+		refStr, refErr := countersign.CountersignRef(ref)
 		if refErr != nil {
 			// Cannot address it → it has no recorded approval to invalidate,
 			// and the gate withholds it regardless. Say so and move on; one
@@ -185,7 +186,7 @@ func invalidatedByDistill(cfg *config.Config, bundleName string, items []Distill
 			clidiag.Warn("ctxloom", "distill: cannot address %s/%s to check its approval: %v", it.Kind, it.Name, refErr)
 			continue
 		}
-		prior, err := records.hadPriorApprove(refStr, signing.FormDistilled)
+		prior, err := records.HadPriorApprove(refStr, signing.FormDistilled)
 		if err != nil {
 			// Cannot tell whether this item had a prior approval — say so and
 			// list it anyway. Over-warning costs a re-review; under-warning

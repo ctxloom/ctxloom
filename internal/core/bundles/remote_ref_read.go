@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"time"
@@ -54,6 +55,11 @@ import (
 // standing: they are a publisher's claim, and interpreting a tree's item files
 // before establishing that the publisher signed them would newly expose
 // unverified remote content to assembly.
+// ErrDocumentFormUnreadable is the refusal of a remote ref that resolves to
+// a single document rather than a tree: the document form has no signature
+// shape and is not readable; the publisher republishes it as a tree.
+var ErrDocumentFormUnreadable = errors.New("bundles: the document form is not readable")
+
 func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha string, treeFetch remote.TreeFetchFunc, root signing.TrustRoot) (*Bundle, error) {
 	c, err := remote.FetchRef(ctx, factory, auth, ref, sha, treeFetch)
 	if err != nil {
@@ -70,9 +76,8 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 		// Nothing can produce this shape any more — PushBundle refuses to
 		// publish it — so a ref that still resolves to one is a repository left
 		// behind by the tree migration, and the remedy is to republish.
-		return nil, fmt.Errorf("bundles: refusing to read %s at %s: it resolves to a single %d-byte document, "+
-			"and the document form is no longer readable — republish it as a tree",
-			ref.String(), sha, len(c.Data))
+		return nil, fmt.Errorf("%w: %s at %s resolves to a single %d-byte document — republish it as a tree",
+			ErrDocumentFormUnreadable, ref.String(), sha, len(c.Data))
 	}
 
 	// The bundle id is the tree root's last segment, the same rule openTreeAt
@@ -121,16 +126,25 @@ func verifyRemoteTree(ctx context.Context, tree content.Bundle, root signing.Tru
 		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: it could not be checked against its manifest: %w", treeRoot, sha, err)
 	}
 	if verdict.Contents != nil {
-		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: its files no longer match %s: %w",
-			treeRoot, sha, content.ManifestPath, verdict.Contents)
+		return fmt.Errorf("%w: remote tree bundle %s at %s: its files no longer match %s: %v",
+			ErrTreeBundleWithheld, treeRoot, sha, content.ManifestPath, verdict.Contents)
+	}
+	if verdict.Status == attest.StatusTampered {
+		return fmt.Errorf("%w: remote tree bundle %s at %s: %s", ErrTreeBundleWithheld, treeRoot, sha, verdict.Detail)
 	}
 	// verdict.Verdict.OK(), not verdict.OK(): BundleVerdict.OK() folds in the
 	// Contents check already reported above, and collapsing the two would send
 	// a tree/manifest disagreement to the "nobody trusts this key" sentence.
 	if !verdict.Verdict.OK() {
-		return fmt.Errorf("bundles: refusing to read remote tree bundle %s at %s: %s — %s "+
+		return fmt.Errorf("%w: remote tree bundle %s at %s: %s — %s "+
 			"(its item files would otherwise reach a session unverified; trust the publisher's key, or pin a commit they signed)",
-			treeRoot, sha, verdict.Status, verdict.Detail)
+			ErrTreeUnattested, treeRoot, sha, verdict.Status, verdict.Detail)
 	}
 	return nil
 }
+
+// ErrTreeUnattested is the pull walk's refusal of a remote tree nobody this
+// machine trusts has signed: unsigned, or signed by a key the trust root does
+// not know. It is a different fact from ErrTreeBundleWithheld — nothing was
+// tampered with; nothing vouched for it either.
+var ErrTreeUnattested = errors.New("bundles: refusing to read remote tree bundle: unattested")

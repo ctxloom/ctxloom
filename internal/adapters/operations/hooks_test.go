@@ -476,7 +476,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{}), nil
+		return gatedFixture(config.Fixture{}), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -677,7 +677,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
+		return gatedFixture(config.Fixture{
 			// No profiles or fragments - regenerateContext should return empty
 		}), nil
 	}

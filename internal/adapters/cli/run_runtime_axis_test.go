@@ -121,7 +121,7 @@ func TestResolveLaunchSource_MockAgentBoundToContainerReachesTheRunAxes(t *testi
 			resetStrictness(t)
 			withRunPermissionsFlag(t, "")
 			withRunAgentFlag(t, "mock-container")
-			cfg := config.NewFixture(config.Fixture{
+			cfg := gatedFixture(config.Fixture{
 				AppPaths: []string{t.TempDir()},
 				LM: config.LMConfig{
 					Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},

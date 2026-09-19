@@ -205,14 +205,14 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 
 	facts := readSignatureFacts(lo.Bundle, lo.Signature, r.cfg.root)
 	switch {
-	case facts.signature == SignatureInvalid:
+	case facts.Signature == SignatureInvalid:
 		r.cfg.warnOnce("companion %q: its loadout signature does not verify over its own bytes — most likely a stale or "+
 			"mismatched signature in the companion's release, so report it to the companion's authors; "+
-			"delivering the content anyway, unattributed (%s)", lo.Bin, facts.detail)
-	case facts.signer == SignerUntrusted:
+			"delivering the content anyway, unattributed (%s)", lo.Bin, facts.Detail)
+	case facts.Signer == SignerUntrusted:
 		r.cfg.warnOnce("companion %q: its loadout is signed by a key this machine does not trust to publish; "+
 			"delivering the content anyway (companion content is admitted at exec, not by signature), unattributed", lo.Bin)
 	}
 	facts.stamp(b)
-	return newRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts), true
+	return NewRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts), true
 }

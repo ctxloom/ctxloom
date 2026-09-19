@@ -85,7 +85,7 @@ func TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	seed := remoteBundleSeed(t, cfg)
 
 	assert.Nil(t, seed)
@@ -107,7 +107,7 @@ func TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	seed := remoteBundleSeed(t, cfg)
 
 	assert.Nil(t, seed)

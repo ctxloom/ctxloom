@@ -38,7 +38,7 @@ func cfgWithDirProfiles(t *testing.T, fs afero.Fs, appDir string, defs map[strin
 	if !found {
 		extra.AppPaths = append(extra.AppPaths, appDir)
 	}
-	cfg := config.NewFixture(extra)
+	cfg := gatedFixture(extra)
 	cfg.SetFS(fs)
 	return cfg
 }

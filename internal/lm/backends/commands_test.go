@@ -79,7 +79,7 @@ func TestLoadCommandExports_NilConfigDoesNotPanic(t *testing.T) {
 // not be warned as a "default profile" — mirrors the managed.go regression
 // tests for the same wording bug.
 func TestResolveProfilePromptRefs_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{})
+	cfg := gatedFixture(config.Fixture{})
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

@@ -27,7 +27,7 @@ func findRow(rows []itemRow, ref string) (itemRow, bool) {
 // via the first-party local exemption.
 func TestStampItemTrust_LocalFragmentJSON(t *testing.T) {
 	appDir := t.TempDir()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalFragment(t, cfg, "demo", "x", "always-local body")
 
 	rows, err := listItemRows(cfg, ItemTypeFragment)
@@ -52,7 +52,7 @@ func TestStampItemTrust_LocalFragmentJSON(t *testing.T) {
 func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 	appDir := t.TempDir()
 	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
@@ -76,7 +76,7 @@ func TestStampItemTrust_RejectedFragmentJSON(t *testing.T) {
 // selector didn't know the "commands" kind.
 func TestStampItemTrust_LocalCommandJSON(t *testing.T) {
 	appDir := t.TempDir()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalCommand(t, cfg, "demo", "review", "always-local command body")
 
 	rows, err := listItemRows(cfg, ItemTypeCommand)
@@ -102,7 +102,7 @@ func TestStampItemTrust_LocalCommandJSON(t *testing.T) {
 func TestStampItemTrust_RejectedCommandJSON(t *testing.T) {
 	appDir := t.TempDir()
 	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalCommand(t, cfg, "demo", "review", "rm -rf danger")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindPrompt, Name: "review", IsLocal: true}

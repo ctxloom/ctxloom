@@ -137,7 +137,7 @@ func TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources(t *testing.T) {
 	const projectBody = "PROJECT-DISTINCT-BODY-a41f"
 
 	t.Run("rejecting the builtin leaves the project copy deliverable", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		fx := newTrustFixture(t)
 		gate := &contentGate{cfg: cfg, records: fx.records()}
 		loader := sameNameLoader(t, projectBody)
@@ -171,7 +171,7 @@ func TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources(t *testing.T) {
 	})
 
 	t.Run("rejecting the project copy leaves the builtin deliverable", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		fx := newTrustFixture(t)
 		gate := &contentGate{cfg: cfg, records: fx.records()}
 		loader := sameNameLoader(t, projectBody)
@@ -217,7 +217,7 @@ func TestSameNamedBundles_RefRejectDoesNotLeakBetweenSources(t *testing.T) {
 func TestSameNamedBundles_ContentRejectStillFollowsIdenticalBytes(t *testing.T) {
 	body := builtinSharedFragmentBody(t)
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	gate := &contentGate{cfg: cfg, records: fx.records()}
 	// The project copy ships the builtin's EXACT bytes — the vendored-copy

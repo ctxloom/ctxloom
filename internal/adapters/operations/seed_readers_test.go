@@ -165,22 +165,6 @@ func seedSignerAs(t *testing.T, principal string) (ssh.Signer, signing.TrustRoot
 	return signer, root
 }
 
-// signAs signs DATA with a throwaway key and returns that signature alongside a
-// trust root authorizing the key to publish as principal.
-//
-// It survives the move to trees because the LOCAL forms it serves are still
-// documents: a project bundle is a single YAML file with a detached sibling
-// `.sig` over its exact bytes, which is how an author who edited without
-// re-signing produces SignatureInvalid. Only the REMOTE form stopped being a
-// document, so only the remote seeds moved to manifests.
-func signAs(t *testing.T, data []byte, principal string) ([]byte, signing.TrustRoot) {
-	t.Helper()
-	signer, root, _ := seedSigner(t, principal)
-	sig, err := signing.Sign(data, signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	return sig, root
-}
-
 // seedRepoURL is the publisher repository a seeded ref claims to have come
 // from: the canonical ref's own prefix, so a fixture claims the origin it names
 // rather than a constant that could disagree with the ref trust keys on.

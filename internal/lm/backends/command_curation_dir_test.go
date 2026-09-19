@@ -176,13 +176,13 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 
 	// Gate granting exactly the review prompt's content hash → exported.
 	want := promptRawHash("REVIEW")
-	cfg.SetExecutableTrustGate(hashAuthorizer(want))
+	cfg.BindTrustForTesting(hashTrust(want))
 	prompts := LoadCommandExports(withSeed(t, cfg, seed), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts),
 		"a granted directory-curated prompt is exported")
 
 	// Gate denying → withheld (fail-closed); only builtins remain.
-	cfg.SetExecutableTrustGate(testAuthorizer(false))
+	cfg.BindTrustForTesting(rejectingAll())
 	denied := LoadCommandExports(withSeed(t, cfg, seed), nil)
 	assert.Empty(t, bundlePromptItems(denied),
 		"an un-granted directory-curated prompt must be withheld")

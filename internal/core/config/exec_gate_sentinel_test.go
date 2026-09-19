@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 )
 
 // The bundle EXECUTABLE extractors gate conditionally: they build an
@@ -32,8 +34,8 @@ func TestExtractMCP_ForgottenGate_WithholdsTheServer(t *testing.T) {
 	got := extractMCPFromBundle(read, mustLocalRef(t, "src"), nil)
 	assert.Empty(t, got, "a bundle MCP server reached settings with nothing having decided about it")
 
-	ungated := extractMCPFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll())
-	require.Contains(t, ungated, "srv", "AdmitAll must admit exactly as the old nil did")
+	ungated := extractMCPFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer())
+	require.Contains(t, ungated, "srv", "Ungated must admit exactly as the old nil did")
 }
 
 // TestExtractHooks_ForgottenGate_WithholdsTheHook is the hook half of the same
@@ -44,22 +46,24 @@ func TestExtractHooks_ForgottenGate_WithholdsTheHook(t *testing.T) {
 	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), nil, bundles.LinksUnchecked())
 	assert.Empty(t, got.PreTool, "a bundle hook reached settings with nothing having decided about it")
 
-	ungated := extractHooksFromBundle(read, mustLocalRef(t, "src"), bundles.AdmitAll(), bundles.LinksUnchecked())
-	require.Len(t, ungated.PreTool, 1, "AdmitAll must admit exactly as the old nil did")
+	ungated := extractHooksFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	require.Len(t, ungated.PreTool, 1, "Ungated must admit exactly as the old nil did")
 }
 
-// TestExecutableTrustGate_UnsetConfigIsUngatedNotForgotten pins the accessor
-// that keeps every management and listing path working: a config nobody
-// attached a gate to reports the ungated authorizer, never a nil that would
-// withhold everything downstream.
-func TestExecutableTrustGate_UnsetConfigIsUngatedNotForgotten(t *testing.T) {
+// TestExecutableTrustGate_UnboundConfigHoldsNoGate pins the accessor's
+// fail-closed half: a Config no Owner published holds no gate, so the nil
+// it reports is withheld on downstream (bundles.Decide), never admitted. A
+// listing that means "ungated" binds composite.Ungated() by name, and a
+// bound Trust decides.
+func TestExecutableTrustGate_UnboundConfigHoldsNoGate(t *testing.T) {
 	cfg := &Config{}
 
-	gate := cfg.ExecutableTrustGate()
-	require.NotNil(t, gate, "an unset gate must not travel onward as nil")
-	assert.False(t, bundles.Gates(gate), "an unset gate must be the ungated authorizer")
-	assert.True(t, gate.Admit(bundles.Exposure{}).Allow, "the ungated authorizer must admit")
+	require.Nil(t, cfg.ExecutableTrustGate(), "an unbound config must not report a gate it does not hold")
 
-	cfg.SetExecutableTrustGate(testAuthorizer(false))
-	assert.True(t, bundles.Gates(cfg.ExecutableTrustGate()), "an attached gate must decide")
+	cfg.BindTrustForTesting(composite.Ungated())
+	assert.False(t, bundles.Gates(cfg.ExecutableTrustGate()), "a listing's Ungated() is the one ungated authorizer")
+	assert.True(t, cfg.ExecutableTrustGate().Admit(bundles.Exposure{}).Allow, "the ungated authorizer must admit")
+
+	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
+	assert.True(t, bundles.Gates(cfg.ExecutableTrustGate()), "a bound Trust must decide")
 }

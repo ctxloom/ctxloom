@@ -199,9 +199,10 @@ Feature: The day the assistant goes blind
   # THE ROW'S SUBJECT MOVED, and the assertion moved with it — recorded because
   # it is a judgement, not a case fold. The step used to look for the word
   # "unsigned", and that word was never true of the cause this fixture plants:
-  # Carol's bundle IS signed. She edited the bytes and carried the old .sig
-  # forward, which is a signature that does not cover what it sits beside — a
-  # different state from unsigned entirely (docs/trust-model.md, "Item states").
+  # Carol's bundle IS signed. She edited a file and carried the old manifest
+  # entry forward, which is a signature that does not cover what it sits
+  # beside — a different state from unsigned entirely (docs/trust-model.md,
+  # "Item states").
   # The old green would have been an accident: while upgrade still advanced the
   # pin, DOCTOR-CHECK-CONTENT-TRUST-n4 warned "1 remote bundle(s) are UNSIGNED
   # to this machine …", and only "UNSIGNED" vs the step's "unsigned" kept it

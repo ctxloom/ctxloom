@@ -49,7 +49,7 @@ func TestExposure_RealGate_WithholdsWhatItRefuses(t *testing.T) {
 // TestExposure_AdmitAll_Admits proves the ungated direction: a surface that
 // says AdmitAll out loud serves the body, and records nothing withheld.
 func TestExposure_AdmitAll_Admits(t *testing.T) {
-	p := sentinelPipe(AdmitAll())
+	p := sentinelPipe(admitAllForTest())
 
 	got, err := p.GetFragment("demo#fragments/secret")
 	if err != nil {
@@ -109,7 +109,7 @@ func TestDecide_AdmitAll_AdmitsBeforeParsing(t *testing.T) {
 	restore := clidiag.SetSink(&bytes.Buffer{})
 	defer restore()
 
-	v := Decide(AdmitAll(), BundleRead{}, "not a parseable ref at all", nil, FormRaw)
+	v := Decide(admitAllForTest(), BundleRead{}, "not a parseable ref at all", nil, FormRaw)
 	if !v.Allow {
 		t.Fatalf("AdmitAll withheld an unaddressable ref (Reason %v)", v.Reason)
 	}
@@ -122,8 +122,8 @@ func TestDecide_AdmitAll_AdmitsBeforeParsing(t *testing.T) {
 // branches key on: only AdmitAll skips a gate. A nil authorizer is NOT a skip —
 // it falls into Decide, which withholds.
 func TestGates_SeparatesDeliberateFromForgotten(t *testing.T) {
-	if Gates(AdmitAll()) {
-		t.Error("Gates(AdmitAll()) = true, want false — AdmitAll decides nothing")
+	if Gates(admitAllForTest()) {
+		t.Error("Gates(admitAllForTest()) = true, want false — AdmitAll decides nothing")
 	}
 	if !Gates(nil) {
 		t.Error("Gates(nil) = false — a forgotten authorizer would skip the gate silently")

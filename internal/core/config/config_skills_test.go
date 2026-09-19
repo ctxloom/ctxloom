@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -39,6 +40,7 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 		appPaths: []string{appDir},
 	}
+	cfg.BindTrustForTesting(compositetest.Trust())
 
 	got := cfg.ResolveBundleSkills(nil)
 	require.Len(t, got, 1, "the profile's bundle-shipped skill resolves")
@@ -86,6 +88,7 @@ func TestConfig_ResolveBundleSkills_ScopedToSelectedProfile(t *testing.T) {
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 		appPaths: []string{appDir},
 	}
+	cfg.BindTrustForTesting(compositetest.Trust())
 
 	defaultResult := cfg.ResolveBundleSkills(nil)
 	require.Len(t, defaultResult, 1)

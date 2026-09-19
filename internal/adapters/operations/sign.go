@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -166,10 +167,9 @@ type SignBundleRequest struct {
 type SignBundleResult struct {
 	BundleName string `json:"bundle_name"`
 	BundlePath string `json:"bundle_path"`
-	// SigPath is where the signature landed: the detached "<path>.yaml.sig"
-	// sibling for a single-file bundle, or the bundle's .sigs/ STORE DIRECTORY
-	// for a tree (a tree's signature filename is derived from the signature's own
-	// bytes, so there is no single stable path to name).
+	// SigPath is where the signature landed: the bundle's .sigs/ STORE
+	// DIRECTORY (a tree's signature filename is derived from the signature's
+	// own bytes, so there is no single stable path to name).
 	SigPath string `json:"sig_path"`
 	// Tree reports that a DIRECTORY-form bundle was signed as a tree — manifest
 	// plus a signature filed against it — rather than as one file's bytes. The
@@ -204,67 +204,43 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 		return nil, err
 	}
 
+	fs := getFS(req.FS)
+	// A bundle still carrying the retired sibling signature is REFUSED by
+	// every reader (bundles.ErrSiblingSignatureRetired), and re-signing is
+	// the remedy the refusal names — so the sibling is cleared BEFORE the
+	// bundle is loaded, by path, or the remedy could never run.
+	if err := clearRetiredSibling(fs, cfg, req.Target.BundleName); err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+	}
+
 	store := bundleStore(cfg, req.Store)
 	bundle, err := loadBundleForUpdate(store, cfg, req.Target.BundleName)
 	if err != nil {
 		return nil, err
 	}
 
-	fs := getFS(req.FS)
-	if filepath.Base(bundle.Path) == bundles.DirectoryFormManifest {
-		return signBundleTree(req, bundle, fs)
+	if filepath.Base(bundle.Path) != bundles.DirectoryFormManifest {
+		return nil, fmt.Errorf("%w: %s is a single-file bundle (%s)", ErrSingleFileBundleUnsignable, req.Target.BundleName, filepath.Base(bundle.Path))
 	}
-	item := &bundleSignable{bundle: bundle, fs: fs}
-	if err := SignItem(fs, item, req.Signer); err != nil {
-		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
-	}
-
-	return &SignBundleResult{
-		BundleName: req.Target.BundleName,
-		BundlePath: bundle.Path,
-		SigPath:    item.SigPath(),
-		ItemNote:   req.Target.ItemNote,
-	}, nil
+	return signBundleTree(req, bundle, fs)
 }
 
-// signBundleTree signs a DIRECTORY-form bundle: it refreshes the detached
-// `bundle.yaml.sig` sibling beside the manifest, then builds the SHA256SUMS
-// manifest over every covered file and files a publisher signature against it
-// in the bundle's own .sigs/ store.
+// ErrSingleFileBundleUnsignable: a bundle's ONE signature is the SHA256SUMS
+// manifest and its .sigs/ entry, which only a directory-form bundle can
+// carry. A single-file bundle that is to be signed takes the tree form first;
+// there is no second signature shape for it.
+var ErrSingleFileBundleUnsignable = errors.New("sign: only a directory-form bundle (bundle.yaml with its items as files) carries a signature — move the bundle to that form and sign again")
+
+// signBundleTree signs a DIRECTORY-form bundle through its ONE signature: it
+// builds the SHA256SUMS manifest over every covered file and files a
+// publisher signature against it in the bundle's own .sigs/ store. A retired
+// sibling bundle.yaml.sig beside the manifest is REMOVED first: every reader
+// refuses a bundle still carrying one (bundles.ErrSiblingSignatureRetired),
+// and re-signing is the upgrade path that clears it.
 //
-// BOTH, because a directory bundle is read through both. The tree attestation
-// is what config.loadTreeBundle/attest.VerifyBundle check for a pulled bundle;
-// the detached sibling is what bundles' own localFSReader.signatureFactsFor
-// reads for an authored one, and what a publishing repo's CI checks
-// (.github/verify-signatures.sh runs `ssh-keygen -Y verify` against exactly
-// that file). Signing only the tree left the sibling ABSENT on a first signing
-// and STALE on a re-signing — so `ctxloom bundle sign` reported success and
-// every reader of the sibling went on seeing an unsigned or, worse, a
-// tampered-looking bundle. Measured on ctxloom-personal's `unattended` bundle,
-// where the fix was to run ssh-keygen by hand.
-//
-// ORDER IS LOAD-BEARING: the sibling is written FIRST, before the manifest is
-// built. content.ManifestCovers exempts exactly two paths — SHA256SUMS itself
-// and everything under .sigs/ — so `bundle.yaml.sig` sits at the bundle root
-// and IS manifest-covered. Written after the manifest, it would be an Unclaimed
-// file the manifest never mentions, and every consumer's VerifyContents would
-// report the freshly signed bundle as content-added. Written first, the
-// manifest covers it and the two attestations agree. There is no cycle: the
-// sibling covers bundle.yaml, the manifest covers the sibling, and nothing
-// covers the manifest but its own .sigs/ entry.
-//
-// This is not a variant spelling of the single-file path, it is the only one
-// that attests anything. A directory-form bundle's content lives in files BESIDE
-// bundle.yaml, so signing bundle.yaml's bytes covers the manifest and nothing
-// else — and the consumer's verification path (attest.VerifyBundle, reached from
-// config.loadTreeBundle for every pulled tree) reads SHA256SUMS and .sigs/ and
-// never looks at a .yaml.sig sibling. Before this, `ctxloom bundle sign` on a
-// directory bundle exited 0, wrote a .sig, and left every consumer reading the
-// bundle as UNATTESTED: success, an artifact on disk, nothing attested.
-//
-// It goes through attest.SignBundle — the same object the consumer verifies —
-// rather than assembling a manifest here, so the two halves cannot drift into
-// disagreeing about what a signature covers.
+// It goes through attest.SignBundle — the same object every reader verifies
+// with (attest.VerifyBundle) — rather than assembling a manifest here, so the
+// two halves cannot drift into disagreeing about what a signature covers.
 //
 // attest.SignBundle REFUSES a tree holding files no surface type recognises, and
 // that refusal is wanted here: publishing is the last moment a mis-extensioned
@@ -272,7 +248,7 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 // `guard.yml` by path and produce a perfectly signed bundle in which the
 // guardrail does not exist.
 func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) (*SignBundleResult, error) {
-	// Checked BEFORE anything is written, sibling included: a stale skill
+	// Checked BEFORE anything is written: a stale skill
 	// manifest means bundle.yaml's skills.<name>.files no longer matches the
 	// source tree, so any signature produced from here on attests to a false
 	// content hash. `ctxloom skill sync` is the verb that recomputes it — see
@@ -286,10 +262,6 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 	}
 
 	manifestPath := bundle.Path
-	sibling := &bundleSignable{bundle: bundle, fs: fs}
-	if err := SignItem(fs, sibling, req.Signer); err != nil {
-		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
-	}
 	dir := filepath.Dir(manifestPath)
 	store, err := content.NewTreeStore(fs, filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
@@ -404,4 +376,30 @@ func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// retiredSiblingSuffix is the suffix of the RETIRED detached sibling
+// signature (`<file>.yaml.sig`): no reader parses one
+// (bundles.ErrSiblingSignatureRetired refuses a bundle carrying it), and
+// re-signing removes it (clearRetiredSibling). It is the only spelling left.
+const retiredSiblingSuffix = ".sig"
+
+// clearRetiredSibling removes a retired sibling signature (bundle.yaml.sig)
+// beside the named authored tree, probing the project's bundle roots by path
+// because the reader refuses to read past one. It says what it removed.
+func clearRetiredSibling(fs afero.Fs, cfg *config.Config, name string) error {
+	if cfg == nil {
+		return nil
+	}
+	for _, dir := range cfg.BundleReaderDirs() {
+		sibling := filepath.Join(paths.BundlesLayoutRoot(dir, paths.LayoutV2), name, bundles.DirectoryFormManifest+retiredSiblingSuffix)
+		if _, err := fs.Stat(sibling); err != nil {
+			continue
+		}
+		if err := fs.Remove(sibling); err != nil {
+			return fmt.Errorf("remove the retired sibling signature %s: %w", sibling, err)
+		}
+		clidiag.Warn("ctxloom", "removed the retired sibling signature %s — the bundle's signature is its %s entry", sibling, content.SigDirName)
+	}
+	return nil
 }

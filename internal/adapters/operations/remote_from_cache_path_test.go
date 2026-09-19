@@ -28,7 +28,7 @@ import (
 func TestRemoteFromCachePath_ResolvesUnderEveryLayout(t *testing.T) {
 	root := t.TempDir()
 	app := filepath.Join(root, ".ctxloom")
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{app}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{app}})
 
 	reg, err := remote.NewRegistry(filepath.Join(app, "remotes.yaml"))
 	require.NoError(t, err)

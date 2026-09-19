@@ -3,7 +3,6 @@ package bundles
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -73,8 +72,9 @@ func (b *bundleWarner) ambiguous(out io.Writer, name string, matches []string, c
 }
 
 // StaleSignatureAdvice composes the sentence an author is told when their local
-// bundle's sibling `.sig` does not (or cannot be shown to) cover its current
-// bytes — the decision table's `local | invalid | *` row, which ADMITS.
+// tree's signature — the SHA256SUMS manifest and its .sigs/ entry — does not
+// (or cannot be shown to) cover its current files: the decision table's
+// `local | invalid | *` row, which ADMITS.
 //
 // It takes the READ rather than loose strings, so nothing can compose this
 // sentence about content whose facts a reader did not establish.
@@ -96,10 +96,9 @@ func StaleSignatureAdvice(read BundleRead) string {
 	if read.Bundle == nil {
 		return ""
 	}
-	base := filepath.Base(read.Bundle.Path)
-	return fmt.Sprintf("%s%s no longer covers %s (%s) — the bundle is local, so its content is still delivered, "+
+	return fmt.Sprintf("the signature of bundle %s no longer covers its files (%s) — the bundle is local, so its content is still delivered, "+
 		"but it can no longer be published as signed content: re-sign with `ctxloom bundle sign %s`",
-		base, SigSuffix, base, read.signatureDetail, read.Bundle.Name)
+		read.Bundle.Name, read.signatureDetail, read.Bundle.Name)
 }
 
 // unresolvedBundleWarner is the process-wide dedup set. It holds no writer:

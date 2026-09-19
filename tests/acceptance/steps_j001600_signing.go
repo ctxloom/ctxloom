@@ -44,6 +44,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -156,41 +157,50 @@ func j001600BundleYAML(frags ...j001600Fragment) string {
 	return b.String()
 }
 
-// j001600VerifyDetachedSignature is THE assertion this journey exists for: read
-// the bundle bytes and the `.sig` sibling FRESH OFF DISK and verify the pair
-// with internal/adapters/signing's own verifier against Trent's public key — never by
-// trusting ctxloom's own "signed by ..." success line, which is printed before
-// anyone has checked anything.
-//
-// The empty check is separate and first on purpose: a zero-byte `.sig` is this
-// codebase's characteristic bug (exit 0, a success message, no payload), and
-// it must produce a message that names THAT rather than a generic parse error.
+// j001600VerifyDetachedSignature reads the bundle's tree FRESH OFF DISK and
+// verifies its ONE signature — the SHA256SUMS manifest and the .sigs/ entry
+// over it — under Trent's key, through the same verifier every reader uses
+// (attest.VerifyBundle). A tree with no manifest or no entry is not "not yet
+// signed", it is the regression this pins: ctxloom reported a signature and
+// wrote none.
 func j001600VerifyDetachedSignature(w *World, bundleName string) error {
-	rel := bundleFilePath(bundleName)
-	body, err := w.env.ReadFile(rel)
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(bundleName)))
+	return j001600VerifyTreeAt(w, dir, bundleName, j001600Of(w).signer.Public)
+}
+
+// j001600VerifyTreeAt verifies the tree at dir under key: the manifest covers
+// the files, and the .sigs/ entry over it is key's.
+func j001600VerifyTreeAt(w *World, dir, name string, key ssh.PublicKey) error {
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
-		return fmt.Errorf("read signed bundle %s: %w", rel, err)
+		return fmt.Errorf("open the bundle tree at %s (ctxloom reported:\n%s): %w", dir, w.env.LastOutput(), err)
 	}
-	sigPath := rel + ".sig"
-	sig, err := w.env.ReadFile(sigPath)
+	ctx := context.Background()
+	tree, err := store.Open(ctx, content.BundleID(name))
 	if err != nil {
-		return fmt.Errorf("read detached signature %s (ctxloom reported:\n%s): %w", sigPath, w.env.LastOutput(), err)
+		return fmt.Errorf("open the bundle tree %s (ctxloom reported:\n%s): %w", name, w.env.LastOutput(), err)
 	}
-	if strings.TrimSpace(sig) == "" {
-		return fmt.Errorf("%s exists but is EMPTY (%d bytes) — ctxloom reported a successful signature and wrote no signature; output was:\n%s",
-			sigPath, len(sig), w.env.LastOutput())
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{j001600Principal},
+		Namespaces: []string{signing.NamespacePublish},
+		PublicKey:  key,
+		KeyType:    key.Type(),
+	})
+	verdict, err := attest.VerifyBundle(ctx, tree, root, time.Now())
+	if err != nil {
+		return fmt.Errorf("verify the bundle tree %s: %w", name, err)
 	}
-	if err := signing.Verify([]byte(body), []byte(sig), j001600Of(w).signer.Public, signing.NamespacePublish); err != nil {
-		return fmt.Errorf("%s does not verify against the %d bytes of %s read fresh off disk, under Trent's key %s: %w",
-			sigPath, len(body), rel, j001600Of(w).signer.Fingerprint(), err)
+	if verdict.Contents != nil {
+		return fmt.Errorf("the tree of %s does not match its manifest: %v — the signature is STALE, which reads "+
+			"downstream as tampering (ctxloom reported:\n%s)", name, verdict.Contents, w.env.LastOutput())
+	}
+	if !verdict.OK() {
+		return fmt.Errorf("the bundle %s verifies as %q (%s) under key %s, not as attested by its publisher (ctxloom reported:\n%s)",
+			name, verdict.Status, verdict.Detail, ssh.FingerprintSHA256(key), w.env.LastOutput())
 	}
 	return nil
 }
 
-// j001600DeclaredSignersPath is where a repository declares WHO may publish it:
-// the ssh-keygen allowed_signers file every git-signing setup already knows,
-// at the location ctxloom's own publishing repos use and CI verifies against
-// (.github/verify-signatures.sh reads this exact file).
 const j001600DeclaredSignersPath = ".github/allowed_signers"
 
 // j001600DeclarePublisher writes that declaration: principal, the publish
@@ -205,33 +215,10 @@ func j001600DeclarePublisher(w *World, principal string, key *testenv.TestSigner
 	return w.env.WriteFile(j001600DeclaredSignersPath, line+"\n")
 }
 
-// j001600VerifyDirectorySignature is defect B's assertion: the detached signature
-// beside a directory bundle's manifest must cover the manifest's CURRENT bytes.
-//
-// It reads both fresh off disk after the edit, so a signature produced by an
-// earlier signing of the same bundle — which is precisely what `bundle sign`
-// used to leave behind — cannot satisfy it.
+// j001600VerifyDirectorySignature is j001600VerifyDetachedSignature for a
+// directory bundle spelled by its manifest path: the same one signature.
 func j001600VerifyDirectorySignature(w *World, name string) error {
-	rel := inlineDirBundleManifestPath(name)
-	body, err := w.env.ReadFile(rel)
-	if err != nil {
-		return fmt.Errorf("read signed manifest %s: %w", rel, err)
-	}
-	sigPath := rel + ".sig"
-	sig, err := w.env.ReadFile(sigPath)
-	if err != nil {
-		return fmt.Errorf("no detached signature at %s — `bundle sign` signed the tree and left the manifest's own "+
-			"sibling untouched, so anything reading it (bundles' localFSReader, a publishing repo's CI) sees an "+
-			"unsigned or stale bundle. ctxloom reported:\n%s\nerror: %w", sigPath, w.env.LastOutput(), err)
-	}
-	if strings.TrimSpace(sig) == "" {
-		return fmt.Errorf("%s exists but is EMPTY (%d bytes); ctxloom reported:\n%s", sigPath, len(sig), w.env.LastOutput())
-	}
-	if err := signing.Verify([]byte(body), []byte(sig), j001600Of(w).signer.Public, signing.NamespacePublish); err != nil {
-		return fmt.Errorf("%s does not cover the %d bytes of %s read fresh off disk under Trent's key %s — the signature "+
-			"is STALE, which reads downstream as tampering: %w", sigPath, len(body), rel, j001600Of(w).signer.Fingerprint(), err)
-	}
-	return nil
+	return j001600VerifyDetachedSignature(w, name)
 }
 
 // j001600VerifyTreeAttestation runs the CONSUMER's verifier over a directory
@@ -337,8 +324,8 @@ func j001600ListSignatures(w *World) ([]string, error) {
 	}
 	var out []string
 	for _, name := range names {
-		sigPath := filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleFilePath(name)+".sig"))
-		if _, statErr := os.Stat(sigPath); statErr == nil {
+		sigs := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(name)), content.SigDirName)
+		if entries, readErr := os.ReadDir(sigs); readErr == nil && len(entries) > 0 {
 			out = append(out, name)
 		}
 	}
@@ -918,19 +905,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("no published bundles at all — refusing to report a verification that checked nothing")
 		}
 		for _, name := range bundles {
-			rel := bundleFilePath(name)
-			body, rerr := w.env.ReadFile(rel)
-			if rerr != nil {
-				return fmt.Errorf("read %s: %w", rel, rerr)
-			}
-			sig, serr := w.env.ReadFile(rel + ".sig")
-			if serr != nil {
-				return fmt.Errorf("no signature beside %s (ctxloom reported:\n%s): %w", rel, w.env.LastOutput(), serr)
-			}
-			if verr := signing.Verify([]byte(body), []byte(sig), st.declared.Public, signing.NamespacePublish); verr != nil {
-				return fmt.Errorf("%s.sig does not verify under %s, the key %s declares for %s — this is exactly what a "+
+			dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(inlineDirBundlePath(name)))
+			if verr := j001600VerifyTreeAt(w, dir, name, st.declared.Public); verr != nil {
+				return fmt.Errorf("%s does not verify under %s, the key %s declares for %s — this is exactly what a "+
 					"consumer sees before it withholds the bundle: %w",
-					rel, ssh.FingerprintSHA256(st.declared.Public), j001600DeclaredSignersPath, st.declaredPrincipal, verr)
+					name, ssh.FingerprintSHA256(st.declared.Public), j001600DeclaredSignersPath, st.declaredPrincipal, verr)
 			}
 		}
 		return nil
@@ -1504,7 +1483,6 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		// lands the manifest at "<sharedDir>/<name>/bundle.yaml" — not a flat
 		// "<name>.yaml" sibling, which nothing here ever wrote.
 		destBundle := filepath.Join(st.sharedDir, name, bundles.DirectoryFormManifest)
-		destSig := destBundle + ".sig"
 		body, err := os.ReadFile(destBundle)
 		if err != nil {
 			return fmt.Errorf("read relocated bundle %s (move reported:\n%s): %w", destBundle, w.env.LastOutput(), err)
@@ -1513,32 +1491,23 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("the relocated bundle is NOT byte-identical to the source: move re-parsed or re-serialized it, which silently kills the signature.\nsource (%d bytes):\n%s\ndestination (%d bytes):\n%s",
 				len(st.movedSource), st.movedSource, len(body), string(body))
 		}
-		sig, err := os.ReadFile(destSig)
-		if err != nil {
-			return fmt.Errorf("the signature did not travel with the bundle: %w (move reported:\n%s)", err, w.env.LastOutput())
-		}
-		if len(strings.TrimSpace(string(sig))) == 0 {
-			return fmt.Errorf("%s is EMPTY — the bundle landed with a signature file carrying nothing", destSig)
-		}
-		if err := signing.Verify(body, sig, j001600Of(w).signer.Public, signing.NamespacePublish); err != nil {
-			return fmt.Errorf("the relocated signature no longer verifies against the relocated bytes: %w", err)
+		if err := j001600VerifyTreeAt(w, filepath.Join(st.sharedDir, name), name, j001600Of(w).signer.Public); err != nil {
+			return fmt.Errorf("the signature did not travel with the bundle, or no longer verifies against the relocated tree: %w", err)
 		}
 		return nil
 	})
 
 	ctx.Step(`^the source bundle "([^"]*)" and its signature are gone$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		for _, rel := range []string{bundleFilePath(name), bundleFilePath(name) + ".sig"} {
-			if w.env.FileExists(rel) {
-				return fmt.Errorf("%s still exists after the move", rel)
-			}
+		if w.env.FileExists(inlineDirBundlePath(name)) {
+			return fmt.Errorf("%s still exists after the move", inlineDirBundlePath(name))
 		}
 		return nil
 	})
 
 	ctx.Step(`^the source bundle "([^"]*)" and its signature are untouched$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		for _, rel := range []string{bundleFilePath(name), bundleFilePath(name) + ".sig"} {
+		for _, rel := range []string{bundleFilePath(name), path.Join(inlineDirBundlePath(name), content.SigDirName)} {
 			if !w.env.FileExists(rel) {
 				return fmt.Errorf("%s was removed by a move that failed — a failed move must never eat the source (move reported:\n%s)", rel, w.env.LastOutput())
 			}

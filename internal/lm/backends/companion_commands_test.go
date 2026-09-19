@@ -68,7 +68,7 @@ func companionCfg(t *testing.T) *config.Config {
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	return gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestLoadCommandExports_IncludesCompanionCommandUnconditionally proves ltk's
@@ -83,7 +83,7 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.SetExecutableTrustGate(testAuthorizer(true))
+	cfg.BindTrustForTesting(admitting())
 
 	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
 	items := bundlePromptItems(prompts)
@@ -121,7 +121,7 @@ func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExempt
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.SetExecutableTrustGate(testAuthorizer(false))
+	cfg.BindTrustForTesting(rejectingAll())
 
 	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
@@ -140,17 +140,17 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.SetExecutableTrustGate(testAuthorizer(true))
+	cfg.BindTrustForTesting(admitting())
 	appDir := cfg.GetAppPaths()[0]
 	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "p.yaml"),
 		[]byte("commands:\n  - dev-tools#commands/review\n"), 0o644))
-	cfg = config.NewFixture(config.Fixture{
+	cfg = gatedFixture(config.Fixture{
 		AppPaths:     cfg.GetAppPaths(),
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 	})
-	cfg.SetExecutableTrustGate(testAuthorizer(true))
+	cfg.BindTrustForTesting(admitting())
 
 	prompts := LoadCommandExports(withSeedAndCompanions(t, cfg, devToolsSeed()), nil)
 	items := bundlePromptItems(prompts)
@@ -166,7 +166,7 @@ func TestLoadCommandExports_NoCompanionOnPath_NoCommandExported(t *testing.T) {
 	cfg := companionCfg(t)
 	restoreLook := companions.SetLookPathForTesting(func(string) (string, error) { return "", os.ErrNotExist })
 	defer restoreLook()
-	cfg.SetExecutableTrustGate(testAuthorizer(true))
+	cfg.BindTrustForTesting(admitting())
 
 	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",

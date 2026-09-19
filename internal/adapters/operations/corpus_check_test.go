@@ -256,7 +256,7 @@ func TestConfiguredCorpusComesFromTheRemotesRegistry(t *testing.T) {
 			"        url: https://github.com/acme/alpha\n"+
 			"    beta:\n"+
 			"        url: https://github.com/acme/beta\n"), 0o644))
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	corpus, err := ConfiguredCorpus(cfg)
 	require.NoError(t, err)

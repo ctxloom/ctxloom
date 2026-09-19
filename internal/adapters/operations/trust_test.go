@@ -49,14 +49,14 @@ func pbytes(tag string) []byte { return []byte("payload:" + tag) }
 // countersign/signing packages).
 type fakeRecords struct {
 	rejected func(trust.Ref, []byte) bool
-	approved func(trust.Ref, []byte, string) bool
+	approved func(trust.Ref, []byte, bundles.ContentForm) bool
 }
 
 func (f fakeRecords) Rejected(ref trust.Ref, payload []byte) bool {
 	return f.rejected != nil && f.rejected(ref, payload)
 }
 
-func (f fakeRecords) Approved(ref trust.Ref, payload []byte, form string) bool {
+func (f fakeRecords) Approved(ref trust.Ref, payload []byte, form bundles.ContentForm) bool {
 	return f.approved != nil && f.approved(ref, payload, form)
 }
 
@@ -369,8 +369,10 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 
 		// --- approved: current-form binding ---
 		{
-			name:    "approved allows the exact raw bytes",
-			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
+			name: "approved allows the exact raw bytes",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f bundles.ContentForm) bool {
+				return string(p) == string(pbytes("R")) && string(f) == rawForm
+			}},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("R"),
 			form:    rawForm,
@@ -379,8 +381,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		},
 		{
 			name: "approved allows the exact distilled bytes",
-			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool {
-				return string(p) == string(pbytes("D")) && f == distilledForm
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f bundles.ContentForm) bool {
+				return string(p) == string(pbytes("D")) && string(f) == distilledForm
 			}},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("D"),
@@ -389,8 +391,10 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceAccepted,
 		},
 		{
-			name:    "approval invalidated when content changes (back to pending)",
-			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
+			name: "approval invalidated when content changes (back to pending)",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f bundles.ContentForm) bool {
+				return string(p) == string(pbytes("R")) && string(f) == rawForm
+			}},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("CHANGED"),
 			form:    rawForm,
@@ -398,8 +402,10 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourcePending,
 		},
 		{
-			name:    "form-flip closed: a raw approval cannot validate a distilled exposure",
-			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
+			name: "form-flip closed: a raw approval cannot validate a distilled exposure",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f bundles.ContentForm) bool {
+				return string(p) == string(pbytes("R")) && string(f) == rawForm
+			}},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("R"), // the RAW bytes presented as the distilled form
 			form:    distilledForm,
@@ -407,8 +413,10 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourcePending,
 		},
 		{
-			name:    "unknown form matches no slot (fail closed)",
-			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f string) bool { return string(p) == string(pbytes("R")) && f == rawForm }},
+			name: "unknown form matches no slot (fail closed)",
+			records: fakeRecords{approved: func(_ trust.Ref, p []byte, f bundles.ContentForm) bool {
+				return string(p) == string(pbytes("R")) && string(f) == rawForm
+			}},
 			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "lib", Kind: trust.KindFragment, Name: "solid"},
 			payload: pbytes("R"),
 			form:    "", // caller failed to say which form — never allow on a guess
@@ -915,12 +923,12 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 		// retractable()'s scope, and step 2a can therefore only make companion
 		// content MORE withheld — never less. Relaxing a fail-closed gate is
 		// not part of making companion CONTENT local-equivalent.
-		assert.True(t, retractable(tref), "a companion ref carries a RepoURL and stays in the step-2a scope")
+		assert.NotEmpty(t, tref.RepoURL, "a companion ref carries a RepoURL and stays in the retraction-fault scope")
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records:    fakeRecords{},
-			Retraction: &lockfileRetraction{unreadable: assert.AnError, path: "lock.yaml"},
+			Retraction: faultedRetraction{assert.AnError},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, trust.Deny, res.Decision)
@@ -933,7 +941,13 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 // denies everything on.
 type unreadableRecords struct{ fakeRecords }
 
-func (unreadableRecords) readable() error { return assert.AnError }
+func (unreadableRecords) Fault() error { return assert.AnError }
+
+// faultedRetraction is a RetractionRecords whose lockfile could not be read.
+type faultedRetraction struct{ err error }
+
+func (faultedRetraction) Retracted(trust.Ref) (bool, string) { return false, "" }
+func (f faultedRetraction) Fault() error                     { return f.err }
 
 // TestEffectiveTrust_LocalExemptionSitsBelowRetraction pins the CASCADE
 // POSITION of the first-party local exemption. The position is not decoration:
@@ -941,17 +955,17 @@ func (unreadableRecords) readable() error { return assert.AnError }
 // retraction".
 //
 // Nothing observable distinguishes step 2 from step 3 for a local ref through
-// the PRODUCTION retraction store, because lockfileRetraction.Retracted is
-// scoped by retractable() and a local ref has no lockfile entry by
-// construction. So the position is pinned through the seam instead: a
+// the PRODUCTION retraction store, because remote.LockfileRetraction.Retracted
+// answers false for a ref with no repo URL, and a local ref has no lockfile
+// entry by construction. So the position is pinned through the seam instead: a
 // retraction record that does answer for a local ref must WIN, because the
 // exemption is below it. Were the exemption actually step 2 — above retraction,
 // as the comment used to say — this would come back allowed-as-local.
 func TestEffectiveTrust_LocalExemptionSitsBelowRetraction(t *testing.T) {
 	localRef := trust.Ref{Bundle: "project-tools", Kind: trust.KindMCP, Name: "local-server", IsLocal: true}
 
-	assert.False(t, retractable(localRef),
-		"a local ref has no remote lockfile entry, so production never asks the retraction store about it — that scoping, not cascade position, is why a local item is never retracted")
+	assert.Empty(t, localRef.RepoURL,
+		"a local ref has no remote lockfile entry, so the production retraction store answers false for it — that scoping, not cascade position, is why a local item is never retracted")
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref:        localRef,

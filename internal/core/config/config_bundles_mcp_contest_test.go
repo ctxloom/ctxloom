@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -33,11 +34,13 @@ func mcpContestFixture(t *testing.T, bundleYAML map[string]string, profileBundle
 			[]byte("name: "+profile+"\nbundles:\n  - "+bundle+"\n"), 0o644))
 	}
 
-	return &Config{
+	cfg := &Config{
 		defaultAgent: "default",
 		agents:       map[string]agents.Agent{"default": {Profiles: []string{}}},
 		appPaths:     []string{appDir},
 	}
+	cfg.BindTrustForTesting(compositetest.Trust())
+	return cfg
 }
 
 func mcpBundleYAML(servers ...[2]string) string {

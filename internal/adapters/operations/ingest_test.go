@@ -71,7 +71,7 @@ func TestIngest_InjectedBuiltinAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
 	body := builtinIsolationContent(t)
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"picks-isolation": {Fragments: []config.FragmentRef{
@@ -96,7 +96,7 @@ func TestIngest_SameFragmentSelectedByTwoProfilesIsAssembledOnce(t *testing.T) {
 	fs, loader := setupContextTestFS(t)
 	_ = fs
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"a": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
@@ -126,7 +126,7 @@ fragments:
     content: "IDENTICAL-TWIN-BODY"
 `)
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"twins": {Fragments: []config.FragmentRef{
@@ -161,7 +161,7 @@ fragments:
     content: "SHARED-STANDARDS-BODY"
 `)
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"both": {Fragments: []config.FragmentRef{
@@ -194,7 +194,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 		t.Helper()
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		cfg.SetFS(fs)
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{"p": {Fragments: refs}})
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
@@ -280,7 +280,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 	t.Run("two different refs, one item: warns and names both", func(t *testing.T) {
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 		cfg.SetFS(fs)
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 			"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
@@ -311,7 +311,7 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	body := builtinIsolationContent(t)
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
@@ -518,7 +518,7 @@ fragments:
     content: "LOCAL-ISOLATION-OVERRIDE"
 `)
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
@@ -552,7 +552,7 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{
@@ -588,7 +588,7 @@ func TestIngest_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
 	body := builtinIsolationContent(t)
 	fs, loader := setupContextTestFS(t)
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
 	cfg = withProfileDefs(t, cfg, map[string]config.Profile{
 		"p": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},

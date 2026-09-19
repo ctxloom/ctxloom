@@ -81,7 +81,7 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
 	require.NoError(t, err)
 
-	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
+	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 	return c, store, tree, fsys
 }
@@ -231,7 +231,7 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 // to point at it.
 func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
+	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 
 	_, pub := treeTestSigner(t)
@@ -325,7 +325,7 @@ func stageLoaderFormTree(t *testing.T) (*config.Config, afero.Fs, string) {
 	testsupport.WriteFile(t, fsys, filepath.Join(dir, "skills", "good-night", "SKILL.md"),
 		[]byte("---\nname: good-night\ndescription: d\n---\n\nGOOD-NIGHT-BODY\n"), 0o644)
 
-	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
+	c := gatedFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 	return c, fsys, dir
 }

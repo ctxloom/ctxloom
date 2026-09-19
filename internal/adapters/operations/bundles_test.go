@@ -25,7 +25,7 @@ func setupBundleTestDir(t *testing.T) (appDir string, cfg *config.Config) {
 	tmp := t.TempDir()
 	appDir = filepath.Join(tmp, ".ctxloom")
 	require.NoError(t, os.MkdirAll(authoredV1(appDir), 0755))
-	cfg = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg = gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	return appDir, cfg
 }
 

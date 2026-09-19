@@ -37,7 +37,7 @@ func curationCfg(t *testing.T, defaults []string, defs map[string]config.Profile
 		seed[name] = p
 	}
 	testsupport.WriteDirProfiles(t, fs, appDir, seed)
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: defaults}},
@@ -207,7 +207,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate granting exactly the pinned version's hash → exported as that version.
 	want := promptRawHash("V1-PINNED")
-	cfg.SetExecutableTrustGate(hashAuthorizer(want))
+	cfg.BindTrustForTesting(hashTrust(want))
 	prompts := LoadCommandExports(withResolver(cfg, resolver), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
@@ -218,7 +218,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate denying the pinned version → withheld, so no bundle prompt exports
 	// (fail-closed; only builtins remain).
-	cfg.SetExecutableTrustGate(testAuthorizer(false))
+	cfg.BindTrustForTesting(rejectingAll())
 	denied := LoadCommandExports(withResolver(cfg, resolver), nil)
 	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

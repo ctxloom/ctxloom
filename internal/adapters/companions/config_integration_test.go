@@ -15,17 +15,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // companionSources is a config.Sources over a fixture Config whose readers
 // are exactly what the composition root wires: the project's bundles, the
-// builtins and every discovered companion's loadout. The gate is the
-// test's own, so a verdict can be pinned per item.
+// builtins and every discovered companion's loadout. The trust ports are the
+// test's own fakes, so a verdict can be pinned per item.
 type companionSources struct {
-	cfg  *config.Config
-	gate bundles.Authorizer
+	cfg   *config.Config
+	ports []compositetest.Option
 }
 
 func (s companionSources) Read(context.Context) (*config.Config, []config.Warning, error) {
@@ -41,24 +44,22 @@ func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bund
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
 }
 
-func (s companionSources) TrustPorts(context.Context, *config.Config) (bundles.Authorizer, error) {
-	if s.gate == nil {
-		return bundles.AdmitAll(), nil
-	}
-	return s.gate, nil
+func (s companionSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports(s.ports...)
+	return root, records, retraction, nil
 }
 
-// denyingGate withholds every item whose ref contains one of denySubstrs and
-// admits the rest.
-func denyingGate(denySubstrs ...string) bundles.Authorizer {
-	return bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
-		ref := e.RefString()
+// rejecting is a human rejection of every item whose "#<kind dir>/<name>"
+// tail contains one of denySubstrs; with none, a rejection of nothing.
+func rejecting(denySubstrs ...string) compositetest.Option {
+	return compositetest.RejectWhen(func(ref trust.Ref, _ []byte) bool {
+		tail := "#" + ref.Kind.Dir() + "/" + ref.Name
 		for _, s := range denySubstrs {
-			if strings.Contains(ref, s) {
-				return bundles.Verdict{Reason: bundles.ReasonPending}
+			if strings.Contains(tail, s) {
+				return true
 			}
 		}
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
+		return false
 	})
 }
 
@@ -108,7 +109,7 @@ func TestCompanionLoadoutMCPServer_RidesTheGenerationsGate(t *testing.T) {
 
 	t.Run("admitted", func(t *testing.T) {
 		cfg := projectWith(t, profiles, bundlesYAML)
-		owner, err := config.Open(context.Background(), companionSources{cfg: cfg, gate: denyingGate()})
+		owner, err := config.Open(context.Background(), companionSources{cfg: cfg})
 		require.NoError(t, err)
 		result := owner.Current().Config.ResolveBundleMCPServers(nil)
 		assert.Contains(t, result, "quiet-server")
@@ -121,7 +122,7 @@ func TestCompanionLoadoutMCPServer_RidesTheGenerationsGate(t *testing.T) {
 
 	t.Run("withheld by name", func(t *testing.T) {
 		cfg := projectWith(t, profiles, bundlesYAML)
-		owner, err := config.Open(context.Background(), companionSources{cfg: cfg, gate: denyingGate("#mcp/ltk-server")})
+		owner, err := config.Open(context.Background(), companionSources{cfg: cfg, ports: []compositetest.Option{rejecting("#mcp/ltk-server")}})
 		require.NoError(t, err)
 		result := owner.Current().Config.ResolveBundleMCPServers(nil)
 		assert.Contains(t, result, "quiet-server")

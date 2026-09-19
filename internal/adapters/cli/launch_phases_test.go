@@ -77,7 +77,7 @@ func fiveSourceProject(t *testing.T) *config.Config {
 	app := filepath.Join(root, ".ctxloom")
 	require.NoError(t, os.MkdirAll(filepath.Join(app, "profiles"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(app, "profiles", "base.yaml"), []byte("description: the base profile\n"), 0o644))
-	return config.NewFixture(config.Fixture{
+	return gatedFixture(config.Fixture{
 		AppPaths: []string{app},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{

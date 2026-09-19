@@ -193,24 +193,6 @@ func TestGitPublisher_PublishTreeLandsAsOneCommit(t *testing.T) {
 	assert.Equal(t, root, result.Path)
 }
 
-func TestGitPublisher_PublishesTheSignatureSibling(t *testing.T) {
-	body := "description: signed\n"
-	f := newPublishFixture(t, "main", body)
-
-	result, err := f.pm.Publish(context.Background(), f.localPath, "shared", PublishOptions{
-		ItemType:    ItemTypeBundle,
-		RemotePath:  mybundleRemotePath,
-		Branch:      "main",
-		SignPayload: func(payload []byte) ([]byte, error) { return []byte("ARMORED(" + string(payload) + ")"), nil },
-	})
-	require.NoError(t, err)
-	require.True(t, result.Signed)
-
-	assert.Equal(t, "ARMORED("+body+")", f.remoteFile(t, "main", mybundleRemotePath+".sig"),
-		"the detached signature must land in the same branch as the content it covers")
-	assert.Equal(t, strings.TrimRight(body, "\n"), f.remoteFile(t, "main", mybundleRemotePath))
-}
-
 func TestGitPublisher_SecondPublishUpdatesInPlace(t *testing.T) {
 	f := newPublishFixture(t, "main", "description: v1\n")
 	opts := PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath, Branch: "main"}

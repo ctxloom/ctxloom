@@ -71,7 +71,7 @@ flowchart RL
   ENG["core/engine (born (slice 2): the vocabulary; the contract half arrives in 6b — today core/agent stands beside it)"]:::core
   BUN[core/bundles]:::core
   PROF[core/profiles]:::core
-  COMP["core/composite (born (slice 2): Trust; the package arrives in 6)"]:::core
+  COMP["core/composite (Trust holder + the one cascade, landed 5; the package arrives in 6)"]:::core
   CFG[core/config]:::core
   DELIV["core/delivery (born 12)"]:::later
   LAUNCH["core/launch (born (slice 2): the axes and Source; Resolve arrives in 7)"]:::core
@@ -123,7 +123,7 @@ flowchart TB
     SESS["sessions"]:::core
     ENG["engine (port + contract) — the vocabulary (slice 2) and the DECLARATIVE half (6b): Definition · Base · Registry · the typed approaches · conformance; the instance half (Exec, Exports, Home, Container, Transcripts) arrives in 11b; today: agent, the delivery seam, beside it"]:::core
     BP["bundles · profiles"]:::core
-    COMP["composite — born (slice 2): Trust; the package arrives in 6"]:::core
+    COMP["composite — Trust holder + the one cascade (landed 5); the package arrives in 6"]:::core
     CFG["config"]:::core
     DELIV["delivery — born 12"]:::later
     LAUNCH["launch — born (slice 2): the axes and Source; Resolve arrives in 7"]:::core
@@ -131,7 +131,7 @@ flowchart TB
   end
   subgraph PORTS["PORTS declared in core"]
     P1["engine.Engine · engine.Instance · engine.Base (root) · engine.Registry · the per-kind engine.*Approach over present.Approach"]:::port
-    P2["bundles.Reader · composite.TrustRoot/ReviewRecords/RetractionRecords · composite.Transport/Store"]:::port
+    P2["bundles.Reader · composite.TrustRoot/ReviewRecords/RetractionRecords (landed 5) · composite.Transport/Store"]:::port
     P3["sessions.Store · sessions.Locks · launch.Cells · launch.EndpointMinter"]:::port
     P4["delivery.Static · delivery.Dynamic · delivery.Ownership"]:::port
     P5["coord.Spawner · coord.RunnerTransport · coord.HostApp · config.Sources"]:::port
@@ -146,7 +146,7 @@ flowchart TB
     ISO["isolation (Cells: worktree · docker · podman · host)"]:::adapter
     VPIO["vpio (today) → hostpty · attach at 13"]:::adapter
     SRC["remote · companions (+loadout, the companion-side command) · signing · content (+attest · convert · remotetree · archive) · configload (+layerscope) · transcript · memory · confpatch"]:::adapter
-    SRC2["fsstore · fsstatic · attest as a leaf — born 5"]:::later
+    SRC2["fsstore · fsstatic — later; attest stays at content/attest (not hoisted in 5)"]:::later
     UNPLACED["landed under adapters by the rename map's judgment, retired or folded by later slices: agents · contextmetrics · engineversion · git · gitignore · projectroot · selfexec · tmuxhost · turnchange"]:::adapter
     OPS["operations (application services; implements coord.HostApp)"]:::adapter
     CLI["cli · cli/tui · termui"]:::adapter
@@ -3184,11 +3184,11 @@ flowchart TB
   classDef v fill:#fdd,stroke:#a22
   classDef s fill:#eef,stroke:#228
   R["remote tree (git ref) → adapters/remote pull walk"]:::s
-  V1["VERIFY 1 (ingest): attest.VerifyBundle over SHA256SUMS + .sigs/ — the one verifier; unsigned remote refused; facts recorded"]:::v
+  V1["VERIFY 1 (ingest, landed 5): attest.VerifyBundle over SHA256SUMS + .sigs/ — the one verifier; the sibling bundle.yaml.sig refused; unsigned remote refused; facts recorded"]:::v
   C["cache: <app>/cache/bundles/<name>@<pin> (SHA256SUMS + .sigs/ travel with it)"]:::s
-  L["local tree: <project>/.ctxloom/local/bundles/<name> — signature verified if present; invalid ⇒ admitted-as-unsigned (locality is the boundary)"]:::s
+  L["local tree: <project>/.ctxloom/local/bundles/<name> — manifest verified if present (landed 5); invalid ⇒ admitted-as-unsigned, ReasonStaleLocalSignature (locality is the boundary)"]:::s
   RD["bundles.Reader adapters → []BundleRead with facts (form, signer, retraction) → Catalog (a value in Snapshot)"]:::s
-  V2["VERIFY 2 (exposure): composite.Assemble over Snapshot.Trust — TrustRoot · ReviewRecords · RetractionRecords; executable items WITHHELD unless approved; Ungated() cannot assemble"]:::v
+  V2["VERIFY 2 (exposure): Snapshot.Trust — composite.NewTrust over TrustRoot · ReviewRecords · RetractionRecords (landed 5: the gate, its cascade, withhold-by-default; the readers still resolve inside core/bundles) — composite.Assemble arrives in 6; Ungated() cannot assemble"]:::v
   P["Package{Items with Decision, Exports opaque per engine, Attestation}"]:::s
   E["Engine.Exports(pkg.EngineItems(name)) — decodes its own block against Definition.ExportSchema (11b; today the hosting record's CommandExports/SkillExports project the bundle model)"]:::s
   PL["delivery.Route → Plan (routes; losses)"]:::s

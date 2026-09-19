@@ -117,16 +117,10 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", workDir)
 	}
 
-	// Gate the executable surfaces about to be written to backend settings —
-	// bundle MCP servers, bundle hooks, and prompt command-file exports (trust
-	// rework, TR5). These bypass the content loader, so each is gated at its own
-	// choke via this injected gate; a DENY omits the executable. Built once (runs
-	// the migration baseline + opens the trust store, idempotent with the regen
-	// content gate). Fault tolerant: the gate never errors (fail-closed) and
-	// attaching it never blocks the write. Set before any resolve below so
-	// ResolveBundleMCPServers / AssembleManagedHooks / LoadCommandExports all gate.
-	execGate := NewExecutableTrustGate(freshCfg)
-	freshCfg.SetExecutableTrustGate(execGate.Authorizer())
+	// The executable surfaces about to be written to backend settings — bundle
+	// MCP servers, bundle hooks, and prompt command-file exports — bypass the
+	// content loader, so each decides at its own choke with the generation's
+	// Trust (freshCfg.ExecutableTrustGate); a DENY omits the executable.
 
 	contextHash, regenFailed := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
@@ -213,7 +207,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 
 	// Advisory: tell the user if a bundle executable (MCP server / hook / prompt
 	// export) was withheld by the trust gate (content-free).
-	execGate.WarnWithheld()
+	WarnWithheldBy(freshCfg.ExecutableTrustGate())
 
 	// A retraction is printed here as well as returned: the callers that run
 	// this apply at startup (the MCP server) discard the result, and a
@@ -269,6 +263,9 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 func resolveHookConfig(req ApplyHooksRequest) (*config.Config, error) {
 	if req.Cfg == nil {
 		return nil, fmt.Errorf("apply hooks: a config generation is required")
+	}
+	if _, err := req.Cfg.RequireTrust(); err != nil {
+		return nil, fmt.Errorf("apply hooks: %w", err)
 	}
 	return req.Cfg, nil
 }

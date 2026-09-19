@@ -2,6 +2,7 @@ package operations
 
 import (
 	"bytes"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -210,7 +213,7 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+			cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 			fx := newTrustFixture(t)
 
 			g := &contentGate{cfg: cfg, records: fx.records()}
@@ -257,7 +260,7 @@ func companionLikeRead(t *testing.T) bundles.BundleRead {
 // old "a companion loadout from a companion is withheld, never crashes, never
 // auto-allowed" line; see docs/trust-model.md.
 func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	// A companion read whose signature does not cover its bytes: local posture
@@ -287,7 +290,7 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 // trust question) and the AUTHOR IS TOLD, at the moment their bundle stopped
 // being publishable rather than at `bundle push` time.
 func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 	read := staleLocalRead(t, "stale-kit")
 
@@ -297,12 +300,12 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 
 	v := admitFragment(t, g, read, mustLocalItemRef("stale-kit", trust.KindFragment, "keeper"), "KEEPER-PAYLOAD")
 
-	require.True(t, v.Allow, "a stale sidecar over LOCAL bytes must never withhold — there is nothing to gate")
+	require.True(t, v.Allow, "a stale manifest over LOCAL files must never withhold — there is nothing to gate")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.True(t, bundles.Warns(v), "the verdict must announce that it carries something to say")
-	assert.Contains(t, v.Detail, "stale-kit.yaml.sig")
+	assert.Contains(t, v.Detail, content.ManifestPath)
 	assert.Contains(t, v.Detail, "ctxloom bundle sign stale-kit", "the warning must name the command that fixes it")
-	assert.Contains(t, warnings.String(), "stale-kit.yaml.sig",
+	assert.Contains(t, warnings.String(), content.ManifestPath,
 		"and bundles.Decide must have EMITTED it: the authorizer is pure, the caller speaks")
 }
 
@@ -313,11 +316,23 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
-	body := []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
-	sig, root := signAs(t, body, "author@example.test")
-	edited := append(append([]byte{}, body...), []byte("# edited, never re-signed\n")...)
-	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), name+".yaml"), edited, 0o644)
-	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), name+".yaml"+bundles.SigSuffix), sig, 0o644)
+	v2 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	require.NoError(t, fsys.MkdirAll(v2, 0o755))
+	st, err := content.NewTreeStore(fsys, v2, content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	require.NoError(t, st.Put(context.Background(),
+		trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: "keeper"},
+		signing.FormRaw,
+		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
+	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest,
+		[]byte("version: \"1.0\"\n")))
+	signer, root, _ := seedSigner(t, "author@example.test")
+	tree, err := st.Open(context.Background(), content.BundleID(name))
+	require.NoError(t, err)
+	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+	// The author's edit after signing: the manifest no longer covers the file.
+	keeper := filepath.Join(v2, name, "fragments", "keeper.md")
+	testsupport.WriteFile(t, fsys, keeper, []byte("KEEPER-PAYLOAD\n# edited, never re-signed\n"), 0o644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"}, bundles.WithTrustRoot(root)))
 	read := readOf(t, loader, name)
@@ -333,7 +348,7 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 // unsigned, no signer" — which is exactly the claim a zero value would
 // otherwise make.
 func TestAuthorizer_UnclaimedReadWithholds(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	v := g.Admit(bundles.Exposure{
@@ -390,7 +405,7 @@ func TestEffectiveTrust_ContradictoryPostureWithholds(t *testing.T) {
 // bytes must not admit a different set under the same ref. A hash-keyed gate
 // whose index was edited would.
 func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	read := readOf(t, seedLoader(t, map[string]*bundles.Bundle{authorizerRemoteRef: authorizerBundle()}), authorizerRemoteRef)
 	itemRef := authorizerItemRef

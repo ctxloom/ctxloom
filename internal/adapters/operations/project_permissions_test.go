@@ -37,7 +37,7 @@ func projectPermConfig(root, projectPerm string, subs map[string]agents.Agent, l
 	if _, ok := labels["primary"]; !ok {
 		labels["primary"] = config.LLMConfig{Type: "claude-code"}
 	}
-	return config.NewFixture(config.Fixture{
+	return gatedFixture(config.Fixture{
 		AppPaths:    []string{filepath.Join(root, ".ctxloom")},
 		LM:          config.LMConfig{Configs: labels, Defaults: config.RoleDefaults{Primary: "primary"}},
 		Agents:      subs,

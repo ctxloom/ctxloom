@@ -56,11 +56,32 @@ three states:
 
 ## The decision function
 
-One resolver, `operations.EffectiveTrust`, owns every exposure decision. It is
-fed the exact **bytes** about to be exposed (never a precomputed hash — a hash
-can only be compared against a file anything can write; bytes can be *verified*),
-the item's `Ref`, its `Form`, and its **verified publisher `Signer`**. First
-match wins; it is fail-closed:
+One gate holder, `composite.Trust`, owns every exposure decision. It is built
+**per config generation** by `composite.NewTrust` over three ports the
+configuration's sources supply (`config.Sources.TrustPorts`): a
+`composite.TrustRoot` (which keys may publish — `allowedsigners`), the
+`composite.ReviewRecords` (what a human approved or rejected — the
+`countersign` stores) and the `composite.RetractionRecords` (what a publisher
+withdrew — `remote.LockfileRetraction`, the lockfile read once when the gate
+is built). The generation's `Snapshot.Trust` is the one gate every exposure
+and executable surface decides with (`config.Config.ExecutableTrustGate`);
+there is no admit-everything default and no way to install a second gate on
+a generation. The one spelling of "ungated" is `composite.Ungated()`, opted
+into BY NAME at a listing or review surface that must show pending content
+to a human, and it says so in its verdict (`bundles.ReasonUngated`).
+
+**The gate withholds by default.** An executable item — a command, a skill,
+a hook, an MCP server — that nothing below positively justifies is WITHHELD
+until a review record approves it, and the withhold names what would admit
+it (`no review record approves this hook`). A surface that forgot its gate
+holds none (`bundles.Decide` withholds on a nil authorizer and names the
+defect, `bundles.ReasonUngoverned`); it never admits.
+
+The gate's authorizer is fed the exact **bytes** about to be exposed (never
+a precomputed hash — a hash can only be compared against a file anything can
+write; bytes can be *verified*), the item's `Ref`, its `Form`, and the
+**read** a reader adapter established (`bundles.BundleRead`: trust context,
+signature and signer axes, provenance). First match wins; it is fail-closed:
 
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes
    (the repo/ref-agnostic content denylist) → **DENY**.
@@ -71,7 +92,10 @@ match wins; it is fail-closed:
    withdrawal, and it must beat every allow below — including the publisher's
    own trusted signature, since a publisher has to be able to retract content
    they signed. The check is a pure local lookup; the network probe already
-   ran at sync time, and exposure-time evaluation never dials out.
+   ran at sync time, and exposure-time evaluation never dials out. The
+   record is read ONCE, when the generation's gate is built
+   (`remote.NewLockfileRetraction`), so a pull that rewrites the lockfile
+   produces the next generation's records and never changes this one's.
    - **2a. retraction state unreadable** → **DENY**, for exactly the remote
      refs the record could have spoken about. "I cannot read the retraction
      record" is not "nothing is retracted", and collapsing the two re-exposes
@@ -95,7 +119,25 @@ match wins; it is fail-closed:
      U088-F01, U095-F02 (fetch-failure half — the parse-failure half was
      already fixed), and U150-F04.
 3. **local** — the item was authored in this project (`ctxloom:local`), any kind
-   including MCP servers and hooks → **ALLOW**.
+   including MCP servers and hooks → **ALLOW**. **Locality is the trust
+   boundary; the signature is for what travels.** A project-local bundle whose
+   signature is INVALID — its SHA256SUMS manifest no longer covers its files,
+   because an author edited it in place — is admitted exactly as an unsigned
+   one, with the reason `bundles.ReasonStaleLocalSignature` so the surface
+   warns and names the fix (`bundles.StaleSignatureAdvice`: re-sign with
+   `ctxloom bundle sign <name>`). The reason: the bundle lives in the project
+   under source control, where the human already controls it, and it is the
+   local prototyping path — an author editing a bundle breaks its signature
+   on every keystroke, and refusing it would make local iteration impossible.
+   "Local" means the authored bundle tree under the one app directory the
+   process resolved (`paths.LocalBundlesPath`, `Config.GetBundleDirs`); the
+   same rule — not a second tier — applies to the home ctxloom directory in
+   the one case where it acts as the app directory because no project was
+   found. The same facts over content that TRAVELLED admit nothing (the
+   reader adapters refuse such a tree before it becomes a read at all,
+   `bundles.ErrTreeBundleWithheld`; the gate withholds one if it ever
+   arrives). Pinned by `TestNewTrust_LocalityRule_*` in `core/composite` and
+   by the local-tree reader tests in `core/bundles`.
 4. **builtin** — the item is shipped inside the binary itself
    (`resources/builtin_bundles`, synthetic signer `builtin:ctxloom`) → **ALLOW**.
    Builtins are deliberately **not** signed — signing bytes embedded in the
@@ -128,9 +170,10 @@ Retraction is a second DENY **reason**, not a fourth item **state**: an item is
 pending, approved, or rejected, and a retracted item renders as rejected —
 withheld permanently, awaiting nothing.
 
-Before step 1 even runs, the resolver checks that both physical approvals
-stores (the personal `~/.ctxloom/approvals` and the committable
-`.ctxloom/approvals`) can actually be read. A store directory that has never
+Before step 1 even runs, the gate asks the review-records port whether both
+physical approvals stores (the personal `~/.ctxloom/approvals` and the
+committable `.ctxloom/approvals`) can actually be read — the optional
+`composite.Faulted` capability, `countersign.Records.Fault`. A store directory that has never
 been created is **fine** — that is the ordinary "nothing reviewed yet" shape
 of a fresh project or a fresh user — but a store that *exists* and cannot be
 listed, contains a record file that cannot be opened (permission denied, a
@@ -139,8 +182,7 @@ parse as a signature at all, is treated as a fault, not as empty: it might be
 hiding a **rejection**, and silently reading it as "nothing rejected" would
 reopen a gate a human closed. On that fault the resolver **denies every item**
 — even one that would otherwise be allowed by the local or builtin exemption —
-and records a fatal `trust-store`-class finding in strict mode, exactly as the
-pre-signature hash-pair ledger did for an unreadable `trust.yaml`. The fix is
+and the port records a fatal `trust`-class finding in strict mode. The fix is
 the same shape either failure has always had: `fix or remove the corrupted
 approvals store, then re-review (ctxloom review)`.
 
@@ -368,9 +410,16 @@ Trust is a property of a **signing key**, not of a remote. The trust root is a
 union of `allowed_signers` files (OpenSSH format, verbatim): ctxloom's embedded
 defaults, `~/.ctxloom/allowed_signers` (user), and `.ctxloom/allowed_signers`
 (committable project store). All are unioned; precedence lives in the decision
-function, never in the filesystem. A publisher signature is over the raw bundle
-**file** bytes and is carried as a detached sibling `<bundle>.yaml.sig` in the
-same git tree at the same pinned SHA — verified before any YAML parse.
+function, never in the filesystem. **One signature per bundle.** A bundle's
+signature is its `SHA256SUMS` manifest, covering every file of the tree, and
+the `.sigs/SHA256SUMS.<principal>.sig` entry over it; a single-file bundle
+carries none and cannot be signed (`operations.ErrSingleFileBundleUnsignable`)
+— a signed bundle takes the tree form. Every reader verifies through the ONE
+verifier, `attest.VerifyBundle`, before any item is read. The detached
+sibling `bundle.yaml.sig` is retired: no reader parses it, and a bundle still
+carrying one is REFUSED, naming re-sign (`bundles.ErrSiblingSignatureRetired`),
+which `ctxloom bundle sign` performs by writing the manifest entry and
+removing the sibling.
 
 The `namespaces="…"` option in `allowed_signers` **is** the role system: a key
 trusted only to publish cannot approve content, and vice versa. A signature by a
@@ -380,7 +429,7 @@ A signature that is present but does **not** verify over the bytes it sits besid
 (a trusted key over different bytes, or a corrupted blob) is **tamper**: every
 item in that bundle is withheld, never degraded to unsigned, and never offered
 for review — approving bytes an attacker got demoted from "signed" to "merely
-reviewable" is the whole point of corrupting a `.sig`. A human's earlier
+reviewable" is the whole point of corrupting a signature. A human's earlier
 approval of those exact bytes does not lift it either; an approval covers bytes,
 not a signature.
 
@@ -565,18 +614,16 @@ signature body, resolves pending — never allow.
 | `~/.ctxloom/approvals/` | The **personal countersignature store**. One armored `.sig` file per approve/reject countersignature (filename `<index-hash>.<assertion>.<key-tag>.sig`, an INDEX only — never trusted as authority) plus a display-only `index.yaml` sidecar (untrusted, never a decision input). Never committed. The default write target of `ctxloom review`. |
 | `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
-| `<bundle>.yaml.sig` | Detached publisher signature, a sibling of each signed bundle in the same git tree at the same pinned SHA. Verified over the raw file bytes before parse. A missing `.sig` = unsigned. |
+| `<bundle>/SHA256SUMS` + `<bundle>/.sigs/SHA256SUMS.<principal>.sig` | The bundle's ONE signature: the manifest over every file of the tree and the publisher's signature over the manifest, inside the tree, at the same pinned SHA. Verified by `attest.VerifyBundle` before any item is read; travels with the tree on push, move and export. No manifest = unsigned. |
 | `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom companion list\|allow\|forget`. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
 | `state/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Local state, not cache: nothing rebuilds these, and deleting them degrades every later update review to a full-content display. |
 
-The decision function's approval/rejection steps (`operations.EffectiveTrust`
-steps 1 and 6) read through the `ReviewRecords` seam, which takes the exposed
-**bytes**, not a hash — exactly the shape a signature verification needs. The
-countersignature stores are its only implementation; the hash-pair `trust.yaml`
-ledger this seam was built to replace has been deleted outright — pre1 never
-shipped, so there is no migration and no compatibility shim.
+The gate's approval/rejection steps (steps 1 and 6) read through the
+`composite.ReviewRecords` port, which takes the exposed **bytes**, not a hash
+— exactly the shape a signature verification needs. `countersign.Records`
+over the two stores is its only implementation.
 
 **Composition — reads are the UNION of both stores, with no precedence between
 them.** A signature is a signature no matter which store holds it; precedence
@@ -791,7 +838,7 @@ Addressed:
   (review path); a fork, typosquat, MITM'd fetch, or tampered clone object cannot
   produce bytes that verify under the trusted key. A trusted key's signature that
   does not cover the bytes it sits beside is treated as **tamper** and the bundle
-  is withheld, so corrupting a `.sig` cannot downgrade a signed bundle to an
+  is withheld, so corrupting a signature cannot downgrade a signed bundle to an
   unsigned one.
 - **Forged approvals via a writable `.ctxloom/`** — an agent (or anything else)
   that can write files can no longer manufacture an approval by editing a
@@ -849,16 +896,16 @@ never permitted in the committable project store.
    config default on `review` itself; only git config and ssh-agent are
    consulted. Narrowing this remaining gap means threading an explicit-key
    override through `resolveReviewSigner`.
-7. **No filesystem load path verifies a publisher signature.** Publisher
-   verification is wired into exactly two load paths — the remote-git seed
-   (`config.loadRemoteBundleSeed`) and the companion loadout — the two places
-   `Bundle.StampSigner` is called. A signed `(x.yaml, x.yaml.sig)` pair placed in
-   a directory ctxloom reads is therefore *not* verified: it is either first-party
-   local content (allowed unverified) or carries no signer. The consequence is
-   that the **organization drop-in / MDM flow of spec §4.4 and §7A.6 does not
-   work** — an org cannot yet ship signed context through a channel other than a
-   git remote. This fails safe (an unverified bundle is unsigned, and unsigned
-   content is reviewed), so it is a missing feature, not a hole.
+7. **The organization drop-in / MDM flow of spec §4.4 and §7A.6 is
+   unproven.** Every reader — the project reader over the authored tree
+   (`localFSReader.directorySignatureFacts`), the installed reader over a
+   pulled tree and the pull walk itself — verifies a tree's manifest signature
+   through `attest.VerifyBundle`, so a signed tree dropped into a directory
+   ctxloom reads IS verified and its signer reported. What is not exercised is
+   the channel: nothing pulls a signed tree from anywhere but a git remote, so
+   an org shipping context another way has no supported path. This fails safe
+   (an unverified bundle is unsigned, and unsigned content is reviewed), so it
+   is a missing feature, not a hole.
 8. **ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root
    is unconditionally unioned into every lookup (`config.TrustRoot`), and
    `operations.RemoveSigner` only rewrites the user/project *file*. There is no

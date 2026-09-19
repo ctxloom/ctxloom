@@ -19,7 +19,7 @@ func holdFSFixture(t *testing.T) (*config.Config, *remote.LockfileManager) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	baseDir := "/injected/.ctxloom"
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{baseDir}})
 	cfg.SetFS(fs)
 
 	mgr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))

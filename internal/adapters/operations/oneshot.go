@@ -91,6 +91,9 @@ func harpEnv(harp string) map[string]string {
 }
 
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error) {
+	if _, err := cfg.RequireTrust(); err != nil {
+		return nil, fmt.Errorf("oneshot: %w", err)
+	}
 	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profile:  req.Profile,
 		Pipeline: req.Pipeline,
@@ -106,11 +109,8 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 
 	// The single-profile oneshot's axes: the session-level workspace default
 	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
-	// profile has no agent binding to declare one). Build the shared
-	// executable trust gate ONLY when some isolation is actually requested (an
-	// all-defaults oneshot writes no per-member config and must stay
-	// byte-identical to pre-P3; gate construction runs the trust baseline +
-	// opens the store). Ignored on the injected-Factory path.
+	// profile has no agent binding to declare one). Ignored on the
+	// injected-Factory path.
 	workspace, err := isolation.ParseWorkspaceAxis(cfg.GetWorkspace())
 	if err != nil {
 		return nil, fmt.Errorf("oneshot: %w — fix `workspace:` in .ctxloom/config.yaml", err)
@@ -123,21 +123,13 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		return nil, fmt.Errorf("oneshot: %w — fix `runtime:` in .ctxloom/config.yaml", err)
 	}
 	axes := isolation.Axes{Workspace: workspace, Runtime: runtime}
-	// The all-defaults member writes no per-member config, so nothing consults
-	// this gate at all — AdmitAll states that, where a nil would claim the gate
-	// was forgotten and withhold if anything ever did consult it.
-	var execGate *ExecutableTrustGate
-	gate := bundles.AdmitAll()
-	if !axes.Zero() {
-		execGate = NewExecutableTrustGate(cfg)
-		gate = execGate.Authorizer()
-	}
-	// Surface (content-free) whatever that gate withheld from the member's
-	// per-member config, exactly as MaterializeProfile and ApplyHooks do: a
-	// withhold must never be silent or reasonless (docs/trust-model.md).
-	// Deferred so it reports on the failure path too, and nil-safe for the
-	// all-defaults oneshot that builds no gate at all.
-	defer execGate.WarnWithheld()
+	// The member's per-member config decides with the generation's Trust
+	// (cfg.ExecutableTrustGate) at its own chokes; an all-defaults member
+	// writes no per-member config and consults it for nothing. Surface
+	// (content-free) whatever it withheld, exactly as MaterializeProfile and
+	// ApplyHooks do: a withhold must never be silent or reasonless
+	// (docs/trust-model.md). Deferred so it reports on the failure path too.
+	defer WarnWithheldBy(cfg.ExecutableTrustGate())
 	// The single-profile oneshot's profile set is just req.Profile (empty falls back
 	// to the configured defaults inside AssembleManagedConfig), matching how the
 	// assembled context above was scoped.
@@ -168,7 +160,6 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		IsolationImage: IsolationImageConfig(cfg, backendName),
 		AgentID:        req.Profile,
 		Profiles:       profiles,
-		Gate:           gate,
 		Factory:        req.Factory,
 	})
 	if err != nil {
@@ -221,12 +212,6 @@ type resolvedRunRequest struct {
 	// natively into the isolated cwd, mirroring the top-level run. Ignored for a
 	// none member (which shares the project cwd and writes no managed config).
 	Profiles []string
-	// Gate is the shared executable trust gate (built ONCE per fan) threaded into
-	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/command
-	// exports gate at their own choke exactly as the top-level run.
-	// bundles.AdmitAll = deliberately no gating (and none members never consult it).
-	Gate bundles.Authorizer
-
 	// ExtraEnv is merged over the workspace env into the member engine's
 	// environment (a delegated child's session harp / bus socket / depth).
 	ExtraEnv map[string]string
@@ -554,7 +539,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 
 	// The member's managed payload, assembled exactly as the top-level run does
-	// (backends.AssembleManagedConfig with the SAME gate/profiles, against the
+	// (backends.AssembleManagedConfig with the SAME profiles, against the
 	// workDir the member actually landed in) — for EVERY cell, and on the
 	// injected-Factory seam too: that seam decides where the plugin is spawned,
 	// never whether the member has config. It is what the member's Setup
@@ -562,7 +547,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	// the isolated one — a member that PRESENTS the session's surfaces still has
 	// to resolve which surfaces those are before it can name them.
 	managed := pb.ManagedConfigToProto(
-		backends.AssembleManagedConfig(req.Cfg, req.Backend, workDir, req.Gate, req.Profiles))
+		backends.AssembleManagedConfig(req.Cfg, req.Backend, workDir, req.Profiles))
 
 	// The member's DECLARED form, selected from the cell it actually landed in
 	// and resolved HERE, once. What differs between cells is the form, not

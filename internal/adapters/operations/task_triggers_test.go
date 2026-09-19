@@ -29,7 +29,7 @@ import (
 // oneshotTestConfig's shape but scoped to what trigger evaluation reads
 // (cfg.FastLabel / cfg.ResolveLLM).
 func triageTestConfig() *config.Config {
-	return config.NewFixture(config.Fixture{
+	return gatedFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"claude-fast": {Type: "claude-code", Body: map[string]any{"model": "haiku"}},

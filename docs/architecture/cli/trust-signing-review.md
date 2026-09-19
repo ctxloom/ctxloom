@@ -72,6 +72,30 @@ flowchart TD
     RAF --> OPST[["operations.SetItemTrust / SetBlacklist"]]
 ```
 
+## The gate every face decides behind
+
+```mermaid
+flowchart LR
+    SNAP["config.Snapshot.Trust — composite.NewTrust, one per generation"]:::gate
+    ROOT["composite.TrustRoot ← allowedsigners (embedded ∪ user ∪ project)"]:::port
+    REC["composite.ReviewRecords ← countersign.Records (user ∪ project stores)"]:::port
+    RET["composite.RetractionRecords ← remote.LockfileRetraction (read once per generation)"]:::port
+    ROOT & REC & RET --> SNAP
+    SNAP --> STAMP["stampedTrust → operations.NewTrustStamper: the listing's trusted/state stamp"]
+    SNAP --> EXEC["bundle MCP · hooks · command/skill exports: withheld until a review record approves"]
+    SIGN["bundle sign: attest.SignBundle writes SHA256SUMS + .sigs/ — never a sibling; a single-file bundle is refused"]:::sign
+    SIGN --> READ["every reader: attest.VerifyBundle — a retired bundle.yaml.sig is refused until re-signed"]:::sign
+    READ --> SNAP
+    classDef gate fill:#fdd,stroke:#a22
+    classDef port fill:#eef,stroke:#228
+    classDef sign fill:#efe,stroke:#282
+```
+
+There is no admit-everything default: a listing that must show pending
+content names `composite.Ungated()`; a surface that forgot its gate holds
+none and withholds. The cascade and its rows are stated normatively in
+`docs/trust-model.md`; the decision is recorded in ADR 0036.
+
 ## Commands
 
 | Command | file:line | Notes |

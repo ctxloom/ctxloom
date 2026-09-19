@@ -140,11 +140,9 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	if err != nil {
 		return nil, err
 	}
-	// Same gate the apply path builds, for the same reason: a hook the gate
-	// denies never reaches backend settings, so it must not be reported as
-	// something that will fire.
-	gate := NewExecutableTrustGate(cfg)
-	cfg.SetExecutableTrustGate(gate.Authorizer())
+	// The generation's Trust decides here exactly as on the apply path: a hook
+	// the gate denies never reaches backend settings, so it must not be
+	// reported as something that will fire.
 
 	workDir := req.WorkDir
 	if workDir == "" {

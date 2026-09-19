@@ -38,7 +38,7 @@ func TestSearchRemotes_ManifestFallsThroughOnNoMatches(t *testing.T) {
 	remotesContent := "remotes:\n  alice:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{baseDir}})
 
 	result, err := SearchRemotes(context.Background(), cfg, SearchRemotesRequest{
 		Query: "widget",
@@ -81,7 +81,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 	remotesContent := "remotes:\n  acme:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{baseDir}})
 	ctx := context.Background()
 
 	t.Run("tag query matches the bundle via file metadata", func(t *testing.T) {

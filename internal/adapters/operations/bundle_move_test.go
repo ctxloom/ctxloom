@@ -2,8 +2,6 @@ package operations
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,9 +11,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -23,41 +19,16 @@ import (
 
 const moveBundleBody = "version: 1.0.0\nfragments:\n  a:\n    content: hi\n"
 
-// moveSigBody is a REAL publish signature over moveBundleBody's exact bytes.
-// A placeholder blob would do here no longer: move/export now verify that the
-// signature they carry actually covers the bytes it ships with, which is the
-// invariant these tests exist to protect.
-var moveSigBody = mustSignBody(moveBundleBody)
-
-func mustSignBody(body string) string {
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		panic(err)
-	}
-	signer, err := ssh.NewSignerFromSigner(priv)
-	if err != nil {
-		panic(err)
-	}
-	armored, err := signing.Sign([]byte(body), signer, signing.NamespacePublish)
-	if err != nil {
-		panic(err)
-	}
-	return string(armored)
-}
-
 // memMoveFS seeds an in-memory project with one authored bundle ("seed") and,
 // when signed, its detached .sig sibling.
-func memMoveFS(t *testing.T, signed bool) (afero.Fs, *config.Config) {
+func memMoveFS(t *testing.T, _ bool) (afero.Fs, *config.Config) {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"), []byte(moveBundleBody), 0644))
-	if signed {
-		require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml.sig"), []byte(moveSigBody), 0644))
-	}
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func srcBundlePath(cfg *config.Config) string {
@@ -101,31 +72,8 @@ func (f *failWriteFs) Rename(oldname, newname string) error {
 
 // --- local-path destination --------------------------------------------------
 
-// A moved bundle must arrive with its signature, byte-identical: the .sig covers
-// the bundle file's exact bytes (spec §3.1), so any transform en route — or a
-// dropped sibling — lands an unverifiable bundle at the destination.
-func TestMoveBundle_ToLocalPath_CarriesBundleAndSignatureVerbatim(t *testing.T) {
-	fs, cfg := memMoveFS(t, true)
-	require.NoError(t, fs.MkdirAll("/out", 0755))
-
-	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
-	require.NoError(t, err)
-
-	assert.Equal(t, "moved", res.Status)
-	assert.Equal(t, "path", res.DestKind)
-	assert.Equal(t, "/out/seed.yaml", res.Dest)
-	assert.Equal(t, "/out/seed.yaml.sig", res.SigDest)
-
-	gotBundle, err := afero.ReadFile(fs, "/out/seed.yaml")
-	require.NoError(t, err)
-	assert.Equal(t, moveBundleBody, string(gotBundle), "bundle bytes must be carried verbatim")
-	gotSig, err := afero.ReadFile(fs, "/out/seed.yaml.sig")
-	require.NoError(t, err)
-	assert.Equal(t, moveSigBody, string(gotSig), "signature bytes must be carried verbatim")
-}
-
 func TestMoveBundle_ToLocalPath_RemovesSource(t *testing.T) {
-	fs, cfg := memMoveFS(t, true)
+	fs, cfg := memMoveFS(t, false)
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
@@ -134,8 +82,6 @@ func TestMoveBundle_ToLocalPath_RemovesSource(t *testing.T) {
 	src := srcBundlePath(cfg)
 	exists, _ := afero.Exists(fs, src)
 	assert.False(t, exists, "source bundle must be gone after a successful move")
-	sigExists, _ := afero.Exists(fs, src+".sig")
-	assert.False(t, sigExists, "source signature must be gone too — no orphan .sig left behind")
 }
 
 // A ctxloom project checkout as destination: the bundle lands in that project's
@@ -170,28 +116,6 @@ func TestMoveBundle_LocalWriteFails_SourceIntact(t *testing.T) {
 	src := srcBundlePath(cfg)
 	exists, _ := afero.Exists(base, src)
 	assert.True(t, exists, "a failed move must not remove the source")
-	sigExists, _ := afero.Exists(base, src+".sig")
-	assert.True(t, sigExists, "a failed move must not remove the source signature")
-}
-
-// A signature that exists but cannot be carried is an ERROR — never a silent
-// downgrade to an unsigned bundle at the destination.
-func TestMoveBundle_SignatureUncopyable_ErrorsAndKeepsSource(t *testing.T) {
-	base, cfg := memMoveFS(t, true)
-	require.NoError(t, base.MkdirAll("/out", 0755))
-	fs := &failWriteFs{Fs: base, fail: func(name string) bool {
-		return strings.HasSuffix(name, ".sig")
-	}}
-
-	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "signature")
-
-	src := srcBundlePath(cfg)
-	exists, _ := afero.Exists(base, src)
-	assert.True(t, exists, "source must survive a signature-carry failure")
-	sigExists, _ := afero.Exists(base, src+".sig")
-	assert.True(t, sigExists)
 }
 
 func TestMoveBundle_UnsignedBundle_MovesFine(t *testing.T) {
@@ -256,10 +180,6 @@ func TestResolveMoveDest_PlainDirectory(t *testing.T) {
 func TestMoveBundle_ToRemote_PublishesAndRemovesSource(t *testing.T) {
 	mock := &mockPublisher{returnCommitSHA: "abc1234"}
 	cfg, bundlePath, mgr := pushTestSetup(t, mock)
-	sigPath := bundlePath + ".sig"
-	// A real signature over THIS bundle's exact bytes: move carries a signature
-	// only when it actually covers what is being published.
-	sigBody := string(signOnDisk(t, afero.NewOsFs(), bundlePath))
 	srcBytes, err := os.ReadFile(bundlePath)
 	require.NoError(t, err)
 
@@ -272,33 +192,17 @@ func TestMoveBundle_ToRemote_PublishesAndRemovesSource(t *testing.T) {
 	assert.Equal(t, "remote", res.DestKind)
 	assert.Equal(t, "personal", res.Remote)
 	assert.Equal(t, "abc1234", res.CommitSHA)
-	assert.True(t, res.Signed, "the carried signature must be published alongside")
+	assert.False(t, res.Signed, "a single-file bundle carries no signature")
 
-	// A tree-form bundle publishes as ONE commit over every file it holds
-	// (remote.PublishManager.PublishTree -> Publisher.CreateOrUpdateFiles), so
-	// the two calls the mock records land in Go's randomized map iteration
-	// order, not call order — find each by its path rather than its index.
-	require.Len(t, mock.createOrUpdateCalls, 2, "bundle + detached signature sibling")
-	var bundleCall, sigCall createOrUpdateCall
-	for _, c := range mock.createOrUpdateCalls {
-		if strings.HasSuffix(c.Path, ".sig") {
-			sigCall = c
-		} else {
-			bundleCall = c
-		}
-	}
-	assert.Equal(t, srcBytes, bundleCall.Content, "published bytes must be the local bytes, verbatim")
-	assert.Equal(t, sigBody, string(sigCall.Content), "the existing signature is carried, not regenerated")
+	require.Len(t, mock.createOrUpdateCalls, 1, "the bundle, and nothing beside it")
+	assert.Equal(t, srcBytes, mock.createOrUpdateCalls[0].Content, "published bytes must be the local bytes, verbatim")
 
 	assert.NoFileExists(t, bundlePath, "source must be removed after a successful publish")
-	assert.NoFileExists(t, sigPath)
 }
 
 func TestMoveBundle_RemotePublishFails_SourceIntact(t *testing.T) {
 	mock := &mockPublisher{returnErr: errors.New("github is down")}
 	cfg, bundlePath, mgr := pushTestSetup(t, mock)
-	sigPath := bundlePath + ".sig"
-	signOnDisk(t, afero.NewOsFs(), bundlePath)
 
 	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{
 		Name: "for-push", To: "personal", PublishManager: mgr,
@@ -306,7 +210,6 @@ func TestMoveBundle_RemotePublishFails_SourceIntact(t *testing.T) {
 	require.Error(t, err)
 
 	assert.FileExists(t, bundlePath, "a failed publish must leave the source intact")
-	assert.FileExists(t, sigPath)
 }
 
 // --- directory-form bundles: the move that carries the whole tree --------------
@@ -325,7 +228,7 @@ func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
 		[]byte("version: 1.0.0\nskills:\n  reviewer: {}\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
 		[]byte("---\nname: reviewer\ndescription: d\n---\n\nbody\n"), 0644))
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // THE FORMER DATA-LOSS PATH (taskloom hurried-showplace), now fixed rather than
@@ -373,7 +276,7 @@ func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *te
 	dir := filepath.Join(authoredV1(appDir), "seed")
 	require.NoError(t, fs.MkdirAll(dir, 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"), []byte(moveBundleBody), 0644))
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
@@ -394,7 +297,7 @@ func TestMoveBundle_TreeEnvelope_LandsUnderTheDestinationsV2Root(t *testing.T) {
 	testsupport.WriteFileString(t, fs,
 		filepath.Join(authoredV1(appDir), "seed", "bundle.yaml"),
 		"version: 1.0.0\ndescription: a tree envelope\n", 0644)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, fs.MkdirAll("/other/.ctxloom", 0755))
 
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/other", FS: fs})

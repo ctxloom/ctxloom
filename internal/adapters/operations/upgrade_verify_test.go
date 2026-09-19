@@ -5,13 +5,21 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // trustPublisher writes the project allowed_signers line that makes signer a
@@ -26,22 +34,89 @@ func trustPublisher(t *testing.T, baseDir string, signer ssh.Signer) {
 	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "allowed_signers"), []byte(line), 0o644))
 }
 
-// signedBundleRepo builds a file:// source repo whose bundle is published as a
-// complete signed pair — the bundle YAML and the detached `.sig` beside it —
-// and returns the base dir, the ref, and the commit at which the pair verifies.
-func signedBundleRepo(t *testing.T, body string) (baseDir, src, ref string, signer ssh.Signer, verified string) {
+// demoTreeFiles composes a tree-form bundle named demo — bundle.yaml, one
+// fragment file, its SHA256SUMS manifest and the .sigs/ entry signer made
+// over it — and returns every file keyed by its path relative to the tree
+// root, so a caller can commit the tree into a repository file by file.
+func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]string {
+	t.Helper()
+	fsys := afero.NewMemMapFs()
+	const root = "/stage"
+	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	require.NoError(t, st.Put(context.Background(),
+		trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keeper"},
+		signing.FormRaw,
+		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: fragBody}}))
+	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte("version: \"1.0.0\"\n")))
+	tree, err := st.Open(context.Background(), "demo")
+	require.NoError(t, err)
+	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+
+	files := map[string]string{}
+	dir := filepath.Join(root, "demo")
+	require.NoError(t, afero.Walk(fsys, dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		data, rerr := afero.ReadFile(fsys, p)
+		if rerr != nil {
+			return rerr
+		}
+		rel, rerr := filepath.Rel(dir, p)
+		if rerr != nil {
+			return rerr
+		}
+		files[filepath.ToSlash(rel)] = string(data)
+		return nil
+	}))
+	require.NotEmpty(t, files)
+	return files
+}
+
+// commitTree writes every file of a composed tree under demo's tree root and
+// commits them as ONE commit (init creates the repository first), returning
+// the commit. Old signature entries are removed first, so a re-signed tree
+// carries exactly its own .sigs/ entries.
+func commitTree(t *testing.T, src string, files map[string]string, init bool) string {
+	t.Helper()
+	var repo *git.Repository
+	var err error
+	if init {
+		require.NoError(t, os.MkdirAll(src, 0o755))
+		repo, err = git.PlainInit(src, false)
+	} else {
+		repo, err = git.PlainOpen(src)
+	}
+	require.NoError(t, err)
+	wt, err := repo.Worktree()
+	require.NoError(t, err)
+	root := repoV2("demo")
+	_ = os.RemoveAll(filepath.Join(src, root, content.SigDirName))
+	for rel, data := range files {
+		full := filepath.Join(src, root, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte(data), 0o644))
+	}
+	require.NoError(t, wt.AddWithOptions(&git.AddOptions{All: true}))
+	sha, err := wt.Commit("tree", &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@test.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+	return sha.String()
+}
+
+// signedBundleRepo stages a repository holding the tree-form bundle demo,
+// signed through its ONE signature (the SHA256SUMS manifest and its .sigs/
+// entry) by a key the project trusts, and returns the project dir, the
+// repository, the ref, the signer and the commit whose signature verifies.
+func signedBundleRepo(t *testing.T, fragBody string) (baseDir, src, ref string, signer ssh.Signer, verified string) {
 	t.Helper()
 	tmp := t.TempDir()
 	baseDir = filepath.Join(tmp, ".ctxloom")
 	src = filepath.Join(tmp, "src")
 	signer = testSigner(t)
-
-	bundlePath := repoV2("demo") + "/bundle.yaml"
-	initLocalRepoWithFile(t, src, bundlePath, body)
-	sig, err := signing.Sign([]byte(body), signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	verified = addFileToLocalRepo(t, src, bundlePath+".sig", string(sig))
-
+	verified = commitTree(t, src, demoTreeFiles(t, signer, fragBody), true)
 	trustPublisher(t, baseDir, signer)
 	ref = "file://" + src + "@bundles/demo" // version-less → track the default branch
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
@@ -69,7 +144,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	require.Equal(t, verified, e0.SHA, "the project starts pinned to the commit whose signature verifies")
 
 	// The publisher edits and pushes; the stale .sig rides along unchanged.
-	edited := addFileToLocalRepo(t, src, repoV2("demo")+"/bundle.yaml", "version: \"2.0.0\"\n")
+	edited := addFileToLocalRepo(t, src, repoV2("demo")+"/fragments/keeper.md", "EDITED AFTER SIGNING\n")
 	require.NotEqual(t, verified, edited)
 
 	res, err := UpgradeDependencies(ctx, cfg)
@@ -80,7 +155,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	assert.Equal(t, ref, res.Refused[0].Identity)
 	assert.Equal(t, verified, res.Refused[0].KeptSHA)
 	assert.Equal(t, edited, res.Refused[0].ProposedSHA)
-	assert.Contains(t, res.Refused[0].Detail, "signature does not cover these bytes")
+	assert.Contains(t, res.Refused[0].Detail, bundles.ErrTreeBundleWithheld.Error())
 
 	// The payload assertion: the lockfile still holds the last verified pin,
 	// whole. Nothing half-wrote.
@@ -102,12 +177,7 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
-	bundlePath := repoV2("demo") + "/bundle.yaml"
-	revised := "version: \"2.0.0\"\n"
-	addFileToLocalRepo(t, src, bundlePath, revised)
-	sig, err := signing.Sign([]byte(revised), signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	reSigned := addFileToLocalRepo(t, src, bundlePath+".sig", string(sig))
+	reSigned := commitTree(t, src, demoTreeFiles(t, signer, "REVISED AND RE-SIGNED\n"), false)
 	require.NotEqual(t, verified, reSigned)
 
 	res, err := UpgradeDependencies(ctx, cfg)

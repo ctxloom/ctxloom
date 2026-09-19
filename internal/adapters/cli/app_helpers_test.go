@@ -9,6 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -55,8 +57,9 @@ func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 	}, nil
 }
 
-func (s probeSources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
-	return cfg.ExecutableTrustGate(), nil
+func (s probeSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports()
+	return root, records, retraction, nil
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when

@@ -79,7 +79,7 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 	require.NoError(t, fs.MkdirAll(approvalsDir, 0o755))
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{projectDir}})
 
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
@@ -106,11 +106,11 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 // into EffectiveTrustRequest.Records — plus review.go and bundle_distill.go)
 // builds its ReviewRecords ONCE, up front, and passes it NON-NIL on every
 // call. The "records == nil" preamble branch — the ONLY place the
-// .readable() fail-closed check used to run — therefore never executes for
+// .Fault() fail-closed check used to run — therefore never executes for
 // any of them; this is what makes the guard DEAD CODE in production, not a
 // property of any one call site.
 //
-// This test builds records exactly that way (a countersignRecords value
+// This test builds records exactly that way (a countersign.Records value
 // constructed once, mirroring contentGate's constructor), writes a REAL
 // unsigned rejection for an item, corrupts the on-disk store AFTER records
 // was already built — a directory replaced by a plain file, the exact
@@ -144,7 +144,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	// records built ONCE — exactly the shape contentGate's constructor
 	// produces (buildCountersignRecords called at gate-construction time,
 	// then threaded into every EffectiveTrust call as Records, non-nil).
-	records := countersignRecords{user: userStore, project: projectStore}
+	records := countersign.NewRecords(userStore, projectStore, nil, nil)
 
 	// Sanity: while the store is intact, the rejection is honored — a
 	// rejected LOCAL item is denied, ref-level, beating the local exemption.
@@ -194,7 +194,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 }
 
 // TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending
-// is the BOUNDARY case the unconditional .readable() gate must NOT trip: a
+// is the BOUNDARY case the unconditional .Fault() gate must NOT trip: a
 // brand-new install / fresh project whose approvals directories have NEVER
 // been created yet. This is indistinguishable from "corrupt" only if the
 // gate conflates "absent" with "unreadable" — it must not, because that
@@ -215,7 +215,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 	// not exist on disk yet.
 	userStore := countersign.NewStore(filepath.Join(dir, "user-approvals"), fs)
 	projectStore := countersign.NewStore(filepath.Join(dir, "project-approvals"), fs)
-	records := countersignRecords{user: userStore, project: projectStore}
+	records := countersign.NewRecords(userStore, projectStore, nil, nil)
 
 	mark := strictness.Checkpoint()
 
@@ -269,7 +269,7 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 	rejectedRef := trust.Ref{Bundle: "tooling", Kind: trust.KindFragment, Name: "rejected-thing", IsLocal: true}
 	require.NoError(t, userStore.WriteRefReject(mustCountersignRef(t, rejectedRef), signer))
 
-	records := countersignRecords{user: userStore, project: projectStore}
+	records := countersign.NewRecords(userStore, projectStore, nil, nil)
 
 	// CORRUPT THE CONTENT ONLY: same filename, same index hash, same
 	// permissions — bytes that are not a signature.

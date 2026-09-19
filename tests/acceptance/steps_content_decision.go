@@ -55,7 +55,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -68,7 +67,7 @@ import (
 // the key here instead would drift the moment the ref grammar moves, and the
 // scenario would then assert against an address production never writes.
 func tcLocalRef(bundle, fragment string) (string, error) {
-	return operations.CountersignRef(trust.Ref{
+	return countersign.CountersignRef(trust.Ref{
 		Bundle: bundle, Kind: trust.KindFragment, Name: fragment, IsLocal: true,
 	})
 }

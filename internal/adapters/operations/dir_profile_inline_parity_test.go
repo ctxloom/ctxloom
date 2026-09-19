@@ -70,7 +70,7 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 	loaderDir, cfgDir := versionPinnedLoader(t, fx.records(), def, versions)
 	dirFixture := cfgDir.ToFixture()
 	dirFixture.AppPaths = []string{writeDirProfile(t, "fragpin", "fragments:\n  - \""+ref+"\"\n")}
-	cfgDir = config.NewFixture(dirFixture)
+	cfgDir = gatedFixture(dirFixture)
 	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "fragpin", Pipeline: loaderDir})
 	require.NoError(t, err)
 
@@ -111,7 +111,7 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 	loaderDir, cfgDir := versionPinnedLoader(t, fx.records(), def, versions)
 	dirFixture := cfgDir.ToFixture()
 	dirFixture.AppPaths = []string{writeDirProfile(t, "pinned", "bundle_items:\n  - \""+ref+"\"\n")}
-	cfgDir = config.NewFixture(dirFixture)
+	cfgDir = gatedFixture(dirFixture)
 	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "pinned", Pipeline: loaderDir})
 	require.NoError(t, err)
 

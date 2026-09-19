@@ -148,6 +148,9 @@ func registeredBackend(name string) (string, error) {
 // ("partial success is success"). Bad arguments and a failed context assembly
 // (the core payload) stay hard errors regardless of mode.
 func MaterializeProfile(ctx context.Context, cfg *config.Config, req MaterializeProfileRequest) (*MaterializeProfileResult, error) {
+	if _, err := cfg.RequireTrust(); err != nil {
+		return nil, fmt.Errorf("materialize: %w", err)
+	}
 	backend, err := resolveMaterializeTarget(cfg, req)
 	if err != nil {
 		return nil, err
@@ -161,14 +164,8 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	}
 	res := &MaterializeProfileResult{Target: req.Target, Backend: backend, Profiles: req.Profiles}
 
-	// Gate the executable surfaces (bundle MCP / hooks / command exports) at their
-	// own choke, exactly as ApplyHooks does. Set before resolving any of them.
-	// Scoped to THIS call: cfg belongs to the caller, and a gate left installed
-	// on it silently governs every later consumer of that config.
-	execGate := NewExecutableTrustGate(cfg)
-	callersGate := cfg.ExecutableTrustGate()
-	cfg.SetExecutableTrustGate(execGate.Authorizer())
-	defer cfg.SetExecutableTrustGate(callersGate)
+	// The executable surfaces (bundle MCP / hooks / command exports) decide
+	// at their own choke with the generation's Trust, exactly as ApplyHooks.
 
 	// context is the one HARD-error surface: an explicit profile set makes
 	// resolution failures fatal (the caller named these profiles), and the
@@ -314,7 +311,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	}
 
 	// Surface (content-free) any executable the trust gate withheld.
-	execGate.WarnWithheld()
+	WarnWithheldBy(cfg.ExecutableTrustGate())
 	return res, nil
 }
 

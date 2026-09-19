@@ -31,7 +31,7 @@ var gatePulledRef = mustGitItemRef("github.com", "/acme/repo", "tooling", trust.
 // ExecutableTrustGate.WarnWithheld and the content-loader's warnWithheld
 // consult (see trust_gate.go).
 func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
 	// gateHookRef: a human explicitly rejected it.
@@ -92,7 +92,7 @@ func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
 // dispositions, instead of the old undifferentiated "N bundle executable(s)
 // awaiting review" tally.
 func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"},
 		signing.FormRaw, toolingHookPayload())
@@ -184,4 +184,23 @@ func TestAssembleContext_WarnWithheld_InjectedLoaderIsSilentAboutWhy(t *testing.
 	})
 
 	assert.Empty(t, stderr, "an injected-loader caller (test-only in production) gets no gate to report from")
+}
+
+// TestWarnWithheldBy_NamesTheMissingReviewRecordForAnExecutable pins the
+// consumer-visible half of the withhold-by-default gate: what an executable
+// consumer (hooks resolution, materialize, a run) prints for an unreviewed
+// remote executable names WHAT WOULD ADMIT IT — a review record — not just
+// that it is awaiting review. An operator reading the line learns the fix.
+func TestWarnWithheldBy_NamesTheMissingReviewRecordForAnExecutable(t *testing.T) {
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
+
+	unsigned := execRead(t, "")
+	v := bundles.Decide(g.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw)
+	require.False(t, v.Allow, "an unreviewed remote hook is withheld")
+
+	stderr := captureStderr(t, func() { WarnWithheldBy(g.Authorizer()) })
+
+	assert.Contains(t, stderr, gateHookRef+": awaiting review — run 'ctxloom review' (no review record approves this hook)",
+		"the advisory names the review record that would admit the hook")
 }

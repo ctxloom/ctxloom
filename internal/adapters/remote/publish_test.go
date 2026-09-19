@@ -2,8 +2,6 @@ package remote
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -522,34 +520,17 @@ func TestPublishManager_Publish_IsReproducible(t *testing.T) {
 		"two publishes of an unchanged bundle must produce byte-identical remote content")
 }
 
-func TestPublishManager_Publish_LocalFileSignatureVerifiesAgainstPublishedBytes(t *testing.T) {
-	// The invariant this whole change exists to restore: a signature produced
-	// over the LOCAL file's bytes (what `ctxloom sign` does — operations.
-	// SignBundleFile signs the file on disk verbatim) must verify against the
-	// bytes that land in the remote. It only can if they are the same bytes.
+func TestPublishManager_Publish_LocalFileBytesArePublishedVerbatim(t *testing.T) {
+	// The invariant: the bytes that land in the remote are the LOCAL file's
+	// bytes, verbatim (spec §3.0), so a signature made over the local tree
+	// verifies against what was published. It only can if they are the same
+	// bytes.
 	content := "description: Test bundle\nfragments:\n  test:\n    content: hello\n"
 
-	// Stand-in for a real sshsig: a signature is any deterministic function of
-	// the payload, and verification is recomputing it over the candidate bytes.
-	sign := func(payload []byte) []byte {
-		sum := sha256.Sum256(payload)
-		return []byte("sig:" + hex.EncodeToString(sum[:]))
-	}
-	// Detached signature computed offline against the local file, before push.
-	localSig := sign([]byte(content))
+	published := publishOnce(t, content, func(*PublishOptions) {})
 
-	var signedPayload []byte
-	published := publishOnce(t, content, func(po *PublishOptions) {
-		po.SignPayload = func(payload []byte) ([]byte, error) {
-			signedPayload = payload
-			return sign(payload), nil
-		}
-	})
-
-	assert.Equal(t, string(localSig), string(sign(published)),
-		"a signature over the local file must verify against the published bytes")
-	assert.Equal(t, string(content), string(signedPayload),
-		"SignPayload must be handed the local file's exact bytes")
+	assert.Equal(t, content, string(published),
+		"the published bytes must be the local file's exact bytes")
 }
 
 func TestNewPublisher(t *testing.T) {
@@ -632,102 +613,3 @@ func TestSplitTitleBody(t *testing.T) {
 }
 
 // --- SignPayload wiring (signature-envelope spec §7A) ----------------------
-
-func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/local", 0755))
-	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	mp := newMockPublisher()
-	mf := newMockFetcher()
-	mf.defaultBranch = "main"
-
-	pm := NewPublishManager(registry, AuthConfig{},
-		WithPublishFS(fs),
-		WithPublisherFactory(mockPublisherFactory(mp)),
-		WithPublishFetcherFactory(mockFetcherFactory(mf)),
-	)
-
-	var signedPayload []byte
-	result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-		ItemType:   ItemTypeBundle,
-		RemotePath: mybundleRemotePath,
-		Branch:     "main",
-		SignPayload: func(payload []byte) ([]byte, error) {
-			signedPayload = payload
-			return []byte("FAKE-SIGNATURE"), nil
-		},
-	})
-
-	require.NoError(t, err)
-	assert.True(t, result.Signed)
-	require.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/v2/mybundle.yaml.sig")
-	assert.Equal(t, []byte("FAKE-SIGNATURE"), mp.createdFiles[".ctxloom/content/bundles/v2/mybundle.yaml.sig"])
-	// The signed payload must be EXACTLY the bytes that landed at the main
-	// path, and those must be the local file's bytes — no injection, no
-	// re-serialization anywhere in the path (spec §3.0, §3.1).
-	assert.Equal(t, mp.createdFiles[".ctxloom/content/bundles/v2/mybundle.yaml"], signedPayload)
-	assert.Equal(t, "description: Test\n", string(signedPayload))
-}
-
-func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/local", 0755))
-	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	mp := newMockPublisher()
-	mf := newMockFetcher()
-	mf.defaultBranch = "main"
-
-	pm := NewPublishManager(registry, AuthConfig{},
-		WithPublishFS(fs),
-		WithPublisherFactory(mockPublisherFactory(mp)),
-		WithPublishFetcherFactory(mockFetcherFactory(mf)),
-	)
-
-	_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-		ItemType:   ItemTypeBundle,
-		RemotePath: mybundleRemotePath,
-		Branch:     "main",
-		SignPayload: func(payload []byte) ([]byte, error) {
-			return nil, fmt.Errorf("no signing key found")
-		},
-	})
-
-	require.Error(t, err, "a signing failure must abort the publish, never degrade to unsigned")
-	assert.Empty(t, mp.createdFiles, "no file — signed or unsigned — may be written when signing was requested and failed")
-}
-
-func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/local", 0755))
-	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	mp := newMockPublisher()
-	mf := newMockFetcher()
-	mf.defaultBranch = "main"
-
-	pm := NewPublishManager(registry, AuthConfig{},
-		WithPublishFS(fs),
-		WithPublisherFactory(mockPublisherFactory(mp)),
-		WithPublishFetcherFactory(mockFetcherFactory(mf)),
-	)
-
-	result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-		ItemType:   ItemTypeBundle,
-		RemotePath: mybundleRemotePath,
-		Branch:     "main",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.Signed)
-	assert.NotContains(t, mp.createdFiles, ".ctxloom/content/bundles/v2/mybundle.yaml.sig")
-}

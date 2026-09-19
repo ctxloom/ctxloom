@@ -122,7 +122,7 @@ type exposureProbe struct {
 func newExposureProbe(t *testing.T, cfg *config.Config, records ReviewRecords, seed map[string]*bundles.Bundle) *exposureProbe {
 	t.Helper()
 	if cfg == nil {
-		cfg = config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+		cfg = gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	}
 	gate := &contentGate{cfg: cfg, records: records}
 	return &exposureProbe{
@@ -380,7 +380,7 @@ func TestExposureWithheld_Characterization_StoreErrorWithholdsEverything(t *test
 	require.NoError(t, fs.MkdirAll(approvalsDir, 0o755))
 	unreadable := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{projectDir}})
 	seed := charGateSeed("")
 	// A genuinely LOCAL bundle: a bare name, no scheme marker. Trusted by
 	// locality on every healthy path.
@@ -392,7 +392,7 @@ func TestExposureWithheld_Characterization_StoreErrorWithholdsEverything(t *test
 			},
 		}},
 	}
-	p := newExposureProbe(t, cfg, newCountersignRecords(cfg, unreadable), seed)
+	p := newExposureProbe(t, cfg, buildCountersignRecords(cfg, unreadable, nil, nil, nil), seed)
 
 	_, err := p.fragment("localdev#fragments/keep")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),

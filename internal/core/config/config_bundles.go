@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"slices"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -42,24 +44,13 @@ func SetPreimageBuildersForTesting(hook func(bundles.BundleHook) ([]byte, error)
 	return func() { hookPreimage, mcpPreimage = prevHook, prevMCP }
 }
 
-// SetExecutableTrustGate injects the trust gate consulted when resolving the
-// bundle executable surfaces — bundle MCP servers (ResolveBundleMCPServers),
-// bundle hooks (ResolveBundleHooks), and prompt command-file exports
-// (backends.LoadCommandExports). The operations/run consumers set it before
-// writing backend settings (trust rework, TR5) so an untrusted bundle's
-// executables are omitted; management/listing paths never call it.
-// Builtin bundles are always exempt regardless of the gate.
-func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer) {
-	c.execGate = gate
-}
-
-// bindGeneration attaches the generation's resolved Catalog and gate to the
+// bindGeneration attaches the generation's resolved Catalog and Trust to the
 // Config the Owner is about to publish, so a consumer reaching this
 // generation through its *Config sees exactly what the Snapshot carries.
 // Called once per generation, before publication; never on a published value.
-func (c *Config) bindGeneration(catalog func() bundles.Catalog, gate bundles.Authorizer) {
+func (c *Config) bindGeneration(catalog func() bundles.Catalog, trust composite.Trust) {
 	c.catalog = catalog
-	c.execGate = gate
+	c.trust = trust
 }
 
 // Catalog returns the generation's bundle catalog. Every Config an Owner
@@ -79,22 +70,41 @@ func (c *Config) Catalog() bundles.Catalog {
 		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)))
 }
 
-// ExecutableTrustGate returns the gate the bundle executable surfaces decide
-// with — never nil, because a nil authorizer withholds everything downstream
-// (bundles.Decide) and a management path asking for a config's gate is not a
-// fault.
-//
-// A config nobody attached a gate to is a MANAGEMENT/LISTING config, and it
-// decides with bundles.AdmitAll: that shape resolves pending content on purpose,
-// so a human can review, accept or stamp it. The statement is made HERE, once,
-// rather than travelling onward as a nil that the delivery seam would then have
-// to guess about.
-func (c *Config) ExecutableTrustGate() bundles.Authorizer {
-	if c.execGate == nil {
-		return bundles.AdmitAll()
+// Trust is the generation's gate holder, bound before publication
+// (bindGeneration). A Config no Owner published — a fixture — holds a ZERO
+// Trust, whose nil authorizer bundles.Decide withholds on and names
+// (ReasonUngoverned): a surface that forgot its gate is a defect, never an
+// admit. A listing surface that means "ungated" binds composite.Ungated()
+// by name.
+func (c *Config) Trust() composite.Trust { return c.trust }
+
+// ExecutableTrustGate returns the authorizer the bundle executable surfaces
+// decide with: the generation's Trust. Nil for a fixture nobody bound, which
+// bundles.Decide withholds on loudly.
+func (c *Config) ExecutableTrustGate() bundles.Authorizer { return c.trust.Authorizer() }
+
+// ErrTrustUnbound is the refusal a delivery entry point gives a Config that
+// carries no gate: it was constructed outside the Owner (config.Open
+// publishes every generation with its Trust) and never bound (a fixture
+// states its gate with BindTrustForTesting). Refused at the entry, by
+// sentinel — a construction bug is caught first, not surfaced as one
+// withheld item per executable later.
+var ErrTrustUnbound = errors.New("config: this configuration carries no trust gate — it was constructed outside the Owner and never bound")
+
+// RequireTrust returns the bound Trust, or ErrTrustUnbound for a Config
+// nobody bound. Every operation that delivers content asks this at entry.
+func (c *Config) RequireTrust() (composite.Trust, error) {
+	if c == nil || c.trust.Authorizer() == nil {
+		return composite.Trust{}, ErrTrustUnbound
 	}
-	return c.execGate
+	return c.trust, nil
 }
+
+// BindTrustForTesting binds tr as this Config's generation gate, exactly as
+// the Owner does before publishing a Snapshot. A fixture that exercises an
+// executable surface states its gate this way — composite.Ungated() by name
+// for a listing, compositetest.Trust over fake ports for a decision.
+func (c *Config) BindTrustForTesting(tr composite.Trust) { c.trust = tr }
 
 // SetLookPathForTesting overrides the companion-binary PATH-resolution seam and
 // returns a restore function. Tests in other packages use it to make companion

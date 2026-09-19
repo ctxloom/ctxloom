@@ -6,12 +6,23 @@ package bundles
 
 // ungated wraps a reader in a pipeline that does NOT gate — the
 // management/listing shape, and the right one for a test that is exercising
-// resolution rather than trust. AdmitAll, never nil: nil is a forgotten gate
-// and delivers nothing, which would make every resolution test here fail for a
-// reason that has nothing to do with what it is testing.
+// resolution rather than trust. An ungated authorizer, never nil: nil is a
+// forgotten gate and delivers nothing, which would make every resolution test
+// here fail for a reason that has nothing to do with what it is testing.
 func ungated(l *Loader, preferDistilled bool) *Pipeline {
-	return NewPipeline(l, AdmitAll(), LinksUnchecked(), preferDistilled)
+	return NewPipeline(l, admitAllForTest(), LinksUnchecked(), preferDistilled)
 }
+
+// admitAllForTest is this package's double for the authorizer
+// composite.Ungated() yields in production (composite imports bundles, so the
+// real one cannot be named here): it admits everything, says so
+// (ReasonUngated), and declares itself ungated so Gates skips it.
+func admitAllForTest() Authorizer { return admitAll{} }
+
+type admitAll struct{}
+
+func (admitAll) Admit(Exposure) Verdict { return Verdict{Allow: true, Reason: ReasonUngated} }
+func (admitAll) Ungated() bool          { return true }
 
 // gatedPipe wraps a reader in a pipeline that decides with authorizer — the
 // exposure shape.

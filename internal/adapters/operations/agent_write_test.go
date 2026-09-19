@@ -584,7 +584,7 @@ func TestAgentSetupNudge_FiresOnlyWhenProfilesPresentNoAgents(t *testing.T) {
 	})
 
 	t.Run("no profiles, no agents → silent", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir()}})
+		cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir()}})
 		assert.Empty(t, AgentSetupNudge(cfg), "nothing to bind → no nudge")
 	})
 

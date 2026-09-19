@@ -13,7 +13,7 @@ func silencedFrom(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
 	f := cfg.ToFixture()
 	f.Settings.SilenceUnsupported = true
-	return config.NewFixture(f)
+	return gatedFixture(f)
 }
 
 // TestCapabilityLoss_SilenceOptOut pins BOTH arms against a profile that

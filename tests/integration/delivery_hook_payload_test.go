@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -66,6 +67,10 @@ func applyWithContextRegen(t *testing.T) (projectDir, contextHash string) {
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"base"}}},
 		AppPaths:     []string{appDir},
 	})
+	// The generation's gate: a Config reaching delivery without one is
+	// refused at entry (config.ErrTrustUnbound). A project-local bundle and
+	// the builtins are admitted by locality; nothing here travelled.
+	cfg.BindTrustForTesting(compositetest.Trust())
 
 	res, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		// Empty, not "all": that selector was removed. An omitted backend now

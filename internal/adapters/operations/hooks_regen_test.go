@@ -93,7 +93,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "other.yaml"),
 		[]byte("description: unrelated\n"), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"devprof"}}},
@@ -149,7 +149,7 @@ func TestUpdateProfile_ValidationFailureIsRejected(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, "/profiles/base.yaml",
 		[]byte("description: base\n"), 0o644))
 	loader := profiles.NewLoader([]string{"/profiles"}, profiles.WithFS(fs))
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{"/app"}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{"/app"}})
 
 	_, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
 		Name:       "base",

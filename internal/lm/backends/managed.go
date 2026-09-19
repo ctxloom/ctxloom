@@ -89,20 +89,19 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // context hash), the merged config+default-profile MCP servers, and whether
 // ctxloom manages the statusline.
 //
-// The gate gates the executable surfaces (bundle MCP servers + hooks + prompt
-// exports); attaching it to cfg flows it to ResolveBundleMCPServers /
-// AssembleManagedHooks / LoadCommandExports. bundles.AdmitAll = deliberately
-// no gating.
+// The executable surfaces (bundle MCP servers + hooks + prompt exports)
+// decide with the generation's Trust (cfg.ExecutableTrustGate), which
+// ResolveBundleMCPServers / AssembleManagedHooks / LoadCommandExports each
+// consult at their own choke.
 //
 // profileNames is the run's SELECTED profile set (the same set AssembleContext
 // scoped context to), so the managed mcp/commands/hooks track the chosen profile
 // rather than always the configured defaults. An empty set falls back to the
 // defaults inside each resolver (scopedProfiles / resolveProfileScope).
-func AssembleManagedConfig(cfg *config.Config, backendName, workDir string, gate bundles.Authorizer, profileNames []string) *agent.ManagedConfig {
+func AssembleManagedConfig(cfg *config.Config, backendName, workDir string, profileNames []string) *agent.ManagedConfig {
 	if cfg == nil {
 		return nil
 	}
-	cfg.SetExecutableTrustGate(gate)
 	return &agent.ManagedConfig{
 		Commands:         CommandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
 		Skills:           SkillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
@@ -363,8 +362,9 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 // executable trust gate allows. Each hook is keyed on itemRefFor(ref.Base,
 // trust.KindHook, "<event>/<index>") (the SAME identity scheme bundle hooks
 // use, bundles.HookEntry) with
-// its executable-surface hash; a DENY omits it (fail-closed). An AdmitAll gate
-// (management paths) admits everything unchanged.
+// its executable-surface hash; a DENY omits it (fail-closed). An ungated
+// authorizer (a listing that named composite.Ungated) admits everything
+// unchanged.
 func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Authorizer) wire.HooksConfig {
 	if !bundles.Gates(gate) {
 		return h

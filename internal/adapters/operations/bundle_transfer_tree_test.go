@@ -17,15 +17,17 @@ import (
 )
 
 // treeBundleFiles is the fixture a directory-form bundle is made of: the
-// envelope, an item file one level down, the SHA256SUMS that covers them and a
-// .sigs/ entry attesting it. Every one of them must survive a copy — the
-// manifest and the .sigs/ store exist precisely to make a partial copy visible
-// as tampering.
+// envelope, item files one level down, a root file that is not an item, and
+// a .sigs/ entry. Every one of them must survive a copy byte for byte — the
+// .sigs/ store exists precisely to make a partial copy visible as tampering.
+// It carries no SHA256SUMS on purpose: a manifest that does not cover the
+// tree is a STALE signature, which every publishing boundary refuses, and
+// these tests are about the copy, not the refusal.
 var treeBundleFiles = map[string]string{
-	"bundle.yaml":                                    "version: 1.0.0\n",
-	"skills/reviewer/SKILL.md":                       "# Reviewer\n\nreview the thing\n",
-	"skills/reviewer/references/checklist.md":        "- one\n- two\n",
-	"SHA256SUMS":                                     "aa11  bundle.yaml\nbb22  skills/reviewer/SKILL.md\n",
+	"bundle.yaml":                             "version: 1.0.0\n",
+	"skills/reviewer/SKILL.md":                "# Reviewer\n\nreview the thing\n",
+	"skills/reviewer/references/checklist.md": "- one\n- two\n",
+	"NOTES": "a root file that is not an item\n",
 	".sigs/SHA256SUMS.publish.v1.ctxloom.dev.ab.sig": "-----BEGIN SSH SIGNATURE-----\nfixture\n-----END SSH SIGNATURE-----\n",
 }
 
@@ -102,14 +104,14 @@ func memTreeBundleFS(t *testing.T) (afero.Fs, *config.Config, string) {
 	appDir := filepath.Join("/proj", ".ctxloom")
 	src := filepath.Join(authoredV1(appDir), "toolkit")
 	writeTree(t, fs, src, treeBundleFiles)
-	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), src
+	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}}), src
 }
 
 // consumerConfig is a SECOND project on the same filesystem — the import side of
 // the round trip, so the imported tree is compared against a source it did not
 // overwrite.
 func consumerConfig() *config.Config {
-	return config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/consumer", ".ctxloom")}})
+	return gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/consumer", ".ctxloom")}})
 }
 
 func TestExportImportBundleTree_RoundTripsEveryFileByteForByte(t *testing.T) {

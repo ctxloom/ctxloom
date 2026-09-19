@@ -72,8 +72,8 @@ func newTrustFixture(t *testing.T) *trustFixture {
 
 // records returns the ReviewRecords built over this fixture's stores — pass
 // as EffectiveTrustRequest.Records / PendingReviewRequest's injected stores.
-func (f *trustFixture) records() countersignRecords {
-	return countersignRecords{user: f.user, project: f.project, root: f.root}
+func (f *trustFixture) records() countersign.Records {
+	return countersign.NewRecords(f.user, f.project, f.root, nil)
 }
 
 // approve signs+writes a REAL approve countersignature over payload, for ref
@@ -85,7 +85,7 @@ func (f *trustFixture) records() countersignRecords {
 // so a fixture can no more choose a role than a caller can.
 func (f *trustFixture) approve(ref trust.Ref, form signing.Form, payload []byte) {
 	f.t.Helper()
-	attested, err := attestationFormFor(ref.Kind, form)
+	attested, err := countersign.AttestationFormFor(ref.Kind, form)
 	require.NoError(f.t, err)
 	require.NoError(f.t, f.user.WriteApprove(mustCountersignRef(f.t, ref), attested, payload, f.signer))
 }
@@ -102,7 +102,7 @@ func (f *trustFixture) rejectRef(ref trust.Ref) {
 // store.SetRejected(repo, ref, hashes...) denylist write.
 func (f *trustFixture) rejectContent(kind trust.ItemKind, form signing.Form, payload []byte) {
 	f.t.Helper()
-	attested, err := attestationFormFor(kind, form)
+	attested, err := countersign.AttestationFormFor(kind, form)
 	require.NoError(f.t, err)
 	require.NoError(f.t, f.user.WriteContentReject(attested, payload, f.signer))
 }
@@ -186,7 +186,7 @@ func installUnsignedRejection(t *testing.T, ref trust.Ref, form signing.Form, pa
 	refStr := mustCountersignRef(t, ref)
 	require.NoError(t, store.WriteUnsignedRefReject(refStr))
 	if len(payload) > 0 {
-		attested, ferr := attestationFormFor(ref.Kind, form)
+		attested, ferr := countersign.AttestationFormFor(ref.Kind, form)
 		require.NoError(t, ferr)
 		require.NoError(t, store.WriteUnsignedContentReject(attested, payload))
 	}
@@ -197,7 +197,7 @@ func installUnsignedRejection(t *testing.T, ref trust.Ref, form signing.Form, pa
 // under test, so it fails the test rather than being carried further.
 func mustCountersignRef(t *testing.T, ref trust.Ref) string {
 	t.Helper()
-	refStr, err := CountersignRef(ref)
+	refStr, err := countersign.CountersignRef(ref)
 	require.NoError(t, err)
 	return refStr
 }

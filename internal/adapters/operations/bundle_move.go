@@ -3,12 +3,14 @@ package operations
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -72,7 +74,7 @@ type MoveBundleResult struct {
 	DestKind string `json:"dest_kind"` // "remote" | "path"
 	// Dest is the local destination file, or the path inside the remote repo.
 	Dest string `json:"dest"`
-	// SigDest is where the detached publisher signature landed, or "" when the
+	// SigDest is where the tree's .sigs/ store landed, or "" when the
 	// bundle was never signed.
 	SigDest string `json:"sig_dest,omitempty"`
 	// Remote/CommitSHA/Signed are set for a remote destination only.
@@ -264,13 +266,6 @@ func moveToPath(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 	if err != nil {
 		return nil, err
 	}
-	// An unsigned bundle overwriting a signed one would leave the old .sig
-	// behind, "signing" bytes it never covered. Drop it with the content.
-	if res.SigDest == "" {
-		if err := removeIfExists(fs, destFile+sigSuffix); err != nil {
-			return nil, fmt.Errorf("remove stale destination signature: %w", err)
-		}
-	}
 	return &MoveBundleResult{
 		Status:   "moved",
 		Name:     name,
@@ -281,51 +276,24 @@ func moveToPath(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 	}, nil
 }
 
-// moveToRemote publishes the bundle to a configured remote, carrying its
-// existing signature, via the same PushBundle path `ctxloom bundle push` uses.
+// moveToRemote publishes the bundle to a configured remote via the same
+// PushBundle path `ctxloom bundle push` uses. A tree's signature — its
+// SHA256SUMS manifest and .sigs/ entries — travels inside the tree; a stale
+// one is refused by PushBundle before anything is written.
 func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src, remoteName string) (*MoveBundleResult, error) {
-	// The detached signature travels as-is — but only once it has been proven to
-	// cover the bytes publish will write. It usually does: nothing re-serializes
-	// them (spec §3.0), so re-signing would be pointless churn needing a key the
-	// mover may not have to hand. What it does NOT survive is the bundle being
-	// edited after it was signed, which leaves a signature over bytes that no
-	// longer exist. Publishing that pair is worse than publishing nothing: the key
-	// is trusted, the bytes do not match, and every consumer reads it as tampering
-	// and withholds the bundle. PushBundle verifies the pair and refuses it, so a
-	// stale signature stops here rather than at the user's tamper alarm.
-	//
-	// Read through PublisherSignature — the one seam every publishing boundary
-	// shares — rather than a local exists-then-read: a stat error on the .sig
-	// used to be discarded, which left signature nil, which skipped the
-	// "published but its signature did not" guard below, which let
-	// removeMoveSource delete the signed local source. An unreadable signature
-	// now stops the move, and so does a stale one (PushBundle re-checks below,
-	// but the refusal belongs at the boundary that decided to carry it).
-	signature, err := PublisherSignature(fs, src, nil)
-	if err != nil {
-		return nil, fmt.Errorf("move %q: %w", name, err)
-	}
-
 	res, err := PushBundle(ctx, cfg, PushBundleRequest{
 		Path:           src,
 		Remote:         remoteName,
 		Message:        req.Message,
-		Signature:      signature,
 		PublishManager: req.PublishManager,
 	})
 	if err != nil {
 		return nil, err
 	}
-	// Publish reports Signed only when the sibling .sig actually landed; a
-	// carried signature that didn't land is a lost signature, so refuse to
-	// delete the source behind it.
-	if signature != nil && !res.Signed {
-		return nil, fmt.Errorf("bundle %q published to %s but its signature was not: source left in place", name, remoteName)
-	}
 
 	sigDest := ""
 	if res.Signed {
-		sigDest = res.TargetPath + sigSuffix
+		sigDest = path.Join(res.TargetPath, content.SigDirName)
 	}
 	return &MoveBundleResult{
 		Status:    "moved",
@@ -371,20 +339,7 @@ func removeMoveSource(fs afero.Fs, src, dest string) error {
 	if err := fs.Remove(src); err != nil {
 		return fmt.Errorf("the bundle was written to %s but the source %s could not be removed — it now exists in both places: %w", dest, src, err)
 	}
-	if err := removeIfExists(fs, src+sigSuffix); err != nil {
-		return fmt.Errorf("the bundle was moved to %s and the source is gone, but the stray source signature %s could not be removed — delete it by hand; re-running the move will not work: %w",
-			dest, src+sigSuffix, err)
-	}
 	return nil
-}
-
-// removeIfExists removes path when present; absence is not an error.
-func removeIfExists(fs afero.Fs, path string) error {
-	exists, err := afero.Exists(fs, path)
-	if err != nil || !exists {
-		return err
-	}
-	return fs.Remove(path)
 }
 
 // sameMovePath reports whether two paths name the same file (cleaned + absolute

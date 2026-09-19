@@ -381,7 +381,7 @@ func (r BundleRead) Claimed() bool {
 // stick — checking sourceRef itself would be unable to tell "unmintable" from
 // "untouched" and would silently paper over the failure as a local bundle of
 // that name.
-func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts signatureFacts) BundleRead {
+func NewRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts SignatureFacts) BundleRead {
 	if b != nil && !b.sourceRefSet {
 		typed, err := trust.LocalRef(ref)
 		if err != nil {
@@ -395,24 +395,27 @@ func newRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts s
 		ref:                  ref,
 		Provenance:           prov,
 		trustCtx:             tctx,
-		signature:            facts.signature,
-		signer:               facts.signer,
-		signatureDetail:      facts.detail,
-		untrustedFingerprint: facts.fingerprint,
+		signature:            facts.Signature,
+		signer:               facts.Signer,
+		signatureDetail:      facts.Detail,
+		untrustedFingerprint: facts.Fingerprint,
 	}
 }
 
-// signatureFacts is the (signature, signer) pair a reader established over one
-// bundle's bytes, plus the two display-only strings that go with them.
-type signatureFacts struct {
-	signature Signature
-	signer    Signer
-	// principal is the VERIFIED publisher identity, resolved from the trust
+// SignatureFacts is the (signature, signer) pair a reader established over one
+// bundle's bytes, plus the two display-only strings that go with them. A
+// reader adapter builds it and hands it to NewRead; nothing else sets the
+// axes of a BundleRead, which is what lets a struct-literal BundleRead claim
+// nothing (Claimed) and be withheld.
+type SignatureFacts struct {
+	Signature Signature
+	Signer    Signer
+	// Principal is the VERIFIED publisher identity, resolved from the trust
 	// root and never from anything the artifact says about itself. It is
 	// non-empty only for valid/trusted.
-	principal   string
-	detail      string
-	fingerprint string
+	Principal   string
+	Detail      string
+	Fingerprint string
 }
 
 // readSignatureFacts resolves both signature axes for one bundle's bytes and
@@ -435,9 +438,9 @@ type signatureFacts struct {
 // "there is no signature here" and "there is a signature I cannot read" are
 // different facts, and reporting the second as the first is the downgrade
 // spec §10.2 forbids.
-func readSignatureFacts(payload, armoredSig []byte, root signing.TrustRoot) signatureFacts {
+func readSignatureFacts(payload, armoredSig []byte, root signing.TrustRoot) SignatureFacts {
 	if len(armoredSig) == 0 {
-		return signatureFacts{signature: SignatureNone, signer: SignerNone}
+		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	}
 	principal, err := signing.VerifyPublisher(payload, armoredSig, root, time.Now())
 	switch {
@@ -445,28 +448,28 @@ func readSignatureFacts(payload, armoredSig []byte, root signing.TrustRoot) sign
 		// VerifyPublisher only reaches its byte check once the key is trusted,
 		// so a tamper verdict with a readable key means trusted-key/wrong-bytes;
 		// an unreadable blob names no key at all and cannot be called trusted.
-		facts := signatureFacts{signature: SignatureInvalid, detail: err.Error(), signer: SignerUntrusted}
+		facts := SignatureFacts{Signature: SignatureInvalid, Detail: err.Error(), Signer: SignerUntrusted}
 		if _, fperr := signing.SignatureKeyFingerprint(armoredSig); fperr == nil {
-			facts.signer = SignerTrusted
+			facts.Signer = SignerTrusted
 		}
 		return facts
 	case principal != "":
-		return signatureFacts{signature: SignatureValid, signer: SignerTrusted, principal: principal}
+		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: principal}
 	}
 	// Unsigned TO US: a signature exists, made by a key this machine does not
 	// trust to publish. Whether it covers the bytes is still a fact worth
 	// having — a stranger's stale blob and a stranger's good blob are different
 	// diagnoses — and the fingerprint is what lets a human compare it against
 	// what the publisher told them out of band.
-	facts := signatureFacts{signer: SignerUntrusted}
+	facts := SignatureFacts{Signer: SignerUntrusted}
 	if err := signing.CoversBytes(payload, armoredSig, signing.NamespacePublish); err != nil {
-		facts.signature = SignatureInvalid
-		facts.detail = err.Error()
+		facts.Signature = SignatureInvalid
+		facts.Detail = err.Error()
 	} else {
-		facts.signature = SignatureValid
+		facts.Signature = SignatureValid
 	}
 	if fp, fperr := signing.SignatureKeyFingerprint(armoredSig); fperr == nil {
-		facts.fingerprint = fp
+		facts.Fingerprint = fp
 	}
 	return facts
 }
@@ -477,14 +480,14 @@ func readSignatureFacts(payload, armoredSig []byte, root signing.TrustRoot) sign
 //
 // Only a VALID signature by a TRUSTED key yields a signer; everything else is
 // unsigned-to-us, which is the review path, not an identity.
-func (f signatureFacts) stamp(b *Bundle) {
-	if f.signature == SignatureValid && f.signer == SignerTrusted {
-		b.StampSigner(f.principal)
+func (f SignatureFacts) stamp(b *Bundle) {
+	if f.Signature == SignatureValid && f.Signer == SignerTrusted {
+		b.StampSigner(f.Principal)
 		b.StampUntrustedSignerFingerprint("")
 		return
 	}
 	b.StampSigner("")
-	b.StampUntrustedSignerFingerprint(f.fingerprint)
+	b.StampUntrustedSignerFingerprint(f.Fingerprint)
 }
 
 // ReaderOption configures a reader with something that is NEITHER its

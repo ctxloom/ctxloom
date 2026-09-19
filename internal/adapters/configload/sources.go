@@ -13,16 +13,22 @@ package configload
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/resources"
@@ -73,12 +79,6 @@ func WithExtraReaders(readers ...bundles.Reader) Option {
 	return func(s *Sources) { s.extraReaders = append(s.extraReaders, readers...) }
 }
 
-// WithTrustGate supplies the executable gate a generation's Trust wraps; the
-// root wires the trust adapter's gate. Absent, a generation is ungated.
-func WithTrustGate(fn func(cfg *config.Config) bundles.Authorizer) Option {
-	return func(s *Sources) { s.trustGate = fn }
-}
-
 // Sources is the config.Sources a process builds ONCE at its composition
 // root. Its flags and environment are captured at New; every Read applies
 // the same overrides to whatever the files say now.
@@ -95,7 +95,6 @@ type Sources struct {
 	versionResolver func(cfg *config.Config) bundles.BundleVersionResolver
 	readerSources   []func(cfg *config.Config) []bundles.Reader
 	extraReaders    []bundles.Reader
-	trustGate       func(cfg *config.Config) bundles.Authorizer
 }
 
 // New builds the process's Sources from its parsed flag set and environment
@@ -230,14 +229,47 @@ func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Read
 	return append(readers, s.extraReaders...), nil
 }
 
-// TrustPorts is the executable gate of cfg's generation.
-func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
-	if s.trustGate == nil {
-		return bundles.AdmitAll(), nil
+// TrustPorts builds the three ports the generation's Trust decides with,
+// each read ONCE for cfg: the trust root (the embedded signers minus the
+// distrusted ones, unioned with the user's and the project's allowed_signers),
+// the review records (the user's and the project's countersignature stores)
+// and the retraction records (the lockfile). There is no option to leave one
+// out: a generation with a port missing is refused (composite.NewTrust), and
+// a listing that means "ungated" says so by name (composite.Ungated).
+func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root := cfg.TrustRoot()
+	fs := cfg.FS()
+	if fs == nil {
+		fs = afero.NewOsFs()
 	}
-	gate := s.trustGate(cfg)
-	if gate == nil {
-		return nil, fmt.Errorf("configload: the trust gate produced no authorizer")
+	baseDir := appDirOf(cfg)
+	var fault error
+	userDir, err := countersign.HomeDir()
+	if err != nil {
+		clidiag.Warn("ctxloom", "cannot locate the user approvals store (%v) — every personal approval and rejection is unreadable this session", err)
+		fault = err
+		userDir = ""
 	}
-	return gate, nil
+	records := countersign.NewRecords(
+		countersign.NewStore(userDir, fs),
+		countersign.NewStore(paths.ApprovalsPath(baseDir), fs),
+		root, fault)
+	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs)))
+	return signerRoot{root}, records, retraction, nil
+}
+
+// appDirOf is the app directory cfg's generation was read over.
+func appDirOf(cfg *config.Config) string {
+	if dirs := cfg.GetAppPaths(); len(dirs) > 0 {
+		return dirs[0]
+	}
+	return paths.AppDirName
+}
+
+// signerRoot presents the allowed_signers store as the core-owned port.
+type signerRoot struct{ store *allowedsigners.Store }
+
+func (r signerRoot) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) composite.SignerDecision {
+	d := r.store.TrustedForNamespace(key, ns, now)
+	return composite.SignerDecision{Trusted: d.Trusted, Principal: d.Principal}
 }

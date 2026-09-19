@@ -178,7 +178,7 @@ func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
 	fx.approve(ref, signing.FormRaw, fragmentBytes("raw body"))
 
 	preferDistilled := true
-	cfgDistilled := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{UseDistilled: &preferDistilled}})
+	cfgDistilled := gatedFixture(config.Fixture{Settings: config.SettingsConfig{UseDistilled: &preferDistilled}})
 	stamperDistilled := NewTrustStamper(cfgDistilled, WithStampLoader(loader), WithStampRecords(fx.records()))
 
 	res := stamperDistilled.ForRef(refStr)
@@ -186,7 +186,7 @@ func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
 	assert.Equal(t, trust.SourcePending, res.Source, "the distilled form was never reviewed, so it must resolve pending — not silently inherit the raw approval")
 
 	preferRaw := false
-	cfgRaw := config.NewFixture(config.Fixture{Settings: config.SettingsConfig{UseDistilled: &preferRaw}})
+	cfgRaw := gatedFixture(config.Fixture{Settings: config.SettingsConfig{UseDistilled: &preferRaw}})
 	stamperRaw := NewTrustStamper(cfgRaw, WithStampLoader(loader), WithStampRecords(fx.records()))
 
 	resRaw := stamperRaw.ForRef(refStr)

@@ -13,7 +13,7 @@ import (
 func turnEndCommands(t *testing.T) []string {
 	t.Helper()
 	m := newManagedHooks()
-	appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	var cmds []string
 	for _, h := range m.For(bundles.HookEventTurnEnd) {
@@ -50,7 +50,7 @@ func TestAppendManagedDynamicHooks_InstallsTheNextStepHookOnTurnEnd(t *testing.T
 // HookOriginContext — turns this red.
 func TestAppendManagedDynamicHooks_NextStepIsDeliveredNotOnlyDeclared(t *testing.T) {
 	m := newManagedHooks()
-	appendManagedDynamicHooks(m, config.NewFixture(config.Fixture{}), t.TempDir(), "", nil)
+	appendManagedDynamicHooks(m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	delivered := wireCommandsOf(m.Wire().Unified.TurnEnd)
 	if !strings.Contains(strings.Join(delivered, " "), "hook next-step") {

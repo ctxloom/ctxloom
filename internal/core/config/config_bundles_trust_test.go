@@ -11,7 +11,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // recordingGate denies any ref containing one of denySubstrs and records every
@@ -31,6 +34,22 @@ func recordingGate(seen map[string]string, denySubstrs ...string) bundles.Author
 		}
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
+}
+
+// rejectingTrust is a real gate (composite.NewTrust over fake ports) holding
+// a human rejection of every item whose "#<kind dir>/<name>" tail contains
+// one of denySubstrs — the generation-shaped counterpart of recordingGate,
+// for a test that drives a whole Config rather than one choke.
+func rejectingTrust(denySubstrs ...string) composite.Trust {
+	return compositetest.Trust(compositetest.RejectWhen(func(ref trust.Ref, _ []byte) bool {
+		tail := "#" + ref.Kind.Dir() + "/" + ref.Name
+		for _, s := range denySubstrs {
+			if strings.Contains(tail, s) {
+				return true
+			}
+		}
+		return false
+	}))
 }
 
 // localRead presents an already-parsed fixture bundle to the executable chokes
@@ -82,7 +101,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustBuiltinRef(t, "tools"), bundles.AdmitAll())
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), mustBuiltinRef(t, "tools"), composite.Ungated().Authorizer())
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 
@@ -152,7 +171,7 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 		[]byte("version: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
 
 	cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}
-	cfg.SetExecutableTrustGate(recordingGate(nil, "#mcp/noisy-server"))
+	cfg.BindTrustForTesting(rejectingTrust("#mcp/noisy-server"))
 
 	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "quiet-server", "trusted profile-bundle MCP server must be written")
@@ -175,7 +194,7 @@ func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
 
 	cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, appPaths: []string{appDir}}
 	// Deny only the session_start hook (index 0 of that event).
-	cfg.SetExecutableTrustGate(recordingGate(nil, "#hooks/session_start/0"))
+	cfg.BindTrustForTesting(rejectingTrust("#hooks/session_start/0"))
 
 	result := cfg.ResolveBundleHooks(nil)
 	assert.True(t, hasHookCommand(result.PreTool, "echo pre-tool", "bundle:ctxloom+local:hook-bundle"),

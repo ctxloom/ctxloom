@@ -34,7 +34,7 @@ import (
 //   - The authorizer can no longer be forgotten by OMISSION. A caller holding a
 //     Loader cannot reach an exposed body at all — Loader's read methods are
 //     named Read* and return candidate sets, and every delivery-shaped Get*
-//     lives here. Not gating requires writing AdmitAll out loud; a pipeline
+//     lives here. Not gating requires writing composite.Ungated() out loud; a pipeline
 //     built with a nil authorizer delivers nothing (see Decide).
 //
 // FAIL-CLOSED is preserved verbatim and is the Authorizer's own contract: a resolve
@@ -44,7 +44,7 @@ import (
 
 // Pipeline pairs a read stage (a *Loader) with the process stage's two
 // policies: which Authorizer decides admissibility, and which layout form to
-// serve. AdmitAll is the management/listing shape, which gates nothing and so
+// serve. An ungated authorizer (composite.Ungated) is the management/listing shape, which gates nothing and so
 // still resolves pending content for a human to review, accept or stamp.
 type Pipeline struct {
 	loader     *Loader
@@ -68,7 +68,7 @@ type Pipeline struct {
 }
 
 // NewPipeline builds the process stage over loader. A surface that does not
-// gate passes AdmitAll, and one that does not assemble a run passes
+// gate passes composite.Ungated().Authorizer(), and one that does not assemble a run passes
 // LinksUnchecked — each a deliberate statement, spelled as a value. A nil
 // authorizer is an omission, and this pipeline then delivers nothing; a nil
 // links grant is the same omission for every linked item.
@@ -121,7 +121,7 @@ func (p *Pipeline) Withheld() []string {
 }
 
 // admit reports whether these bytes may be delivered, recording the ref when
-// they may not and SURFACING a verdict that admits with a warning. AdmitAll
+// they may not and SURFACING a verdict that admits with a warning. An ungated authorizer
 // admits everything; a nil authorizer delivers nothing.
 //
 // The authorizer is handed the EXACT bytes about to be exposed (pre-mustache)

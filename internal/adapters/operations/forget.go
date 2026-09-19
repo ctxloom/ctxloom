@@ -138,7 +138,7 @@ func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*For
 	if err != nil {
 		return nil, err
 	}
-	refStr, err := CountersignRef(tRef)
+	refStr, err := countersign.CountersignRef(tRef)
 	if err != nil {
 		return nil, fmt.Errorf("cannot forget %q: %w", req.Ref, err)
 	}
@@ -175,10 +175,10 @@ func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*For
 			// Every attestation form this KIND can be signed under is swept
 			// against these bytes, not merely the form the item currently
 			// presents them in — because that is exactly the set
-			// countersignRecords.Rejected searches. Clearing a narrower set
+			// countersign.Records.Rejected searches. Clearing a narrower set
 			// would leave a rejection the gate can still find.
 			cleared := 0
-			for _, form := range attestationFormsFor(tRef.Kind) {
+			for _, form := range countersign.AttestationFormsFor(tRef.Kind) {
 				n, ferr := store.ForgetContentReject(form, a.Payload)
 				if ferr != nil {
 					return nil, fmt.Errorf("clear the content rejection of %q (%s): %w", req.Ref, form, ferr)
@@ -239,9 +239,23 @@ func remainingDecision(cfg *config.Config, req ForgetItemDecisionRequest, tRef t
 		}
 	}
 	for _, a := range attestations {
-		if records.Approved(tRef, a.Payload, string(a.Layout)) {
+		if records.Approved(tRef, a.Payload, contentFormOf(a.Layout)) {
 			return "approved"
 		}
 	}
 	return ""
+}
+
+// contentFormOf maps a stored record's layout form onto the bundle layout
+// vocabulary by comparison, never by conversion: a form neither vocabulary
+// names maps to the empty form, which no approval covers.
+func contentFormOf(layout signing.Form) bundles.ContentForm {
+	switch layout {
+	case signing.FormRaw:
+		return bundles.FormRaw
+	case signing.FormDistilled:
+		return bundles.FormDistilled
+	default:
+		return ""
+	}
 }

@@ -60,7 +60,7 @@ func TestSetBlacklist_InjectedHomeRoot_WritesThereAndLeavesTheRealHomeUntouched(
 	realBefore := approvalsEntries(t, realHomeApprovals)
 
 	injected := filepath.Join(t.TempDir(), "approvals")
-	t.Cleanup(SetHomeApprovalsDirForTesting(injected))
+	t.Cleanup(countersign.SetHomeDirForTesting(injected))
 
 	cfg, _ := realExposureProject(t, afero.NewMemMapFs())
 	res, err := SetBlacklist(cfg, SetBlacklistRequest{Ref: "dev#fragments/blocked"})
@@ -95,14 +95,14 @@ func TestBuildCountersignRecords_ReadsTheInjectedHomeRoot(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	injected := filepath.Join(t.TempDir(), "approvals")
-	t.Cleanup(SetHomeApprovalsDirForTesting(injected))
+	t.Cleanup(countersign.SetHomeDirForTesting(injected))
 
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "x"}
 	refStr := mustCountersignRef(t, ref)
 	require.NoError(t, countersign.NewStore(injected, afero.NewOsFs()).WriteUnsignedRefReject(refStr))
 
 	records := buildCountersignRecords(nil, afero.NewOsFs(), nil, nil, nil)
-	assert.True(t, records.user.HasUnsignedRefReject(refStr),
+	assert.True(t, records.User().HasUnsignedRefReject(refStr),
 		"the reader must resolve the user store through the same seam the writer does")
 }
 
@@ -115,10 +115,10 @@ func TestHomeApprovalsDir_RefusesAnUnsandboxedHomeUnderTest(t *testing.T) {
 	// before any store is constructed.
 	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
 
-	dir, err := homeApprovalsDir()
+	dir, err := countersign.HomeDir()
 	require.Error(t, err, "an unsandboxed HOME must be refused under a test binary, got %q", dir)
 	assert.Empty(t, dir, "a refused resolution must not also hand back the path it refused")
-	assert.Contains(t, err.Error(), "SetHomeApprovalsDirForTesting",
+	assert.Contains(t, err.Error(), "SetHomeDirForTesting",
 		"the refusal must name the fix, or it only tells the reader they are stuck")
 }
 
@@ -130,7 +130,7 @@ func TestHomeApprovalsDir_AllowsASandboxedHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	dir, err := homeApprovalsDir()
+	dir, err := countersign.HomeDir()
 	require.NoError(t, err)
 	assert.Equal(t, realPath(t, filepath.Join(home, paths.AppDirName, paths.ApprovalsDirName)), realPath(t, dir))
 }
@@ -163,7 +163,7 @@ func TestHomeApprovalsDir_HonoursGOTMPDIREvenWhenOSTempDirDisagrees(t *testing.T
 	require.NoError(t, os.MkdirAll(home, 0o700))
 	t.Setenv("HOME", home)
 
-	dir, err := homeApprovalsDir()
+	dir, err := countersign.HomeDir()
 	require.NoError(t, err,
 		"a HOME under the configured GOTMPDIR must be accepted even though it is outside os.TempDir() — "+
 			"the exact live disagreement this project's justfile creates")
@@ -214,7 +214,7 @@ func TestSignerStorePath_ProjectIsUnaffected(t *testing.T) {
 	t.Setenv("HOME", string(filepath.Separator)+"ctxloom-unsandboxed-home")
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
 
-	path, _, _, err := signerStorePath(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), true)
+	path, _, _, err := signerStorePath(gatedFixture(config.Fixture{AppPaths: []string{appDir}}), true)
 	require.NoError(t, err)
 	assert.Equal(t, paths.AllowedSignersPath(appDir), path)
 }

@@ -32,7 +32,7 @@ import (
 func treeAuthoringFixture(t *testing.T) (afero.Fs, *config.Config, string) {
 	t.Helper()
 	appPath := filepath.Join(t.TempDir(), ".ctxloom")
-	return afero.NewOsFs(), config.NewFixture(config.Fixture{AppPaths: []string{appPath}}), appPath
+	return afero.NewOsFs(), gatedFixture(config.Fixture{AppPaths: []string{appPath}}), appPath
 }
 
 // readBackTree resolves the authored bundle through the PROJECT READER — the

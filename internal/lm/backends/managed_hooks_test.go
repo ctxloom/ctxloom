@@ -78,7 +78,7 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(
 		"bundles:\n  - kit\nhooks:\n  unified:\n    pre_tool:\n      - command: from-dir-profile\n        type: command\n"), 0o644))
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		AppPaths:     []string{appDir},
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
@@ -167,7 +167,7 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 // synthesised hook honest: it is authored nowhere, so it must not be reported as
 // if some file declared it.
 func TestAssembleManagedHooks_ContextInjectionIsAttributedToContext(t *testing.T) {
-	m := AssembleManagedHooks(config.NewFixture(config.Fixture{}), t.TempDir(), "deadbeef", nil)
+	m := AssembleManagedHooks(gatedFixture(config.Fixture{}), t.TempDir(), "deadbeef", nil)
 
 	hooks := m.For("session_start")
 	require.NotEmpty(t, hooks, "a non-empty context hash must synthesise the injection hook")
@@ -351,10 +351,10 @@ func TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError(t *testing.T) {
 
 // --- inspection accessors ---------------------------------------------------
 
-// TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys: the empty backend
-// and event keys the append merge creates are structure Wire has to reproduce,
-// not hooks anyone asked about — reporting them would invent rows for hooks that
-// do not exist.
+// TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys: an empty backend
+// or event key is not a hook anyone asked about — reporting it would invent
+// rows for hooks that do not exist, and the gate that decides every declared
+// hook (gateProfileHooks) does not carry one onto the wire either.
 func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{
 		Plugins: map[string]wire.BackendHooks{
@@ -374,9 +374,9 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 	assert.Equal(t, HookOriginProfileDirectory, native[0].Hooks[0].Source.Origin)
 	assert.Equal(t, "zed", native[1].Backend, "sorted by backend, so the report can be diffed between runs")
 
-	// ...and the empty keys still reach the wire projection.
-	require.Contains(t, m.Wire().Plugins, "mock")
-	require.Contains(t, m.Wire().Plugins["claude"], "PostToolUse")
+	// ...and the gated wire projection carries no empty key either.
+	assert.NotContains(t, m.Wire().Plugins, "mock")
+	assert.NotContains(t, m.Wire().Plugins["claude"], "PostToolUse")
 }
 
 // TestHookSource_StringNamesWhateverTheOriginCarries keeps the human label

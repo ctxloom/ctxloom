@@ -142,23 +142,6 @@ type PublishOptions struct {
 	// as "bundle"; the caller uses bundles.ExtractBundleName, which package
 	// remote cannot call itself (bundles imports remote).
 	RemotePath string
-
-	// SignPayload, when non-nil, is called with the EXACT bytes about to be
-	// written to remotePath — the local file's bytes, verbatim, which are also
-	// the bytes that will sit in the remote tree (spec §3.1: a publisher
-	// signature covers the raw bundle FILE bytes, unframed and unmodified) —
-	// and must return an armored PROTOCOL.sshsig blob over them. The result is
-	// written as a detached sibling "<remotePath>.sig" in the SAME
-	// commit/branch (spec §4.1).
-	//
-	// This is a callback rather than a concrete signer type so package
-	// remote stays decoupled from package signing/agentkey — key discovery
-	// and signing are the caller's (operations/CLI) responsibility; this
-	// package only knows "given bytes, produce a signature or fail". A
-	// non-nil SignPayload that returns an error aborts the ENTIRE publish
-	// before any network write — signing failure must never degrade to an
-	// unsigned publish (spec §7A.4, normative).
-	SignPayload func(payload []byte) ([]byte, error)
 }
 
 // PublishResult contains the result of a publish operation.
@@ -174,24 +157,17 @@ type PublishResult struct {
 
 	// Created indicates if a new file was created (vs updated).
 	Created bool
-
-	// Signed reports whether a detached "<Path>.sig" sibling was written
-	// alongside Path (PublishOptions.SignPayload was set and succeeded).
-	Signed bool
 }
 
 // publishPrep holds everything resolved before the push/PR strategy runs.
 type publishPrep struct {
-	publisher   Publisher
-	repoURL     string
-	owner, repo string
-	itemName    string
-	remotePath  string
-	branch      string
-	content     []byte // the local file's bytes, verbatim (spec §3.0, §3.1)
-	// signature is the armored sshsig blob over content, computed by
-	// PublishOptions.SignPayload when set; nil means "not signing".
-	signature     []byte
+	publisher     Publisher
+	repoURL       string
+	owner, repo   string
+	itemName      string
+	remotePath    string
+	branch        string
+	content       []byte // the local file's bytes, verbatim (spec §3.0, §3.1)
 	title, body   string
 	commitMessage string
 	created       bool
@@ -239,9 +215,7 @@ func (pm *PublishManager) loadPublishContent(localPath string) ([]byte, error) {
 	// 0-byte file overwrote whatever real content already existed at the
 	// remote path with nothing, reported success, and — before signing.Sign
 	// gained its own floor — could even produce a "valid" publisher
-	// signature over zero bytes. Reject here, before any network write and
-	// before SignPayload is ever called, so both the signed and unsigned
-	// publish paths are covered by one guard.
+	// signature over zero bytes. Reject here, before any network write.
 	if len(content) == 0 {
 		return nil, fmt.Errorf("refusing to publish empty file %s: a 0-byte file would overwrite the remote with nothing", localPath)
 	}
@@ -389,33 +363,10 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, err
 	}
 
-	// Sign the EXACT bytes about to be written to remotePath — which are the
-	// EXACT bytes read from the local file. Publish injects nothing and
-	// re-serializes nothing (spec §3.0: "No re-serialization anywhere between
-	// publisher and verifier"; §3.1: the publisher payload is the bundle file
-	// bytes, verbatim). One canonical byte-set runs author → signature →
-	// remote → consumer, so a `.sig` produced by `ctxloom sign` against the
-	// local file verifies against the published bytes unchanged, and
+	// The bytes written to remotePath are the EXACT bytes read from the local
+	// file: Publish injects nothing and re-serializes nothing (spec §3.0: "No
+	// re-serialization anywhere between publisher and verifier"), so
 	// republishing an unmodified bundle is reproducible.
-	//
-	// A signing failure aborts here, before any network write: no publish has
-	// happened yet, so there is no partial state to unwind, and the caller
-	// never sees the file land unsigned when signing was requested (spec
-	// §7A.4, normative — failing to sign is a hard error).
-	var signature []byte
-	if opts.SignPayload != nil {
-		signature, err = opts.SignPayload(content)
-		if err != nil {
-			return nil, fmt.Errorf("sign %s: %w", remotePath, err)
-		}
-	}
-
-	// Existing file (if any) decides created vs updated and the default title.
-	// GetFileSHA's contract (see the Publisher interface doc) is "empty string
-	// means the file doesn't exist" — that is NOT the same as "the forge could
-	// not be asked". A transient failure here must not be silently read as
-	// "absent": that flips a genuine update into an "Add …" commit
-	// subject / PR title, misrepresenting the change.
 	existingSHA, err := publisher.GetFileSHA(ctx, rt.owner, rt.repo, remotePath, branch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for an existing file at %s: %w", remotePath, err)
@@ -432,28 +383,11 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		remotePath:    remotePath,
 		branch:        branch,
 		content:       content,
-		signature:     signature,
 		title:         title,
 		body:          body,
 		commitMessage: buildCommitMessage(title, body),
 		created:       created,
 	}, nil
-}
-
-// publishSignatureSibling writes prep.signature (when non-nil) as
-// "<remotePath>.sig" on branch, in its own commit right after the content
-// commit — the detached sibling carrier (spec §4.1). Returns Signed=true
-// only when a signature was actually written.
-func publishSignatureSibling(ctx context.Context, publisher Publisher, prep *publishPrep, branch string) (bool, error) {
-	if prep.signature == nil {
-		return false, nil
-	}
-	sigPath := prep.remotePath + ".sig"
-	msg := "sign " + prep.itemName
-	if _, err := publisher.CreateOrUpdateFile(ctx, prep.owner, prep.repo, sigPath, branch, msg, prep.signature); err != nil {
-		return false, fmt.Errorf("publish signature %s: %w", sigPath, err)
-	}
-	return true, nil
 }
 
 // buildCommitMessage assembles a git-convention commit message: subject, blank
@@ -465,22 +399,13 @@ func buildCommitMessage(title, body string) string {
 	return title + "\n\n" + body
 }
 
-// publishDirect pushes the content straight to the target branch, then the
-// signature sibling (if any) — spec §4.1, same branch, same tree.
+// publishDirect pushes the content straight to the target branch.
 func (pm *PublishManager) publishDirect(ctx context.Context, prep *publishPrep) (*PublishResult, error) {
 	sha, err := prep.publisher.CreateOrUpdateFile(ctx, prep.owner, prep.repo, prep.remotePath, prep.branch, prep.commitMessage, prep.content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to publish: %w", err)
 	}
-	signed, err := publishSignatureSibling(ctx, prep.publisher, prep, prep.branch)
-	if err != nil {
-		// The content commit already landed UNSIGNED on the target branch;
-		// this is surfaced as an error (never silently swallowed) so the
-		// caller knows to retry `ctxloom sign` against the pushed bundle
-		// rather than believing the signed publish it asked for succeeded.
-		return nil, fmt.Errorf("bundle pushed as %s (commit %s) but its signature failed to publish: %w", prep.remotePath, sha, err)
-	}
-	return &PublishResult{Path: prep.remotePath, SHA: sha, Created: prep.created, Signed: signed}, nil
+	return &PublishResult{Path: prep.remotePath, SHA: sha, Created: prep.created}, nil
 }
 
 // publishViaPR creates a feature branch, commits the content there, and opens a
@@ -515,13 +440,6 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
-	// Signature sibling lands on the SAME feature branch, before the PR is
-	// opened, so the PR's diff already carries the signed pair together.
-	signed, err := publishSignatureSibling(ctx, prep.publisher, prep, branchName)
-	if err != nil {
-		return nil, fmt.Errorf("branch %s created with %s but its signature failed to publish: %w", branchName, prep.remotePath, err)
-	}
-
 	// Cap the on-PR title for readability; preserve any overflow in the body
 	// so the full title text survives alongside the message body.
 	prTitle, titleOverflow := fitPRTitle(prep.title)
@@ -531,7 +449,7 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 		return nil, fmt.Errorf("failed to create pull request: %w", err)
 	}
 
-	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created, Signed: signed}, nil
+	return &PublishResult{Path: prep.remotePath, SHA: sha, PRURL: prURL, Created: prep.created}, nil
 }
 
 // PublishTree publishes a whole DIRECTORY-form bundle: every file in files —
@@ -540,12 +458,9 @@ func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, o
 // tree's root directory (computed by the caller with
 // PublishPath(itemType, name)).
 //
-// There is no separate signature-sibling write here, unlike Publish.
-// opts.SignPayload is ignored: a tree's own signature (a "<manifest>.sig"
-// sidecar today, and whatever a tree-signature format lands as later) is
-// something the caller already gathered off disk as one more entry in files,
-// so it travels in the SAME commit rather than the sibling-commit dance the
-// single-file path uses to avoid a half-signed publish.
+// A tree's signature — its SHA256SUMS manifest and .sigs/ entries — is
+// something the caller already gathered off disk as more entries in files,
+// so it travels in the SAME commit as everything else.
 //
 // Package remote does not walk the bundle's directory itself: it has no
 // notion of what belongs to a bundle (that is package bundles' rule, and

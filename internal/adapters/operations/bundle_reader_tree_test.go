@@ -116,7 +116,7 @@ func TestNewBundleReaderForConfig_CarriesTheTreeReadSurface(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, reloaded.Bundles, treeProbeCanonical, "fixture did not round-trip through the lockfile")
 
-	reader := NewBundleReaderForConfig(config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
+	reader := NewBundleReaderForConfig(gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	require.NotNil(t, reader)
 
 	_, readErr := reader.ReadBundleBytes(t.Context(), treeProbeCanonical)

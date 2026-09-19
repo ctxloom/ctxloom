@@ -33,17 +33,17 @@ func TestGetBaseDir_UsesConfigPath(t *testing.T) {
 		},
 		{
 			name:     "empty AppPaths uses default",
-			cfg:      config.NewFixture(config.Fixture{AppPaths: []string{}}),
+			cfg:      gatedFixture(config.Fixture{AppPaths: []string{}}),
 			expected: paths.AppDirName,
 		},
 		{
 			name:     "uses first ctxloom path from config",
-			cfg:      config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir, "/home/user/" + paths.AppDirName}}),
+			cfg:      gatedFixture(config.Fixture{AppPaths: []string{testBaseDir, "/home/user/" + paths.AppDirName}}),
 			expected: testBaseDir,
 		},
 		{
 			name:     "single ctxloom path",
-			cfg:      config.NewFixture(config.Fixture{AppPaths: []string{"/my/project/" + paths.AppDirName}}),
+			cfg:      gatedFixture(config.Fixture{AppPaths: []string{"/my/project/" + paths.AppDirName}}),
 			expected: "/my/project/" + paths.AppDirName,
 		},
 	}
@@ -378,7 +378,7 @@ func TestListRemotes_WithFS(t *testing.T) {
 `
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := ListRemotes(context.Background(), cfg, ListRemotesRequest{
 		FS: fs,
@@ -393,7 +393,7 @@ func TestAddRemote_WithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fetcher := remote.NewMockFetcher().WithValidRepo("alice", "ctxloom")
 
 	result, err := AddRemote(context.Background(), cfg, AddRemoteRequest{
@@ -424,7 +424,7 @@ func TestRemoveRemote_WithFS(t *testing.T) {
 `
 	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(testBaseDir), []byte(remotesContent), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := RemoveRemote(context.Background(), cfg, RemoveRemoteRequest{
 		Name: "to-remove",
@@ -1041,7 +1041,7 @@ func TestSearchRemotes_WithValidRegistry(t *testing.T) {
 	remotesContent := "remotes:\n  alice:\n    url: " + url + "\n"
 	require.NoError(t, os.WriteFile(paths.RemotesPath(baseDir), []byte(remotesContent), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{baseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{baseDir}})
 
 	result, err := SearchRemotes(context.Background(), cfg, SearchRemotesRequest{
 		Query:    "widget",

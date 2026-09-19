@@ -21,7 +21,7 @@ import (
 func TestDecodeBackendConfig_RemovedGeminiAndAntigravityTypesHintUnsupported(t *testing.T) {
 	for _, removedType := range []string{"gemini", "antigravity"} {
 		t.Run(removedType, func(t *testing.T) {
-			cfg := config.NewFixture(config.Fixture{
+			cfg := gatedFixture(config.Fixture{
 				LM: config.LMConfig{
 					Configs: map[string]config.LLMConfig{
 						"gem": {Type: removedType, Body: map[string]interface{}{}},
@@ -41,7 +41,7 @@ func TestDecodeBackendConfig_RemovedGeminiAndAntigravityTypesHintUnsupported(t *
 
 // Other unknown types keep the plain warning — no removed-backend hint.
 func TestDecodeBackendConfig_UnknownTypeHasNoRemovedBackendHint(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"x": {Type: "nope", Body: map[string]interface{}{}},
@@ -67,7 +67,7 @@ func TestDecodeBackendConfig_UnknownTypeHasNoRemovedBackendHint(t *testing.T) {
 // on the PAYLOAD: every line ctxloom writes to the diagnostic channel must be
 // one envelope, and the hint's content must still be in there.
 func TestDecodeBackendConfig_RemovedBackendHintRidesTheDiagnosticChannel(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"gem": {Type: "antigravity", Body: map[string]interface{}{}},
@@ -101,7 +101,7 @@ func TestDecodeBackendConfig_RemovedBackendHintRidesTheDiagnosticChannel(t *test
 // nothing — a real engine's environment is ambient, never config-declared
 // (config.RetiredLLMEnvKey), so there is no map on its config to read.
 func TestMockControlFor_ReadsTheMockLabelsControlMapAndNothingElse(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{
+	cfg := gatedFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
 				"m": {Type: config.BackendMock, Body: map[string]interface{}{

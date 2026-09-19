@@ -224,7 +224,7 @@ commands:
 }
 
 func TestSearchContent_ValidationError(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	_, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "",
@@ -236,7 +236,7 @@ func TestSearchContent_ValidationError(t *testing.T) {
 
 func TestSearchContent_SearchFragmentsByName(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "security",
@@ -283,7 +283,7 @@ fragments:
 	// when nothing is authored locally.
 	loader := seedLoader(t, map[string]*bundles.Bundle{remoteName: b})
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "threat-modeling",
 		Types:  []string{"fragment"},
@@ -304,7 +304,7 @@ fragments:
 
 func TestSearchContent_SearchFragmentsByTag(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "tdd",
@@ -356,7 +356,7 @@ func TestSearchContent_TagsOnlyQueryIsFragmentScoped(t *testing.T) {
 
 func TestSearchContent_SearchPrompts(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "review",
@@ -395,7 +395,7 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 		[]byte("---\nname: humanize\ndescription: Rewrites text to sound less like an AI wrote it.\n---\n\n# humanize\n\nBody.\n"), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{bundlesDir}))
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "humanize",
@@ -453,7 +453,7 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 }
 
 func TestSearchContent_SearchMCPServers(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "ctxloom",
@@ -501,7 +501,7 @@ func TestSearchContent_MultipleTypes(t *testing.T) {
 
 func TestSearchContent_SortByName(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "ing", // matches "testing" and other fragments
@@ -522,7 +522,7 @@ func TestSearchContent_SortByName(t *testing.T) {
 
 func TestSearchContent_SortByRelevance(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "go",
@@ -542,7 +542,7 @@ func TestSearchContent_SortByRelevance(t *testing.T) {
 
 func TestSearchContent_WithLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a", // Should match many items
@@ -568,7 +568,7 @@ func TestSearchContent_WithLimit(t *testing.T) {
 // that was already complete).
 func TestSearchContent_TotalMatchesEqualsCountWhenUnderLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a",
@@ -583,7 +583,7 @@ func TestSearchContent_TotalMatchesEqualsCountWhenUnderLimit(t *testing.T) {
 
 func TestSearchContent_DefaultLimit(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "a",
@@ -637,7 +637,7 @@ func TestSearchContent_SortByType(t *testing.T) {
 
 func TestSearchContent_SortDescending(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:     "ing", // matches "testing"
@@ -686,7 +686,7 @@ func TestSearchContent_ProfileByDescription(t *testing.T) {
 
 func TestSearchContent_LocalScope(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "security",
@@ -787,7 +787,7 @@ func TestSortResults_TypeTiesAreDeterministic(t *testing.T) {
 
 func TestSearchContent_NoScopeFlagsNeeded(t *testing.T) {
 	_, loader := setupSearchTestFS(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query:  "test",

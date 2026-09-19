@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/resources"
@@ -49,10 +50,11 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	rejectEveryBuiltinFragment(t)
 	// Re-seed the fixture's profile so it selects a tag no fragment carries.
 	// materializeFixture writes "reviewer"; overwriting it here is what makes
-	// the assembled context empty.
-	return withProfileDefs(t, cfg, map[string]config.Profile{
+	// the assembled context empty — under the gate that reads the real
+	// rejections just recorded.
+	return realGated(withProfileDefs(t, cfg, map[string]config.Profile{
 		"reviewer": {SelectTags: []string{"no-fragment-carries-this-tag"}},
-	}), target
+	})), target
 }
 
 // TestMaterializeProfile_RefusesEmptyAssembledContext pins this
@@ -81,19 +83,17 @@ func TestMaterializeProfile_RefusesEmptyAssembledContext(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(target, "CLAUDE.md"))
 }
 
-// TestMaterializeProfile_RestoresCallersTrustGate pins that
-// MaterializeProfile installs its own executable trust gate on the CALLER's
-// shared *config.Config and used to leave it there, so every later consumer of
-// that config — in a long-lived process, every subsequent operation — silently
-// inherited a gate it never asked for. The gate must be scoped to the call.
-func TestMaterializeProfile_RestoresCallersTrustGate(t *testing.T) {
+// TestMaterializeProfile_DecidesWithTheGenerationsGate: materialize installs
+// no gate of its own. The executable surfaces it writes decide with the
+// generation's Trust — the one bound on cfg — and the config carries that
+// same gate afterwards, so a long-lived process's later operations inherit
+// nothing materialize asked for.
+func TestMaterializeProfile_DecidesWithTheGenerationsGate(t *testing.T) {
 	cfg, target := materializeFixture(t, "MATERIALIZED-CONTENT")
 
-	callersGateConsulted := 0
-	cfg.SetExecutableTrustGate(bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
-		callersGateConsulted++
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
-	}))
+	generationsGateConsulted := 0
+	gate := compositetest.Trust(compositetest.Observe(func(trust.Ref, []byte) { generationsGateConsulted++ }))
+	cfg.BindTrustForTesting(gate)
 
 	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"},
@@ -101,9 +101,6 @@ func TestMaterializeProfile_RestoresCallersTrustGate(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	restored := cfg.ExecutableTrustGate()
-	require.NotNil(t, restored, "the caller's gate must survive the call")
-	restored.Admit(bundles.Exposure{})
-	assert.Equal(t, 1, callersGateConsulted,
-		"the config must still carry the CALLER's gate, not materialize's own")
+	assert.Positive(t, generationsGateConsulted, "materialize decides with the generation's gate")
+	assert.Equal(t, gate.Authorizer(), cfg.ExecutableTrustGate(), "the config carries the generation's gate afterwards, not one materialize installed")
 }

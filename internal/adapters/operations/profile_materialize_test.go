@@ -185,7 +185,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "reviewer.yaml"), []byte(
 		"select_tags:\n  - security\nhooks:\n  unified:\n    session_start:\n      - type: command\n        command: echo team-guardrail\n",
 	), 0o644))
-	return config.NewFixture(f), target
+	return gatedFixture(f), target
 }
 
 // TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the
@@ -281,7 +281,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
 		[]byte("#!/bin/sh\necho hi\n"), 0755))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
@@ -337,7 +337,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 			"      SKILL.md:\n        sha256: "+sha256Of(skillMD)+"\n        mode: \"0644\"\n"+
 			"      scripts/run.sh:\n        sha256: "+sha256Of(script)+"\n        mode: \"0755\"\n"), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
@@ -377,7 +377,7 @@ func sha256Of(b []byte) string {
 // TestMaterializeProfile_Validation covers the guard rails.
 func TestMaterializeProfile_Validation(t *testing.T) {
 	ctx := context.Background()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
 	_, err := MaterializeProfile(ctx, cfg, MaterializeProfileRequest{Profiles: []string{"p"}})
 	assert.Error(t, err, "missing target is rejected")
@@ -448,7 +448,7 @@ func TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands(t *testing.T
 // one-entry alias table (`backend == "claude"`) — the second copy that
 // drifts — so the refusals here are what keep one from growing back.
 func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
 	got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
 		Target: t.TempDir(), Profiles: []string{"p"}, Backend: "claude-code",
@@ -513,7 +513,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised.yaml"),
 		[]byte("name: premised\nbundles:\n  - premise-bundle\n"), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
@@ -570,7 +570,7 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "premised2.yaml"),
 		[]byte("name: premised2\nbundles:\n  - premise-bundle-2\n"), 0644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{

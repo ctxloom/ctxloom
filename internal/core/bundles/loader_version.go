@@ -148,8 +148,8 @@ func versionRead(canonical, commit string, b *Bundle) BundleRead {
 	if parsed, err := remote.ParseReference(canonical); err == nil && parsed.IsLocal {
 		tctx, prov = TrustCtxLocal, ProvenanceProject
 	}
-	return newRead(canonical+"@"+commit, b, prov, tctx,
-		signatureFacts{signature: SignatureNone, signer: SignerNone})
+	return NewRead(canonical+"@"+commit, b, prov, tctx,
+		SignatureFacts{Signature: SignatureNone, Signer: SignerNone})
 }
 
 // splitBundleVersion separates a bundle reference's version-less canonical form

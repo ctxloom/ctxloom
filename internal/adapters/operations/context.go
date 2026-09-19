@@ -14,6 +14,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -191,11 +192,17 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	profileNames := resolveContextProfileNames(cfg, req)
 
 	pipe := req.Pipeline
-	// gate is the underlying trust gate behind pipe, when this call built its
-	// own (nil for an injected test pipeline — see warnWithheld). Kept so the
-	// withheld advisory below can name WHY each item was withheld, not just
-	// that it was.
-	var gate *contentGate
+	// A generation with no gate cannot deliver: refused at entry, by
+	// sentinel. An injected pipeline decides with a gate of its own.
+	if pipe == nil {
+		if _, err := cfg.RequireTrust(); err != nil {
+			return nil, fmt.Errorf("assemble context: %w", err)
+		}
+	}
+	// gate is the trust gate behind pipe, when this call built its own (nil
+	// for an injected test pipeline — see warnWithheld). Kept so the withheld
+	// advisory below can name WHY each item was withheld, not just that it was.
+	var gate bundles.Authorizer
 	if pipe == nil {
 		// Exposure surface: gate fragment/prompt content (trust rework, TR5). The
 		// gate runs the baseline first (idempotent) so existing content stays
@@ -996,16 +1003,16 @@ func guttedProfiles(declared map[string][]string, loaded []string) []string {
 // warnFragmentLoadFailure, which exempts ErrFragmentWithheld from the
 // strictness classes on purpose). This closes the naming gap without
 // relitigating that decision.
-func warnGuttedProfiles(declared map[string][]string, loaded []string, gate *contentGate) {
+func warnGuttedProfiles(declared map[string][]string, loaded []string, gate bundles.Authorizer) {
 	warnGuttedProfilesTo(os.Stderr, declared, loaded, gate)
 }
 
 // warnGuttedProfilesTo is warnGuttedProfiles with the sink injected.
-func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []string, gate *contentGate) {
-	if gate == nil {
-		return
+func warnGuttedProfilesTo(w io.Writer, declared map[string][]string, loaded []string, gate bundles.Authorizer) {
+	var withheld []string
+	for _, it := range composite.WithheldBy(gate) {
+		withheld = append(withheld, it.Ref)
 	}
-	withheld := gate.withheldRefs()
 	if len(withheld) == 0 {
 		// The profile may be empty for reasons that are not the gate's doing
 		// (an empty bundle, an exclusion filter). Only speak to withholding.

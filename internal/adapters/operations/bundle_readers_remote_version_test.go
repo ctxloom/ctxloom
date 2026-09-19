@@ -88,7 +88,7 @@ func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 
@@ -97,7 +97,7 @@ func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	b, err := resolve(canonical, rev1)
 	require.Error(t, err, "a single-file remote bundle must not resolve")
 	assert.Nil(t, b, "and nothing may come back alongside the refusal")
-	assert.Contains(t, err.Error(), "document form is no longer readable",
+	assert.Contains(t, err.Error(), "document form is not readable",
 		"the refusal must name the SHAPE — 'not found' would send a publisher hunting a path problem")
 	assert.Contains(t, err.Error(), "republish it as a tree",
 		"and it must name the remedy, since the publisher is the only one who can apply it")
@@ -179,7 +179,7 @@ func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 		[]byte("publisher@example.com namespaces=\""+signing.NamespacePublish+"\" "+
 			string(ssh.MarshalAuthorizedKey(pub))), 0o644))
 
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 

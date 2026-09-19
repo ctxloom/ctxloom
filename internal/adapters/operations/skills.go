@@ -661,7 +661,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 			_ = fs.Remove(outPath)
 			return nil, fmt.Errorf("sign %q: %w", req.Name, err)
 		}
-		sigPath := outPath + bundles.SigSuffix
+		sigPath := outPath + skillArchiveSigSuffix
 		// No AllowEmpty: armored is signing.Sign's output, never empty.
 		if err := iox.WriteFileAtomicFs(fs, sigPath, armored, 0o644); err != nil {
 			_ = fs.Remove(outPath)
@@ -845,3 +845,8 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 		SignatureState: sigState,
 	}, nil
 }
+
+// skillArchiveSigSuffix is the detached signature beside an exported skill
+// archive (`<name>.zip.sig`) — the archive's own attestation, verified by
+// the skill import path, not a bundle signature.
+const skillArchiveSigSuffix = ".sig"

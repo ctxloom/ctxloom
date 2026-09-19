@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -37,8 +37,8 @@ type ExportBundleResult struct {
 	Name   string `json:"name"`
 	Source string `json:"source"`
 	Dest   string `json:"dest"`
-	// SigDest is where the bundle's detached publisher signature landed, or ""
-	// when the source bundle carried none.
+	// SigDest is the exported tree's .sigs/ store — where its signature
+	// travelled to — or "" when the bundle carries none.
 	SigDest string `json:"sig_dest,omitempty"`
 }
 
@@ -46,13 +46,10 @@ type ExportBundleResult struct {
 // author workflow — e.g. staging for publish). The destination is user-chosen
 // and outside the bundles tree, so no symlink guard applies.
 //
-// A bundle's publisher signature lives in a detached `<file>.yaml.sig` sibling
-// (spec §4.2), so copying the YAML alone would silently strip the bundle's
-// trust — the copy would arrive unverifiable. Export therefore carries the .sig
-// alongside whenever the source has one — but only after proving it covers the
-// bytes being copied. A signature over a bundle's PREVIOUS contents is refused
-// outright (staleSignatureError): exporting that pair would plant a tamper alarm
-// at the destination.
+// A tree's signature is its SHA256SUMS manifest and the .sigs/ entries over
+// it, and they travel with the tree. A manifest that no longer covers the
+// tree is refused outright (refuseStaleSignature): exporting it would plant a
+// tamper alarm at the destination.
 func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest) (*ExportBundleResult, error) {
 	if cfg == nil || len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no bundles directory found")
@@ -78,22 +75,14 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 		return nil, fmt.Errorf("failed to read bundle: %w", err)
 	}
 
-	// Verify the pair BEFORE writing anything. A refusal must leave no trace at
-	// the destination: half-exporting a signed bundle as a bare YAML would be the
-	// silent trust downgrade this function exists to prevent, only with the export
-	// reported as failed.
-	sig, err := PublisherSignature(fs, bundle.Path, srcData)
-	if err != nil {
+	// Refuse BEFORE writing anything: a refusal must leave no trace at the
+	// destination.
+	if err := refuseStaleSignature(fs, dirs, name); err != nil {
 		return nil, fmt.Errorf("export %s: %w", req.Name, err)
 	}
 
-	// A DIRECTORY-form bundle's manifest is only its envelope: the items live in
-	// sibling files, with the SHA256SUMS that covers them and the .sigs/ store
-	// that attests it. Copying bundle.yaml alone wrote a destination file
-	// literally NAMED "bundle.yaml", holding an envelope whose content was no
-	// longer beside it — exit 0, "exported", payload gone.
 	if filepath.Base(bundle.Path) == bundles.DirectoryFormManifest {
-		return exportBundleTree(fs, req, bundle.Path, sig)
+		return exportBundleTree(fs, req, bundle.Path)
 	}
 
 	var dest string
@@ -120,11 +109,7 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 		return nil, fmt.Errorf("failed to write bundle: %w", err)
 	}
 
-	sigDest, err := writeSignature(fs, dest, sig)
-	if err != nil {
-		return nil, fmt.Errorf("export %s: %w", req.Name, err)
-	}
-	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: bundle.Path, Dest: dest, SigDest: sigDest}, nil
+	return &ExportBundleResult{Status: "exported", Name: req.Name, Source: bundle.Path, Dest: dest}, nil
 }
 
 // exportBundleTree exports a DIRECTORY-form bundle: the whole subtree beneath
@@ -136,7 +121,7 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 // its own bundles tree; an export destination is arbitrary user-chosen space,
 // where removing a directory outright would delete files the user never handed
 // us.
-func exportBundleTree(fs afero.Fs, req ExportBundleRequest, manifestPath string, sig []byte) (*ExportBundleResult, error) {
+func exportBundleTree(fs afero.Fs, req ExportBundleRequest, manifestPath string) (*ExportBundleResult, error) {
 	srcDir := filepath.Dir(manifestPath)
 	var dest string
 	switch {
@@ -151,11 +136,10 @@ func exportBundleTree(fs afero.Fs, req ExportBundleRequest, manifestPath string,
 		return nil, fmt.Errorf("export %s: %w", req.Name, err)
 	}
 	res := &ExportBundleResult{Status: "exported", Name: req.Name, Source: manifestPath, Dest: dest}
-	if sig != nil {
-		// The detached sibling lives INSIDE the tree, beside the manifest, so
-		// the copy above already carried it. Naming it here is reporting, not a
-		// second write.
-		res.SigDest = filepath.Join(dest, bundles.DirectoryFormManifest+sigSuffix)
+	// The .sigs/ store lives INSIDE the tree, so the copy above already
+	// carried it. Naming it here is reporting, not a second write.
+	if present, _ := afero.DirExists(fs, filepath.Join(dest, content.SigDirName)); present {
+		res.SigDest = filepath.Join(dest, content.SigDirName)
 	}
 	return res, nil
 }
@@ -198,117 +182,27 @@ func copyBundleTree(fs afero.Fs, src, dest string) error {
 	})
 }
 
-// sigSuffix is the detached-signature sibling suffix (spec §4.2): the armored
-// publisher signature for `foo.yaml` is `foo.yaml.sig`. One spelling, owned by
-// the bundle store that writes the pair.
-const sigSuffix = bundles.SigSuffix
-
-// staleSignatureError is the one message every publishing boundary gives when it
-// is handed a signature that does not cover the bytes it would ship with. It
-// names the remedy, because there is exactly one: re-sign, or drop the signature
-// and publish unsigned. Shipping the pair is not on the menu — that is what
-// makes every consumer see tampering.
-func staleSignatureError(bundlePath string, err error) error {
-	base := filepath.Base(bundlePath)
-	// The manifest file for every tree-form bundle is literally named
-	// "bundle.yaml" — trimming its extension would name every one of them
-	// "bundle" regardless of its actual name. ExtractBundleName is the
-	// loader's own rule for this (Bundle.Name is set from it), so the remedy
-	// this error prints is a command that resolves to the SAME bundle it is
-	// about.
-	name := bundles.ExtractBundleName(bundlePath)
-	return fmt.Errorf("%s no longer covers %s — the bundle changed after it was signed; "+
-		"re-sign with `ctxloom bundle sign %s`, or delete %s to publish it unsigned "+
-		"(publishing this pair would make every consumer see tampering): %w",
-		base+sigSuffix, base, name, base+sigSuffix, err)
-}
-
-// PublisherSignature is THE answer to "what signature artifact travels with
-// this bundle, and does it cover the bytes about to be published?" — the one
-// seam every publishing boundary asks, so that `bundle push`, `bundle move` and
-// `bundle export` cannot drift apart again (which is exactly what they had
-// done: move carried the sidecar, push ignored it).
-//
-// It returns nil for an unsigned bundle (normal, and the input to the review
-// model — unsigned third-party content defaults to pending, it is never
-// refused), the sidecar bytes verbatim when they cover bundleBytes, and
-// staleSignatureError when they do not. Never a silent downgrade to unsigned:
-// an unreadable sidecar and a non-covering one are both hard errors, because
-// "publish it without the signature" is precisely the move an attacker would
-// make (spec §10.2) and precisely the mistake an author would not notice.
-//
-// It answers only the PUBLISHER question. Whether the signer is TRUSTED is the
-// consumer's decision at review time (operations.EffectiveTrust) and is
-// deliberately not consulted here — a publisher must be able to ship content
-// signed by a key their own machine does not trust for install.
-//
-// bundleBytes may be nil, in which case bundlePath is read; callers that
-// already hold the exact bytes they will publish should pass them, so the
-// verification and the publication cannot be looking at different files.
-//
-// FUTURE (excusable-flatness): when a bundle becomes a tree and signing becomes
-// per-file `.sig`s plus a signed manifest-of-hashes, THIS is the function that
-// grows a multi-artifact return; the publishing paths above it should not have
-// to change.
-func PublisherSignature(fs afero.Fs, bundlePath string, bundleBytes []byte) ([]byte, error) {
-	fs = getFS(fs)
-	sig, err := readSignature(fs, bundlePath)
-	if err != nil || sig == nil {
-		return nil, err
-	}
-	if bundleBytes == nil {
-		bundleBytes, err = afero.ReadFile(fs, bundlePath)
-		if err != nil {
-			return nil, fmt.Errorf("read bundle %s: %w", bundlePath, err)
-		}
-	}
-	if verr := signing.CoversBytes(bundleBytes, sig, signing.NamespacePublish); verr != nil {
-		return nil, staleSignatureError(bundlePath, verr)
-	}
-	return sig, nil
-}
-
-// readSignature returns srcBundle's detached `.sig` sibling, or nil when the
-// bundle is unsigned — which is normal, and never an error. A signature that
-// exists but cannot be READ is an error: treating it as absent would silently
-// downgrade a signed bundle to an unsigned one, which is exactly the move an
-// attacker would make (spec §10.2).
-func readSignature(fs afero.Fs, srcBundle string) ([]byte, error) {
-	srcSig := srcBundle + sigSuffix
-	exists, err := afero.Exists(fs, srcSig)
+// refuseStaleSignature is the one refusal every publishing boundary gives
+// when the bundle it would ship carries a signature that no longer covers
+// its files: the reader established that fact (SignatureInvalid, the
+// stale-manifest row), so the boundary asks the reader rather than verifying
+// a second time. It names the remedy, because there is exactly one: re-sign.
+// Shipping a stale pair is not on the menu — that is what makes every
+// consumer see tampering.
+func refuseStaleSignature(fs afero.Fs, dirs []string, name string) error {
+	read, err := bundles.NewLoader(bundles.NewProjectReader(fs, dirs)).Read(name)
 	if err != nil {
-		// Absent is not the same state as unreadable. afero.Exists reports
-		// (false, err) for any non-IsNotExist stat failure — EACCES on the
-		// directory, an I/O error — and collapsing that into "unsigned" is
-		// precisely the downgrade this function exists to prevent.
-		return nil, fmt.Errorf("stat signature %s: %w", srcSig, err)
+		return err
 	}
-	if !exists {
-		return nil, nil
+	if read.Signature() != bundles.SignatureInvalid {
+		return nil
 	}
-	data, err := afero.ReadFile(fs, srcSig)
-	if err != nil {
-		return nil, fmt.Errorf("read signature %s: %w", srcSig, err)
-	}
-	return data, nil
+	return fmt.Errorf("%w: %s", ErrStaleSignature, bundles.StaleSignatureAdvice(read))
 }
 
-// writeSignature places sig next to destBundle (a no-op returning "" when sig is
-// nil), byte-for-byte — a signature is only ever copied, never regenerated. A
-// signature that cannot be written IS an error: the destination would otherwise
-// hold content whose trust was quietly stripped en route.
-func writeSignature(fs afero.Fs, destBundle string, sig []byte) (string, error) {
-	if sig == nil {
-		return "", nil
-	}
-	destSig := destBundle + sigSuffix
-	// No AllowEmpty: sig == nil already short-circuited above, so a non-nil sig
-	// here is real signature bytes, never empty.
-	if err := iox.WriteFileAtomicFs(fs, destSig, sig, 0644); err != nil {
-		return "", fmt.Errorf("write signature %s: %w", destSig, err)
-	}
-	return destSig, nil
-}
+// ErrStaleSignature is the publishing boundaries' refusal of a bundle whose
+// signature no longer covers its files.
+var ErrStaleSignature = errors.New("the bundle's signature no longer covers its files — re-sign it before publishing")
 
 // ImportBundleRequest is the input for ImportBundle.
 type ImportBundleRequest struct {
@@ -328,10 +222,10 @@ type ImportBundleResult struct {
 	Fragments int    `json:"fragments"`
 	Commands  int    `json:"commands"`
 	MCP       int    `json:"mcp"`
-	// SigDest is where the imported bundle's detached publisher signature
-	// landed, or "" when the source carried none. Import PLACES the signature
-	// but never verifies it: verification belongs to the trust gate at exposure
-	// (EffectiveTrust), not to the copy step.
+	// SigDest is the imported tree's .sigs/ store, or "" when the source
+	// carried none. Import PLACES the signature but never verifies it:
+	// verification belongs to the reader (attest.VerifyBundle) and the trust
+	// gate at exposure (composite.Trust), not to the copy step.
 	SigDest string `json:"sig_dest,omitempty"`
 }
 
@@ -393,15 +287,6 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	// exposure and report it as the tamper finding it is. Refusing or discarding it
 	// here would destroy that evidence — and the publisher-side guards mean a
 	// broken pair should never have been publishable in the first place.
-	sig, err := readSignature(fs, req.SourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("import %s: %w", req.SourcePath, err)
-	}
-	sigDest, err := writeSignature(fs, destPath, sig)
-	if err != nil {
-		return nil, fmt.Errorf("import %s: %w", req.SourcePath, err)
-	}
-
 	return &ImportBundleResult{
 		Status:    "imported",
 		Source:    req.SourcePath,
@@ -410,7 +295,6 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 		Fragments: len(bundle.Fragments),
 		Commands:  len(bundle.Commands),
 		MCP:       len(bundle.MCP),
-		SigDest:   sigDest,
 	}, nil
 }
 
@@ -490,11 +374,11 @@ func importBundleTree(fs afero.Fs, cfg *config.Config, req ImportBundleRequest, 
 		Commands:  len(bundle.Commands),
 		MCP:       len(bundle.MCP),
 	}
-	// Import PLACES a signature and never judges it (see ImportBundleResult). For
-	// a tree the detached sibling travelled inside the copy, so this reports
-	// where it landed rather than writing it again.
-	sigDest := filepath.Join(destPath, bundles.DirectoryFormManifest+sigSuffix)
-	present, err := afero.Exists(fs, sigDest)
+	// Import PLACES a signature and never judges it (see ImportBundleResult).
+	// The .sigs/ store travelled inside the copy, so this reports where it
+	// landed rather than writing it again.
+	sigDest := filepath.Join(destPath, content.SigDirName)
+	present, err := afero.DirExists(fs, sigDest)
 	if err != nil {
 		return nil, fmt.Errorf("import %s: cannot check for %s: %w", srcDir, sigDest, err)
 	}

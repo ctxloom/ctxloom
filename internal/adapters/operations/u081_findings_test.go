@@ -243,61 +243,6 @@ func TestDistillPrompts_TruncatedResultRejected(t *testing.T) {
 // A stat error on the .sig silently downgrades a signed bundle.
 // ---------------------------------------------------------------------------
 
-// denyStatFs fails Stat (and therefore afero.Exists) for the named paths with
-// a non-IsNotExist error — the EACCES-on-the-directory case, which
-// afero.Exists reports as (false, err).
-type denyStatFs struct {
-	afero.Fs
-	deny map[string]error
-}
-
-func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
-	if err, ok := f.deny[name]; ok {
-		return nil, err
-	}
-	return f.Fs.Stat(name)
-}
-
-// TestReadSignature_StatErrorIsLoud is the exact contract readSignature's own
-// doc states: a signature that exists but cannot be READ is an error, because
-// treating it as absent silently downgrades a signed bundle to an unsigned
-// one. Absent ≠ unreadable.
-func TestReadSignature_StatErrorIsLoud(t *testing.T) {
-	base := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(base, "/in/seed.yaml", []byte("version: 1.0.0\n"), 0644))
-	require.NoError(t, afero.WriteFile(base, "/in/seed.yaml.sig", []byte("SIG"), 0644))
-	fs := denyStatFs{Fs: base, deny: map[string]error{"/in/seed.yaml.sig": os.ErrPermission}}
-
-	_, err := readSignature(fs, "/in/seed.yaml")
-	require.Error(t, err, "an unreadable signature must not read as unsigned")
-	assert.Contains(t, err.Error(), "seed.yaml.sig")
-}
-
-// TestReadSignature_AbsentIsNotAnError is the control: genuinely unsigned is
-// normal and must stay silent.
-func TestReadSignature_AbsentIsNotAnError(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/in/seed.yaml", []byte("version: 1.0.0\n"), 0644))
-	sig, err := readSignature(fs, "/in/seed.yaml")
-	require.NoError(t, err)
-	assert.Nil(t, sig)
-}
-
-// TestImportBundle_UnreadableSignatureFailsLoudly walks the same failure up
-// through a real caller: import must refuse rather than land the bundle with
-// its trust quietly stripped.
-func TestImportBundle_UnreadableSignatureFailsLoudly(t *testing.T) {
-	base := afero.NewMemMapFs()
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
-	require.NoError(t, base.MkdirAll("/incoming", 0755))
-	require.NoError(t, afero.WriteFile(base, "/incoming/seed.yaml", []byte("version: 1.0.0\nfragments:\n  a:\n    content: hi\n"), 0644))
-	require.NoError(t, afero.WriteFile(base, "/incoming/seed.yaml.sig", []byte("SIG"), 0644))
-	fs := denyStatFs{Fs: base, deny: map[string]error{"/incoming/seed.yaml.sig": os.ErrPermission}}
-
-	_, err := ImportBundle(context.Background(), cfg, ImportBundleRequest{SourcePath: "/incoming/seed.yaml", FS: fs})
-	require.Error(t, err, "import must not silently drop an unreadable signature")
-}
-
 // ---------------------------------------------------------------------------
 // ImportBundle "validates a bundle file" but validates almost
 // nothing.
@@ -311,7 +256,7 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
-			cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+			cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 			require.NoError(t, fs.MkdirAll("/incoming", 0755))
 			require.NoError(t, afero.WriteFile(fs, "/incoming/hollow.yaml", []byte(body), 0644))
 
@@ -362,7 +307,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		for _, name := range tc.unusable {
 			t.Run(tc.kind+"/rejects/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 
@@ -374,7 +319,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 		for _, name := range tc.loadable {
 			t.Run(tc.kind+"/accepts/"+name, func(t *testing.T) {
 				fs := afero.NewMemMapFs()
-				cfg := config.NewFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
+				cfg := gatedFixture(config.Fixture{AppPaths: []string{filepath.Join("/proj", ".ctxloom")}})
 				require.NoError(t, fs.MkdirAll("/incoming", 0755))
 				require.NoError(t, afero.WriteFile(fs, "/incoming/"+name, []byte(tc.body), 0644))
 
@@ -390,7 +335,7 @@ func TestImport_RejectsNameTheLoaderCannotFind(t *testing.T) {
 func TestImportBundle_DoesNotDestroyOnRejection(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := filepath.Join("/proj", ".ctxloom")
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
 	good := []byte("version: 1.0.0\nfragments:\n  keep:\n    content: precious\n")

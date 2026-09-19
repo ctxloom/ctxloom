@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
@@ -40,7 +40,7 @@ func newRefusal(t *testing.T) refusal {
 	_, err := LockDependencies(ctx, r.cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
-	r.proposed = addFileToLocalRepo(t, r.src, repoV2("demo")+"/bundle.yaml", "version: \"2.0.0\"\n")
+	r.proposed = addFileToLocalRepo(t, r.src, repoV2("demo")+"/fragments/keeper.md", "EDITED AFTER SIGNING\n")
 	require.NotEqual(t, r.kept, r.proposed)
 
 	res, err := UpgradeDependencies(ctx, r.cfg)
@@ -66,7 +66,7 @@ func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T
 	assert.Equal(t, r.ref, doc.Refusals[0].Identity, "the record must name WHICH bundle")
 	assert.Equal(t, r.proposed, doc.Refusals[0].ProposedSHA, "the record must name the REVISION that was refused")
 	assert.Equal(t, r.kept, doc.Refusals[0].KeptSHA, "the record must name the pin being kept")
-	assert.Contains(t, doc.Refusals[0].Detail, "signature does not cover these bytes")
+	assert.Contains(t, doc.Refusals[0].Detail, bundles.ErrTreeBundleWithheld.Error())
 	assert.False(t, doc.Refusals[0].RefusedAt.IsZero(), "an as-of advisory with no as-of is not one")
 
 	live, err := LiveRefusedAdvances(r.cfg)
@@ -86,12 +86,7 @@ func TestRefusals_ASuccessfulAdvanceClearsTheRecord(t *testing.T) {
 	require.FileExists(t, paths.RefusedAdvancesPath(r.baseDir))
 
 	// Carol finally re-signs and republishes.
-	bundlePath := repoV2("demo") + "/bundle.yaml"
-	body := "version: \"3.0.0\"\n"
-	addFileToLocalRepo(t, r.src, bundlePath, body)
-	sig, err := signing.Sign([]byte(body), r.signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	addFileToLocalRepo(t, r.src, bundlePath+".sig", string(sig))
+	commitTree(t, r.src, demoTreeFiles(t, r.signer, "REVISED AND RE-SIGNED\n"), false)
 
 	res, err := UpgradeDependencies(context.Background(), r.cfg)
 	require.NoError(t, err)
@@ -184,8 +179,8 @@ func TestRefusals_AnUnreadableRecordIsReportedNotReadAsSilence(t *testing.T) {
 func TestRefusals_AnUnresolvedProjectRootRefusesRatherThanUsingTheWorkingDirectory(t *testing.T) {
 	cases := map[string]*config.Config{
 		"no config":      nil,
-		"no app paths":   config.NewFixture(config.Fixture{}),
-		"empty app path": config.NewFixture(config.Fixture{AppPaths: []string{""}}),
+		"no app paths":   gatedFixture(config.Fixture{}),
+		"empty app path": gatedFixture(config.Fixture{AppPaths: []string{""}}),
 	}
 	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {

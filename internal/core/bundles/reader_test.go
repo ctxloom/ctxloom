@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -281,25 +282,6 @@ func TestNewRepoFSReader_SignatureFactsAreEstablishedNotAssumed(t *testing.T) {
 	})
 }
 
-// A local reader reports its signature facts too. They do not gate — the
-// content is delivered either way — but "we established nothing" and "we
-// established that this is stale" are different, and only the second can be
-// told to the author.
-func TestNewProjectReader_ReportsSignatureFactsAsDiagnostics(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, readerV1("kit.yaml"), readerBundleYAML, 0o644))
-	sig, root, _ := signFor(t, readerBundleYAML, "author@example.test")
-	require.NoError(t, afero.WriteFile(fsys, readerV1("kit.yaml.sig"), sig, 0o644))
-
-	reads, err := NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root)).Read(context.Background())
-
-	require.NoError(t, err)
-	require.Len(t, reads, 1)
-	assert.Equal(t, TrustCtxLocal, reads[0].TrustCtx())
-	assert.Equal(t, SignatureValid, reads[0].Signature(), "a local reader checks and REPORTS; it just does not gate")
-	assert.Equal(t, SignerTrusted, reads[0].Signer())
-}
-
 // ---------------------------------------------------------------------------
 // Companion posture: reported, never withheld.
 // ---------------------------------------------------------------------------
@@ -407,12 +389,8 @@ func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 // re-sign: their content is theirs and still arrives, and they are told at the
 // moment it stopped being publishable rather than at publish time.
 func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) {
-	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, readerV1("wave6-stale.yaml"), readerBundleYAML, 0o644))
-	sig, root, _ := signFor(t, readerBundleYAML, "author@example.test")
-	require.NoError(t, afero.WriteFile(fsys, readerV1("wave6-stale.yaml.sig"), sig, 0o644))
-	edited := append(append([]byte{}, readerBundleYAML...), []byte("# edited, never re-signed\n")...)
-	require.NoError(t, afero.WriteFile(fsys, readerV1("wave6-stale.yaml"), edited, 0o644))
+	fsys, dir, root := stageSignedTree(t, "/bundles", "KEEPER-PAYLOAD")
+	mutateAnItemFile(t, fsys, dir)
 
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)
@@ -420,12 +398,12 @@ func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) 
 	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root))),
 		signatureRowsAuthorizer(), LinksUnchecked(), false)
 
-	lc, err := pipe.GetFragment("wave6-stale#fragments/keeper")
+	lc, err := pipe.GetFragment(verifyTreeName + "#fragments/house-style")
 
-	require.NoError(t, err, "locality already answered the trust question; a stale sidecar cannot withhold")
-	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
-	assert.Contains(t, warnings.String(), "wave6-stale.yaml.sig")
-	assert.Contains(t, warnings.String(), "ctxloom bundle sign wave6-stale", "the warning must name the command that fixes it")
+	require.NoError(t, err, "locality already answered the trust question; a stale manifest cannot withhold")
+	assert.Contains(t, lc.Content, "KEEPER-PAYLOAD")
+	assert.Contains(t, warnings.String(), content.ManifestPath)
+	assert.Contains(t, warnings.String(), "ctxloom bundle sign "+verifyTreeName, "the warning must name the command that fixes it")
 }
 
 // captureWarnings returns a reader option that funnels a reader's diagnostics

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -35,31 +36,17 @@ import (
 
 const verifyTreeName = "vault"
 
-// stageSignedTree writes a tree bundle under root's v2 layout, carrying one
-// fragment, and signs it the way production does: the envelope sibling FIRST,
-// then the manifest — so the manifest covers the sibling, which is the order
-// operations.signBundleTree writes them in and the reason the sibling cannot be
-// swapped independently.
-//
-// It returns the filesystem, the bundle directory, and a trust root that trusts
-// the signing key, so a caller can assert a TRUSTED verdict rather than merely
-// a well-formed one.
+// stageSignedTree writes a tree-form bundle and signs it through its ONE
+// signature: the SHA256SUMS manifest and its .sigs/ entry (attest.SignBundle).
+// It returns the filesystem, the bundle directory, and a trust root that
+// trusts the signing key, so a caller can assert a TRUSTED verdict rather
+// than merely a well-formed one.
 func stageSignedTree(t *testing.T, root, fragBody string) (afero.Fs, string, signing.TrustRoot) {
 	t.Helper()
 	fsys, dir := stageUnsignedTree(t, root, fragBody)
-
 	signer, pub := testSkillSigner(t)
-	const principal = "publisher@example.test"
-
-	// The envelope sibling, over the envelope's exact bytes.
-	envelope, err := afero.ReadFile(fsys, filepath.Join(dir, DirectoryFormManifest))
-	require.NoError(t, err)
-	armored, err := signing.Sign(envelope, signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	testsupport.WriteFileString(t, fsys, filepath.Join(dir, DirectoryFormManifest)+SigSuffix, string(armored), 0o644)
-
 	signTreeManifest(t, fsys, root, signer)
-	return fsys, dir, skillPublisherRoot(principal, pub)
+	return fsys, dir, skillPublisherRoot("publisher@example.test", pub)
 }
 
 // stageUnsignedTree writes the tree itself, with no manifest and no signatures.
@@ -208,4 +195,31 @@ func TestLocalTree_AddedFileIsCaughtToo(t *testing.T) {
 	read := readTree(t, fsys, "/bundles", root)
 	assert.Equal(t, SignatureInvalid, read.Signature(),
 		"a file added to a signed tree must invalidate it")
+}
+
+// --- one signature per bundle --------------------------------------------
+
+// TestLocalTree_WithOnlyASiblingSignature_IsRefusedUntilReSigned: the sibling
+// bundle.yaml.sig is retired — no reader parses two signature shapes. A tree
+// still carrying one is not silently read as unsigned (the author believes it
+// signed): it is REFUSED, and the refusal names the remedy, re-signing, which
+// writes the manifest entry and removes the sibling.
+func TestLocalTree_WithOnlyASiblingSignature_IsRefusedUntilReSigned(t *testing.T) {
+	fsys, dir := stageUnsignedTree(t, "/bundles", "FRAG-BODY-MARKER")
+	signer, _ := testSkillSigner(t)
+	envelope, err := afero.ReadFile(fsys, filepath.Join(dir, DirectoryFormManifest))
+	require.NoError(t, err)
+	armored, err := signing.Sign(envelope, signer, signing.NamespacePublish)
+	require.NoError(t, err)
+	testsupport.WriteFileString(t, fsys, filepath.Join(dir, DirectoryFormManifest)+".sig", string(armored), 0o644)
+
+	mark := strictness.Checkpoint()
+	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
+
+	require.NoError(t, err, "one refused bundle does not fail the read of the set")
+	require.Empty(t, reads, "the tree is refused, not read as unsigned")
+	found := strictness.Since(mark)
+	require.NotEmpty(t, found, "the refusal is a bundle finding, never a silent skip")
+	assert.Contains(t, found[0].Message, ErrSiblingSignatureRetired.Error(), "the refusal is reported by its sentinel")
+	assert.Contains(t, found[0].Message, "re-sign", "and it names the remedy")
 }

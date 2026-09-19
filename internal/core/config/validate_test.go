@@ -2,6 +2,8 @@ package config_test
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -76,8 +78,9 @@ func (s stubSources) Read(context.Context) (*config.Config, []config.Warning, er
 func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) {
 	return nil, nil
 }
-func (stubSources) TrustPorts(context.Context, *config.Config) (bundles.Authorizer, error) {
-	return nil, nil
+func (stubSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	root, records, retraction := compositetest.Ports()
+	return root, records, retraction, nil
 }
 
 // TestOpen_WithEngines_ValidatesEveryGeneration: a process composed with

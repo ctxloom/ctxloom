@@ -425,3 +425,136 @@ func TestArch_NoEngineNameInCore(t *testing.T) {
 func TestArch_NoEngineNameInCore_AllowlistIsLive(t *testing.T) {
 	checkRingAllowlistIsLive(t, "no-engine-name-in-core", scanEngineNameLiterals(t), noEngineNameInCoreAllowed)
 }
+
+// ---------------------------------------------------------------------------
+// env-literals-once
+// ---------------------------------------------------------------------------
+
+// envKeysDeclaringDir is the package that declares the CTXLOOM_* environment
+// keys the runner reads (today internal/agentcoord/coord; core/sessions
+// after slice 2). The keys themselves are READ from its package-level
+// consts, never listed here: a key added there is covered the moment it is
+// declared.
+const envKeysDeclaringDir = "internal/agentcoord/coord"
+
+// envReadHomes are the directories that may spell those keys or read the
+// process environment (home, cwd, temp, the current user): the declaring
+// package, the composition roots, the project-root finder and the leaf env
+// libraries. The filesystem adapters Part 1.1 also permits do not exist yet.
+var envReadHomes = []string{
+	envKeysDeclaringDir,
+	"cmd",
+	"internal/projectroot",
+	"internal/shared/shellenv",
+	"internal/shared/envswitch",
+}
+
+// envReadCalls are the process-environment reads Part 1.1 names.
+var envReadCalls = [][2]string{
+	{"os", "UserHomeDir"},
+	{"os", "UserConfigDir"},
+	{"os", "Getwd"},
+	{"os", "TempDir"},
+	{"os", "MkdirTemp"},
+	{"user", "Current"},
+}
+
+// envLiteralsOnceAllowed is the rule's shrinking allowlist, keyed by FILE,
+// mapped to the slice in which the site leaves.
+var envLiteralsOnceAllowed = map[string]string{}
+
+// declaredEnvKeys collects the CTXLOOM_* string values of the package-level
+// consts declared in envKeysDeclaringDir.
+func declaredEnvKeys(t *testing.T, files []ringFile) map[string]bool {
+	t.Helper()
+	keys := map[string]bool{}
+	for _, rf := range files {
+		for _, decl := range rf.f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, val := range vs.Values {
+					if v, ok := vocabStringLit(val); ok && strings.HasPrefix(v, "CTXLOOM_") {
+						keys[v] = true
+					}
+				}
+			}
+		}
+	}
+	if len(keys) == 0 {
+		t.Fatalf("no CTXLOOM_* const is declared under %s — envKeysDeclaringDir is stale, not the module clean", envKeysDeclaringDir)
+	}
+	return keys
+}
+
+// scanEnvLiterals finds, outside envReadHomes, every string literal equal to
+// a declared CTXLOOM_* key and every call to an envReadCalls function. One
+// site per file: the key is the file.
+func scanEnvLiterals(t *testing.T) []ringSite {
+	t.Helper()
+	var all []ringFile
+	walkRingFiles(t, func(rf ringFile) { all = append(all, rf) })
+
+	var declaring []ringFile
+	for _, rf := range all {
+		if rf.dir == envKeysDeclaringDir {
+			declaring = append(declaring, rf)
+		}
+	}
+	keys := declaredEnvKeys(t, declaring)
+
+	var out []ringSite
+	var readsSeen int
+	for _, rf := range all {
+		if underAny(rf.dir, envReadHomes) {
+			continue
+		}
+		var first *ringSite
+		note := func(n ast.Node, what string) {
+			if first != nil {
+				return
+			}
+			first = &ringSite{file: rf.rel, what: what, line: rf.fset.Position(n.Pos()).Line}
+		}
+		ast.Inspect(rf.f, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CallExpr:
+				for _, c := range envReadCalls {
+					if selectorCall(node, c[0], c[1]) {
+						readsSeen++
+						note(n, "reads the process environment ("+c[0]+"."+c[1]+")")
+					}
+				}
+			case *ast.BasicLit:
+				if v, ok := vocabStringLit(node); ok && keys[v] {
+					note(n, "re-spells the environment key "+strconv.Quote(v)+" declared in "+envKeysDeclaringDir)
+				}
+			}
+			return true
+		})
+		if first != nil {
+			out = append(out, *first)
+		}
+	}
+	if readsSeen == 0 {
+		t.Fatal("the walk found no process-environment read anywhere outside envReadHomes — envReadCalls' spellings are stale, not the module clean")
+	}
+	return out
+}
+
+// TestArch_EnvLiteralsOnce is the gate: the CTXLOOM_* keys are spelled once
+// and the process environment is read only where Part 1.1 says.
+func TestArch_EnvLiteralsOnce(t *testing.T) {
+	checkRingAllowlist(t, "env-literals-once", scanEnvLiterals(t), envLiteralsOnceAllowed,
+		"Part 1.1: core is handed home, cwd and identity as values; only the composition root, projectroot, the fs adapters and the leaf env libraries read the environment")
+}
+
+func TestArch_EnvLiteralsOnce_AllowlistIsLive(t *testing.T) {
+	checkRingAllowlistIsLive(t, "env-literals-once", scanEnvLiterals(t), envLiteralsOnceAllowed)
+}

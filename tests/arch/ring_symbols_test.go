@@ -210,7 +210,9 @@ type pinnedCall struct {
 // session identity is minted by the sessions.Store's AssignHarp through the
 // harp allocator, so both are pinned; their sanctioned callers are the
 // store itself, operations (StartRun's home) and the harp CLI, which mints
-// names, not sessions. config.Open is today's the config read. coord.New is
+// names, not sessions. config.Open is opened by operations.App (the one
+// owner) until cmd/* composes the process in slice 7; configload.Load is
+// the test-only read and has no sanctioned production caller. coord.New is
 // already the one constructor.
 var pinnedCalls = []pinnedCall{
 	{
@@ -230,9 +232,14 @@ var pinnedCalls = []pinnedCall{
 		permitted: []string{"cmd"},
 	},
 	{
-		what:      "opens the config (the config read, today's config.Open)",
-		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Load") },
-		permitted: []string{"cmd"},
+		what:      "opens the config (config.Open — one owner per process)",
+		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Open") },
+		permitted: []string{"cmd", "internal/adapters/operations"},
+	},
+	{
+		what:      "reads the config outside the owner (configload.Load is for tests only)",
+		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "configload", "Load") },
+		permitted: nil,
 	},
 }
 
@@ -246,11 +253,9 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// the coordinator is constructed by the MCP server, not the composition root
 	"internal/adapters/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
 
-	// the config read in the CLI: slice 4 gives operations.App the one
-	// config.Owner and the CLI stops opening the config itself
-
-	// the config read inside operations: the memoized loader each service opens
-	// for itself becomes the one Owner the App is constructed with
+	// the test-only read opens a throwaway owner; its own pin (the
+	// configload.Load entry in pinnedCalls) keeps it out of production
+	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through operations.App",
 }
 
 func scanOneMintOneOwner(t *testing.T) []ringSite {

@@ -1,8 +1,8 @@
 # `internal/agentcoord` — architecture
 
 Agent delegation. Written so a future session can reason
-about this subsystem's design without re-reading the source; every claim carries a
-`file:line`. Base commit `0f59fbae`.
+about this subsystem's design without re-reading the source; every claim names
+the symbol it rests on, so `git grep` settles whether it still holds.
 
 | Page | Purpose |
 |---|---|

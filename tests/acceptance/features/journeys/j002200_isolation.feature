@@ -262,7 +262,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # place is the @live isolation probe (@claude-code @container). This scenario
   # is the runtime-lane half; those two are the credential half.
   # ===========================================================================
-  @container
+  @container @reach-back @R5
   Scenario: A containerized engine's write reaches the host through the same read-write bind mount claude's real-credential mount uses
     When Alice runs the container-bound agent in a real container
     Then the engine's in-container write is the same file the host holds

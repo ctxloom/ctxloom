@@ -13,45 +13,21 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   diff), and that `agent_send`/`agent_recv` carry real words between
   coordinator and child.
 
-  # HARNESS/PRODUCT FINDING — read before the scenarios below, it shapes
-  # what each tier can honestly claim. Investigating this journey surfaced a
-  # real gap of the same shape J002100's own comments already name for
-  # roster/agent_report: coord/children.go's automatic "oneshot turn ->
-  # parent mailbox" bridge (onTurnBoundary -> queueMail) fires ONLY when the
-  # spawned backend does NOT implement agent.StructuredChat
-  # (operations/delegate.go's PrepareAgentChat). Every backend registered
-  # today — mock included (internal/lm/backends/mock_chat.go) — DOES
-  # implement StructuredChat, so that branch's own doc comment already says
-  # so: "today, no production backend; only test doubles". In production, a
-  # delegated child's ONLY way to report to its coordinator is to decide,
-  # inside its OWN reasoning loop, to call `agent_send(to: "parent", ...)`
-  # through its forwarder MCP server — nothing bridges a chat child's output
-  # automatically. A scripted, non-reasoning backend (mock's Chat() only
-  # emits ChatEvents; it is not an MCP client and has no path to invoke the
-  # coordinator's own agent_send tool) structurally cannot do that.
-  #
-  # CORRECTED 2026-08-03 — the paragraph above is right about agent_send and
-  # WRONG about the direction as a whole. A chat child indeed cannot decide
-  # to call agent_send without a reasoning loop, but that was never the only
-  # child->parent path: coord/children.go's bridgeTurnResult queues EVERY
-  # child's turn output to its parent's mailbox unconditionally, reasoning or
-  # not. So the direction IS hermetically provable, via the coordinator's own
-  # agent_recv — see "A delegated child's own turn result reaches the
-  # coordinator's mailbox over the bus" below. What had hidden this is that
-  # the bridge was silently failing for every scenario in this suite (the
-  # empty-coordinator-harp defect, fixed 2026-08-03; see the @live scenario's
-  # comment). Only agent_send-by-model-decision needs a real engine.
-  #
-  # Hermetically, this journey ALSO reads each child's OWN canonical transcript
+  # WHAT THE HERMETIC TIER READS, and who writes it. Both observables below
+  # are produced by the child's OWN runner process, never by the coordinator:
+  # each child's canonical transcript
   # (~/.ctxloom/sessions/<harp>/persist/transcript.jsonl —
   # internal/transcript/record.go's documented, first-party schema, not a
-  # scrape) to prove distinct context and the coordinator->child half of the
-  # bus: a REAL agent_send call, content verified in the child's own
-  # recorded next turn. This is the SAME class of durable, external,
-  # disk-backed observable j002100_delegation.feature already established for
-  # runs.jsonl — never an in-process Go struct, never faked.
+  # scrape) proves distinct context and the coordinator->child half of the
+  # bus (a REAL agent_send call, content verified in the child's own recorded
+  # next turn); the coordinator's own mailbox, read through agent_recv, proves
+  # the child->coordinator half through the runner's automatic turn report
+  # (coord.EngineHost, spoolturnresult.go) — no model reasoning involved. Only
+  # agent_send-by-model-decision needs a real engine, and that is the @live
+  # tier's job. The @negative-probe scenario withholds the runner and shows
+  # neither observable survives its absence.
   #
-  # A SECOND finding surfaced live-verifying the @live scenario below, first
+  # A finding surfaced live-verifying the @live scenario below, first
   # recorded here as "a real permission-ladder gap". It was not one: the root
   # cause turned out to be runner WIRING, and the last thing keeping that
   # scenario red after the fix was a consumed refresh token on the host.
@@ -89,6 +65,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # only in this scenario's Gherkin text, so its appearance in the child's
   # next reported turn cannot be anything but that specific agent_send
   # having reached that specific child session.
+  @reach-back @R1
   Scenario: A message the coordinator sends via agent_send reaches its child, verified in the child's own next reported turn
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     When the agent calls tool "agent_run" with:
@@ -102,22 +79,21 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     And the tool result field "disposition" is set
     And "librarian"'s next reported turn carries "J002300-ROUNDTRIP-ECHO-TOKEN-6d2e73"
 
-  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. The
-  # header finding above claims this direction "is provable only against a
-  # REAL reasoning engine". That claim is FALSE, and this scenario is the
-  # counter-example: a chat child never calls agent_send itself, but
-  # coord/children.go's bridgeTurnResult ALREADY queues every child's turn
-  # output to its parent's mailbox automatically, so the coordinator's own
-  # agent_recv observes the child's words over the real, durable bus with no
-  # model reasoning involved. The observable is the mailbox message body —
-  # the same payload class the @live tier asserts — never a transcript read
-  # and never an in-process struct.
+  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. A
+  # chat child never calls agent_send itself, but its runner writes every
+  # turn's output to the parent's mailbox as the automatic turn report
+  # (coord.EngineHost's ReportTurnResult, spoolturnresult.go), so the
+  # coordinator's own agent_recv observes the child's words over the real,
+  # durable bus with no model reasoning involved. The observable is the
+  # mailbox message body — the same payload class the @live tier asserts —
+  # never a transcript read and never an in-process struct.
   #
   # BREAK-POINT: this is the regression gate for the empty-coordinator-harp
   # defect (see the @live scenario's comment). Revert
-  # internal/cli/selfIdentityFromEnv's minted-harp fallback and this goes red
+  # selfIdentityFromEnv's minted-harp fallback and this goes red
   # for exactly that reason — agent_recv drains role "" forever while
   # agent_run still reports success.
+  @reach-back @R2
   Scenario: A delegated child's own turn result reaches the coordinator's mailbox over the bus
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     When the agent calls tool "agent_run" with:
@@ -129,11 +105,48 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Then the tool call succeeds
     And the received message is from "librarian" and its body carries its own guidance, not "cartographer"'s
 
+  # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
+  # green only because a REAL runner process stands for the child: the
+  # coordinator self-execs one per delegated run, and it is that process — not
+  # the coordinator — that opens the child's transcript and writes the
+  # automatic turn report the coordinator's mailbox receives
+  # (coord.EngineHost, spoolturnresult.go). A green run cannot show that
+  # dependency on its own: a shim answering in-process for the runner would
+  # produce the same bytes. So this scenario WITHHOLDS the runner and asserts
+  # that the same agent_run, on the same fixture, then yields NEITHER
+  # observable — the mailbox carries the launch failure with the withheld
+  # runner's own dying words in the body and no result at all, and the child's
+  # transcript never gains a turn.
+  #
+  # HOW THE RUNNER IS WITHHELD, with no product seam: the coordinator is
+  # started from a copy of the binary that is unlinked once its MCP handshake
+  # completes, so its self-lookup (selfexec.Path) takes its documented
+  # upgrade-in-place fallback — a PATH lookup — and PATH is led by a decoy
+  # `ctxloom` that prints a marker and exits non-zero. Everything else about
+  # the fixture is R1/R2's.
+  #
+  # FORCED, NOT AWAITED: the failure notice is queued by the run's terminal,
+  # after which nothing can write that child's transcript, so "recorded no
+  # turn" reads a settled state rather than racing one.
+  @negative-probe
+  Scenario: With the runner withheld, the same delegation yields a launch failure in the coordinator's mailbox and no recorded turn
+    Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    And the coordinator's runner is withheld
+    When the agent calls tool "agent_run" with:
+      | agent  | librarian |
+      | prompt | go        |
+    Then the tool call succeeds
+    And "librarian"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
+    Then the tool call succeeds
+    And the received message from "librarian" is the withheld runner's launch failure, and no result carrying its guidance arrived
+    And "librarian" recorded no turn
+
   # @live, both requirement 2 (genuine cross-ENGINE, the claim the hermetic
   # tier above explicitly declines — the
   # proven-working pair; the isolation probe just passed both, both axes)
-  # and the child->coordinator half of requirement 4 the hermetic tier
-  # structurally cannot reach (see the finding above). Each child's marker
+  # and the one part of requirement 4 the hermetic tier cannot supply: a
+  # child that DECIDES to call agent_send itself. Each child's marker
   # phrase lives in its OWN materialized profile context, the exact "repeat
   # the marker you can see in your context" technique
   # j000400_multi_engine.feature's own @live scenario already verified live
@@ -266,7 +279,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # already showed is worth nothing on its own (agent_run kept returning
   # success for weeks while the empty-coordinator-harp defect silently ate
   # every reply). A child that launches and dies still delivers a message —
-  # bridgeTurnResult queues its runner-exit report to the same mailbox — so
+  # the run's terminal notice reaches the same mailbox — so
   # "a message arrived from the child" is deliberately NOT the assertion; the
   # marker in the body is.
   #
@@ -413,7 +426,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     # container-rootful is absent rather than declared-and-skipped: no box this
     # suite has run on has had a reachable rootful daemon, and a row that can
     # only ever skip looks like coverage.
-    @claude-code @container-rootless @ws-worktree
+    @claude-code @container-rootless @ws-worktree @reach-back @R4
     Examples:
       | engine      | runtime            | workspace | marker                                    |
       | claude-code | container-rootless | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab |
@@ -430,7 +443,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine      | runtime | workspace | marker                                   |
       | claude-code | host    | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-HOSTWT-3e7c15 |
 
-    @claude-code @container-rootless @ws-none
+    @claude-code @container-rootless @ws-none @reach-back @R3
     Examples:
       | engine      | runtime            | workspace | marker                                   |
       | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |

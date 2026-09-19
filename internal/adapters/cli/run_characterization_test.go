@@ -298,10 +298,13 @@ func TestRunCharacterization_DryRunJSONPayload(t *testing.T) {
 	assert.Positive(t, got.Tokens, "the token estimate is computed over the assembled context")
 	assert.Contains(t, got.Fragments, "ctxloom+local:demo#fragments/testing")
 
-	// Not an --agent run: no agent is named, but the resolved axes are
-	// reported — the preview says what the run would actually use.
+	// Not an --agent run: no agent is named. The runtime the run would use
+	// is reported; the workspace axis is reported as DECLARED — no
+	// --workspace was given, so it stays unset rather than showing the
+	// default (TestRun_Agent_DryRun pins why: a preview that fills it in
+	// invents an isolation guarantee nobody asked for).
 	assert.NotContains(t, res.out, `"agent"`)
-	assert.Equal(t, "none", got.Workspace)
+	assert.Empty(t, got.Workspace)
 	assert.Equal(t, "host", got.Runtime)
 }
 

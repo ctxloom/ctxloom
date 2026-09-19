@@ -107,14 +107,12 @@ var degradeBranchAllowed = map[string]degradeExemption{
 		"gates pass their findings through it instead of testing the mode themselves; " +
 		"NonDegradable findings survive that downgrade, which is what makes a refusal " +
 		"non-bypassable at all"},
-	"internal/core/coord/spawner.go": {sites: 1, why: "TIGHTENS rather than bypasses — " +
-		"after failing a non-headless-safe permission declaration, degraded launches the child " +
-		"at PermissionPlan, the most restrictive headless-safe posture, so the degraded path is " +
-		"strictly safer than the declared one it replaces"},
-	"internal/adapters/operations/delegate.go": {sites: 1, why: "no boundary is crossed — an " +
-		"unresolvable model is a CONFIG fault, and degraded launches with the model exactly as " +
-		"configured (rs.Model unchanged). The cost is an opaque engine-side error later instead " +
-		"of a clear one here; nothing is granted that strict mode withholds"},
+	"internal/adapters/cli/run.go": {sites: 1, why: "READS the mode once to hand it to the " +
+		"launch resolver as a VALUE (launch.Source.Degraded): the resolver holds no strictness, " +
+		"and its degraded arms only narrow — a posture that does not parse lands on " +
+		"PermissionFloor, a child that would block on a prompt launches at PermissionFloor, a " +
+		"missing default agent launches context-free — so nothing is granted that strict mode " +
+		"withholds"},
 }
 
 // TestArch_DegradeDiscipline_EveryBranchIsJustified fails when production code

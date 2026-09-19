@@ -107,15 +107,6 @@ func orEmpty(items []string) []string {
 	return items
 }
 
-// orDefault returns s, or def when s is empty — the axis-default rendering for
-// the dry-run preview (an unset workspace/runtime means none/host).
-func orDefault(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
 // execCommand is the seam tests override to avoid actually shelling
 // out. Production points it at exec.CommandContext
 var execCommand = exec.CommandContext
@@ -395,8 +386,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err := st.loadConfig(); err != nil {
 		return err
 	}
-	if _, err := validateExplicitLLM(st.cfg, runLLM); err != nil {
-		return err
+	if runLLM != "" {
+		if _, err := validateExplicitLLM(st.cfg, runLLM); err != nil {
+			return err
+		}
 	}
 	if err := st.resolvePrompt(); err != nil {
 		return err
@@ -824,6 +817,14 @@ func (st *runState) emitDryRun() error {
 	if err := st.gateStartup(); err != nil {
 		return err
 	}
+	// The preview shows what the request would carry: a --session full
+	// resume trails the assembled context exactly as buildRunRequest sends it.
+	context := l.Package.Context
+	if runResumeSession != "" && !runResumeDistill {
+		context = resumeFullContext(context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
+			return operations.RecordedSessionEntries(st.ctx, h)
+		})
+	}
 	payload := dryRunJSON{
 		Agent:     runAgent,
 		Workspace: string(l.Axes.Workspace),
@@ -832,8 +833,8 @@ func (st *runState) emitDryRun() error {
 		Backend:   string(l.Engine),
 		Profiles:  orEmpty(l.Package.Profiles),
 		Fragments: orEmpty(l.Package.Fragments),
-		Context:   l.Package.Context,
-		Tokens:    tokens.Estimate(l.Package.Context),
+		Context:   context,
+		Tokens:    tokens.Estimate(context),
 		Prompt:    st.prompt,
 	}
 	return emit(st.cmd, payload, func() error {
@@ -860,8 +861,8 @@ func (st *runState) emitDryRun() error {
 			fmt.Println("(no fragments)")
 		}
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
-		if l.Package.Context != "" {
-			fmt.Println(l.Package.Context)
+		if context != "" {
+			fmt.Println(context)
 		} else {
 			fmt.Println("(no context)")
 		}
@@ -878,14 +879,20 @@ func (st *runState) emitDryRun() error {
 	})
 }
 
-// dryCells is the --dry-run cell: the project root on the host, prepared
-// nowhere. It is what lets a preview run the real resolver without a
-// worktree, a container or a session directory coming into existence.
+// dryCells is the --dry-run cell: the project root on the host and the
+// session's would-be home, prepared nowhere. It is what lets a preview run
+// the real resolver — the plan routes over the same roots a real cell
+// advises — without a worktree, a container or a session directory coming
+// into existence.
 type dryCells struct{}
 
 func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell, error) {
 	return launch.Cell{
-		Paths:     present.OnHost(present.Paths{ProjectRoot: present.Root{Host: req.ProjectRoot}}),
+		Paths: present.OnHost(present.Paths{
+			ProjectRoot: present.Root{Host: req.ProjectRoot},
+			CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
+			Scratch:     present.Root{Host: req.SessionDir},
+		}),
 		Workspace: req.ProjectRoot,
 		Cleanup:   func() error { return nil },
 	}, nil

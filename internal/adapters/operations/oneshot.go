@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
@@ -28,6 +29,7 @@ import (
 // with a different prompt. End releases the cell and ends the session.
 type OneShot struct {
 	Launch    launch.Launch
+	store     sessions.Store
 	verbosity int
 	// Factory overrides the transport (test seam): a non-nil factory drives
 	// the turn on the client it builds instead of the cell's own transport.
@@ -45,7 +47,7 @@ func StartOneShot(ctx context.Context, deps launch.Deps, seed sessions.Seed, src
 	if err != nil {
 		return nil, err
 	}
-	return &OneShot{Launch: l, verbosity: verbosity}, nil
+	return &OneShot{Launch: l, store: deps.Sessions, verbosity: verbosity}, nil
 }
 
 // Turn drives one turn: the launch encoded with this turn's prompt, the
@@ -127,8 +129,51 @@ func (o *OneShot) End() {
 	if err := launch.Discard(context.Background(), o.Launch); err != nil {
 		clidiag.Warn("ctxloom", "one-shot %s: release cell: %v", o.Launch.Identity.Harp, err)
 	}
-	if err := EndSession(o.Launch.Identity.Harp, time.Now()); err != nil {
+	if err := EndSessionIn(o.store, o.Launch.Identity.Harp, time.Now()); err != nil {
 		clidiag.Warn("ctxloom", "one-shot %s: end session: %v", o.Launch.Identity.Harp, err)
+	}
+}
+
+// LazyOneShot is an internal one-shot whose session starts on the FIRST
+// turn: a caller that never turns (a compaction served from its cache)
+// mints nothing. Turn is assignable to memory.Runner; End releases the
+// session if one started.
+type LazyOneShot struct {
+	start func(ctx context.Context) (*OneShot, error)
+	mu    sync.Mutex
+	os    *OneShot
+}
+
+// NewLazyOneShot defers StartInternalOneShot to the first turn.
+func NewLazyOneShot(cfg *config.Config, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
+	return &LazyOneShot{start: func(ctx context.Context) (*OneShot, error) {
+		return StartInternalOneShot(ctx, cfg, label, model, workDir, projectID, verbosity)
+	}}
+}
+
+// Turn drives one turn, starting the session first if none has.
+func (l *LazyOneShot) Turn(ctx context.Context, prompt string) (string, error) {
+	l.mu.Lock()
+	if l.os == nil {
+		o, err := l.start(ctx)
+		if err != nil {
+			l.mu.Unlock()
+			return "", err
+		}
+		l.os = o
+	}
+	o := l.os
+	l.mu.Unlock()
+	return o.Turn(ctx, prompt)
+}
+
+// End releases the session, if one started. Idempotent.
+func (l *LazyOneShot) End() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.os != nil {
+		l.os.End()
+		l.os = nil
 	}
 }
 

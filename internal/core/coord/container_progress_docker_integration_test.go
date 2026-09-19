@@ -122,11 +122,11 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*SpawnPl
 	}
 	perm := agent.PermissionBypass
 	return &SpawnPlan{
-		AgentName: agentName,
-		Backend:   "mock",
-		Label:     "fast",
-		Runtime:   "container",
-		Perm:      perm,
+		AgentName:  agentName,
+		Backend:    "mock",
+		Label:      "fast",
+		Runtime:    "container",
+		Permission: perm.String(),
 		// The production resolver's allowlist (viaStartRunBackends) does NOT
 		// list "mock"; this spawner resolves it directly, so the test drives
 		// the real path with a deterministic, credential-free engine.
@@ -200,8 +200,8 @@ func (s *progressSpawner) record(name string, kill func()) {
 	s.cleanups = append(s.cleanups, kill)
 }
 
-func (s *progressSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
-	return plan.Context
+func (s *progressSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
+	return contextText
 }
 func (s *progressSpawner) RecordEngineVersion(context.Context, string, string) {}
 

@@ -60,11 +60,11 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnP
 	}
 	perm := agent.PermissionBypass
 	return &SpawnPlan{
-		AgentName: agentName,
-		Backend:   "mock",
-		Label:     "fast",
-		Runtime:   "container",
-		Perm:      perm,
+		AgentName:  agentName,
+		Backend:    "mock",
+		Label:      "fast",
+		Runtime:    "container",
+		Permission: perm.String(),
 	}, nil
 }
 
@@ -120,8 +120,8 @@ func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, sta
 	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
 }
 
-func (s *directBusSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
-	return plan.Context
+func (s *directBusSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
+	return contextText
 }
 func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
 

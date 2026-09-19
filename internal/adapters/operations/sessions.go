@@ -311,15 +311,22 @@ func RecordSessionEngineVersion(ctx context.Context, harp, backend string) (stri
 // The removal is best-effort and never fails the session end: see
 // removeSessionInstance.
 func EndSession(harp string, at time.Time) error {
+	mgr, err := openSessions()
+	if err != nil {
+		sessionlock.Release(harp)
+		return err
+	}
+	return EndSessionIn(mgr, harp, at)
+}
+
+// EndSessionIn is EndSession against the store the session was minted in:
+// the launch trunk's own store in production, a MemStore in a test.
+func EndSessionIn(mgr sessions.Store, harp string, at time.Time) error {
 	// The owner is done with the session however the rest of this goes: a
 	// lock held on past a failed end-mark — by a long-lived coordinator for a
 	// child, say — would read that session as alive for the holder's whole
 	// life. Deferred, so it runs AFTER the mark and the instance removal.
 	defer sessionlock.Release(harp)
-	mgr, err := openSessions()
-	if err != nil {
-		return err
-	}
 	// Read the project BEFORE the mark: nothing here mutates it, but the entry
 	// is what names the tree the instance sits in, and a failed mark must not
 	// cost us the ability to clean up.

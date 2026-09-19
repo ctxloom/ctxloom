@@ -109,4 +109,3 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"a project that declared nothing must behave exactly as it did before this key existed")
 	})
 }
-

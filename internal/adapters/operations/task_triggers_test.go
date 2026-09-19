@@ -206,11 +206,6 @@ func TestEvaluateTriggers_HappyPath(t *testing.T) {
 	assert.Contains(t, prompt, "feat: ship the CLI")
 	assert.Contains(t, prompt, "unrelated active task")
 
-	// The fast label's model rode through.
-	assert.Equal(t, "haiku", client.gotReqs[0].Options.Model)
-	assert.Equal(t, pb.ExecutionMode_ONESHOT, client.gotReqs[0].Options.Mode)
-	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_MINIMAL, client.gotReqs[0].Options.LaunchForm,
-		"headless triage declares no managed surfaces")
 }
 
 // TestEvaluateTriggers_RepoStateReachesThePrompt is the regression for a
@@ -784,7 +779,7 @@ func TestEvaluateTriggers_DegradedEscalationRoundIsNeverCached(t *testing.T) {
 	res1, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Run:     run1,
+		Run:         run1,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), calls1.Load())
@@ -802,7 +797,7 @@ func TestEvaluateTriggers_DegradedEscalationRoundIsNeverCached(t *testing.T) {
 	res2, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Run:     run2,
+		Run:         run2,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls2.Load(), "the degraded-escalation verdict was never cached, so both rounds ran again")

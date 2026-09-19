@@ -737,6 +737,10 @@ func launchEngineWithPrompt(ctx context.Context, l launch.Launch) error {
 	return nil
 }
 
+// initLaunchDeps composes the resolver's ports for the setup launches: the
+// process's own (App), or — a test seam — stateless doubles.
+var initLaunchDeps = func(ctx context.Context) (launch.Deps, error) { return App().LaunchDeps(ctx) }
+
 // launchEngineWithPromptFn is a package var seam over launchEngineWithPrompt:
 // tests stub it to verify launchDiscovery's branching (the ping gates the
 // launch; a successful ping proceeds to it) without spawning a real engine
@@ -759,7 +763,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 	}
 
 	workDir := filepath.Dir(appDir)
-	deps, err := App().LaunchDeps(cmd.Context())
+	deps, err := initLaunchDeps(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("setup launch: %w", err)
 	}

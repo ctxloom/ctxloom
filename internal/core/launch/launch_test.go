@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -148,4 +149,97 @@ func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
 	require.NotNil(t, l.Package.Managed, "the managed surfaces still ride: the one-shot is a real session")
 	require.Equal(t, engine.PermissionBypass, l.Permission)
 	require.NotEmpty(t, l.MCP.URL)
+}
+
+// TestResolve_Label_Precedence: the label override beats what the profiles
+// declared, which beats the project's primary; a configured label maps to
+// its engine and model (an alias the engine declares is applied); a bare
+// registered engine name is admitted as the ad-hoc form; a label that names
+// nothing is refused by name.
+func TestResolve_Label_Precedence(t *testing.T) {
+	src := func(env launchtest.Env, label string) launch.Source {
+		return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: label, Mode: engine.Interactive, WorkDir: env.Project}
+	}
+	env := launchtest.Deps(t, launchtest.ProfileLLM("fast"))
+	l, err := launch.Resolve(context.Background(), env.Deps, src(env, ""))
+	require.NoError(t, err)
+	require.Equal(t, "fast", l.Label.Label, "the profiles' declared label beats the primary")
+	require.Equal(t, "fixture-fast-2", l.Label.Model, "the engine's declared alias is applied to the label's model")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, src(env, "primary"))
+	require.NoError(t, err)
+	require.Equal(t, "primary", l.Label.Label, "the override beats the profiles' declaration")
+
+	env = launchtest.Deps(t)
+	l, err = launch.Resolve(context.Background(), env.Deps, src(env, ""))
+	require.NoError(t, err)
+	require.Equal(t, "primary", l.Label.Label, "nothing declared: the project's primary")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, src(env, string(launchtest.EngineName)))
+	require.NoError(t, err)
+	require.Equal(t, launchtest.EngineName, l.Engine, "a bare registered engine name is the ad-hoc form")
+
+	_, err = launch.Resolve(context.Background(), env.Deps, src(env, "no-such-label"))
+	require.ErrorIs(t, err, launch.ErrNoEngine)
+	require.ErrorContains(t, err, "no-such-label")
+
+	l, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Label: "fast", Model: "override-model", Mode: engine.Interactive, WorkDir: env.Project})
+	require.NoError(t, err)
+	require.Equal(t, "override-model", l.Label.Model, "the caller's model override beats the label's")
+}
+
+// TestResolve_Permission_TheChain: the flag, the binding, the label, the
+// project default, the engine's host default — the first declared wins; an
+// enforcing engine keeps a declared plan.
+func TestResolve_Permission_TheChain(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.WithAgent("strict", launchtest.Permissions("plan")), launchtest.ProjectPermissions("bypass"))
+	at := func(src launch.Source) engine.PermissionMode {
+		t.Helper()
+		src.Identity, src.Mode, src.WorkDir = env.Identity, engine.Interactive, env.Project
+		l, err := launch.Resolve(context.Background(), env.Deps, src)
+		require.NoError(t, err)
+		return l.Permission
+	}
+	require.Equal(t, engine.PermissionBypass, at(launch.Source{Agent: "dev"}), "the project default fills an undeclared binding")
+	require.Equal(t, engine.PermissionPlan, at(launch.Source{Agent: "strict"}), "the binding beats the project default")
+	require.Equal(t, engine.PermissionPlan, at(launch.Source{Agent: "dev", Label: "guarded"}), "the label beats the project default")
+	require.Equal(t, engine.PermissionAcceptEdits, at(launch.Source{Agent: "strict", Permission: engine.PermissionAcceptEdits}), "the flag beats everything")
+
+	env = launchtest.Deps(t, launchtest.WithAgent("dev"))
+	require.Equal(t, engine.PermissionDefault, at(launch.Source{Agent: "dev"}), "nothing declared anywhere: the engine's host default")
+}
+
+// TestResolve_Axes_ProjectRuntimeTypoIsRefused: the project's `runtime:`
+// is parsed once, and a spelling the vocabulary does not admit refuses the
+// launch rather than reading as the host.
+func TestResolve_Axes_ProjectRuntimeTypoIsRefused(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.ProjectRuntime("contianer-rootless"))
+	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Interactive, WorkDir: env.Project})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "contianer-rootless")
+	require.ErrorContains(t, err, "host|container-rootless|container-rootful")
+
+	env = launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.ProjectRuntime(string(launch.RuntimeHost)))
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Interactive, WorkDir: env.Project, Workspace: launch.WorkspaceWorktree})
+	require.NoError(t, err)
+	require.Equal(t, launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost}, l.Axes, "the invocation's workspace and the project's runtime")
+}
+
+// TestResolve_NamedProfilesThatAssembleToNothingAreRefused: naming a
+// specialisation and delivering none of it is a failed assembly.
+func TestResolve_NamedProfilesThatAssembleToNothingAreRefused(t *testing.T) {
+	env := launchtest.Deps(t)
+	env.Deps.Assembler = emptyAssembler{}
+	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Interactive, WorkDir: env.Project})
+	require.ErrorIs(t, err, launch.ErrContextEmpty)
+}
+
+// emptyAssembler composes every profile set to nothing.
+type emptyAssembler struct{}
+
+func (emptyAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (launch.Assembled, error) {
+	return launch.Assembled{}, nil
+}
+func (emptyAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
+	return nil, nil
 }

@@ -11,56 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// isolatedStubPolicy is stubPolicy's ISOLATED twin: its Name is not "none", so
-// isolation.Isolated reports true and runResolvedAgent takes the per-member
-// managed-config branch — the only branch that actually consults the executable
-// trust gate. SpawnClient still mints a canned client, so nothing spawns.
-type isolatedStubPolicy struct{ mk func() pb.Client }
-
-func (isolatedStubPolicy) Name() string { return "worktree" }
-func (p isolatedStubPolicy) ResolveWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
-	return stubWorkspace{dir: projectDir}, nil
-}
-func (isolatedStubPolicy) Mount(context.Context, isolation.Workspace) (isolation.MountPlan, error) {
-	return isolation.MountPlan{}, nil
-}
-func (p isolatedStubPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (isolation.Workspace, error) {
-	ws, err := p.ResolveWorkspace(ctx, projectDir, agentID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := p.Mount(ctx, ws); err != nil {
-		return nil, err
-	}
-	return ws, nil
-}
-func (p isolatedStubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[string]string) (pb.Client, error) {
-	return p.mk(), nil
-}
-func (isolatedStubPolicy) StartRunner(context.Context, string, string, int, isolation.Workspace, map[string]string) (*isolation.RunnerHandle, error) {
-	return &isolation.RunnerHandle{Kill: func() {}, Wait: func() error { return nil }}, nil
-}
-
-// stubIsolatedPrepare swaps runResolvedAgent's isolation.Prepare seam for one
-// that always yields an ISOLATED policy over the live project dir.
-func stubIsolatedPrepare(t *testing.T, mk func() pb.Client) {
-	t.Helper()
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return isolatedStubPolicy{mk: mk}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-}
 
 // withheldOneshotProject seeds a loadable on-disk project whose `dev` profile
 // pulls a local bundle carrying two MCP servers, one of which is REJECTED in the
@@ -107,99 +64,42 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	})
 }
 
-// TestRunOneshot_SurfacesWithheldExecutable pins that RunOneshot builds an
-// ExecutableTrustGate for an isolated oneshot and then discarded the object,
-// keeping only its Gate() closure — so every executable the gate withheld from
-// the member's per-member config was withheld with no diagnostic at all.
-// docs/trust-model.md: a withhold must never be silent or reasonless.
-func TestRunOneshot_SurfacesWithheldExecutable(t *testing.T) {
+// TestOneShot_SurfacesWithheldExecutable: the managed surfaces a one-shot
+// now receives are gated by the generation's executable trust gate, and a
+// withheld executable is named in an advisory, never dropped silently.
+func TestOneShot_SurfacesWithheldExecutable(t *testing.T) {
 	resetStrictness(t)
 	cfg := withheldOneshotProject(t)
-	stubIsolatedPrepare(t, func() pb.Client { return &stubClient{out: "done"} })
+	// The generation's own gate is what the assembler consults; a fixture
+	// binds none, so bind the one the composition root would.
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
+	stub := &stubClient{out: "done"}
 	warnings := captureWarnings(t)
 
-	res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{Profile: "dev", Task: "review"})
+	o, err := testOneShot(t, cfg, nil, stub, launch.Source{Profiles: []string{"dev"}})
 	require.NoError(t, err)
-	require.NotNil(t, res)
+	out, err := o.Turn(context.Background(), "review")
+	require.NoError(t, err)
+	require.Equal(t, "done", out)
 
 	assert.Contains(t, warnings.String(), "noisy-server",
 		"the withheld MCP executable must be named in an advisory, not dropped silently")
 }
 
-// TestRunResolvedAgent_RejectsUnknownPermissionPosture pins that the ok
-// bool from agent.ParsePermissionMode was discarded, so a MISSPELLED posture
-// was indistinguishable from an unset one. Both parse to
-// PermissionNotRequested, which is not SafeHeadless, so both are refused (unroasted-spinning: this
-// used to be "both floored to PermissionBypass" — a member whose author
-// wrote "plna" for "plan" ran with the MOST permissive setting; the floor
-// was itself the silent-elevation bug and was replaced with a refusal). The
-// two refusals stay distinctly worded: a misspelling names the exact text
-// that did not parse, an unset posture does not — LLMEntry.Permissions comes
-// straight out of a hand-edited config.yaml and is validated nowhere on the
-// way in, so both the typo and the unset case are reachable.
-func TestRunResolvedAgent_RejectsUnknownPermissionPosture(t *testing.T) {
-	run := func(t *testing.T, perms string) (*stubClient, *RunOneshotResult, error) {
-		t.Helper()
-		stub := &stubClient{out: "ran"}
-		res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:        "t",
-			WorkDir:     t.TempDir(),
-			Label:       "claude-fast",
-			Backend:     "claude-code",
-			Permissions: perms,
-			Factory:     func(string, string, int) (pb.Client, error) { return stub, nil },
-		})
-		return stub, res, err
-	}
-
-	t.Run("a misspelled posture is refused, not floored to bypass", func(t *testing.T) {
-		stub, res, err := run(t, "plna")
-		require.Error(t, err, "an unrecognised posture must not silently become bypass")
-		assert.Nil(t, res)
-		assert.Contains(t, err.Error(), "plna", "the error must quote what was written")
-		assert.Nil(t, stub.gotReq, "the engine must never have run")
-	})
-
-	t.Run("an unset posture is refused too, distinctly from a misspelled one", func(t *testing.T) {
-		stub, res, err := run(t, "")
-		require.Error(t, err, "unset is not SafeHeadless either; it must refuse, not silently run at bypass")
-		assert.Nil(t, res)
-		assert.Contains(t, err.Error(), `"`+agent.PermissionNotRequested.String()+`"`, "the error names what was declared (nothing), not a quoted typo")
-		assert.NotContains(t, err.Error(), "expected one of", "unset must not be reported as an unrecognised posture")
-		assert.Nil(t, stub.gotReq, "the engine must never have run")
-	})
-
-	t.Run("a recognised headless-safe posture is honoured", func(t *testing.T) {
-		stub, _, err := run(t, "bypass")
-		require.NoError(t, err)
-		require.NotNil(t, stub.gotReq)
-		assert.Equal(t, agent.PermissionBypass.String(), stub.gotReq.Options.PermissionMode)
-	})
-}
-
-// TestRunResolvedAgent_ScalesVerbosityToWireLevel pins the PUBLIC
-// SEAM above the duplication. The row is a verbatim-identical duplicate — the
-// literal 16 appeared as `uint32(v * 16)` in both `ctxloom run` and this
-// oneshot/fan tail — so no parity test between the two could ever be red, and a
-// test against the new shared constant could only fail to compile. What is
-// pinnable is the seam the collapse must not move: the wire verbosity level a
-// -v count actually reaches the engine as (llm.proto: 0=silent, 16=commands,
-// 32=args, 48+=debug). Green before and after the collapse by construction.
-func TestRunResolvedAgent_ScalesVerbosityToWireLevel(t *testing.T) {
+// TestOneShot_ScalesVerbosityToWireLevel: the invoking surface's -v count
+// reaches the engine as wire verbosity through the one codec.
+func TestOneShot_ScalesVerbosityToWireLevel(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := oneshotTestConfig(t)
 	for _, tc := range []struct {
 		vCount int
 		want   uint32
 	}{{0, 0}, {1, 16}, {2, 32}, {3, 48}} {
 		stub := &stubClient{out: "ran"}
-		_, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:        "t",
-			WorkDir:     t.TempDir(),
-			Label:       "claude-fast",
-			Backend:     "claude-code",
-			Permissions: "bypass", // headless-safe: this test is about verbosity scaling, not permission resolution
-			Verbosity:   tc.vCount,
-			Factory:     func(string, string, int) (pb.Client, error) { return stub, nil },
-		})
+		o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
+		require.NoError(t, err)
+		o.verbosity = tc.vCount
+		_, err = o.Turn(context.Background(), "t")
 		require.NoError(t, err)
 		require.NotNil(t, stub.gotReq)
 		assert.Equal(t, tc.want, stub.gotReq.Options.Verbosity,

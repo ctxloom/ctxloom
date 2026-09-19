@@ -46,6 +46,13 @@ type agentDecl struct {
 type fixture struct {
 	agents    map[string]agentDecl
 	available map[launch.RuntimeAxis]bool
+	// projectRuntime and projectPermissions are the project-level defaults
+	// (config.yaml's `runtime:` and `permissions:`).
+	projectRuntime     string
+	projectPermissions string
+	// profileLLM is the label the "base" profile declares, reported by the
+	// assembler double.
+	profileLLM string
 	// noStructured drops Structured from the fixture engine's Modes.
 	noStructured bool
 	// withoutContainer makes the fake Cells refuse a container axis with
@@ -101,6 +108,15 @@ func RuntimesAvailable(axes ...launch.RuntimeAxis) Option {
 	}
 }
 
+// ProjectRuntime sets the project's `runtime:` default, unparsed.
+func ProjectRuntime(s string) Option { return func(f *fixture) { f.projectRuntime = s } }
+
+// ProjectPermissions sets the project's `permissions:` default.
+func ProjectPermissions(s string) Option { return func(f *fixture) { f.projectPermissions = s } }
+
+// ProfileLLM makes the composed profiles declare a label.
+func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = label } }
+
 // Deps builds the fixture: a config generation declaring the "primary" and
 // "fast" labels on the fixture engine, the internal bindings every launch
 // path names ("setup" for init's probe, "distiller" for the distill
@@ -126,11 +142,14 @@ func Deps(t *testing.T, opts ...Option) Env {
 			Configs: map[string]config.LLMConfig{
 				"primary": {Type: string(EngineName)},
 				"fast":    {Type: string(EngineName), Body: map[string]any{"model": "fast-model"}},
+				"guarded": {Type: string(EngineName), Permissions: "plan"},
 			},
 			Defaults: config.RoleDefaults{Primary: "primary", Fast: "fast"},
 		},
 		Agents:       bindings,
 		DefaultAgent: "setup",
+		Runtime:      f.projectRuntime,
+		Permissions:  f.projectPermissions,
 	})
 	snap := &config.Snapshot{Config: cfg, Trust: composite.Trust{}}
 
@@ -149,7 +168,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 		Deps: launch.Deps{
 			Snapshot:  snap,
 			Engines:   reg,
-			Assembler: assembler{},
+			Assembler: assembler{profileLLM: f.profileLLM},
 			Cells:     &cells{available: f.available, withoutContainer: f.withoutContainer},
 			Endpoints: &StableMinter{},
 			Sessions:  store,
@@ -207,6 +226,7 @@ func newFixtureEngine(modes []engine.Mode) engine.Engine {
 		Distribution: engine.DistributionDefault,
 		Modes:        modes,
 		Permissions:  engine.PermissionFacts{ReadOnlyPlan: true, HostDefault: engine.PermissionDefault},
+		ModelAliases: map[string]string{"fast-model": "fixture-fast-2"},
 		Context:      a, MCP: a, Settings: a, Hooks: a, Commands: a, Skills: a,
 	}
 	for _, m := range modes {
@@ -251,11 +271,12 @@ func (*approach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInp
 }
 
 // assembler is the Assembler double: the context is the profile set's names
-// joined, the managed surfaces are empty, the profiles declare no llm.
-type assembler struct{}
+// joined, the managed surfaces are empty, the profiles declare the fixture's
+// label (none by default).
+type assembler struct{ profileLLM string }
 
-func (assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
-	return launch.Assembled{Context: fmt.Sprintf("context of %v", sel.Profiles), Profiles: sel.Profiles}, nil
+func (a assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
+	return launch.Assembled{Context: fmt.Sprintf("context of %v", sel.Profiles), Profiles: sel.Profiles, ProfileLLM: a.profileLLM}, nil
 }
 
 func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, _ string, _ []string, _ map[string]string) (launch.Surfaces, error) {

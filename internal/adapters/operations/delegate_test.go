@@ -200,7 +200,7 @@ func TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T
 		ProjectRoot: "/proj",
 	})
 	require.Error(t, err, "--degraded must NOT soften the fail handler's refusal")
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 }
 
 // ----- workspace: none / clean tree escape hatches (unchanged shape) -----
@@ -386,7 +386,7 @@ func TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
 	require.Error(t, err)
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 	assert.Contains(t, err.Error(), "patch does not apply")
 }
 
@@ -418,7 +418,7 @@ func TestPrepareAgentChat_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
 	require.Error(t, err)
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 	assert.Contains(t, err.Error(), "untracked.go")
 }
 
@@ -768,7 +768,7 @@ func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 			ProjectRoot: "/proj",
 		})
 		require.Error(t, err, "an unrecognized handler refuses the spawn")
-		assert.Nil(t, p)
+		assert.Nil(t, p.Cleanup)
 		assert.Empty(t, fake.CommitMessages, "THE POINT: a typo must not commit the user's working tree")
 		assert.NotContains(t, fake.Calls, "commit-all /proj", "handleDirtyParentTree was never reached")
 	})
@@ -808,7 +808,7 @@ func TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *tes
 		ProjectRoot: "/proj",
 	})
 	require.Error(t, err, "the project's \"fail\" default still applies")
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 }
 
 // TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"
@@ -933,16 +933,4 @@ func TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning(t *testin
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerStale)
 	require.NoError(t, err)
 	assert.Contains(t, warnings.String(), "could not list")
-}
-
-// reportingWorkspace mirrors the production Workspace contract every policy
-// implements: a teardown failure is REPORTED from inside Cleanup (see
-// isolation.warnCleanupResidue — it names the residue path, the likely cause
-// and the manual fix) and only then, for the container policy, also returned.
-type reportingWorkspace struct{ dir, residue string }
-
-func (w reportingWorkspace) Dir() string { return w.dir }
-func (w reportingWorkspace) Cleanup() error {
-	clidiag.Warn("ctxloom", "container scratch %s could not be removed (%v)", w.residue, assert.AnError)
-	return fmt.Errorf("remove container scratch %s: %w", w.residue, assert.AnError)
 }

@@ -475,7 +475,6 @@ func TestBundleDistill_TrustedPromptIsNotRefused(t *testing.T) {
 
 	d, err := newLLMDistiller(cfg, "fast")
 	require.NoError(t, err, "an admitted prompt is not a refusal")
-	ld, ok := d.(*llmDistiller)
-	require.True(t, ok)
-	assert.Equal(t, distillCommandBody, ld.prompt, "the configured prompt is what gets used")
+	require.NotNil(t, d)
+	assert.Equal(t, distillCommandBody, d.prompt, "the configured prompt is what gets used")
 }

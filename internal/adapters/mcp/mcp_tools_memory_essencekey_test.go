@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -81,17 +80,13 @@ func fixedCompactor(sessionID, body string) func(memory.CompactionConfig) (*memo
 				},
 			}},
 		}
-		client := &pb.MockClient{
-			RunFunc: func(_ context.Context, _ *pb.RunStart, stdout, _ io.Writer) (int32, error) {
-				_, _ = stdout.Write([]byte(body))
-				return 0, nil
-			},
-		}
 		return memory.NewCompactor(memory.CompactionConfig{
 			BackendOverride: be,
-			ClientFactory:   pb.MockClientFactory(client),
-			OutputDir:       cfg.OutputDir,
-			HarpName:        cfg.HarpName,
+			// The distiller's turn: a canned answer, standing where the
+			// resolved one-shot session's turn stands in production.
+			Run:       func(context.Context, string) (string, error) { return body, nil },
+			OutputDir: cfg.OutputDir,
+			HarpName:  cfg.HarpName,
 		})
 	}
 }

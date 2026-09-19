@@ -113,11 +113,9 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	// and distillPrompt appends nothing for it.
 	taskHint, _ := memory.ReadNextStep(entry.HarpName)
 	// The distiller is a real session on the FAST role's label: one harp for
-	// every turn this compaction makes, ended when it is done.
-	distiller, err := StartInternalOneShot(ctx, cfg, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
-	if err != nil {
-		return nil, fmt.Errorf("start distiller: %w", err)
-	}
+	// every turn this compaction makes, started on the first turn and ended
+	// when the compaction is done.
+	distiller := NewLazyOneShot(cfg, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
 	defer distiller.End()
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Run:              distiller.Turn,

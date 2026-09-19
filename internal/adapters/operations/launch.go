@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 	src.Identity = id
 	l, err := launch.Resolve(ctx, deps, src)
 	if err != nil {
-		if eerr := EndSession(id.Harp, time.Now()); eerr != nil {
+		if eerr := EndSessionIn(deps.Sessions, id.Harp, time.Now()); eerr != nil {
 			clidiag.Warn("ctxloom", "session %s: end after a refused launch: %v", id.Harp, eerr)
 		}
 		return launch.Launch{}, err
@@ -107,17 +108,16 @@ func LaunchDepsFor(snap *config.Snapshot) (launch.Deps, error) {
 	}, nil
 }
 
-// hostFacts decodes the originator's host facts once: the real home, the
-// ctxloom home and the binary.
+// hostFacts is the originator's host facts: the real home, the ctxloom home
+// and the binary. The home is read through the one reader core/paths keeps
+// (the ctxloom home is home/AppDirName by that reader's construction, so
+// the real home is its parent); operations reads no environment itself.
 func hostFacts() (launch.HostFacts, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return launch.HostFacts{}, fmt.Errorf("home dir: %w", err)
-	}
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
 		return launch.HostFacts{}, err
 	}
+	home := filepath.Dir(ctxHome)
 	binary, err := os.Executable()
 	if err != nil {
 		return launch.HostFacts{}, fmt.Errorf("ctxloom binary: %w", err)

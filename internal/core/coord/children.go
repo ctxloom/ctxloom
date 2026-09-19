@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -663,24 +662,6 @@ func waitAnyClosed(ctx context.Context, chs []chan struct{}) error {
 		return ctx.Err()
 	}
 	return nil
-}
-
-// childEnv builds the child ENGINE's extra environment: ambient identity
-// only. The coordinator reach-back trio no longer rides here — the RUNNER
-// terminates MCP now, so the credential goes to the runner PROCESS via the
-// per-spawn seam (runnerEnv) and the harness never sees it (one credential
-// holder, one egress).
-func (c *Coordinator) childEnv(harp string) map[string]string {
-	env := map[string]string{
-		sessions.EnvHarp: harp,
-	}
-	// Ambient project identity, inherited from this process's env (the
-	// parent run exported it): a containerized child's taskloom must key
-	// the SAME shared host log.
-	if pid := os.Getenv(sessions.EnvProjectID); pid != "" {
-		env[sessions.EnvProjectID] = pid
-	}
-	return env
 }
 
 // runnerEnv builds the per-spawn env stamped onto the RUNNER process (host:

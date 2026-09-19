@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,8 +9,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
@@ -239,7 +240,6 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		assert.False(t, got.WantsContainer(), "and still means the host")
 	})
 }
-
 
 // -----------------------------------------------------------------------------
 // RuntimeOffer — the interview's menu.

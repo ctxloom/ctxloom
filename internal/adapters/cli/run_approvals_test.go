@@ -7,80 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
-
-// TestResolvePermissionMode pins the top-level run's permission-posture resolver:
-// precedence (--permissions flag > agent binding > engine-label config > built-in
-// default), the claude-code host-bypass default (the container-isolation stopgap,
-// taskloom hilly-crop), the plan collapse on backends that can't enforce read-only,
-// and the headless-ONESHOT floor that upgrades a would-block posture to bypass so a
-// run with no human can't hang.
-func TestResolvePermissionMode(t *testing.T) {
-	// The two declared host defaults: the host-bypass stopgap and prompt-per-call.
-	const stopgap, prompting = agent.PermissionBypass, agent.PermissionDefault
-	cases := []struct {
-		name         string
-		flag         string
-		agentPerm    string
-		labelPerm    string
-		projectPerm  string
-		hostDefault  agent.PermissionMode
-		mode         pb.ExecutionMode
-		enforcesPlan bool
-		want         agent.PermissionMode
-	}{
-		{"flag beats agent, label, and default", "plan", "bypass", "default", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"agent beats label and default", "", "acceptEdits", "bypass", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionAcceptEdits},
-		{"label beats default", "", "", "plan", "", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-		{"a stopgap host default bypasses on the host", "", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionBypass},
-		// The opt-out path: an EXPLICIT default must beat claude's host-bypass
-		// default (ParsePermissionMode distinguishes explicit "default" from unset).
-		{"explicit default beats the host-bypass stopgap", "default", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		{"explicit default via label beats the host-bypass stopgap", "", "", "default", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		{"other backend default prompts", "", "", "", "", prompting, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionDefault},
-		// An unparseable config-sourced value (agent/label) is a declaration that
-		// MISSED, not an absent one: it stops the chain at the most restrictive
-		// posture instead of falling through to the claude-code host stopgap. The
-		// typed --permissions flag is rejected up front instead (see
-		// TestValidatePermissionFlag), so it never reaches here unparseable.
-		{"unparseable agent value floors to read-only, never the stopgap", "", "nonsense", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
-		{"unparseable value does not defer to a wider source below it", "", "nonsense", "bypass", "bypass", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionFloor},
-		// The floor survives BOTH widening steps below it: the plan collapse on a
-		// backend with no read-only tier, and the ONESHOT floor that follows it.
-		// Letting either apply walks a typo back up to bypass.
-		{"unparseable value is not collapsed on a non-enforcing backend", "", "nonsense", "", "", prompting, pb.ExecutionMode_INTERACTIVE, false, agent.PermissionFloor},
-		{"unparseable value is not widened by the oneshot floor", "", "nonsense", "", "", prompting, pb.ExecutionMode_ONESHOT, false, agent.PermissionFloor},
-		{"oneshot upgrades a would-block default to bypass", "default", "", "", "", prompting, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
-		{"oneshot keeps safe-headless plan on an enforcing backend", "plan", "", "", "", prompting, pb.ExecutionMode_ONESHOT, true, agent.PermissionPlan},
-		{"oneshot upgrades acceptEdits to bypass", "acceptEdits", "", "", "", stopgap, pb.ExecutionMode_ONESHOT, true, agent.PermissionBypass},
-		// Fix A: a backend with no read-only tier can't honor plan. Interactively it
-		// collapses to default (a human still gates each tool call — no silent
-		// read-write); headless it then upgrades to bypass so it can't hang.
-		{"plan on a non-enforcing backend collapses to prompt", "plan", "", "", "", prompting, pb.ExecutionMode_INTERACTIVE, false, agent.PermissionDefault},
-		{"headless plan on a non-enforcing backend upgrades to bypass", "plan", "", "", "", prompting, pb.ExecutionMode_ONESHOT, false, agent.PermissionBypass},
-		{"plan on an enforcing backend stays plan interactively", "plan", "", "", "", stopgap, pb.ExecutionMode_INTERACTIVE, true, agent.PermissionPlan},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := resolvePermissionMode(tc.flag, tc.agentPerm, tc.labelPerm, tc.projectPerm, engine.PermissionFacts{HostDefault: tc.hostDefault, ReadOnlyPlan: tc.enforcesPlan}, tc.mode)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-// TestRequestedPermission verifies the resolver surfaces the posture the user or
-// config asked for (first parseable of flag > agent > label), independent of any
-// backend collapse — the input the run uses to warn when a backend can't honor it.
-func TestRequestedPermission(t *testing.T) {
-	assert.Equal(t, agent.PermissionPlan, requestedPermission("plan", "bypass", "default", ""))
-	assert.Equal(t, agent.PermissionBypass, requestedPermission("", "", "bypass", ""))
-	assert.Equal(t, agent.PermissionDefault, requestedPermission("default", "", "bypass", ""), "an explicit default is a request, not the absence of one")
-	assert.Equal(t, agent.PermissionNotRequested, requestedPermission("", "", "", ""), "nothing requested")
-	assert.Equal(t, agent.PermissionNotRequested, requestedPermission("nonsense", "", "", ""), "an unparseable value is not a request")
-}
 
 // TestValidatePermissionFlag pins fix B: an explicitly-typed --permissions value
 // that isn't a known posture is a hard error up front, so a typo can't silently
@@ -95,15 +24,15 @@ func TestValidatePermissionFlag(t *testing.T) {
 	assert.Error(t, validatePermissionFlag("yolo"))
 }
 
-// TestWarnPlanOneshotCancels pins the invariant: after resolvePermissionMode's
-// ONESHOT floor, plan is the only SafeHeadless posture that still gates a
-// mutating call on a human (bypass never asks; default/acceptEdits already
-// floored up to bypass by this point) — so a --one-shot run that resolved to
-// plan must warn loudly at startup that no human is reachable, since the engine
-// cancels any gated call outright rather than
-// hanging or running it. bypass+ONESHOT (nothing gates) and plan+INTERACTIVE (a
-// human IS reachable) must both stay silent.
-func TestWarnPlanOneshotCancels(t *testing.T) {
+// TestWarnPosture_PlanOneshotCancels pins the invariant: after the launch
+// resolver's headless floor, plan is the only SafeHeadless posture that still
+// gates a mutating call on a human (bypass never asks; default/acceptEdits
+// were floored up to bypass) — so a --one-shot run that resolved to plan must
+// warn loudly at startup that no human is reachable, since the engine cancels
+// any gated call outright rather than hanging or running it. bypass+ONESHOT
+// (nothing gates) and plan+INTERACTIVE (a human IS reachable) must both stay
+// silent.
+func TestWarnPosture_PlanOneshotCancels(t *testing.T) {
 	cases := []struct {
 		name     string
 		mode     pb.ExecutionMode
@@ -120,8 +49,8 @@ func TestWarnPlanOneshotCancels(t *testing.T) {
 			restore := clidiag.SetSink(&buf)
 			defer restore()
 
-			st := &runState{mode: tc.mode, permMode: tc.permMode}
-			st.warnPlanOneshotCancels()
+			st := &runState{mode: tc.mode, permMode: tc.permMode, backendName: "mock"}
+			st.warnPosture()
 
 			if tc.wantWarn {
 				assert.Contains(t, buf.String(), "--one-shot with plan permissions has no human to approve a gated call")

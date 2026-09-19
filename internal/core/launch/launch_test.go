@@ -133,3 +133,19 @@ func TestLaunch_Session_IsTheOnlyProjection(t *testing.T) {
 	require.Equal(t, l.MCP, s.MCP)
 	require.Equal(t, "hello", s.Prompt)
 }
+
+// TestResolve_InternalSource_BindsNoAgent: an internal one-shot names no
+// binding and no profiles — its prompt is the whole instruction and the
+// label names its engine — yet it is a real session: a harp, an endpoint,
+// the managed surfaces, the headless floor.
+func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
+	env := launchtest.Deps(t)
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Internal: true, Label: "fast", Mode: engine.Structured, Prompt: "distill this", WorkDir: env.Project})
+	require.NoError(t, err)
+	require.Equal(t, "fast", l.Label.Label)
+	require.Empty(t, l.Package.Profiles, "no binding: no profiles composed")
+	require.Empty(t, l.Package.Context)
+	require.NotNil(t, l.Package.Managed, "the managed surfaces still ride: the one-shot is a real session")
+	require.Equal(t, engine.PermissionBypass, l.Permission)
+	require.NotEmpty(t, l.MCP.URL)
+}

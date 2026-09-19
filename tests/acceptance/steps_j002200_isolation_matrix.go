@@ -802,9 +802,10 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// (the durable per-project home the per-session model retired).
 	//
 	// The expectation is built component by component here rather than derived
-	// from internal/engines/claude.SessionConfigDir: an assertion that computes its
-	// expectation with the same function the production code used cannot fail
-	// when that function is wrong.
+	// from the production resolution (paths.SessionHomePath plus
+	// claude.HomeLeaf): an assertion that computes its expectation with the
+	// same function the production code used cannot fail when that function
+	// is wrong.
 	//
 	// EVERYTHING IS READ FROM THE RECORDING, nothing from the post-run
 	// filesystem. This step used to os.Stat the value and glob the project for

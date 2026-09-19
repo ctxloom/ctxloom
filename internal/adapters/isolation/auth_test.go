@@ -334,13 +334,13 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 // =============================================================================
 // CopyAmbient, claude arm — the same one mechanism against claude's allow-list,
 // on the IN-TREE AGENT axis where internal/adapters/operations points CLAUDE_CONFIG_DIR
-// at a per-session instance (internal/engines/claude.SessionConfigDir).
+// at a per-session instance (the session home plus claude.HomeLeaf).
 // =============================================================================
 
 // TestCopyAmbient_Claude_CopiesCredentials is the PAYLOAD-asserting case: the
 // host's ~/.claude/.credentials.json lands byte-identical, owner-only, at
-// destDir/claude/.credentials.json — exactly where claude.SessionConfigDir
-// resolves CLAUDE_CONFIG_DIR to. The empty-source guard (a non-empty fixture,
+// destDir/claude/.credentials.json — exactly where CLAUDE_CONFIG_DIR is
+// pointed (claude.HomeLeaf). The empty-source guard (a non-empty fixture,
 // re-read and compared) keeps the byte comparison from passing vacuously on two
 // empty files, which is this project's signature failure mode.
 func TestCopyAmbient_Claude_CopiesCredentials(t *testing.T) {

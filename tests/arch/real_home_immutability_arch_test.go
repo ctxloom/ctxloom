@@ -295,12 +295,12 @@ func TestArch_InstanceHomesLiveInsideTheProjectStateTier(t *testing.T) {
 	const harp = "ugly-icy-squid"
 	stateTier := filepath.Join(workDir, paths.AppDirName, "state") + string(filepath.Separator)
 
-	claudeDir, err := claude.SessionConfigDir(workDir, harp)
+	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
 	if err != nil {
-		t.Fatalf("claude.SessionConfigDir: %v", err)
+		t.Fatalf("paths.SessionHomePath: %v", err)
 	}
 	for name, dir := range map[string]string{
-		"claude-code": claudeDir,
+		"claude-code": filepath.Join(root, claude.HomeLeaf),
 	} {
 		if !strings.HasPrefix(dir, stateTier) {
 			t.Errorf("%s's instance %q is not inside the project state tier %q", name, dir, stateTier)

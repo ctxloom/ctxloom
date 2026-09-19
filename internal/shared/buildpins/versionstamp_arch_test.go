@@ -44,9 +44,9 @@ type versionStampSite struct {
 // Listed rather than discovered: a discovery bug would silently shrink the set
 // and leave this gate comparing one file with itself, green and worthless.
 var versionStampSites = []versionStampSite{
-	{path: "../../justfile", wrapped: false},
-	{path: "../../justfile.container", wrapped: true},
-	{path: "../../build/common.justfile", wrapped: true},
+	{path: "../../../justfile", wrapped: false},
+	{path: "../../../justfile.container", wrapped: true},
+	{path: "../../../build/common.justfile", wrapped: true},
 }
 
 // versionAssignmentRE finds the stamp assignment at column 0. Only the

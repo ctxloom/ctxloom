@@ -438,8 +438,8 @@ func TestDrainBound_NoSecondLiteralExists(t *testing.T) {
 	coordDir := packageDir(t)
 	dirs := map[string]string{
 		"coord":     coordDir,
-		"mcpschema": filepath.Join(coordDir, "..", "mcpschema"),
-		"mcp":       filepath.Join(coordDir, "..", "..", "mcp"),
+		"mcpschema": filepath.Join(coordDir, "..", "..", "adapters", "coordgrpc", "mcpschema"),
+		"mcp":       filepath.Join(coordDir, "..", "..", "adapters", "mcp"),
 	}
 	const declaring = "recvwait.go"
 	var seenDeclaration bool

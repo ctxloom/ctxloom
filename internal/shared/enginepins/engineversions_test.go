@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	engineVersionsPath = "../../.github/engine-versions.env"
-	workflowPath       = "../../.github/workflows/engine-drift-detect.yml"
-	detectScriptPath   = "../../.github/scripts/detect-engine-version.sh"
+	engineVersionsPath = "../../../.github/engine-versions.env"
+	workflowPath       = "../../../.github/workflows/engine-drift-detect.yml"
+	detectScriptPath   = "../../../.github/scripts/detect-engine-version.sh"
 )
 
 var semverRE = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)

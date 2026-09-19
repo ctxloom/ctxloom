@@ -243,7 +243,7 @@ func pkgSourceDir(t *testing.T) string {
 // resources/schema/input. Moving or renaming that directory, or changing either
 // side's host, turns the doc comment back into a claim nobody checks.
 func TestIDBase_MatchesTheHandMaintainedInputSchemas(t *testing.T) {
-	inputDir := filepath.Join(pkgSourceDir(t), "..", "..", "resources", "schema", "input")
+	inputDir := filepath.Join(pkgSourceDir(t), "..", "..", "..", "resources", "schema", "input")
 	for _, base := range []string{"config-schema.json", "fragment-schema.json"} {
 		path := filepath.Join(inputDir, base)
 		data, err := os.ReadFile(path)

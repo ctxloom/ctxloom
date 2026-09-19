@@ -29,8 +29,8 @@ func packageDir() string { return sourcedir.MustDir() }
 // embedded copy going stale relative to the one true schema file.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	// internal/adapters/transcript/ -> repo root is two levels up.
-	return filepath.Join(packageDir(), "..", "..")
+	// internal/adapters/transcript/ -> repo root is three levels up.
+	return filepath.Join(packageDir(), "..", "..", "..")
 }
 
 // fixturePath is testdata/fixtures/<name>, anchored at packageDir.

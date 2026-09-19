@@ -1280,8 +1280,8 @@ func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
 	}
 
 	for _, rel := range []string{
-		filepath.Join("..", "..", "cmd", "taskloom", "loadout.yaml"),
-		filepath.Join("..", "..", "cmd", "ltk", "loadout.yaml"),
+		filepath.Join("..", "..", "..", "cmd", "taskloom", "loadout.yaml"),
+		filepath.Join("..", "..", "..", "cmd", "ltk", "loadout.yaml"),
 	} {
 		path := filepath.Join(thisDir(), rel)
 		raw, err := os.ReadFile(path)

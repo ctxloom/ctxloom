@@ -75,16 +75,16 @@ type handlerScope struct {
 
 var handlerScopes = map[string]handlerScope{
 	ToolAgentRun: {
-		funcs: []string{"../coord/runchannel.go:serveSpawnAgent"},
+		funcs: []string{"../../../core/coord/runchannel.go:serveSpawnAgent"},
 	},
 	ToolAgentSend: {
-		funcs: []string{"../coord/spooldelivery.go:sendPeerViaSpool"},
+		funcs: []string{"../../../core/coord/spooldelivery.go:sendPeerViaSpool"},
 	},
 	ToolAgentStop: {
-		funcs: []string{"../coord/runchannel.go:serveStopRun"},
+		funcs: []string{"../../../core/coord/runchannel.go:serveStopRun"},
 	},
 	ToolRoster: {
-		funcs: []string{"../coord/runchannel.go:serveListRuns"},
+		funcs: []string{"../../../core/coord/runchannel.go:serveListRuns"},
 	},
 	ToolAgentReport: {
 		// agent_report's Summary is consumed in two places: the runner-side
@@ -92,7 +92,7 @@ var handlerScopes = map[string]handlerScope{
 		// journal fold.
 		funcs: []string{
 			"../../mcp/mcp_runner.go:reportHandler",
-			"../coord/reports.go:recordSummary",
+			"../../../core/coord/reports.go:recordSummary",
 		},
 	},
 	ToolAgentRecv: {
@@ -104,19 +104,19 @@ var handlerScopes = map[string]handlerScope{
 	// The five control tools share one wire server: each arm's fields are
 	// read in its case of serveControlRun.
 	ToolAgentSteer: {
-		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
 	},
 	ToolAgentAsk: {
-		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
 	},
 	ToolAgentSummarize: {
-		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
 	},
 	ToolAgentPause: {
-		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
 	},
 	ToolAgentResume: {
-		funcs: []string{"../coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
 	},
 }
 
@@ -293,7 +293,7 @@ func snake(s string) string {
 // them out of the source (the coord package imports this one, so it cannot be
 // imported back) and requires each to appear in the projected description.
 func TestArch_MCPToolSchemas_RosterPhaseVocabularyMatchesTheFold(t *testing.T) {
-	states, err := rosterStateConstants("../coord/folds.go")
+	states, err := rosterStateConstants("../../../core/coord/folds.go")
 	require.NoError(t, err)
 	require.Len(t, states, 5, "roster state constants changed — update roster.json's phase doc with them")
 

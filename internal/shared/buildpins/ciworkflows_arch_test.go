@@ -25,7 +25,7 @@ import (
 // regresses — so they carry `//go:build arch` and the TestArch_ naming that
 // `just test-arch` selects on.
 
-const workflowsDir = "../../.github/workflows"
+const workflowsDir = "../../../.github/workflows"
 
 // justfilesDefiningRecipes is every file a workflow's `just <target>` can
 // resolve against: the two roots and the fragments they import. Listed rather
@@ -33,11 +33,11 @@ const workflowsDir = "../../.github/workflows"
 // discovery bug here would silently shrink the known-recipe set, which turns
 // this gate into a source of false failures.
 var justfilesDefiningRecipes = []string{
-	"../../justfile",
-	"../../justfile.container",
-	"../../build/gates.justfile",
-	"../../build/ci.justfile",
-	"../../build/common.justfile",
+	"../../../justfile",
+	"../../../justfile.container",
+	"../../../build/gates.justfile",
+	"../../../build/ci.justfile",
+	"../../../build/common.justfile",
 }
 
 // justInvocationRE finds a recipe name in a workflow.

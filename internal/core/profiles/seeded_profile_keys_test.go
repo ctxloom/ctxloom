@@ -18,7 +18,7 @@ import (
 // would keep passing while the shipped file drifted, which is the failure this
 // exists to stop.
 func TestSeededProfile_HasNoKeyTheLoaderRejects(t *testing.T) {
-	path := filepath.Join("..", "..", "resources", "profiles", "default.yaml")
+	path := filepath.Join("..", "..", "..", "resources", "profiles", "default.yaml")
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err, "the seeded profile must exist; init copies it verbatim")
 	require.NotEmpty(t, raw, "an empty seed would vacuously satisfy the key check below")

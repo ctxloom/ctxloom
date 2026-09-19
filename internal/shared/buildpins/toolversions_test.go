@@ -29,14 +29,14 @@ import (
 )
 
 const (
-	toolVersionsPath     = "../../.devcontainer/tool-versions.env"
-	dockerfilePath       = "../../.devcontainer/Dockerfile"
-	justfilePath         = "../../justfile"
-	ciJustfilePath       = "../../build/ci.justfile"
-	setupJustActionPath  = "../../.github/actions/setup-just/action.yml"
-	ciWorkflowPath       = "../../.github/workflows/ci.yml"
-	releaseWorkflowPath  = "../../.github/workflows/release-completer.yml"
-	devcontainerJSONPath = "../../.devcontainer/devcontainer.json"
+	toolVersionsPath     = "../../../.devcontainer/tool-versions.env"
+	dockerfilePath       = "../../../.devcontainer/Dockerfile"
+	justfilePath         = "../../../justfile"
+	ciJustfilePath       = "../../../build/ci.justfile"
+	setupJustActionPath  = "../../../.github/actions/setup-just/action.yml"
+	ciWorkflowPath       = "../../../.github/workflows/ci.yml"
+	releaseWorkflowPath  = "../../../.github/workflows/release-completer.yml"
+	devcontainerJSONPath = "../../../.devcontainer/devcontainer.json"
 )
 
 // releaseCompleterKeys are the tool-versions.env keys that

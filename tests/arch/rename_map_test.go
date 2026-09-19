@@ -22,8 +22,9 @@ const renameMapPath = "docs/architecture/audit-2026-09-18/31-rename-map.md"
 // rename (Part 0 of the decided architecture): the three rings, the toolbox,
 // the family products, the test-only tree and the composition roots. The
 // module also carries packages that are not ctxloom's to restructure — the
-// standalone `pkg/clifmt` library, embedded `resources`, the `scripts/` tools
-// and the `tests/` trees — and those roots are tolerated by name.
+// standalone `pkg/clifmt` library, the embedded `resources` and `container`
+// data, the `scripts/` tools and the `tests/` trees — and those roots are
+// tolerated by name.
 var ringPrefixes = []string{
 	"internal/core",
 	"internal/adapters",
@@ -35,6 +36,7 @@ var ringPrefixes = []string{
 	"cmd",
 	"pkg",
 	"resources",
+	"container",
 	"scripts",
 	"tests",
 }

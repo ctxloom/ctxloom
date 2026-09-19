@@ -100,6 +100,7 @@ Feature: container — the images isolated agents run in, and the questions you 
     Background:
       Given the mock agent image is available for the shared-filesystem probe
 
+    @reach-back @R6
     Scenario Outline: The capability check is diagnostic-only
       Given an initialized ctxloom project
       And I record the project tree

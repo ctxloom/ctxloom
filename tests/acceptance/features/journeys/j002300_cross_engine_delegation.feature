@@ -65,6 +65,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # only in this scenario's Gherkin text, so its appearance in the child's
   # next reported turn cannot be anything but that specific agent_send
   # having reached that specific child session.
+  @reach-back @R1
   Scenario: A message the coordinator sends via agent_send reaches its child, verified in the child's own next reported turn
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     When the agent calls tool "agent_run" with:
@@ -92,6 +93,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # selfIdentityFromEnv's minted-harp fallback and this goes red
   # for exactly that reason — agent_recv drains role "" forever while
   # agent_run still reports success.
+  @reach-back @R2
   Scenario: A delegated child's own turn result reaches the coordinator's mailbox over the bus
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     When the agent calls tool "agent_run" with:
@@ -424,7 +426,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     # container-rootful is absent rather than declared-and-skipped: no box this
     # suite has run on has had a reachable rootful daemon, and a row that can
     # only ever skip looks like coverage.
-    @claude-code @container-rootless @ws-worktree
+    @claude-code @container-rootless @ws-worktree @reach-back @R4
     Examples:
       | engine      | runtime            | workspace | marker                                    |
       | claude-code | container-rootless | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-CTRWT-9d4f21ab |
@@ -441,7 +443,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
       | engine      | runtime | workspace | marker                                   |
       | claude-code | host    | worktree  | P6-WAKE-MARKER-CLAUDE-CODE-HOSTWT-3e7c15 |
 
-    @claude-code @container-rootless @ws-none
+    @claude-code @container-rootless @ws-none @reach-back @R3
     Examples:
       | engine      | runtime            | workspace | marker                                   |
       | claude-code | container-rootless | none      | P6-WAKE-MARKER-CLAUDE-CODE-CTRNONE-b82a4 |

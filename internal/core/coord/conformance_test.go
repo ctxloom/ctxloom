@@ -24,10 +24,8 @@ const conformanceWait = 5 * time.Second
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 
@@ -117,8 +115,8 @@ func TestAgentRun_D3RefusesNonHeadless(t *testing.T) {
 // widens it.
 func TestAgentRun_D3DegradedDowngradesToPlan(t *testing.T) {
 	resetStrictness(t)
-	strictness.SetDegraded(true)
 	sp := newFakeSpawner(map[string]fakeAgent{"loose": {profiles: []string{"p1"}}}, nil)
+	sp.degraded = true
 	c := newTestCoordinator(t, sp, nil)
 
 	_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")

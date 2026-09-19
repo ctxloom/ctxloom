@@ -219,7 +219,6 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(strictness.Reset)
 	restore := clidiag.SetSink(&bytes.Buffer{})
 	t.Cleanup(restore)

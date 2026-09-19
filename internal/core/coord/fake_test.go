@@ -15,12 +15,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
 // It mints deterministic harps and scripts one fakeEngine per launch.
 type fakeSpawner struct {
+	// degraded is the posture the fake resolves children under, the way the
+	// production spawner reads its composition's strictness.Mode.
+	degraded bool
 	mu       sync.Mutex
 	harpSeq  int
 	agents   map[string]fakeAgent // agent name → resolved plan bits
@@ -170,13 +172,13 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 // narrowed to plan under --degraded. The fake applies it where the real
 // spawner's StartEngine resolves the launch, so a test observes the
 // refusal at the same point production raises it.
-func floorChild(agentName, declared string) (agent.PermissionMode, error) {
+func floorChild(degraded bool, agentName, declared string) (agent.PermissionMode, error) {
 	if declared != "" {
 		if mode, ok := agent.ParsePermissionMode(declared); ok && mode.SafeHeadless() {
 			return mode, nil
 		}
 	}
-	if strictness.Degraded() {
+	if degraded {
 		return agent.PermissionPlan, nil
 	}
 	reason := "declares no permissions"
@@ -202,7 +204,7 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 // shared context dies — no RunExited, no clean teardown; the coordinator's
 // loss synthesis is what must notice.
 func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
-	perm, err := floorChild(plan.AgentName, plan.Permission)
+	perm, err := floorChild(s.degraded, plan.AgentName, plan.Permission)
 	if err != nil {
 		return nil, err
 	}

@@ -30,7 +30,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 
 	// Fail-loudly gate: checkpoint before the boot sequence so every
 	// fatal-class finding it records is caught by the gate below.
-	gates := newPhaseGates(os.Stderr)
+	gates := newPhaseGates(os.Stderr, App().Strictness)
 
 	return mcp.ServeStdio(ctx, App(), cwd, func() error {
 		return gates.close(PhaseStartup)

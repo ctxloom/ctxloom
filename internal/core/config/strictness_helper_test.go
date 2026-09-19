@@ -18,9 +18,7 @@ func ledgerReporter() report.Reporter { return report.To(strictness.Sink("ctxloo
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }

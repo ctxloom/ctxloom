@@ -1690,8 +1690,8 @@ func storeBytes(t *testing.T, tc TaskContext) string {
 // is a recorded ClassTask finding, and the store's bytes stay empty.
 func TestAddTaskWithTags_StrictRefusesSchemaRejectedTagAndWritesNothing(t *testing.T) {
 	taskstest.Isolate(t)
-	diag := taskstest.Strictness(t, false)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	diag := taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom"}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	_, err := AddTaskWithTags(tc, "refused add", "", "", []string{"urgent", "triage:kind=sparkles"})
 	if err == nil {
@@ -1719,8 +1719,8 @@ func TestAddTaskWithTags_StrictRefusesSchemaRejectedTagAndWritesNothing(t *testi
 // result — all asserted on the store's bytes.
 func TestAddTaskWithTags_DegradedSkipsRefusedTagAndWritesRowWithoutIt(t *testing.T) {
 	taskstest.Isolate(t)
-	diag := taskstest.Strictness(t, true)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	diag := taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom", Degraded: true}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	res, err := AddTaskWithTags(tc, "degraded add", "", "", []string{"urgent", "triage:kind=sparkles"})
 	if err != nil {
@@ -1752,8 +1752,8 @@ func TestAddTaskWithTags_DegradedSkipsRefusedTagAndWritesRowWithoutIt(t *testing
 // never just the first one encountered.
 func TestAddTaskWithTags_StrictListsEveryRefusedTag(t *testing.T) {
 	taskstest.Isolate(t)
-	taskstest.Strictness(t, false)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom"}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	_, err := AddTaskWithTags(tc, "two bad", "", "", []string{"foo/bar", "triage:kind=sparkles"})
 	if err == nil {
@@ -1774,8 +1774,8 @@ func TestAddTaskWithTags_StrictListsEveryRefusedTag(t *testing.T) {
 // add and the remove still land, and the log never carries the refused tag.
 func TestTagTask_DegradedSkipsRefusedAddAndAppliesTheRest(t *testing.T) {
 	taskstest.Isolate(t)
-	taskstest.Strictness(t, true)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom", Degraded: true}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
 	if err != nil {
@@ -1802,8 +1802,8 @@ func TestTagTask_DegradedSkipsRefusedAddAndAppliesTheRest(t *testing.T) {
 // unchanged and the log gains no event.
 func TestTagTask_DegradedEveryAddRefusedWritesNothing(t *testing.T) {
 	taskstest.Isolate(t)
-	taskstest.Strictness(t, true)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom", Degraded: true}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
 	if err != nil {
@@ -1830,8 +1830,8 @@ func TestTagTask_DegradedEveryAddRefusedWritesNothing(t *testing.T) {
 // the admitted add and the remove that rode along with it.
 func TestTagTask_StrictRefusesSchemaRejectedAddAndWritesNothing(t *testing.T) {
 	taskstest.Isolate(t)
-	taskstest.Strictness(t, false)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom"}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	add, err := AddTaskWithTags(tc, "a task", "", "", []string{"urgent"})
 	if err != nil {
@@ -1855,8 +1855,8 @@ func TestTagTask_StrictRefusesSchemaRejectedAddAndWritesNothing(t *testing.T) {
 // repeat of the same bad tag, and a clean add in between must land.
 func TestAddTaskWithTags_ARefusalDoesNotBleedIntoTheNextCall(t *testing.T) {
 	taskstest.Isolate(t)
-	taskstest.Strictness(t, false)
-	tc := TaskContext{WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
+	taskstest.Strictness(t)
+	tc := TaskContext{Strictness: strictness.Mode{Prog: "taskloom"}, WorkDir: t.TempDir(), ProjectID: "p", SessionHarp: "sess", TagSchema: triageValueSchema(t)}
 
 	if _, err := AddTaskWithTags(tc, "refused", "", "", []string{"triage:kind=sparkles"}); err == nil {
 		t.Fatal("the first add must refuse")

@@ -164,8 +164,6 @@ func TestResolveDefault_UnparseableFloorsAndFails(t *testing.T) {
 // where the floor has to hold.
 func TestResolveDefault_UnparseableFloorsUnderDegraded(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(true)
-	defer strictness.SetDegraded(false)
 
 	mode, honoured := ResolveDefault(report.To(strictness.Sink("ctxloom")), []string{"plann"}, PermissionBypass)
 	assert.Equal(t, PermissionFloor, mode, "degraded narrows, it never widens")
@@ -174,7 +172,8 @@ func TestResolveDefault_UnparseableFloorsUnderDegraded(t *testing.T) {
 	// collected so a degraded run can account for what it skipped. What
 	// degraded must never do is CHANGE THE FLOOR, which the assertions above
 	// are the real subject of.
-	assert.NotEmpty(t, strictness.All(), "degraded mode still collects findings; it only declines to abort on them")
+	assert.NotEmpty(t, strictness.All(), "the finding is collected regardless of mode; a degraded gate only declines to abort on it")
+	assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(strictness.All()))
 }
 
 // TestPermissionFloorIsTheMostRestrictive pins WHICH posture the floor is: plan

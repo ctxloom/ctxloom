@@ -202,7 +202,6 @@ func TestChainFor_OwnershipMismatch_FatalUnlessDegraded(t *testing.T) {
 
 	t.Run("degraded: falls back to the HOST, never to the other ownership mode", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		onlyRootless(t)
 
 		chain := chainFor(Axes{Runtime: RuntimeContainerRootful}, "claude-code", ImageConfig{})

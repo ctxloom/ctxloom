@@ -71,7 +71,7 @@ func refuseUnstampedBuild(cmd *cobra.Command) error {
 		return nil
 	}
 	// Opened only on the failing path, so a stamped run adds no checkpoint.
-	g := newPhaseGates(cmd.ErrOrStderr())
+	g := newPhaseGates(cmd.ErrOrStderr(), strictnessMode(cmd))
 	strictness.FailAlways(strictness.ClassConfig, versionStampFixIt,
 		"this binary carries no usable version stamp (%q): it cannot say which build or commit is answering, and nothing downstream can tell it apart from any other ctxloom",
 		version.Version)

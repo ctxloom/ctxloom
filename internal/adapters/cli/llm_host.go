@@ -34,7 +34,7 @@ var llmHostCmd = &cobra.Command{
 func runLLMHost(cmd *cobra.Command, args []string) error {
 	// Fail-loudly gate: same shape as `llm serve` — see its
 	// RunE for the full rationale.
-	gates := newPhaseGates(os.Stderr)
+	gates := newPhaseGates(os.Stderr, App().Strictness)
 
 	backendName := args[0]
 

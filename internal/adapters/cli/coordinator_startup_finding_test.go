@@ -19,8 +19,7 @@ func TestRecordCoordinatorStartupFinding_Degradable(t *testing.T) {
 
 	t.Run("degraded mode records the fault and proceeds", func(t *testing.T) {
 		strictness.Reset()
-		strictness.SetDegraded(true)
-		t.Cleanup(func() { strictness.Reset(); strictness.SetDegraded(false) })
+		t.Cleanup(func() { strictness.Reset() })
 
 		recordCoordinatorStartupFinding(cerr)
 
@@ -29,7 +28,7 @@ func TestRecordCoordinatorStartupFinding_Degradable(t *testing.T) {
 		assert.Equal(t, strictness.ClassApply, found[0].Class)
 		assert.False(t, found[0].NonDegradable,
 			"children reach the owner by file spool, so losing the coordinator costs nothing that must stop a launch")
-		assert.Empty(t, strictness.Actionable(found),
+		assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(found),
 			"and under --degraded it must NOT be actionable: this launch proceeds")
 		assert.Contains(t, found[0].FixIt, "--degraded",
 			"a degradable finding names --degraded as its way out")
@@ -37,10 +36,9 @@ func TestRecordCoordinatorStartupFinding_Degradable(t *testing.T) {
 
 	t.Run("strict mode aborts", func(t *testing.T) {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 		t.Cleanup(strictness.Reset)
 		recordCoordinatorStartupFinding(cerr)
-		assert.NotEmpty(t, strictness.Actionable(strictness.All()),
+		assert.NotEmpty(t, strictness.Mode{}.Actionable(strictness.All()),
 			"strict mode acts on the finding")
 	})
 }

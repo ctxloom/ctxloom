@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -128,7 +129,7 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	// The switch is a property of the process composition, not a global.
 	src, err := operations.ComposeSources(operations.Compose{NoCompanions: true})
 	require.NoError(t, err)
-	t.Cleanup(SetAppForTesting(operations.NewApp(src, true)))
+	t.Cleanup(SetAppForTesting(operations.NewApp(src, true, strictness.Mode{Prog: "ctxloom"})))
 
 	var out bytes.Buffer
 	printCompanionStatus(&out)

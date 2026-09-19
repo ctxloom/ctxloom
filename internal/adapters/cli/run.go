@@ -377,7 +377,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// assembly is caught at one place (gateStartup below) and the launch
 		// aborts with the full list. Degraded mode still RECORDS, but the gate
 		// acts only on a NonDegradable finding there.
-		gates: newPhaseGates(os.Stderr),
+		gates: newPhaseGates(os.Stderr, App().Strictness),
 	}
 
 	if err := st.validateFlags(); err != nil {
@@ -512,7 +512,7 @@ func (st *runState) source() (launch.Source, error) {
 		WorkDir:    st.workDir,
 		Workspace:  workspace,
 		Permission: perm,
-		Degraded:   strictness.Degraded(),
+		Degraded:   App().Strictness.Degraded,
 		Env:        map[string]string{},
 	}
 	if runProfile != "" {

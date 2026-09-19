@@ -340,16 +340,15 @@ func TestSetTerminalNudge_SecondRegistrationIsAFinding(t *testing.T) {
 
 		first := func() {}
 		h.SetTerminalNudge(first)
-		require.NoError(t, strictness.FindingsError(mark), "the FIRST registration is the normal case and must not fault")
+		require.NoError(t, strictness.Mode{}.FindingsError(mark), "the FIRST registration is the normal case and must not fault")
 
 		h.SetTerminalNudge(func() {})
-		require.Error(t, strictness.FindingsError(mark),
+		require.Error(t, strictness.Mode{}.FindingsError(mark),
 			"a second terminal-nudge registration silently disables the owner's mail wake and must be reported")
 	})
 
 	t.Run("degraded still refuses the second registration", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		h := newNoticeHome(t)
 		mark := strictness.Checkpoint()
 
@@ -357,7 +356,7 @@ func TestSetTerminalNudge_SecondRegistrationIsAFinding(t *testing.T) {
 		h.SetTerminalNudge(func() { firstFired.Store(true) })
 		h.SetTerminalNudge(func() { t.Error("the second nudge must never be installed, in either mode") })
 
-		assert.NoError(t, strictness.FindingsError(mark), "degraded lowers this finding to a warning and continues")
+		assert.NoError(t, strictness.Mode{Degraded: true}.FindingsError(mark), "degraded lowers this finding to a warning and continues")
 
 		h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-degraded", Text: "x"})
 		assert.True(t, firstFired.Load(), "the FIRST registration keeps the terminal in both modes")

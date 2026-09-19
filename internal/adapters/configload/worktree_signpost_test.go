@@ -117,7 +117,7 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 	t.Run("degraded_mode_records_nothing_and_falls_back", func(t *testing.T) {
 		testsupport.Isolate(t)
 		resetStrictness(t)
-		strictness.SetDegraded(true)
+		degraded := strictness.Mode{Degraded: true}
 		_, linked := realGitWorktreeFixture(t)
 
 		// Control: resolve from a plain (non-worktree) directory nested at the
@@ -135,7 +135,7 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 		mark := strictness.Checkpoint()
 		path, src := findAppDir(afero.NewOsFs())
 
-		assert.Empty(t, strictness.Actionable(strictness.Since(mark)),
+		assert.Empty(t, degraded.Actionable(strictness.Since(mark)),
 			"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
 		assert.Equal(t, wantSrc, src)
 		assert.Equal(t, wantPath, path)
@@ -148,10 +148,8 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 

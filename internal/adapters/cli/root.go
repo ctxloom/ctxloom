@@ -58,7 +58,7 @@ var theApp *operations.App
 // environment on first use; SetAppForTesting installs a fixture instead.
 func App() *operations.App {
 	if theApp == nil {
-		installApp(nil, os.Environ(), envSwitchOn("CTXLOOM_NO_COMPANIONS"))
+		installApp(nil, os.Environ(), envSwitchOn("CTXLOOM_NO_COMPANIONS"), strictnessMode(nil))
 	}
 	return theApp
 }
@@ -75,12 +75,25 @@ func SetAppForTesting(app *operations.App) func() {
 // companion switch and holds them in theApp. A flag or env override that
 // cannot be bound degrades to a warning: each individual override is still
 // resolved, and warned about, per generation.
-func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, opts ...configload.Option) {
+func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode strictness.Mode, opts ...configload.Option) {
 	src, err := operations.ComposeSources(operations.Compose{Flags: flags, Environ: environ, NoCompanions: noCompanions, Options: opts})
 	if err != nil {
 		clidiag.Warn("ctxloom", "config overrides: %v", err)
 	}
-	theApp = operations.NewApp(src, noCompanions)
+	theApp = operations.NewApp(src, noCompanions, mode)
+}
+
+// strictnessMode is the posture this invocation runs under. Degraded comes
+// from CTXLOOM_DEGRADED=1 — the hook/generated-registration mechanism (an
+// MCP registration that must serve despite a broken project) — with an
+// explicitly set --degraded flag winning over it in either direction.
+// Deliberately NO config key: a broken config cannot excuse itself.
+func strictnessMode(cmd *cobra.Command) strictness.Mode {
+	degraded := envSwitchOn("CTXLOOM_DEGRADED")
+	if cmd != nil && cmd.Root().PersistentFlags().Changed("degraded") {
+		degraded = degradedFlag
+	}
+	return strictness.Mode{Prog: "ctxloom", Degraded: degraded}
 }
 
 // pinAppDir re-composes the process's App with its .ctxloom directory PINNED
@@ -96,7 +109,7 @@ func pinAppDir(cmd *cobra.Command, appDir string) error {
 	if cmd.Root().PersistentFlags().Changed("no-companions") {
 		noCompanions = noCompanionsFlag
 	}
-	installApp(cmd.Flags(), os.Environ(), noCompanions, configload.WithAppDir(appDir))
+	installApp(cmd.Flags(), os.Environ(), noCompanions, strictnessMode(cmd), configload.WithAppDir(appDir))
 	return nil
 }
 
@@ -207,9 +220,6 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	// it, so checkFormatWasHonored's PersistentPostRunE below checks
 	// exactly this invocation.
 	resetFormatGuard()
-	if cmd.Root().PersistentFlags().Changed("degraded") {
-		strictness.SetDegraded(degradedFlag)
-	}
 	// The composition root. cmd.Flags() is the invoked command's fully-parsed
 	// flag set (its own local flags plus every inherited persistent flag) at
 	// the earliest point every subcommand passes through, so the env/CLI
@@ -221,7 +231,7 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	if cmd.Root().PersistentFlags().Changed("no-companions") {
 		noCompanions = noCompanionsFlag
 	}
-	installApp(cmd.Flags(), os.Environ(), noCompanions)
+	installApp(cmd.Flags(), os.Environ(), noCompanions, strictnessMode(cmd))
 	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
 	// text/markdown or an unresolvable value — an invalid --format is

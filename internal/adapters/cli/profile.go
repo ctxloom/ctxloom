@@ -2,11 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"io"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/cobra"
 

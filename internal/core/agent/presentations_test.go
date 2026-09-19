@@ -120,20 +120,15 @@ func fakeStart() present.Start {
 // state is restored. Findings, the FailOnce dedup set and the checkpoint
 // generation are all process-global, so a test that skipped the Reset could
 // pass on a finding a PREVIOUS test recorded.
-func arm(t *testing.T, degraded bool) strictness.Mark {
+func arm(t *testing.T, degraded bool) (strictness.Mark, strictness.Mode) {
 	t.Helper()
-	prev := strictness.Degraded()
 	strictness.Reset()
-	strictness.SetDegraded(degraded)
-	t.Cleanup(func() {
-		strictness.SetDegraded(prev)
-		strictness.Reset()
-	})
-	return strictness.Checkpoint()
+	t.Cleanup(strictness.Reset)
+	return strictness.Checkpoint(), strictness.Mode{Degraded: degraded}
 }
 
 func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *testing.T) {
-	mark := arm(t, false)
+	mark, mode := arm(t, false)
 	d := fakeContextPresentations()
 
 	for _, tc := range []struct {
@@ -161,7 +156,7 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 	if found := strictness.Since(mark); len(found) != 0 {
 		t.Errorf("resolving declared names recorded %d finding(s), want 0: %+v", len(found), found)
 	}
-	if err := strictness.FindingsError(mark); err != nil {
+	if err := mode.FindingsError(mark); err != nil {
 		t.Errorf("resolving declared names refused the launch: %v", err)
 	}
 }
@@ -177,7 +172,7 @@ func TestPresentations_DeclaredName_BuildsThatPresentationWithoutFinding(t *test
 // itself no matter which field the presenter read, which is the shape that
 // passes while proving nothing.
 func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t *testing.T) {
-	arm(t, false)
+	_, _ = arm(t, false)
 	d := fakeContextPresentations()
 
 	// The PROJECT ROOT reaches the presenter that roots on the project.
@@ -220,7 +215,7 @@ func TestPresentations_Resolve_DeliversEachRootToThePresenterThatBuildsFromIt(t 
 // substituted the default would deliver a presentation the caller did not ask
 // for, which is the substitution this seam exists to refuse.
 func TestPresentations_UnknownName_IsNotConstructible(t *testing.T) {
-	mark := arm(t, false)
+	mark, _ := arm(t, false)
 	d := fakeContextPresentations()
 	before := constructed
 
@@ -270,7 +265,7 @@ func TestPresentations_Names_AreDerivedFromDeclaredPresenters(t *testing.T) {
 // anything is resolved, and a declaration that needed placeholder values to
 // enumerate itself would have to be built per-invocation instead of once.
 func TestPresentations_NamesAndDefault_AreAnswerableWithoutAnyEnvironment(t *testing.T) {
-	mark := arm(t, false)
+	mark, _ := arm(t, false)
 	d := fakeContextPresentations()
 	before := constructed
 

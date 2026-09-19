@@ -41,6 +41,8 @@ func CompactionModelFor(cfg *config.Config, override string) string {
 // already in flight and a third string argument beside them is where call
 // sites start transposing them.
 type DistillOptions struct {
+	// Strictness is the posture the distilling one-shot launches under.
+	Strictness strictness.Mode
 	// Model overrides the compaction model for THIS call; "" uses
 	// cfg.GetCompactionModel(). It exists so a caller-supplied model override
 	// reaches the canonical/harp distill path too, not just the backend one.
@@ -117,7 +119,7 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	// The distiller is a real session on the FAST role's label: one harp for
 	// every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
-	distiller := NewLazyOneShot(cfg, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
+	distiller := NewLazyOneShot(cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
 	defer distiller.End()
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Run:              distiller.Turn,

@@ -126,12 +126,13 @@ const (
 type phaseGates struct {
 	w    io.Writer
 	mark strictness.Mark
+	mode strictness.Mode
 }
 
 // newPhaseGates opens the first window. Everything recorded from here until
 // the first close() belongs to that phase.
-func newPhaseGates(w io.Writer) *phaseGates {
-	return &phaseGates{w: w, mark: strictness.Checkpoint()}
+func newPhaseGates(w io.Writer, mode strictness.Mode) *phaseGates {
+	return &phaseGates{w: w, mark: strictness.Checkpoint(), mode: mode}
 }
 
 // close ends the current window, reporting and aborting on anything actionable
@@ -141,7 +142,7 @@ func newPhaseGates(w io.Writer) *phaseGates {
 func (g *phaseGates) close(p Phase) error {
 	found := strictness.Since(g.mark)
 	g.mark = strictness.Checkpoint()
-	msg := formatFindings(p, found)
+	msg := formatFindings(g.mode, p, found)
 	if msg == "" {
 		return nil
 	}
@@ -158,8 +159,8 @@ func (g *phaseGates) close(p Phase) error {
 // so a test asking "did this abort at all" can match the prefix and catch
 // every phase. Pinning such a check to one phase's wording is how a negative
 // assertion silently stops catching the phases added after it.
-func formatFindings(p Phase, findings []strictness.Finding) string {
-	findings = strictness.Actionable(findings)
+func formatFindings(mode strictness.Mode, p Phase, findings []strictness.Finding) string {
+	findings = mode.Actionable(findings)
 	if len(findings) == 0 {
 		return ""
 	}

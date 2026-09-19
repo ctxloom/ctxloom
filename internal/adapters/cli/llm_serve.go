@@ -34,7 +34,7 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 	// entry point below instead of silently serving an empty/partial
 	// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
 	// escape hatch, same as `ctxloom run`/`ctxloom mcp`.
-	gates := newPhaseGates(os.Stderr)
+	gates := newPhaseGates(os.Stderr, App().Strictness)
 
 	backendName := args[0]
 

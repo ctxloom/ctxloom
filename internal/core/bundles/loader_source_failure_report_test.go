@@ -37,7 +37,6 @@ func (r failingReader) Read(context.Context) ([]BundleRead, error) { return nil,
 // a fault that can legitimately change between reads must report every time.
 func TestIndex_UnreadableSourceReportsOncePerProcess(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(strictness.Reset)
 	// WarnOnce's dedup is process-wide and permanent by design, so without this
 	// the assertion below is only meaningful on the first run in a process

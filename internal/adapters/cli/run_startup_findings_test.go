@@ -151,8 +151,7 @@ func attachFixture(cfg *config.Config) *runState {
 // alongside the assembled context.
 func TestAttachStartupFindings_DeliversIntoTheRequest(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(true)
-	t.Cleanup(func() { strictness.Reset(); strictness.SetDegraded(false) })
+	t.Cleanup(func() { strictness.Reset() })
 	st := attachFixture(cleanProject(t))
 	strictness.Record(strictness.ClassIsolation, "", "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
 
@@ -172,8 +171,7 @@ func TestAttachStartupFindings_DeliversIntoTheRequest(t *testing.T) {
 // request exactly as built, findings or not.
 func TestAttachStartupFindings_FlagOptsOut(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(true)
-	t.Cleanup(func() { strictness.Reset(); strictness.SetDegraded(false) })
+	t.Cleanup(func() { strictness.Reset() })
 	st := attachFixture(cleanProject(t))
 	strictness.Record(strictness.ClassConfig, "", "a finding the flag must withhold")
 	runNoStartupFindings = true

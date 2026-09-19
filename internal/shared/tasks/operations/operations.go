@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	semver "github.com/Masterminds/semver/v3"
 	tagma "github.com/benjaminabbitt/tagma/ports/go"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -72,6 +74,11 @@ type TaskContext struct {
 	// before. Only cmd/taskloom's own frontend populates this today, via
 	// internal/taskloom/config.Config.ParsedTagSchema.
 	TagSchema *tagschema.Schema
+
+	// Strictness is the posture the calling binary runs under: the program
+	// a refused tag is attributed to and whether --degraded lets the write
+	// proceed over the refusal.
+	Strictness strictness.Mode
 }
 
 // TaskListResult is the render-agnostic result of ListTasks.
@@ -325,7 +332,7 @@ func AddTask(tc TaskContext, text, status, trigger string) (*TaskResult, error) 
 // own order) survives — there is no existing task yet to retract a value
 // from, so this is pure intra-list dedup, not an untag (see scalarCollapse).
 func AddTaskWithTags(tc TaskContext, text, status, trigger string, tags []string) (*TaskResult, error) {
-	tags, refused, err := admitTags("add task", tags, tc.TagSchema)
+	tags, refused, err := admitTags(tc.Strictness, "add task", tags, tc.TagSchema)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +376,7 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 	if len(add) == 0 && len(remove) == 0 {
 		return nil, fmt.Errorf("at least one tag to add or remove is required")
 	}
-	add, refused, err := admitTags("add tags", add, tc.TagSchema)
+	add, refused, err := admitTags(tc.Strictness, "add tags", add, tc.TagSchema)
 	if err != nil {
 		return nil, err
 	}
@@ -471,18 +478,18 @@ const refusedTagFixIt = "drop or correct the tag (taskloom tags / the project's 
 // Checkpoint window so a long-lived `taskloom mcp` re-records the same
 // refusal on the next call instead of deduping it away, and Close releases
 // the window since a request goroutine outlives no single call.
-func admitTags(op string, tags []string, schema *tagschema.Schema) (admitted, refused []string, err error) {
+func admitTags(mode strictness.Mode, op string, tags []string, schema *tagschema.Schema) (admitted, refused []string, err error) {
 	mark := strictness.Checkpoint()
 	defer strictness.Close(mark)
 	for _, t := range tags {
 		if verr := validateTag(t, schema); verr != nil {
-			strictness.FailOnce(strictness.ClassTask, refusedTagFixIt, "%s: %v", op, verr)
+			mode.Sink().Report(report.FailOncef(report.KindTask, refusedTagFixIt, "%s: %v", op, verr))
 			refused = append(refused, verr.Error())
 			continue
 		}
 		admitted = append(admitted, t)
 	}
-	if ferr := strictness.FindingsError(mark); ferr != nil {
+	if ferr := mode.FindingsError(mark); ferr != nil {
 		return nil, nil, fmt.Errorf("%s: refused %d tag(s), nothing written: %w", op, len(refused), ferr)
 	}
 	return admitted, refused, nil

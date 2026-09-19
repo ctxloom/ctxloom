@@ -726,10 +726,8 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 func resetConfigStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 

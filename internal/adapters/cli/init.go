@@ -826,7 +826,7 @@ func reportSetupLaunchFailure(err error) error {
 	strictness.FailOnce(strictness.ClassConfig,
 		"check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching",
 		"the setup session failed to launch: %v", err)
-	return strictness.FindingsError(mark)
+	return App().Strictness.FindingsError(mark)
 }
 
 // printReentryHint tells the user how to reach ctxloom once the raw-CLI setup

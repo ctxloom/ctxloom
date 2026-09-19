@@ -72,8 +72,7 @@ func swapTmux(t *testing.T, lookup func() (string, error), r tmuxhost.Runner) {
 // to start something would satisfy any assertion made about wording alone.
 func TestInteractiveLaunch_WithoutTmuxRefusesLoudlyAndStartsNothing(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(false)
-	t.Cleanup(func() { strictness.Reset(); strictness.SetDegraded(false) })
+	t.Cleanup(func() { strictness.Reset() })
 
 	r := &recordingRunner{}
 	swapTmux(t, func() (string, error) {

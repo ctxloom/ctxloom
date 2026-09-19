@@ -19,10 +19,8 @@ import (
 
 func TestValidateTerminalUIConfig_BadKeyIsFatalFinding(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 
 	mark := strictness.Checkpoint()

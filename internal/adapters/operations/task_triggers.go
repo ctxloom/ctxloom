@@ -243,7 +243,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// escalation round are turns on it.
 		run := req.Run
 		if run == nil {
-			triage, err := StartInternalOneShot(ctx, cfg, label, "", req.RepoDir, "", 0)
+			triage, err := StartInternalOneShot(ctx, cfg, req.TaskContext.Strictness, label, "", req.RepoDir, "", 0)
 			if err != nil {
 				return nil, fmt.Errorf("start triage: %w", err)
 			}

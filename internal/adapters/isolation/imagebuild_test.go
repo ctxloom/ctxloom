@@ -871,12 +871,11 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 	// finding is non-degradable, so the choke owner refuses the launch.
 	t.Run("degraded: the finding survives, so the stale image still does not run", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		c := setup(t)
 		require.NoError(t, c.ensureImage(context.Background()))
 		findings := strictness.All()
 		require.NotEmpty(t, findings, "--degraded suppresses fatality, not recording")
-		assert.NotEmpty(t, strictness.Actionable(findings),
+		assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(findings),
 			"the finding must remain ACTIONABLE under --degraded, or the stale image launches anyway")
 	})
 }
@@ -933,12 +932,11 @@ func TestEnsureImage_UserBaseBuildFail_RefusesInBothModes(t *testing.T) {
 
 	t.Run("degraded: the finding survives Actionable, so the substitution still does not happen", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		c := setup(t)
 		_ = c.ensureImage(context.Background())
 		findings := strictness.All()
 		require.NotEmpty(t, findings, "--degraded suppresses fatality, not recording")
-		assert.NotEmpty(t, strictness.Actionable(findings),
+		assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(findings),
 			"--degraded must NOT be a way to build on a base the project did not declare")
 	})
 }

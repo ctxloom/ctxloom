@@ -46,13 +46,17 @@
 // count when an existing branch is split or merged; that cost is the point,
 // since the author then rewrites the reason to cover the new shape.
 //
-// Detection is purely syntactic (go/ast, no go/types): any CALL to something
-// named "Degraded", whether package-qualified (strictness.Degraded, or any
-// alias of that import) or bare (inside the defining package itself). It
-// deliberately does NOT match the identifier in prose — most textual mentions
-// of Degraded() in this module are comments WARNING against branching on it,
-// and a grep-shaped census would count the warnings as instances of the thing
-// they warn about.
+// Detection is purely syntactic (go/ast, no go/types). The mode is a VALUE
+// (strictness.Mode) a composition holds, so a branch on it is a READ of the
+// mode's Degraded field off a composition — the selector chain
+// `<x>.Strictness.Degraded` — or, defensively, any CALL to something named
+// "Degraded" (the retired process global's shape). It deliberately does NOT
+// match the identifier in prose — most textual mentions of Degraded in this
+// module are comments WARNING against branching on it, and a grep-shaped
+// census would count the warnings as instances of the thing they warn about.
+// A read through a local variable of type Mode is not seen; the sanctioned
+// readers below are the only ones that exist, and strictness.Mode's own
+// methods (the defining file) are where the value is consulted for the gates.
 //
 // KNOWN BLIND SPOTS, stated so nobody reads a green run as more than it is:
 //
@@ -67,9 +71,9 @@
 //     the audit left behind.
 //   - A route to the mode that never spells "Degraded" — a raw CTXLOOM_DEGRADED
 //     env read, or a bool captured once and threaded through parameters — is
-//     not counted past the point of capture. The bootstrap in cmd/ctxloom is
-//     the only such read today, and it feeds strictness.SetDegraded rather
-//     than branching.
+//     not counted past the point of capture. The composition root (the cli's
+//     strictnessMode, taskloom's) is where the value is built, and it builds
+//     rather than branches.
 package arch
 
 import (
@@ -102,12 +106,7 @@ type degradeExemption struct {
 // degradeBranchAllowed are the module-relative files permitted to consult the
 // degraded mode.
 var degradeBranchAllowed = map[string]degradeExemption{
-	"internal/shared/strictness/strictness.go": {sites: 1, why: "DEFINES the mode. " +
-		"Actionable is the single sanctioned place fatality is downgraded, so class-filtered " +
-		"gates pass their findings through it instead of testing the mode themselves; " +
-		"NonDegradable findings survive that downgrade, which is what makes a refusal " +
-		"non-bypassable at all"},
-	"internal/adapters/cli/run.go": {sites: 1, why: "READS the mode once to hand it to the " +
+	"internal/adapters/cli/run.go": {sites: 1, why: "READS the composition's mode once to hand it to the " +
 		"launch resolver as a VALUE (launch.Source.Degraded): the resolver holds no strictness, " +
 		"and its degraded arms only narrow — a posture that does not parse lands on " +
 		"PermissionFloor, a child that would block on a prompt launches at PermissionFloor, a " +
@@ -190,11 +189,16 @@ func findDegradeBranches(t *testing.T) map[string][]int {
 		}
 		rel = filepath.ToSlash(rel)
 		ast.Inspect(f, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || !callsDegraded(call) {
-				return true
+			switch x := n.(type) {
+			case *ast.CallExpr:
+				if callsDegraded(x) {
+					hits[rel] = append(hits[rel], fset.Position(x.Pos()).Line)
+				}
+			case *ast.SelectorExpr:
+				if readsCompositionMode(x) {
+					hits[rel] = append(hits[rel], fset.Position(x.Pos()).Line)
+				}
 			}
-			hits[rel] = append(hits[rel], fset.Position(call.Pos()).Line)
 			return true
 		})
 		return nil
@@ -218,4 +222,14 @@ func callsDegraded(call *ast.CallExpr) bool {
 		return fn.Name == "Degraded"
 	}
 	return false
+}
+
+// readsCompositionMode reports whether sel is `<x>.Strictness.Degraded`: a
+// read of a composition's mode value, the shape a gate would branch on.
+func readsCompositionMode(sel *ast.SelectorExpr) bool {
+	if sel.Sel == nil || sel.Sel.Name != "Degraded" {
+		return false
+	}
+	inner, ok := sel.X.(*ast.SelectorExpr)
+	return ok && inner.Sel != nil && inner.Sel.Name == "Strictness"
 }

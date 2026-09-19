@@ -111,13 +111,10 @@ func TestDockerRootful_PassesIdentityEnv(t *testing.T) {
 // come back just as easily via a runtime's own argv head.
 func TestIdentityEnvArgs_NeverAllowsRoot(t *testing.T) {
 	resetStrictness(t)
-	for _, mode := range []bool{false, true} {
-		strictness.SetDegraded(mode)
-		assert.NotContains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "),
-			"CTXLOOM_ALLOW_ROOT", "docker run must never carry the root escape hatch (degraded=%v)", mode)
-		assert.NotContains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "),
-			"CTXLOOM_ALLOW_ROOT", "podman run must never carry the root escape hatch (degraded=%v)", mode)
-	}
+	assert.NotContains(t, strings.Join(Docker{}.RunArgs(sampleSpec()), " "),
+		"CTXLOOM_ALLOW_ROOT", "docker run must never carry the root escape hatch")
+	assert.NotContains(t, strings.Join(Podman{rootless: true}.RunArgs(sampleSpec()), " "),
+		"CTXLOOM_ALLOW_ROOT", "podman run must never carry the root escape hatch")
 }
 
 // TestDockerIsRootless_ProbeErrorRoutesAFinding: the daemon's rootless-ness
@@ -152,7 +149,6 @@ func TestDockerIsRootless_ProbeErrorRoutesAFinding(t *testing.T) {
 	// suppresses fatality, not recording, so the run can still account for the
 	// boundary it assumed rather than verified.
 	strictness.Reset()
-	strictness.SetDegraded(true)
 	dockerSecurityOptions = func() (string, error) { return "", errors.New("probe timed out") }
 	assert.False(t, dockerIsRootless())
 	assert.NotEmpty(t, strictness.All())

@@ -138,7 +138,6 @@ func TestCheckRunAsIsIdentity_UninspectableIsAFinding(t *testing.T) {
 // streams so a wrong-identity run is never invisible.
 func TestCheckRunAsIsIdentity_DegradedWarnsAndProceeds(t *testing.T) {
 	resetStrictness(t)
-	strictness.SetDegraded(true)
 	c := overrideContainer(t, `{"Entrypoint":null,"User":"node"}`, "user/own:img")
 
 	done := captureStderr(t)

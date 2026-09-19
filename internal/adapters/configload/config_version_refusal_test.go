@@ -21,7 +21,6 @@ import (
 func loadRefusalFindings(t *testing.T, body string) []strictness.Finding {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() { strictness.Reset() })
 
 	fs := afero.NewMemMapFs()

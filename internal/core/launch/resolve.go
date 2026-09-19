@@ -44,8 +44,8 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	// profile set and delivering none of it is never what the caller asked
 	// for: a set that assembled to nothing is a failed assembly, refused.
 	var asm Assembled
-	if len(sel.profiles) > 0 {
-		if asm, err = deps.Assembler.Assemble(ctx, deps.Snapshot, sel.profiles); err != nil {
+	if len(sel.profiles) > 0 || len(sel.fragments) > 0 || len(sel.tags) > 0 {
+		if asm, err = deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags}); err != nil {
 			return Launch{}, err
 		}
 		if strings.TrimSpace(asm.Context) == "" {
@@ -59,6 +59,12 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 	def := eng.Root()
+	if src.Model != "" {
+		labelCfg.Model = src.Model
+	}
+	if alias, ok := def.ModelAliases[labelCfg.Model]; ok {
+		labelCfg.Model = alias
+	}
 	if !slices.Contains(def.Modes, src.Mode) {
 		return Launch{}, fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
 	}
@@ -89,7 +95,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		ProjectRoot: src.WorkDir,
 		SessionDir:  filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
 		DirtyTree:   dirty,
-		Image:       imageConfig(cfg, def.Name),
+		Image:       ImageConfigFor(cfg, def.Name),
 		Host:        deps.Host,
 		Degraded:    src.Degraded,
 		HomeMode:    sel.homeMode,
@@ -136,6 +142,8 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 type selection struct {
 	agent       string
 	profiles    []string
+	fragments   []string
+	tags        []string
 	llm         string
 	runtime     string
 	permissions string
@@ -152,10 +160,10 @@ func selectSource(cfg *config.Config, src Source) (selection, error) {
 		return selection{}, nil
 	case src.Agent != "":
 		return bindingSelection(cfg, src.Agent, src.Degraded)
-	case len(src.Profiles) == 0:
+	case len(src.Profiles) == 0 && len(src.Fragments) == 0 && len(src.Tags) == 0:
 		return bindingSelection(cfg, cfg.GetDefaultAgent(), src.Degraded)
 	default:
-		return selection{profiles: slices.Clone(src.Profiles)}, nil
+		return selection{profiles: slices.Clone(src.Profiles), fragments: slices.Clone(src.Fragments), tags: slices.Clone(src.Tags)}, nil
 	}
 }
 
@@ -299,9 +307,13 @@ func floorPermission(src Source, sel selection, labelPerm string, cfg *config.Co
 	return mode, nil
 }
 
-// imageConfig is the user's container-image configuration for the engine's
-// isolated runs, read off the generation.
-func imageConfig(cfg *config.Config, eng engine.Name) ImageConfig {
+// ImageConfigFor is the user's container-image configuration for the
+// engine's isolated runs, read off the generation: the per-engine prebuilt
+// image override, the base Containerfile local builds layer the agent stage
+// onto, the project root devcontainer auto-detection resolves against with
+// its opt-out and service pick, and the composable engine set. Resolve reads
+// it for the cell; the container commands read it to build ahead of a run.
+func ImageConfigFor(cfg *config.Config, eng engine.Name) ImageConfig {
 	return ImageConfig{
 		Image:               cfg.IsolationImageFor(string(eng)),
 		BaseContainerfile:   cfg.IsolationBaseContainerfilePath(),

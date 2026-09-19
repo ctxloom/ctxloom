@@ -76,6 +76,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
@@ -140,9 +141,10 @@ func (s *progressSpawner) AssignSession(projectDir, backend string) (string, err
 	return entry.HarpName, nil
 }
 
-func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+	env := sessions.HookEnv(start.Identity)
 	if s.mode == progressSpawnDark {
-		return s.startDark(ctx, plan, env)
+		return s.startDark(ctx, plan, start, env)
 	}
 	rt := isolation.ProbeRuntime("docker")
 	// Auth keys on the plan's engine, never on plan.AgentName — see
@@ -163,7 +165,10 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env,
 		_ = ws.Cleanup()
 	})
 	s.record(handle.Name, kill)
-	return &EngineSpawn{WorkDir: ws.Dir(), Env: env, Model: "mock", MCPServers: plan.MCPServers, Kill: kill}, nil
+	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l.Cell.Env = env
+	plan.Launch = l
+	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
 }
 
 // startDark launches a live container from the SAME image that never runs the
@@ -172,7 +177,7 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env,
 // it is meant to break it in the one way the shipped defect broke it, while
 // keeping every cheap signal (a spawn that returns success, a container in
 // `docker ps`) truthful-looking.
-func (s *progressSpawner) startDark(ctx context.Context, plan *SpawnPlan, env map[string]string) (*EngineSpawn, error) {
+func (s *progressSpawner) startDark(ctx context.Context, plan *SpawnPlan, start SpawnStart, env map[string]string) (*EngineSpawn, error) {
 	name := "ctxloom-progress-dark-" + randID("", 8)
 	run := exec.CommandContext(ctx, "docker", "run", "-d", "--name", name, s.image, "sleep", "300")
 	if out, err := run.CombinedOutput(); err != nil {
@@ -182,7 +187,10 @@ func (s *progressSpawner) startDark(ctx context.Context, plan *SpawnPlan, env ma
 		_ = exec.Command("docker", "rm", "-f", name).Run()
 	})
 	s.record(name, kill)
-	return &EngineSpawn{WorkDir: "/work", Env: env, Model: "mock", MCPServers: plan.MCPServers, Kill: kill}, nil
+	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
+	l.Cell.Env = env
+	plan.Launch = l
+	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
 }
 
 func (s *progressSpawner) record(name string, kill func()) {

@@ -112,13 +112,15 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	// nothing else to do with "no hint": an absent hint IS the empty string,
 	// and distillPrompt appends nothing for it.
 	taskHint, _ := memory.ReadNextStep(entry.HarpName)
+	// The distiller is a real session on the FAST role's label: one harp for
+	// every turn this compaction makes, ended when it is done.
+	distiller, err := StartInternalOneShot(ctx, cfg, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
+	if err != nil {
+		return nil, fmt.Errorf("start distiller: %w", err)
+	}
+	defer distiller.End()
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:   cfg.GetCompactionLLM(),
-		Model: model,
-		// The compaction label is the FAST role (config.FastLabel), not the
-		// primary — resolve its env from the same label the LLM above came
-		// from, or the distiller gets a different backend's credentials.
-		Env:              MockControlFor(cfg, cfg.FastLabel()),
+		Run:              distiller.Turn,
 		Backend:          backendName,
 		EssenceMaxChars:  cfg.GetEssenceMaxChars(),
 		SessionID:        sessionID,

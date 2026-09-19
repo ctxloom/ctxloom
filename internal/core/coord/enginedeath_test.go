@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -204,12 +205,10 @@ func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
 	}
 }
 
-func (s *deadRunnerSpawner) StartEngine(_ context.Context, _ *SpawnPlan, env, _ map[string]string) (*EngineSpawn, error) {
+func (s *deadRunnerSpawner) StartEngine(_ context.Context, plan *SpawnPlan, start SpawnStart, _ map[string]string) (*EngineSpawn, error) {
 	return &EngineSpawn{
-		WorkDir: "/work",
-		Env:     env,
-		Model:   "test-model",
-		Kill:    func() {},
+		Launch: ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "test-model", "/work", agent.PermissionBypass),
+		Kill:   func() {},
 		Wait: func() error {
 			select {
 			case s.waited <- struct{}{}:

@@ -324,9 +324,13 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
 		taskHint, _ := memory.ReadNextStep(harp)
+		distiller, derr := operations.StartInternalOneShot(ctx, s.cfg, s.cfg.FastLabel(), model, workDir, "", 0)
+		if derr != nil {
+			return nil, fmt.Errorf("start distiller: %w", derr)
+		}
+		defer distiller.End()
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
-			LLM:             s.cfg.GetCompactionLLM(),
-			Model:           model,
+			Run:             distiller.Turn,
 			Backend:         backend,
 			EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 			SessionID:       in.SessionID,
@@ -1167,9 +1171,13 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
 	taskHint, _ := memory.ReadNextStep(harp)
+	distiller, err := operations.StartInternalOneShot(ctx, s.cfg, s.cfg.FastLabel(), model, workDir, "", 0)
+	if err != nil {
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't start the distiller for session %s: %v", sessionID, err)}, nil
+	}
+	defer distiller.End()
 	compactor, err := makeCompactor(memory.CompactionConfig{
-		LLM:             s.cfg.GetCompactionLLM(),
-		Model:           model,
+		Run:             distiller.Turn,
 		Backend:         backendName,
 		EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 		SessionID:       sessionID,

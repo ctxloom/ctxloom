@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,39 +9,29 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestRunResolvedAgent_OneshotCapture_WritesTwoEntryTranscript pins tough-cloud
-// S6: a ONESHOT Execute run (runResolvedAgent's Backend.Execute tail, shared by
-// RunOneshot/ensemble/the delegate.go oneshot fallback) has no ChatEvent stream
-// for the structured tee (S2) to capture — so runResolvedAgent itself writes a
-// two-entry canonical transcript (user prompt + assistant stdout) when the
-// caller's ExtraEnv carries a harp (agent.SessionHarpEnv), exactly as the
-// delegated-child structured path is keyed. Reads the written file back
-// through transcript.ParseTranscriptFile and asserts on the REAL payload, not
-// just entry count (memory "silent-no-op-failure-mode" / "Mutation gate
-// truthfulness" test discipline).
-func TestRunResolvedAgent_OneshotCapture_WritesTwoEntryTranscript(t *testing.T) {
+// TestOneShot_TurnCapture_WritesTwoEntryTranscript: a one-shot turn returns
+// prose on stdout with no event stream, so the structured capture never
+// fires for it; the turn records the two-entry transcript on the session's
+// OWN harp — every one-shot owns one.
+func TestOneShot_TurnCapture_WritesTwoEntryTranscript(t *testing.T) {
 	testsupport.Isolate(t)
-	harp := "tough-s6-oneshot-harp"
-
+	_, loader := setupContextTestFS(t)
+	cfg := oneshotTestConfig(t)
 	stub := &stubClient{out: "  the assistant's captured stdout  \n"}
-	factory := func(string, string, int) (pb.Client, error) { return stub, nil }
 
-	res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-		Task:        "the user's request prompt",
-		Label:       "codex-fast",
-		Backend:     "claude-code",
-		Permissions: "bypass", // headless-safe: this test is about transcript capture, not permission resolution
-		ExtraEnv:    map[string]string{agent.SessionHarpEnv: harp},
-		Factory:     factory,
-	})
+	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
 	require.NoError(t, err)
-	assert.Equal(t, "the assistant's captured stdout", res.Output)
+	out, err := o.Turn(context.Background(), "the user's request prompt")
+	require.NoError(t, err)
+	assert.Equal(t, "the assistant's captured stdout", out)
 
+	harp := o.Launch.Identity.Harp
+	require.NotEmpty(t, harp)
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
 	require.NoError(t, err)
 	sess, err := transcript.ParseTranscriptFile(path, harp)
@@ -54,33 +43,4 @@ func TestRunResolvedAgent_OneshotCapture_WritesTwoEntryTranscript(t *testing.T) 
 
 	assert.Equal(t, agent.EntryTypeAssistant, sess.Entries[1].Type)
 	assert.Equal(t, "the assistant's captured stdout", sess.Entries[1].Content)
-}
-
-// TestRunResolvedAgent_OneshotCapture_NoHarpWritesNothing pins the degrade
-// path: a caller with no harp in ExtraEnv (RunOneshot's own direct callers)
-// must not crash and must not write any transcript
-// file — RecordOneshot's own empty-harp no-op, exercised end to end through
-// runResolvedAgent.
-func TestRunResolvedAgent_OneshotCapture_NoHarpWritesNothing(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := "tough-s6-oneshot-no-harp"
-
-	stub := &stubClient{out: "some output"}
-	factory := func(string, string, int) (pb.Client, error) { return stub, nil }
-
-	res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-		Task:        "a prompt",
-		Label:       "codex-fast",
-		Backend:     "claude-code",
-		Permissions: "bypass", // headless-safe: this test is about transcript capture, not permission resolution
-		Factory:     factory,
-		// ExtraEnv deliberately unset — no harp.
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "some output", res.Output)
-
-	path, err := paths.HarpCanonicalTranscriptPath(harp)
-	require.NoError(t, err)
-	_, statErr := os.Stat(path)
-	assert.True(t, os.IsNotExist(statErr), "no transcript should be written when no harp is present")
 }

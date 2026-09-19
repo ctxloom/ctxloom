@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,11 +144,11 @@ func newSilentRunnerSpawner() *silentRunnerSpawner {
 	}
 }
 
-func (s *silentRunnerSpawner) StartEngine(_ context.Context, _ *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *silentRunnerSpawner) StartEngine(_ context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
 	s.mu.Lock()
 	s.envs = append(s.envs, runnerEnv)
 	s.mu.Unlock()
-	return &EngineSpawn{WorkDir: "/work", Env: env, Model: "test-model", Kill: func() {}}, nil
+	return &EngineSpawn{Launch: ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "test-model", "/work", agent.PermissionBypass), Kill: func() {}}, nil
 }
 
 // awaitRunnerEnv returns the per-spawn runner env for runID once the spawn

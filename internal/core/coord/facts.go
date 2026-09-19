@@ -131,12 +131,13 @@ type runEnqueued struct {
 	OneShot bool   `json:"one_shot,omitempty"`
 	Prompt  string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
 	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
-	// Permission is the child's resolved permission mode's kind name
-	// (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
-	// "acceptEdits") — Wave F1, journaled at enqueue so a later config edit
-	// cannot retroactively change what a live run's privileges were, and so
-	// restart adoption recovers them without re-resolving config. Kind name,
-	// not a wire number, so runs.jsonl stays jq-legible.
+	// Permission is the posture the run was ENQUEUED with: the binding's
+	// declared posture for a delegated child (empty when it declared none),
+	// the launch's floored posture for an owner run. The effective posture a
+	// child runs at is decided once, by the launch resolver, when the run
+	// starts; journaled here so a later config edit cannot retroactively
+	// change what a live run was asked for. Kind name, not a wire number,
+	// so runs.jsonl stays jq-legible.
 	Permission string `json:"permission,omitempty"`
 	// MCPServers is the child's resolved MCP server NAMES ONLY (Wave F1) —
 	// never command, args, or env, which can carry a secret (the SAME

@@ -43,8 +43,16 @@ type Deps struct {
 // context, then the managed surfaces for the engine the label resolved to.
 // Two calls because the label depends on what the profiles declared.
 type Assembler interface {
-	Assemble(ctx context.Context, snap *config.Snapshot, profiles []string) (Assembled, error)
+	Assemble(ctx context.Context, snap *config.Snapshot, sel Selection) (Assembled, error)
 	Surfaces(ctx context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (Surfaces, error)
+}
+
+// Selection is what Assemble composes: the profile set, plus the explicit
+// arm's named fragments and tag matches.
+type Selection struct {
+	Profiles  []string
+	Fragments []string
+	Tags      []string
 }
 
 // Assembled is what a profile set composed to.

@@ -87,7 +87,7 @@ func (s *failingLaunchSpawner) doomedLaunch(ctx context.Context) error {
 	}
 }
 
-func (s *failingLaunchSpawner) StartEngine(ctx context.Context, _ *SpawnPlan, _, _ map[string]string) (*EngineSpawn, error) {
+func (s *failingLaunchSpawner) StartEngine(ctx context.Context, _ *SpawnPlan, _ SpawnStart, _ map[string]string) (*EngineSpawn, error) {
 	return nil, s.doomedLaunch(ctx)
 }
 

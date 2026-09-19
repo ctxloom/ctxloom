@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +48,7 @@ func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 
 	spec, err := buildHarnessSpec(HarnessSpecInput{
 		Harness: plan.Backend, Model: "test-model", Workspace: t.TempDir(),
-		SessionHarp: rt.harp, Permission: plan.Perm,
+		SessionHarp: rt.harp, Permission: agent.PermissionBypass,
 	})
 	require.NoError(t, err)
 

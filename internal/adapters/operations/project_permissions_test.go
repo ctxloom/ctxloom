@@ -16,7 +16,7 @@ import (
 // of EVERY chain that resolves a launch posture from config, not just the
 // interactive run's. Two live here:
 //
-//   - RunOneshot's, which today reads req.Permissions → the engine label's; a
+//   - the launch resolver's floor, which reads the flag → the binding's → the label's → the project's; a
 //     project that declared a default must be consulted after the label and
 //     before the member-posture gate refuses an undeclared one.
 //   - ResolveAgent's EffectivePermissions, the posture `agent show` prints as
@@ -110,26 +110,3 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 	})
 }
 
-// TestRunOneshotPermissions_ProjectDefault pins the bare-profile oneshot's own
-// chain. resolveOneshotPermissions is the extracted rung order the caller uses;
-// asserting it directly keeps the case from needing a live engine while still
-// covering the ordering that matters.
-func TestRunOneshotPermissions_ProjectDefault(t *testing.T) {
-	cases := []struct {
-		name      string
-		req       string
-		labelPerm string
-		project   string
-		want      string
-	}{
-		{"project default fills an undeclared oneshot", "", "", "bypass", "bypass"},
-		{"the label beats the project default", "", "plan", "bypass", "plan"},
-		{"an explicit request beats both", "plan", "bypass", "bypass", "plan"},
-		{"nothing declared anywhere stays empty", "", "", "", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, resolveOneshotPermissions(tc.req, tc.labelPerm, tc.project))
-		})
-	}
-}

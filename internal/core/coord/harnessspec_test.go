@@ -9,7 +9,6 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // TestHarnessSpec_RoundTrip pins the C0 wire convention end to end:
@@ -90,44 +89,6 @@ func TestDecodeHarnessSpec_RefusesNonHeadlessSafePermission(t *testing.T) {
 func TestDecodeHarnessSpec_NilSpec(t *testing.T) {
 	_, err := decodeHarnessSpec(nil)
 	require.Error(t, err)
-}
-
-// TestBuildHarnessSpec_RefusesNonHeadlessSafePermission: D3 is a property of
-// the SPEC, so the encoding end enforces it too. Leaving the check to the
-// decoding end alone means the coordinator happily composes a spec the runner
-// is obliged to refuse, and the refusal only surfaces after a StartRun
-// round-trip -- as an opaque runner-side rejection instead of a coordinator
-// error naming the posture it built.
-func TestBuildHarnessSpec_RefusesNonHeadlessSafePermission(t *testing.T) {
-	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionAcceptEdits} {
-		_, err := buildHarnessSpec(HarnessSpecInput{
-			Harness:    "claude-code",
-			Model:      "claude-sonnet-5",
-			Permission: perm,
-		})
-		require.Error(t, err, "permission mode %q must be refused at the encode end", perm)
-		assert.Contains(t, err.Error(), "headless-safe")
-	}
-}
-
-// TestHeadlessSafePermission_NeverYieldsAnUnsafeMode pins the gate that runs
-// BEFORE any credential is minted or process spawned: agent resolution coerces
-// (degraded) or refuses (strict) an unsafe declared posture, so plan.Perm --
-// the only child-spawn input to buildHarnessSpec -- is headless-safe by the
-// time a spawn is even enqueued.
-func TestHeadlessSafePermission_NeverYieldsAnUnsafeMode(t *testing.T) {
-	resetStrictness(t)
-	strictness.SetDegraded(true)
-
-	for _, declared := range []string{"", "default", "acceptEdits", "accept-edits", "not-a-mode"} {
-		mode, degraded := headlessSafePermission("worker", declared)
-		assert.True(t, mode.SafeHeadless(), "declared %q resolved to non-headless-safe %q", declared, mode)
-		assert.NotEmpty(t, degraded, "the coercion must be reported to the operator")
-	}
-
-	mode, degraded := headlessSafePermission("worker", "bypass")
-	assert.Equal(t, agent.PermissionBypass, mode, "an already-safe posture passes through untouched")
-	assert.Empty(t, degraded)
 }
 
 // TestDecodeHarnessSpec_RefusesMalformedMCPServers: a config entry that is not

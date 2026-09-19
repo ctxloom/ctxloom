@@ -56,13 +56,7 @@ func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 		return func() { killCalled.Store(true) }, "", nil
 	}
 
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "claude-code",
-		Label:      "fast",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-	}, starter, "hello")
+	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass)}, starter, "hello")
 
 	require.Error(t, err, "a runner that never dials home must fail the owner run")
 	assert.Nil(t, outcome)

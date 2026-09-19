@@ -81,9 +81,10 @@ func TestAgentRun_UnknownAgentIsHardError(t *testing.T) {
 	assert.Contains(t, err.Error(), `agent "ghost" not found`)
 }
 
-// TestAgentRun_D3RefusesNonHeadless pins the D3 gate: an agent with no
-// headless-safe permission is refused with the typed finding, and never
-// launches.
+// TestAgentRun_D3RefusesNonHeadless pins the D3 gate as the one floor
+// applies it: a child with no headless-safe posture is refused when its
+// launch resolves — agent_run is async, so the refusal surfaces on the
+// parent's mailbox with the typed reason — and no runner ever spawns.
 func TestAgentRun_D3RefusesNonHeadless(t *testing.T) {
 	for _, tc := range []struct{ name, perm, reason string }{
 		{"absent enum", "", "declares no permissions"},
@@ -93,26 +94,35 @@ func TestAgentRun_D3RefusesNonHeadless(t *testing.T) {
 			resetStrictness(t)
 			sp := newFakeSpawner(map[string]fakeAgent{"loose": {perm: tc.perm, profiles: []string{"p1"}}}, nil)
 			c := newTestCoordinator(t, sp, nil)
-			_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.reason)
-			assert.Contains(t, err.Error(), `set permissions: plan|bypass on agent "loose"`)
+			out, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
+			require.NoError(t, err, "agent_run is async: the floor's refusal surfaces on the mailbox, not here")
+			msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
+			require.NoError(t, err)
+			var bodies []string
+			for _, m := range msgs {
+				if m.From == out.Harp {
+					bodies = append(bodies, m.Body)
+				}
+			}
+			joined := strings.Join(bodies, "\n")
+			assert.Contains(t, joined, tc.reason)
+			assert.Contains(t, joined, `set permissions: plan|bypass on agent "loose"`)
 			assert.Equal(t, 0, sp.spawnCount(), "a refused agent never launches")
 		})
 	}
 }
 
-// TestAgentRun_D3DegradedDowngradesToPlan pins the degraded downgrade.
+// TestAgentRun_D3DegradedDowngradesToPlan pins the degraded arm: --degraded
+// narrows a child to the most restrictive headless-safe posture, never
+// widens it.
 func TestAgentRun_D3DegradedDowngradesToPlan(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	sp := newFakeSpawner(map[string]fakeAgent{"loose": {profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
+	_, err := c.AgentRun(context.Background(), ownerIdentity(), "loose", "go", "", "")
 	require.NoError(t, err)
-	require.NotEmpty(t, out.Degraded)
-	assert.Contains(t, out.Degraded[0], "plan")
 
 	require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return len(sp.chat(0).recordedTexts()) == 1 }, conformanceWait, 10*time.Millisecond)

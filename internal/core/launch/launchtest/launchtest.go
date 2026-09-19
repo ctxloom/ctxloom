@@ -254,8 +254,8 @@ func (*approach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInp
 // joined, the managed surfaces are empty, the profiles declare no llm.
 type assembler struct{}
 
-func (assembler) Assemble(_ context.Context, _ *config.Snapshot, profiles []string) (launch.Assembled, error) {
-	return launch.Assembled{Context: fmt.Sprintf("context of %v", profiles), Profiles: profiles}, nil
+func (assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
+	return launch.Assembled{Context: fmt.Sprintf("context of %v", sel.Profiles), Profiles: sel.Profiles}, nil
 }
 
 func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, _ string, _ []string, _ map[string]string) (launch.Surfaces, error) {

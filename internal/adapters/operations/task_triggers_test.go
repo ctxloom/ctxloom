@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -121,14 +123,24 @@ func (c *fullFakeClient) ListSessions(context.Context) ([]agent.SessionMeta, err
 func (c *fullFakeClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) { return nil, nil }
 func (c *fullFakeClient) Kill()                                                      {}
 
-// countingClientFactory wraps client in a pb.ClientFactory that counts how
-// many times it was invoked, so a test can pin retry behavior (exactly one
-// call vs. exactly two) without depending on internal call ordering.
-func countingClientFactory(client pb.Client) (pb.ClientFactory, *atomic.Int32) {
+// countingRunner drives the fake client as the triage session's turn and
+// counts how many turns were driven, so a test can pin retry behavior
+// (exactly one call vs. exactly two) without depending on internal call
+// ordering. The turn hands the client the whole prompt, as the session's
+// launch would.
+func countingRunner(client pb.Client) (memory.Runner, *atomic.Int32) {
 	var n atomic.Int32
-	return func(string, string, int) (pb.Client, error) {
+	return func(ctx context.Context, prompt string) (string, error) {
 		n.Add(1)
-		return client, nil
+		var stdout, stderr bytes.Buffer
+		code, err := client.Run(ctx, &pb.RunStart{Prompt: &pb.Fragment{Content: prompt}}, nil, &stdout, &stderr, nil)
+		if err != nil {
+			return "", err
+		}
+		if code != 0 {
+			return "", fmt.Errorf("LLM exited with code %d: %s", code, strings.TrimSpace(stderr.String()))
+		}
+		return stdout.String(), nil
 	}, &n
 }
 
@@ -144,11 +156,11 @@ func TestEvaluateTriggers_NoDeferredTasksSkipsTheLLMCall(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.Evaluated)
@@ -165,7 +177,7 @@ func TestEvaluateTriggers_HappyPath(t *testing.T) {
 
 	verdictJSON := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it shipped"}]`
 	client := &fullFakeClient{out: verdictJSON}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{
 		"/repo": {{SHA: "abc1234567890", Date: time.Now(), Subject: "feat: ship the CLI", Files: []string{"cli.go"}}},
@@ -174,7 +186,7 @@ func TestEvaluateTriggers_HappyPath(t *testing.T) {
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     "/repo",
-		Factory:     factory,
+		Run:         run,
 		Git:         gitFake,
 	})
 	require.NoError(t, err)
@@ -212,7 +224,7 @@ func TestEvaluateTriggers_RepoStateReachesThePrompt(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[]`}
-	factory, _ := countingClientFactory(client)
+	run, _ := countingRunner(client)
 
 	gitFake := &git.Fake{
 		Dirs:    []string{"internal/shared/tasks/triggers"},
@@ -222,7 +234,7 @@ func TestEvaluateTriggers_RepoStateReachesThePrompt(t *testing.T) {
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     "/repo",
-		Factory:     factory,
+		Run:         run,
 		Git:         gitFake,
 	})
 	require.NoError(t, err)
@@ -249,7 +261,7 @@ func TestEvaluateTriggers_RepoStateReachesTheEscalationPrompt(t *testing.T) {
 		`"queries":[{"type":"path_exists","path":"internal/shared/tasks/triggers"}]}]`
 	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["it exists"],"reasoning":"present now"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
-	factory, _ := countingClientFactory(client)
+	run, _ := countingRunner(client)
 
 	gitFake := &git.Fake{
 		Dirs:    []string{"internal/shared/tasks/triggers"},
@@ -259,7 +271,7 @@ func TestEvaluateTriggers_RepoStateReachesTheEscalationPrompt(t *testing.T) {
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     "/repo",
-		Factory:     factory,
+		Run:         run,
 		Git:         gitFake,
 	})
 	require.NoError(t, err)
@@ -277,9 +289,9 @@ func TestEvaluateTriggers_NeverMutatesTaskStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"clearly fired"}]`}
-	factory, _ := countingClientFactory(client)
+	run, _ := countingRunner(client)
 
-	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Run: run})
 	require.NoError(t, err)
 
 	list, err := tasksops.ListTasks(tc, tasksops.ListOptions{Statuses: []string{tasks.StatusDeferred}, IncludeDone: true})
@@ -297,9 +309,9 @@ func TestEvaluateTriggers_RetriesOnceThenSucceeds(t *testing.T) {
 		"not json at all",
 		`[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"nothing yet"}]`,
 	}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Run: run})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load(), "one retry after the first parse failure")
 	assert.False(t, res.Degraded)
@@ -313,9 +325,9 @@ func TestEvaluateTriggers_DegradesAfterExhaustingRetries(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: "garbage, always garbage"}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Run: run})
 	require.NoError(t, err, "a degraded evaluation is reported, not returned as a hard error")
 	assert.Equal(t, int32(2), calls.Load(), "exactly one retry, never more")
 	assert.True(t, res.Degraded)
@@ -334,9 +346,9 @@ func TestEvaluateTriggers_MissingVerdictBecomesCannotDetermine(t *testing.T) {
 
 	// The model only answers for d1.
 	client := &fullFakeClient{out: `[{"harp_id":"` + d1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"}]`}
-	factory, _ := countingClientFactory(client)
+	run, _ := countingRunner(client)
 
-	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Run: run})
 	require.NoError(t, err)
 	assert.Equal(t, 2, res.Evaluated)
 	require.Len(t, res.Verdicts, 2)
@@ -379,11 +391,11 @@ func TestEvaluateTriggers_SplitsLargeMissSetIntoMultipleChunkCalls(t *testing.T)
 		}
 		return "[" + strings.Join(objs, ",") + "]"
 	}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
-		Factory:     factory,
+		Run:         run,
 		ChunkSize:   2,
 	})
 	require.NoError(t, err)
@@ -436,11 +448,11 @@ func TestEvaluateTriggers_OneBadChunkDoesNotPoisonTheOthers(t *testing.T) {
 		return `[{"harp_id":"` + good1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"},` +
 			`{"harp_id":"` + good2.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"y"}]`
 	}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
-		Factory:     factory,
+		Run:         run,
 		ChunkSize:   2,
 	})
 	require.NoError(t, err)
@@ -480,11 +492,11 @@ func TestEvaluateTriggers_ChunkOmissionIsCountedSeparatelyFromDegrade(t *testing
 	// Both tasks land in the same (only) chunk; the response only mentions
 	// one of them.
 	client := &fullFakeClient{out: `[{"harp_id":"` + kept.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"}]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
-		Factory:     factory,
+		Run:         run,
 		ChunkSize:   10,
 	})
 	require.NoError(t, err)
@@ -519,12 +531,12 @@ func TestEvaluateTriggers_DegradedEscalationChunkSetsTopLevelDegraded(t *testing
 	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
 		`"queries":[{"type":"path_exists","path":"internal/foo"}]}]`
 	client := &fullFakeClient{outs: []string{round1, "garbage", "still garbage"}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), calls.Load(), "round 1 once, plus the (single-chunk) escalation round's own one retry")
@@ -555,12 +567,12 @@ func TestEvaluateTriggers_EscalatesAndSettlesInRoundTwo(t *testing.T) {
 		`"queries":[{"type":"path_exists","path":"internal/adapters/signing/cli.go"}]}]`
 	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["path_exists confirmed"],"reasoning":"the file exists now"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load(), "round 1 plus exactly one escalation round")
@@ -614,11 +626,11 @@ func TestEvaluateTriggers_RefusedQueriesAreCountedNotSwallowed(t *testing.T) {
 	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
 		`"queries":[{"type":"shell_exec","path":"internal/foo"},{"type":"path_exists","path":"/etc/passwd"},{"type":"grep"}]}]`
 	client := &fullFakeClient{out: round1}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 
@@ -639,11 +651,11 @@ func TestEvaluateTriggers_NoQueriesAskedCountsNoRefusals(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure"}]`}
-	factory, _ := countingClientFactory(client)
+	run, _ := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 0, res.QueriesRejected)
@@ -659,9 +671,9 @@ func TestEvaluateTriggers_NeedsInvestigationWithNoQueriesStaysUnescalated(t *tes
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unclear"}]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Run: run})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load(), "no queries means no escalation call")
 	require.Len(t, res.Verdicts, 1)
@@ -681,12 +693,12 @@ func TestEvaluateTriggers_RoundTwoNeedsInvestigationIsForcedToCannotDetermine(t 
 		`"queries":[{"type":"path_exists","path":"internal/foo"}]}]`
 	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"still unsure"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load())
@@ -710,12 +722,12 @@ func TestEvaluateTriggers_DropsUnsafeQueriesButKeepsSafeOnes(t *testing.T) {
 		`"queries":[{"type":"path_exists","path":"../../etc/passwd"},{"type":"shell_exec","path":"x"},{"type":"path_exists","path":"internal/foo"}]}]`
 	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"confirmed"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load(), "the surviving safe query still triggers round 2")
@@ -736,12 +748,12 @@ func TestEvaluateTriggers_DegradedEscalationRoundBecomesCannotDetermine(t *testi
 	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
 		`"queries":[{"type":"path_exists","path":"internal/foo"}]}]`
 	client := &fullFakeClient{outs: []string{round1, "garbage", "still garbage"}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory,
+		Run:         run,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), calls.Load(), "round 1 once, plus the escalation round's own one retry")
@@ -767,12 +779,12 @@ func TestEvaluateTriggers_DegradedEscalationRoundIsNeverCached(t *testing.T) {
 	round1 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unsure",` +
 		`"queries":[{"type":"path_exists","path":"internal/foo"}]}]`
 	client1 := &fullFakeClient{outs: []string{round1, "garbage", "still garbage"}}
-	factory1, calls1 := countingClientFactory(client1)
+	run1, calls1 := countingRunner(client1)
 
 	res1, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory1,
+		Run:     run1,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(3), calls1.Load())
@@ -785,12 +797,12 @@ func TestEvaluateTriggers_DegradedEscalationRoundIsNeverCached(t *testing.T) {
 	// cannot-determine with zero new calls.
 	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["path_exists confirmed"],"reasoning":"now it resolves"}]`
 	client2 := &fullFakeClient{outs: []string{round1, round2}}
-	factory2, calls2 := countingClientFactory(client2)
+	run2, calls2 := countingRunner(client2)
 
 	res2, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{
 		TaskContext: tc,
 		RepoDir:     repo,
-		Factory:     factory2,
+		Run:     run2,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls2.Load(), "the degraded-escalation verdict was never cached, so both rounds ran again")
@@ -812,9 +824,9 @@ func TestEvaluateTriggers_HallucinatedHarpIDIsNotCached(t *testing.T) {
 	client := &fullFakeClient{out: `[` +
 		`{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it shipped"},` +
 		`{"harp_id":"ghost-not-in-request","outcome":"not-fired","evidence":[],"reasoning":"hallucinated"}]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Factory: factory})
+	res, err := EvaluateTriggers(context.Background(), triageTestConfig(), EvaluateTriggersRequest{TaskContext: tc, Run: run})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load())
 	require.Len(t, res.Verdicts, 1, "only the actually-requested task's verdict must be surfaced")
@@ -835,9 +847,9 @@ func TestEvaluateTriggers_SecondCallReusesCacheAndMakesZeroModelCalls(t *testing
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"it shipped"}]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
+	req := EvaluateTriggersRequest{TaskContext: tc, Run: run}
 
 	res1, err := EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
@@ -864,9 +876,9 @@ func TestEvaluateTriggers_RefreshBypassesCache(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"nothing yet"}]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
+	req := EvaluateTriggersRequest{TaskContext: tc, Run: run}
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load())
@@ -888,10 +900,10 @@ func TestEvaluateTriggers_EvidenceChangeInvalidatesCache(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"nothing yet"}]`}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
 	gitFake := &git.Fake{LogEntries: map[string][]git.LogEntry{}}
-	req := EvaluateTriggersRequest{TaskContext: tc, RepoDir: "/repo", Factory: factory, Git: gitFake}
+	req := EvaluateTriggersRequest{TaskContext: tc, RepoDir: "/repo", Run: run, Git: gitFake}
 
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
@@ -917,8 +929,8 @@ func TestEvaluateTriggers_DegradedVerdictsAreNeverCached(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: "garbage, always garbage"}
-	factory, calls := countingClientFactory(client)
-	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
+	run, calls := countingRunner(client)
+	req := EvaluateTriggersRequest{TaskContext: tc, Run: run}
 
 	res1, err := EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
@@ -945,8 +957,8 @@ func TestEvaluateTriggers_UnescalatedNeedsInvestigationIsCached(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"unclear"}]`}
-	factory, calls := countingClientFactory(client)
-	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
+	run, calls := countingRunner(client)
+	req := EvaluateTriggersRequest{TaskContext: tc, Run: run}
 
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
@@ -977,8 +989,8 @@ func TestEvaluateTriggers_UnchangedBacklogSecondRunMakesZeroModelCalls(t *testin
 		`{"harp_id":"` + d1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"a"},` +
 		`{"harp_id":"` + d2.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"b"},` +
 		`{"harp_id":"` + d3.Task.HarpID + `","outcome":"needs-investigation","evidence":[],"reasoning":"c"}]`}
-	factory, calls := countingClientFactory(client)
-	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
+	run, calls := countingRunner(client)
+	req := EvaluateTriggersRequest{TaskContext: tc, Run: run}
 
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
@@ -1009,9 +1021,9 @@ func TestEvaluateTriggers_EscalatedVerdictIsCachedAfterSettling(t *testing.T) {
 		`"queries":[{"type":"path_exists","path":"internal/adapters/signing/cli.go"}]}]`
 	round2 := `[{"harp_id":"` + deferred.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"confirmed via query"}]`
 	client := &fullFakeClient{outs: []string{round1, round2}}
-	factory, calls := countingClientFactory(client)
+	run, calls := countingRunner(client)
 
-	req := EvaluateTriggersRequest{TaskContext: tc, RepoDir: repo, Factory: factory}
+	req := EvaluateTriggersRequest{TaskContext: tc, RepoDir: repo, Run: run}
 	res1, err := EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load())
@@ -1032,8 +1044,8 @@ func TestEvaluateTriggers_MixedCacheHitAndMissOnlyCallsModelForTheMiss(t *testin
 	require.NoError(t, err)
 
 	client := &fullFakeClient{out: `[{"harp_id":"` + d1.Task.HarpID + `","outcome":"not-fired","evidence":[],"reasoning":"nothing yet"}]`}
-	factory, calls := countingClientFactory(client)
-	req := EvaluateTriggersRequest{TaskContext: tc, Factory: factory}
+	run, calls := countingRunner(client)
+	req := EvaluateTriggersRequest{TaskContext: tc, Run: run}
 
 	_, err = EvaluateTriggers(context.Background(), triageTestConfig(), req)
 	require.NoError(t, err)

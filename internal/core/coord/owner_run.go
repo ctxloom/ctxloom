@@ -41,18 +41,13 @@ const ownerRunRuntime = launch.RuntimeRootless
 // Model/Permission) are resolved host-side by the owning `ctxloom run` exactly
 // as the go-plugin path resolved them — StartOwnedRun does not re-resolve them.
 type OwnerRunSpec struct {
-	// Harp is the owning session's harp; the owner-owned run REUSES it as its
-	// run role so transcript/session identity (state mounts, CTXLOOM_SESSION_HARP)
-	// stay coherent. The collision-audit test pins that the
-	// role-keyed maps stay coherent under this reuse.
-	Harp       string
-	Backend    string // harness name (HarnessSpec.harness)
-	Label      string
-	Model      string
-	WorkDir    string            // prepared container workspace dir
-	Env        map[string]string // harness env (HarnessSpec.config["env"])
+	// Launch is the owner's resolved launch. The owner-owned run REUSES the
+	// owner's harp (Launch.Identity.Harp) as its run role so transcript and
+	// session identity (state mounts, the harp carrier) stay coherent. The
+	// collision-audit test pins that the role-keyed maps stay coherent under
+	// this reuse.
+	Launch     launch.Launch
 	MCPServers []agent.ChatMCPServer
-	Permission agent.PermissionMode
 	// Oneshot marks a --print single-turn run: the run tears down after the
 	// host collects the final answer. It changes only the host's wait mode; the
 	// coordinator machinery is identical.
@@ -86,11 +81,11 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	if c.Draining() {
 		return nil, fmt.Errorf("owner run: %w", ErrDraining)
 	}
-	if spec.Harp == "" {
-		return nil, errors.New("owner run: harp is required (the run reuses the owning session's harp as its role)")
+	if spec.Launch.Identity.Harp == "" {
+		return nil, errors.New("owner run: a resolved launch with its harp is required (the run reuses the owning session's harp as its role)")
 	}
-	if spec.Backend == "" {
-		return nil, errors.New("owner run: backend is required")
+	if spec.Launch.Engine == "" {
+		return nil, errors.New("owner run: the launch names no engine")
 	}
 	if start == nil {
 		return nil, errors.New("owner run: a runner starter is required")
@@ -116,17 +111,19 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		return nil, fmt.Errorf("owner run: no coordinator endpoint reachable from runtime %q: %w — check the container runtime's bridge network", ownerRunRuntime, err)
 	}
 
-	// A synthetic plan carrying exactly what enqueueRun journals and issueStartRun
-	// reads: the owner's harp AS the run role (AgentName), the resolved runtime,
-	// permission, and the composed MCP set. No agent-definition resolution runs —
-	// the host already resolved every field into OwnerRunSpec.
+	// A synthetic plan carrying exactly what enqueueRun journals and
+	// issueStartRun reads: the owner's harp AS the run role (AgentName), the
+	// resolved launch, and the composed MCP set. No binding is selected —
+	// the host already resolved the launch.
+	l := spec.Launch
 	plan := &SpawnPlan{
-		AgentName:  spec.Harp,
-		Backend:    spec.Backend,
-		Label:      spec.Label,
+		AgentName:  l.Identity.Harp,
+		Backend:    string(l.Engine),
+		Label:      l.Label.Label,
 		Runtime:    ownerRunRuntime,
-		Perm:       spec.Permission,
+		Permission: l.Permission.String(),
 		MCPServers: spec.MCPServers,
+		Launch:     l,
 	}
 
 	// The owned run REUSES the owner's own identity rather than spawning a
@@ -148,7 +145,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// misrouting a call the owned run's OWN engine made about ITSELF
 	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
 	// and roster both explicitly refuse an IsChild() caller).
-	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
+	rt, token, err := c.enqueueRun(owner, plan, l.Identity.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +154,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	rt.oneshot = spec.Oneshot
 	c.mu.Unlock()
 	c.setState(rt, StateExecuting)
-	c.audit("owner_run", owner.Harp, map[string]string{"harp": spec.Harp, "run_id": rt.runID, "backend": spec.Backend})
+	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
 
 	// plan.ResumeMode is never set on the owned run's synthetic plan (zero
 	// value ResumeModePersistent), so this is always false today — written
@@ -165,7 +162,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// hardcoded false, so it stays correct if that ever changes. This is
 	// UNRELATED to rt.oneshot/spec.Oneshot above (the --print single-turn
 	// CLI axis) — see Identity.OneShot's doc for the distinction.
-	kill, containerName, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
+	kill, containerName, err := start(ctx, runnerEnv(l.Identity.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the
@@ -180,15 +177,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.mu.Unlock()
 	c.recordContainerName(rt.runID, containerName)
 
-	hs, err := buildHarnessSpec(HarnessSpecInput{
-		Harness:     spec.Backend,
-		Model:       spec.Model,
-		Workspace:   spec.WorkDir,
-		Env:         spec.Env,
-		MCPServers:  spec.MCPServers,
-		SessionHarp: spec.Harp,
-		Permission:  spec.Permission,
-	})
+	hs, err := buildHarnessSpec(harnessSpecOf(l, spec.MCPServers, ""))
 	if err != nil {
 		c.failChild(rt, err)
 		return nil, err
@@ -206,14 +195,14 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// handled. Pinned by TestStartOwnedRun_CleansUpOnIssueStartRunFailure
 	// (owner_run_cleanup_test.go): rt.close fires and the run leaves the
 	// live roster without any cleanup call at this call site.
-	if err := c.issueStartRun(ctx, rt, hashToken(token), hs, prompt, spec.Model, ""); err != nil {
+	if err := c.issueStartRun(ctx, rt, hashToken(token), hs, prompt, l.Label.Model, ""); err != nil {
 		return nil, err
 	}
 
 	return &RunOutcome{
-		Harp:    spec.Harp,
+		Harp:    l.Identity.Harp,
 		RunID:   rt.runID,
-		Engine:  spec.Label,
+		Engine:  l.Label.Label,
 		Runtime: ownerRunRuntime,
 	}, nil
 }

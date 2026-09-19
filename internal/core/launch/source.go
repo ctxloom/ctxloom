@@ -11,7 +11,13 @@ type Source struct {
 	Identity   sessions.Identity // REQUIRED: minted by the caller (operations.StartRun, coord.AgentRun); Resolve refuses a zero value
 	Agent      string
 	Profiles   []string
+	// Fragments and Tags are the explicit-assembly arm's selection beyond
+	// the profile set (`run -f`, `run -t`): named fragments and tag matches
+	// composed with the profiles. Only the profile-set arm reads them.
+	Fragments []string
+	Tags      []string
 	Label      string
+	Model      string // overrides the label's model for this launch; empty keeps the label's
 	Mode       engine.Mode
 	Prompt     string
 	WorkDir    string

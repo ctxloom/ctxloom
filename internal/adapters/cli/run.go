@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -18,7 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -31,6 +30,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -56,9 +56,8 @@ var (
 	runDryRun      bool
 	// runOneShot selects the single-turn mode: one turn, the answer, exit. The
 	// name is the MODE, not its output — printing is what every mode does, and
-	// it is the turn count that decides whether an engine gets a session. Same
-	// word the mode carries the rest of the way down (agent.CLISurfaceOneshot,
-	// operations.RunOneshot, pb.ExecutionMode_ONESHOT).
+	// it is the turn count that decides whether an engine gets a session. It
+	// is engine.Structured on the Source, and the wire's ONESHOT mode.
 	runOneShot       bool
 	runPlainTerminal bool
 	runVerbosity     int
@@ -329,98 +328,49 @@ type runState struct {
 	// The fail-loudly gates. Windows TILE by construction: phaseGates.close
 	// re-opens as it closes, so a finding recorded anywhere between two gates
 	// still aborts at the next one instead of falling into an ungated hole.
-	// The tiling is no longer a convention two comments describe; it is what
-	// closing a phase IS.
 	gates *phaseGates
 
-	cfg    *config.Config // loadConfig
-	prompt string         // resolvePrompt
-	llmEnv map[string]string
+	cfg       *config.Config // loadConfig
+	prompt    string         // resolvePrompt
+	workDir   string         // the project root the launch is asked for
+	projectID string         // the project identity the session serves
 
-	// The launch source's resolution (resolveLaunchSource and its three arms):
-	// which context this run assembles and which engine carries it.
-	ctxResult   *operations.AssembleContextResult
+	// launch is THE resolved launch (launch.Resolve, through
+	// operations.StartRun): the engine, the label, the floored permission,
+	// the axes, the cell, the package, the plan, the endpoint. Every field
+	// below it is a projection the transport and drive arms read; nothing
+	// is re-derived from flags or config once it exists.
+	launch      launch.Launch
 	label       string
 	backendName string
 	labelModel  string
-	// agentPermissions is the --agent binding's declared permission posture
-	// (empty for a classic run); the resolver layers the engine label and the
-	// built-in default on top.
-	agentPermissions string
-	// agentSurfaces is the bound agent's resolved delivery preference, carried
-	// to the backend on the managed payload.
-	agentSurfaces map[agent.SurfaceKind]string
-	// The session's runtime axis: the agent's resolved runtime, or the project
-	// `runtime:` default for a classic run. Parsed once, in resolveLaunchSource
-	// (the classic-run default) or resolveAgentBinding (an agent binding's own
-	// runtime) — never a bare string past that point.
-	agentRuntime launch.RuntimeAxis
-	// boundAgent names the agent binding this run launched under (--agent or
-	// the default agent) — surround-bar identity only.
-	boundAgent string
-	// agentHomeMode is the resolved agent binding's EFFECTIVE config-home
-	// policy (operations.ResolvedAgent.HomeMode — always
-	// agents.HomeModeSession or agents.HomeModeHost once a binding
-	// resolved), or "" when this run has NO agent binding at all: the
-	// -p/-f/-t classic assembly, or a bare launch whose default agent failed
-	// to resolve.
-	//
-	// It exists as its own field because boundAgent cannot answer the
-	// question the engine config home (prepareWorkspace →
-	// operations.BindAgentHome) needs: resolveDefaultAgent sets
-	// boundAgent too, so "boundAgent != \"\"" is true of a plain `ctxloom run`
-	// just as much as `run --agent x` — both bind a real agent, and the
-	// decision reads that agent's OWN declared engine_home (always host by
-	// default), never how it was invoked. Only "was any binding resolved at
-	// all" is invocation-shaped, and that is exactly what an empty
-	// agentHomeMode (vs. a resolved "session"/"host") already answers.
-	agentHomeMode agents.HomeMode
+	mode        pb.ExecutionMode
+	permMode    agent.PermissionMode
+	managed     *agent.ManagedConfig
+	req         *pb.RunStart
+	activeHarp  string
+	// policy/ws are the cell's transport handle: how today's plugin
+	// transport spawns into the cell.
+	policy isolation.Policy
+	ws     isolation.Workspace
 
-	// prepareRequestInputs: everything the RunStart payload is built from that
-	// does not depend on the session having been opened.
-	sessionWorkspace string
-	mode             pb.ExecutionMode
-	protoFragments   []*pb.Fragment
-	promptFragment   *pb.Fragment
-	workDir          string
-
-	// openSession / hostCoordinator: this run's session identity and the
-	// coordinator it hosts for delegated agents.
-	activeHarp     string
-	runEnv         map[string]string
+	// hostCoordinator: the coordinator this run hosts for delegated agents
+	// and the reach-back env its runner is spawned with.
 	runnerSpawnEnv map[string]string
-	// sessionCoord is held on the state (D2) so the terminal UI can reach
+	// sessionCoord is held on the state so the terminal UI can reach
 	// ConsumerService/Inject IN-PROCESS — this run IS the coordinator's own
 	// hosting process, so its own terminal viewer never needs a network hop.
 	sessionCoord *coord.Coordinator
 
-	// buildRunRequest: the resolved permission posture and the wire payload.
-	labelPerm string
-	// projectPerm is THIS project directory's declared default posture
-	// (config.yaml's top-level `permissions:`, empty when undeclared) — the
-	// rung between the engine label and the engine's own built-in default.
-	projectPerm   string
-	requestedPerm agent.PermissionMode // PermissionNotRequested when nothing parseable was asked for
-	permMode      agent.PermissionMode
-	managed       *agent.ManagedConfig
-	req           *pb.RunStart
-
-	// The session's isolation axes (workspace × runtime) and what Prepare made
-	// of them.
-	runAxes isolation.Axes
-	policy  isolation.Policy
-	ws      isolation.Workspace
-
 	// startTransport: exactly ONE of these is non-nil per run.
 	//
 	// client is the go-plugin client (host/worktree interactive, oneshot).
-	// interactiveLauncher + runnerHandle are Phase 2a-A: a
-	// container-policy INTERACTIVE top-level run never constructs a go-plugin
-	// client — it launches the StartRunner keepalive container and drives the
-	// turn over a docker-exec vpio.Launcher (no in-container listener).
-	// ownedRun is Phase 2a-B: a container-policy --one-shot ONESHOT
-	// run drives over Transport 2 / EngineHost (an owner-owned run watched via
-	// the in-process coordinator) instead of a go-plugin client.
+	// interactiveLauncher + runnerHandle: a container-cell INTERACTIVE
+	// top-level run never constructs a go-plugin client — it launches the
+	// StartRunner keepalive container and drives the turn over a docker-exec
+	// vpio.Launcher. ownedRun: a container-cell --one-shot run drives over
+	// Transport 2 / EngineHost (an owner-owned run watched via the
+	// in-process coordinator).
 	client              pb.Client
 	interactiveLauncher vpio.Launcher
 	runnerHandle        *isolation.RunnerHandle
@@ -445,6 +395,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err := st.loadConfig(); err != nil {
 		return err
 	}
+	if _, err := validateExplicitLLM(st.cfg, runLLM); err != nil {
+		return err
+	}
 	if err := st.resolvePrompt(); err != nil {
 		return err
 	}
@@ -453,20 +406,12 @@ func runRun(cmd *cobra.Command, args []string) error {
 	defer stopSignals()
 
 	st.runStartupTasks()
+	st.resolveProject()
 
-	if err := st.resolveLaunchSource(); err != nil {
-		return err
-	}
-	if err := st.gateStartup(); err != nil {
-		return err
-	}
-
-	st.prepareRequestInputs()
-
-	// Dry run mode - show the assembled context and prompt, then stop before
-	// anything stateful or interactive happens: no session-index writes
-	// (AssignSession / EndSession), no coordinator, no task seeding, no
-	// isolation, no plugin launch.
+	// Dry run mode - show the resolved launch and the prompt, then stop
+	// before anything stateful or interactive happens: the same resolver,
+	// over stateless ports (no session written, no cell prepared, no
+	// coordinator, no task seeding, no plugin launch).
 	if runDryRun {
 		return st.emitDryRun()
 	}
@@ -477,74 +422,218 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// fires when that method returns, which for teardown is far too early.
 	// The registration ORDER below is the unwind order (LIFO) and is
 	// load-bearing; each defer's own doc says why it sits where it does.
-	restoreTitle, err := st.openSession()
-	if err != nil {
+	if err := st.resolveLaunch(); err != nil {
 		return err
 	}
-	defer restoreTitle()
-
-	st.exportProjectIdentity()
-
 	// Mark the harp ended on whatever exit path we take — clean return,
 	// ctrl+c, or panic. The end timestamp lets the time-window fallback in
 	// `ctxloom session distill` find this session's transcript even when the
-	// bind middleware never fired (session ended before any MCP method was
-	// processed).
+	// bind middleware never fired.
 	defer st.markSessionEnded()
+
+	// The startup gate: config load, sync, assembly and the cell all ran
+	// inside the resolver; every fatal-class finding they recorded aborts
+	// here, before the engine launches, listing every finding with its fix.
+	if err := st.gateStartup(); err != nil {
+		return err
+	}
+	st.warnPosture()
+
+	restoreTitle := st.openSessionBanner()
+	defer restoreTitle()
 
 	closeCoordinator := st.hostCoordinator()
 	defer closeCoordinator()
 
 	st.seedTask()
-	if err := st.buildRunRequest(); err != nil {
-		return err
-	}
+	st.buildRunRequest()
 
-	// Teardown: kill the go-plugin client (host/worktree/oneshot
-	// arms) OR the docker-exec keepalive container (Phase 2a-A interactive arm
-	// — RunnerHandle.Kill is Phase 1's rm -f + removeReportsGone). Exactly one
-	// is non-nil per run; the container arm never constructs a client.
-	//
-	// Registered HERE, before the workspace is prepared and before
-	// startTransport can return early, rather than after them: a
-	// defer only protects returns that happen AFTER it is reached, so a defer
-	// placed after startTransport never fires for an early return out of it —
-	// exactly the case where startContainerOwnedRun starts a real container,
-	// then fails a LATER step and returns handle non-nil alongside the error.
-	// Registering the cleanup up front, and having every arm in startTransport
-	// assign into runnerHandle/ownedRun/client BEFORE checking its own error,
-	// means every early return in between is covered instead of only the
-	// successful-setup path.
+	// Teardown: kill the go-plugin client OR the docker-exec keepalive
+	// container, then release the cell. Registered HERE, before startTransport
+	// can return early: a defer only protects returns that happen AFTER it is
+	// reached, and every arm in startTransport assigns into
+	// runnerHandle/ownedRun/client BEFORE checking its own error, so every
+	// early return in between is covered instead of only the successful path.
 	defer st.teardownAll()
-
-	st.prepareWorkspace()
-
-	// Fail-loudly re-gate: isolation resolves in prepareWorkspace, AFTER the
-	// startup gate, so a requested-container-degraded-to-host finding
-	// (ClassIsolation, raised inside Prepare) would slip past that
-	// already-passed gate. Gate 2 re-checks from postStartupMark — captured
-	// the instant gate 1 passed, so the two windows TILE (a finding recorded
-	// anywhere between the gates is caught, not just one raised inside
-	// Prepare) — and an EXPLICITLY-requested container that can't be satisfied
-	// aborts (exit 3) before an UNSANDBOXED engine is spawned — unless
-	// --degraded, which records nothing and proceeds on the host per the
-	// degrade chain.
-	if ferr := st.gates.close(PhaseWorkspace); ferr != nil {
-		return ferr
-	}
-
-	// Past the last gate an engine can still be refused at over its
-	// environment: whatever the gates let through (nothing in strict mode;
-	// under --degraded, every finding the launch proceeded past) is now
-	// what the agent needs to know, so it rides into the request here.
-	st.attachStartupFindings()
-
-	st.stampWorkspaceOnRequest()
 
 	if err := st.startTransport(); err != nil {
 		return err
 	}
 	return st.drive()
+}
+
+// resolveProject resolves the project root the launch is asked for and the
+// project's stable identity the session serves. The identity is
+// fault-tolerant: a failure warns and the session carries none; the task
+// store degrades rather than blocking.
+//
+// taskStoreWorkDir redirects a linked git worktree with no .ctxloom of its
+// own to its primary checkout FIRST: the session identity workDir itself
+// names stays worktree-distinct, but the task store an agent files findings
+// into is deliberately shared with the primary checkout so a task filed from
+// an ephemeral worktree reaches whoever is actually watching.
+func (st *runState) resolveProject() {
+	st.workDir = projectroot.WorkDir()
+	// No override and no git root: workDir is just the launch directory. The
+	// project's identity — and with it its tasks, plans, and sessions under
+	// ~/.ctxloom — is keyed off this path, so they don't follow the directory
+	// if it moves and a launch one level up or down won't resume them. Warn,
+	// never block.
+	if projectroot.RootFromFallback() {
+		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
+	}
+	pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(st.workDir))
+	if err != nil {
+		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
+		return
+	}
+	st.projectID = pid
+	if warning != "" {
+		clidiag.Warn("ctxloom", "%s", warning)
+	}
+}
+
+// source is the launch as this invocation asks for it: the flags, and
+// nothing decided. --agent names a binding (an unknown name is a HARD
+// error: an explicit name is user intent); a bare launch binds the default
+// agent; -p/-f/-t is the explicit assembly. --llm is the label override,
+// --one-shot the mode, --workspace the session's workspace axis,
+// --permissions the flag the floor reads first. The engine passthrough is
+// the label's request-borne env plus the resume pair.
+func (st *runState) source() (launch.Source, error) {
+	workspace, err := launch.ParseWorkspaceAxis(runWorkspace)
+	if err != nil {
+		return launch.Source{}, err
+	}
+	perm := agent.PermissionNotRequested
+	if runPermissions != "" {
+		perm, _ = agent.ParsePermissionMode(runPermissions)
+	}
+	src := launch.Source{
+		Agent:      runAgent,
+		Profiles:   nil,
+		Fragments:  runFragments,
+		Tags:       runTags,
+		Label:      runLLM,
+		Prompt:     st.prompt,
+		WorkDir:    st.workDir,
+		Workspace:  workspace,
+		Permission: perm,
+		Degraded:   strictness.Degraded(),
+		Env:        map[string]string{},
+	}
+	if runProfile != "" {
+		src.Profiles = []string{runProfile}
+	}
+	if runOneShot {
+		src.Mode = engine.Structured
+	}
+	for k, v := range st.resumeEnv() {
+		src.Env[k] = v
+	}
+	return src, nil
+}
+
+// resolveLaunch is the trunk: mint the session and resolve the launch
+// through the one resolver, then bind its projections for the transport
+// and drive arms.
+func (st *runState) resolveLaunch() error {
+	src, err := st.source()
+	if err != nil {
+		return err
+	}
+	deps, err := App().LaunchDeps(st.ctx)
+	if err != nil {
+		return err
+	}
+	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
+	if err != nil {
+		return err
+	}
+	st.bindLaunch(l)
+	return nil
+}
+
+// bindLaunch projects the resolved launch onto the fields the transport and
+// drive arms read. Decided once, here; nothing downstream re-derives.
+func (st *runState) bindLaunch(l launch.Launch) {
+	st.launch = l
+	st.activeHarp = l.Identity.Harp
+	st.label = l.Label.Label
+	st.backendName = string(l.Engine)
+	st.labelModel = l.Label.Model
+	st.mode = pb.ExecutionMode_INTERACTIVE
+	if l.Mode == engine.Structured {
+		st.mode = pb.ExecutionMode_ONESHOT
+	}
+	st.permMode = l.Permission
+	if managed, ok := l.Package.Managed.(*agent.ManagedConfig); ok {
+		st.managed = managed
+	}
+	if cell, ok := operations.TransportOf(l.Cell); ok {
+		st.policy, st.ws = cell.Policy, cell.Workspace
+	}
+}
+
+// boundAgent names the binding this run launched under (--agent, or the
+// default agent for a bare launch; none for an explicit -p/-f/-t assembly) —
+// the surround bar's identity, read off the Source this invocation built.
+func (st *runState) boundAgent() string {
+	switch {
+	case runAgent != "":
+		return runAgent
+	case runProfile == "" && len(runFragments) == 0 && len(runTags) == 0:
+		return st.cfg.GetDefaultAgent()
+	}
+	return ""
+}
+
+// buildRunRequest projects the launch onto the run-start message through
+// the one codec, then adds what only this invocation knows: the resumed
+// transcript as a trailing fragment, the startup findings, the host
+// terminal's description.
+func (st *runState) buildRunRequest() {
+	st.req = coordgrpc.EncodeLaunch(st.launch, runVerbosity)
+	// --session (full resume — no --distill): the resumed harp's full
+	// recorded transcript trails the assembled context as its own fragment.
+	// --distill takes the essence path instead (resumeEnv).
+	if runResumeSession != "" && !runResumeDistill {
+		if rendered := resumeFullContext("", runResumeSession, func(h string) ([]agent.SessionEntry, error) {
+			return operations.RecordedSessionEntries(st.ctx, h)
+		}); rendered != "" {
+			st.req.Fragments = append(st.req.Fragments, &pb.Fragment{Name: "resumed-transcript", Content: rendered})
+		}
+	}
+	st.attachStartupFindings()
+}
+
+// warnPosture says out loud when the posture the run launches with is not
+// what the flag asked for, when a one-shot at plan has nobody to approve a
+// gated call, and (under -v) when the engine's declared host-bypass
+// stopgap is what decided it.
+func (st *runState) warnPosture() {
+	facts := st.launch.Package.Managed
+	_ = facts
+	if runPermissions != "" {
+		if requested, ok := agent.ParsePermissionMode(runPermissions); ok && requested != st.permMode {
+			clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", requested, st.backendName, st.permMode)
+		}
+	}
+	if st.mode == pb.ExecutionMode_ONESHOT && st.permMode == agent.PermissionPlan {
+		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
+	}
+	pf := backends.PermissionFactsFor(st.backendName)
+	if runPermissions == "" && st.permMode == agent.PermissionBypass && pf.HostDefault == agent.PermissionBypass && runVerbosity > 0 {
+		clidiag.Warn("ctxloom", "%s", pf.HostDefaultReason)
+	}
+	// A container-requested run whose boundary degraded to the bare host
+	// still carries its configured bypass; that is intended for the engine
+	// that declares the host stopgap and worth saying for any other. A
+	// requested boundary that could not be provided refuses inside the
+	// resolver in strict mode, so this fires only under --degraded.
+	if st.launch.Axes.WantsContainer() && st.launch.Cell.Container == nil && st.permMode == agent.PermissionBypass && pf.HostDefault != agent.PermissionBypass {
+		clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", st.backendName)
+	}
 }
 
 // validateFlags is the friction-up-front window: a typed value that isn't a
@@ -693,198 +782,6 @@ func (st *runState) runStartupTasks() {
 	}
 }
 
-// resolveLaunchSource picks between the run's two launch sources and delegates.
-//
-// --agent runs a named LOCAL binding — its composed profiles become the context
-// and its engine + runtime the transport; the interactive picker and the
-// -p/-f/-t assembly do not apply (cobra marks the flags mutually exclusive).
-// Everything else is the classic profile flow, except a BARE launch (no --agent
-// and no explicit context selection), which binds the always-bound default
-// agent.
-func (st *runState) resolveLaunchSource() error {
-	// The session's runtime axis before any agent binding gets a say: the
-	// project `runtime:` default. Parsed HERE — the earliest point this
-	// config-boundary string is read for a bare/classic launch — via the
-	// single canonical ParseRuntimeAxis, so a typo'd project `runtime:`
-	// fails loud instead of riding into st.agentRuntime as an unvalidated
-	// string an agent binding's own resolveAgentBinding parse would later
-	// have to re-interpret (or silently not, for a launch that never binds
-	// a named agent at all).
-	runtime, err := launch.ParseRuntimeAxis(st.cfg.GetRuntime())
-	if err != nil {
-		return fmt.Errorf("project `runtime:` default: %w", err)
-	}
-	st.agentRuntime = runtime
-
-	switch {
-	case runAgent != "":
-		return st.resolveNamedAgent(runAgent, runLLM)
-	case runProfile == "" && len(runFragments) == 0 && len(runTags) == 0:
-		return st.resolveDefaultAgent(runLLM)
-	default:
-		return st.resolveClassicAssembly(runProfile, runFragments, runTags, runLLM)
-	}
-}
-
-// applyResolvedAgent folds an agent binding's resolution into the run's state.
-// ResolveAgent already applied the --llm-beats-declared-engine precedence and
-// the project fallbacks.
-func (st *runState) applyResolvedAgent(rs *operations.ResolvedAgent, name string) {
-	st.ctxResult = &operations.AssembleContextResult{
-		Profiles:        rs.Profiles,
-		FragmentsLoaded: rs.Fragments,
-		Context:         rs.Context,
-	}
-	st.label, st.backendName, st.labelModel = rs.Label, rs.Backend, rs.Model
-	st.agentRuntime = rs.Runtime
-	st.agentPermissions = rs.Permissions
-	st.agentSurfaces = rs.Surfaces
-	st.boundAgent = name
-	st.agentHomeMode = rs.HomeMode
-}
-
-// resolveNamedAgent is the --agent arm. An unknown name is a HARD error: an
-// explicit name is user intent, unlike acp's editor-serving degrade.
-// llmOverride is the caller-level --llm label that beats the binding's own
-// engine; empty leaves the binding's engine in force.
-func (st *runState) resolveNamedAgent(name, llmOverride string) error {
-	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, name, llmOverride)
-	if rerr != nil {
-		return rerr
-	}
-	st.applyResolvedAgent(rs, name)
-	return nil
-}
-
-// resolveDefaultAgent is the BARE-launch arm: no --agent and no explicit
-// context selection. Bind the always-bound DEFAULT AGENT (cfg.DefaultAgent)
-// exactly like --agent — its composed profiles become the context and its
-// engine + runtime + permissions the transport (profiles.defaults was
-// retired). Unlike --agent (a HARD error on an unknown name), a
-// missing/empty/unresolvable default_agent must NEVER block startup: warn and
-// continue with empty context at the project-default label + runtime (CLAUDE.md
-// fault tolerance). That promise is kept — with one carve-out, below, for the
-// case where keeping it would silently drop a SECURITY declaration.
-//
-// WHY THE CARVE-OUT (the degradation audit's fourth bypass, and the one no
-// isolation-side fix reaches). applyResolvedAgent sets BOTH st.agentRuntime and
-// st.agentPermissions from the resolved agent. This fallback sets the runtime
-// from the PROJECT default and never sets permissions at all, so an agent that
-// failed to resolve silently loses both of its declarations:
-//
-//   - a declared `runtime: container` becomes the project default. By the time
-//     isolation.chainFor runs, WantsContainer() is already false, so NO
-//     ClassIsolation finding is ever raised — the boundary is gone with no
-//     finding of any kind, degradable or not. Refusing at chainFor cannot catch
-//     this; it has to be caught here.
-//   - a declared `permissions: plan` becomes "", which agent.ResolveDefault
-//     skips as "declares nothing", letting a lower source answer. On
-//     claude-code the bottom of that chain is PermissionBypass — so a
-//     resolution failure could WIDEN a run from plan to bypass, the same silent
-//     escalation ResolveDefault itself was fixed to stop one layer down.
-//
-// The declaration is read from raw config (cfg.Agent), which still parses fine
-// — ResolveAgent fails on profiles/bundles, not on the agent's own axes. So the
-// refusal is narrow: it fires only when something was actually declared and is
-// actually about to be dropped. An absent, empty, or axis-free default agent
-// still warns and continues exactly as before.
-func (st *runState) resolveDefaultAgent(llmOverride string) error {
-	rs, rerr := operations.ResolveAgent(st.ctx, st.cfg, st.cfg.GetDefaultAgent(), llmOverride)
-	if rerr == nil {
-		st.applyResolvedAgent(rs, st.cfg.GetDefaultAgent())
-		return nil
-	}
-
-	name := st.cfg.GetDefaultAgent()
-	var dropped []string
-	if decl, ok := st.cfg.Agent(name); ok {
-		// Any declared non-host runtime counts, not just a recognised container
-		// value. An UNRECOGNISED one (a typo) is refused here for the same
-		// reason warnUnknownAxes refuses it on the resolved path: the user
-		// asked for something other than the host, and a typo must not be the
-		// thing that silently puts them on it. Only an explicit `host` — or no
-		// declaration at all — is safe to drop, because dropping it can only
-		// ever move the run toward MORE isolation, never less.
-		if r := strings.TrimSpace(decl.Runtime); r != "" && r != string(launch.RuntimeHost) {
-			dropped = append(dropped, fmt.Sprintf("runtime: %s (this run would fall back to the project default and may NOT be sandboxed)", r))
-		}
-		if strings.TrimSpace(decl.Permissions) != "" {
-			dropped = append(dropped, fmt.Sprintf("permissions: %s (this run would fall back to the engine's own default, which on claude-code is bypass)", decl.Permissions))
-		}
-	}
-	if len(dropped) > 0 {
-		strictness.FailAlways(strictness.ClassRef,
-			fmt.Sprintf("repair default agent %q (the error above says why — usually `ctxloom deps pull` for missing profiles/bundles), or pass an explicit --runtime/--permissions if you meant to run without its declarations", name),
-			"refusing to launch: default agent %q could not be resolved (%v), and continuing would silently drop what it declares — %s",
-			name, rerr, strings.Join(dropped, "; "))
-	} else {
-		strictness.Fail(strictness.ClassRef, "set a default agent (ctxloom agent default <name>) or pass --degraded to launch anyway", "default agent %q unavailable; continuing with empty context: %v", name, rerr)
-	}
-	// Fall through either way: the run state must stay consistent (an
-	// uninitialised ctxResult/label would fault later on a path that should
-	// have aborted cleanly). Refusing is the GATE's job — the non-degradable
-	// finding above stops the launch; this only keeps the object coherent
-	// until it does.
-	st.ctxResult = &operations.AssembleContextResult{}
-	var lerr error
-	// resolveRunLLM: --llm override, else the project primary label.
-	st.label, lerr = resolveRunLLM(st.cfg, llmOverride, "")
-	if lerr != nil {
-		return lerr
-	}
-	st.backendName, st.labelModel = operations.ResolveBackend(st.cfg, st.label)
-	runtime, rterr := launch.ParseRuntimeAxis(st.cfg.GetRuntime())
-	if rterr != nil {
-		return fmt.Errorf("project `runtime:` default: %w", rterr)
-	}
-	st.agentRuntime = runtime
-	return nil
-}
-
-// resolveClassicAssembly is the explicit-context-selection arm (-p / -f / -t).
-func (st *runState) resolveClassicAssembly(profile string, fragments, tags []string, llmOverride string) error {
-	var aerr error
-	st.ctxResult, aerr = operations.AssembleContext(st.ctx, st.cfg, operations.AssembleContextRequest{
-		Profile:   profile,
-		Fragments: fragments,
-		Tags:      tags,
-	})
-	if aerr != nil {
-		return fmt.Errorf("failed to assemble context: %w", aerr)
-	}
-
-	// If user explicitly requested fragments (-f flags) but none loaded,
-	// that's an error. Checked via MissingFragments — the always-on
-	// builtin companion fragments mean FragmentsLoaded is never empty,
-	// so a bare count can't see the miss.
-	if len(fragments) > 0 && len(st.ctxResult.MissingFragments) == len(fragments) {
-		return fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(st.ctxResult.MissingFragments, ", "))
-	}
-
-	// The tag counterpart of the guard above — an explicit
-	// -t selection that matches zero fragments must not silently
-	// exit 0 having delivered no context.
-	if len(tags) > 0 && len(st.ctxResult.MissingTags) == len(tags) {
-		return fmt.Errorf("no fragments loaded: no fragment matches tag(s): %s", strings.Join(st.ctxResult.MissingTags, ", "))
-	}
-
-	// Determine which LLM config to use. Resolution is deferred until after
-	// context assembly because the chosen profile may declare its own LLM.
-	// Precedence: explicit --llm override (validated up front, friction),
-	// else the profile's declared llm, else the primary role's label. The
-	// label resolves to a backend type + model; the backend name (not the
-	// label) drives session naming and transport.
-	var lerr error
-	st.label, lerr = resolveRunLLM(st.cfg, llmOverride, st.ctxResult.ProfileLLM)
-	if lerr != nil {
-		return lerr
-	}
-	// label → backend type + model (shared with the oneshot/agent_run path).
-	// The backend name (not the label) drives session naming and transport.
-	st.backendName, st.labelModel = operations.ResolveBackend(st.cfg, st.label)
-	return nil
-}
-
 // gateStartup is the strict startup gate: config load, sync, and assembly have
 // run and any fatal-class fault (broken config, unresolvable default
 // profile/parent, failed bundle load, partial hook apply) has been recorded.
@@ -905,124 +802,66 @@ func (st *runState) gateStartup() error {
 	return st.gates.close(PhaseStartup)
 }
 
-// prepareRequestInputs resolves everything the RunStart payload is built from
-// that does not depend on a session having been opened — the session workspace
-// axis, the assembled context (including a full resume folded into it), the
-// execution mode, the prompt fragment, and the work directory.
-func (st *runState) prepareRequestInputs() {
-	st.llmEnv = operations.MockControlFor(st.cfg, st.label)
-
-	st.resolveSessionWorkspace(runWorkspace)
-
-	// --session (full resume — no --distill): prime the assembled context
-	// with the resumed harp's full recorded transcript before it's split
-	// into fragments below. This rides the SAME assembled-context path
-	// every other context source (--agent/default agent/-p/-f/-t) already
-	// goes through — the SessionStart hook's inject-context reads it back
-	// from the content-addressed cache file this context ultimately
-	// writes to (agent.WriteContextFile), same as a normal launch.
-	// --distill takes the essence path instead (applyResumeEnv, once
-	// activeHarp is assigned) — the two are mutually exclusive per
-	// validateResumeFlags' sibling gate (neither flag depends on the other's
-	// outcome, so no gate is needed here beyond the runResumeDistill check
-	// itself).
-	if runResumeSession != "" && !runResumeDistill {
-		st.ctxResult.Context = resumeFullContext(st.ctxResult.Context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-			return operations.RecordedSessionEntries(st.ctx, h)
-		})
-	}
-
-	// Convert context content to proto fragments
-	if st.ctxResult.Context != "" {
-		// Split context into individual fragments for display
-		// In the actual implementation, we'll keep it as a single assembled fragment
-		st.protoFragments = append(st.protoFragments, &pb.Fragment{
-			Content: st.ctxResult.Context,
-		})
-	}
-
-	st.resolveMode(runOneShot)
-
-	// Build prompt fragment
-	if st.prompt != "" {
-		st.promptFragment = &pb.Fragment{
-			Content: st.prompt,
-		}
-	}
-
-	// Determine work directory: CTXLOOM_ROOT override, else git root if in
-	// repo, else current directory.
-	st.workDir = projectroot.WorkDir()
-
-	// No override and no git root: workDir is just the launch directory. The
-	// project's identity — and with it its tasks, plans, and sessions under
-	// ~/.ctxloom — is keyed off this path, so they don't follow the directory
-	// if it moves and a launch one level up or down won't resume them. Warn,
-	// never block (CLAUDE.md fault tolerance).
-	if projectroot.RootFromFallback() {
-		clidiag.Warn("ctxloom", "not in a git repository — using %s as the project root; its tasks, plans, and sessions live under ~/.ctxloom keyed to this path, so re-launch from here to resume them.", st.workDir)
-	}
-}
-
-// resolveSessionWorkspace sets the session's WORKSPACE axis: the invocation
-// flag wins, else the project `workspace:` default. A session trait — never
-// read from the agent binding.
-func (st *runState) resolveSessionWorkspace(flag string) {
-	st.sessionWorkspace = flag
-	if st.sessionWorkspace == "" {
-		st.sessionWorkspace = st.cfg.GetWorkspace()
-	}
-}
-
-// resolveMode sets the execution mode: one turn and exit, else interactive.
-func (st *runState) resolveMode(oneShot bool) {
-	st.mode = pb.ExecutionMode_INTERACTIVE
-	if oneShot {
-		st.mode = pb.ExecutionMode_ONESHOT
-	}
-}
-
-// emitDryRun renders the resolved assembly a profile/flag set produces and
-// stops. It is the last thing a --dry-run does.
+// emitDryRun renders the launch this invocation would resolve and stops.
+// The SAME resolver runs, over stateless ports: an in-memory session store,
+// a cell that is the project root itself. Nothing is written and nothing is
+// started. It is the last thing a --dry-run does.
 func (st *runState) emitDryRun() error {
+	src, err := st.source()
+	if err != nil {
+		return err
+	}
+	deps, err := App().LaunchDeps(st.ctx)
+	if err != nil {
+		return err
+	}
+	deps.Sessions = sessions.NewMemStore()
+	deps.Cells = dryCells{}
+	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
+	if err != nil {
+		return err
+	}
+	if err := st.gateStartup(); err != nil {
+		return err
+	}
 	payload := dryRunJSON{
 		Agent:     runAgent,
-		Workspace: st.sessionWorkspace,
-		Runtime:   string(st.agentRuntime),
-		LLM:       st.label,
-		Backend:   st.backendName,
-		Profiles:  orEmpty(st.ctxResult.Profiles),
-		Fragments: orEmpty(st.ctxResult.FragmentsLoaded),
-		Context:   st.ctxResult.Context,
-		Tokens:    tokens.Estimate(st.ctxResult.Context),
+		Workspace: string(l.Axes.Workspace),
+		Runtime:   string(l.Axes.Runtime),
+		LLM:       l.Label.Label,
+		Backend:   string(l.Engine),
+		Profiles:  orEmpty(l.Package.Profiles),
+		Fragments: orEmpty(l.Package.Fragments),
+		Context:   l.Package.Context,
+		Tokens:    tokens.Estimate(l.Package.Context),
 		Prompt:    st.prompt,
 	}
 	return emit(st.cmd, payload, func() error {
 		if runAgent != "" {
 			fmt.Println("=== Agent ===")
-			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, orDefault(st.sessionWorkspace, "none"), orDefault(string(st.agentRuntime), "host"))
+			fmt.Printf("%s (workspace: %s, runtime: %s)\n", runAgent, l.Axes.Workspace, l.Axes.Runtime)
 		}
 		fmt.Println("=== LLM ===")
-		fmt.Printf("%s (%s)\n", st.label, st.backendName)
+		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		fmt.Println("\n=== Profiles ===")
-		if len(st.ctxResult.Profiles) > 0 {
-			for _, p := range st.ctxResult.Profiles {
+		if len(l.Package.Profiles) > 0 {
+			for _, p := range l.Package.Profiles {
 				fmt.Printf("  %s\n", p)
 			}
 		} else {
 			fmt.Println("(no profiles)")
 		}
 		fmt.Println("\n=== Fragments Loaded ===")
-		if len(st.ctxResult.FragmentsLoaded) > 0 {
-			for _, f := range st.ctxResult.FragmentsLoaded {
+		if len(l.Package.Fragments) > 0 {
+			for _, f := range l.Package.Fragments {
 				fmt.Printf("  %s\n", f)
 			}
 		} else {
 			fmt.Println("(no fragments)")
 		}
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
-		if st.ctxResult.Context != "" {
-			fmt.Println(st.ctxResult.Context)
+		if l.Package.Context != "" {
+			fmt.Println(l.Package.Context)
 		} else {
 			fmt.Println("(no context)")
 		}
@@ -1039,123 +878,74 @@ func (st *runState) emitDryRun() error {
 	})
 }
 
-// openSession mints this run's harp and everything keyed to it: the session
-// env, the resume env pair, and the start-session banner. It returns the
-// terminal-title restore for runRun to defer — the OSC2 push/pop pair has to
-// unwind on runRun's frame, not this one.
+// dryCells is the --dry-run cell: the project root on the host, prepared
+// nowhere. It is what lets a preview run the real resolver without a
+// worktree, a container or a session directory coming into existence.
+type dryCells struct{}
+
+func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell, error) {
+	return launch.Cell{
+		Paths:     present.OnHost(present.Paths{ProjectRoot: present.Root{Host: req.ProjectRoot}}),
+		Workspace: req.ProjectRoot,
+		Cleanup:   func() error { return nil },
+	}, nil
+}
+
+// resumeEnv is the CTXLOOM_RESUMED_FROM/PARTS pair for whichever --session
+// mode this run is in.
 //
-// A mint that fails REFUSES the run: there is no harpless run. Every phase
-// after this one is keyed to the harp — the coordinator it hosts, the task it
-// seeds, the runner's reach-back env, the engine's private scratch dir
-// (LaunchBackend's ErrSharedScratchNoHarp) — so a run that warned past the
-// failure here would spawn an engine only to fail three phases later for a
-// cause it could no longer name. The store's own error is returned as-is;
-// runRun exits on it before anything else is stood up.
+// --session --distill: distilled resume via the harp's essence (distilling on
+// demand first if missing) — see resumeDistillEnv's doc for the full
+// mechanism. Full resume (--session without --distill) carries its transcript
+// as a trailing fragment (buildRunRequest); it still sets CTXLOOM_RESUMED_FROM/
+// PARTS="transcript" so the session instructions surface the "resumed from"
+// note, with a PARTS value the SessionStart hook's essence injection ignores
+// (the content already rode the fragment path — no double-injection).
+func (st *runState) resumeEnv() map[string]string {
+	switch {
+	case runResumeSession != "" && runResumeDistill:
+		fmt.Fprintf(os.Stderr, "ctxloom: resuming distilled essence from %s\n", runResumeSession)
+		return resumeDistillEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutDistill)
+	case runResumeSession != "":
+		fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
+		return map[string]string{"CTXLOOM_RESUMED_FROM": runResumeSession, "CTXLOOM_RESUMED_PARTS": "transcript"}
+	}
+	return nil
+}
+
+// openSessionBanner prints the start-session display — a read-only summary
+// of this session, BEFORE the engine spawns — and sets the terminal window
+// title to the harp. It returns the terminal-title restore for runRun to
+// defer — the OSC2 push/pop pair has to unwind on runRun's frame.
 //
-// Session resolution: no interactive resume picker, no flag-based resume —
-// every `ctxloom run` opens a FRESH harp. Resuming prior context is the
-// in-engine "resume" skill's job (recover_session/load_session/
-// get_previous_session), invoked from inside the session that just started,
-// not a startup-time choice.
-func (st *runState) openSession() (func(), error) {
-	st.runEnv = map[string]string{}
-	for k, v := range st.llmEnv {
-		st.runEnv[k] = v
-	}
-
-	entry, err := operations.AssignSession(st.ctx, st.workDir, st.backendName)
-	if err != nil {
-		return nil, fmt.Errorf("session naming failed, refusing to run: %w", err)
-	}
-
-	st.activeHarp = entry.HarpName
-	st.runEnv[sessions.EnvHarp] = entry.HarpName
-	st.applyResumeEnv()
-
-	// Start-session display: a read-only summary of this session,
-	// printed BEFORE the engine spawns. previous, below, is resolved via
-	// the SAME primitive the get_previous_session MCP tool reads — never
-	// re-derived — and is purely informational: bringing it back is the
-	// resume skill's job, not something this banner offers to do.
+// previous is resolved via the SAME primitive the get_previous_session MCP
+// tool reads — never re-derived — and is purely informational: bringing it
+// back is the resume skill's job, not something this banner offers to do.
+func (st *runState) openSessionBanner() func() {
 	previous, prevErr := operations.ResolvePreviousSession(st.workDir, st.activeHarp)
 	if prevErr != nil {
 		clidiag.Warn("ctxloom", "previous-session lookup failed: %v", prevErr)
 	}
 	PrintStartSessionBanner(os.Stderr, StartSessionInfo{
-		Harp:      entry.HarpName,
+		Harp:      st.activeHarp,
 		Backend:   st.backendName,
 		Label:     st.label,
-		Profiles:  st.ctxResult.Profiles,
-		Fragments: st.ctxResult.FragmentsLoaded,
-		Tokens:    tokens.Estimate(st.ctxResult.Context),
+		Profiles:  st.launch.Package.Profiles,
+		Fragments: st.launch.Package.Fragments,
+		Tokens:    tokens.Estimate(st.launch.Package.Context),
 		Previous:  previous,
 	})
 
-	// Set the terminal window title to the harp name via the
-	// OSC2 escape sequence. Most terminals (xterm, iTerm2,
-	// alacritty, WezTerm, kitty, Windows Terminal) render it;
-	// the rest silently ignore the sequence. Skipped for
-	// non-TTY (CI, piped) so we don't pollute pipelines — the
-	// stderr check matters too, or `2>log` captures would
-	// collect raw escape bytes. The XTWINOPS push (22;0t) /
-	// pop (23;0t) pair restores the previous title on exit
-	// where supported; elsewhere it is silently ignored.
+	// Set the terminal window title to the harp name via the OSC2 escape
+	// sequence. Skipped for non-TTY (CI, piped) so we don't pollute
+	// pipelines — the stderr check matters too, or `2>log` captures would
+	// collect raw escape bytes. The XTWINOPS push (22;0t) / pop (23;0t) pair
+	// restores the previous title on exit where supported.
 	if isInteractiveTerminal() && stderrIsTerminal() {
-		fmt.Fprintf(os.Stderr, "\033[22;0t\033]2;ctxloom · %s\007", entry.HarpName)
-		return func() { fmt.Fprint(os.Stderr, "\033[23;0t") }, nil
+		fmt.Fprintf(os.Stderr, "\033[22;0t\033]2;ctxloom · %s\007", st.activeHarp)
+		return func() { fmt.Fprint(os.Stderr, "\033[23;0t") }
 	}
-	return func() {}, nil
-}
-
-// applyResumeEnv stamps the CTXLOOM_RESUMED_FROM/PARTS pair for whichever
-// --session mode this run is in.
-//
-// --session --distill: distilled resume via the harp's essence (distilling on
-// demand first if missing) — see resumeDistillEnv's doc for the full
-// mechanism. Full resume (--session without --distill) already folded its
-// transcript into ctxResult.Context in prepareRequestInputs, so it doesn't
-// ride this env pair for content — it still sets CTXLOOM_RESUMED_FROM/
-// PARTS="transcript" so mcp_server.go's sessionInstructions surfaces the
-// "resumed from" note, but with a PARTS value resumePartsIncludeSession
-// rejects, so the SessionStart hook's essence injection stays a no-op for this
-// mode (the content already rode the context path, not the essence path — no
-// double-injection).
-func (st *runState) applyResumeEnv() {
-	switch {
-	case runResumeSession != "" && runResumeDistill:
-		for k, v := range resumeDistillEnv(runResumeSession, operations.ReadHarpEssence, resumeEssenceStale, shellOutDistill) {
-			st.runEnv[k] = v
-		}
-		fmt.Fprintf(os.Stderr, "ctxloom: resuming distilled essence from %s\n", runResumeSession)
-	case runResumeSession != "":
-		st.runEnv["CTXLOOM_RESUMED_FROM"] = runResumeSession
-		st.runEnv["CTXLOOM_RESUMED_PARTS"] = "transcript"
-		fmt.Fprintf(os.Stderr, "ctxloom: resuming full transcript from %s\n", runResumeSession)
-	}
-}
-
-// exportProjectIdentity resolves the project's stable identity (ADR 0025) and
-// exports it into the session env. Fault-tolerant — any failure warns and
-// leaves CTXLOOM_PROJECT_ID unset; the task store degrades rather than
-// blocking.
-//
-// taskStoreWorkDir redirects a linked git worktree with no .ctxloom of
-// its own to its primary checkout FIRST: the session/coordinator
-// identity workDir itself names stays worktree-distinct (unchanged,
-// see coord_host.go), but the task store an agent files findings into
-// is deliberately shared with the primary checkout so a task filed
-// from an ephemeral worktree reaches whoever is actually watching —
-// "tasks aren't context" (see internal/adapters/projectroot.TaskStoreRoot).
-func (st *runState) exportProjectIdentity() {
-	pid, warning, err := taskops.ResolveProjectIdentity(taskStoreWorkDir(st.workDir))
-	if err != nil {
-		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
-		return
-	}
-	st.runEnv[sessions.EnvProjectID] = pid
-	if warning != "" {
-		clidiag.Warn("ctxloom", "%s", warning)
-	}
+	return func() {}
 }
 
 // markSessionEnded stamps the harp's end timestamp. runRun defers it only
@@ -1199,7 +989,7 @@ func recordCoordinatorStartupFinding(cerr error) {
 }
 
 func (st *runState) hostCoordinator() func() {
-	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(App(), st.workDir, st.activeHarp, st.agentRuntime)
+	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(App(), st.workDir, st.activeHarp, st.launch.Axes.Runtime)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
 		return func() {}
@@ -1268,149 +1058,6 @@ func (st *runState) seedTask() {
 	}
 }
 
-// buildRunRequest assembles the RunStart wire payload: the executable trust
-// gate, the isolation axes, the resolved permission posture, and the managed
-// config the backend plugin is handed instead of self-loading ctxloom
-// config/bundles.
-//
-// AssembleManagedConfig takes BOTH the executable trust gate (so bundle
-// MCP/hooks/command exports are gated at their own choke, TR5) AND
-// ctxResult.Profiles — the SELECTED profile set (from -p, or the resolved
-// defaults) that AssembleContext scoped context to. Passing the profiles here
-// scopes the managed mcp/commands/hooks to the SAME profiles, so `run -p X` no
-// longer leaks the default profile's MCP or every pulled bundle's commands
-// into X's session.
-func (st *runState) buildRunRequest() error {
-	// Gate the executable surfaces (bundle MCP servers + bundle hooks + prompt
-	// command-file exports) the host ships in ManagedConfig: these bypass the
-	// content loader, so each is gated at its own choke via this injected
-	// gate. Built once (opens the trust store + registry); fail-closed (a
-	// DENY omits the executable). Surfaced below.
-	execGate := operations.NewExecutableTrustGate(st.cfg)
-
-	if err := st.resolvePostureAndAxes(runPermissions); err != nil {
-		return err
-	}
-	st.warnPermissionCollapse()
-	st.warnHostBypassStopgap()
-	st.warnPlanOneshotCancels()
-
-	st.managed = backends.AssembleManagedConfig(st.cfg, st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
-	// The binding's delivery preference rides the managed payload to the
-	// backend, which is the only place with the argv sink system-prompt needs.
-	// Set AFTER assembly rather than inside it: AssembleManagedConfig resolves
-	// PROFILE state and knows nothing about which agent is being launched.
-	if st.managed != nil && len(st.agentSurfaces) > 0 {
-		st.managed.Surfaces = st.agentSurfaces
-	}
-	st.req = &pb.RunStart{
-		Fragments: st.protoFragments,
-		Prompt:    st.promptFragment,
-		Options: &pb.RunOptions{
-			WorkDir:        st.workDir,
-			PermissionMode: st.permMode.String(),
-			Mode:           st.mode,
-			Env:            st.runEnv,
-			Verbosity:      agent.WireVerbosity(runVerbosity),
-			// The model comes from the resolved label's config; empty lets the
-			// backend pick its own default. e.g., "opus", "sonnet", "haiku".
-			Model: st.labelModel,
-		},
-		ManagedConfig: pb.ManagedConfigToProto(st.managed),
-	}
-	// Advisory: tell the user if a bundle executable was withheld (content-free).
-	execGate.WarnWithheld()
-	return nil
-}
-
-// resolvePostureAndAxes decides the session's isolation axes and its
-// launch-time permission posture from what the launch source resolved and
-// the --permissions flag. It is the one place the two meet; buildRunRequest
-// calls it before assembling the wire payload.
-func (st *runState) resolvePostureAndAxes(permissionsFlag string) error {
-	// The session's isolation axes: the SESSION-level workspace (--workspace,
-	// else the project `workspace:` default) x the runtime the launch source
-	// resolved (the agent's binding, or the project default). The managed path
-	// prepares a policy from these below; the permission posture resolves
-	// separately from config/CLI (no longer gated on the isolation boundary).
-	// The external-plugin-binary path is never isolated (none).
-	// A --workspace (or project `workspace:`) spelling the axis does not
-	// admit stops the run here. Asserted past the parser it would read as the
-	// shared checkout, so a typo'd request for isolation would run in the
-	// live project directory having said so out loud to nobody.
-	sessionWorkspace, err := isolation.ParseWorkspaceAxis(st.sessionWorkspace)
-	if err != nil {
-		return err
-	}
-	// st.agentRuntime is ALREADY the typed axis — resolveLaunchSource parses
-	// the project `runtime:` default before any arm runs, and an agent
-	// binding's own runtime arrives pre-parsed on ResolvedAgent. A typo is
-	// therefore refused before this function is reached, and re-converting
-	// here would put a second, unchecked door on a security boundary that has
-	// exactly one.
-	st.runAxes = isolation.Axes{
-		Workspace: sessionWorkspace,
-		Runtime:   st.agentRuntime,
-	}
-
-	// Launch-time permission posture. Precedence: --permissions flag > agent
-	// binding > engine-label config > THIS PROJECT DIRECTORY's declared default
-	// (config.yaml's top-level `permissions:`) > built-in default (claude-code →
-	// bypass while container isolation isn't relied on; others prompt). A
-	// headless ONESHOT upgrades a would-block posture to bypass or it would hang
-	// with no human to answer the engine.
-	labelEntry, _ := st.cfg.GetLLMEntry(st.label)
-	st.labelPerm = labelEntry.Permissions
-	st.projectPerm = st.cfg.GetPermissions()
-	st.permMode = resolvePermissionMode(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm, backends.PermissionFactsFor(st.backendName), st.mode)
-	st.requestedPerm = requestedPermission(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm)
-	return nil
-}
-
-// warnPermissionCollapse surfaces a posture that resolved to something other
-// than what was asked for, so the effective permissions are never silently
-// different from intent. Both arms require a REQUESTED posture, which is what
-// keeps them disjoint from warnHostBypassStopgap's no-request arm.
-func (st *runState) warnPermissionCollapse() {
-	switch {
-	case st.requestedPerm == agent.PermissionPlan && st.permMode != agent.PermissionPlan:
-		// The backend has no read-only tier, so plan collapsed (to prompt, or to
-		// bypass headless) — the read-only intent is not enforced.
-		clidiag.Warn("ctxloom", "%s has no read-only plan mode; this run uses %q instead", st.backendName, st.permMode)
-	case st.requestedPerm != agent.PermissionNotRequested && st.requestedPerm != agent.PermissionBypass && st.permMode == agent.PermissionBypass:
-		// An explicitly-requested narrower posture was widened to bypass because a
-		// headless ONESHOT has no human to answer the engine's prompt.
-		clidiag.Warn("ctxloom", "--one-shot can't honor %q without a human in the loop; this run uses bypass", st.requestedPerm)
-	}
-}
-
-// warnPlanOneshotCancels surfaces that a --one-shot run has no human to answer
-// a gated call. After resolvePermissionMode's ONESHOT floor, plan is the ONLY
-// posture that can still reach here without having been widened to bypass
-// (SafeHeadless: bypass never asks; default/acceptEdits already floored up to
-// bypass) — so plan surviving into a ONESHOT run means read-only intent is
-// real, but so is the empty chair: any gated (mutating) call has nobody to ask.
-// The engine-side answer to an unanswerable gate is to CANCEL it outright, not
-// deny it, so mutating steps silently do not run
-// unless this is called out loudly up front.
-func (st *runState) warnPlanOneshotCancels() {
-	if st.mode == pb.ExecutionMode_ONESHOT && st.permMode == agent.PermissionPlan {
-		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
-	}
-}
-
-// warnHostBypassStopgap surfaces an engine's declared host-bypass stopgap:
-// blanket auto-approval on the bare host, with the reason the engine
-// declares beside it (engine.PermissionFacts.HostDefaultReason). It's the
-// default path, so surface it only under -v to avoid warning fatigue while
-// still making the posture discoverable.
-func (st *runState) warnHostBypassStopgap() {
-	facts := backends.PermissionFactsFor(st.backendName)
-	if st.requestedPerm == agent.PermissionNotRequested && st.permMode == agent.PermissionBypass && facts.HostDefault == agent.PermissionBypass && runVerbosity > 0 {
-		clidiag.Warn("ctxloom", "%s", facts.HostDefaultReason)
-	}
-}
-
 // teardownTransport kills whichever transport this run stood up. See runRun's
 // own comment at the deferral site for why it is registered before the
 // workspace is prepared rather than after the transport is chosen.
@@ -1429,7 +1076,12 @@ func (st *runState) warnHostBypassStopgap() {
 // cleanupWorkspace must tolerate a workspace that does not exist yet.
 func (st *runState) teardownAll() {
 	st.teardownTransport()
-	st.cleanupWorkspace()
+	// The cell is released after the transport that ran in it is gone —
+	// removing a scratch tree under a live transport is the order this
+	// method exists to forbid. The error is deliberately dropped: a cleanup
+	// failure surfaces from INSIDE Cleanup (a streamed warning naming the
+	// residue path), and this runs post-gate.
+	_ = launch.Discard(context.Background(), st.launch)
 }
 
 func (st *runState) teardownTransport() {
@@ -1442,98 +1094,6 @@ func (st *runState) teardownTransport() {
 	if st.ownedRun != nil {
 		st.ownedRun.cancel()
 	}
-}
-
-// prepareWorkspace prepares the workspace along the per-axis degrade chain.
-// Fault tolerance: a container requested but unlaunchable (no runtime, or the
-// agent image absent) drops ONLY the runtime axis — a requested worktree
-// survives — and a worktree failure degrades to the live project dir, so
-// `runtime: container` is a safe default. Findings it raises are caught by
-// gate 2, which runRun runs immediately after.
-//
-// The session identity (harp + project id) rides the same runEnv the engine
-// gets, so the isolation state mounts and the in-container writers key off one
-// source.
-func (st *runState) prepareWorkspace() {
-	// The permission posture is resolved once from config/CLI/agent and is
-	// authoritative regardless of how the isolation boundary degrades: a
-	// container that failed to launch does NOT drop a configured bypass —
-	// that is the point of the host stopgap.
-	st.policy, st.ws = isolation.Prepare(st.ctx, st.runAxes, st.backendName, operations.IsolationImageConfig(st.cfg, st.backendName), st.workDir, st.activeHarp, isolation.SessionStateFromEnv(st.runEnv))
-
-	// The workspace's own env (a worktree's per-agent scratch dir and git
-	// identity; nil for none/container). Mirrors the fan-out member path
-	// (operations/oneshot.go's workspaceEnv/env assembly): merged UNDER the
-	// already-assembled req.Options.Env (session identity + user --env), so
-	// an explicit user/session var still wins over a resolved isolation var
-	// — this must never clobber a caller-set env, only fill gaps.
-	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, isolation.WorkspaceEnv(st.ws))
-
-	// THE AGENT'S CONFIG HOME, from exactly one place. A run bound to an agent
-	// whose EFFECTIVE engine_home is "session" gets this session's controlled
-	// home, whichever cell it landed in — on the host the engine is told the
-	// path itself; in a container the home is mounted and the engine is told
-	// the mount target. Every other run — no binding at all, or a binding
-	// that is undeclared or declares "host" — keeps the home its runtime
-	// gives it. See operations.ResolveInTreeAgentHome for the whole rule, and
-	// st.agentHomeMode for why this reads the resolved agent's OWN declared
-	// policy rather than how it was invoked.
-	//
-	// Merged with the SAME precedence as the workspace env above, so an
-	// explicit user/session var still wins.
-	home := operations.BindAgentHome(st.ws, operations.InTreeAgentHome{
-		Backend: st.backendName,
-		WorkDir: st.workDir,
-		Cwd:     st.ws.Dir(),
-		// The instance is PER SESSION, and st.activeHarp is this session:
-		// runRun calls openSession() BEFORE prepareWorkspace(), and openSession
-		// is what assigns it (and stamps CTXLOOM_SESSION_HARP into runEnv). A
-		// run that reached here with no session name gets no instance and keeps
-		// the engine's own host home.
-		Harp:     st.activeHarp,
-		HomeMode: st.agentHomeMode,
-	})
-	st.req.Options.Env = mergeWorkspaceEnv(st.req.Options.Env, home.Env)
-}
-
-// cleanupWorkspace tears the prepared workspace down. none's cleanup is a
-// noop. The error is deliberately dropped: a cleanup failure surfaces from
-// INSIDE Cleanup (a streamed warning naming the residue path + fix — see
-// warnCleanupResidue), and this runs post-gate where no choke owner could act
-// on an error anyway.
-func (st *runState) cleanupWorkspace() {
-	// Nil until prepareWorkspace runs, and teardownAll is deferred BEFORE it:
-	// an early return out of the startup gate arrives here with no workspace.
-	if st.ws == nil {
-		return
-	}
-	_ = st.ws.Cleanup()
-}
-
-// stampWorkspaceOnRequest folds the prepared workspace back into the RunStart
-// payload, once gate 2 has accepted the isolation that resolved.
-func (st *runState) stampWorkspaceOnRequest() {
-	// A container-requested run whose boundary silently degraded to the bare
-	// host still carries a configured bypass. For the claude-code host stopgap
-	// that is intended; for any other backend the boundary that justified
-	// bypass is gone, so surface it rather than run full-auto with no signal.
-	// A SATISFIED container request (the container OR container-worktree
-	// policy prepared) never warns. In strict mode a lost boundary recorded
-	// a ClassIsolation finding and gate 2 already aborted, so this warning
-	// fires only in degraded mode (or if a degrade recorded nothing).
-	if warnBypassOnLostContainer(st.runAxes, st.policy.Name(), st.permMode, backends.PermissionFactsFor(st.backendName)) {
-		clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", st.backendName)
-	}
-
-	// The engine's cwd lands in the prepared workspace (identical-path for
-	// container/none; a worktree in Phase 2).
-	st.req.Options.WorkDir = st.ws.Dir()
-
-	// Stamp the resolved isolation cell so the plugin knows which cell it
-	// runs in (it can't infer it from WorkDir alone). Setup's setupViaCells
-	// (launch_backend.go) consumes it to pick the delivery cell.
-	st.req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(st.policy))
-
 }
 
 // startTransport creates the run's transport. The isolation axes (runAxes,
@@ -1576,19 +1136,13 @@ func (st *runState) startTransport() error {
 		// host watches it via WatchRuns. No go-plugin client; no
 		// in-container listener.
 		handle, sess, oerr := startContainerOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
-			Policy:      st.policy,
-			Workspace:   st.ws,
-			Req:         st.req,
-			BackendName: st.backendName,
-			Label:       st.label,
-			Verbosity:   runVerbosity,
-			Harp:        st.activeHarp,
-			ContextText: st.ctxResult.Context,
-			Prompt:      st.prompt,
-			MCPServers:  st.managed.ChatMCPServers(),
-			Permission:  st.permMode,
-			Mode:        st.mode,
-			RunnerEnv:   st.runnerSpawnEnv,
+			Launch:     st.launch,
+			Policy:     st.policy,
+			Workspace:  st.ws,
+			Req:        st.req,
+			Verbosity:  runVerbosity,
+			MCPServers: st.managed.ChatMCPServers(),
+			RunnerEnv:  st.runnerSpawnEnv,
 		})
 		// Assign BEFORE checking oerr: startContainerOwnedRun
 		// can return a non-nil handle ALONGSIDE a non-nil error (the
@@ -1706,7 +1260,7 @@ func (st *runState) prepareSessionIO() sessionIO {
 			if ui := setupTerminalUI(st.ctx, st.cfg, st.sessionCoord, terminalUIIdentity{
 				WorkDir: st.workDir,
 				Harp:    st.activeHarp,
-				Agent:   st.boundAgent,
+				Agent:   st.boundAgent(),
 				Backend: st.backendName,
 				Model:   st.labelModel,
 			}, sio.stdin, sio.resize); ui != nil {
@@ -2025,110 +1579,6 @@ func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws 
 	return handle, launcher, nil
 }
 
-// mergeWorkspaceEnv layers the isolation-resolved per-engine config-home env
-// (isolation.WorkspaceEnv's CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME/... — nil
-// for a none/container workspace) UNDER an already-assembled env map, so an
-// explicit user/session var set before isolation resolves still wins over a
-// resolved isolation var: this must fill gaps, never clobber a caller-set
-// env. Mirrors the fan-out member path's workspaceEnv/ExtraEnv precedence
-// (operations/oneshot.go's runResolvedAgent). A nil/empty workspaceEnv is a
-// true no-op — existing is returned unchanged (not copied), so the top-level
-// run's shared/none path (the overwhelming common case) allocates nothing new.
-func mergeWorkspaceEnv(existing, workspaceEnv map[string]string) map[string]string {
-	if len(workspaceEnv) == 0 {
-		return existing
-	}
-	merged := make(map[string]string, len(workspaceEnv)+len(existing))
-	maps.Copy(merged, workspaceEnv)
-	maps.Copy(merged, existing)
-	return merged
-}
-
-// warnBypassOnLostContainer reports whether the launch should warn that a
-// container-requested run lost its boundary and now runs full-auto on the bare
-// host: the runtime axis asked for a container, the PREPARED policy is not
-// container-backed (neither container nor container-worktree — a satisfied
-// request, including a successful container-worktree, never warns), and the
-// resolved posture is bypass. An engine whose declared host default IS
-// bypass (the host stopgap) is exempt: bypass-on-host is its intended
-// posture.
-func warnBypassOnLostContainer(axes isolation.Axes, preparedName string, permMode agent.PermissionMode, facts engine.PermissionFacts) bool {
-	return axes.WantsContainer() && !isolation.IsContainerPolicyName(preparedName) &&
-		permMode == agent.PermissionBypass && facts.HostDefault != agent.PermissionBypass
-}
-
-// resolvePermissionMode picks the launch-time permission posture for the top-level
-// run. Precedence: the explicit --permissions flag, then the --agent binding, then
-// the engine label's configured permissions, then THIS PROJECT DIRECTORY's
-// declared default (config.yaml's top-level `permissions:`), then the engine's
-// declared host default (facts.HostDefault: bypass for the engine that declares
-// the host stopgap while container isolation isn't relied on, prompt-per-call
-// for every other). Config/CLI is authoritative: the isolation boundary no
-// longer earns or drops bypass. A non-interactive ONESHOT has no human to
-// answer the engine, so a would-block posture (default/acceptEdits) upgrades to
-// bypass or it hangs.
-//
-// projectPerm sits LAST among the declarations and BEFORE the engine's default,
-// and both halves of that placement are load-bearing:
-//
-//   - Below flag/agent/label, so a project default can never widen a posture
-//     someone declared somewhere more specific. Precedence, not "most
-//     restrictive wins": a binding may still declare a WIDER posture than the
-//     project default, exactly as it may today against the engine's default.
-//   - Above the engine's default, so a declared project posture beats the host
-//     stopgap. The stopgap exists for the case where nobody stated a posture at
-//     all; a project that states one has answered the question it was standing
-//     in for, and leaving the stopgap on top would make `permissions: plan` in
-//     a project on that engine silently mean bypass — the exact silent widening
-//     this chain is built to prevent.
-//
-// projectPerm reaches here from config.GetPermissions(), which can only ever
-// carry a value THIS project's .ctxloom/config.yaml (or an explicit
-// --config-set) wrote: layerscope drops the key from a home config or the
-// environment before the merge. See config.Config.permissions.
-func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm string, facts engine.PermissionFacts, mode pb.ExecutionMode) agent.PermissionMode {
-	m, honoured := agent.ResolveDefault([]string{flag, agentPerm, labelPerm, projectPerm}, facts.HostDefault)
-	if !honoured {
-		// A declared posture that does not parse is already floored to the most
-		// restrictive tier and reported as a fatal finding. It returns AS IS:
-		// every step below widens (the plan collapse trades read-only for
-		// prompt-per-call; the ONESHOT floor trades prompt-per-call for
-		// bypass), and running both on a floored value would walk a typo back
-		// up to the posture the floor exists to deny it.
-		return m
-	}
-	// plan is only a genuine read-only posture on backends that enforce it. On a
-	// backend with no read-only tier it collapses to default — the nearest posture
-	// that still gates each tool call on a human. Interactive: that prompts; a
-	// headless ONESHOT then floors default up to bypass below (it can't hang),
-	// which the caller warns about.
-	m = m.CollapsePlanIfUnenforced(facts.ReadOnlyPlan)
-	if mode == pb.ExecutionMode_ONESHOT && !m.SafeHeadless() {
-		m = agent.PermissionBypass
-	}
-	return m
-}
-
-// requestedPermission returns the posture the user or config asked for — the
-// first parseable of flag > agent > label > project default — independent of any
-// backend collapse, or PermissionNotRequested when nothing parseable was
-// requested (the resolver then answers with a built-in default). It is the
-// input to the "backend can't honor this" warning.
-//
-// The project default counts as a REQUEST, deliberately: a project that pinned
-// `permissions: plan` on a backend with no read-only tier must be told the pin
-// collapsed. That is the same silent widening the warning exists to surface, and
-// it does not stop being one because the declaration lived in the project file
-// rather than on a binding.
-func requestedPermission(flag, agentPerm, labelPerm, projectPerm string) agent.PermissionMode {
-	for _, s := range []string{flag, agentPerm, labelPerm, projectPerm} {
-		if pm, ok := agent.ParsePermissionMode(s); ok {
-			return pm
-		}
-	}
-	return agent.PermissionNotRequested
-}
-
 // validatePermissionFlag rejects an explicitly-typed --permissions value that
 // isn't a known posture, up front (friction like an unknown --llm). A typo such
 // as "plann" must not silently fall through to a more permissive default — on
@@ -2150,27 +1600,6 @@ func validatePermissionFlag(flag string) error {
 // completion of `run --permissions`.
 func completePermissionModes(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return agent.PermissionModeNames(), cobra.ShellCompDirectiveNoFileComp
-}
-
-// resolveRunLLM picks the config label to launch. Precedence: an explicit
-// --llm override (validated up front — an unknown value is a hard error, since
-// the user typed it now), else the profile's declared llm, else the primary
-// role's label. A misconfigured profile.llm is fault-tolerant per CLAUDE.md: it
-// warns and falls back to the primary label rather than blocking startup.
-func resolveRunLLM(cfg *config.Config, override, profileLLM string) (string, error) {
-	if override != "" {
-		return validateExplicitLLM(cfg, override)
-	}
-	if profileLLM != "" {
-		if validated, err := validateExplicitLLM(cfg, profileLLM); err == nil {
-			return validated, nil
-		} else {
-			clidiag.Warn("ctxloom",
-				"profile-declared llm %q is unusable (%v); falling back to the primary role",
-				profileLLM, err)
-		}
-	}
-	return cfg.PrimaryLabel(), nil
 }
 
 // validateExplicitLLM validates a non-empty --llm override (friction-up-front):

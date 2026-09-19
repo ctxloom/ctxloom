@@ -757,7 +757,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	if prompt == "" {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: input.prompt is required (the child's briefing/first turn)")}
 	}
-	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, string(workspace), dirtyTreeHandler)
+	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, workspace, dirtyTreeHandler)
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}

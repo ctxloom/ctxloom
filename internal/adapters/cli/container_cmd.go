@@ -13,6 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -168,7 +170,7 @@ func containerBuildOptions(flags containerBuildFlagValues, cfg *config.Config, b
 		KeepCache:         flags.KeepCache,
 	}
 	if cfg != nil {
-		img := operations.IsolationImageConfig(cfg, backend)
+		img := launch.ImageConfigFor(cfg, engine.Name(backend))
 		if opts.BaseImage == "" && opts.BaseContainerfile == "" {
 			opts.BaseContainerfile = img.BaseContainerfile
 		}
@@ -374,7 +376,7 @@ func runContainerCheck(cmd *cobra.Command, args []string) error {
 	}
 	img := isolation.ImageConfig{}
 	if cerr == nil {
-		img = operations.IsolationImageConfig(cfg, backend)
+		img = launch.ImageConfigFor(cfg, engine.Name(backend))
 	}
 	d := containerCheckConfigGap(isolation.Diagnose(cmd.Context(), backend, img), len(args) == 1, cerr)
 	return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })

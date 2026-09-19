@@ -219,13 +219,14 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 	if err != nil {
 		return refuseWithheldDistillPrompt(cmd, err)
 	}
+	defer distiller.Close()
 
 	res, err := operations.SetItemContent(context.Background(), cfg, operations.SetItemContentRequest{
 		Bundle:    bundleName,
 		Kind:      itemType,
 		Name:      itemName,
 		Content:   newContent,
-		Distiller: distiller,
+		Distiller: distillerOrNone(distiller),
 	})
 	if err != nil {
 		return err
@@ -253,7 +254,7 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 // --no-distill short-circuits BEFORE the prompt is resolved: an edit that asked
 // for no distillation cannot be refused over a distill prompt it will never
 // use. The error arm is the withheld-prompt refusal only.
-func distillerForEdit(cfg *config.Config, noDistill bool) (operations.Distiller, error) {
+func distillerForEdit(cfg *config.Config, noDistill bool) (*llmDistiller, error) {
 	if noDistill {
 		return nil, nil
 	}
@@ -295,13 +296,14 @@ func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) 
 	if err != nil {
 		return refuseWithheldDistillPrompt(cmd, err)
 	}
+	defer distiller.Close()
 
 	res, err := operations.DistillItem(context.Background(), cfg, operations.DistillItemRequest{
 		Bundle:    bundleName,
 		Kind:      itemType,
 		Name:      itemName,
 		Force:     force,
-		Distiller: distiller,
+		Distiller: distillerOrNone(distiller),
 	})
 	if err != nil {
 		if errors.Is(err, operations.ErrItemNotFound) {
@@ -362,4 +364,13 @@ func checkBundleFilter(bundleFilter string, known []string) error {
 		}
 	}
 	return fmt.Errorf("no bundle named %q (bundles: %s)", bundleFilter, strings.Join(known, ", "))
+}
+
+// distillerOrNone is the nil-pointer guard at the interface boundary: a
+// distiller that stores raw is a nil interface, never a typed nil.
+func distillerOrNone(d *llmDistiller) operations.Distiller {
+	if d == nil {
+		return nil
+	}
+	return d
 }

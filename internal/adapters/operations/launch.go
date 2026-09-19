@@ -9,11 +9,13 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -36,11 +38,7 @@ import (
 // one resolver. The caller starts the transport it owns from the Launch and
 // ends the session (EndSession) when the run is over; a launch that does not
 // resolve ends its own session here so no harp is left half-minted.
-func StartRun(ctx context.Context, app *App, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
-	deps, err := app.LaunchDeps(ctx)
-	if err != nil {
-		return launch.Launch{}, err
-	}
+func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source) (launch.Launch, error) {
 	id, err := MintIdentity(deps.Sessions, seed)
 	if err != nil {
 		return launch.Launch{}, err
@@ -74,20 +72,22 @@ func MintIdentity(store sessions.Store, seed sessions.Seed) (sessions.Identity, 
 	return sessions.Identity{Harp: entry.HarpName, Depth: seed.Depth, OneShot: seed.OneShot, Project: seed.ProjectID}, nil
 }
 
-// LaunchDeps composes the resolver's ports over this process: the published
-// generation, the composed engines, the assembler and cells adapters, the
-// endpoint minter, the session store and the host facts.
+// LaunchDeps composes the resolver's ports over this process's published
+// generation.
 func (a *App) LaunchDeps(ctx context.Context) (launch.Deps, error) {
 	snap, err := a.Snapshot(ctx)
 	if err != nil {
 		return launch.Deps{}, err
 	}
-	return a.LaunchDepsFor(snap)
+	return LaunchDepsFor(snap)
 }
 
-// LaunchDepsFor is LaunchDeps over a generation the caller already holds (a
-// spawn's own Reload).
-func (a *App) LaunchDepsFor(snap *config.Snapshot) (launch.Deps, error) {
+// LaunchDepsFor composes the resolver's ports over one generation: the
+// composed engines, the assembler and cells adapters, the endpoint minter,
+// the session store and the host facts. A caller holding only the
+// generation's Config (the compactor, the trigger evaluator) wraps it in a
+// Snapshot; Resolve reads the Config and nothing else off it.
+func LaunchDepsFor(snap *config.Snapshot) (launch.Deps, error) {
 	store, err := openSessions()
 	if err != nil {
 		return launch.Deps{}, err
@@ -127,12 +127,24 @@ func hostFacts() (launch.HostFacts, error) {
 
 // assembler implements launch.Assembler over the profile assembly and the
 // managed-surface composition every launch path used to call for itself.
-type assembler struct{}
+// pipe is a test seam: a pre-configured process stage in place of the gated
+// exposure one.
+type assembler struct{ pipe *bundles.Pipeline }
 
-func (assembler) Assemble(ctx context.Context, snap *config.Snapshot, profiles []string) (launch.Assembled, error) {
-	res, err := AssembleContext(ctx, snap.Config, AssembleContextRequest{Profiles: profiles})
+func (a assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
+	res, err := AssembleContext(ctx, snap.Config, AssembleContextRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, Pipeline: a.pipe})
 	if err != nil {
 		return launch.Assembled{}, fmt.Errorf("assemble context: %w", err)
+	}
+	// An explicit selection that matched nothing is refused: the caller
+	// asked for fragments by name or by tag and would get none. Checked via
+	// the misses — the always-on companion fragments mean the loaded list is
+	// never empty, so a bare count cannot see the miss.
+	if len(sel.Fragments) > 0 && len(res.MissingFragments) == len(sel.Fragments) {
+		return launch.Assembled{}, fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(res.MissingFragments, ", "))
+	}
+	if len(sel.Tags) > 0 && len(res.MissingTags) == len(sel.Tags) {
+		return launch.Assembled{}, fmt.Errorf("no fragments loaded: no fragment matches tag(s): %s", strings.Join(res.MissingTags, ", "))
 	}
 	return launch.Assembled{Context: res.Context, Profiles: res.Profiles, Fragments: res.FragmentsLoaded, ProfileLLM: res.ProfileLLM}, nil
 }
@@ -186,6 +198,12 @@ func TransportOf(cell launch.Cell) (PreparedCell, bool) {
 	return p, ok
 }
 
+// prepareIsolation is the cells adapter's seam onto isolation.Prepare — a
+// package var so a test simulates a container degrade (which records
+// ClassIsolation findings) or hands back a stand-in workspace without
+// probing the real host's container runtimes.
+var prepareIsolation = isolation.Prepare
+
 // Prepare implements launch.Cells.
 func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell, error) {
 	backend := string(req.Engine.Root().Name)
@@ -222,7 +240,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		return launch.Cell{}, err
 	}
 	mark := strictness.Checkpoint()
-	policy, ws := isolation.Prepare(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
+	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
 	env := isolation.WorkspaceEnv(ws)
 	home := BindAgentHome(ws, InTreeAgentHome{
 		Backend:  backend,

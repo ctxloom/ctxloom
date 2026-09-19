@@ -53,7 +53,6 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(RemoveHooksResult{})},
 		{Type: reflect.TypeOf(RemoveLocalItemsResult{})},
 		{Type: reflect.TypeOf(RemoveRemoteResult{})},
-		{Type: reflect.TypeOf(RunOneshotResult{})},
 		{Type: reflect.TypeOf(SearchContentResult{})},
 		{Type: reflect.TypeOf(SearchRemotesResult{})},
 		{Type: reflect.TypeOf(SearchResult{})},

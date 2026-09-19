@@ -4,19 +4,29 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
+	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
 
 var initCmd = &cobra.Command{
@@ -552,4 +562,275 @@ func applyInitHooks(cmd *cobra.Command, appDir string) {
 		return
 	}
 	fmt.Printf("Applied hooks for: %v\n", result.Backends)
+}
+
+// The setup launch: the auth probe and the discovery session are TWO
+// launches with TWO minted identities through the one resolver — a
+// throwaway one-shot that proves a live, authenticated round trip, then the
+// interactive session with the setup skill in context. They differ in what
+// they ask for, not in how they are resolved.
+
+func discoverySessionPrompt(cfg *config.Config) string {
+	if cfg == nil {
+		return ctxloomInitPrompt
+	}
+	return operations.ResolveSetupPrompt(cfg, ctxloomInitPrompt)
+}
+
+// discoveryPermissionMode is the discovery launch's one-rung resolution: this
+// project's declared default posture, else the pinned PermissionDefault.
+//
+// Nil-safe on purpose, and unparseable-safe for the same reason: GetConfig
+// hands back a nil config on a load failure (launchEngineWithPrompt is
+// explicitly best-effort about that), and config.GetPermissions is a raw
+// hand-editable spelling that nothing validates on the way in. Both degrade to
+// the pinned default, which is the narrow end — a misspelling must never widen
+// a setup session.
+// The declared bool is the caller's way to tell "this project chose default"
+// apart from "this project chose nothing" — two inputs that resolve to the same
+// posture but are opposite answers to whether the human has been asked yet.
+// printDiscoveryPostureHint turns on exactly that distinction.
+func discoveryPermissionMode(cfg *config.Config) (mode agent.PermissionMode, declared bool) {
+	if cfg == nil {
+		return agent.PermissionDefault, false
+	}
+	if m, ok := agent.ParsePermissionMode(cfg.GetPermissions()); ok {
+		return m, true
+	}
+	return agent.PermissionDefault, false
+}
+
+// printDiscoveryPostureHint tells the user, at the moment init hands off, that
+// a project-scoped default posture exists and how to set it — but only when
+// this launch is running at the PINNED DEFAULT, i.e. when they have not set
+// one. A capability nobody is told about is a capability nobody has, and this
+// handoff is the one moment in the product where a human is already being
+// walked through configuring this specific directory.
+//
+// It names the KEY, the FILE, and the values, because all three are needed to
+// act on it and because WHICH file is the entire restriction: the same line in
+// ~/.ctxloom/config.yaml is dropped with a warning and never applied (see
+// config.Config.permissions / layerscope). Silent once a posture is declared —
+// repeating instructions for something already done is noise.
+//
+// Prints to stdout via fmt.Println, following printReentryHint below: this is
+// part of the handoff narration a human is reading, not a diagnostic.
+func printDiscoveryPostureHint(cfg *config.Config) {
+	if _, declared := discoveryPermissionMode(cfg); declared {
+		return
+	}
+	fmt.Printf("Tip: set `permissions: <%s>` in this project's .ctxloom/config.yaml\n",
+		strings.Join(agent.PermissionModeNames(), "|"))
+	fmt.Println("to choose the default posture agents start at HERE (this directory only; a home config is ignored).")
+}
+
+// authPingTask is the smallest possible prompt sent to probe the selected
+// engine's auth before init hands off to its raw CLI/TUI — just enough to
+// prove a live, authenticated round trip happened.
+const authPingTask = "Reply with exactly: ok"
+
+// engineAuthFixHint names the fix for a failed auth probe, read off the
+// engine's OWN credential declaration (backends.CredentialSeedFor): the
+// login command that makes its credential file exist, and the env var that
+// carries usable auth instead. An engine that declares no seedable
+// credential — or is not registered at all — gets a generic but actionable
+// fix rather than a blank, since the probe still failed.
+func engineAuthFixHint(engine string) string {
+	seed, ok := backends.CredentialSeedFor(engine).Get()
+	if !ok {
+		return "authenticate the engine (subscription login or its API-key env var) and try again"
+	}
+	fix := fmt.Sprintf("run `%s`", seed.LoginHint)
+	if seed.EnvTrigger != "" {
+		fix += fmt.Sprintf(" (or set %s)", seed.EnvTrigger)
+	}
+	return fix
+}
+
+// authPingFactory is a test seam: nil drives the probe over the cell's own
+// transport; tests inject a stub pb.ClientFactory so no real engine binary or
+// credential is required to exercise the gate.
+var authPingFactory pb.ClientFactory
+
+// pingEngineAuth probes the selected engine with the smallest possible
+// one-shot BEFORE init hands off to its raw CLI/TUI ("a dead first session
+// inside a vendor TUI is invisible failure; catch it in code"). It is an
+// internal one-shot of its own — its own harp, ended when it answers — on
+// the engine init selected, at bypass: a throwaway liveness probe with a
+// fixed trivial prompt wants no permission gating, whatever posture the
+// engine's label declares, and says so out loud. Any failure (missing
+// binary, no credentials, a dead subscription token, a real backend error)
+// fails loud, naming the fix for THIS engine; auth itself stays ambient —
+// this is a liveness gate, not a login flow.
+func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
+	src := operations.InternalSource(cfg, engine, "", workDir)
+	src.Permission = agent.PermissionBypass
+	probe, err := operations.StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir}, src, 0)
+	if err != nil {
+		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
+	}
+	defer probe.End()
+	probe.Factory = authPingFactory
+	if _, err := probe.Turn(ctx, authPingTask); err != nil {
+		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
+	}
+	return nil
+}
+
+// launchEngineWithPrompt starts the engine's own raw CLI/TUI on the resolved
+// discovery launch (pty passthrough — the vendor's real interactive binary
+// on this terminal, exactly as `ctxloom run`'s interactive path). Errors are
+// returned to the caller, which reports them through strictness and refuses
+// by default rather than swallowing them.
+func launchEngineWithPrompt(ctx context.Context, l launch.Launch) error {
+	client, err := pb.NewSelfInvokingClientForLabel(string(l.Engine), l.Label.Label, 0)
+	if err != nil {
+		return fmt.Errorf("failed to launch %s: %w", l.Engine, err)
+	}
+	defer client.Kill()
+
+	req := coordgrpc.EncodeLaunch(l, 0)
+
+	// The discovery session is interactive, so the frontend must own the
+	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize
+	// events are pumped over the bidi Run stream into the agent's pty (the
+	// plugin subprocess never inherits our terminal). Off a TTY this degrades
+	// to a non-interactive stream — warn and continue.
+	stdin, resize, restoreTerm := interactiveTerminal(ctx)
+	defer restoreTerm()
+	if stdin == nil {
+		clidiag.Warn("ctxloom", "stdin is not a terminal; discovery session will not accept input")
+	}
+
+	// Restore the terminal before dying on an interrupt delivered from
+	// outside (in raw mode a user's ^C is just bytes forwarded to the agent,
+	// not a SIGINT to us). restoreTerm is idempotent, so this races safely
+	// with the deferred and inline calls.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		<-sigCh
+		restoreTerm()
+		signal.Stop(sigCh)
+		p, _ := os.FindProcess(os.Getpid())
+		_ = p.Signal(os.Interrupt)
+	}()
+	defer signal.Stop(sigCh)
+
+	// Run the discovery session over the vpio seam — the same go-plugin-
+	// wrapping goplugin.Launcher `ctxloom run`'s interactive path uses, so
+	// both callers share one transport implementation.
+	session, err := goplugin.NewLauncher(client, req).Start(ctx, vpio.ProcessSpec{
+		Stdin:  stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
+	if err != nil {
+		return fmt.Errorf("AI session failed to start: %w", err)
+	}
+	pumpResize(session, resize)
+	_, err = session.Wait()
+	restoreTerm()
+	if err != nil {
+		return fmt.Errorf("AI session ended: %w", err)
+	}
+	return nil
+}
+
+// launchEngineWithPromptFn is a package var seam over launchEngineWithPrompt:
+// tests stub it to verify launchDiscovery's branching (the ping gates the
+// launch; a successful ping proceeds to it) without spawning a real engine
+// subprocess. Defaults to the real function.
+var launchEngineWithPromptFn = launchEngineWithPrompt
+
+// launchDiscovery pings the selected engine's auth, then — unless
+// --skip-launch or non-interactive — resolves the discovery session and
+// launches it with the setup skill in context via the engine's own raw
+// CLI/TUI. The two are separate launches with separate identities: the
+// probe's session ends when it answers; the discovery session is the one
+// the human works in. A failed ping fails init loud rather than dropping the
+// user into a dead vendor-TUI session. A session that fails to resolve,
+// launch or ends in error is reported through strictness and refuses by
+// default too, so init's own working outcome not happening is never
+// mistaken for success.
+func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool) error {
+	if !interactive || initSkipLaunch {
+		return nil
+	}
+
+	workDir := filepath.Dir(appDir)
+	deps, err := App().LaunchDeps(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("setup launch: %w", err)
+	}
+	cfg := deps.Snapshot.Config
+
+	if err := pingEngineAuth(cmd.Context(), deps, cfg, engine, workDir); err != nil {
+		return err
+	}
+
+	fmt.Printf("\nLaunching %s for setup...\n", engine)
+	fmt.Println("(Exit the session when done)")
+	// Said HERE, immediately before the session that the posture governs,
+	// rather than buried in the reentry hint after it: this is the moment
+	// the pinned default is about to bite, and the moment the human is
+	// already deciding how this directory should be set up.
+	printDiscoveryPostureHint(cfg)
+	fmt.Println()
+
+	// The discovery launch consults the PROJECT DEFAULT posture and nothing
+	// else — not the label, not a binding, not the host stopgap. A setup
+	// session is not the place to inherit a host-wide bypass, nor a posture
+	// attached to some engine label the human has not yet chosen; but a
+	// human who wrote `permissions:` into THIS directory's config has
+	// decided, for this directory, what an agent here may do. It rides the
+	// flag rung, which the floor reads first.
+	posture, _ := discoveryPermissionMode(cfg)
+	src := operations.InternalSource(cfg, engine, "", workDir)
+	src.Mode = enginepkg.Interactive
+	src.Prompt = discoverySessionPrompt(cfg)
+	src.Permission = posture
+	l, err := operations.StartRun(cmd.Context(), deps, sessions.Seed{ProjectDir: workDir}, src)
+	if err != nil {
+		return reportSetupLaunchFailure(err)
+	}
+	defer func() {
+		_ = launch.Discard(context.Background(), l)
+		if eerr := operations.EndSession(l.Identity.Harp, time.Now()); eerr != nil {
+			clidiag.Warn("ctxloom", "setup session %s: end: %v", l.Identity.Harp, eerr)
+		}
+	}()
+
+	if launchErr := launchEngineWithPromptFn(cmd.Context(), l); launchErr != nil {
+		return reportSetupLaunchFailure(launchErr)
+	}
+
+	printReentryHint()
+	return nil
+}
+
+// reportSetupLaunchFailure reports a setup session that failed to resolve or
+// launch: init's own working outcome not happening must not exit clean.
+// Reported through strictness rather than a bespoke degraded check here:
+// FailOnce streams the warning in BOTH modes (so --degraded still tells the
+// user what did not happen), and FindingsError is what turns it fatal in
+// strict mode and not under --degraded, matching every other
+// refuse-by-default choke without this call site deciding fatality itself.
+func reportSetupLaunchFailure(err error) error {
+	mark := strictness.Checkpoint()
+	defer strictness.Close(mark)
+	strictness.FailOnce(strictness.ClassConfig,
+		"check the engine's auth/config, then retry `ctxloom init`, or run `ctxloom init prompt` to reconfigure without relaunching",
+		"the setup session failed to launch: %v", err)
+	return strictness.FindingsError(mark)
+}
+
+// printReentryHint tells the user how to reach ctxloom once the raw-CLI setup
+// session has ended: `ctxloom run` (the CLI/TUI) is the primary, working
+// outcome of init. Reconfigure any time via `/ctxloom-init` (from any
+// session) or `ctxloom init prompt`. Printed once, after the session — init
+// then returns and the process exits; there is no relaunch loop.
+func printReentryHint() {
+	fmt.Println("\nSetup session ended. `ctxloom run` is the primary way to reach ctxloom from here.")
+	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom init prompt`) to reconfigure any time.")
 }

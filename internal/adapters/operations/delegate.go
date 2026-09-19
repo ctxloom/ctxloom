@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,386 +11,59 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// AgentChatRequest launches a resolved agent as a delegated CHILD driven over
-// the structured-chat substrate (agent_run): the same launch tail the fan
-// uses, but multi-turn — the orchestrator delivers bus messages as turns.
-type AgentChatRequest struct {
-	Resolved *ResolvedAgent
-	// Context overrides Resolved.Context for this launch (a resume primes it
-	// with rendered history); empty uses Resolved.Context. It rides the first
-	// turn as a lead block — the chat substrate never runs Setup.
-	Context string
-	WorkDir string
-	// Env is the child engine's extra environment: the child's session harp
-	// and project identity (ambient identity — never client-claimed).
-	Env map[string]string
-	// RunnerEnv is stamped per spawn onto the RUNNER process (`ctxloom llm
-	// serve`): the coordinator reach-back trio the runner-terminated MCP
-	// path consumes. host: cmd.Env on the subprocess; container: bare-name
-	// `-e` forms with values on the run-process env. Never merged into the
-	// engine env — the runner is the one credential holder.
-	RunnerEnv map[string]string
-	// Permissions is the already-gated headless-safe posture (D3: children
-	// never prompt; the caller refused or downgraded anything else).
-	Permissions agent.PermissionMode
-	// ResumeSessionID, when set, asks the backend to resume its own NATIVE
-	// session (agent.ChatRequest.ResumeSessionID — claude --resume, codex
-	// thread/resume, ACP session/load)
-	// instead of starting fresh. Only meaningful on the legacy go-plugin
-	// Chat dial (Start, below) — the migrated StartRun path resumes via its
-	// own HarnessSpec/StartRun{ResumeSessionId} route (children.go's
-	// runChildViaStartRun) and never reads this field. Empty means "no
-	// captured native id" (fresh session, or the backend doesn't emit one
-	// yet — see internal/opencode) — Start leaves ChatRequest.
-	// ResumeSessionID empty exactly as before this field existed, so a
-	// caller that never sets it observes no behavior change.
-	ResumeSessionID string
-	// Workspace is the caller's per-invocation workspace-axis override
-	// (isolation.WorkspaceAxis values: "none"|"worktree"; GAP 2). It OVERRIDES
-	// cfg.Workspace when set; empty falls back to cfg.Workspace — the same
-	// session-level-orchestration-trait-vs-agent-trait split the workspace axis
-	// draws everywhere it's resolved. If BOTH this and cfg.Workspace are empty
-	// (no explicit choice anywhere),
-	// PrepareAgentChat now defaults a delegated child to worktree rather
-	// than the shared checkout — an explicit "none" at either level still
-	// wins. See PrepareAgentChat's workspace-resolution comment for the
-	// scope of what worktree isolation does and does not cover.
-	Workspace string
-	// MCPServers is the composed managed set for the child session (the
-	// chat paths never run Setup, so the servers ride the session).
-	MCPServers []agent.ChatMCPServer
-	// Gate is the shared executable trust gate for per-turn managed assembly
-	// on the oneshot fallback path.
-	Gate      bundles.Authorizer
-	Verbosity int
-	// Factory overrides plugin construction (test seam). Exactly like the
-	// fan: a non-nil Factory skips isolation entirely.
-	Factory pb.ClientFactory
-	// Starter overrides the StartRun spawn-half construction (test seam,
-	// parallel to Factory): a non-nil Starter lets a spawner test fake
-	// StartEngine's docker-direct/bare-host runner launch without a real
-	// container. Empty on the production path, where PrepareAgentChat binds
-	// the resolved policy's isolation.StarterForWorkspace instead.
-	Starter isolation.EngineStarter
-	// Git overrides the git DI seam the dirty-parent-tree spawn gate uses
-	// (test seam, mirrors task_triggers.go's Git field); nil selects the
-	// real binary (git.NewExec()).
-	Git git.Git
-	// DirtyTreeHandler is the caller's per-call override of what happens
-	// when this spawn resolves to worktree isolation while the parent tree
-	// is dirty (see handleDirtyParentTree). It arrives ALREADY PARSED: the
-	// surface that accepted the caller's spelling (coord's serveSpawnAgent
-	// for the wire, the MCP tool handler for the native one) converted it
-	// through ParseDirtyTreeHandler, so an unrecognized value is refused
-	// where the caller can still see their own typo — never carried this
-	// far as a string for some later frame to interpret.
-	// The zero value defers to cfg.GetDirtyTreeHandler(), then to the
-	// built-in default ("commit") — the identical three-tier precedence
-	// Workspace above uses. Mirrors agent_run's "dirty_tree_handler"
-	// parameter.
-	//
-	// Deliberately NOT where dirty_tree_commit_ack lives: that is a
-	// per-PROJECT, human-only config acknowledgement (never a per-call
-	// field) — see config.Config.dirtyTreeCommitAck's doc for why. This
-	// field only ever selects WHICH handler runs, never authorizes the
-	// commit handler's mutation.
-	DirtyTreeHandler DirtyTreeHandler
+// EngineProcess is a runner process started for a resolved launch: up,
+// isolation-prepared, dialing home with the coordinator trio on its env —
+// but not yet attached. Readiness (the dial-home) is the coordinator's;
+// this is the spawn half.
+type EngineProcess struct {
+	// Kill tears the runner process and its cell down (idempotent).
+	Kill func()
+	// StderrTail reads the runner's bounded stderr tail without reaping it —
+	// the only death reason available when the whole runner dies without a
+	// terminal frame (docker-stop / OOM = runner loss). Nil-safe.
+	StderrTail func() string
+	// Wait blocks until the runner PROCESS exits and reports why; the
+	// coordinator races it against the dial-home wait so a runner that died
+	// at standup fails the spawn at once. Nil when the starter captures no
+	// process (a test double), which degrades to timeout-only detection.
+	Wait func() error
 }
 
-// PreparedAgentChat is the isolation-resolved half of a child launch. The
-// split exists for strictness-window hygiene: Prepare runs the
-// checkpoint→isolation.Prepare→gate window (so the caller can serialize it
-// against its own windows), Start spawns the engine outside any lock.
-type PreparedAgentChat struct {
-	cfg         *config.Config
-	req         AgentChatRequest
-	contextText string
-	axes        isolation.Axes
-	oneshot     bool
-
-	// chat-path only (nil/empty on the oneshot fallback, which prepares its
-	// isolation per turn inside runResolvedAgent):
-	starter      isolation.EngineStarter // StartRun spawn half (StartEngine)
-	workDir      string
-	workspaceEnv map[string]string
-	cleanup      func()
-}
-
-// PrepareAgentChat resolves how the child will run: the structured-chat path
-// for backends with the capability (isolation prepared once, engine kept
-// alive across turns), or the oneshot fallback for backends without it. On
-// the chat path this runs the same fail-loudly member gate as the fan —
-// checkpoint before isolation.Prepare, refuse when an explicitly-requested
-// container degraded (ClassIsolation finding) unless degraded mode. No
-// external serialization needed: strictness gives each goroutine's window its
-// own findings log.
-func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
-	rs := req.Resolved
-	axes, err := delegatedAxes(cfg, req)
+// StartEngine starts the runner process for a resolved launch through its
+// cell's transport (docker-direct for a container cell, a bare self-invoked
+// runner for a host cell), with the reach-back trio on the RUNNER's env —
+// never the engine's. A caller-supplied starter replaces the cell's
+// transport (test seam). A returned process is up; its dial-home is awaited
+// by the coordinator.
+func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]string, verbosity int, starter isolation.EngineStarter) (*EngineProcess, error) {
+	if starter == nil {
+		cell, ok := TransportOf(l.Cell)
+		if !ok {
+			return nil, errors.New("delegate: the cell carries no transport handle and no starter was supplied")
+		}
+		starter = isolation.StarterForWorkspace(cell.Policy, cell.Workspace, string(l.Engine), l.Label.Label, verbosity, runnerEnv)
+	}
+	handle, err := starter(ctx)
 	if err != nil {
+		_ = launch.Discard(ctx, l)
 		return nil, err
 	}
-	p := &PreparedAgentChat{
-		cfg:         cfg,
-		req:         req,
-		contextText: req.Context,
-		axes:        axes,
-	}
-	if p.contextText == "" {
-		p.contextText = rs.Context
-	}
-	warnOnEmptyLeadContext(rs, p.contextText)
-
-	// DIRTY-PARENT-TREE SPAWN HANDLING (see handleDirtyParentTree's doc): a
-	// worktree checkout only ever sees COMMITTED state, so a delegated child
-	// spawned into one while the parent tree carries uncommitted changes
-	// needs an explicit decision — commit, copy, proceed stale, or refuse.
-	// Decided here, once, for BOTH the structured-chat path and the oneshot
-	// fallback below (both derive from this same axes resolution) — this is
-	// a SPAWN-time decision, not a per-turn one. "copy" defers actual file
-	// reproduction until the worktree exists (pendingCopy, applied below,
-	// chat path only — see its doc).
-	gitClient, pendingCopy, err := decideDirtyParentTree(ctx, cfg, req, p.axes)
-	if err != nil {
-		return nil, err
-	}
-
-	if _, ok := backends.Get(rs.Backend).(agent.StructuredChat); !ok {
-		if pendingCopy != nil {
-			return nil, fmt.Errorf(`dirty_tree_handler "copy": agent %q has no structured-chat backend (it runs the per-turn oneshot fallback, which prepares and tears down a fresh worktree every turn) — copy's one-time file reproduction has nowhere durable to land; pass dirty_tree_handler: "stale" or "fail" for this call instead`, rs.Name)
-		}
-		p.oneshot = true
-		return p, nil
-	}
-
-	if err := resolveChatModel(rs); err != nil {
-		return nil, err
-	}
-
-	p.starter = req.Starter
-	p.workDir = req.WorkDir
-	// A caller-supplied Starter (or Factory) replaces the isolation-bound
-	// launch: the runner it "starts" is the caller's, so there is no
-	// workspace to prepare for it.
-	if req.Factory == nil && p.starter == nil {
-		if gerr := p.bindIsolatedSpawn(ctx, cfg); gerr != nil {
-			return nil, gerr
-		}
-	}
-	if pendingCopy != nil {
-		if err := applyCopySnapshot(ctx, gitClient, p.workDir, pendingCopy); err != nil {
-			p.Abort()
-			return nil, err
-		}
-	}
-	return p, nil
-}
-
-// warnOnEmptyLeadContext is the delegated child's zero-context floor. The
-// launch funnels through PrepareAgentChat and delivers whatever it resolved:
-// StartRun joins it ahead of the prompt. It cannot tell "this agent composes
-// nothing" from "ctxloom is working" — the child simply runs with no ctxloom
-// bytes at all while the spawn reports success, which is this codebase's
-// signature failure mode.
-//
-// Fault-tolerant by design (warn, never refuse): a legitimately context-free
-// agent must still launch. resolveAgentBinding already warns for an agent
-// declaring NO profiles; this covers the case it cannot see — profiles
-// declared, assembly SUCCEEDED, and the composed result is empty. Once per
-// distinct message, so a fan of ten children says it once.
-func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
-	if strings.TrimSpace(lead) != "" {
-		return
-	}
-	profiles := "none declared"
-	if len(rs.Profiles) > 0 {
-		profiles = strings.Join(rs.Profiles, ", ")
-	}
-	clidiag.WarnOnce("ctxloom", "agent_run: agent %q launches with ZERO bytes of ctxloom context (profiles: %s) — the child runs with no composed context at all; check the agent's profiles with `ctxloom agent show %s`",
-		rs.Name, profiles, rs.Name)
-}
-
-// delegatedAxes resolves the isolation axes one delegated child launches on.
-//
-// GAP 2: the caller's per-agent_run workspace choice overrides the project
-// default; empty (no override supplied) falls back to cfg.GetWorkspace().
-//
-// DELEGATED-CHILD DEFAULT (this is the one place that default is decided —
-// internal/adapters/cli/run.go's top-level `ctxloom run` axes are a separate call site
-// untouched by this function): when NEITHER the caller NOR the project config
-// says anything explicit, a delegated child defaults to its OWN worktree
-// instead of inheriting the none/shared-checkout default the top-level run
-// still uses. An explicit choice at either level — a per-call Workspace or a
-// project `workspace:` setting, "none" or "worktree" — always wins; this only
-// fills the silence.
-//
-// This is a WORKSPACE-axis (file-level) default only. It narrows a delegated
-// child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
-// engine's global config/credential/conversation store; that is the binding's
-// engine_home (ResolveInTreeAgentHome), decided independently of this axis.
-// Do not read a worktree default as "delegated children are now sandboxed
-// from the user's engine state" — they are not.
-//
-// The RUNTIME axis carries the agent's own resolved choice through untouched:
-// it is an agent trait, not an invocation one.
-func delegatedAxes(cfg *config.Config, req AgentChatRequest) (isolation.Axes, error) {
-	raw := cfg.GetWorkspace()
-	if req.Workspace != "" {
-		raw = req.Workspace
-	} else if raw == "" {
-		raw = string(isolation.WorkspaceWorktree)
-	}
-	// An unrecognized spelling REFUSES rather than degrading. This function
-	// is the one that defaults a delegated child to its own worktree, so a
-	// typo here does not merely fail to isolate: an unparsed value reads as
-	// the shared checkout downstream, which drops the child into the
-	// PARENT'S LIVE TREE — further from the default than saying nothing at
-	// all, and past decideDirtyParentTree, which never runs on an axis that
-	// is not WorkspaceWorktree.
-	workspace, err := isolation.ParseWorkspaceAxis(raw)
-	if err != nil {
-		return isolation.Axes{}, fmt.Errorf("agent_run: %w", err)
-	}
-	// The runtime axis arrives ALREADY typed: ResolvedAgent.Runtime is what
-	// resolveAgentBinding produced from launch.ParseRuntimeAxis, so a typo on
-	// either of its two sources (the binding, the project default) is refused
-	// before a child is ever prepared. Carrying the typed value through — not
-	// re-converting it — keeps that the axis's only door.
-	return isolation.Axes{
-		Workspace: workspace,
-		Runtime:   req.Resolved.Runtime,
+	var once sync.Once
+	return &EngineProcess{
+		StderrTail: func() string { return isolation.StderrTailOf(handle) },
+		Wait:       isolation.WaitOf(handle),
+		Kill: func() {
+			once.Do(func() {
+				handle.Kill()
+				_ = launch.Discard(context.Background(), l)
+			})
+		},
 	}, nil
-}
-
-// decideDirtyParentTree runs the DIRTY-PARENT-TREE SPAWN HANDLING decision
-// (see handleDirtyParentTree's doc): a worktree checkout only ever sees
-// COMMITTED state, so a delegated child spawned into one while the parent tree
-// carries uncommitted changes needs an explicit decision — commit, copy,
-// proceed stale, or refuse. Decided ONCE per spawn, for BOTH the
-// structured-chat path and the oneshot fallback (both derive from the same
-// axes resolution) — never per turn. "copy" defers actual file reproduction
-// until the worktree exists, so it returns the captured snapshot plus the git
-// client that captured it, for applyCopySnapshot to use later.
-func decideDirtyParentTree(ctx context.Context, cfg *config.Config, req AgentChatRequest, axes isolation.Axes) (git.Git, *copySnapshot, error) {
-	if axes.Workspace != isolation.WorkspaceWorktree {
-		return nil, nil, nil
-	}
-	gitClient := req.Git
-	if gitClient == nil {
-		gitClient = git.NewExec()
-	}
-	handler, err := resolveDirtyTreeHandler(cfg, req.DirtyTreeHandler)
-	if err != nil {
-		return nil, nil, err
-	}
-	outcome, err := handleDirtyParentTree(ctx, cfg, gitClient, req.WorkDir, req.Resolved.Name, handler)
-	if err != nil {
-		return nil, nil, err
-	}
-	return gitClient, outcome.copy, nil
-}
-
-// bindIsolatedSpawn runs the checkpoint→isolation.Prepare→gate window and
-// binds everything the resolved policy decides: the workspace directory and
-// its env, the teardown, BOTH spawn halves, and the MCP command override. It
-// runs only when no caller-supplied Factory has already replaced isolation
-// wholesale. A gate finding tears the prepared workspace back down before
-// returning.
-func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.Config) error {
-	rs := p.req.Resolved
-	mark := strictness.Checkpoint()
-	policy, ws := prepareIsolation(ctx, p.axes, rs.Backend, IsolationImageConfig(cfg, rs.Backend), p.req.WorkDir, rs.Name, isolation.SessionStateFromEnv(p.req.Env))
-	// A delegated child is ALWAYS an agent run (p.req.Resolved IS the
-	// binding), so its EFFECTIVE engine_home decides, whichever cell it
-	// landed in: only rs.HomeMode == "session" gets the session's controlled
-	// config home rather than the home its runtime gives it — see
-	// ResolveInTreeAgentHome. Resolved inside the checkpoint window so its
-	// fail-loud finding lands in this spawn's own gate below.
-	p.workspaceEnv = workspaceEnvWithAgentHome(ws, InTreeAgentHome{
-		Backend: rs.Backend,
-		WorkDir: p.req.WorkDir,
-		Cwd:     ws.Dir(),
-		// The SESSION's harp, not this child's agent name: a delegated child
-		// runs inside its parent's session and deliberately shares its config
-		// -home instance. It rides p.req.Env under agent.SessionHarpEnv — the
-		// same map isolation.SessionStateFromEnv reads two lines above.
-		Harp:     p.req.Env[agent.SessionHarpEnv],
-		HomeMode: rs.HomeMode,
-	})
-	found := strictness.Since(mark)
-	strictness.Close(mark)
-	p.workDir = ws.Dir()
-	p.cleanup = func() { _ = ws.Cleanup() }
-	if gerr := isolationGateErr(found); gerr != nil {
-		p.Abort()
-		return gerr
-	}
-	// The StartRun spawn half (StartEngine) rides the docker-direct /
-	// bare-host runner starter. A test-supplied req.Starter wins.
-	if p.starter == nil {
-		p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, p.req.Verbosity, p.req.RunnerEnv)
-	}
-	return nil
-}
-
-// resolveChatModel resolves a delegated child's model through the owning
-// backend's descriptor-level resolveModel hook (backends.ResolveModelFor),
-// MUTATING rs.Model in place so Start's ChatRequest (and any future reader of
-// the resolved agent) sees the resolved value with no further plumbing.
-//
-// The seam is polymorphic on purpose: a backend whose spawn path rejects the
-// model strings a user may legitimately configure — an engine-side alias table,
-// or a spawn that refuses an unset model instead of falling back to a sane
-// default — registers resolveModel once in its OWN descriptor, with no
-// operations-side edit. The alternative, branching on backend identity here,
-// is an ADR-0026 violation and leaves every future backend's own
-// model-rejection failure mode unprotected until someone remembers to widen
-// one `if`.
-//
-// A backend that registers no hook takes ResolveModelFor's documented
-// pass-through default (the model is handed back unchanged, ok true), which is
-// every backend in the registry today: their spawns accept a configured model
-// string verbatim, and an empty one falls through to the engine's own
-// configured default rather than a wrong one.
-//
-// The refusal arm below is what makes registering a hook safe: a hook that
-// answers "no model I can accept" must stop the launch rather than let the
-// child die later on an opaque engine-side error, so the finding names the
-// agent and the llm label to pin. --degraded downgrades it to a warning and
-// launches with whatever was configured.
-//
-// This IS the delegated child's backend config assembly step — PrepareAgentChat
-// assembles the ChatRequest Start hands the spawned engine, and this runs
-// before any of that is built. It deliberately lives here rather than in
-// agentcoord/coord/spawner.go: an analogous fail-loud gate already lives
-// there (headlessSafePermission, checkpointed inside Resolve), and this check
-// is its natural sibling — but this one sits one layer down instead, upstream
-// in operations, gating the exact same spawn moment (Start calls straight
-// through here with nothing in between).
-func resolveChatModel(rs *ResolvedAgent) error {
-	model, ok := backends.ResolveModelFor(rs.Backend, rs.Model)
-	if ok {
-		rs.Model = model
-		return nil
-	}
-	fixIt := fmt.Sprintf("pin model: on llm config label %q or agent %q in .ctxloom/config.yaml", rs.Label, rs.Name)
-	strictness.Fail(strictness.ClassConfig, fixIt,
-		"agent_run: agent %q (llm label %q) resolves no model engine %q accepts (got %q): launching anyway would die later on an opaque engine-side error instead of here",
-		rs.Name, rs.Label, rs.Backend, rs.Model)
-	if strictness.Degraded() {
-		return nil // degraded: launch anyway with whatever was configured (rs.Model unchanged)
-	}
-	return fmt.Errorf("agent %q: engine %q resolves no usable model for its delegated chat (llm label %q, got %q); %s", rs.Name, rs.Backend, rs.Label, rs.Model, fixIt)
 }
 
 // maxDirtyFilesListed bounds how many uncommitted paths a dirty-tree message
@@ -468,9 +140,9 @@ func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
 // cfg.GetDirtyTreeHandler() falls back to this).
 const defaultDirtyTreeHandler = DirtyTreeHandlerCommit
 
-// resolveDirtyTreeHandler applies GAP 2's precedence (per-call req wins,
-// else the project config default, else the built-in default) — the exact
-// same three-tier resolution PrepareAgentChat already runs for Workspace.
+// resolveDirtyTreeHandler applies the precedence (per-call req wins, else
+// the project config default, else the built-in default) — the same
+// three-tier resolution the workspace axis takes.
 // req arrives ALREADY PARSED (the edge that accepted it — coord's
 // serveSpawnAgent, the MCP tool handler — converted it); the project config
 // is a raw string and is parsed here, the same way and with the same verdict.
@@ -496,8 +168,8 @@ func resolveDirtyTreeHandler(cfg *config.Config, req DirtyTreeHandler) (DirtyTre
 	return handler, nil
 }
 
-// dirtyTreeOutcome is what handleDirtyParentTree decided, for
-// PrepareAgentChat to act on. Only the "copy" handler populates copy — its
+// dirtyTreeOutcome is what handleDirtyParentTree decided, for the cells
+// adapter to act on. Only the "copy" handler populates copy — its
 // file reproduction is deferred until the worktree actually exists (see
 // applyCopySnapshot's call site).
 type dirtyTreeOutcome struct {
@@ -823,106 +495,3 @@ func copyUntrackedFile(sourceDir, targetDir, rel string) error {
 }
 
 // Abort tears down a prepared-but-never-started launch's workspace.
-func (p *PreparedAgentChat) Abort() {
-	if p.cleanup != nil {
-		p.cleanup()
-		p.cleanup = nil
-	}
-}
-
-// AgentEngineProcess is a spawned-but-not-chatting engine runner: the child's
-// `llm serve` process (or container) is up, isolation-prepared, and — with the
-// coordinator trio on its env — dialing home, but the go-plugin Chat stream
-// was never opened. The StartRun path's spawn half: engine control arrives
-// over the runner's own RunnerChannel; go-plugin here is only the process
-// spawn/kill transport.
-type AgentEngineProcess struct {
-	// WorkDir is the isolation-resolved workspace directory (what Chat's
-	// ChatRequest.WorkDir would have carried).
-	WorkDir string
-	// Env is the harness env the legacy Chat path would have sent: the
-	// workspace env merged under the request's extra env (ambient identity).
-	Env map[string]string
-	// Model is the RESOLVED model (post resolveChatModel).
-	Model string
-	// Kill tears the engine process and its workspace down (idempotent).
-	Kill func()
-	// StderrTail reads the runner's bounded stderr tail without reaping it.
-	// For a docker-direct runner this is the CONTAINER's streamed stderr —
-	// the in-container `ctxloom llm host` process's, plus whatever the engine
-	// adapter tees to that same stream. It is the ONLY reason available when
-	// the whole container dies WITHOUT the in-process EngineHost getting to
-	// emit a FAILED RunCompleted — a docker-stop / OOM-kill (runner loss),
-	// where the RunChannel simply disconnects. Nil-safe via
-	// isolation.StderrTailOf. See isolation.RunnerHandle.StderrTail.
-	StderrTail func() string
-	// Wait blocks until the runner PROCESS exits and reports why (its error
-	// already embeds the stderr tail — see both isolation.RunnerHandle.Wait
-	// implementations). It is the DEATH signal a caller needs while it is
-	// still waiting for that runner to dial home: readiness on this path is a
-	// PUSH (the coordinator's awaitRunner parks on a channel the runner's
-	// Hello closes), so without a death signal a runner that died a
-	// millisecond after Start is indistinguishable from one that is merely
-	// slow, and the caller pays its entire dial-home budget — minutes — before
-	// it can say anything at all. Nothing consumed RunnerHandle.Wait before
-	// this field existed (internal/lm/grpc/host_runner.go says so in as many
-	// words), which is precisely why a dead runner surfaced only as a
-	// readiness timeout, with the runner's own dying words never read.
-	//
-	// Both policies fill it and both are safe to call repeatedly and
-	// concurrently: each merely reads the outcome of the ONE background reap
-	// its handle already runs. Nil for a starter that captures no process (a
-	// test double, or a future policy with nothing to reap), so every caller
-	// nil-checks and degrades to its timeout rather than panicking.
-	Wait func() error
-}
-
-// StartEngine spawns the engine runner process WITHOUT opening the go-plugin
-// Chat stream — the StartRun cutover's spawn half, migrated off go-plugin
-// entirely. It launches the runner via the
-// starter seam (docker-direct `ctxloom llm host` for a container, a bare
-// self-invoked `llm host` under setsid for a host) — NO plugin handshake, NO
-// container plugin listener. A returned handle means the runner PROCESS is up;
-// readiness (its dial-home) is the coordinator's awaitRunner, not this call.
-// Refused on the oneshot fallback: there is no persistent engine process to
-// host a StartRun.
-func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProcess, error) {
-	if p.oneshot {
-		return nil, errors.New("delegate: this backend has no structured chat; the oneshot fallback hosts no engine process for StartRun")
-	}
-	if p.starter == nil {
-		// The two spawn seams are independent: a caller-supplied Factory
-		// (legacy Chat dial) skips the isolation block that BINDS the
-		// production starter, so a caller taking the StartRun path with only
-		// Factory set arrives here with nothing to launch. Refusing by name
-		// beats the nil-func panic an exported method has no business raising.
-		return nil, errors.New("delegate: no engine Starter for this launch — a caller-supplied AgentChatRequest.Factory replaces the isolation-bound starter, so the StartRun path needs AgentChatRequest.Starter supplied too")
-	}
-	rs := p.req.Resolved
-	handle, err := p.starter(ctx)
-	if err != nil {
-		p.Abort()
-		return nil, err
-	}
-	env := p.workspaceEnv
-	if len(p.req.Env) > 0 {
-		merged := make(map[string]string, len(env)+len(p.req.Env))
-		maps.Copy(merged, env)
-		maps.Copy(merged, p.req.Env)
-		env = merged
-	}
-	var once sync.Once
-	return &AgentEngineProcess{
-		WorkDir:    p.workDir,
-		Env:        env,
-		Model:      rs.Model,
-		StderrTail: func() string { return isolation.StderrTailOf(handle) },
-		Wait:       isolation.WaitOf(handle),
-		Kill: func() {
-			once.Do(func() {
-				handle.Kill()
-				p.Abort()
-			})
-		},
-	}, nil
-}

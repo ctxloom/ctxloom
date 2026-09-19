@@ -248,7 +248,7 @@ type RunOutcome struct {
 // config.DirtyTreeCommitAcknowledged) that this per-call parameter can never
 // set: it is not even a config key any longer, precisely so no channel an
 // agent can reach (config, env, argv) can grant it.
-func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace string, dirtyTreeHandler operations.DirtyTreeHandler) (*RunOutcome, error) {
+func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt string, workspace launch.WorkspaceAxis, dirtyTreeHandler launch.DirtyTreeHandler) (*RunOutcome, error) {
 	if c.Draining() {
 		return nil, fmt.Errorf("agent_run: %w", ErrDraining)
 	}
@@ -498,7 +498,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			OneShot:    plan.ResumeMode == ResumeModeOneShot,
 			Prompt:     prompt,
 			Resume:     resume,
-			Permission: plan.Perm.String(),
+			Permission: plan.Permission,
 			// Names only: an operator auditing a live delegation sees WHAT a
 			// child can reach, and command/args/env never enter the journal.
 			MCPServers: operations.MCPServerNames(plan.MCPServers),
@@ -786,7 +786,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	rt.launchCancel = lcancel
 	c.mu.Unlock()
 
-	c.runChildViaStartRun(lctx, rt, prompt, token, url, "", rt.plan.Context)
+	c.runChildViaStartRun(lctx, rt, prompt, token, url, SpawnStart{})
 }
 
 // defaultRunnerAwaitTimeout is the package default for the wait for a
@@ -811,47 +811,53 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 // left untouched — conflating the two was the original miscalibration.
 const defaultRunnerAwaitTimeout = 5 * time.Minute
 
-// runChildViaStartRun is the MIGRATED spawn tail (C1): spawn the runner
-// process (go-plugin handshake = process control only), await its
-// RunnerChannel dial-home, and issue StartRun with the HarnessSpec built
-// from the resolved plan — model through the resolveChatModel gate (it ran
-// inside StartEngine's PrepareAgentChat), typed permission_mode, env + MCP +
-// session harp in config, resume_session_id from the journal on a resume.
-// prompt=="" (resume) sends no initial turn: queued mail arrives as turns.
-// ctx is the caller's CANCELLABLE launch context (launchgate.go), not
-// baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
-func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
-	engine, err := c.spawner.StartEngine(ctx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
+// runChildViaStartRun is the spawn tail: resolve the child's launch and
+// spawn its runner process (the coordinator trio on the runner's env, never
+// the engine's), await its RunnerChannel dial-home, and issue StartRun with
+// the HarnessSpec built from the Launch — the model and the permission the
+// resolver decided, the cell's workspace, its env with the identity
+// carriers, the MCP set and the session harp in config, resume_session_id
+// from the journal on a resume. A resume with no journaled native key
+// primes the first turn with the rendered history; a fresh spawn leads with
+// the launch's context. ctx is the caller's CANCELLABLE launch context
+// (launchgate.go), not baseCtx: agent_stop cancels it to abort a spawn that
+// is still in flight.
+func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
+	start.Identity = Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot, Project: c.projectDir}
+	engine, err := c.spawner.StartEngine(ctx, rt.plan, start,
+		runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return
 	}
+	l := engine.Launch
 	c.mu.Lock()
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
 	rt.runnerWait = engine.Wait
-	rt.workDir = engine.WorkDir
+	rt.workDir = l.Cell.Workspace
 	c.mu.Unlock()
 
-	spec, err := buildHarnessSpec(HarnessSpecInput{
-		Harness:         rt.plan.Backend,
-		Model:           engine.Model,
-		Workspace:       engine.WorkDir,
-		Env:             engine.Env,
-		MCPServers:      engine.MCPServers,
-		SessionHarp:     rt.harp,
-		Permission:      rt.plan.Perm,
-		ResumeSessionID: resumeSessionID,
-	})
+	spec, err := buildHarnessSpec(harnessSpecOf(l, engine.MCPServers, start.ResumeKey))
 	if err != nil {
 		c.failChild(rt, err)
 		return
 	}
+	// The first turn's lead: the launch's context on a fresh spawn; on a
+	// resume with a native key NOTHING (the engine continues its own recorded
+	// session); on a resume without one the context plus the rendered
+	// history, re-primed.
+	contextText := l.Package.Context
+	switch {
+	case start.Resumed && start.ResumeKey != "":
+		contextText = ""
+	case start.Resumed:
+		contextText = c.spawner.ResumeContext(ctx, contextText, rt.harp)
+	}
 	// The composed context leads the first turn, joined once here (the runner
 	// writes input.prompt verbatim as the first turn).
 	first := operations.JoinLeadBlocks(contextText, prompt)
-	_ = c.issueStartRun(ctx, rt, hashToken(token), spec, first, engine.Model, resumeSessionID)
+	_ = c.issueStartRun(ctx, rt, hashToken(token), spec, first, l.Label.Model, start.ResumeKey)
 }
 
 // issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this
@@ -1797,19 +1803,14 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// The key this resume must thread is the JUST-ENDED run's — exactly what
 	// `rec` (captured before enqueueRun) already holds.
 	resumeSessionID := rec.HarnessSessionID
-	haveResumeKey := resumeSessionID != ""
 
-	// MIGRATED resume (C1): respawn via StartRun with the JOURNALED
-	// harness-native session id — the engine continues its own recorded
-	// session (ACP session/load); no transcript re-priming needed. A prior
-	// run that never reported a session id falls back to the rendered-
-	// history context prime, still over StartRun. Queued mail is pushed as
-	// turns once the engine attaches (runChildViaStartRun's drain).
-	contextText := ""
-	if !haveResumeKey {
-		contextText = c.spawner.ResumeContext(lctx, plan, harp)
-	}
-	c.runChildViaStartRun(lctx, rt, "", token, url, resumeSessionID, contextText)
+	// Respawn via StartRun with the JOURNALED harness-native session id —
+	// the engine continues its own recorded session; no transcript
+	// re-priming needed. A prior run that never reported a session id falls
+	// back to the rendered-history context prime, still over StartRun.
+	// Queued mail is pushed as turns once the engine attaches
+	// (runChildViaStartRun's drain).
+	c.runChildViaStartRun(lctx, rt, "", token, url, SpawnStart{Resumed: true, ResumeKey: resumeSessionID})
 }
 
 // deliveryEndedDraining is driveQueued's observation for an ENDED recipient

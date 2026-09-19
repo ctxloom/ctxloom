@@ -2,11 +2,14 @@ package coord
 
 import (
 	"fmt"
+	"maps"
 
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // This file is the ONE place StartRun's HarnessSpec is built (coordinator
@@ -43,15 +46,32 @@ type HarnessSpecInput struct {
 	ResumeSessionID string
 }
 
-// buildHarnessSpec encodes a HarnessSpecInput into the wire HarnessSpec the
-// coordinator hands the runner over StartRun. D3 is checked HERE as well as at
-// the decoding end: headless-safety is a property of the spec, so the end that
-// composes one refuses an unsafe posture with the coordinator's own context
-// rather than shipping a spec the runner is obliged to reject.
-func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
-	if !in.Permission.SafeHeadless() {
-		return nil, fmt.Errorf("coord: permission mode %q is not headless-safe (D3: a delegated run has no channel to surface a prompt)", in.Permission)
+// harnessSpecOf is the ONE projection of a resolved launch onto the spec's
+// input: the engine, the model and the permission the resolver decided, the
+// cell's workspace, its env with the identity carriers stamped, the MCP set
+// and the harp in config, the resume key from the journal.
+func harnessSpecOf(l launch.Launch, mcp []agent.ChatMCPServer, resumeKey string) HarnessSpecInput {
+	env := map[string]string{}
+	maps.Copy(env, l.Cell.Env)
+	maps.Copy(env, l.Env)
+	maps.Copy(env, sessions.HookEnv(l.Identity))
+	return HarnessSpecInput{
+		Harness:         string(l.Engine),
+		Model:           l.Label.Model,
+		Workspace:       l.Cell.Workspace,
+		Env:             env,
+		MCPServers:      mcp,
+		SessionHarp:     l.Identity.Harp,
+		Permission:      l.Permission,
+		ResumeSessionID: resumeKey,
 	}
+}
+
+// buildHarnessSpec encodes a HarnessSpecInput into the wire HarnessSpec the
+// coordinator hands the runner over StartRun. The posture it carries was
+// floored once by the launch resolver; the decoding end still refuses an
+// unsafe one, because the runner honours exactly what it is told.
+func buildHarnessSpec(in HarnessSpecInput) (*agentcoordpb.HarnessSpec, error) {
 	fields := map[string]any{}
 	if in.SessionHarp != "" {
 		fields[harnessConfigKeySessionHarp] = in.SessionHarp

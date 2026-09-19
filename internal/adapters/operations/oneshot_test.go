@@ -6,24 +6,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/spf13/afero"
 )
 
-// stubClient is a minimal pb.Client for testing RunOneshot without a real
-// backend: Run records the request and emits canned stdout.
+// stubClient is a canned pb.Client: it captures the request it was run with
+// and answers with out (or echoes the prompt, or emits the lead fragments).
 type stubClient struct {
 	out  string
 	echo bool // when true, write the request prompt back as output
-	// emitFragments writes the run's assembled context (its lead fragments) back
-	// as output, so a fan member's composed profile-context is observable in its
-	// Part.Output. Wins over echo/out.
+	// emitFragments writes the run's assembled context (its lead fragments)
+	// back as output, so a composed profile-context is observable in the
+	// answer. Wins over echo/out.
 	emitFragments bool
 	gotReq        *pb.RunStart
 }
@@ -45,8 +48,9 @@ func (s *stubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdou
 	return 0, nil
 }
 func (s *stubClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (s *stubClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	return &pb.RunResult{}, nil
+func (s *stubClient) RunWithModelInfo(ctx context.Context, req *pb.RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *pb.WindowSize) (*pb.RunResult, error) {
+	code, err := s.Run(ctx, req, stdin, stdout, stderr, resize)
+	return &pb.RunResult{ExitCode: code}, err
 }
 func (s *stubClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
 func (s *stubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
@@ -68,11 +72,9 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 	}, config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
-				// bypass: these are the generic profile/context/output-flow
-				// tests, not permission-resolution tests — headless-safe so
-				// effectiveMemberPermission's refusal doesn't collide with
-				// unrelated coverage (see TestRunOneshot_ResolvesHeadlessPosture
-				// for the dedicated permission-resolution cases).
+				// bypass: these are the profile/context/output-flow tests,
+				// not permission-resolution tests (the launch package pins
+				// the floor).
 				"claude-fast": {Type: "claude-code", Permissions: "bypass"},
 				"agy-code":    {Type: "mock", Permissions: "bypass"},
 			},
@@ -81,105 +83,100 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 	})
 }
 
-func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
+// testLaunchDeps composes the resolver's ports over cfg with stateless
+// doubles: an in-memory session store, the isolation seam stubbed to a host
+// workspace, the pipeline seam for the assembler. HOME is isolated by the
+// callers' fixture setup.
+func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub pb.Client) launch.Deps {
+	t.Helper()
+	stubPrepareIsolation(t, nil, func() pb.Client { return stub })
+	return launch.Deps{
+		Snapshot:  &config.Snapshot{Config: cfg},
+		Engines:   backends.Engines(),
+		Assembler: assembler{pipe: pipe},
+		Cells:     Cells{cfg: cfg},
+		Endpoints: endpointMinter{},
+		Sessions:  sessions.NewMemStore(),
+		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+	}
+}
+
+// testOneShot resolves a one-shot session over cfg and drives its turns on
+// the stub client.
+func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub pb.Client, src launch.Source) (*OneShot, error) {
+	t.Helper()
+	deps := testLaunchDeps(t, cfg, pipe, stub)
+	if src.WorkDir == "" {
+		src.WorkDir = t.TempDir()
+	}
+	o, err := StartOneShot(context.Background(), deps, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	o.Factory = func(string, string, int) (pb.Client, error) { return stub, nil }
+	t.Cleanup(o.End)
+	return o, nil
+}
+
+// TestOneShot_ProfileLLMAndContextFlow: a profile set resolves through the
+// one resolver — the profile's llm picks the engine, its context leads the
+// turn, the prompt is the turn — and the answer is captured, trimmed.
+func TestOneShot_ProfileLLMAndContextFlow(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := oneshotTestConfig(t)
-
 	stub := &stubClient{out: "  REVIEW FINDINGS  \n"}
-	var gotBackend string
-	factory := func(backendName, _ string, _ int) (pb.Client, error) {
-		gotBackend = backendName
-		return stub, nil
-	}
 
-	res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-		Profile:  "rev",
-		Task:     "review this diff",
-		Pipeline: opPipe(cfg, loader),
-		Factory:  factory,
-	})
+	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
 	require.NoError(t, err)
+	assert.Equal(t, "agy-code", o.Launch.Label.Label, "the profile's llm label")
+	assert.Equal(t, "mock", string(o.Launch.Engine))
 
-	// Profile's llm (agy-code) resolved to the antigravity backend.
-	assert.Equal(t, "agy-code", res.Label)
-	assert.Equal(t, "mock", res.Backend)
-	assert.Equal(t, "mock", gotBackend)
+	out, err := o.Turn(context.Background(), "review this diff")
+	require.NoError(t, err)
+	assert.Equal(t, "REVIEW FINDINGS", out)
 
-	// Output captured and trimmed.
-	assert.Equal(t, "REVIEW FINDINGS", res.Output)
-
-	// Task became the prompt; assembled profile context rode along as a fragment.
 	require.NotNil(t, stub.gotReq.Prompt)
 	assert.Equal(t, "review this diff", stub.gotReq.Prompt.Content)
 	require.NotEmpty(t, stub.gotReq.Fragments)
 	assert.Contains(t, stub.gotReq.Fragments[0].Content, "Go Patterns")
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
-	// A none-isolation member shares the project cwd, so it declares the form
-	// that NAMES the session's surfaces and writes none of its own. This used to
-	// be SkipSetup:true — a bypass of the whole delivery machinery, which is why
-	// the member's composed context had to travel by a second route and was
-	// silently discarded when that route was not wired up (dire-petal). The form
-	// is selected from the cell, so asserting it here is asserting that the
-	// selection actually happened.
-	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_PRESENT, stub.gotReq.Options.LaunchForm,
-		"a shared-cell member must PRESENT the session's surfaces, never write per-member config into the one shared cwd")
+	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_DELIVER, stub.gotReq.Options.LaunchForm,
+		"a one-shot owns a harp and delivers its own surfaces")
+	assert.Equal(t, o.Launch.Identity.Harp, stub.gotReq.Options.Env[sessions.EnvHarp], "the turn carries the session's identity")
 }
 
-// TestRunOneshot_ResolvesHeadlessPosture pins fix C as it now reads: a
-// headless oneshot/fan member honors a declared read-only plan on a backend
-// that enforces it, but REFUSES a would-block or unenforceable posture
-// instead of floor it up to bypass — a member cannot hang (there is no human
-// to answer the engine's prompt), and silently elevating to bypass is worse
-// than refusing. Floor-to-bypass was the ORIGINAL fix C; unroasted-spinning
-// replaced the floor with an error once it was recognised as the same
-// silent-elevation shape as the ACP one-shot arm bug.
-func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
+// TestOneShot_TurnsShareOneSession: every turn rides the same harp and the
+// same endpoint; the prompt is what changes.
+func TestOneShot_TurnsShareOneSession(t *testing.T) {
 	_, loader := setupContextTestFS(t)
-	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
-		"keep-plan":     {LLM: "claude-plan"},
-		"floor-default": {LLM: "claude-none"},
-		"collapse-agy":  {LLM: "agy-plan"},
-	}, config.Fixture{
-		LM: config.LMConfig{
-			Configs: map[string]config.LLMConfig{
-				"claude-plan": {Type: "claude-code", Permissions: "plan"},
-				"claude-none": {Type: "claude-code"},
-				"agy-plan":    {Type: "mock", Permissions: "plan"},
-			},
-			Defaults: config.RoleDefaults{Primary: "claude-none"},
-		},
-	})
-	t.Run("enforcing backend keeps declared plan", func(t *testing.T) {
-		stub := &stubClient{out: "ok"}
-		factory := func(string, string, int) (pb.Client, error) { return stub, nil }
-		_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-			Profile: "keep-plan", Task: "t", Pipeline: opPipe(cfg, loader), Factory: factory,
-		})
-		require.NoError(t, err)
-		require.NotNil(t, stub.gotReq.Options)
-		assert.Equal(t, agent.PermissionPlan.String(), stub.gotReq.Options.PermissionMode)
-	})
+	cfg := oneshotTestConfig(t)
+	stub := &stubClient{echo: true}
 
-	cases := []struct {
-		name    string
-		profile string
-		names   agent.PermissionMode // the posture the refusal names: what was declared, or what plan collapsed to
-	}{
-		{"no posture is refused, not floored to bypass", "floor-default", agent.PermissionNotRequested},
-		{"unenforceable plan collapses then is refused, not floored to bypass", "collapse-agy", agent.PermissionDefault},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			stub := &stubClient{out: "ok"}
-			factory := func(string, string, int) (pb.Client, error) { return stub, nil }
-			_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-				Profile: tc.profile, Task: "t", Pipeline: opPipe(cfg, loader), Factory: factory,
-			})
-			require.Error(t, err, "a would-block/unenforceable posture must refuse, not silently run at bypass")
-			assert.Contains(t, err.Error(), `"`+tc.names.String()+`"`, "the error names the posture it refused")
-			assert.Nil(t, stub.gotReq, "the engine must never have run")
-		})
-	}
+	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
+	require.NoError(t, err)
+	first, err := o.Turn(context.Background(), "one")
+	require.NoError(t, err)
+	firstHarp := stub.gotReq.Options.Env[sessions.EnvHarp]
+	second, err := o.Turn(context.Background(), "two")
+	require.NoError(t, err)
+	assert.Equal(t, "one", first)
+	assert.Equal(t, "two", second)
+	assert.Equal(t, firstHarp, stub.gotReq.Options.Env[sessions.EnvHarp], "one session, many turns")
+	assert.NotEmpty(t, o.Launch.MCP.URL, "the session endpoint was minted once for every turn")
+}
+
+// TestOneShot_EndedSessionRefusesATurn: End releases the session; a turn
+// after it is refused, never silently driven on a dead harp.
+func TestOneShot_EndedSessionRefusesATurn(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := oneshotTestConfig(t)
+	stub := &stubClient{out: "x"}
+	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
+	require.NoError(t, err)
+	o.End()
+	_, err = o.Turn(context.Background(), "again")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ended")
 }
 
 func TestResolveBackend(t *testing.T) {
@@ -232,27 +229,4 @@ func TestResolveBackend(t *testing.T) {
 		assert.Equal(t, "claude", backend)
 		assert.Equal(t, "opus", model)
 	})
-}
-
-func TestRunOneshot_OverrideWinsOverProfileLLM(t *testing.T) {
-	_, loader := setupContextTestFS(t)
-	cfg := oneshotTestConfig(t)
-
-	var gotBackend string
-	factory := func(backendName, _ string, _ int) (pb.Client, error) {
-		gotBackend = backendName
-		return &stubClient{out: "ok"}, nil
-	}
-
-	res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-		Profile:  "rev", // declares agy-code
-		Task:     "x",
-		LLM:      "claude-fast", // override wins
-		Pipeline: opPipe(cfg, loader),
-		Factory:  factory,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "claude-fast", res.Label)
-	assert.Equal(t, "claude-code", res.Backend)
-	assert.Equal(t, "claude-code", gotBackend)
 }

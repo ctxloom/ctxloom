@@ -20,6 +20,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -145,10 +147,10 @@ type liveTapSpawner struct {
 
 func (s *liveTapSpawner) Resolve(context.Context, string) (*coord.SpawnPlan, error) {
 	return &coord.SpawnPlan{
-		AgentName: "worker",
-		Backend:   "claude-code",
-		Label:     "fast",
-		Perm:      agent.PermissionBypass,
+		AgentName:  "worker",
+		Backend:    "claude-code",
+		Label:      "fast",
+		Permission: "bypass",
 	}, nil
 }
 
@@ -167,7 +169,7 @@ func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, erro
 // StartEngine bridges the coordinator's own RunChannel to liveTapChat,
 // mirroring fake_test.go's fakeSpawner.StartEngine (coord/fake_test.go:229)
 // via the SAME exported constructors it uses internally.
-func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan, env, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
+func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
 	sctx, cancel := context.WithCancel(ctx)
 	host := coord.NewEngineHost(sctx, s.chat, plan.Backend, runnerEnv[coord.EnvRunID])
 	home, err := coord.NewHome(sctx, coord.HomeConfig{
@@ -185,11 +187,22 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		return nil, err
 	}
 	host.BindHome(home)
-	return &coord.EngineSpawn{WorkDir: "/work", Env: env, Model: "test-model", Kill: cancel}, nil
+	l := launch.Launch{
+		Identity:   start.Identity,
+		Engine:     engine.Name(plan.Backend),
+		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
+		Mode:       engine.Structured,
+		Permission: agent.PermissionBypass,
+		Cell:       launch.Cell{Workspace: "/work", Cleanup: func() error { return nil }},
+	}
+	plan.Launch = l
+	return &coord.EngineSpawn{Launch: l, Kill: cancel}, nil
 }
 
-func (s *liveTapSpawner) ResumeContext(context.Context, *coord.SpawnPlan, string) string { return "" }
-func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string)            {}
+func (s *liveTapSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
+	return contextText
+}
+func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string) {}
 
 func (s *liveTapSpawner) MarkSessionEnded(string) {}
 

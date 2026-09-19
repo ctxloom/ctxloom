@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -428,7 +427,7 @@ func (c Catalog) searchFragment(name string) ([]*ItemRead, error) {
 				// One unaddressable bundle costs its own copy of this
 				// fragment, never the search: a copy in another bundle is
 				// addressable and is what the caller asked for.
-				clidiag.Warn("ctxloom", "skipping an unaddressable copy of fragment %q: %v", name, err)
+				c.rep.Warnf("skipping an unaddressable copy of fragment %q: %v", name, err)
 				continue
 			}
 			out = append(out, item)
@@ -541,7 +540,7 @@ func (c Catalog) ReadBundleCommands(bundleRef string) []*ItemRead {
 		if err != nil {
 			// One unaddressable command costs itself, never the bundle's
 			// other commands.
-			clidiag.Warn("ctxloom", "bundle %q: skipping an unaddressable command: %v", bundleRef, err)
+			c.rep.Warnf("bundle %q: skipping an unaddressable command: %v", bundleRef, err)
 			continue
 		}
 		out = append(out, item)
@@ -578,7 +577,7 @@ func (c Catalog) searchCommand(name string) ([]*ItemRead, error) {
 			if err != nil {
 				// See searchFragment: one unaddressable bundle costs its own
 				// copy of this command, never the search.
-				clidiag.Warn("ctxloom", "skipping an unaddressable copy of command %q: %v", name, err)
+				c.rep.Warnf("skipping an unaddressable copy of command %q: %v", name, err)
 				continue
 			}
 			out = append(out, item)

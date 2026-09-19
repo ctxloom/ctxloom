@@ -2,8 +2,9 @@ package bundles
 
 import (
 	"errors"
-	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -12,55 +13,38 @@ import (
 
 // TestBundleWarner_DedupesPerRef verifies a ref warns once even across repeated
 // calls (startup assembles context more than once via independent loaders).
-func TestBundleWarner_DedupesPerRef(t *testing.T) {
-	var buf strings.Builder
-	w := newBundleWarner()
+// The unresolved-bundle and ambiguous-fragment diagnostics are Once findings:
+// whether one has already been said is the sink's business (strictness.Sink
+// dedups by text), so a Catalog reports every occurrence and marks it.
+func TestCatalog_UnresolvedBundleIsAOnceFinding(t *testing.T) {
+	var found report.Collector
+	c := Catalog{}.WithReporter(&found)
 	err := errors.New("bundle not found")
 
-	w.unresolved(&buf, "personal/core-practices", err)
-	w.unresolved(&buf, "personal/core-practices", err)
-	w.unresolved(&buf, "personal/developer-mindset", err)
+	c.warnUnresolvedBundle("personal/core-practices", err)
+	c.warnUnresolvedBundle("personal/developer-mindset", err)
 
-	out := buf.String()
-	assert.Equal(t, 1, strings.Count(out, `bundle "personal/core-practices"`), "repeated ref must warn once")
-	assert.Equal(t, 1, strings.Count(out, `bundle "personal/developer-mindset"`))
-	assert.Equal(t, 2, strings.Count(out, "skipping unresolved bundle"))
+	got := found.All()
+	require.Len(t, got, 2)
+	for _, f := range got {
+		assert.True(t, f.Once, "a repeated ref must render once")
+		assert.False(t, f.Fatal(), "an unresolved ref is advisory, not a startup refusal")
+		assert.Contains(t, f.Text, "skipping unresolved bundle")
+	}
+	assert.Contains(t, got[0].Text, `bundle "personal/core-practices"`)
+	assert.Contains(t, got[1].Text, `bundle "personal/developer-mindset"`)
 }
 
-// TestBundleWarner_UnresolvedAndAmbiguousDoNotShareAKeyspace pins the fix below.
-//
-// One `seen` map served two kinds of warning asymmetrically: `unresolved` keyed
-// on the bare ref, `ambiguous` keyed on the string "ambiguous:"+name. A bundle
-// ref literally named "ambiguous:foo" therefore occupied the same key as the
-// ambiguity warning for fragment "foo", and whichever fired first silenced the
-// other. String-prefixed namespacing inside a shared keyspace is a collision
-// waiting for the right name; a typed key has no such shape.
-func TestBundleWarner_UnresolvedAndAmbiguousDoNotShareAKeyspace(t *testing.T) {
-	var buf strings.Builder
-	w := newBundleWarner()
+func TestCatalog_AmbiguousFragmentIsAOnceFinding(t *testing.T) {
+	var found report.Collector
+	c := Catalog{}.WithReporter(&found)
 
-	w.unresolved(&buf, "ambiguous:foo", errors.New("bundle not found"))
-	w.ambiguous(&buf, "foo", []string{"a", "b"}, "a")
+	c.warnAmbiguousFragment("shared", []string{"a", "b"}, "a")
 
-	out := buf.String()
-	assert.Contains(t, out, "skipping unresolved bundle", "the unresolved-bundle warning must be emitted")
-	assert.Contains(t, out, "exists in multiple bundles",
-		"the ambiguity warning must not be suppressed by an unrelated bundle ref that merely spells its dedup key")
-}
-
-// TestBundleWarner_AmbiguousDedupesPerName pins that collapsing the two
-// keyspaces did not cost the ambiguous warning its own dedup.
-func TestBundleWarner_AmbiguousDedupesPerName(t *testing.T) {
-	var buf strings.Builder
-	w := newBundleWarner()
-
-	w.ambiguous(&buf, "shared", []string{"a", "b"}, "a")
-	w.ambiguous(&buf, "shared", []string{"a", "b"}, "a")
-	w.ambiguous(&buf, "other", []string{"a", "b"}, "a")
-
-	out := buf.String()
-	assert.Equal(t, 2, strings.Count(out, "exists in multiple bundles"))
-	assert.Equal(t, 1, strings.Count(out, `fragment "shared"`))
+	got := found.All()
+	require.Len(t, got, 1)
+	assert.True(t, got[0].Once)
+	assert.Contains(t, got[0].Text, `fragment "shared" exists in multiple bundles (a, b); using a`)
 }
 
 // TestLoader_WarnWriterReceivesTheWarnerDiagnostics pins the fix below.
@@ -76,7 +60,7 @@ func TestBundleWarner_AmbiguousDedupesPerName(t *testing.T) {
 // diagnostic channel and the caller decides where it goes), and a test that
 // captured the warn writer read silence as "nothing was wrong" — the exact
 // misreading these diagnostics exist to prevent.
-func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
+func TestLoader_ReporterReceivesTheCatalogDiagnostics(t *testing.T) {
 	t.Run("unresolved bundle ref", func(t *testing.T) {
 		// Reset the process-wide warner. It dedups per ref for the life of the
 		// process, so without this the assertion below holds only on the FIRST
@@ -86,8 +70,8 @@ func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 		// exists in loader_silent_failure_test.go; this test never adopted it.
 		_ = captureBundleWarner(t)
 
-		var warnings strings.Builder
-		l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(&warnings)
+		var warnings findingLines
+		l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithReporter(&warnings)
 
 		got := ungated(l, false).CommandsFromBundleRef("u031-f14-unresolved-ref")
 
@@ -106,8 +90,8 @@ func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "beta.yaml"),
 			[]byte("version: \"1.0\"\nfragments:\n  u031f14shared:\n    content: b\n"), 0o644))
 
-		var warnings strings.Builder
-		l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(&warnings)
+		var warnings findingLines
+		l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(&warnings)
 
 		resolved := l.ResolveFragmentAsk("u031f14shared")
 

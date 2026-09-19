@@ -64,9 +64,9 @@ func (c *Config) Catalog() bundles.Catalog {
 		return c.catalog()
 	}
 	root := c.TrustRoot()
-	return bundles.Resolve(context.Background(),
-		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)))
+	return bundles.Resolve(context.Background(), c.rep.Sink,
+		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)),
+		bundles.NewBuiltinReader(bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
 }
 
 // Trust is the generation's gate holder, bound before publication
@@ -856,7 +856,7 @@ func fragmentsFromBundle(rep report.Reporter, out []BuiltinFragment, read bundle
 			rep.Warnf("%v — withheld", rerr)
 			continue
 		}
-		if !bundles.Decide(gate, read, ref, surface.Preimage(), surface.Form()).Allow {
+		if !bundles.Decide(rep, gate, read, ref, surface.Preimage(), surface.Form()).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)
 		}
 		out = append(out, BuiltinFragment{
@@ -989,7 +989,7 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 						"bundle hook %q withheld: cannot build its trust preimage: %v", ref, perr)
 					continue
 				}
-				if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
+				if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
 					continue // withheld by the trust gate
 				}
 			}
@@ -997,7 +997,7 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 			// links are the second question, asked only of a hook trust
 			// would deliver. Effective tags, as LinkGroups computes them.
 			if linkID, server, withheld := bundles.LinkWithholds(links, read, slices.Concat(bundle.Tags, h.Tags)); withheld {
-				bundles.WarnLinkWithheld(read.DisplayName()+"#hooks/"+id, linkID, server)
+				bundles.WarnLinkWithheld(rep, read.DisplayName()+"#hooks/"+id, linkID, server)
 				continue
 			}
 			out = append(out, wire.Hook{
@@ -1060,7 +1060,7 @@ func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trus
 					"bundle MCP server %q withheld: cannot build its trust preimage: %v", ref, perr)
 				continue
 			}
-			if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
+			if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
 				continue // withheld by the trust gate
 			}
 		}

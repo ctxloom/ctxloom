@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"path/filepath"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"

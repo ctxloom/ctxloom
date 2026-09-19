@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -30,18 +31,27 @@ import (
 // be loud.
 // ---------------------------------------------------------------------------
 
-// captureBundleWarner gives the calling test a FRESH process-wide dedup set —
-// the production warner dedups per ref for the life of the process, so a second
-// test asking about the same ref would otherwise see silence and read it as "no
-// warning emitted" — and returns the buffer the test must hand the loader via
-// WithWarnWriter, which is where the warner now emits.
-func captureBundleWarner(t *testing.T) *bytes.Buffer {
+// findingLines is a report.Sink that renders each finding's Text on its own
+// line, so a test reads what the user would have been told without a
+// process-wide sink or dedup set in the way.
+type findingLines struct{ report.Collector }
+
+func (f *findingLines) String() string {
+	var b strings.Builder
+	for _, t := range f.All().Texts() {
+		b.WriteString(t)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// captureBundleWarner gives the calling test its own sink — findings are
+// collected per sink, so a second test asking about the same ref sees its own
+// warning, not the silence of a process-wide dedup — and returns what the
+// test hands the loader via WithReporter.
+func captureBundleWarner(t *testing.T) *findingLines {
 	t.Helper()
-	var buf bytes.Buffer
-	prev := unresolvedBundleWarner
-	unresolvedBundleWarner = newBundleWarner()
-	t.Cleanup(func() { unresolvedBundleWarner = prev })
-	return &buf
+	return &findingLines{}
 }
 
 // TestCommandsFromBundleRef_WarnsWhenBundleUnloadable pins the fix for commands.
@@ -53,7 +63,7 @@ func captureBundleWarner(t *testing.T) *bytes.Buffer {
 // the identical warner; the inconsistency was the tell.
 func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(buf)
+	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithReporter(buf)
 
 	got := ungated(l, false).CommandsFromBundleRef("no-such-bundle-cmds")
 
@@ -68,7 +78,7 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 // the same defect, the same export path, the same silence.
 func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(buf)
+	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithReporter(buf)
 
 	got := ungated(l, false).SkillsFromBundleRef("no-such-bundle-skills")
 
@@ -100,7 +110,7 @@ func TestCommandsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "proj.yaml"),
 		[]byte("version: \"1.0\"\nfragments:\n  config-hierarchy:\n    content: hi\n"), 0o644))
 
-	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
+	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(buf)
 
 	// The fragment itself resolves fine through the content path (this is
 	// what makes the commands-side warning a FALSE positive rather than a
@@ -129,7 +139,7 @@ func TestSkillsFromBundleRef_ItemScopedRefIsSilentEmpty(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "proj.yaml"),
 		[]byte("version: \"1.0\"\nfragments:\n  config-hierarchy:\n    content: hi\n"), 0o644))
 
-	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
+	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(buf)
 
 	got := ungated(l, false).SkillsFromBundleRef("proj#fragments/config-hierarchy")
 	require.Empty(t, got, "an item-scoped ref ships no skills")
@@ -151,7 +161,7 @@ func TestCommandsFromBundleRef_CommandSelectorResolvesNotSilent(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fsys, bundlesRootIn(dir, "proj.yaml"),
 		[]byte("version: \"1.0\"\ncommands:\n  deploy:\n    content: run the deploy script\n"), 0o644))
 
-	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(buf)
+	l := NewLoader(NewProjectReader(fsys, []string{dir})).WithReporter(buf)
 
 	got := ungated(l, false).CommandsFromBundleRef("proj#commands/deploy")
 
@@ -174,7 +184,7 @@ func TestSkillsFromBundleRef_SkillSelectorResolvesNotSilent(t *testing.T) {
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "proj", "reviewer", true)
 
-	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithWarnWriter(buf)
+	l := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(buf)
 
 	got := ungated(l, false).SkillsFromBundleRef("proj#skills/reviewer")
 
@@ -215,7 +225,7 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 	t.Cleanup(restore)
 
 	mark := strictness.Checkpoint()
-	l := NewLoader(NewProjectReader(afero.NewOsFs(), []string{dir}))
+	l := NewLoader(NewProjectReader(afero.NewOsFs(), []string{dir}, WithReaderReporter(ledger())))
 	got, err := l.List()
 	require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
 
@@ -259,7 +269,7 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 				Path:   tc.path,
 				Skills: map[string]BundleSkill{"helper": {}},
 			}
-			l := NewLoader(NewProjectReader(fs, nil), seedLocal(map[string]*Bundle{"companion": b}))
+			l := NewLoader(NewProjectReader(fs, nil), seedLocal(map[string]*Bundle{"companion": b})).WithReporter(ledger())
 
 			var warnings bytes.Buffer
 			restore := clidiag.SetSink(&warnings)

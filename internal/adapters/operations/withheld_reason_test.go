@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,9 +104,9 @@ func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
 	e := &ExecutableTrustGate{gate: g}
 
 	unsigned := execRead(t, "")
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Allow)
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Allow)
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePulledRef, pbytes("pulled"), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(report.Reporter{}, e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(report.Reporter{}, e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(report.Reporter{}, e.Authorizer(), unsigned, gatePulledRef, pbytes("pulled"), bundles.FormRaw).Allow)
 
 	stderr := captureStderr(t, func() { e.WarnWithheld() })
 
@@ -196,7 +198,7 @@ func TestWarnWithheldBy_NamesTheMissingReviewRecordForAnExecutable(t *testing.T)
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
 	unsigned := execRead(t, "")
-	v := bundles.Decide(g.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw)
+	v := bundles.Decide(report.Reporter{}, g.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw)
 	require.False(t, v.Allow, "an unreviewed remote hook is withheld")
 
 	stderr := captureStderr(t, func() { WarnWithheldBy(g.Authorizer()) })

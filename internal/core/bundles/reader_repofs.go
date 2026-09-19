@@ -108,7 +108,7 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 func (r *repoFSReader) sourceRefTyped() trust.BundleRef {
 	br, err := canonicalBundleRefTyped(r.ref)
 	if err != nil {
-		warnUnmintableSource(r.ref, err)
+		warnUnmintableSource(r.cfg.rep, r.ref, err)
 		return trust.BundleRef{}
 	}
 	return br

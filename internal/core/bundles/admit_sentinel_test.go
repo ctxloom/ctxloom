@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -29,7 +31,7 @@ func sentinelSeed() map[string]*Bundle {
 }
 
 func sentinelPipe(a Authorizer) *Pipeline {
-	return NewPipeline(NewLoader(seedLocal(sentinelSeed())), a, LinksUnchecked(), true)
+	return NewPipeline(NewLoader(seedLocal(sentinelSeed())).WithReporter(ledger()), a, LinksUnchecked(), true)
 }
 
 // TestExposure_RealGate_WithholdsWhatItRefuses proves the gated direction: a
@@ -92,9 +94,9 @@ func TestDecide_NilAuthorizer_Withholds(t *testing.T) {
 	restore := clidiag.SetSink(&bytes.Buffer{})
 	defer restore()
 
-	v := Decide(nil, BundleRead{}, "demo#fragments/secret", []byte("secret body"), FormRaw)
+	v := Decide(report.Reporter{}, nil, BundleRead{}, "demo#fragments/secret", []byte("secret body"), FormRaw)
 	if v.Allow {
-		t.Fatal("Decide(nil, ...) admitted")
+		t.Fatal("Decide(report.Reporter{}, nil, ...) admitted")
 	}
 	if v.Reason != ReasonUngoverned {
 		t.Errorf("Reason = %v, want ReasonUngoverned", v.Reason)
@@ -109,7 +111,7 @@ func TestDecide_AdmitAll_AdmitsBeforeParsing(t *testing.T) {
 	restore := clidiag.SetSink(&bytes.Buffer{})
 	defer restore()
 
-	v := Decide(admitAllForTest(), BundleRead{}, "not a parseable ref at all", nil, FormRaw)
+	v := Decide(report.Reporter{}, admitAllForTest(), BundleRead{}, "not a parseable ref at all", nil, FormRaw)
 	if !v.Allow {
 		t.Fatalf("AdmitAll withheld an unaddressable ref (Reason %v)", v.Reason)
 	}

@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
-	"os"
 	"sort"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
 
@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Catalog is the RESOLVED bundle set: everything a session can see, read once.
@@ -73,10 +72,11 @@ type Catalog struct {
 	// asker at their spelling instead of at the file they can fix.
 	failures map[string]error
 
-	// warnOut is where this set's user-facing diagnostics go; nil means
-	// os.Stderr. WHERE they go is the caller's decision (WithWarnWriter) —
-	// whether they have already been said is the process's (bundleWarner).
-	warnOut io.Writer
+	// rep receives this set's user-facing diagnostics (an unresolved ref, an
+	// ambiguous bare ask, a withheld or unreadable item). WHERE they go is
+	// the caller's decision (WithReporter); a repeat of one is marked Once
+	// and left to the sink.
+	rep report.Reporter
 
 	// candidates are the identities the readers established WITHOUT content.
 	// They are a SECOND collection rather than nil-content entries in reads,
@@ -158,7 +158,8 @@ type CandidateReader interface {
 // resolved by plain last-wins, silently. That is an override between two
 // spellings of ONE identity, which is precedence, not shadowing: there is no
 // second bundle left unreachable to announce.
-func Resolve(ctx context.Context, readers ...Reader) Catalog {
+func Resolve(ctx context.Context, sink report.Sink, readers ...Reader) Catalog {
+	rep := report.To(sink)
 	byKey := make(map[trust.BundleKey]BundleRead)
 	var order []trust.BundleKey
 	var unaddressable []BundleRead
@@ -180,11 +181,11 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 			// otherwise report once per build rather than once per fault. The
 			// FINDING still records per checkpoint window, so strict mode cannot
 			// be talked out of aborting by a repeat.
-			strictness.FailOnce(strictness.ClassBundle, "check the source named in the error, then re-run",
+			rep.FailOncef(report.KindBundle, "check the source named in the error, then re-run",
 				"a bundle source could not be read in full; some content may be missing: %v", err)
 		}
 		for _, read := range reads {
-			if !admit(read) {
+			if !admit(rep, read) {
 				continue
 			}
 			if read.SourceRef().Class == "" {
@@ -207,6 +208,7 @@ func Resolve(ctx context.Context, readers ...Reader) Catalog {
 	sortReads(reads)
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Ref < candidates[j].Ref })
 	return Catalog{
+		rep:        rep,
 		reads:      reads,
 		byKey:      byKey,
 		candidates: candidates,
@@ -677,9 +679,9 @@ func ListingNames(infos []*BundleInfo) []string {
 // addressable at ALL — a strictly stronger guarantee than withholding it at
 // exposure, which would leave it resolvable by every management and listing path
 // in between — and it costs nothing, because production can never reach it.
-func admit(read BundleRead) bool {
+func admit(rep report.Reporter, read BundleRead) bool {
 	if !read.Claimed() {
-		strictness.Fail(strictness.ClassTrust, "report this: a bundle reached the loader without established provenance",
+		rep.Failf(report.KindTrust, "report this: a bundle reached the loader without established provenance",
 			"withholding a bundle read that established no trust facts (provenance %s, context %s, signature %s, signer %s)",
 			read.Provenance, read.trustCtx, read.signature, read.signer)
 		return false
@@ -701,20 +703,12 @@ func (c Catalog) FS() afero.Fs {
 	return c.fs
 }
 
-// WithWarnWriter returns a copy of this set whose user-facing diagnostics go to
-// w instead of os.Stderr, so a caller can read what the user would have been
+// WithReporter returns a copy of this set whose user-facing diagnostics go to
+// sink, so a caller can render — or read — what the user would have been
 // told. A warning nobody sees is the bug these diagnostics exist to prevent.
-func (c Catalog) WithWarnWriter(w io.Writer) Catalog {
-	c.warnOut = w
+func (c Catalog) WithReporter(sink report.Sink) Catalog {
+	c.rep = report.To(sink)
 	return c
-}
-
-// warnWriter is the sink for this set's diagnostics.
-func (c Catalog) warnWriter() io.Writer {
-	if c.warnOut == nil {
-		return os.Stderr
-	}
-	return c.warnOut
 }
 
 // Load reads a bundle by ask. See Lookup for what an ask may be and which asks

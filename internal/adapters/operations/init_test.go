@@ -1,10 +1,11 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"context"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

@@ -270,7 +270,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
 			return p.ProbeCompanionLoadouts(ctx, root)
 		}
-		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root))}
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter()))}
 	}
 }
 

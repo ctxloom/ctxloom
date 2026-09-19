@@ -2,11 +2,7 @@ package bundles
 
 import (
 	"fmt"
-	"io"
 	"strings"
-	"sync"
-
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // bundleWarner emits the "unresolved bundle" warning at most once per distinct
@@ -21,56 +17,6 @@ import (
 // decision (WithWarnWriter) while "have I said this already" is the process's.
 // Holding a writer in here instead makes the second question answer the first,
 // and a caller that redirected its diagnostics loses these two to stderr.
-type bundleWarner struct {
-	mu   sync.Mutex
-	seen map[warnKey]struct{}
-}
-
-// warnKey namespaces a warner's dedup set by warning KIND as a separate field,
-// not as a prefix on the name. The two kinds key on different things — a bundle
-// ref and a fragment name — and a shared string keyspace makes a ref that
-// happens to spell another kind's key silence it.
-type warnKey struct {
-	kind string
-	name string
-}
-
-func newBundleWarner() *bundleWarner {
-	return &bundleWarner{seen: make(map[warnKey]struct{})}
-}
-
-// first reports whether this (kind, name) has not been warned about yet, and
-// records it. Callers hold no lock; this takes it.
-func (b *bundleWarner) first(kind, name string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	key := warnKey{kind: kind, name: name}
-	if _, ok := b.seen[key]; ok {
-		return false
-	}
-	b.seen[key] = struct{}{}
-	return true
-}
-
-// unresolved warns to out that ref did not resolve, once per ref for this
-// warner's life.
-func (b *bundleWarner) unresolved(out io.Writer, ref string, err error) {
-	if !b.first("unresolved", ref) {
-		return
-	}
-	clidiag.Fwarn(out, "ctxloom", "skipping unresolved bundle %q: %v", ref, err)
-}
-
-// ambiguous warns to out that a bare fragment ask matched several bundles, once
-// per name for this warner's life.
-func (b *bundleWarner) ambiguous(out io.Writer, name string, matches []string, chosen string) {
-	if !b.first("ambiguous", name) {
-		return
-	}
-	clidiag.Fwarn(out, "ctxloom", "fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly",
-		name, strings.Join(matches, ", "), chosen)
-}
-
 // StaleSignatureAdvice composes the sentence an author is told when their local
 // tree's signature — the SHA256SUMS manifest and its .sigs/ entry — does not
 // (or cannot be shown to) cover its current files: the decision table's
@@ -101,18 +47,14 @@ func StaleSignatureAdvice(read BundleRead) string {
 		read.Bundle.Name, read.signatureDetail, read.Bundle.Name)
 }
 
-// unresolvedBundleWarner is the process-wide dedup set. It holds no writer:
-// every emission goes to the warn writer of the loader that asked.
-var unresolvedBundleWarner = newBundleWarner()
-
-// warnUnresolvedBundle and warnAmbiguousFragment are a resolved set's only
-// route to the process-wide warner, so every one of its user-facing
-// diagnostics honours WithWarnWriter (os.Stderr by default) exactly as
-// fsStore.Save's does.
+// warnUnresolvedBundle and warnAmbiguousFragment are Once findings: the same
+// line about the same ref is noise the second time in one process, and
+// whether it has already been said is the sink's business.
 func (c Catalog) warnUnresolvedBundle(ref string, err error) {
-	unresolvedBundleWarner.unresolved(c.warnWriter(), ref, err)
+	c.rep.WarnOncef("skipping unresolved bundle %q: %v", ref, err)
 }
 
 func (c Catalog) warnAmbiguousFragment(name string, matches []string, chosen string) {
-	unresolvedBundleWarner.ambiguous(c.warnWriter(), name, matches, chosen)
+	c.rep.WarnOncef("fragment %q exists in multiple bundles (%s); using %s — qualify the ref to pick explicitly",
+		name, strings.Join(matches, ", "), chosen)
 }

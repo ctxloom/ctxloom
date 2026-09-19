@@ -57,7 +57,7 @@ func TestIndex_UnreadableSourceReportsOncePerProcess(t *testing.T) {
 	mark := strictness.Checkpoint()
 	const builds = 3
 	for range builds {
-		got, err := NewLoader(failingReader{err: errors.New(detail)}).List()
+		got, err := LoaderOf(Resolve(context.Background(), ledger(), failingReader{err: errors.New(detail)})).List()
 		require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
 		require.Empty(t, got, "the source genuinely could not be read, so nothing can be listed")
 	}

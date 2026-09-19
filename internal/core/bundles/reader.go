@@ -4,10 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Reader is the read half of the delivery seam: everything one SOURCE of
@@ -290,8 +291,8 @@ func (r BundleRead) SourceRef() trust.BundleRef {
 // It warns rather than failing the read: withholding is already fail-closed, so
 // the safe outcome is reached either way. What was missing was never safety, it
 // was ATTRIBUTION.
-func warnUnmintableSource(source string, err error) {
-	clidiag.Warn("ctxloom", "cannot address source %q: %v — items under it will be withheld", source, err)
+func warnUnmintableSource(rep report.Reporter, source string, err error) {
+	rep.Warnf("cannot address source %q: %v — items under it will be withheld", source, err)
 }
 
 // ItemRefFor mints the canonical "<source>#<kind>/<item>" reference an item's
@@ -383,10 +384,14 @@ func (r BundleRead) Claimed() bool {
 // that name.
 func NewRead(ref string, b *Bundle, prov ProvenanceClass, tctx TrustCtx, facts SignatureFacts) BundleRead {
 	if b != nil && !b.sourceRefSet {
-		typed, err := trust.LocalRef(ref)
-		if err != nil {
-			warnUnmintableSource(ref, err)
-		}
+		// The mint failure is not reported here: every reader stamps its
+		// own ref (and reports an unmintable one at that site), and the one
+		// unstamped production caller — the project-authored locality claim
+		// in reader_localfs.go — hands in a bare token the ref grammar always
+		// accepts. A zero ref still sticks, so a caller that reaches this arm
+		// with a bad ref is withheld, not papered over as a local bundle of
+		// that name.
+		typed, _ := trust.LocalRef(ref)
 		b.sourceRef = typed
 		b.sourceRefSet = true
 	}
@@ -497,11 +502,11 @@ type ReaderOption func(*readerConfig)
 
 // readerConfig is the shared configurable state of the reader implementations.
 type readerConfig struct {
-	root        signing.TrustRoot
-	installDir  string
-	repoURL     string
-	revision    string
-	warnHandler func(format string, args ...any)
+	root       signing.TrustRoot
+	installDir string
+	repoURL    string
+	revision   string
+	rep        report.Reporter // where this reader's user-facing diagnostics go
 }
 
 // WithTrustRoot supplies the trust root a reader resolves signer identity
@@ -533,10 +538,10 @@ func WithRepoURL(url string) ReaderOption {
 	return func(c *readerConfig) { c.repoURL = url }
 }
 
-// WithReaderWarnings redirects a reader's user-facing diagnostics. The default
-// is the shared clidiag sink; tests use this to read what the user was told.
-func WithReaderWarnings(warn func(format string, args ...any)) ReaderOption {
-	return func(c *readerConfig) { c.warnHandler = warn }
+// WithReaderReporter names the sink a reader's user-facing diagnostics go to;
+// without one they are discarded. Tests use it to read what the user was told.
+func WithReaderReporter(sink report.Sink) ReaderOption {
+	return func(c *readerConfig) { c.rep = report.To(sink) }
 }
 
 func newReaderConfig(opts []ReaderOption) readerConfig {
@@ -551,9 +556,5 @@ func newReaderConfig(opts []ReaderOption) readerConfig {
 // information — the same line about the same companion in one process. The
 // dedup is the process's business; the sink is still the caller's.
 func (c readerConfig) warnOnce(format string, args ...any) {
-	if c.warnHandler != nil {
-		c.warnHandler(format, args...)
-		return
-	}
-	clidiag.WarnOnce("ctxloom", format, args...)
+	c.rep.WarnOncef(format, args...)
 }

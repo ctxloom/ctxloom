@@ -2,8 +2,9 @@ package operations
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/pflag"
 

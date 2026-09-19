@@ -5,6 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
@@ -435,7 +438,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 		Bytes:  payload,
 		Form:   bundles.ContentForm(form),
 	})
-	bundles.ReportVerdict(ref, v)
+	bundles.ReportVerdict(report.To(strictness.Sink("ctxloom")), ref, v)
 	if !v.Reason.NeedsReview() {
 		return ReviewItem{}, false
 	}

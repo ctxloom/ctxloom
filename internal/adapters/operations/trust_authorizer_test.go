@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +56,7 @@ func authorizerBundle() *bundles.Bundle {
 // returns the verdict.
 func admitFragment(t *testing.T, g *contentGate, read bundles.BundleRead, ref string, body string) bundles.Verdict {
 	t.Helper()
-	return bundles.Decide(g, read, ref, []byte(body), bundles.FormRaw)
+	return bundles.Decide(report.Reporter{}, g, read, ref, []byte(body), bundles.FormRaw)
 }
 
 // --- remote tamper: REFUSED AT THE READ, never gated -----------------------
@@ -275,7 +277,7 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 
 	refStr, err := ref.DisplayRef()
 	require.NoError(t, err)
-	v := bundles.Decide(g, read, refStr, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
+	v := bundles.Decide(report.Reporter{}, g, read, refStr, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 
 	assert.True(t, v.Allow, "a companion's unverifiable signature must NOT withhold its content")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
@@ -427,7 +429,7 @@ func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 	// the two calls above could not have differed without the caller hashing —
 	// which is the indirection the design removed.
 	var got []byte
-	bundles.Decide(bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
+	bundles.Decide(report.Reporter{}, bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		got = e.Bytes
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	}), read, itemRef, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)

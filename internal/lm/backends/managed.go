@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -433,7 +436,7 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 	if payload == nil {
 		return false
 	}
-	return bundles.Decide(gate, ref.Read, itemRef, payload, bundles.FormRaw).Allow
+	return bundles.Decide(report.To(strictness.Sink("ctxloom")), gate, ref.Read, itemRef, payload, bundles.FormRaw).Allow
 }
 
 // hookExecPayload builds a profile hook's executable-surface preimage via the

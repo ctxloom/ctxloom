@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"

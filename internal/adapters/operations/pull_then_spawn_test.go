@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
@@ -125,7 +127,7 @@ func gateVerdict(t *testing.T, snap *config.Snapshot, repoURL string) bundles.Ve
 	require.True(t, ok)
 	ref, err := bundles.ItemRefFor(read.SourceRef(), trust.KindMCP, "tools-server")
 	require.NoError(t, err)
-	return bundles.Decide(snap.Trust.Authorizer(), read, ref, []byte("tools-server"), bundles.FormRaw)
+	return bundles.Decide(report.Reporter{}, snap.Trust.Authorizer(), read, ref, []byte("tools-server"), bundles.FormRaw)
 }
 
 // TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction is

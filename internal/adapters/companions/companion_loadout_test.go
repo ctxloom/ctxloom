@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -134,6 +136,7 @@ func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.
 	reads, err := bundles.NewCompanionReader(
 		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },
 		bundles.WithTrustRoot(root),
+		bundles.WithReaderReporter(strictness.Sink("ctxloom")),
 	).Read(context.Background())
 	require.NoError(t, err)
 	out := make(map[string]*bundles.Bundle, len(reads))

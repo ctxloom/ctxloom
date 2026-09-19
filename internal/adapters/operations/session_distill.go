@@ -3,8 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"io"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/policy"

@@ -51,7 +51,7 @@ func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
 		NewRead(companionRefPrefix+"ltk", &Bundle{Name: companionRefPrefix + "ltk", Version: "1.0.0"},
 			ProvenanceCompanion, TrustCtxLocal, unsigned),
 	}}
-	cat := Resolve(context.Background(),
+	cat := Resolve(context.Background(), nil,
 		projectReaderOver(t, "local.yaml", "version: 1.0.0\n"),
 		NewBuiltinReader(),
 		acquired,
@@ -138,7 +138,7 @@ func twoBundlesOneDisplayName(t *testing.T) Catalog {
 	builtinBundle.sourceRefSet = true
 
 	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	return Resolve(context.Background(), staticReader{reads: []BundleRead{
+	return Resolve(context.Background(), nil, staticReader{reads: []BundleRead{
 		NewRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
 		NewRead("isolation", builtinBundle, ProvenanceBuiltin, TrustCtxLocal, unsigned),
 	}})

@@ -1463,7 +1463,7 @@ func refusePushOfStaleTree(cfg *config.Config, absPath string) error {
 		return nil
 	}
 	name := filepath.Base(filepath.Dir(absPath))
-	read, err := bundles.NewLoader(bundles.NewProjectReader(afero.NewOsFs(), cfg.BundleReaderDirs())).Read(name)
+	read, err := bundles.NewLoader(projectReader(afero.NewOsFs(), cfg.BundleReaderDirs())).Read(name)
 	if err != nil || filepath.Clean(read.Bundle.Path) != filepath.Clean(absPath) {
 		return nil
 	}

@@ -2,9 +2,9 @@ package bundles
 
 import (
 	"context"
-	"io"
-	"os"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
 
@@ -38,9 +38,6 @@ type Loader struct {
 	versionMu       sync.Mutex         // protects versionCache
 	versionCache    map[string]*Bundle // canonical-ref+"@"+commit → parsed historical bundle
 
-	// warnOut receives the read-time diagnostics (a stale local signature, an
-	// unresolved ref, an ambiguous bare ask); os.Stderr unless redirected.
-	warnOut io.Writer
 }
 
 // BundleVersionResolver materializes one pinned historical version of a
@@ -54,22 +51,21 @@ const remotePathSentinel = "<remote>:"
 
 // NewLoader resolves readers ONCE into a Loader.
 func NewLoader(readers ...Reader) *Loader {
-	return LoaderOf(Resolve(context.Background(), readers...))
+	return LoaderOf(Resolve(context.Background(), nil, readers...))
 }
 
 // LoaderOf wraps an already-resolved Catalog — the config Owner's generation
 // — so Loader-shaped callers see exactly what the Snapshot carries.
 func LoaderOf(cat Catalog) *Loader {
-	return &Loader{cat: cat, warnOut: os.Stderr}
+	return &Loader{cat: cat}
 }
 
-// WithWarnWriter redirects the read-time diagnostics (stale local signature,
-// unresolved ref, ambiguous bare ask — the same lines clidiag prints as
-// "ctxloom: warning:") away from stderr, so tests can read what the user
-// would have been told. The default is os.Stderr: a warning nobody sees is
-// the bug these diagnostics exist to prevent.
-func (l *Loader) WithWarnWriter(w io.Writer) *Loader {
-	l.warnOut = w
+// WithReporter names the sink the read-time diagnostics (stale local
+// signature, unresolved ref, ambiguous bare ask) go to, so the caller
+// renders them — or a test reads what the user would have been told. A
+// warning nobody sees is the bug these diagnostics exist to prevent.
+func (l *Loader) WithReporter(sink report.Sink) *Loader {
+	l.cat = l.cat.WithReporter(sink)
 	return l
 }
 
@@ -91,7 +87,7 @@ func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
 func (l *Loader) FS() afero.Fs { return l.cat.FS() }
 
 // Catalog is the resolved set, with this loader's warning sink attached.
-func (l *Loader) Catalog() Catalog { return l.cat.WithWarnWriter(l.warnOut) }
+func (l *Loader) Catalog() Catalog { return l.cat }
 
 // isSyntheticPath reports whether path is a reader's synthetic marker rather
 // than a filesystem location.

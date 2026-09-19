@@ -170,7 +170,7 @@ func loadMoveSource(cfg *config.Config, fs afero.Fs, arg string) (name, path str
 		dirs = append(dirs, paths.LocalBundlesPath(p))
 	}
 	name = canonicalizeBundleArg(cfg, arg, dirs, fs)
-	bundle, err := bundles.NewLoader(bundles.NewProjectReader(fs, dirs)).Load(name)
+	bundle, err := bundles.NewLoader(projectReader(fs, dirs)).Load(name)
 	if err != nil {
 		return "", "", fmt.Errorf("bundle %q not found: %w", arg, err)
 	}

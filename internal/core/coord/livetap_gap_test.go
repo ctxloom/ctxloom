@@ -139,7 +139,7 @@ func startGapFakeCoordinator(t *testing.T, home, projectKey string, f *gapFakeCo
 // test only exercises the live path, never store scrollback).
 func seedGapHarp(t *testing.T, projectDir string) string {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)

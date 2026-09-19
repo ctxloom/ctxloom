@@ -58,7 +58,7 @@ func TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles(t *testing.T) {
 	bundlesDir := "/bundles"
 	files := writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
+	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(ledger())
 	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1, "one skill resolved from the bundle")
 
@@ -447,7 +447,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
+	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir})).WithReporter(ledger())
 	assert.Empty(t, ungated(loader, false).SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
 
 	out := sink.String()

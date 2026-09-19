@@ -1237,3 +1237,8 @@ func (c *Config) SetFS(fs afero.Fs) {
 // it composes a generation; nil discards them. The Owner calls it for every
 // generation it builds.
 func (c *Config) SetReporter(sink report.Sink) { c.rep = report.To(sink) }
+
+// Reporter is the Sink this Config reports through, for an adapter that
+// builds a reader or loader over this generation and must report the same
+// way it does. nil when none was set.
+func (c *Config) Reporter() report.Sink { return c.rep.Sink }

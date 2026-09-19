@@ -64,7 +64,7 @@ func localV2(rel string) string {
 // readOneLocal reads the single bundle a project reader finds under /bundles.
 func readOneLocal(t *testing.T, fsys afero.Fs) *Bundle {
 	t.Helper()
-	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
+	reads, err := NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger())).Read(context.Background())
 	require.NoError(t, err)
 	require.Len(t, reads, 1, "expected exactly one bundle under /bundles")
 	return reads[0].Bundle

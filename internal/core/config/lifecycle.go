@@ -163,7 +163,7 @@ func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Sn
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving bundle sources: %w", err)
 	}
-	catalog := sync.OnceValue(func() bundles.Catalog { return bundles.Resolve(context.Background(), readers...) })
+	catalog := sync.OnceValue(func() bundles.Catalog { return bundles.Resolve(context.Background(), o.rep.Sink, readers...) })
 	root, records, retraction, err := o.src.TrustPorts(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolving trust: %w", err)

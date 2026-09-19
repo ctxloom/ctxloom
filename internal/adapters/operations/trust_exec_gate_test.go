@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -267,8 +269,8 @@ func TestExecGate_FailClosed(t *testing.T) {
 	g := &contentGate{records: newTrustFixture(t).records()}
 	e := &ExecutableTrustGate{gate: g}
 	unsigned := execRead(t, "")
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Allow)
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(report.Reporter{}, e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(report.Reporter{}, e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Allow)
 	assert.Len(t, g.withheldRefs(), 2, "fail-closed: both executables recorded as withheld")
 	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 2, pending, "fail-closed withholds tally as pending")
@@ -357,14 +359,14 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	require.NoError(t, err, "the on-disk bundle must resolve")
 
 	// A project-local bundle hook is first-party (no acceptance needed) → passes.
-	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,
+	assert.True(t, bundles.Decide(report.Reporter{}, NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,
 		"a first-party local bundle hook must pass the exec gate")
 
 	// CLI rejection → the exec gate withholds it (rejection beats the local
 	// exemption).
 	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: cliRef})
 	require.NoError(t, err)
-	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,
+	assert.False(t, bundles.Decide(report.Reporter{}, NewExecutableTrustGate(cfg).Authorizer(), localRead, declRef, hookPayload, bundles.FormRaw).Allow,
 		"a CLI-rejected bundle hook must be withheld by the exec gate")
 }
 

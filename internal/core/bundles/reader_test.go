@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -128,7 +130,7 @@ func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 	mark := strictness.Checkpoint()
 
 	forged := BundleRead{Bundle: &Bundle{Name: "forged", Version: "1.0"}, Provenance: ProvenanceProject}
-	l := NewLoader(staticReader{reads: []BundleRead{forged}})
+	l := LoaderOf(Resolve(context.Background(), ledger(), staticReader{reads: []BundleRead{forged}}))
 
 	assert.Empty(t, l.Reads(), "a read with no established trust facts must not become addressable content")
 	_, err := l.Load("forged")
@@ -356,7 +358,7 @@ func TestLoader_RemoteTamperedTreeIsRefusedNotDegradedToUnsigned(t *testing.T) {
 	tree := repoTreeTamperedAfterSigning(t, "kit", readerTreeEnvelope, readerTreeFragments, signer)
 
 	mark := strictness.Checkpoint()
-	l := NewLoader(NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL), WithTrustRoot(root)))
+	l := LoaderOf(Resolve(context.Background(), ledger(), NewRepoFSReader(tree, ref, WithRepoURL(repoTreeURL), WithTrustRoot(root), WithReaderReporter(ledger()))))
 
 	// The REFUSAL moved earlier than it used to sit, and this is what changed:
 	// the document form reported a tamper as content carrying SignatureInvalid
@@ -395,7 +397,7 @@ func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) 
 	var warnings bytes.Buffer
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
-	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root))),
+	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root), WithReaderReporter(ledger()))).WithReporter(ledger()),
 		signatureRowsAuthorizer(), LinksUnchecked(), false)
 
 	lc, err := pipe.GetFragment(verifyTreeName + "#fragments/house-style")
@@ -409,7 +411,7 @@ func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) 
 // captureWarnings returns a reader option that funnels a reader's diagnostics
 // into buf, so a test can read what the user was told.
 func captureWarnings(buf *bytes.Buffer) ReaderOption {
-	return WithReaderWarnings(func(format string, args ...any) {
-		fmt.Fprintf(buf, format+"\n", args...)
-	})
+	return WithReaderReporter(report.SinkFunc(func(f report.Finding) {
+		fmt.Fprintln(buf, f.Text)
+	}))
 }

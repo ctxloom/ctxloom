@@ -66,7 +66,7 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file
 	// of the same spelling still wins); bare/canonical names pass through.
 	name := canonicalizeBundleArg(cfg, req.Name, dirs, fs)
-	bundle, err := bundles.NewLoader(bundles.NewProjectReader(fs, dirs)).Load(name)
+	bundle, err := bundles.NewLoader(projectReader(fs, dirs)).Load(name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)
 	}
@@ -190,7 +190,7 @@ func copyBundleTree(fs afero.Fs, src, dest string) error {
 // Shipping a stale pair is not on the menu — that is what makes every
 // consumer see tampering.
 func refuseStaleSignature(fs afero.Fs, dirs []string, name string) error {
-	read, err := bundles.NewLoader(bundles.NewProjectReader(fs, dirs)).Read(name)
+	read, err := bundles.NewLoader(projectReader(fs, dirs)).Read(name)
 	if err != nil {
 		return err
 	}

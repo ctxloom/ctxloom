@@ -1,0 +1,203 @@
+package config_test
+
+import (
+	"context"
+	"errors"
+	"sync/atomic"
+	"testing"
+
+	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
+)
+
+// fakeSources is a config.Sources whose every port is a closure, with a count
+// of Read calls: the lifecycle's contract is stated in how many times and in
+// which order the owner consults its sources, so the fake records exactly
+// that and nothing else.
+type fakeSources struct {
+	reads   atomic.Int32
+	read    func(context.Context) (*config.Config, []config.Warning, error)
+	readers func(*config.Config) []bundles.Reader
+	trust   func(*config.Config) bundles.Authorizer
+}
+
+func (f *fakeSources) Read(ctx context.Context) (*config.Config, []config.Warning, error) {
+	f.reads.Add(1)
+	return f.read(ctx)
+}
+
+func (f *fakeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
+	if f.readers == nil {
+		return nil, nil
+	}
+	return f.readers(cfg), nil
+}
+
+func (f *fakeSources) TrustPorts(_ context.Context, cfg *config.Config) (bundles.Authorizer, error) {
+	if f.trust == nil {
+		return bundles.AdmitAll(), nil
+	}
+	return f.trust(cfg), nil
+}
+
+// sequenceSources returns a Sources whose Read hands back the given configs
+// in order, each one a distinct value so a generation can be told apart from
+// its predecessor by identity as well as by content.
+func sequenceSources(cfgs ...*config.Config) *fakeSources {
+	var i atomic.Int32
+	return &fakeSources{read: func(context.Context) (*config.Config, []config.Warning, error) {
+		n := int(i.Add(1)) - 1
+		if n >= len(cfgs) {
+			n = len(cfgs) - 1
+		}
+		return cfgs[n], nil, nil
+	}}
+}
+
+func fixtureWithDefault(agent string) *config.Config {
+	return config.NewFixture(config.Fixture{DefaultAgent: agent})
+}
+
+func TestOpen_ReadsOnceAndPublishesGenerationOne(t *testing.T) {
+	src := sequenceSources(fixtureWithDefault("first"))
+
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+
+	snap := owner.Current()
+	require.NotNil(t, snap, "Open publishes the first generation; Current() must not be nil before any Reload")
+	assert.Equal(t, uint64(1), snap.Generation)
+	assert.Equal(t, "first", snap.Config.GetDefaultAgent())
+	assert.False(t, snap.LoadedAt.IsZero())
+	assert.Equal(t, int32(1), src.reads.Load(), "Open reads its sources exactly once")
+}
+
+func TestOpen_ReadError_RefusesWithoutOwner(t *testing.T) {
+	boom := errors.New("config.yaml: yaml: line 3: mapping values are not allowed")
+	src := &fakeSources{read: func(context.Context) (*config.Config, []config.Warning, error) {
+		return nil, nil, boom
+	}}
+
+	owner, err := config.Open(context.Background(), src)
+	require.ErrorIs(t, err, boom)
+	assert.Nil(t, owner, "a process whose configuration cannot be read has no owner to hand out")
+}
+
+func TestOwner_Reload_NewGenerationLeavesOldSnapshotUnchanged(t *testing.T) {
+	src := sequenceSources(fixtureWithDefault("first"), fixtureWithDefault("second"))
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	before := owner.Current()
+
+	after, err := owner.Reload(context.Background())
+	require.NoError(t, err)
+
+	assert.Same(t, after, owner.Current(), "Reload publishes the snapshot it returns")
+	assert.NotSame(t, before, after, "a Reload is a NEW generation, never a mutation of the published one")
+	assert.Equal(t, uint64(2), after.Generation)
+	assert.Equal(t, "second", after.Config.GetDefaultAgent())
+
+	assert.Equal(t, uint64(1), before.Generation, "the retired snapshot keeps its generation")
+	assert.Equal(t, "first", before.Config.GetDefaultAgent(), "the retired snapshot keeps its config value")
+	assert.Equal(t, int32(2), src.reads.Load(), "one Read per generation")
+}
+
+func TestOwner_Reload_TrustIsBuiltPerGenerationFromTrustPorts(t *testing.T) {
+	// Generation 1 is ungated; generation 2's ports report a gate. The
+	// snapshot's Trust must follow the ports of ITS generation, so a retraction
+	// that lands between two reloads is visible on the next one and never
+	// retroactively on the previous.
+	var gen atomic.Int32
+	src := sequenceSources(fixtureWithDefault("a"), fixtureWithDefault("b"))
+	src.trust = func(*config.Config) bundles.Authorizer {
+		if gen.Add(1) == 1 {
+			return bundles.AdmitAll()
+		}
+		return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict { return bundles.Verdict{} })
+	}
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	first := owner.Current()
+	assert.False(t, first.Trust.Gates(), "generation 1's ports admit everything")
+
+	second, err := owner.Reload(context.Background())
+	require.NoError(t, err)
+	assert.True(t, second.Trust.Gates(), "generation 2's ports gate")
+	assert.False(t, first.Trust.Gates(), "the retired generation's trust is unchanged")
+}
+
+func TestOwner_Reload_CatalogIsResolvedFromReaders(t *testing.T) {
+	memfs := afero.NewMemMapFs()
+	require.NoError(t, memfs.MkdirAll("/bundles/only", 0o755))
+	require.NoError(t, afero.WriteFile(memfs, "/bundles/only/bundle.yaml", []byte("version: \"1.0\"\n"), 0o644))
+
+	src := sequenceSources(fixtureWithDefault("a"))
+	src.readers = func(*config.Config) []bundles.Reader {
+		return []bundles.Reader{bundles.NewProjectReader(memfs, []string{"/bundles"})}
+	}
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+
+	reads := owner.Current().Catalog.Reads()
+	require.Len(t, reads, 1, "the snapshot's catalog is resolved from Sources.Readers")
+	assert.Equal(t, "only", reads[0].Bundle.Name)
+}
+
+func TestOwner_Update_WritesThroughAndReturnsNextGeneration(t *testing.T) {
+	memfs := afero.NewMemMapFs()
+	const appDir = "/proj/.ctxloom"
+	require.NoError(t, memfs.MkdirAll(appDir, 0o755))
+	require.NoError(t, afero.WriteFile(memfs, appDir+"/config.yaml", []byte("default_agent: first\n"), 0o644))
+
+	// The fake's Read is a real parse of the file the fake owns, so a write
+	// that reached disk is observable as a changed value on the next Read.
+	src := &fakeSources{read: func(context.Context) (*config.Config, []config.Warning, error) {
+		data, err := afero.ReadFile(memfs, appDir+"/config.yaml")
+		if err != nil {
+			return nil, nil, err
+		}
+		parsed, err := config.ParseConfig(data)
+		if err != nil {
+			return nil, nil, err
+		}
+		f := parsed.ToFixture()
+		f.AppDir, f.AppPaths, f.AppRoot, f.Source = appDir, []string{appDir}, "/proj", config.SourceProject
+		cfg := config.NewFixture(f)
+		cfg.SetFS(memfs)
+		return cfg, nil, nil
+	}}
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	before := owner.Current()
+
+	after, err := owner.Update(context.Background(), func(d *config.Draft) error {
+		d.DefaultAgent = "second"
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, before.Generation+1, after.Generation, "Update produces generation N+1")
+	assert.Same(t, after, owner.Current())
+	assert.Equal(t, "second", after.Config.GetDefaultAgent())
+	assert.Equal(t, "first", before.Config.GetDefaultAgent(), "the previous generation is untouched by the write")
+
+	data, err := afero.ReadFile(memfs, appDir+"/config.yaml")
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "default_agent: second", "Update writes through to the file")
+}
+
+func TestOwner_Update_FnError_AbandonsWriteAndKeepsGeneration(t *testing.T) {
+	src := sequenceSources(fixtureWithDefault("first"))
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	before := owner.Current()
+
+	abandon := errors.New("abandon")
+	_, err = owner.Update(context.Background(), func(*config.Draft) error { return abandon })
+	require.ErrorIs(t, err, abandon)
+	assert.Same(t, before, owner.Current(), "an abandoned Update publishes nothing")
+}

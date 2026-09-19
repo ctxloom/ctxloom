@@ -60,7 +60,7 @@ func runSessionBind(pass *analysis.Pass) (any, error) {
 					"session-binding writer outside sessions.Manager/MemStore risks displacing a live "+
 					"binding without appending it to Entry.Rotations. Route this call through "+
 					"sessions.Manager.BindSession (directly or via operations.BindSession), or add a "+
-					"reviewed entry to internal/archlint/sessionbind.go stating why this call site "+
+					"reviewed entry to internal/shared/archlint/sessionbind.go stating why this call site "+
 					"cannot lose lineage.", rel)
 			return true
 		})

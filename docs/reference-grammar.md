@@ -8,7 +8,7 @@ the entry-point tests in `internal/core/profiles/grammar_test.go` and
 ## Client compatibility — canonical refs require ctxloom 0.7
 
 The canonical `ctxloom+<class>:` grammar (`ctxloom+git://host/owner/repo//bundles/<b>`)
-is parsed only by ctxloom 0.7 and later. `internal/refuri` does not exist in 0.6.x,
+is parsed only by ctxloom 0.7 and later. `internal/shared/refuri` does not exist in 0.6.x,
 and nothing there dispatches on the scheme.
 
 The published bundle repositories address their bundles that way as of 2026-08-19,

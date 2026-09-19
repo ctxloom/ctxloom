@@ -7,7 +7,7 @@ package version
 
 // Version is the build stamp, set at build time via ldflags:
 //
-//	-X github.com/ctxloom/ctxloom/internal/version.Version=v0.7.0-27a90cd-20260826T125736
+//	-X github.com/ctxloom/ctxloom/internal/shared/version.Version=v0.7.0-27a90cd-20260826T125736
 //
 // There is deliberately NO default. An unstamped binary cannot say which build
 // or commit answered, and this project's whole verification rule rests on

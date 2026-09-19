@@ -16,8 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".
@@ -464,7 +464,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 
 	var allRepos []remote.RepoInfo
 	// Named "searchErrs", not "errs" — this file also imports the
-	// package "github.com/ctxloom/ctxloom/internal/errs" (used at
+	// package "github.com/ctxloom/ctxloom/internal/shared/errs" (used at
 	// browseTypeItems' errors.Is(err, errs.ErrRemoteContentNotFound)); a
 	// local `errs` here shadowed it silently, and only compiled because this
 	// function never itself referenced the package.

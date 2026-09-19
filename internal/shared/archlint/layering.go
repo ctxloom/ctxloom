@@ -124,7 +124,7 @@ func runLayering(pass *analysis.Pass) (any, error) {
 			pass.Reportf(spec.Pos(),
 				"package %s imports %s, which layering rule %q forbids (packages under %q must not import "+
 					"packages under %v). If this is a deliberate, reviewed exception, add %q to that rule's "+
-					"Allowed map in internal/archlint/layering.go naming the fix required to remove it.",
+					"Allowed map in internal/shared/archlint/layering.go naming the fix required to remove it.",
 				dir, ip, rule.Name, rule.From, rule.Forbid, dir)
 		}
 		// A stale exception is worse than none: left in place it silently

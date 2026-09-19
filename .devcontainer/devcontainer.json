@@ -8,7 +8,7 @@
     // them), so VS Code's own "Reopen in Container" build — which invokes
     // docker build directly, not `just dev-image` — needs these passed
     // explicitly too, or it fails the guard RUN. Keep this object's values
-    // equal to tool-versions.env; internal/buildpins' drift-gate test
+    // equal to tool-versions.env; internal/shared/buildpins' drift-gate test
     // (TestDevcontainerJSONBuildArgsMatchToolVersionsEnv) fails if they
     // diverge.
     "args": {

@@ -3,7 +3,7 @@ package remote
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // parseCanonicalURIReference parses the canonical ctxloom URI family

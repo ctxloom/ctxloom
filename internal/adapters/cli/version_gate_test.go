@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/version"
+	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
 // versionPayloadMarker appears in what the `version` command WRITES and in

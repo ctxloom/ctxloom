@@ -138,7 +138,7 @@ Go 1.25 equivalents, for reference when reading call sites: `NewSet` = `make(map
 
 ## `internal/shared/textutil`
 
-One function. Twelve production call sites across `internal/adapters/cli` (6), `internal/adapters/memory` (5), `internal/compression` (1).
+One function. Twelve production call sites across `internal/adapters/cli` (6), `internal/adapters/memory` (5), `internal/shared/compression` (1).
 
 | Symbol | file:line | Purpose |
 |---|---|---|
@@ -148,7 +148,7 @@ Three distinct concepts share the one function:
 
 | Use | Sites |
 |---|---|
-| Ellipsize for a display column — the caller appends `"..."` itself | `internal/compression/json.go:221`, `internal/adapters/memory/compactor.go:679`, `internal/adapters/cli/search.go:315,320`, `internal/adapters/cli/remote_discover.go:83,88`, `internal/adapters/cli/bundle_distill.go:299`, `internal/adapters/cli/bundle_list.go:267`, `internal/adapters/cli/memory.go:302` |
+| Ellipsize for a display column — the caller appends `"..."` itself | `internal/shared/compression/json.go:221`, `internal/adapters/memory/compactor.go:679`, `internal/adapters/cli/search.go:315,320`, `internal/adapters/cli/remote_discover.go:83,88`, `internal/adapters/cli/bundle_distill.go:299`, `internal/adapters/cli/bundle_list.go:267`, `internal/adapters/cli/memory.go:302` |
 | Hard byte cap | `internal/adapters/memory/compactor.go:943` |
 | Rune-boundary **offset** — `len(TruncateBytes(s, n))` used as an `int`, string discarded | `internal/adapters/memory/compactor.go:774,793` |
 
@@ -210,7 +210,7 @@ Two use classes with very different stakes: **reporting** (`cli/run.go:699,804`,
 
 - The invariant: **cutting to a byte budget never produces invalid UTF-8, and never destroys a legitimately-encoded U+FFFD.** The second half is the subtle one — `utf8.DecodeLastRuneInString` returns `RuneError` both for an incomplete sequence (`size == 1`) and for a correctly-encoded U+FFFD (`size == 3`), so the `size <= 1` qualifier at `:24` is what distinguishes the cut's own debris from real input. Testing only `r == utf8.RuneError` silently eats replacement characters.
 - Why it matters: a mid-rune split makes a chunk invalid UTF-8, which fails proto3 string marshaling and silently turns the chunk into a failure marker — documented content loss at `internal/adapters/memory/compactor.go:770-772`.
-- `maxBytes <= 0` returns `""` **silently**, and every ellipsize caller immediately concatenates its suffix — so a zero budget renders as a bare `"..."` with the content gone. The one call site whose budget is configuration rather than a literal (`internal/compression/json.go:221`, `c.MaxValueLength`) is protected only by `NewJSONCompressor` supplying `30`; `&JSONCompressor{}` compiles and zeroes it.
+- `maxBytes <= 0` returns `""` **silently**, and every ellipsize caller immediately concatenates its suffix — so a zero budget renders as a bare `"..."` with the content gone. The one call site whose budget is configuration rather than a literal (`internal/shared/compression/json.go:221`, `c.MaxValueLength`) is protected only by `NewJSONCompressor` supplying `30`; `&JSONCompressor{}` compiles and zeroes it.
 - The result **exceeds** the requested cap at every ellipsize site, because the caller appends the suffix afterward. Each has pre-compensated by subtracting 3 from its real column width (17, 15, 32, 16, 57, 67 for widths 20, 18, 35, 19, 60, 70), and nothing enforces that relationship.
 - The cap is a **byte** budget, not a display-width budget: 15 bytes of CJK is 5 characters occupying 10 terminal columns, versus 15 columns for ASCII.
 - For input that is not valid UTF-8 the strip loop can consume the entire prefix and return `""` — a legitimate cut can only ever leave `utf8.UTFMax - 1 == 3` bytes of debris, and the loop has no such floor.

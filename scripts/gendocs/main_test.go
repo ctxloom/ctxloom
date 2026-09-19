@@ -13,13 +13,13 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
-	"github.com/ctxloom/ctxloom/internal/docsgen"
+	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
 // TestCtxloomProduct pins the wiring this entrypoint is responsible for: the
 // real ctxloom command tree, a documentation MCP server, and the two site/man
 // conventions the checked-in pages were generated under. The generator behaviour
-// itself is tested in internal/docsgen.
+// itself is tested in internal/shared/docsgen.
 func TestCtxloomProduct(t *testing.T) {
 	p, closeMCP, err := ctxloomProduct()
 	if err != nil {

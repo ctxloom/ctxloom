@@ -39,7 +39,7 @@ import (
 // capability that does not exist should not be advertised in a struct any
 // more than in a tool schema.
 //
-// WHY THIS IS NOT A NAME SCAN. `rg 'Ended' internal/liveness` is how the
+// WHY THIS IS NOT A NAME SCAN. `rg 'Ended' internal/shared/liveness` is how the
 // finding was originally made, and it is exactly the check that goes green on
 // the wrong evidence: `Harp`, `Agent`, `Runtime`, `Detail` and `State` are all
 // field names shared with half a dozen unrelated types in this module, so a
@@ -97,8 +97,8 @@ type inputRecord struct {
 }
 
 var inputRecords = []inputRecord{
-	{pkgDir: "internal/liveness", typeName: "Target", qualifier: "liveness", role: "input"},
-	{pkgDir: "internal/liveness", typeName: "Evidence", qualifier: "liveness", role: "output"},
+	{pkgDir: "internal/shared/liveness", typeName: "Target", qualifier: "liveness", role: "input"},
+	{pkgDir: "internal/shared/liveness", typeName: "Evidence", qualifier: "liveness", role: "output"},
 }
 
 func TestArch_InputRecords_EveryFieldIsBothWrittenAndRead(t *testing.T) {

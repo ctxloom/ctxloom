@@ -112,7 +112,7 @@ func SandboxedMain(m *testing.M) int {
 		}()
 	}
 
-	// A `go test` binary gets no ldflags, so internal/version.Version is empty
+	// A `go test` binary gets no ldflags, so internal/shared/version.Version is empty
 	// and every ctxloom command this binary drives would refuse to start over
 	// its missing stamp. Stamp it here, in the one seam that runs whether a
 	// test opts in or not, for the same reason the sandbox is installed here:

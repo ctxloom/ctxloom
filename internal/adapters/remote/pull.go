@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // PullOptions configures pull behavior.

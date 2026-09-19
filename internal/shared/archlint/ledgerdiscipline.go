@@ -120,12 +120,12 @@ func runLedgerDiscipline(pass *analysis.Pass) (any, error) {
 					"nothing on disk then distinguishes ctxloom's entries from the user's, so a later "+
 					"reconcile cannot remove exactly what it added. Use a ledger, an in-file marker pair, "+
 					"or a per-entry marker field. If this is a deliberate, reviewed exception, add %q to "+
-					"ledgerDisciplineAllowed in internal/archlint/ledgerdiscipline.go naming why it stands.",
+					"ledgerDisciplineAllowed in internal/shared/archlint/ledgerdiscipline.go naming why it stands.",
 				sym, key)
 		}
 	}
 	reportStaleAllowlist(pass, ledgerDisciplineAllowed, analyzedFiles(pass), seen, "ledgerDisciplineAllowed",
-		"internal/archlint/ledgerdiscipline.go")
+		"internal/shared/archlint/ledgerdiscipline.go")
 	return nil, nil
 }
 

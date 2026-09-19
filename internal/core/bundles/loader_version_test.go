@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // effHash is the effective-content hash of a raw body — the exact key the trust

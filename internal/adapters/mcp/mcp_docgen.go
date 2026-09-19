@@ -9,7 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/version"
+	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
 // NewDocMCPServer builds an MCP server with the full tool + resource surface
@@ -63,7 +63,7 @@ func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error) {
 // ListDocMCPToolNames returns the sorted tool names registered on the
 // documented (runner-terminated) MCP surface built by NewDocMCPServer, via an
 // in-memory client round trip -- the SDK exposes no direct accessor on the
-// server itself (see internal/docsgen/mcp.go's enumerateMCPSurface, which
+// server itself (see internal/shared/docsgen/mcp.go's enumerateMCPSurface, which
 // does the identical round trip to render the published reference page).
 //
 // This exists so a completeness gate can measure the SAME surface

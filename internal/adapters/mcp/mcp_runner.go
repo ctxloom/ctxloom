@@ -33,7 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
-	"github.com/ctxloom/ctxloom/internal/version"
+	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
 // RUNNER-TERMINATED MCP (agentcoord B1.6): the runner (`ctxloom llm serve`)

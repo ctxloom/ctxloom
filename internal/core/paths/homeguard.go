@@ -113,6 +113,6 @@ func testTempRoots() []string {
 // the test.* flags on flag.CommandLine before any test runs, and nothing else
 // does, so the lookup is exact. Importing "testing" from shipped code would
 // link the whole test harness — its regexp matcher, its profiler hooks — into
-// the ctxloom binary, which is the cost internal/archlint's TestSupportAnalyzer
+// the ctxloom binary, which is the cost internal/shared/archlint's TestSupportAnalyzer
 // exists to keep out.
 func runningUnderGoTest() bool { return flag.Lookup("test.v") != nil }

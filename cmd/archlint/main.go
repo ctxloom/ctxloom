@@ -10,7 +10,7 @@ package main
 import (
 	"golang.org/x/tools/go/analysis/multichecker"
 
-	"github.com/ctxloom/ctxloom/internal/archlint"
+	"github.com/ctxloom/ctxloom/internal/shared/archlint"
 )
 
 func main() {

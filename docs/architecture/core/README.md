@@ -24,7 +24,7 @@ here.
 | [signing.md](./signing.md) | `internal/adapters/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |
 | [paths.md](./paths.md) | `internal/core/paths` | The on-disk layout vocabulary and the three tiers — `content/`, `cache/`, `state/` (user-facing account: [docs/layout.md](../../layout.md)). |
 | [projectroot.md](./projectroot.md) | `internal/adapters/projectroot` | Which directory is the project, worktree classification, and the task-store exception. |
-| [schema.md](./schema.md) | `internal/schema`, `internal/schemagen` | JSON Schema validation and the path oracle; reflected schema publication. |
+| [schema.md](./schema.md) | `internal/shared/schema`, `internal/shared/schemagen` | JSON Schema validation and the path oracle; reflected schema publication. |
 
 ## The content pipeline, end to end
 

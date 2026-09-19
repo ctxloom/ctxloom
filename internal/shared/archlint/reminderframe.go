@@ -23,7 +23,7 @@ var generatedFrameEncoders = map[string]bool{
 var frameDeclarers = map[string]string{
 	"internal/adapters/coordgrpc/mcpschema/xmllike.go":  "the generator itself",
 	"internal/adapters/coordgrpc/mcpschema/gen/main.go": "the generator's entry point",
-	"internal/archlint/reminderframe.go":                "this rule, which must name the tag to search for it",
+	"internal/shared/archlint/reminderframe.go":         "this rule, which must name the tag to search for it",
 }
 
 // ReminderFrameAnalyzer enforces that <ctxloom-reminder> frames are rendered

@@ -9,8 +9,8 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
-	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
+	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
 
 // The config schema is authored with additionalProperties:false at every level,
@@ -199,7 +199,7 @@ func unknownKeyMessage(configPath, instanceLocation, key string, validator *sche
 	// violated object sat behind an anyOf/oneOf/allOf branch (e.g. any
 	// llm.configs.<label> entry) — the raw walker expected a map at every
 	// segment and an anyOf node is a list, so it silently returned nil and
-	// every backend-specific typo lost its did-you-mean. internal/schema's
+	// every backend-specific typo lost its did-you-mean. internal/shared/schema's
 	// compiled ConfigValidator already solves exactly this (KnownPath uses
 	// the same schemaChild walk); KnownKeys is its enumeration counterpart,
 	// unioning across every branch instead of stopping at the first match.

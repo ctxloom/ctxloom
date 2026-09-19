@@ -15,7 +15,7 @@ import (
 
 // THE ARCHITECTURAL RULES' ANTI-VACUITY FLOORS. DO NOT DELETE THIS FILE.
 //
-// ctxloom's architectural rules live in internal/archlint as go/analysis
+// ctxloom's architectural rules live in internal/shared/archlint as go/analysis
 // analyzers, run by `just lint-arch` and the pre-commit hook. This file is
 // what CANNOT live there, and it is not leftover scaffolding.
 //

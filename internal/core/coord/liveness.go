@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
 // ---------------------------------------------------------------------------
-// Liveness monitoring — the coordinator's adapter onto internal/liveness.
+// Liveness monitoring — the coordinator's adapter onto internal/shared/liveness.
 //
 // A delegated agent can loop indefinitely while every signal THIS type
 // produces says it is fine: AgentRun returns valid ids, Roster reports state

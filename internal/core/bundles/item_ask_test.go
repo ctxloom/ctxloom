@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // TestReadCommand_PromptsAliasReachesTheSameItem pins the fix for task

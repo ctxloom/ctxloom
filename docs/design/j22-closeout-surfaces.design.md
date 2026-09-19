@@ -125,7 +125,7 @@ Everything in this table exists today and is cited by symbol.
 | Session index | `sessions.Store` iface + `*Manager` + `*MemStore` | `internal/core/sessions/{store,index,memstore}.go` | **[V]** |
 | Session ops | `operations.GetSession/ForgetSession/ListSessionsForProject` | `internal/adapters/operations/sessions.go` | **[V]** |
 | Trust-gated skill read | `operations.GetSkill(ctx, cfg, GetSkillRequest{Name}) (*GetSkillResult, error)` | `internal/adapters/operations/skills.go:136` | **[V]**. Already parses `bundle#skills/name` and already returns `errs.ErrSkillWithheld`. |
-| Withheld sentinels | `errs.ErrSkillWithheld`, `errs.ErrCommandWithheld` | `internal/errs/errors.go:33,38` | **[V]** |
+| Withheld sentinels | `errs.ErrSkillWithheld`, `errs.ErrCommandWithheld` | `internal/shared/errs/errors.go:33,38` | **[V]** |
 | Add a fragment | `operations.AddItem(ctx, cfg, AddItemRequest) (*AddItemResult, error)` | `internal/adapters/operations/items.go:121` | **[V]**. Add-only; `ErrItemExists` on collision. |
 | Create a bundle | `operations.CreateBundle(ctx, cfg, CreateBundleRequest)` | `internal/adapters/operations/bundles.go:144` | **[V]** |
 | Sign a bundle, in-process | `operations.SignBundleFile(cfg, SignBundleRequest) (*SignBundleResult, error)` | `internal/adapters/operations/sign.go:148` | **[V]**. Existing in-process caller: `cli.bundle_push_cli.go:155` **[V]**. |

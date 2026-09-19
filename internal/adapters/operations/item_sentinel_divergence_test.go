@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // Two not-found vocabularies answer for bundle items, and they do not overlap.
 //
-// internal/errs declares a sentinel PER KIND (ErrFragmentNotFound,
+// internal/shared/errs declares a sentinel PER KIND (ErrFragmentNotFound,
 // ErrCommandNotFound, ErrSkillNotFound), raised by the loader when a reference
 // fails to RESOLVE. This package declares one KIND-GENERIC pair (ErrItemNotFound
 // / ErrItemExists), raised when an EDIT names an item that is absent or already

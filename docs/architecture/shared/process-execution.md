@@ -52,7 +52,7 @@ flowchart TD
   R --> LAUNCH --> RI
   LAUNCH -->|"cmd.Stderr"| TEE
   RI -->|"stderr param ACCEPTED, NEVER READ"| VOID["/dev/null"]
-  AU --> LIVE["internal/liveness/probe.go:75<br/>ProcState{Observed:true, Alive:alive}"]
+  AU --> LIVE["internal/shared/liveness/probe.go:75<br/>ProcState{Observed:true, Alive:alive}"]
   AU --> REAP["internal/adapters/isolation/worktree_reap.go:205<br/>dead ⇒ DELETE worktree"]
   AU --> SD["internal/core/coord/statedir.go:76"]
 
@@ -90,7 +90,7 @@ One function, two build-tagged implementations, no types and no state. Exists as
 
 | Consumer | Site | Cost of a false "dead" | Cost of a false "alive" |
 |---|---|---|---|
-| `internal/liveness` watchdog | `internal/liveness/probe.go:75` | a live child is declared `StateDied` | a reaped child is never noticed |
+| `internal/shared/liveness` watchdog | `internal/shared/liveness/probe.go:75` | a live child is declared `StateDied` | a reaped child is never noticed |
 | `internal/adapters/isolation` reaper | `internal/adapters/isolation/worktree_reap.go:205` | a live agent's worktree is deleted | an orphaned worktree lingers |
 | `internal/core/coord` state lock | `internal/core/coord/statedir.go:76` | two coordinators share a state dir | a coordinator is locked out of its state |
 
@@ -155,8 +155,8 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 
 **Liveness (`pidalive`)**
 
-- **EPERM means alive.** The naive `syscall.Kill(pid, 0) == nil` reports every process the caller does not own as dead; ctxloom runs agents under remapped UIDs, so this matters. The consumer contract states the rule: "a process this user cannot signal is still a process" (`internal/liveness/probe.go:25-27`).
-- The return type is a total `bool`, so **"I could not tell" is inexpressible** and every probe failure collapses to `false` ("dead") — the destructive direction for two of the three consumers. `internal/liveness/probe.go:75-76` therefore hardcodes `ProcState{Observed: true}`, and `monitor.go:260`'s `!Observed || Alive` guard can never fire.
+- **EPERM means alive.** The naive `syscall.Kill(pid, 0) == nil` reports every process the caller does not own as dead; ctxloom runs agents under remapped UIDs, so this matters. The consumer contract states the rule: "a process this user cannot signal is still a process" (`internal/shared/liveness/probe.go:25-27`).
+- The return type is a total `bool`, so **"I could not tell" is inexpressible** and every probe failure collapses to `false` ("dead") — the destructive direction for two of the three consumers. `internal/shared/liveness/probe.go:75-76` therefore hardcodes `ProcState{Observed: true}`, and `monitor.go:260`'s `!Observed || Alive` guard can never fire.
 - On Unix, `os.FindProcess` never returns a non-nil error (`$GOROOT/src/os/exec_unix.go:121`), so the `if err != nil { return false }` guard at `pidalive_unix.go:20-22` is unreachable.
 - `err == syscall.EPERM` uses `==`, not `errors.Is` — it works today only because `os` passes the bare errno through for everything except `ESRCH`.
 - **No PID-reuse protection.** The question answered is "is *a* process alive at this pid", never "is *my* process alive". All three consumers store a bare `int` and none captures a start time.

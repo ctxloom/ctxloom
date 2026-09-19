@@ -20,7 +20,7 @@ its own documentation.
 | [memory.md](memory.md) | `internal/adapters/memory` | Map/reduce compaction of a session transcript into a persisted essence document, plus the index projection `session list` renders, plus plan-file harp stamping |
 | [termui.md](termui.md) | `internal/adapters/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
 | [vpio.md](vpio.md) | `internal/adapters/vpio` + `internal/adapters/vpio/{goplugin,dockerexec}` | The transport seam for one interactive agent turn, and its two implementations (go-plugin gRPC stream, `docker exec -it` under a host pty) |
-| [docsgen.md](docsgen.md) | `internal/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
+| [docsgen.md](docsgen.md) | `internal/shared/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
 | [selfexec.md](selfexec.md) | `internal/adapters/selfexec` | Resolving the path of the running ctxloom binary, so a materialized engine surface names the binary that materialized it |
 | [clifmt.md](clifmt.md) | `pkg/clifmt` | Rendering an arbitrary Go value to json / yaml / toml / text / markdown for first-party CLI commands |
 
@@ -44,7 +44,7 @@ flowchart TD
     subgraph leaves["Shared leaves"]
       CF["pkg/clifmt"]
       SE["internal/adapters/selfexec"]
-      DG["internal/docsgen"]
+      DG["internal/shared/docsgen"]
     end
 
     SESS -->|"harp"| TR

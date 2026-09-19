@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
 
 // fakeAuthCheck returns a canned (ok, reason) pair, so tests never shell out
@@ -307,7 +307,7 @@ func TestLiveAgentOrderMatchesRegistry(t *testing.T) {
 // config (matrixConfigYAML, mcpProbeConfigYAML, hookProbeConfigYAML,
 // p4ConfigYAML, probeConfigYAML) is built by appending onto, so a key this
 // base carries is a key every probe inherits. Validate it through
-// internal/schema.NewConfigValidator — the same validator the production
+// internal/shared/schema.NewConfigValidator — the same validator the production
 // config loader uses, and the seam internal/core/config/unknown_keys.go's
 // classifyValidationError sits on top of — because the leniency of
 // agents.ParseAgent, which is all these configs were ever parsed by, cannot

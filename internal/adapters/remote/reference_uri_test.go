@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // TestParseReference_CanonicalURIFamilyParses is the reproduction, inverted.

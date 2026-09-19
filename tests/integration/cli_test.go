@@ -108,7 +108,7 @@ func TestVersion(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 	// The binary under test is stamped by the task runner. There is no
-	// unstamped alternative to accept: internal/version.Version has no default
+	// unstamped alternative to accept: internal/shared/version.Version has no default
 	// and an unstamped binary refuses to start, so a run that got this far is
 	// stamped by construction.
 	output := strings.TrimSpace(env.LastOutput())

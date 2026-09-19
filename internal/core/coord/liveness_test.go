@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
 // The coordinator-side half of the three-direction proof: the SAME reproduced

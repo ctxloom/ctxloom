@@ -769,14 +769,14 @@ var vocabMembershipAllowed = map[string]string{
 	"internal/adapters/cli/session_watch.go#renderWatchEntryText#internal/core/agent.SessionEntryType":                     "re-spells SessionEntryType members instead of comparing against the exported constants; the entry-type vocabulary has eight such copies across cli, cli/tui, liveness and the two vendor readers",
 	"internal/adapters/cli/tui/render.go#roleTag#internal/core/agent.SessionEntryType":                                     "re-spells five SessionEntryType members; the widest copy",
 	"internal/adapters/cli/tui/render.go#itemBodyLines#internal/core/agent.SessionEntryType":                               "re-spells three SessionEntryType members",
-	"internal/liveness/transcript.go#txScan.entry#internal/core/agent.SessionEntryType":                                    "re-spells three SessionEntryType members",
-	"internal/liveness/transcript.go#txTail.entry#internal/core/agent.SessionEntryType":                                    "re-spells two SessionEntryType members",
+	"internal/shared/liveness/transcript.go#txScan.entry#internal/core/agent.SessionEntryType":                             "re-spells three SessionEntryType members",
+	"internal/shared/liveness/transcript.go#txTail.entry#internal/core/agent.SessionEntryType":                             "re-spells two SessionEntryType members",
 	"internal/adapters/transcript/vendorreader/claude/session.go#convertLines#internal/core/agent.SessionEntryType":        "re-spells two SessionEntryType members while reading a vendor format",
 	"internal/adapters/transcript/vendorreader/claude/session.go#sessionScan.observe#internal/core/agent.SessionEntryType": "re-spells two SessionEntryType members while reading a vendor format",
 	"internal/adapters/transcript/vendorreader/claude/session.go#messageEntries#internal/core/agent.SessionEntryType":      "re-spells four SessionEntryType members while reading a vendor format",
 
-	"internal/liveness/transcript.go#txScan.line#internal/adapters/transcript.Kind":     "re-spells transcript.Kind members rather than comparing against internal/adapters/transcript's own constants, which this package already imports",
-	"internal/liveness/transcript.go#txScan.tailLine#internal/adapters/transcript.Kind": "same transcript.Kind re-spelling in the tail path",
+	"internal/shared/liveness/transcript.go#txScan.line#internal/adapters/transcript.Kind":     "re-spells transcript.Kind members rather than comparing against internal/adapters/transcript's own constants, which this package already imports",
+	"internal/shared/liveness/transcript.go#txScan.tailLine#internal/adapters/transcript.Kind": "same transcript.Kind re-spelling in the tail path",
 
 	"internal/core/trust/itemref.go#ParseSelector#internal/shared/ledger.Surface": "the selector parser re-spells four ledger.Surface members. The engine-surface vocabulary is declared twice — ledger.Surface and agent.ProbeKind overlap on mcp/commands/skills/context — so there is no single owner to route through yet; consolidating those two is the fix",
 	"internal/core/trust/itemref.go#ParseSelector#internal/core/agent.ProbeKind":  "same site, matching the second declaration of the engine-surface vocabulary",

@@ -387,7 +387,7 @@ flowchart TD
   consume the reference grammar (`CanonicalBundleRef`, `CanonicalizeShortRef`,
   `ParseReference`) and registry/lockfile reads.
 
-**Dependencies (outbound).** Only leaf/shared packages: `internal/errs` (sentinels
+**Dependencies (outbound).** Only leaf/shared packages: `internal/shared/errs` (sentinels
 `ErrRemoteContentNotFound`, `ErrRemoteNotFound`, `ErrRemoteNotMaterialized`),
 `internal/core/paths` (`RepoContentPrefix`, `CacheDir`, `BundlesDir`, `LockFileName`),
 `internal/shared/clidiag`, `internal/shared/collections`, `internal/shared/iox`

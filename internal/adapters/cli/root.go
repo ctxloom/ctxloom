@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/version"
+	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
 // degradedFlag backs the persistent --degraded flag: the fail-loudly escape
@@ -234,7 +234,7 @@ func rootCommand() *cobra.Command {
 
 		// The isolation layer bakes this stamp into agent images (ctxloom.version
 		// label) and compares it against present images to rebuild stale ones.
-		// isolation could import internal/version directly (it's a leaf), but
+		// isolation could import internal/shared/version directly (it's a leaf), but
 		// this stays a Set* push for now rather than churning that wiring too.
 		isolation.SetBinaryVersion(version.Version)
 	})

@@ -130,14 +130,14 @@ func runVocabulary(pass *analysis.Pass) (any, error) {
 						"instead of checking it, so an unrecognized value becomes a well-typed value nobody "+
 						"rejected. Call the owner's parser or compare against its exported constants. If this "+
 						"is a deliberate, reviewed exception, add %q to vocabConversionAllowed in "+
-						"internal/archlint/vocabulary.go naming the fix required to remove it.",
+						"internal/shared/archlint/vocabulary.go naming the fix required to remove it.",
 					sym, what, LocalDir(owner), sel.Sel.Name, key)
 				return true
 			})
 		}
 	}
 	reportStaleAllowlist(pass, vocabConversionAllowed, analyzedFiles(pass), seen, "vocabConversionAllowed",
-		"internal/archlint/vocabulary.go")
+		"internal/shared/archlint/vocabulary.go")
 	return nil, nil
 }
 

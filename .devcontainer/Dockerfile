@@ -62,7 +62,7 @@ ARG TARGETARCH
 # below instead of silently installing an empty version or "latest" —
 # ctxloom's characteristic bug is exit 0 with wrong/missing bytes, not a
 # loud failure, and this guard exists specifically to not repeat that here.
-# internal/buildpins' drift-gate test asserts these ARG names and the
+# internal/shared/buildpins' drift-gate test asserts these ARG names and the
 # workflow consumers all agree with tool-versions.env.
 ARG GO_VERSION
 ARG UPX_VERSION

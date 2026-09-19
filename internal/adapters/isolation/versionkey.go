@@ -3,7 +3,7 @@ package isolation
 import (
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/version"
+	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
 // dirtyMarker is the version stamp's tracked-dirty suffix.

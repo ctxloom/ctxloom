@@ -482,8 +482,8 @@ flowchart LR
   MOCK --> ENG
   CE --> CLIFMT
   CE --> CV
-  ARCH --> ARCHL["internal/archlint"]
-  VAL --> SCH["internal/schema + version"]
+  ARCH --> ARCHL["internal/shared/archlint"]
+  VAL --> SCH["internal/shared/schema + version"]
   PROBE --> IOX
 ```
 
@@ -797,7 +797,7 @@ None of the 25 echo `cfg.GetWarnings()`; a malformed config is silently partial 
 
 #### F-7 · DATA-FLOW SMELL — the process switches travel as package globals, and the family binaries re-implement the funnel
 
-The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRun` (flag) into `strictness` package state, then read by `cli.phaseGates.close`, `isolation.Prepare`, `operations.isolationGateErr`, `operations.SyncOnStartup`… with no parameter naming it. `--no-companions` → `config.SetCompanionsDisabled` global; `--config-set`/`CTXLOOM_CONFIG_*` → `config.InstallOverridesFromFlags` global funnel consulted invisibly by every later `config.Load`; `--format` structuredness → `clidiag.SetStructured` global; `version.Version` → `isolation.SetBinaryVersion` global (the comment admits: *"isolation could import internal/version directly (it's a leaf), but this stays a Set\* push for now rather than churning that wiring too"*). `cmd/taskloom/root.go`'s `rootPersistentPreRun` re-implements the degraded/format/config-set part of the same funnel by hand.
+The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRun` (flag) into `strictness` package state, then read by `cli.phaseGates.close`, `isolation.Prepare`, `operations.isolationGateErr`, `operations.SyncOnStartup`… with no parameter naming it. `--no-companions` → `config.SetCompanionsDisabled` global; `--config-set`/`CTXLOOM_CONFIG_*` → `config.InstallOverridesFromFlags` global funnel consulted invisibly by every later `config.Load`; `--format` structuredness → `clidiag.SetStructured` global; `version.Version` → `isolation.SetBinaryVersion` global (the comment admits: *"isolation could import internal/shared/version directly (it's a leaf), but this stays a Set\* push for now rather than churning that wiring too"*). `cmd/taskloom/root.go`'s `rootPersistentPreRun` re-implements the degraded/format/config-set part of the same funnel by hand.
 
 **Settles it.** A shared `cliboot`-style helper in `internal/shared` that owns persistent-flag registration + PreRun for every family binary (one place to add a switch), and threading `strictness.Mode` as a value into the few functions that branch on it.
 
@@ -844,7 +844,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 #### F-11 · LEAN BINARIES — the gate watches the wrong door; both lean binaries already link the engine plugin; hardening runs in one binary of three
 
 - `TestArch_LeanBinaries_DoNotLinkEngineDescriptors` checks the transitive set of `cmd/ltk` and `cmd/taskloom` for `lm/engine`, `lm/engines`, `lm/backends`, `bundles`. Measured: both already link `internal/engines/claude` via `cmd/ltk → internal/ltk/engine → internal/engines/claude` and `cmd/taskloom → internal/taskloom/engine → internal/engines/claude`. `internal/engines/claude` today imports `confpatch, paths, shared/agent{,/present}, clidiag, collections, ledger, wire` — one `bundles` import there (which `f8403d65d` added and `439a5c6c4` reverted into `cli/skill_mates_decide.go`) trips the gate for both binaries at once. The gate is correct but its front line is `internal/engines/claude`'s import list, which no rule pins.
-- `cmd/harp`, `cmd/probe-mcp-server`, `cmd/validate`, `cmd/gen-schemas`, `cmd/archlint` are not in the gate. `cmd/validate` links `internal/schema` + `internal/version`; harmless today, unchecked.
+- `cmd/harp`, `cmd/probe-mcp-server`, `cmd/validate`, `cmd/gen-schemas`, `cmd/archlint` are not in the gate. `cmd/validate` links `internal/shared/schema` + `internal/shared/version`; harmless today, unchecked.
 - `procsec.HardenAtStartup` (`cmd/ctxloom/main.go`) says *"first and for every ctxloom process without exception … any ctxloom process can be the one holding the coordinator credential"*, but `cmd/taskloom` and `cmd/ltk` — spawned inside sessions as MCP servers and hooks with the session env — do not call it. Whether the coordinator credential reaches their environment is a seam-2/4 question (handoff §7); if it does, the exception the comment denies exists.
 
 **Settles it.** A `layeringRule{from: "internal/engines/claude", forbid: ["internal/core/bundles", "internal/core/config", "internal/lm", "internal/adapters/operations"]}` (zero allowlist) so the leak is caught where it is introduced; add the remaining binaries to the lean list with their own forbidden sets; call `procsec.HardenAtStartup` from every family `main`.
@@ -860,7 +860,7 @@ The degraded switch is written in `main.main` (env) and `cli.rootPersistentPreRu
 | `cmd/taskloom/docs_gen.go`, `cmd/ltk/docs_gen.go` | *"taskloom's cobra tree lives in `package main` and so cannot be imported"* | F-10: CLIs in package main |
 | `cli.pushBundleCfg`, `internal/adapters/cli/bundle_push_cli.go` | *"mirroring internal/adapters/cli/sign.go's runSign"*; `doctor_cmd.go`: *"see review.go's resolveReviewSigner"* | F-8: no local-signer operation |
 | `cli.rootPersistentPreRun`, `internal/adapters/cli/root.go` | *"config.Load is called from ~10 sites across the CLI — a per-Config toggle would only take effect on whichever one happened to be wired"* | F-6: no single load funnel, so the switch became a global |
-| `cli.rootCommand`, `internal/adapters/cli/root.go` | *"isolation could import internal/version directly (it's a leaf), but this stays a Set\* push for now rather than churning that wiring too"* | F-7: a global standing in for an import |
+| `cli.rootCommand`, `internal/adapters/cli/root.go` | *"isolation could import internal/shared/version directly (it's a leaf), but this stays a Set\* push for now rather than churning that wiring too"* | F-7: a global standing in for an import |
 | `cli.format.go` const block | *"a handful of streaming commands … parse --format themselves via their own text/json-only switch … Widening those to the full five formats is out of scope here"* | F-9: second format parser |
 | `cli.runLLMTurn`, `internal/adapters/cli/llm_turn.go` | *"a standUpRunner ERROR here is deliberately downgraded to a warning below (interactive turn has no RunID, so no EngineHost, and an MCP hiccup degrades to the shim's local fallback rather than failing the turn)"* | a fallback masking a runner-standup failure for one of three verbs sharing `standUpRunner` |
 | `cli.warnHostBypassStopgap`, `internal/adapters/cli/run.go` | *"surfaces the claude-code host-bypass stopgap: blanket auto-approval on the bare host. It's the default path, so surface it only under -v to avoid warning fatigue"* | a security posture named "stopgap" that is the default and is hidden below `-v` |

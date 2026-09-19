@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 func TestNewMockFetcher(t *testing.T) {

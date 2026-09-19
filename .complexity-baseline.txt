@@ -59,18 +59,18 @@
 ./internal/adapters/coordgrpc/mcpschema/arch_test.go|snake s string|1|13|snake|247-266
 ./internal/core/spool/main_test.go|runProbe phase string|1|15|runProbe|219-292
 ./internal/core/spool/message.go|(m*Message)decodeHead|1|19|decodeHead|147-203
-./internal/archlint/layering.go|runLayering pass * analysis . Pass|1|12|runLayering|100-139
-./internal/archlint/ledgerdiscipline.go| n ast . Node|1|13||68-106
-./internal/archlint/ledgerdiscipline.go|runLedgerDiscipline pass * analysis . Pass|1|13|runLedgerDiscipline|47-126
-./internal/archlint/lockdiscipline.go|runLockDiscipline pass * analysis . Pass|1|13|runLockDiscipline|63-128
-./internal/archlint/reminderframe.go|runReminderFrame pass * analysis . Pass|1|11|runReminderFrame|49-82
-./internal/archlint/testsupport.go|runTestSupport pass * analysis . Pass|1|17|runTestSupport|65-130
-./internal/archlint/vocabulary.go| n ast . Node|1|12||98-136
-./internal/archlint/vocabulary.go|discoverVocabularies files [ ] * ast . File|1|14|discoverVocabularies|211-252
-./internal/archlint/writediscipline.go| n ast . Node|1|16||131-169
-./internal/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile t * testing . T|1|12|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile|128-183
-./internal/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_KeepInlineShellOutOfSteps t * testing . T|1|12|TestArch_CIWorkflows_KeepInlineShellOutOfSteps|192-250
-./internal/buildpins/toolversions_test.go|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv t * testing . T|1|12|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv|179-227
+./internal/shared/archlint/layering.go|runLayering pass * analysis . Pass|1|12|runLayering|100-139
+./internal/shared/archlint/ledgerdiscipline.go| n ast . Node|1|13||68-106
+./internal/shared/archlint/ledgerdiscipline.go|runLedgerDiscipline pass * analysis . Pass|1|13|runLedgerDiscipline|47-126
+./internal/shared/archlint/lockdiscipline.go|runLockDiscipline pass * analysis . Pass|1|13|runLockDiscipline|63-128
+./internal/shared/archlint/reminderframe.go|runReminderFrame pass * analysis . Pass|1|11|runReminderFrame|49-82
+./internal/shared/archlint/testsupport.go|runTestSupport pass * analysis . Pass|1|17|runTestSupport|65-130
+./internal/shared/archlint/vocabulary.go| n ast . Node|1|12||98-136
+./internal/shared/archlint/vocabulary.go|discoverVocabularies files [ ] * ast . File|1|14|discoverVocabularies|211-252
+./internal/shared/archlint/writediscipline.go| n ast . Node|1|16||131-169
+./internal/shared/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile t * testing . T|1|12|TestArch_CIWorkflows_ContainerJobsSelectTheContainerJustfile|128-183
+./internal/shared/buildpins/ciworkflows_arch_test.go|TestArch_CIWorkflows_KeepInlineShellOutOfSteps t * testing . T|1|12|TestArch_CIWorkflows_KeepInlineShellOutOfSteps|192-250
+./internal/shared/buildpins/toolversions_test.go|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv t * testing . T|1|12|TestDockerfileArgsAreDefaultlessAndMatchToolVersionsEnv|179-227
 ./internal/core/bundles/authorizer.go|(r Reason)Explain detail string|1|14|Explain|320-359
 ./internal/core/bundles/authorizer.go|(r Reason)String|1|17|String|267-304
 ./internal/core/bundles/bundles.go|detectLegacySkillsKey data [ ] byte|1|13|detectLegacySkillsKey|1140-1187
@@ -120,7 +120,7 @@
 ./internal/codex/hooktrust.go|hookIdentityHash eventLabel string , matcher string , hasMatcher bool , entry map [ string ] any|1|11|hookIdentityHash|153-202
 ./internal/codex/hooktrust.go|seedHookTrust cfg map [ string ] any , sourcePath string|1|16|seedHookTrust|249-319
 ./internal/codex/instanceconfig.go|(w*codexInstanceConfig)WriteInstanceConfig req agent . InstanceConfigRequest|1|11|WriteInstanceConfig|65-112
-./internal/compression/code_python.go|(c*CodeCompressor)extractPythonClassBody node * sitter . Node , source [ ] byte , out * strings . Builder|1|13|extractPythonClassBody|186-224
+./internal/shared/compression/code_python.go|(c*CodeCompressor)extractPythonClassBody node * sitter . Node , source [ ] byte , out * strings . Builder|1|13|extractPythonClassBody|186-224
 ./internal/core/config/companion_admission.go|admitCompanion bin string , store * admission . Store [ CompanionKey , CompanionAdmissionReason ] , consent * admission . Snapshot [ CompanionKey ] , fault error , prompt bool ,|1|16|admitCompanion|208-313
 ./internal/core/config/config.go|loadConfigLayer cfg * Config , layer layerscope . Layer , appPath , homeAppPath , configPath string , validator * schema . ConfigValidator , fs afero . Fs|1|11|loadConfigLayer|1775-1884
 ./internal/core/config/config.go|loadLayeredConfig cfg * Config , homeConfigPath , projectConfigPath string , validator * schema . ConfigValidator , fs afero . Fs , product confload . Product , overrides confload . Overrides|1|12|loadLayeredConfig|1615-1667
@@ -150,15 +150,15 @@
 ./internal/adapters/content/writer.go|(s*TreeStore)Put ctx context . Context , ref trust . Ref , f signing . Form , surface Surface|1|20|Put|27-99
 ./internal/adapters/content/writer_test.go|TestWriter_FragmentRoundTrip t * testing . T|1|18|TestWriter_FragmentRoundTrip|20-98
 ./internal/adapters/content/writer_test.go|TestWriter_PutSignatureRoundTrip t * testing . T|1|16|TestWriter_PutSignatureRoundTrip|235-298
-./internal/docsgen/command.go| cmd * cobra . Command , _ [ ] string|1|14||32-68
-./internal/docsgen/config.go|expandableChild field map [ string ] any|1|12|expandableChild|251-282
-./internal/docsgen/config.go|typeOf n map [ string ] any|1|19|typeOf|153-209
-./internal/docsgen/docsgen_test.go|TestGenMarkdown t * testing . T|1|13|TestGenMarkdown|80-134
-./internal/docsgen/mcp.go|GenMCPTools ctx context . Context , p * Product , dir string|1|14|GenMCPTools|42-108
-./internal/docsgen/mcp.go|enumerateMCPSurface ctx context . Context , server * mcp . Server|1|12|enumerateMCPSurface|113-174
-./internal/enginepins/engineversions_test.go|TestDetectScriptHandlesEveryMatrixEngine t * testing . T|1|12|TestDetectScriptHandlesEveryMatrixEngine|170-214
-./internal/liveness/arch_test.go| n ast . Node|1|14||238-268
-./internal/liveness/arch_test.go| n ast . Node|2|17||323-355
+./internal/shared/docsgen/command.go| cmd * cobra . Command , _ [ ] string|1|14||32-68
+./internal/shared/docsgen/config.go|expandableChild field map [ string ] any|1|12|expandableChild|251-282
+./internal/shared/docsgen/config.go|typeOf n map [ string ] any|1|19|typeOf|153-209
+./internal/shared/docsgen/docsgen_test.go|TestGenMarkdown t * testing . T|1|13|TestGenMarkdown|80-134
+./internal/shared/docsgen/mcp.go|GenMCPTools ctx context . Context , p * Product , dir string|1|14|GenMCPTools|42-108
+./internal/shared/docsgen/mcp.go|enumerateMCPSurface ctx context . Context , server * mcp . Server|1|12|enumerateMCPSurface|113-174
+./internal/shared/enginepins/engineversions_test.go|TestDetectScriptHandlesEveryMatrixEngine t * testing . T|1|12|TestDetectScriptHandlesEveryMatrixEngine|170-214
+./internal/shared/liveness/arch_test.go| n ast . Node|1|14||238-268
+./internal/shared/liveness/arch_test.go| n ast . Node|2|17||323-355
 ./internal/lm/backends/mock.go|writeMockRecord recordFile string , in mockRecordFields , managed * agent . ManagedConfig|1|11|writeMockRecord|227-287
 ./internal/lm/backends/mock_chat.go|(b*Mock)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|23|Chat|34-97
 ./internal/lm/grpc/arch_test.go|TestArch_ProtoConverters_EveryPairIsSwept t * testing . T|1|24|TestArch_ProtoConverters_EveryPairIsSwept|379-473
@@ -256,8 +256,8 @@
 ./internal/core/profiles/profiles.go|(l*Loader)resolveProfileRecursive name string , visited map [ string ] bool , depth int , memo map [ string ] * ResolvedProfile|1|15|resolveProfileRecursive|903-1063
 ./internal/adapters/projectroot/projectroot_test.go|TestPackageDocNamesEveryExportedSurface t * testing . T|1|18|TestPackageDocNamesEveryExportedSurface|235-288
 ./internal/adapters/projectroot/worktree.go|DetectWorktree fs afero . Fs , dir string|1|12|DetectWorktree|74-133
-./internal/refuri/refuri.go|Parse raw string|1|11|Parse|186-266
-./internal/refuri/refuri.go|(p*Parts)parseExternal u * url . URL|1|12|parseExternal|269-326
+./internal/shared/refuri/refuri.go|Parse raw string|1|11|Parse|186-266
+./internal/shared/refuri/refuri.go|(p*Parts)parseExternal u * url . URL|1|12|parseExternal|269-326
 ./internal/adapters/remote/git_publisher.go|(p*GitPublisher)CreateOrUpdateFile ctx context . Context , _ , _ , filePath , branch , message string , content [ ] byte|1|12|CreateOrUpdateFile|181-227
 ./internal/adapters/remote/publish.go|(pm*PublishManager)preparePublish ctx context . Context , localPath , remoteName string , opts PublishOptions|1|12|preparePublish|295-404
 ./internal/adapters/remote/registry.go|(r*Registry)Update name string , edit RemoteEdit|1|16|Update|281-347

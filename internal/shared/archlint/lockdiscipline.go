@@ -114,11 +114,11 @@ func runLockDiscipline(pass *analysis.Pass) (any, error) {
 					"processes reconciling the same file interleave and the second write discards the "+
 					"first. Wrap the read-modify-write in agent.WithFileLock. If this is a deliberate, "+
 					"reviewed exception, add %q to lockDisciplineAllowed in "+
-					"internal/archlint/lockdiscipline.go naming why it stands.", sym, key)
+					"internal/shared/archlint/lockdiscipline.go naming why it stands.", sym, key)
 		}
 	}
 	reportStaleAllowlist(pass, lockDisciplineAllowed, analyzedFiles(pass), seen, "lockDisciplineAllowed",
-		"internal/archlint/lockdiscipline.go")
+		"internal/shared/archlint/lockdiscipline.go")
 	return nil, nil
 }
 

@@ -41,7 +41,7 @@ const (
 
 	// schemagenImport is this package, which the build tag genuinely does keep
 	// out of the production binary.
-	schemagenImport = "github.com/ctxloom/ctxloom/internal/schemagen"
+	schemagenImport = "github.com/ctxloom/ctxloom/internal/shared/schemagen"
 
 	// productionBinary is the command doc.go means by "the production binary".
 	productionBinary = "./cmd/ctxloom"

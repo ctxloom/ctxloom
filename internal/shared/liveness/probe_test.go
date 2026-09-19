@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
 // A probe declaring a runtime must not be consulted for a different one, or

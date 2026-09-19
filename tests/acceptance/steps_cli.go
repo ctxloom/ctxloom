@@ -652,7 +652,7 @@ func lastOutputJSONArray(w *World, path string) ([]any, error) {
 // versionStampRE is the shape a ctxloom version string can legitimately take:
 // the ldflags-stamped family stamp, `v<maj.min.patch>[-<sha>-<utc>]`. There is
 // no unstamped alternative to allow: a binary with no stamp refuses to start
-// (internal/version.Version has no default), so this suite can only ever be
+// (internal/shared/version.Version has no default), so this suite can only ever be
 // driving a stamped one. Any other text — notably a rendering that forgot to
 // print the version at all — is refused. A looser pattern is worthless here:
 // `matches "."` accepts one arbitrary character, which the literal

@@ -19,7 +19,7 @@ The source class moved into the scheme, and `//` took over the repository/bundle
 split that `@` used to carry. Both published bundle repositories now address
 their content this way.
 
-**No released ctxloom before 0.7 can parse it.** `internal/refuri` does not
+**No released ctxloom before 0.7 can parse it.** `internal/shared/refuri` does not
 exist at v0.6.4 and nothing there dispatches on the scheme.
 
 **What that looks like if you upgrade the content but not the client.** Measured

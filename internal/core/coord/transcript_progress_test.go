@@ -9,7 +9,7 @@
 // This file previously carried a SECOND implementation of the progress
 // definition — its own seq/assistant/variety/cadence rules, its own repeat
 // threshold, its own jitter model. It was written from the same brief as
-// internal/liveness and drifted from it anyway, in two ways that mattered:
+// internal/shared/liveness and drifted from it anyway, in two ways that mattered:
 //
 //   - it accepted a cadence when max delta <= 2 x min delta, where liveness
 //     accepts when consecutive gaps stay within +/-25% of their MEDIAN. Those
@@ -22,10 +22,10 @@
 //     healthy agent, so the old rule was a flake waiting for a real engine.
 //
 // Two implementations of one definition is how that drift happens, so the
-// definition now lives in exactly one place — internal/liveness — and this file
+// definition now lives in exactly one place — internal/shared/liveness — and this file
 // only PROJECTS its verdicts into the shape the container tests assert on. If
 // you are about to add a threshold, a ratio, or an `if` over transcript
-// contents here, it belongs in internal/liveness instead.
+// contents here, it belongs in internal/shared/liveness instead.
 package coord
 
 import (
@@ -42,7 +42,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
 // progressVerdict is one liveness.Report, projected. Every method below is a
@@ -51,7 +51,7 @@ import (
 type progressVerdict struct {
 	// Path is the transcript file the verdict was computed from.
 	Path string
-	// Report is the verdict, verbatim, from internal/liveness.
+	// Report is the verdict, verbatim, from internal/shared/liveness.
 	Report liveness.Report
 }
 
@@ -129,7 +129,7 @@ func assessTranscriptProgress(mon *liveness.Monitor, harp, path string, startedA
 // Hermetic coverage of the ADAPTER, on a frozen clock. No docker, no engine —
 // this runs under plain `just test`, which is the point.
 //
-// The rules themselves are covered in internal/liveness (transcript_test.go for
+// The rules themselves are covered in internal/shared/liveness (transcript_test.go for
 // the measurements, monitor_test.go for the ladder). What is proven here is
 // that the projection above answers the questions the container tests ask, and
 // that it answers them the way liveness does.

@@ -425,7 +425,7 @@ message LLMInfo {
   string version = 2; // the BACKEND ENGINE's own version (e.g. claude's), not ctxloom's
   repeated ExecutionMode supported_modes = 3;
   // ctxloom_version is the SERVING PROCESS's own ctxloom build stamp
-  // (internal/version.Version), distinct from `version` above. A client
+  // (internal/shared/version.Version), distinct from `version` above. A client
   // compares this against its own build stamp right after connecting
   // (runnerFromConn's version handshake) and refuses a mismatched daemon
   // rather than silently running turns against stale compiled-in behavior —

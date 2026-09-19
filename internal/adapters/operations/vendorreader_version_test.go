@@ -52,7 +52,7 @@ func registerReaderFixture(t *testing.T, a vendorreader.VendorAdapter) string {
 }
 
 // enginePins reads .github/engine-versions.env — the same real repository file
-// internal/enginepins gates, not a fixture. The point is that the declared
+// internal/shared/enginepins gates, not a fixture. The point is that the declared
 // ranges and the CI lock are held against each other, so a range cannot
 // quietly widen past what anyone has actually run.
 //

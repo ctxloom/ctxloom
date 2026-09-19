@@ -151,7 +151,7 @@ flowchart TD
   `internal/lm/backends` (`assembleManagedMCP`, `assembleManagedHooks`, `assembleManagedDenyTools`).
 - **Calls:** `internal/adapters/remote` (7 symbols: `CanonicalKey`, `CanonicalProfileKey`,
   `SplitBundleProfileRef`, …), `internal/shared/upgrade`, `internal/shared/strictness`,
-  `internal/errs`, `internal/core/paths`, `clidiag`.
+  `internal/shared/errs`, `internal/core/paths`, `clidiag`.
 
 ## Where documented and real behavior diverge
 

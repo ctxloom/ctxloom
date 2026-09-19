@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

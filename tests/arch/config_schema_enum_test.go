@@ -36,7 +36,7 @@
 // (internal/core/coord.approvalKindNames, coord.LadderAction) is
 // unexported in a package this test cannot reach without either a production
 // export change (out of scope for a test-only gate) or an import cycle
-// (coord depends on internal/core/config, which depends on internal/schema).
+// (coord depends on internal/core/config, which depends on internal/shared/schema).
 package arch
 
 import (
@@ -133,8 +133,8 @@ var schemaEnumBindings = []schemaEnumBinding{
 	// Escalation ladder: real Go vocabulary exists but is unexported inside
 	// internal/core/coord (approvalKindNames, LadderAction), a package
 	// this test cannot import without an export change to production code —
-	// out of scope for a test-only gate — or, for internal/schema, an import
-	// cycle (coord -> internal/core/config -> internal/schema).
+	// out of scope for a test-only gate — or, for internal/shared/schema, an import
+	// cycle (coord -> internal/core/config -> internal/shared/schema).
 	{
 		path:          "properties/agents/additionalProperties/properties/escalation/items/properties/kinds/items",
 		excludeReason: "real vocabulary is internal/core/coord.approvalKindNames, unexported; no reachable Names() accessor without a production export change",

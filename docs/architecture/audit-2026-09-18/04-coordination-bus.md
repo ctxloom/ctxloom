@@ -489,7 +489,7 @@ flowchart TD
   TRANS["internal/adapters/transcript"]
   CFG["internal/core/config"]
   AGENTS["internal/adapters/agents"]
-  LIVE["internal/liveness"]
+  LIVE["internal/shared/liveness"]
   PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
   ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]

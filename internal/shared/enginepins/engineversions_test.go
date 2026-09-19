@@ -1,6 +1,6 @@
 // Package enginepins is the drift gate for the LLM-engine CLI
 // tested-version lock, .github/engine-versions.env. It is the sibling of
-// internal/buildpins (which drift-gates .devcontainer/tool-versions.env
+// internal/shared/buildpins (which drift-gates .devcontainer/tool-versions.env
 // against the dev-image build) and follows the exact same discipline for a
 // different file: load the REAL repository files (not fixtures) and assert
 // they agree with each other, so a value can't silently go stale or a
@@ -34,7 +34,7 @@ var semverRE = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,3}$`)
 
 // parseEngineVersionsEnv loads .github/engine-versions.env's KEY=value
 // pairs, skipping comment (#) and blank lines -- same convention as
-// .devcontainer/tool-versions.env and the same parsing internal/buildpins
+// .devcontainer/tool-versions.env and the same parsing internal/shared/buildpins
 // uses for it.
 func parseEngineVersionsEnv(t *testing.T, path string) map[string]string {
 	t.Helper()

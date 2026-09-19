@@ -75,7 +75,7 @@ func runPathAuthority(pass *analysis.Pass) (any, error) {
 				"%s builds a path alongside a paths.* reference using segment(s) %v that internal/core/paths "+
 					"does not name — every ctxloom path segment must be a named constant there. If this is "+
 					"a deliberate, reviewed exception, add %q to pathAuthorityAllowed in "+
-					"internal/archlint/pathauthority.go naming the fix required to remove it.",
+					"internal/shared/archlint/pathauthority.go naming the fix required to remove it.",
 				sym, segments, key)
 			return true
 		})

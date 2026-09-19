@@ -4,7 +4,7 @@
 // live tool/resource registrations, and the configuration reference (--config)
 // from the tracked JSON Schema.
 //
-// The generator itself is internal/docsgen, shared with taskloom and ltk (which
+// The generator itself is internal/shared/docsgen, shared with taskloom and ltk (which
 // mount it as a hidden `gendocs` subcommand under `-tags docsgen`, their cobra
 // trees living in `package main`). This entrypoint only describes ctxloom.
 package main
@@ -16,7 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
-	"github.com/ctxloom/ctxloom/internal/docsgen"
+	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
 func main() {

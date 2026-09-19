@@ -90,7 +90,7 @@ func runTestSupport(pass *analysis.Pass) (any, error) {
 			"package %s imports %s from a production file — test-only machinery must not be reachable "+
 				"from ordinary code. Move the helper into a _test.go file, or, if this package is itself a "+
 				"test harness that is never linked into a binary, add it to testSupportImporters in "+
-				"internal/archlint/testsupport.go with a reason.", dir, ip)
+				"internal/shared/archlint/testsupport.go with a reason.", dir, ip)
 	}
 
 	// The allowlist must stay live: an entry naming a package that no longer

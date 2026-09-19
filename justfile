@@ -144,7 +144,7 @@ release-snapshot: dev-image
 #
 # bin/archlint is built here, and that is not a convenience: lefthook's
 # pre-commit step REFUSES to commit when bin/archlint is missing or older than
-# the rules in internal/archlint. A gate that cannot pass by not running is the
+# the rules in internal/shared/archlint. A gate that cannot pass by not running is the
 # correct design, but it leaves a fresh checkout one `--no-verify` away from
 # never running the architectural rules at all. Building it on the path everyone
 # already takes is what keeps the gate armed by default rather than on purpose.
@@ -255,7 +255,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -1208,7 +1208,7 @@ plan-sentinel ENGINE POSTURE="pair": build _ensure-gotmpdir
 # touched them; that is how an acceptance-suite audit came to report on 25
 # assertions it had not executed. There is no general signal to infer here —
 # a partially tagged package is normal and correct everywhere else in this
-# repo (internal/core/config, internal/compression and 17 more have tagged test
+# repo (internal/core/config, internal/shared/compression and 17 more have tagged test
 # files that a plain run rightly skips) — so the guard is scoped to the one
 # path whose entire purpose IS the tagged suite, alongside the build case
 # below that already special-cases it. It demands the tag AND a -run filter:
@@ -1785,7 +1785,7 @@ complexity-baseline-update: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
 # Build, compress, and install all three binaries to ~/go/bin (standard Go
@@ -1849,7 +1849,7 @@ gen-mcp-schemas-check: dev-image
 
 # command tree, the MCP reference from the live tool/resource registrations, and
 # ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
-# (internal/docsgen) serves all three; taskloom and ltk keep their trees in
+# (internal/shared/docsgen) serves all three; taskloom and ltk keep their trees in
 # `package main`, so it mounts on them as a hidden `gendocs` subcommand compiled
 # only under `-tags docsgen`. CI fails on drift (gen-docs-check in
 # justfile.container).
@@ -1992,7 +1992,7 @@ container-build-minimal:
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
@@ -2029,7 +2029,7 @@ _container-build-via-cli backend *engines:
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o "$bin" ./cmd/ctxloom
     args=(container build {{backend}} --no-devcontainer-base)
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi
@@ -2084,7 +2084,7 @@ devcontainer_tag := `t=$(sha256sum .devcontainer/tool-versions.env 2>/dev/null |
 # .github/workflows/ci.yml's build-container job builds the same Dockerfile
 # without going through `just` (via docker/build-push-action), so it loads
 # the same file into that action's build-args input instead of this recipe —
-# see that workflow. internal/buildpins' drift-gate test fails if either
+# see that workflow. internal/shared/buildpins' drift-gate test fails if either
 # consumer's build-args stop matching this file.
 #
 # Guarded on the same DEVCONTAINER/CI/GITHUB_ACTIONS check _run uses below.

@@ -712,7 +712,7 @@ Every doc / glossary / arch-test / load-bearing-comment statement the seams foun
 | `internal/core/config/preimage_wire_parity_test.go` | proves `BundleHook → wire.Hook`; the REVERSE hand copy `backends.hookExecPayload` is unguarded | S5.SA-5 |
 | `TestFormatCoverage_AllRootCmdDescendants` | walks tree→registry only; registry key `"agent setup"` (deleted verb) is never reported | S6.F9 |
 | `TestAgentRecvWait_StdioSchemaDescribesTheSameBounds` | pins parity between the two `agent_*` schemas for ONE field | S4.F5 |
-| `internal/archlint` vs `tests/arch` | two copies of every rule; CI runs one (row `unskilled-state`) | rows |
+| `internal/shared/archlint` vs `tests/arch` | two copies of every rule; CI runs one (row `unskilled-state`) | rows |
 
 #### Task rows whose text no longer matches the tree
 
@@ -892,7 +892,7 @@ Every duplicated concept across all seams, one row each. "More complete" names t
 | 67 | Emitter family ×3 | `cli.emit` · `cli.outputFormatOf` (own parser) · bare `fmt.Print` (×100+); `session_full.go` hand-rolled format branch | `emit` (row `lively-revision`) | S6.F9 | row |
 | 68 | Family-binary scaffold ×4 | `--format` registration (`cli/format.go`, `cmd/taskloom/format.go`, `cmd/ltk/main.go`, `cmd/harp/root.go`) · execute-error tail ×4 · `version` ×2 · root PreRun ×2 · `manage install` ×3 · `docs_gen.go` ×2 | `internal/adapters/cli`'s | S6.F10 | slice 12 |
 | 69 | Worktree→primary redirect ×2 (+1 skipped) | `cli/taskstore_identity.go` · `internal/taskloom/workdir` · skipped at `cli.seedTaskIntoSession` | `projectroot.TaskStoreRoot` | S6.F13 | ML-F |
-| 70 | Arch rules ×2 | `tests/arch/*` · `internal/archlint/*` | — | row `unskilled-state` | slice 4 |
+| 70 | Arch rules ×2 | `tests/arch/*` · `internal/shared/archlint/*` | — | row `unskilled-state` | slice 4 |
 | 71 | Path confinement ×6 | `acp.confineToWorkspace` · `bundles.confineEntryTarget` · `mcp.resolveCellPath` · +3 (row) | — | row `easeful-chump` | row |
 | 72 | Migration living in a primitive ×3 | `agent.WithFileLock→cleanupLegacySidecar` · `claude.WriteCommandFiles` `RemoveAll` legacy dir · `confpatch.Store.renameLegacyRecords` | — (delete; re-init is the upgrade path) | S3.F14 | slice 6 |
 | 73 | Compat shim on the hot path ×3 | `sessions.MigrateIndex` (every `Open`) + `index_upgrade.go` · `paths.LegacyCanonicalTranscriptFileName` fallback (a write target) · `classifyPurgeFile` literals | — (delete) | S7.F7 | slice 6 |
@@ -968,7 +968,7 @@ Every quoted workaround comment, limit, sleep or fallback across the seams. "Tra
 | 63 | `Compactor.repairResults` | N+1 plugin launches per distill | per-launch handshake; the row names a deleted function | `zippy-tint` (stale mechanism) |
 | 64 | `operations.convertVendorTranscript` return | `(true, err)` on failure branches = "attempted" | `ResolveAndHeal` reads `Healed` from it | — |
 | 65 | `cli.rootPersistentPreRun` · `cli/root.go` | "config.Load is called from ~10 sites across the CLI — a per-Config toggle would only take effect on whichever one happened to be wired" | no single load funnel, so the switch became a global | — (S6.F6/F7) |
-| 66 | `cli.rootCommand` · `cli/root.go` | "isolation could import internal/version directly (it's a leaf), but this stays a Set* push for now rather than churning that wiring too" | a global standing in for an import | — |
+| 66 | `cli.rootCommand` · `cli/root.go` | "isolation could import internal/shared/version directly (it's a leaf), but this stays a Set* push for now rather than churning that wiring too" | a global standing in for an import | — |
 | 67 | `cli/format.go` const block | "a handful of streaming commands … parse --format themselves … Widening those … is out of scope here" | second format parser | `lively-revision` |
 | 68 | `cli/session_full.go` | "a hand-rolled duplicate of emit()'s own format branch, so this marks the guard on their behalf" + `formatWasHonored = true` | `emit` cannot render one struct two ways | `lively-revision` |
 | 69 | `cliemit.Resolve` `--json` | "the backward-compatible shorthand a few commands still carry" | a compat shim in the shared layer for one binary (taskloom) | — |
@@ -1025,7 +1025,7 @@ From A2 (launch) and A3 (bus). Each branch, what it skips, the USER-VISIBLE cons
 | `internal/core/config/preimage_wire_parity_test.go` | `BundleHook → wire.Hook` | round-trip `BundleHook → wire.Hook → backends.hookExecPayload` and assert byte-equal preimages (or delete the reverse copy with ML-D) | S5.SA-5 |
 | `tests/arch/credential_gitignore_test.go` `credentialPaths` | engine credentials in-tree | add `.ctxloom/state/trust/objects/`, `approvals`, `allowed_signers` rows | S5.SA-9 |
 | `TestFormatCoverage_AllRootCmdDescendants` | tree → registry | add registry → tree (fails on `"agent setup"`) | S6.F9 |
-| `TestArch_LeanBinaries…` + `tests/arch` vs `internal/archlint` | two copies of every rule, CI runs one | one source (row `unskilled-state`) | all of the above, twice |
+| `TestArch_LeanBinaries…` + `tests/arch` vs `internal/shared/archlint` | two copies of every rule, CI runs one | one source (row `unskilled-state`) | all of the above, twice |
 | `TestAgentRecvWait_StdioSchemaDescribesTheSameBounds` | one field of two schemas | delete with PATH A (ML-B); until then, generate the stdio schema from `mcpschema` | S2.F1, S4.F5 |
 
 **New gates** (no existing mechanism; the rule in one sentence):
@@ -1081,7 +1081,7 @@ Ordered by blast radius ÷ risk. **Risk** names the stop conditions a slice trip
 
 #### Slice 4 · Aim the existing gates and add the prose gate — **safe**, large leverage
 - **Settles.** All of B5's "re-aim" rows; N1 (unresolvable-symbol prose gate); `unskilled-state` ✅ (one rule source); A6 becomes enforceable. Then DELETE `docs/architecture/agentcoord/`, the `file:line` tables in `cli/*.md`, `mcp.md`, the 122 retired-engine comment lines, `README.md`'s layering sentence (or make it true via slice 9).
-- **Touches.** `tests/arch/layering_test.go` (new `from` rows with dated shrinking allowlists), `degrade_discipline_test.go`, `path_authority_test.go`, `lean_binaries_arch_test.go`, `lock/ledger_discipline_test.go`, `credential_gitignore_test.go`, `preimage_wire_parity_test.go`, `internal/archlint/*` (single source), a new `tests/arch/prose_symbols_test.go`, `docs/**`.
+- **Touches.** `tests/arch/layering_test.go` (new `from` rows with dated shrinking allowlists), `degrade_discipline_test.go`, `path_authority_test.go`, `lean_binaries_arch_test.go`, `lock/ledger_discipline_test.go`, `credential_gitignore_test.go`, `preimage_wire_parity_test.go`, `internal/shared/archlint/*` (single source), a new `tests/arch/prose_symbols_test.go`, `docs/**`.
 - **Net LOC.** docs −2,000+; tests +300. **Risk.** none (tests and docs). **Prereq.** none, but slices 5–9 each shrink an allowlist this creates.
 
 #### Slice 5 · `operations.Launch` — ONE launch path (ML-A) — **prompt**, **wire**

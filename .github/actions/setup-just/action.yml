@@ -17,7 +17,7 @@ description: >-
 # setup-just: it adds no new supply-chain dependency, and it reads the version
 # from .devcontainer/tool-versions.env — the same file the Dockerfile reads —
 # so a runner and the image can never install different `just` versions.
-# internal/buildpins' drift gate covers that agreement.
+# internal/shared/buildpins' drift gate covers that agreement.
 
 runs:
   using: composite

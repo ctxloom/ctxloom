@@ -5,7 +5,7 @@ package mcp
 import (
 	"reflect"
 
-	"github.com/ctxloom/ctxloom/internal/schemagen"
+	"github.com/ctxloom/ctxloom/internal/shared/schemagen"
 )
 
 // SchemaTargets lists the JSON output structs that live in this package — the

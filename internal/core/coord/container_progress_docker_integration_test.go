@@ -14,7 +14,7 @@
 // produce a TURN?
 //
 // So these tests assert the SHARED LIVENESS DEFINITION — which lives in exactly
-// one place, internal/liveness, and is reached here through the thin adapter in
+// one place, internal/shared/liveness, and is reached here through the thin adapter in
 // transcript_progress_test.go — against a real container child spawned via
 // AgentRun → runChild → runChildViaStartRun → issueStartRun → awaitRunner → the
 // in-container EngineHost.
@@ -76,7 +76,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -234,7 +234,7 @@ var progressTightThresholds = liveness.Thresholds{
 }
 
 // pollProgress is the ONE assertion entry point all three tests here share:
-// poll harp's canonical transcript through internal/liveness until `until`
+// poll harp's canonical transcript through internal/shared/liveness until `until`
 // accepts the verdict, or the budget expires. It returns the final verdict
 // either way plus whether `until` was ever satisfied.
 //

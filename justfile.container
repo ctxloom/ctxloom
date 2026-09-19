@@ -114,19 +114,19 @@ build-cover: validate proto gen-schemas
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build with tree-sitter code compression - static linked
 build-treesitter:
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}} {{static_ldflags}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}} {{static_ldflags}}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build with all CGO features
 build-full: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build the architectural linter into bin/archlint.
@@ -240,35 +240,35 @@ release-snapshot: validate proto gen-schemas
 build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom-linux-amd64 ./cmd/ctxloom
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom-linux-arm64 ./cmd/ctxloom
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom-windows-amd64.exe ./cmd/ctxloom
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom-darwin-amd64 ./cmd/ctxloom
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Build all platforms
@@ -360,7 +360,7 @@ test-default:
 
 # Run tests with the treesitter (CGO) build tag — exercises the code compressor
 test-treesitter:
-    CGO_ENABLED=1 go test -trimpath -race -tags treesitter ./internal/compression/...
+    CGO_ENABLED=1 go test -trimpath -race -tags treesitter ./internal/shared/compression/...
 
 # Run a single package's tests under -race (fast iteration inside the
 # container). Mirrors the host justfile's test-pkg, including both build-tag
@@ -532,7 +532,7 @@ gen-schemas:
 # truth: the CLI reference (man pages + website markdown) from each cobra
 # command tree, the MCP reference from the live tool/resource registrations, and
 # ctxloom's and taskloom's config references from their tracked JSON Schemas. One generator
-# (internal/docsgen) serves all three; taskloom and ltk keep their trees in
+# (internal/shared/docsgen) serves all three; taskloom and ltk keep their trees in
 # `package main`, so it mounts on them as a hidden `gendocs` subcommand compiled
 # only under `-tags docsgen`. The website pages are checked in, the man pages are
 # gitignored release artifacts.

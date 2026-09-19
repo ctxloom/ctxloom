@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // A LINK GROUP is one delivery unit inside a bundle. Items that share a

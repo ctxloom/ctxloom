@@ -550,7 +550,7 @@ Settle: profile hooks are gated where bundle hooks are — in the resolver that 
 Settle: the exec extractors take the `bundles.Authorizer` as a parameter from their operations caller (they already do for builtin ones); delete `Config.execGate`, `SetExecutableTrustGate`, `ExecutableTrustGate`.
 
 **LB-5 trust → remote.** `internal/core/trust` (the vocabulary package) imports `internal/adapters/remote` for `NormalizeRef`, `NormalizeURL`, `LocalSource`, `CompanionSource`. Consequently `remote` cannot name `trust.Ref`, and `remote.LockEntry`/`Puller` speak in strings (`refStr`, `localName`, `canonical`) that every consumer re-parses (`remote.ParseReference` appears 8× in cli alone).
-Settle: move URL/ref normalisation into `internal/refuri` (which both already import) and have `trust` depend on `refuri` only.
+Settle: move URL/ref normalisation into `internal/shared/refuri` (which both already import) and have `trust` depend on `refuri` only.
 
 ### 4.4 MISSING LAYER
 

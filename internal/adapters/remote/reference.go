@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // LocalSource is the fixed source token for ctxloom:local references —
@@ -55,7 +55,7 @@ const CompanionSource = "ctxloom:companion"
 //   - "ctxloom:local@bundles/name"
 //   - "ctxloom:local@bundles/name@<rev>" (pinned to a project revision)
 //
-// Canonical ctxloom URI (the grammar internal/refuri defines; class in the
+// Canonical ctxloom URI (the grammar internal/shared/refuri defines; class in the
 // scheme, "//" between repository path and bundle path):
 //   - "ctxloom+git://github.com/owner/repo//bundles/name[@ver][#kind/item]"
 //   - "ctxloom+file:///abs/repo//bundles/name"

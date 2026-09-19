@@ -19,8 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	livenesspkg "github.com/ctxloom/ctxloom/internal/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
 // ErrNotInjectable rejects a user injection whose target the coordinator does

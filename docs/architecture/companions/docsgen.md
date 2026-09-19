@@ -1,4 +1,4 @@
-# `internal/docsgen` — reference-documentation generator
+# `internal/shared/docsgen` — reference-documentation generator
 
 **What it is.** A leaf package (zero internal dependencies) that renders a product's reference
 documentation — man pages, per-command Starlight markdown, an MCP tool/resource page, and a

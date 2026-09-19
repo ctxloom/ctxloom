@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/schemagen"
+	"github.com/ctxloom/ctxloom/internal/shared/schemagen"
 )
 
 // schemaDir is a gitignored, generated artifact directory (like generated

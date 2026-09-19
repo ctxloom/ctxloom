@@ -162,10 +162,10 @@ var layeringRules = []layeringRule{
 			"internal/shared/realpath",
 			"internal/shared/harp",
 			"internal/shared/pidalive",
-			"internal/errs",
-			"internal/refuri",
-			"internal/schema",
-			"internal/liveness",
+			"internal/shared/errs",
+			"internal/shared/refuri",
+			"internal/shared/schema",
+			"internal/shared/liveness",
 		},
 		allowed: map[string]string{
 			// core/trust

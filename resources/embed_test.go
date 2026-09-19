@@ -101,7 +101,7 @@ func TestGetExampleConfig(t *testing.T) {
 
 // TestGetExampleConfig_MatchesOnDiskFile pins U155-F03 as REFUTED, not dead:
 // the finding is that GetExampleConfig's only callers are tests
-// (internal/schema/schema_test.go's "embedded example config is valid" and
+// (internal/shared/schema/schema_test.go's "embedded example config is valid" and
 // internal/core/config/arch_test.go's TestArch_ConfigSchema_ShippedConfigsValidate,
 // both build-tagged `arch` or plain, in OTHER packages). Those are not
 // throwaway reach-only tests -- they are the schema-drift regression gate for

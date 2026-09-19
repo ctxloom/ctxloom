@@ -114,13 +114,13 @@ func runWriteDiscipline(pass *analysis.Pass) (any, error) {
 					"%s calls %s directly — raw filesystem writes must route through "+
 						"internal/shared/iox, which is where the atomic write-then-rename sequence and the "+
 						"ownership ledger live. If this is a deliberate, reviewed exception, add %q to "+
-						"writeDisciplineAllowed in internal/archlint/writediscipline.go naming the fix "+
+						"writeDisciplineAllowed in internal/shared/archlint/writediscipline.go naming the fix "+
 						"required to remove it.", sym, call, key)
 			})
 		}
 	}
 	reportStaleAllowlist(pass, writeDisciplineAllowed, analyzedFiles(pass), seen, "writeDisciplineAllowed",
-		"internal/archlint/writediscipline.go")
+		"internal/shared/archlint/writediscipline.go")
 	return nil, nil
 }
 
@@ -236,8 +236,8 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/adapters/cli/llm_turn.go#writeRunStartHandoff":                 "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/cli/run_terminal_ui.go#redirectDiagnosticsForTUI":     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/contextmetrics/contextmetrics.go#Append":              "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/docsgen/config.go#GenConfig":                                   "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/docsgen/mcp.go#GenMCPTools":                                    "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
+	"internal/shared/docsgen/config.go#GenConfig":                            "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
+	"internal/shared/docsgen/mcp.go#GenMCPTools":                             "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/lm/backends/mock.go#writeMockRecord":                           "pre-ratchet baseline, test/mock backend — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/isolation/imagebuild.go#buildBaseImage":               "C10 isolation sweep: writes inside os.MkdirTemp(\"\", \"ctxloom-imgbase-\"), reaped by the same function's RemoveAll — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority — no concurrent-writer risk).",
 	"internal/adapters/isolation/imagebuild.go#buildImage":                   "C10 isolation sweep: writes inside os.MkdirTemp(\"\", \"ctxloom-imgbuild-\"), reaped by the same function's RemoveAll — temp-dir-scoped, verified. Migration deferred to a future slice (mechanical, low priority — no concurrent-writer risk).",
@@ -252,7 +252,7 @@ var writeDisciplineAllowed = map[string]string{
 	"internal/adapters/operations/task_triggers_cache.go#saveTriggerCache":   "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/profiles/profiles.go#Loader.CommitUpgrade":                "pre-ratchet baseline — internal/core/profiles is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
 	"internal/core/profiles/profiles.go#Loader.Save":                         "pre-ratchet baseline — internal/core/profiles is outside C10's five swept areas, left for a future slice (fs-consolidation plan C10)",
-	"internal/schemagen/schemagen.go#Generate":                               "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
+	"internal/shared/schemagen/schemagen.go#Generate":                        "pre-ratchet baseline, codegen tool — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/sessions/transcript.go#linkEngineTranscript":              "per-vendor-log symlink create (fs-consolidation plan C12, Q2 RULED) — iox writes byte CONTENT and has no symlink primitive; the first-sighting os.Symlink here is the create-once path",
 	"internal/core/sessions/transcript.go#atomicSymlink":                     "per-vendor-log symlink ATOMIC replace, the session-id-reuse anomaly path only (fs-consolidation plan C12, Q2 RULED) — unique-temp-name+rename mirrors iox's own algorithm, hand-applied because iox's primitives write byte content and have no symlink surface to delegate to",
 	"internal/core/sessions/manager.go#Manager.Rename":                       "whole session-DIRECTORY move on harp rename — iox stages byte CONTENT and renames the staged file into place; a directory move has no content to stage and no iox primitive. rename(2) is the atomic move, and copy-then-delete would leave the only undo at exactly one of src/dst mid-way. Remove by adding a directory-move primitive to iox, if one is ever wanted",

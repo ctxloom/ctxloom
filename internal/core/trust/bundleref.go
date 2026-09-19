@@ -6,12 +6,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // The URI SYNTAX this grammar is written in — the scheme carrying the source
 // class, the "//" repository/bundle split, percent-encoding and dot-segment
-// resolution — lives in internal/refuri, below both this package and
+// resolution — lives in internal/shared/refuri, below both this package and
 // internal/adapters/remote. This package adds what refuri deliberately does not know:
 // that the "#" fragment names a trust ITEM KIND, and that a parsed reference
 // is an identity a grant keys on.

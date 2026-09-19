@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
 // composedContext stands in for the block the incident's launcher re-delivered
@@ -74,7 +74,7 @@ func healthySession(t *testing.T, harp string) {
 		Type: agent.EntryTypeAssistant, Content: "Reading the failing test first.",
 	}}))
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
-		Type: agent.EntryTypeToolUse, ToolName: "Read", Content: "internal/liveness/monitor.go",
+		Type: agent.EntryTypeToolUse, ToolName: "Read", Content: "internal/shared/liveness/monitor.go",
 	}}))
 	require.NoError(t, rec.Record(agent.ChatEvent{Entry: &agent.SessionEntry{
 		Type: agent.EntryTypeToolResult, Content: "package liveness",

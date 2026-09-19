@@ -175,8 +175,8 @@ flowchart LR
   to JSON. `internal/adapters/cli/session_row.go:36-40` says the opposite explicitly, and
   `ctxloom://sessions/all` marshals as **YAML**, where all four computed fields are dropped.
 - **`MemStore`'s doc claims it mirrors `*Manager` "without touching disk"** — `ListForProject`,
-  `ListAll` and `Find` all call `fillCanonicalTranscript` → `paths.ResolveHarpCanonicalTranscriptPath`
-  → up to two `os.Stat`s under the real `$HOME`, and `ActivityTime` stats again. The two adapters
+  `ListAll` and `Find` all call `fillCanonicalTranscript`, which stats
+  `paths.HarpCanonicalTranscriptPath` under the real `$HOME`, and `ActivityTime` stats again. The two adapters
   also genuinely diverge: `MemStore`'s list methods never call `fillTranscriptByLocation`, which
   `Manager`'s do.
 - **`saveLocked(nil)` would marshal to the literal `null`** and atomically overwrite the index with

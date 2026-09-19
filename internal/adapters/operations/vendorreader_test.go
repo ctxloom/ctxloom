@@ -159,23 +159,21 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 	assert.Equal(t, first, canonicalLines(t, harp), "the canonical file must be byte-for-byte untouched by the skipped second call")
 }
 
-// TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists pins the
-// transcript.acp.jsonl -> transcript.jsonl rename's idempotency corollary: a
-// harp that already has a PRE-RENAME (legacy-named) canonical transcript
-// must be treated the same as one with a current-named transcript — skipped,
-// not re-converted. Without the paths.ResolveHarpCanonicalTranscriptPath
-// fallback in hasCanonicalTranscript, this would re-run Convert and produce
-// a SECOND, current-named canonical file alongside the legacy one,
-// duplicating the session's history across two files.
-func TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists(t *testing.T) {
+// TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript pins
+// the one-name contract at the conversion guard: hasCanonicalTranscript
+// looks for paths.CanonicalTranscriptFileName only. A persist/ holding just
+// the pre-rename leaf (transcript.acp.jsonl) has no canonical transcript, so
+// the conversion RUNS and lands under the current name; the pre-rename file
+// is an unknown file the conversion neither reads nor touches.
+func TestConvertVendorTranscript_PreRenameFileIsNotACanonicalTranscript(t *testing.T) {
 	testsupport.Isolate(t)
-	harp := "convert-legacy-exists-harp"
+	harp := "convert-pre-rename-harp"
 
 	persistDir, err := paths.HarpPersistDir(harp)
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(persistDir, 0o755))
-	legacyPath := filepath.Join(persistDir, "transcript.acp.jsonl")
-	require.NoError(t, os.WriteFile(legacyPath, []byte(`{"v":1,"harp":"`+harp+`"}`+"\n"), 0o644))
+	preRename := filepath.Join(persistDir, "transcript.acp.jsonl")
+	require.NoError(t, os.WriteFile(preRename, []byte(`{"v":1,"harp":"`+harp+`"}`+"\n"), 0o644))
 
 	e := sessions.Entry{
 		HarpName:       harp,
@@ -185,12 +183,12 @@ func TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists(t *testing.T) {
 	}
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
-	assert.False(t, converted, "a harp with an existing legacy-named canonical transcript must be skipped")
+	assert.True(t, converted, "a pre-rename leaf is not a canonical transcript; the conversion must run")
 
-	assert.Nil(t, canonicalLines(t, harp), "no current-named canonical file should have been created alongside the legacy one")
-	legacyData, err := os.ReadFile(legacyPath)
+	assert.NotNil(t, canonicalLines(t, harp), "the conversion lands under the current name")
+	preRenameData, err := os.ReadFile(preRename)
 	require.NoError(t, err)
-	assert.Equal(t, `{"v":1,"harp":"`+harp+`"}`+"\n", string(legacyData), "the legacy file must be byte-for-byte untouched")
+	assert.Equal(t, `{"v":1,"harp":"`+harp+`"}`+"\n", string(preRenameData), "the pre-rename file is neither read nor touched")
 }
 
 // TestConvertVendorTranscript_BestEffortOnFailure: a bind that STATS fine

@@ -197,6 +197,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckLocalTierState(cfg),
 			doctorCheckGitignorePosture(cfg, cfgErr),
 			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
+			doctorCheckLegacyIndex(),
 			doctorCheckHarpDurability(),
 			doctorCheckSpoolBacklog(),
 			doctorCheckSpoolCounters(ctx),

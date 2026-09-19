@@ -2,9 +2,7 @@
 package paths
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -276,24 +274,12 @@ const (
 	// single file ctxloom itself writes. This is authored session memory, not
 	// derived cache: it persists under persist/, never gitignored.
 	//
-	// Named "transcript.jsonl", NOT "transcript.acp.jsonl" (the pre-rename
-	// name): the file is fed by every structured/ACP engine AND the oneshot
-	// regime (transcript.RecordOneshot) AND the vendor readers
-	// (internal/adapters/transcript/vendorreader/*) — engine-agnostic by construction, per
-	// this constant's own doc comment above. The old name read as "an ACP
-	// artifact" to anyone browsing a session's persist/ dir, which it never
-	// was. See LegacyCanonicalTranscriptFileName for the back-compat reader
-	// fallback this rename requires.
+	// Engine-agnostic by name as well as by content: the file is fed by every
+	// structured/ACP engine AND the oneshot regime (transcript.RecordOneshot)
+	// AND the vendor readers (internal/adapters/transcript/vendorreader/*), so
+	// its name carries no engine or protocol. This is the ONLY name a canonical
+	// transcript is read or written under.
 	CanonicalTranscriptFileName = "transcript.jsonl"
-
-	// LegacyCanonicalTranscriptFileName is CanonicalTranscriptFileName's
-	// pre-rename value. Read-only: nothing ever writes this name again (every
-	// writer targets HarpCanonicalTranscriptPath, i.e. the current name), but
-	// sessions captured before the rename have ONLY this file on disk, so
-	// ResolveHarpCanonicalTranscriptPath falls back to it rather than
-	// treating an already-captured pre-rename session as if it had no
-	// canonical transcript at all.
-	LegacyCanonicalTranscriptFileName = "transcript.acp.jsonl"
 
 	// CoordDirName is the per-user directory holding one subdirectory of
 	// in-process coordinator state per project: ~/.ctxloom/coord/<project-key>/
@@ -689,73 +675,14 @@ func HarpEngineTranscriptLinkPath(harp, engine, sessionID string) (string, error
 // CanonicalTranscriptFileName). This is the file internal/adapters/transcript.Recorder
 // appends to and internal/adapters/transcript.CanonicalHistory (a later slice) reads
 // from; it is distinct from HarpTranscriptStoreDir, which bind-mounts an
-// engine's own native store.
-//
-// Always the CURRENT name, unconditionally — every writer (Recorder,
-// ConvertVendorTranscript) targets this path, never the legacy one. A reader
-// that needs to find an already-captured transcript regardless of which name
-// it was written under should call ResolveHarpCanonicalTranscriptPath
-// instead.
+// engine's own native store. Pure, like its neighbours: readers stat it
+// themselves, and "no file" is their answer for "never captured".
 func HarpCanonicalTranscriptPath(harp string) (string, error) {
 	dir, err := HarpPersistDir(harp)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, CanonicalTranscriptFileName), nil
-}
-
-// ResolveHarpCanonicalTranscriptPath returns the on-disk path to harp's
-// captured canonical transcript, preferring HarpCanonicalTranscriptPath (the
-// current name) but falling back to the pre-rename
-// LegacyCanonicalTranscriptFileName when only THAT one exists on disk — the
-// back-compat path for a session captured before the transcript.acp.jsonl ->
-// transcript.jsonl rename. Returns the current-name path, unstated, when
-// NEITHER file exists, so a caller's own os.Stat still produces a clean
-// "not captured yet" against the canonical, current name (matching
-// HarpCanonicalTranscriptPath's existing no-file contract).
-//
-// A stat that fails for any reason OTHER than absence errors instead. Absence
-// is a fact this function is entitled to act on; an unanswerable stat is not,
-// and returning a path for it would report a guess in the shape of a result.
-//
-// Unlike every other function in this file, this one does I/O (a stat per
-// candidate) — it is reserved for read paths that need "does a captured
-// transcript exist, and where" (transcript.CanonicalHistory.GetSession,
-// sessions.fillCanonicalTranscript, operations.hasCanonicalTranscript).
-// Writers always call HarpCanonicalTranscriptPath directly: this rename is
-// forward-only, nothing ever writes the legacy name again.
-func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
-	// One home-dir resolution for both leaf names: the legacy path can only
-	// differ from the current one in its file name, so re-deriving the
-	// directory (and re-handling an error that already fired) buys nothing.
-	dir, err := HarpPersistDir(harp)
-	if err != nil {
-		return "", err
-	}
-	current := filepath.Join(dir, CanonicalTranscriptFileName)
-	legacy := filepath.Join(dir, LegacyCanonicalTranscriptFileName)
-
-	// Only PLAIN ABSENCE licenses moving on. The fallback's whole precondition
-	// is "the current name is not there", and an ELOOP or EACCES does not
-	// establish that — it says the question could not be answered. Treating
-	// the two alike hands back the pre-rename transcript, with a nil error,
-	// while a current one sits on disk unread: the caller cannot tell a
-	// resolution from a guess, because both look like a path.
-	switch _, statErr := os.Stat(current); {
-	case statErr == nil:
-		return current, nil
-	case !errors.Is(statErr, fs.ErrNotExist):
-		return "", fmt.Errorf("stat canonical transcript %s: %w", current, statErr)
-	}
-
-	switch _, statErr := os.Stat(legacy); {
-	case statErr == nil:
-		return legacy, nil
-	case !errors.Is(statErr, fs.ErrNotExist):
-		return "", fmt.Errorf("stat pre-rename canonical transcript %s: %w", legacy, statErr)
-	}
-
-	return current, nil
 }
 
 // TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted

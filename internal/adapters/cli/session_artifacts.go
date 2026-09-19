@@ -2,7 +2,6 @@ package cli
 
 import (
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -95,17 +94,11 @@ func runSessionArtifactsList(cmd *cobra.Command, args []string) error {
 // would report sessions as distilled that have nothing to show.
 func newSessionArtifactRow(harp string) sessionArtifactRow {
 	row := sessionArtifactRow{Harp: harp}
-	path, err := paths.HarpEssencePath(harp)
-	if err != nil {
-		return row
+	if path, size, ok := statHarpFile(harp, paths.HarpEssencePath); ok {
+		row.Distilled = true
+		row.Bytes = size
+		row.Path = path
 	}
-	info, statErr := os.Stat(path)
-	if statErr != nil || !info.Mode().IsRegular() {
-		return row
-	}
-	row.Distilled = true
-	row.Bytes = info.Size()
-	row.Path = path
 	return row
 }
 

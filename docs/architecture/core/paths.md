@@ -18,7 +18,6 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
   and signing artifacts.
 - Path composition functions over those constants.
 - The tier classification (`Tier`, `Entry`, `Layout`) that doctor walks.
-- One resolution with I/O: `ResolveHarpCanonicalTranscriptPath` (current name, else legacy name).
 
 ## Non-responsibilities
 
@@ -49,7 +48,6 @@ flowchart TD
     HD --> HPD["HarpPersistDir<br/>persist/"]
     HPD --> HTSD["HarpTranscriptStoreDir<br/>persist/transcripts/"]
     HPD --> HCTP["HarpCanonicalTranscriptPath<br/>persist/transcript.jsonl"]
-    HCTP --> RES["ResolveHarpCanonicalTranscriptPath<br/>(the only I/O: 2x os.Stat)"]
 
     AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml"]
     AP --> RP["RemotesPath remotes.yaml"]
@@ -143,7 +141,6 @@ this package.
 | `HarpPersistDir` | `<harp>/persist` — must survive teardown | 2 |
 | `HarpTranscriptStoreDir` | `persist/transcripts` — container bind target | 2 |
 | `HarpCanonicalTranscriptPath` | `persist/transcript.jsonl` — the canonical write target | 6 |
-| `ResolveHarpCanonicalTranscriptPath` | Stats the current name, falls back to `persist/transcript.acp.jsonl`, else returns the current name. **The only function here that touches the filesystem.** | 5 |
 | `HomeApprovalsPath` | `~/.ctxloom/approvals` — the user countersignature store | 2 |
 | `HomeCompanionConsentPath` | `~/.ctxloom/companion_consent.yaml` — personal-only, no project twin | 1 |
 | `HomeAllowedSignersPath` | `~/.ctxloom/allowed_signers` | 4 |

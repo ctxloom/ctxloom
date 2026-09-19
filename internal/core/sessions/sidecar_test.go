@@ -146,35 +146,52 @@ purged_at: 2026-09-02T09:00:00Z
 	assert.NotNil(t, one.PurgedAt)
 }
 
+// TestListAll_StaleIndexYAMLLeftBehindIsIgnored pins the property the
+// decided architecture states for the sessions tree: the sidecar
+// (paths.SessionSidecarFileName under each harp dir) is the record, and a
+// pre-rename index.yaml at the sessions root is NOT a source of sessions —
+// whether or not an older binary's migration left its marker
+// (paths.MigratedIndexFileName) beside it. The index carries a harp the tree
+// does not have; that harp must never surface, and the file must never be
+// consumed.
 func TestListAll_StaleIndexYAMLLeftBehindIsIgnored(t *testing.T) {
-	_, root := openSidecarRoot(t)
-	writeSidecar(t, root, "real-one", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
-	// An index.yaml at the root — an older binary wrote one, beside or
-	// without the marker its own migration left — is not a source of
-	// sessions: its rows are neither listed nor turned into directories.
-	require.NoError(t, os.WriteFile(filepath.Join(root, paths.IndexFileName+".migrated"), []byte("sessions: []\n"), 0o644))
-	stale := filepath.Join(root, paths.IndexFileName)
-	require.NoError(t, os.WriteFile(stale, []byte(`sessions:
+	for _, tc := range []struct {
+		name       string
+		withMarker bool
+	}{
+		{name: "beside the migration marker", withMarker: true},
+		{name: "without any marker (a pure pre-rename index)", withMarker: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, root := openSidecarRoot(t)
+			writeSidecar(t, root, "real-one", "project_dir: /proj/a\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
+			if tc.withMarker {
+				require.NoError(t, os.WriteFile(filepath.Join(root, paths.MigratedIndexFileName), []byte("sessions: []\n"), 0o644))
+			}
+			stale := filepath.Join(root, paths.IndexFileName)
+			require.NoError(t, os.WriteFile(stale, []byte(`sessions:
   - harp_name: ghost-row
     project_dir: /proj/a
     backend: claude-code
     started_at: 2026-08-01T10:00:00Z
 `), 0o644))
 
-	// Re-Open against the stale file: nothing may read it.
-	m2, err := Open()
-	require.NoError(t, err)
-	got, err := m2.ListAll()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"real-one"}, harpNames(got), "a stale index.yaml must not contribute rows")
+			// Re-Open against the stale file: nothing may read it.
+			m2, err := Open()
+			require.NoError(t, err)
+			got, err := m2.ListAll()
+			require.NoError(t, err)
+			assert.Equal(t, []string{"real-one"}, harpNames(got), "a stale index.yaml must not contribute rows")
 
-	found, err := m2.Find("ghost-row")
-	require.NoError(t, err)
-	assert.Nil(t, found)
-	_, statErr := os.Stat(filepath.Join(root, "ghost-row"))
-	assert.True(t, os.IsNotExist(statErr), "ignored means ignored: no directory is minted for a stale row")
-	_, statErr = os.Stat(stale)
-	assert.NoError(t, statErr, "the stale file is left alone, not consumed")
+			found, err := m2.Find("ghost-row")
+			require.NoError(t, err)
+			assert.Nil(t, found)
+			_, statErr := os.Stat(filepath.Join(root, "ghost-row"))
+			assert.True(t, os.IsNotExist(statErr), "ignored means ignored: no directory is minted for a stale row")
+			_, statErr = os.Stat(stale)
+			assert.NoError(t, statErr, "the stale file is left alone, not consumed")
+		})
+	}
 }
 
 func TestListAll_SummaryAndDetailDerivedFromEssence(t *testing.T) {

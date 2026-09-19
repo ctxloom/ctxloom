@@ -143,9 +143,9 @@ the decision to "S2, which owns the actual host wiring"; neither live seam passe
 | `ParseTranscriptFile` | `history.go:170` | Streams the JSONL, version-checks each line, folds entries, computes the ts span. **Split contract:** a bad-JSON line is dropped silently (`history.go:183`); a `v` mismatch is a hard **file** error (`:185-187`) |
 | `entriesFromRecord` | `history.go:215` | One `Record` → 0 or 1 `agent.SessionEntry` |
 
-**Two path-resolution routes.** `GetSession` calls `paths.ResolveHarpCanonicalTranscriptPath`;
-`ListSessions` trusts `Entry.CanonicalTranscriptPath` from the session index. They agree today only
-because `sessions.fillCanonicalTranscript` (`index.go:429`) happens to call the same resolver.
+**Two path-resolution routes.** `GetSession` stats `paths.HarpCanonicalTranscriptPath` itself;
+`ListSessions` trusts `Entry.CanonicalTranscriptPath` from the session store. They agree today only
+because `sessions.fillCanonicalTranscript` happens to stat the same path.
 
 **The version-mismatch contract has no teeth end to end.** Three of four consumers swallow the
 hard error: `lm/grpc/canonical_source.go:135,150` falls through to legacy on *any* canonical error;

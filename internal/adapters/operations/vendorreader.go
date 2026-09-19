@@ -306,8 +306,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// keeps whatever it had until a complete replacement exists.
 	//
 	// dest here is the PERSIST-DIR canonical path (paths.
-	// HarpCanonicalTranscriptPath / ResolveHarpCanonicalTranscriptPath —
-	// <harp>/persist/transcript.jsonl), never one of
+	// HarpCanonicalTranscriptPath — <harp>/persist/transcript.jsonl), never one of
 	// sessions.linkEngineTranscript's per-vendor-log convenience symlinks
 	// (DIFFERENT files at the harp ROOT, <harp>/engine-transcript-<engine>-
 	// <sessionID>.jsonl, each pointing at a live vendor file — see its doc
@@ -316,7 +315,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// still replaces whatever is at a destination atomically without
 	// following a symlink if it ever were one, so this stays correct even if
 	// that ever changed — but nothing here currently exercises that case.
-	dest, derr := canonicalDestination(e.HarpName, refresh)
+	dest, derr := paths.HarpCanonicalTranscriptPath(e.HarpName)
 	if derr != nil {
 		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
 	}
@@ -523,36 +522,13 @@ func appendFileBytes(w io.Writer, src string) error {
 	return nil
 }
 
-// canonicalDestination is the file a conversion for harp should end up at.
-//
-// A refresh must land on the transcript that is ALREADY THERE, resolved name and
-// all: a pre-rename session carries only the legacy transcript.acp.jsonl, and
-// writing the replacement under the current name would leave BOTH on disk — the
-// duplication the whole temp-then-rename dance exists to prevent, arrived at from
-// the other direction. A first conversion has nothing to resolve and takes the
-// current name.
-func canonicalDestination(harp string, refresh bool) (string, error) {
-	if refresh {
-		if p, err := paths.ResolveHarpCanonicalTranscriptPath(harp); err == nil && p != "" {
-			return p, nil
-		}
-	}
-	return paths.HarpCanonicalTranscriptPath(harp)
-}
-
 // hasCanonicalTranscript reports whether harp already has a canonical
-// transcript.jsonl on disk — ConvertVendorTranscript's idempotency guard
-// (see its doc comment for why presence, not a staleness/mtime comparison,
-// is the right check here). Resolved via
-// paths.ResolveHarpCanonicalTranscriptPath, NOT HarpCanonicalTranscriptPath
-// directly: a pre-rename session has only the legacy transcript.acp.jsonl on
-// disk, and this guard must see that as "already captured" too — otherwise
-// a harp that already has a legacy-named canonical transcript would get
-// re-converted, duplicating every entry into a second, current-named file
-// (see ConvertVendorTranscript's doc comment on why this is NOT idempotent
-// by content-diffing).
+// transcript on disk (paths.HarpCanonicalTranscriptPath, the one name it is
+// ever written under) — ConvertVendorTranscript's idempotency guard (see its
+// doc comment for why presence, not a staleness/mtime comparison, is the
+// right check here).
 func hasCanonicalTranscript(harp string) bool {
-	p, err := paths.ResolveHarpCanonicalTranscriptPath(harp)
+	p, err := paths.HarpCanonicalTranscriptPath(harp)
 	if err != nil {
 		return false
 	}

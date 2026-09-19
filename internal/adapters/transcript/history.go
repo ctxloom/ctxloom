@@ -1,8 +1,6 @@
 // This file (history.go) defines the READER counterpart to record.go/
 // recorder.go: transcript.CanonicalHistory turns a harp's captured
-// transcript.jsonl (paths.HarpCanonicalTranscriptPath, resolved for reads via
-// paths.ResolveHarpCanonicalTranscriptPath so a pre-rename
-// transcript.acp.jsonl still resolves) back into the normalized
+// transcript.jsonl (paths.HarpCanonicalTranscriptPath) back into the normalized
 // agent.Session/agent.SessionMeta shape ctxloom's memory consumers already
 // depend on (slice S3).
 //
@@ -115,9 +113,9 @@ func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agen
 	if harpName == "" {
 		return nil, fmt.Errorf("transcript: GetSession requires a non-empty harp")
 	}
-	path, err := paths.ResolveHarpCanonicalTranscriptPath(harpName)
+	path, err := paths.HarpCanonicalTranscriptPath(harpName)
 	if err != nil {
-		return nil, fmt.Errorf("transcript: resolve canonical transcript path for harp %q: %w", harpName, err)
+		return nil, fmt.Errorf("transcript: canonical transcript path for harp %q: %w", harpName, err)
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		if os.IsNotExist(statErr) {

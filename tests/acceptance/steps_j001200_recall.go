@@ -98,7 +98,7 @@ func j001200WriteEssence(w *World, harp, summary, body string) error {
 
 // j001200WriteCanonicalTranscript writes a harp's canonical transcript in the real
 // on-disk schema (internal/adapters/transcript.Record), at the path
-// paths.ResolveHarpCanonicalTranscriptPath resolves — hand-rendered as JSON
+// paths.HarpCanonicalTranscriptPath names — hand-rendered as JSON
 // rather than marshalled through the production type so that a schema change
 // shows up here as a deliberate fixture update instead of silently reshaping
 // what this journey claims to have recorded.

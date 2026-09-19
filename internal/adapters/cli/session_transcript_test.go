@@ -3,11 +3,13 @@ package cli
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -137,4 +139,27 @@ func TestSessionWatch_MovedUnderTranscript(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "`session transcript watch` must exist")
+}
+
+// TestSessionTranscriptList_PreRenameFileIsNotCaptured pins the one-name
+// contract at the listing: a persist/ holding only the pre-rename leaf
+// (transcript.acp.jsonl) is reported as NOT captured — the row never resolves
+// a transcript under the old name.
+func TestSessionTranscriptList_PreRenameFileIsNotCaptured(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+	_, harp := seedEndedSession(t, dir, "claude-code")
+	t.Cleanup(resetSessionTranscriptFlags)
+	persistDir, err := paths.HarpPersistDir(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(persistDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(persistDir, "transcript.acp.jsonl"), []byte("{}\n"), 0o644))
+
+	out, err := execRootCmd(t, "session", "transcript", "list", "--format", "json")
+	require.NoError(t, err)
+	var got transcriptListPayload
+	require.NoError(t, json.Unmarshal([]byte(out), &got), "output must be clean JSON: %s", out)
+	require.Len(t, got.Transcripts, 1)
+	assert.Equal(t, harp, got.Transcripts[0].Harp)
+	assert.False(t, got.Transcripts[0].Captured)
+	assert.Empty(t, got.Transcripts[0].Path)
 }

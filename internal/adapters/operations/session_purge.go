@@ -20,8 +20,9 @@ import (
 // §4). A harp directory holds three content classes, and purge treats each one
 // differently:
 //
-//	machine  — transcript.jsonl / transcript.acp.jsonl (top level or under
-//	           persist/), everything under persist/transcripts/, and whatever
+//	machine  — the canonical transcript (paths.CanonicalTranscriptFileName,
+//	           top level or under persist/), everything under
+//	           persist/transcripts/, and whatever
 //	           file the index entry's TranscriptPath names (fenced to inside
 //	           this harp's own directory). ALWAYS destroyed.
 //	derived  — essence.md. Kept by default; destroyed only under --everything.
@@ -365,10 +366,8 @@ func classifyPurgeFile(rel string, isTranscriptMatch bool) PurgeClass {
 	}
 	relSlash := filepath.ToSlash(rel)
 	switch {
-	case relSlash == paths.CanonicalTranscriptFileName, relSlash == "transcript.acp.jsonl":
-		return PurgeClassMachine
-	case relSlash == paths.PersistDirName+"/"+paths.CanonicalTranscriptFileName,
-		relSlash == paths.PersistDirName+"/transcript.acp.jsonl":
+	case relSlash == paths.CanonicalTranscriptFileName,
+		relSlash == paths.PersistDirName+"/"+paths.CanonicalTranscriptFileName:
 		return PurgeClassMachine
 	case strings.HasPrefix(relSlash, paths.PersistDirName+"/"+paths.TranscriptStoreDirName+"/"):
 		return PurgeClassMachine

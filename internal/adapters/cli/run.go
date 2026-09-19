@@ -477,7 +477,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// fires when that method returns, which for teardown is far too early.
 	// The registration ORDER below is the unwind order (LIFO) and is
 	// load-bearing; each defer's own doc says why it sits where it does.
-	restoreTitle := st.openSession()
+	restoreTitle, err := st.openSession()
+	if err != nil {
+		return err
+	}
 	defer restoreTitle()
 
 	st.exportProjectIdentity()
@@ -1041,12 +1044,20 @@ func (st *runState) emitDryRun() error {
 // terminal-title restore for runRun to defer — the OSC2 push/pop pair has to
 // unwind on runRun's frame, not this one.
 //
+// A mint that fails REFUSES the run: there is no harpless run. Every phase
+// after this one is keyed to the harp — the coordinator it hosts, the task it
+// seeds, the runner's reach-back env, the engine's private scratch dir
+// (LaunchBackend's ErrSharedScratchNoHarp) — so a run that warned past the
+// failure here would spawn an engine only to fail three phases later for a
+// cause it could no longer name. The store's own error is returned as-is;
+// runRun exits on it before anything else is stood up.
+//
 // Session resolution: no interactive resume picker, no flag-based resume —
 // every `ctxloom run` opens a FRESH harp. Resuming prior context is the
 // in-engine "resume" skill's job (recover_session/load_session/
 // get_previous_session), invoked from inside the session that just started,
 // not a startup-time choice.
-func (st *runState) openSession() func() {
+func (st *runState) openSession() (func(), error) {
 	st.runEnv = map[string]string{}
 	for k, v := range st.llmEnv {
 		st.runEnv[k] = v
@@ -1054,8 +1065,7 @@ func (st *runState) openSession() func() {
 
 	entry, err := operations.AssignSession(st.ctx, st.workDir, st.backendName)
 	if err != nil {
-		clidiag.Warn("ctxloom", "session naming failed: %v", err)
-		return func() {}
+		return nil, fmt.Errorf("session naming failed, refusing to run: %w", err)
 	}
 
 	st.activeHarp = entry.HarpName
@@ -1092,9 +1102,9 @@ func (st *runState) openSession() func() {
 	// where supported; elsewhere it is silently ignored.
 	if isInteractiveTerminal() && stderrIsTerminal() {
 		fmt.Fprintf(os.Stderr, "\033[22;0t\033]2;ctxloom · %s\007", entry.HarpName)
-		return func() { fmt.Fprint(os.Stderr, "\033[23;0t") }
+		return func() { fmt.Fprint(os.Stderr, "\033[23;0t") }, nil
 	}
-	return func() {}
+	return func() {}, nil
 }
 
 // applyResumeEnv stamps the CTXLOOM_RESUMED_FROM/PARTS pair for whichever
@@ -1148,14 +1158,9 @@ func (st *runState) exportProjectIdentity() {
 	}
 }
 
-// markSessionEnded stamps the harp's end timestamp. It guards on an unbound
-// harp itself so runRun can defer it unconditionally — the single body it
-// replaces guarded by not registering the defer at all, which is the same
-// thing done at a distance.
+// markSessionEnded stamps the harp's end timestamp. runRun defers it only
+// once openSession has minted the harp, so there is always one to mark.
 func (st *runState) markSessionEnded() {
-	if st.activeHarp == "" {
-		return
-	}
 	if err := operations.EndSession(st.activeHarp, time.Now()); err != nil {
 		clidiag.Warn("ctxloom", "session end-mark failed: %v", err)
 	}
@@ -1194,10 +1199,6 @@ func recordCoordinatorStartupFinding(cerr error) {
 }
 
 func (st *runState) hostCoordinator() func() {
-	if st.activeHarp == "" {
-		return func() {}
-	}
-
 	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(st.cfg, st.workDir, st.activeHarp, st.agentRuntime)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
@@ -1262,7 +1263,7 @@ func (st *runState) hostCoordinator() func() {
 // already lives in the project log; seeding marks it In Progress under the new
 // session.
 func (st *runState) seedTask() {
-	if runSeedTask != "" && st.activeHarp != "" {
+	if runSeedTask != "" {
 		seedTaskIntoSession(st.workDir, st.activeHarp, runSeedTask, runSeedStatus)
 	}
 }
@@ -1839,8 +1840,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // exited. Extracted to its own small, directly-unit-testable function (no
 // goplugin/pty involved) rather than inlined at the call site above,
 // mirroring how transcript.RecordOneshot itself is a standalone function the
-// oneshot branch just calls. A blank harp (no session identity — e.g.
-// AssignSession failed earlier and the run proceeded unharped) or an
+// oneshot branch just calls. A blank harp (no session identity) or an
 // unindexed harp are silent no-ops; any other lookup/heal failure is warned,
 // never returned, so a transcript-import hiccup can never fail an otherwise-
 // successful interactive run.

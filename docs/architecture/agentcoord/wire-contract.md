@@ -17,15 +17,15 @@ flowchart TD
   subgraph Wire["coordination.proto — agentcoord.v1"]
     RF["RunnerFrame / RuntimeFrame<br/>runner lifecycle · :263-430"]
     AF["AgentFrame / CoordinatorFrame<br/>one run, 3 planes"]
-    P1["plane 1 — AgentEvent :961<br/>15 payload arms, 12 produced"]
-    P2U["plane 2 up — AgentRequest :524<br/>approval · user_input · spawn_agent<br/>peer_send · list_runs · stop_run · custom"]
-    P2D["plane 2 down — CoordinatorRequest :826<br/>steer · question · summarize · pause · resume"]
-    P3["plane 3 — Ack · Heartbeat · CoordinatorNotice :913"]
+    P1["plane 1 — AgentEvent<br/>15 payload arms, 12 produced"]
+    P2U["plane 2 up — AgentRequest<br/>approval · user_input · spawn_agent<br/>peer_send · list_runs · stop_run · custom"]
+    P2D["plane 2 down — CoordinatorRequest<br/>steer · question · summarize · pause · resume"]
+    P3["plane 3 — Ack · Heartbeat · CoordinatorNotice"]
     AF --> P1 & P2U & P2D & P3
   end
   subgraph Art["artifacts.proto"]
-    UP["UploadArtifact(stream) :88"]
-    DL["DownloadArtifact → stream :95"]
+    UP["UploadArtifact(stream)"]
+    DL["DownloadArtifact → stream"]
   end
   MCP[["mcpschema/schemas/*.json<br/>LLM-facing tool surface"]]
   COORD[["coord/runchannel.go serve* handlers"]]
@@ -43,14 +43,14 @@ flowchart TD
 
 ## Services
 
-| Service / RPC | file:line | Contract | Implementation |
-|---|---|---|---|
-| `CoordinatorService.RunnerChannel` | `coordination.proto:208` | bidi; runner lifecycle keyed by credential hash | server `coord/grpcserver.go:156`, client `coord/runnerlink.go:107` |
-| `CoordinatorService.RunChannel` | `coordination.proto:221` | bidi; ONE run's three planes | server `coord/runchannel.go:116`, client `coord/home.go:259` |
-| `ConsumerService.WatchRuns` | `coordination.proto:772` | snapshot frame, then live events | `coord/consumer.go:274`; client `operations/sessionfeed.go:181` |
-| `ConsumerService.ListRuns` | `coordination.proto:776` | roster poll | `coord/consumer.go:266` |
-| `ArtifactTransferService.UploadArtifact` | `artifacts.proto:88` | chunked upload, server-hashed | `coord/artifacts.go:81`; client `coord/homeartifacts.go:36` |
-| `ArtifactTransferService.DownloadArtifact` | `artifacts.proto:95` | header-first stream | `coord/artifacts.go:198`; client `coord/homeartifacts.go:88` |
+| Service / RPC | Contract | Implementation |
+| --- | --- | --- |
+| `CoordinatorService.RunnerChannel` | bidi; runner lifecycle keyed by credential hash | server `coord/grpcserver.go`, client `coord/runnerlink.go` |
+| `CoordinatorService.RunChannel` | bidi; ONE run's three planes | server `coord/runchannel.go`, client `coord/home.go` |
+| `ConsumerService.WatchRuns` | snapshot frame, then live events | `coord/consumer.go`; client `operations/sessionfeed.go` |
+| `ConsumerService.ListRuns` | roster poll | `coord/consumer.go` |
+| `ArtifactTransferService.UploadArtifact` | chunked upload, server-hashed | `coord/artifacts.go`; client `coord/homeartifacts.go` |
+| `ArtifactTransferService.DownloadArtifact` | header-first stream | `coord/artifacts.go`; client `coord/homeartifacts.go` |
 
 `CoordinatorService` carries no unary RPC: the at-least-once event fallback exists
 only as the in-process `coord.Coordinator.PublishEvents`, called by the oneshot
@@ -59,21 +59,21 @@ surface for it, because there was never a non-test client to serve.
 
 `ConsumerService` is deliberately read-only — steer/inject is excluded and the proto
 says why. Consumer credentials are refused on `CoordinatorService` by the auth
-interceptors (`grpcserver.go:121`).
+interceptors (`grpcserver.go`).
 
 ## Message families that matter
 
-| Message | file:line | Role | Reality |
-|---|---|---|---|
-| `AgentEvent` | `coordination.proto:961` | the durable sequenced fact; "the coordinator's view is a pure fold over these" | envelope fields `task_id`, `turn_id`, `parent_item_id`, `traceparent` have **zero references repo-wide**; 4 of 15 payload arms are never constructed |
-| `HarnessSpec` | `coordination.proto:319` | what to launch — `permission_mode` typed and enforced, everything else in an open `config` Struct | built+decoded in one file (`coord/harnessspec.go`), which is what keeps the three magic string keys honest |
-| `SpawnAgentRequest` | `coordination.proto:623` | `agent_run` | the live payload has migrated *into* the untyped `input` Struct (`prompt`, `workspace`, `dirty_tree_handler`, read at `runchannel.go:724-737`); the typed `budget`/`constraints`/`notify_on` are read by nobody |
-| `PeerSendRequest` | `coordination.proto:668` | `agent_send` | `to_agent_id`/`to_role`/`text`/`structured`/`in_reply_to` are live; `artifact_ids` is never read and `PeerMessage.artifacts` is never populated |
-| `ListRunsRequest` / `ListRunsResult.RunInfo` | `coordination.proto:714,728` | `roster` | see [observation.md](observation.md) — 2 of 4 filters and 2 of 9 result fields are inert |
-| `StopRun` | `coordination.proto:363` | used in **two directions with two contracts**: `RunnerRequest.stop_run=11` (runtime→runner, graceful) and `AgentRequest.stop_run=16` (parent→coordinator, hard kill, "grace is advisory") | its `(message_schema).doc` describes only the `agent_stop` sense and is projected into `schemas/agent_stop.json` |
-| `Summary` | `coordination.proto:1269` | durable report event **and** the `agent_report` tool input | fully consumed (`coord/reports.go:180-200`); `mcp_runner.go:547-552` hard-rejects empty `text` and `SCOPE_UNSPECIFIED` — the fail-loud model for the rest of the file |
-| `Result` / `Usage` | `coordination.proto:1098,1133` | terminal outcome + accounting | 5 of 10 `Result` fields and `Usage.per_model` have zero producers and zero consumers; the micro-USD discipline (`:1138-1145`) is correctly implemented at `enginehost.go:530` |
-| `AgentIdentity` | `coordination.proto:468` | who this agent is | only `agent_id` and `role` are ever populated (`consumer.go:215`, `enginehost.go:269`); `runner_id` is documented as "coordinator-assigned and validated against the connection credential" and is never assigned |
+| Message | Role | Reality |
+| --- | --- | --- |
+| `AgentEvent` | the durable sequenced fact; "the coordinator's view is a pure fold over these" | envelope fields `task_id`, `turn_id`, `parent_item_id`, `traceparent` have **zero references repo-wide**; 4 of 15 payload arms are never constructed |
+| `HarnessSpec` | what to launch — `permission_mode` typed and enforced, everything else in an open `config` Struct | built+decoded in one file (`coord/harnessspec.go`), which is what keeps the three magic string keys honest |
+| `SpawnAgentRequest` | `agent_run` | the live payload has migrated *into* the untyped `input` Struct (`prompt`, `workspace`, `dirty_tree_handler`, read at `runchannel.go`); the typed `budget`/`constraints`/`notify_on` are read by nobody |
+| `PeerSendRequest` | `agent_send` | `to_agent_id`/`to_role`/`text`/`structured`/`in_reply_to` are live; `artifact_ids` is never read and `PeerMessage.artifacts` is never populated |
+| `ListRunsRequest` / `ListRunsResult.RunInfo` | `roster` | see [observation.md](observation.md) — 2 of 4 filters and 2 of 9 result fields are inert |
+| `StopRun` | used in **two directions with two contracts**: `RunnerRequest.stop_run=11` (runtime→runner, graceful) and `AgentRequest.stop_run=16` (parent→coordinator, hard kill, "grace is advisory") | its `(message_schema).doc` describes only the `agent_stop` sense and is projected into `schemas/agent_stop.json` |
+| `Summary` | durable report event **and** the `agent_report` tool input | fully consumed (`coord/reports.go`); `mcp_runner.go` hard-rejects empty `text` and `SCOPE_UNSPECIFIED` — the fail-loud model for the rest of the file |
+| `Result` / `Usage` | terminal outcome + accounting | 5 of 10 `Result` fields and `Usage.per_model` have zero producers and zero consumers; the micro-USD discipline is correctly implemented at `enginehost.go` |
+| `AgentIdentity` | who this agent is | only `agent_id` and `role` are ever populated (`consumer.go`, `enginehost.go`); `runner_id` is documented as "coordinator-assigned and validated against the connection credential" and is never assigned |
 
 ## Enum zero-value semantics
 
@@ -81,11 +81,11 @@ Proto3 enums have no "unset"; the zero value is what an unfilled or forward-vers
 field decodes to. This table is the security-relevant audit.
 
 | Enum | Zero value | Polarity | Evidence |
-|---|---|---|---|
-| `ApprovalDecision.Decision` | `DECISION_UNSPECIFIED` | **fails closed** | `enginehost.go:734-748` is an explicit allow-list; `approval.go:452` rejects it by name |
-| `Summary.Scope` | `SCOPE_UNSPECIFIED` | **fails closed** | `mcp_runner.go:550-552` hard-rejects |
-| `Result.RunStatus` | `RUN_STATUS_UNSPECIFIED` | **fails open** | every consumer tests `== RUN_STATUS_FAILED`, so `run_owned.go:271` exits 0 for UNSPECIFIED, CANCELLED and TIMED_OUT; `children.go:862` records no failure reason |
-| `MessageChannel` | `MESSAGE_CHANNEL_UNSPECIFIED` | **read two opposite ways** | `children.go:830` treats unset as *not* final (dropped from the turn accumulator); `operations/sessionfeed.go:237-241` renders it as user-facing assistant output |
+| --- | --- | --- | --- |
+| `ApprovalDecision.Decision` | `DECISION_UNSPECIFIED` | **fails closed** | `enginehost.go` is an explicit allow-list; `approval.go` rejects it by name |
+| `Summary.Scope` | `SCOPE_UNSPECIFIED` | **fails closed** | `mcp_runner.go` hard-rejects |
+| `Result.RunStatus` | `RUN_STATUS_UNSPECIFIED` | **fails open** | every consumer tests `== RUN_STATUS_FAILED`, so `run_owned.go` exits 0 for UNSPECIFIED, CANCELLED and TIMED_OUT; `children.go` records no failure reason |
+| `MessageChannel` | `MESSAGE_CHANNEL_UNSPECIFIED` | **read two opposite ways** | `children.go` treats unset as *not* final (dropped from the turn accumulator); `operations/sessionfeed.go` renders it as user-facing assistant output |
 | `ArtifactKind`, `InteractionRecorded.Resolution`, `PeerSendResult.Delivery`, `ApprovalKind`, `MessageRole` | — | neutral (always explicitly set, or lookup-fallback only) | — |
 | `StepCompleted.Outcome`, `StatusChanged.Phase`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn` | — | **dead enums** — no value referenced anywhere | — |
 
@@ -93,35 +93,35 @@ field decodes to. This table is the security-relevant audit.
 
 Recorded because the comment is normative and a reader will otherwise trust it.
 
-- `HarnessSpec.extra_args` (`:323-325`) documents "runner-validated against an
+- `HarnessSpec.extra_args` documents "runner-validated against an
   allowlist — the runner has direct CLI control and is the enforcement point". There
   is no allowlist; the field is never read and never populated.
-- `HelloAck.committed_seq` (`:483`) is "the authoritative resume cursor";
-  `runchannel.go:148` sets `CommittedSeq: hello.GetResumeFromSeq()` — the agent's own
+- `HelloAck.committed_seq` is "the authoritative resume cursor";
+  `runchannel.go` sets `CommittedSeq: hello.GetResumeFromSeq()` — the agent's own
   claim, echoed. `HelloAck.event_window` has zero references, so the file header's
-  end-to-end backpressure claim (`:180-181`) is unimplemented.
+  end-to-end backpressure claim is unimplemented.
 - `RunnerHello.harnesses` ("runtime MUST NOT StartRun a harness the runner didn't
   advertise") and `RunnerHello.max_concurrent_runs` ("RESOURCE_EXHAUSTED when at
   capacity") are both never read. `RunnerHeartbeat`'s three payload fields and
   `DrainResult` are entirely unreferenced. This family describes multi-runner
   placement; ctxloom runs one runner per run.
-- `Hello.protocol_version` is written as `1` (`home.go:286`) and never checked, across
+- `Hello.protocol_version` is written as `1` and never checked, across
   11 documented revisions.
-- Both `reject_reason` fields (`:278`, `:480`), added so a handshake rejection is
-  actionable, are discarded by their only clients (`runnerlink.go:137`, `home.go:295`).
+- Both `reject_reason` fields, added so a handshake rejection is
+  actionable, are discarded by their only clients (`runnerlink.go`, `home.go`).
 - `StopRunResult.exited_within_grace` is hardcoded `true` on **both** return paths
-  (`runchannel.go:801,810`), including the immediate-kill path.
+  (`runchannel.go`), including the immediate-kill path.
 
 ## Arguments the LLM is told to use that are discarded
 
 Schema-validated at the MCP edge, then never read. `Get*` call sites verified zero.
 
 | Tool | Argument | Handler |
-|---|---|---|
-| `agent_run` | `budget`, `constraints`, `notify_on` | `runchannel.go:719-757` reads only `role` and `input.{prompt,workspace,dirty_tree_handler}` |
-| `roster` | `task_id`, `include_descendants` | `runchannel.go:772-783` passes only `include_terminal` and `role` |
-| `agent_stop` | `grace`, `reason` | `runchannel.go:785-812` reads only `run_id` |
-| `agent_send` | `artifact_ids` | `runchannel.go:666-704` never reads it; `PeerMessage.artifacts` is never populated |
+| --- | --- | --- |
+| `agent_run` | `budget`, `constraints`, `notify_on` | `runchannel.go` reads only `role` and `input.{prompt,workspace,dirty_tree_handler}` |
+| `roster` | `task_id`, `include_descendants` | `runchannel.go` passes only `include_terminal` and `role` |
+| `agent_stop` | `grace`, `reason` | `runchannel.go` reads only `run_id` |
+| `agent_send` | `artifact_ids` | `runchannel.go` never reads it; `PeerMessage.artifacts` is never populated |
 
 `SpawnAgentResult.child_task_id` is likewise returned to the model as a permanently
 empty string.
@@ -141,7 +141,7 @@ No duplicate field numbers exist (verified across all 159 generated structs). Si
 `reserved` declarations exist, all deferral holds rather than deletion tombstones.
 Revisions 6 and 7 **renumbered** fields (`RunnerHello`, `ArtifactProduced`) with no
 tombstones — safe only because the durable journal is JSONL of hand-written Go structs
-(`coord/journal.go:18-22`), not proto bytes. That invariant is not recorded in the
+(`coord/journal.go`), not proto bytes. That invariant is not recorded in the
 file.
 
 ## Vendored `google/rpc/status.proto`

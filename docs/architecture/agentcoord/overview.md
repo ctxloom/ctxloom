@@ -163,7 +163,7 @@ which exists once per side).
 ```mermaid
 stateDiagram-v2
   state "child → parent" as up {
-    [*] --> OutFile: Home.sendPeerViaSpool → spool.Writer.Write(out/) [fsync] + ringSpool (AgentFrame.spool_changed, drop-counted)
+    [*] --> OutFile: Home.sendPeerViaSpool (the child's agent_send) | Home.ReportTurnResult (the runner's automatic turn report, at EngineHost's turn Complete) → Home.writeOutbound → spool.Writer.Write(out/) [fsync] + ringSpool (AgentFrame.spool_changed, drop-counted)
     OutFile --> Swept: coordinator sweepChildOut (doorbell mark | reattach mark | periodic tick | startup pass)
     Swept --> Routed: routeSpoolOut → peerSend (ask-reply intercept; SenderMailKind; childSend lineage) → queueMailPayload
     Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool→deliverToPoll
@@ -192,7 +192,8 @@ stateDiagram-v2
 
 Reading it:
 
-- **Upward** (`agent_send` from a child), the runner writes the file into the
+- **Upward** (`agent_send` from a child, or the runner's own automatic turn
+  report, `Home.ReportTurnResult`), the runner writes the file into the
   child's own `out/` and rings the doorbell. The coordinator's `spoolReactor`
   sweeps that `out/`, routes each entry through the same `Coordinator.peerSend` the
   in-process surface uses, and the courier writes a fresh file into the parent's
@@ -210,6 +211,14 @@ Reading it:
   performed one receive late: a reader acknowledges the previous batch when it asks
   for the next (`Home.ackReturned`, `Coordinator.ackSpoolInbox`), or on a clean
   `Home.Close`. There is no cursor and no consumption fact.
+- **Every runner-side node above is a real process**, in the hermetic suite
+  too: the delegation journey (`j002300_cross_engine_delegation.feature`)
+  delegates to the mock backend through a real `ctxloom mcp` coordinator, which
+  self-execs a runner for the child, and its two bus scenarios read what that
+  runner wrote — the child's transcript for the downward direction, the
+  coordinator's mailbox for the upward one. The journey's `@negative-probe`
+  scenario withholds the runner and shows both observables vanish, so the graph
+  is proven through the runner rather than through anything answering for it.
 
 ### Report and artifact
 

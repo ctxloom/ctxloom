@@ -329,11 +329,15 @@ message RunnerResponse {
 // of a parent agent's SpawnAgentRequest: parent asks on its RunChannel,
 // runtime picks a runner and issues StartRun here.
 message StartRun {
-  string task_id = 1;
+  // 1 was task_id (string), 5 was budget (BudgetSpec) — both REMOVED: the
+  // coordinator never populated either and no runner ever read them
+  // (ctxloom keys delegation on (harp, run_id) and has no budget
+  // enforcement). Reintroducing a budget means building the enforcement
+  // first, under a new field number.
+  reserved 1, 5;
   string run_id = 2;
   HarnessSpec harness = 3;
   google.protobuf.Struct input = 4;  // initial prompt / task payload
-  BudgetSpec budget = 5;
   string parent_run_id = 6;          // set for spawned sub-agents
   string role = 7;
 }

@@ -74,19 +74,11 @@ func TestResolvePermissionMode(t *testing.T) {
 // config asked for (first parseable of flag > agent > label), independent of any
 // backend collapse — the input the run uses to warn when a backend can't honor it.
 func TestRequestedPermission(t *testing.T) {
-	m, ok := requestedPermission("plan", "bypass", "default", "")
-	assert.True(t, ok)
-	assert.Equal(t, agent.PermissionPlan, m)
-
-	m, ok = requestedPermission("", "", "bypass", "")
-	assert.True(t, ok)
-	assert.Equal(t, agent.PermissionBypass, m)
-
-	_, ok = requestedPermission("", "", "", "")
-	assert.False(t, ok, "nothing requested")
-
-	_, ok = requestedPermission("nonsense", "", "", "")
-	assert.False(t, ok, "an unparseable value is not a request")
+	assert.Equal(t, agent.PermissionPlan, requestedPermission("plan", "bypass", "default", ""))
+	assert.Equal(t, agent.PermissionBypass, requestedPermission("", "", "bypass", ""))
+	assert.Equal(t, agent.PermissionDefault, requestedPermission("default", "", "bypass", ""), "an explicit default is a request, not the absence of one")
+	assert.Equal(t, agent.PermissionNotRequested, requestedPermission("", "", "", ""), "nothing requested")
+	assert.Equal(t, agent.PermissionNotRequested, requestedPermission("nonsense", "", "", ""), "an unparseable value is not a request")
 }
 
 // TestValidatePermissionFlag pins fix B: an explicitly-typed --permissions value

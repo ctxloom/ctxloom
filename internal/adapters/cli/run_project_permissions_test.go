@@ -93,19 +93,10 @@ func TestResolvePermissionMode_ProjectDefault(t *testing.T) {
 // widening the warning exists to prevent, and it does not become acceptable
 // because the declaration lived in the project file rather than on a binding.
 func TestRequestedPermission_IncludesProjectDefault(t *testing.T) {
-	m, ok := requestedPermission("", "", "", "plan")
-	assert.True(t, ok, "a declared project default is a request")
-	assert.Equal(t, agent.PermissionPlan, m)
-
-	m, ok = requestedPermission("", "", "bypass", "plan")
-	assert.True(t, ok)
-	assert.Equal(t, agent.PermissionBypass, m, "the label is nearer than the project default")
-
-	_, ok = requestedPermission("", "", "", "")
-	assert.False(t, ok, "nothing requested")
-
-	_, ok = requestedPermission("", "", "", "nonsense")
-	assert.False(t, ok, "an unparseable project default is not a request")
+	assert.Equal(t, agent.PermissionPlan, requestedPermission("", "", "", "plan"), "a declared project default is a request")
+	assert.Equal(t, agent.PermissionBypass, requestedPermission("", "", "bypass", "plan"), "the label is nearer than the project default")
+	assert.Equal(t, agent.PermissionNotRequested, requestedPermission("", "", "", ""), "nothing requested")
+	assert.Equal(t, agent.PermissionNotRequested, requestedPermission("", "", "", "nonsense"), "an unparseable project default is not a request")
 }
 
 // newPermissionRunState builds the minimum runState buildRunRequest reads, so

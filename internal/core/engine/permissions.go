@@ -10,13 +10,20 @@ import (
 // spans every engine; each engine maps it to its own mechanism, collapsing
 // unsupported values to the nearest safe option. Not every engine implements
 // every tier: an engine without a read-only tier collapses plan (see
-// CollapsePlanIfUnenforced). The wire carries the String() form.
+// CollapsePlanIfUnenforced). The wire carries the String() form of a RESOLVED
+// posture; PermissionNotRequested never crosses it.
 type PermissionMode int
 
 const (
+	// PermissionNotRequested is the zero value: nobody asked for a posture.
+	// It is not a mode an engine can run at — it exists so a caller that
+	// leaves the field unset (launch.Source.Permission) is distinguishable
+	// from one that asked for PermissionDefault by name. The resolution step
+	// (agent.ResolveDefault) is the one place it becomes a posture.
+	PermissionNotRequested PermissionMode = iota
 	// PermissionDefault keeps the engine's normal in-tool approval prompting —
-	// a human answers each request. The zero value.
-	PermissionDefault PermissionMode = iota
+	// a human answers each request.
+	PermissionDefault
 	// PermissionAcceptEdits auto-accepts file edits but still prompts for the
 	// rest (claude acceptEdits). Engines without a middle tier collapse it to
 	// PermissionDefault.
@@ -37,6 +44,10 @@ const PermissionFloor = PermissionPlan
 // String renders the canonical wire/config spelling (claude-aligned).
 func (m PermissionMode) String() string {
 	switch m {
+	case PermissionNotRequested:
+		// Not a spelling ParsePermissionMode accepts: the zero must never
+		// round-trip into a declaration.
+		return "not requested"
 	case PermissionDefault:
 		return "default"
 	case PermissionAcceptEdits:
@@ -81,8 +92,9 @@ func (m PermissionMode) SafeHeadless() bool {
 
 // ParsePermissionMode maps a config/CLI/wire string to a PermissionMode. It is
 // lenient on case and accepts the common spellings. An empty or unrecognized
-// value returns (PermissionDefault, false) so callers can tell "unset" apart
-// from an explicit "default" and apply their own fallback.
+// value returns (PermissionNotRequested, false): the mode is never a posture
+// when ok is false, so a caller that must tell "unset" from "misspelled" reads
+// the string it passed (ResolveDefault does), not the returned mode.
 func ParsePermissionMode(s string) (PermissionMode, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "default":
@@ -94,7 +106,7 @@ func ParsePermissionMode(s string) (PermissionMode, bool) {
 	case "bypass", "bypasspermissions", "dangerously-skip-permissions":
 		return PermissionBypass, true
 	default:
-		return PermissionDefault, false
+		return PermissionNotRequested, false
 	}
 }
 
@@ -107,8 +119,13 @@ func PermissionModeNames() []string {
 // WireMode parses a wire/config string, falling back to PermissionDefault for
 // empty or unknown input — the fail-safe posture (nothing auto-happens; the
 // engine prompts). It is not the most restrictive mode — plan permits less (no
-// mutations at all) — but it is the safe default when intent is unknown.
+// mutations at all) — but it is the safe default when intent is unknown. The
+// sender put a resolved posture on the wire, so this is a fail-safe for a
+// malformed frame, not a resolution step: it never returns
+// PermissionNotRequested.
 func WireMode(s string) PermissionMode {
-	m, _ := ParsePermissionMode(s)
-	return m
+	if m, ok := ParsePermissionMode(s); ok {
+		return m
+	}
+	return PermissionDefault
 }

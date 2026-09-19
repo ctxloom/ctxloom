@@ -18,11 +18,12 @@ func TestProbeKindOf_MatchesSurfaceKindLabels(t *testing.T) {
 		ProbeKindContext:  true,
 		ProbeKindMCP:      true,
 		ProbeKindSettings: true,
+		ProbeKindHooks:    true,
 		ProbeKindCommands: true,
 		ProbeKindSkills:   true,
 		ProbeKindAgents:   true,
 	}
-	for _, k := range []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills} {
+	for _, k := range surfaceOrder {
 		assert.True(t, declared[ProbeKindOf(k)],
 			"SurfaceKind %s maps to probe kind %q, which is not a declared ProbeKind constant", k, ProbeKindOf(k))
 	}

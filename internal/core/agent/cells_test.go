@@ -541,3 +541,16 @@ func TestEngineHomeRooted_UnresolvedIsRefusedWithRemedy(t *testing.T) {
 	}))
 	assert.NoError(t, EngineHomeRooted(resolved))
 }
+
+// TestSurfaceKindNames_ListsHooks pins that the sixth kind reaches the names
+// every human-facing listing reads (materialize's help and errors, shell
+// completion), and that it parses back to a kind distinct from the settings
+// surface it is delivered inside of today.
+func TestSurfaceKindNames_ListsHooks(t *testing.T) {
+	names := SurfaceKindNames()
+	assert.Contains(t, names, "hooks", "names: %v", names)
+	k, err := ParseSurfaceKind("hooks")
+	require.NoError(t, err)
+	assert.NotEqual(t, SurfaceSettings, k, "hooks is its own kind, not a spelling of settings")
+	assert.Equal(t, "hooks", k.String())
+}

@@ -15,11 +15,12 @@ import (
 type PermissionMode = engine.PermissionMode
 
 const (
-	PermissionDefault     = engine.PermissionDefault
-	PermissionAcceptEdits = engine.PermissionAcceptEdits
-	PermissionPlan        = engine.PermissionPlan
-	PermissionBypass      = engine.PermissionBypass
-	PermissionFloor       = engine.PermissionFloor
+	PermissionNotRequested = engine.PermissionNotRequested
+	PermissionDefault      = engine.PermissionDefault
+	PermissionAcceptEdits  = engine.PermissionAcceptEdits
+	PermissionPlan         = engine.PermissionPlan
+	PermissionBypass       = engine.PermissionBypass
+	PermissionFloor        = engine.PermissionFloor
 )
 
 // ParsePermissionMode is engine.ParsePermissionMode.

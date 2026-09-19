@@ -16,6 +16,7 @@ func TestKind_ClosedSet_RendersStableLabels(t *testing.T) {
 		Context:  "context",
 		MCP:      "mcp",
 		Settings: "settings",
+		Hooks:    "hooks",
 		Commands: "commands",
 		Skills:   "skills",
 	}
@@ -23,6 +24,20 @@ func TestKind_ClosedSet_RendersStableLabels(t *testing.T) {
 		assert.Equal(t, label, k.String())
 	}
 	assert.Equal(t, "unknown", Kind(99).String(), "an out-of-range kind renders as unknown, never as a member")
+}
+
+// Hooks is a Kind because it is a first-class delivered surface (the whole
+// reason ltk exists), not a vocabulary entry that rides another kind's name.
+// Pinned by label, so the assertion is about the vocabulary and not about
+// which iota the member took.
+func TestKind_HooksIsASixthMember(t *testing.T) {
+	labels := map[string]bool{}
+	for k := Kind(0); k.String() != "unknown"; k++ {
+		assert.False(t, labels[k.String()], "label %q declared twice", k.String())
+		labels[k.String()] = true
+	}
+	assert.True(t, labels["hooks"], "hooks must be a Kind of its own: %v", labels)
+	assert.Len(t, labels, 6, "context, mcp, settings, hooks, commands, skills")
 }
 
 func TestRootKind_ThreeRoots_AreDistinct(t *testing.T) {

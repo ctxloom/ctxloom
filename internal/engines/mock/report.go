@@ -29,8 +29,7 @@ type ProbeRecord struct {
 	// Order is the probe's index in the declaration, so a reader sees the
 	// vendor's precedence (first-wins within a kind).
 	Order int `json:"order"`
-	// Kind is the surface category (context, mcp, settings, commands, skills,
-	// agents) — agent.ProbeKind's label.
+	// Kind is the surface category — agent.ProbeKind's label.
 	Kind string `json:"kind"`
 	// Scope is where the search root came from (cwd, home, env-dir, flag-value).
 	Scope string `json:"scope"`

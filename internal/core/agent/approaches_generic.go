@@ -71,8 +71,8 @@ func (c *nativeContextFile) Deliver(start present.Start) (Delivered, error) {
 
 // HookCarriedContext is context that reaches the engine at RUN TIME through a
 // SessionStart inject-context hook reading a content-addressed cache file.
-// It writes NOTHING of its own: the hook rides the settings/hooks surface
-// (Rides), and the launch installs the cache file and the hook entry once it
+// It writes NOTHING of its own: the hook rides the surface whose writer emits
+// hook registrations (Rides), and the launch installs the cache file and the hook entry once it
 // sees this approach resolved for the context surface — on EVERY cell, so a
 // worktree or container launch pinned to it gets its context exactly as a
 // shared one does. At rest (apply) the hook is assembled into the settings
@@ -90,7 +90,11 @@ type hookCarriedContext struct {
 	fragments []*Fragment
 }
 
-// Rides reports the surface the injection hook is written into.
+// Rides reports the surface the injection hook is written into. Hooks are a
+// Kind of their own (SurfaceHooks), but no shipped engine declares a separate
+// approach for it: every one delivers its hook registrations inside the
+// settings file, so the settings writer is the hooks writer and the rider
+// rides Settings. This is the one place that names that route.
 func (hookCarriedContext) Rides() SurfaceKind { return SurfaceSettings }
 
 // Present names the content-addressed cache file the hook reads; a run with

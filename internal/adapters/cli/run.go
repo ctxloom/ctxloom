@@ -398,12 +398,11 @@ type runState struct {
 	// projectPerm is THIS project directory's declared default posture
 	// (config.yaml's top-level `permissions:`, empty when undeclared) — the
 	// rung between the engine label and the engine's own built-in default.
-	projectPerm      string
-	requestedPerm    agent.PermissionMode
-	hasRequestedPerm bool
-	permMode         agent.PermissionMode
-	managed          *agent.ManagedConfig
-	req              *pb.RunStart
+	projectPerm   string
+	requestedPerm agent.PermissionMode // PermissionNotRequested when nothing parseable was asked for
+	permMode      agent.PermissionMode
+	managed       *agent.ManagedConfig
+	req           *pb.RunStart
 
 	// The session's isolation axes (workspace × runtime) and what Prepare made
 	// of them.
@@ -1362,7 +1361,7 @@ func (st *runState) resolvePostureAndAxes(permissionsFlag string) error {
 	st.labelPerm = labelEntry.Permissions
 	st.projectPerm = st.cfg.GetPermissions()
 	st.permMode = resolvePermissionMode(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm, st.backendName, st.mode, backends.EnforcesReadOnlyPlan(st.backendName))
-	st.requestedPerm, st.hasRequestedPerm = requestedPermission(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm)
+	st.requestedPerm = requestedPermission(permissionsFlag, st.agentPermissions, st.labelPerm, st.projectPerm)
 	return nil
 }
 
@@ -1372,11 +1371,11 @@ func (st *runState) resolvePostureAndAxes(permissionsFlag string) error {
 // keeps them disjoint from warnHostBypassStopgap's no-request arm.
 func (st *runState) warnPermissionCollapse() {
 	switch {
-	case st.hasRequestedPerm && st.requestedPerm == agent.PermissionPlan && st.permMode != agent.PermissionPlan:
+	case st.requestedPerm == agent.PermissionPlan && st.permMode != agent.PermissionPlan:
 		// The backend has no read-only tier, so plan collapsed (to prompt, or to
 		// bypass headless) — the read-only intent is not enforced.
 		clidiag.Warn("ctxloom", "%s has no read-only plan mode; this run uses %q instead", st.backendName, st.permMode)
-	case st.hasRequestedPerm && st.requestedPerm != agent.PermissionBypass && st.permMode == agent.PermissionBypass:
+	case st.requestedPerm != agent.PermissionNotRequested && st.requestedPerm != agent.PermissionBypass && st.permMode == agent.PermissionBypass:
 		// An explicitly-requested narrower posture was widened to bypass because a
 		// headless ONESHOT has no human to answer the engine's prompt.
 		clidiag.Warn("ctxloom", "--one-shot can't honor %q without a human in the loop; this run uses bypass", st.requestedPerm)
@@ -1403,7 +1402,7 @@ func (st *runState) warnPlanOneshotCancels() {
 // under -v to avoid warning fatigue while still making the posture
 // discoverable.
 func (st *runState) warnHostBypassStopgap() {
-	if !st.hasRequestedPerm && st.permMode == agent.PermissionBypass && st.backendName == config.BackendClaudeCode && runVerbosity > 0 {
+	if st.requestedPerm == agent.PermissionNotRequested && st.permMode == agent.PermissionBypass && st.backendName == config.BackendClaudeCode && runVerbosity > 0 {
 		clidiag.Warn("ctxloom", "permissions bypassed on the host (claude-code stopgap)")
 	}
 }
@@ -2107,22 +2106,22 @@ func resolvePermissionMode(flag, agentPerm, labelPerm, projectPerm, backendType 
 
 // requestedPermission returns the posture the user or config asked for — the
 // first parseable of flag > agent > label > project default — independent of any
-// backend collapse. ok is false when nothing parseable was requested (so the
-// caller falls back to a built-in default). It is the input to the "backend
-// can't honor this" warning.
+// backend collapse, or PermissionNotRequested when nothing parseable was
+// requested (the resolver then answers with a built-in default). It is the
+// input to the "backend can't honor this" warning.
 //
 // The project default counts as a REQUEST, deliberately: a project that pinned
 // `permissions: plan` on a backend with no read-only tier must be told the pin
 // collapsed. That is the same silent widening the warning exists to surface, and
 // it does not stop being one because the declaration lived in the project file
 // rather than on a binding.
-func requestedPermission(flag, agentPerm, labelPerm, projectPerm string) (agent.PermissionMode, bool) {
+func requestedPermission(flag, agentPerm, labelPerm, projectPerm string) agent.PermissionMode {
 	for _, s := range []string{flag, agentPerm, labelPerm, projectPerm} {
 		if pm, ok := agent.ParsePermissionMode(s); ok {
-			return pm, true
+			return pm
 		}
 	}
-	return agent.PermissionDefault, false
+	return agent.PermissionNotRequested
 }
 
 // validatePermissionFlag rejects an explicitly-typed --permissions value that

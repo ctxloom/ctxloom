@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"bytes"
 	"context"
 	"path/filepath"
 	"strings"
@@ -271,18 +270,16 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 	read.Provenance = bundles.ProvenanceCompanion
 	ref := trust.Ref{RepoURL: "ctxloom:companion", Bundle: "ltk", Kind: trust.KindFragment, Name: "keeper", IsCompanion: true}
 
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	t.Cleanup(restore)
+	var found report.Findings
 
 	refStr, err := ref.DisplayRef()
 	require.NoError(t, err)
-	v := bundles.Decide(report.Reporter{}, g, read, refStr, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
+	v := bundles.Decide(report.To(&found), g, read, refStr, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 
 	assert.True(t, v.Allow, "a companion's unverifiable signature must NOT withhold its content")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.NotEmpty(t, v.Detail, "and the fact must be reportable")
-	assert.NotEmpty(t, warnings.String(), "and actually reported — a Detail nobody prints is a fact nobody learns")
+	assert.NotEmpty(t, found, "and actually reported — a Detail nobody reports is a fact nobody learns")
 }
 
 // --- local | invalid: ADMIT + WARN, and the warning is actually emitted -----
@@ -296,18 +293,15 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 	read := staleLocalRead(t, "stale-kit")
 
-	var warnings bytes.Buffer
-	restore := clidiag.SetSink(&warnings)
-	t.Cleanup(restore)
-
-	v := admitFragment(t, g, read, mustLocalItemRef("stale-kit", trust.KindFragment, "keeper"), "KEEPER-PAYLOAD")
+	var found report.Findings
+	v := bundles.Decide(report.To(&found), g, read, mustLocalItemRef("stale-kit", trust.KindFragment, "keeper"), []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 
 	require.True(t, v.Allow, "a stale manifest over LOCAL files must never withhold — there is nothing to gate")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.True(t, bundles.Warns(v), "the verdict must announce that it carries something to say")
 	assert.Contains(t, v.Detail, content.ManifestPath)
 	assert.Contains(t, v.Detail, "ctxloom bundle sign stale-kit", "the warning must name the command that fixes it")
-	assert.Contains(t, warnings.String(), content.ManifestPath,
+	assert.Contains(t, strings.Join(found.Texts(), "\n"), content.ManifestPath,
 		"and bundles.Decide must have EMITTED it: the authorizer is pure, the caller speaks")
 }
 

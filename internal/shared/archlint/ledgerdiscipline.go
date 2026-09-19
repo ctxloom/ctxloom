@@ -6,6 +6,8 @@ import (
 	"regexp"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
 // ledgerDisciplineScopes and ledgerDisciplineExemptFiles mirror the lock
@@ -49,7 +51,7 @@ func runLedgerDiscipline(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	dir := PkgDir(pass)
-	if dir == "" || !inScopes(dir, ledgerDisciplineScopes) {
+	if dir == "" || !archrules.UnderAny(dir, ledgerDisciplineScopes) {
 		return nil, nil
 	}
 	seen := map[string]bool{}
@@ -112,7 +114,7 @@ func runLedgerDiscipline(pass *analysis.Pass) (any, error) {
 			sym := FuncSymbol(d)
 			key := rel + "#" + sym
 			seen[key] = true
-			if _, ok := ledgerDisciplineAllowed[key]; ok {
+			if _, ok := archrules.LedgerDisciplineAllowed[key]; ok {
 				continue
 			}
 			pass.Reportf(at,
@@ -120,17 +122,10 @@ func runLedgerDiscipline(pass *analysis.Pass) (any, error) {
 					"nothing on disk then distinguishes ctxloom's entries from the user's, so a later "+
 					"reconcile cannot remove exactly what it added. Use a ledger, an in-file marker pair, "+
 					"or a per-entry marker field. If this is a deliberate, reviewed exception, add %q to "+
-					"ledgerDisciplineAllowed in internal/shared/archlint/ledgerdiscipline.go naming why it stands.",
+					"archrules.LedgerDisciplineAllowed naming why it stands.",
 				sym, key)
 		}
 	}
-	reportStaleAllowlist(pass, ledgerDisciplineAllowed, analyzedFiles(pass), seen, "ledgerDisciplineAllowed",
-		"internal/shared/archlint/ledgerdiscipline.go")
+	reportStaleAllowlist(pass, archrules.LedgerDisciplineAllowed, analyzedFiles(pass), seen, "archrules.LedgerDisciplineAllowed")
 	return nil, nil
-}
-
-// ledgerDisciplineAllowed is the reasoned, symbol-keyed baseline.
-var ledgerDisciplineAllowed = map[string]string{
-	"internal/engines/claude/commandfiles.go#WriteCommandFiles":       "false positive, blind spot 1 (helper split across functions): delegates straight to agent.WriteManagedCommandFiles, which delegates to agent.WriteManagedPackageFiles — that is where the ledger.Ledger{...} construction and led.Write/led.Read calls actually live (packagefiles.go). WriteCommandFiles itself never spells any ownership-record signal.",
-	"internal/core/agent/managedcontext.go#writeManagedContextLocked": "false positive: the in-file-marker mechanism IS implemented here (ManagedContextBegin/ManagedContextEnd construction, splitManagedSection), which is its own ownership record by design — but this gate's marker-call signal only recognizes the EXPORTED entry points (WriteManagedContext/DeliverManagedContext/StripManagedSection), not the private splitManagedSection helper or the inline marker-constant construction actually used here. Same root cause as lock_discipline_test.go's identical entry for this symbol (blind spot 4: helper split out of the caller's lock/record).",
 }

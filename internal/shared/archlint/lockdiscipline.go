@@ -6,6 +6,8 @@ import (
 	"regexp"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
 // lockDisciplineScopes are the packages this rule walks: the engine
@@ -48,7 +50,7 @@ var lockWritePrimitives = map[string]bool{
 // Detection is per-function and name-based: a body that calls something
 // read-shaped AND something write-shaped without calling WithFileLock. A leaf
 // helper invoked from inside its caller's lock closure reads as a violation
-// here, which is why such helpers are named in lockDisciplineAllowed.
+// here, which is why such helpers are named in archrules.LockDisciplineAllowed.
 var LockDisciplineAnalyzer = &analysis.Analyzer{
 	Name: "archlockdiscipline",
 	Doc:  "engine settings read-modify-write must run under agent.WithFileLock",
@@ -60,7 +62,7 @@ func runLockDiscipline(pass *analysis.Pass) (any, error) {
 		return nil, nil
 	}
 	dir := PkgDir(pass)
-	if dir == "" || !inScopes(dir, lockDisciplineScopes) {
+	if dir == "" || !archrules.UnderAny(dir, lockDisciplineScopes) {
 		return nil, nil
 	}
 	seen := map[string]bool{}
@@ -106,19 +108,18 @@ func runLockDiscipline(pass *analysis.Pass) (any, error) {
 			sym := FuncSymbol(d)
 			key := rel + "#" + sym
 			seen[key] = true
-			if _, ok := lockDisciplineAllowed[key]; ok {
+			if _, ok := archrules.LockDisciplineAllowed[key]; ok {
 				continue
 			}
 			pass.Reportf(at,
 				"%s reads and then writes engine settings without calling agent.WithFileLock — two "+
 					"processes reconciling the same file interleave and the second write discards the "+
 					"first. Wrap the read-modify-write in agent.WithFileLock. If this is a deliberate, "+
-					"reviewed exception, add %q to lockDisciplineAllowed in "+
-					"internal/shared/archlint/lockdiscipline.go naming why it stands.", sym, key)
+					"reviewed exception, add %q to archrules.LockDisciplineAllowed "+
+					" naming why it stands.", sym, key)
 		}
 	}
-	reportStaleAllowlist(pass, lockDisciplineAllowed, analyzedFiles(pass), seen, "lockDisciplineAllowed",
-		"internal/shared/archlint/lockdiscipline.go")
+	reportStaleAllowlist(pass, archrules.LockDisciplineAllowed, analyzedFiles(pass), seen, "archrules.LockDisciplineAllowed")
 	return nil, nil
 }
 
@@ -134,10 +135,4 @@ func CalleeName(call *ast.CallExpr) string {
 	default:
 		return ""
 	}
-}
-
-// lockDisciplineAllowed is the reasoned, symbol-keyed baseline: a durable
-// "file.go#Symbol" reference mapped to why the entry stands.
-var lockDisciplineAllowed = map[string]string{
-	"internal/core/agent/managedcontext.go#writeManagedContextLocked": "false positive (leaf helper under the caller's lock): writeManagedContextLocked is WriteManagedContext's body, split out for readability and invoked BY NAME from inside WriteManagedContext's own agent.WithFileLock closure (see its doc: \"run under its caller's lock\") — same shape as CodexHookWriter.save above. See this file's header, blind spot 4.",
 }

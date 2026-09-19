@@ -33,7 +33,7 @@ func allowlistLivenessEnabled() bool {
 // Entries naming a file this pass did not analyze are skipped rather than
 // reported. The file may be real and merely hidden by the current build tags,
 // and a rule that cannot see a file must not pass judgement on it.
-func reportStaleAllowlist(pass *analysis.Pass, allowed map[string]string, analyzed, seen map[string]bool, mapName, mapFile string) {
+func reportStaleAllowlist(pass *analysis.Pass, allowed map[string]string, analyzed, seen map[string]bool, mapName string) {
 	if !allowlistLivenessEnabled() {
 		return
 	}
@@ -44,7 +44,7 @@ func reportStaleAllowlist(pass *analysis.Pass, allowed map[string]string, analyz
 		}
 		pass.Reportf(pass.Files[0].Package,
 			"%s names %q (%s) but the scan no longer reports it — delete the entry, or it will silently "+
-				"exempt whatever lands at that key next (%s)", mapName, key, why, mapFile)
+				"exempt whatever lands at that key next", mapName, key, why)
 	}
 }
 

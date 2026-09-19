@@ -3,9 +3,9 @@
 // THE DECIDED ARCHITECTURE'S SYMBOL RULES (docs/architecture/audit-2026-09-18/
 // 30-decided-architecture.md, Part 1.1): the invariants that are about WHO
 // MAY NAME A SYMBOL rather than who may import a package, and so cannot be a
-// layeringRule row. Each is an AST walk over the module's production files
+// archrules.LayeringRule row. Each is an AST walk over the module's production files
 // with a shrinking, reasoned allowlist in the same shape as the other symbol
-// gates here (pathAuthorityAllowed, writeDisciplineAllowed): the day-one
+// gates here (pathAuthorityAllowed, archrules.WriteDisciplineAllowed): the day-one
 // allowlist is the MEASURED set of sites, each naming the slice in which it
 // leaves, and a twin *_AllowlistIsLive test deletes an exhausted entry.
 //
@@ -39,6 +39,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
 // outsideRings are the module-relative prefixes the ring rules do not apply
@@ -91,7 +92,7 @@ func walkRingFiles(t *testing.T, fn func(ringFile)) {
 		}
 		rel = filepath.ToSlash(rel)
 		dir := filepath.ToSlash(filepath.Dir(rel))
-		if underAny(dir, outsideRings) {
+		if archrules.UnderAny(dir, outsideRings) {
 			return nil
 		}
 		f, perr := parser.ParseFile(fset, p, nil, 0)
@@ -299,7 +300,7 @@ func scanOneMintOneOwner(t *testing.T) []ringSite {
 						continue
 					}
 					pinnedSeen++
-					if underAny(rf.dir, p.permitted) {
+					if archrules.UnderAny(rf.dir, p.permitted) {
 						continue
 					}
 					out = append(out, ringSite{file: rf.rel, symbol: funcSymbol(fd), what: "(" + funcSymbol(fd) + ") " + p.what, line: rf.fset.Position(call.Pos()).Line})
@@ -389,7 +390,7 @@ func scanEngineNameLiterals(t *testing.T) []ringSite {
 	var out []ringSite
 	seen := map[string]bool{}
 	walkRingFiles(t, func(rf ringFile) {
-		if underAny(rf.dir, engineNameHomes) || engineNameInitPrompt(rf.rel) {
+		if archrules.UnderAny(rf.dir, engineNameHomes) || engineNameInitPrompt(rf.rel) {
 			return
 		}
 		ast.Inspect(rf.f, func(n ast.Node) bool {
@@ -559,7 +560,7 @@ func scanEnvLiterals(t *testing.T) []ringSite {
 	var out []ringSite
 	var readsSeen int
 	for _, rf := range all {
-		if underAny(rf.dir, envReadHomes) {
+		if archrules.UnderAny(rf.dir, envReadHomes) {
 			continue
 		}
 		var first *ringSite

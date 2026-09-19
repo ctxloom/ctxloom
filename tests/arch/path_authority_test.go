@@ -65,7 +65,7 @@ const pathAuthorityExemptDir = "internal/core/paths"
 var segmentLiteralPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // pathAuthorityAllowed is this gate's shrinking allowlist, in the same shape
-// as writeDisciplineAllowed: a durable symbol reference ("file.go#Symbol")
+// as archrules.WriteDisciplineAllowed: a durable symbol reference ("file.go#Symbol")
 // mapped to the fix required to remove the entry.
 //
 // Generated MECHANICALLY by running this gate with an empty map and

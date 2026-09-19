@@ -52,10 +52,9 @@ flowchart TD
 | `ArtifactTransferService.UploadArtifact` | chunked upload, server-hashed | `coord/artifacts.go`; client `coord/homeartifacts.go` |
 | `ArtifactTransferService.DownloadArtifact` | header-first stream | `coord/artifacts.go`; client `coord/homeartifacts.go` |
 
-`CoordinatorService` carries no unary RPC: the at-least-once event fallback exists
-only as the in-process `coord.Coordinator.PublishEvents`, called by the oneshot
-bridging in `children.go` for a run it already owns. There is no authenticated wire
-surface for it, because there was never a non-test client to serve.
+`CoordinatorService` carries no unary RPC: events reach the journal only over
+`RunnerChannel`, and there was never a non-test client for an at-least-once
+unary fallback to serve.
 
 `ConsumerService` is deliberately read-only — steer/inject is excluded and the proto
 says why. Consumer credentials are refused on `CoordinatorService` by the auth

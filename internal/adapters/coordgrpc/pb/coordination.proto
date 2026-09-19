@@ -1861,22 +1861,3 @@ message CustomEvent {
   google.protobuf.Struct value = 2;
 }
 
-// =============================================================================
-// Unary fallback (event plane only)
-// =============================================================================
-
-message PublishEventsRequest {
-  repeated AgentEvent events = 1;  // may span gaps being backfilled
-}
-
-message PublishEventsResponse {
-  // Highest contiguous committed seq per run present in the request.
-  map<string, uint64> committed_seq_by_run = 1;
-  repeated RejectedEvent rejected = 2;  // malformed, post-terminal, etc.
-}
-
-message RejectedEvent {
-  string run_id = 1;
-  uint64 seq = 2;
-  google.rpc.Status reason = 3;
-}

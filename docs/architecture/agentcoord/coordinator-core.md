@@ -147,7 +147,6 @@ created; `closePartial` discards all four journal `Close()` errors.
 | `AgentRecv` | audit + `recvMail` long poll |
 | `AgentStop` | children refused (I2); `cancelLaunch` on **both** paths, then `terminateRun` |
 | `Inject` | user-typed text as a turn, plus a `KindUserInjected` mirror notice to the target's parent |
-| `PublishEvents` | validate + journal an event batch, deduped on `(run_id, seq)` |
 | `WatchRuns` / `ListRuns` | see [observation.md](observation.md) |
 | `Serve` / `ReachURL` | see [transport.md](transport.md) |
 | `StartOwnedRun` / `SendOwnedRunTurn` | see [child-lifecycle.md](child-lifecycle.md) |

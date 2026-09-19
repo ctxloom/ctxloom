@@ -441,10 +441,14 @@ const (
 )
 
 // PermissionMode is the launch-time permission posture; every engine maps it.
+// The zero is NotRequested — nobody asked — so an unset launch.Source.Permission
+// is distinguishable from an explicit default; agent.ResolveDefault is the one
+// place the absence becomes a posture, and the wire never carries it.
 type PermissionMode int
 
 const (
-	PermissionDefault PermissionMode = iota + 1
+	PermissionNotRequested PermissionMode = iota
+	PermissionDefault
 	PermissionPlan
 	PermissionAcceptEdits
 	PermissionBypass

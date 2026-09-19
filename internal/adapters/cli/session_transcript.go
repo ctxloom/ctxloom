@@ -97,18 +97,29 @@ func runSessionTranscriptList(cmd *cobra.Command, args []string) error {
 // honest answer ("ctxloom cannot show you one") without inventing a size.
 func newSessionTranscriptRow(harp string) sessionTranscriptRow {
 	row := sessionTranscriptRow{Harp: harp}
-	path, err := paths.ResolveHarpCanonicalTranscriptPath(harp)
+	if path, size, ok := statHarpFile(harp, paths.HarpCanonicalTranscriptPath); ok {
+		row.Captured = true
+		row.Bytes = size
+		row.Path = path
+	}
+	return row
+}
+
+// statHarpFile answers "is this harp-derived file there, and how big" for a
+// listing row: at names the file from the harp (a pure paths.Harp* helper),
+// and only a regular file that stats counts as present. A path that cannot be
+// derived or a stat that fails for ANY reason is absence — the row's honest
+// answer is "ctxloom cannot show you one", never an invented size.
+func statHarpFile(harp string, at func(string) (string, error)) (path string, size int64, ok bool) {
+	path, err := at(harp)
 	if err != nil {
-		return row
+		return "", 0, false
 	}
 	info, statErr := os.Stat(path)
 	if statErr != nil || !info.Mode().IsRegular() {
-		return row
+		return "", 0, false
 	}
-	row.Captured = true
-	row.Bytes = info.Size()
-	row.Path = path
-	return row
+	return path, info.Size(), true
 }
 
 // sessionEntriesForHarpArg resolves the positional-harp arity every leaf under

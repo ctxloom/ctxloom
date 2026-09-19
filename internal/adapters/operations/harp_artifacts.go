@@ -48,9 +48,8 @@ import (
 //     moved, and a relative symlink breaks), so flagging one would be a
 //     warning with no action behind it — the exact shape that teaches a user
 //     to stop reading the report.
-//   - paths.SessionSidecarFileName, paths.EssenceFileName,
-//     paths.CanonicalTranscriptFileName and
-//     paths.LegacyCanonicalTranscriptFileName — ctxloom's own session
+//   - paths.SessionSidecarFileName, paths.EssenceFileName and
+//     paths.CanonicalTranscriptFileName — ctxloom's own session
 //     bookkeeping, written by ctxloom at the top level by design.
 //   - paths.IndexFileName and paths.MigratedIndexFileName. The retired
 //     session index lived at the sessions ROOT, not inside a harp, so this
@@ -83,7 +82,6 @@ func HarpTopLevelArtifacts(harpDir string) ([]string, error) {
 		case paths.SessionSidecarFileName,
 			paths.EssenceFileName,
 			paths.CanonicalTranscriptFileName,
-			paths.LegacyCanonicalTranscriptFileName,
 			paths.IndexFileName,
 			paths.MigratedIndexFileName,
 			// The reaper's exemption marker and the captured next step are

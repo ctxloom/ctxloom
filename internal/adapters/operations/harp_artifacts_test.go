@@ -55,7 +55,6 @@ func TestHarpTopLevelArtifacts_NamesAuthoredWorkOnly(t *testing.T) {
 	writeHarpFile(t, root, harp, "audit.md", "authored")
 	writeHarpFile(t, root, harp, paths.EssenceFileName, "ctxloom's own")
 	writeHarpFile(t, root, harp, paths.CanonicalTranscriptFileName, "ctxloom's own")
-	writeHarpFile(t, root, harp, paths.LegacyCanonicalTranscriptFileName, "ctxloom's own")
 	writeHarpFile(t, root, harp, paths.IndexFileName, "ctxloom's own")
 	writeHarpFile(t, root, harp, paths.SessionKeepMarkerFileName, "")
 	writeHarpFile(t, root, harp, paths.NextStepFileName, "ctxloom's own")

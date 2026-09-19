@@ -174,24 +174,18 @@ func j001000RecallArgs(w *World, harp string) (map[string]any, error) {
 	return map[string]any{"session_id": j001000SessionID(harp), "backend": backend}, nil
 }
 
-// j001000CanonicalTranscriptRelPath resolves harp's captured canonical
-// transcript's path relative to the isolated HOME, preferring the current
-// leaf name (paths.CanonicalTranscriptFileName) but falling back to the
-// pre-rename leaf — mirroring paths.ResolveHarpCanonicalTranscriptPath's own
-// two-name fallback, reimplemented locally because that resolver reads the
-// REAL process's home dir via os.UserHomeDir, not this scenario's isolated one
-// (w.env.HomeDir): the ctxloom subprocess and this test process do not share a
-// HOME.
+// j001000CanonicalTranscriptRelPath is harp's captured canonical transcript's
+// path relative to the isolated HOME — the one leaf name
+// (paths.CanonicalTranscriptFileName), spelled locally because
+// paths.HarpCanonicalTranscriptPath reads the REAL process's home dir via
+// os.UserHomeDir, not this scenario's isolated one (w.env.HomeDir): the
+// ctxloom subprocess and this test process do not share a HOME.
 func j001000CanonicalTranscriptRelPath(w *World, harp string) (string, error) {
 	current := ".ctxloom/sessions/" + harp + "/persist/transcript.jsonl"
 	if w.env.HomeFileExists(current) {
 		return current, nil
 	}
-	legacy := ".ctxloom/sessions/" + harp + "/persist/transcript.acp.jsonl"
-	if w.env.HomeFileExists(legacy) {
-		return legacy, nil
-	}
-	return "", fmt.Errorf("no canonical transcript captured for harp %q (checked %s and legacy %s)", harp, current, legacy)
+	return "", fmt.Errorf("no canonical transcript captured for harp %q (checked %s)", harp, current)
 }
 
 func j001000ReadCanonicalTranscript(w *World, harp string) (string, error) {
@@ -574,12 +568,8 @@ func registerJ001000Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^no canonical transcript is written for "([^"]*)"$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
 		current := ".ctxloom/sessions/" + harp + "/persist/transcript.jsonl"
-		legacy := ".ctxloom/sessions/" + harp + "/persist/transcript.acp.jsonl"
 		if w.env.HomeFileExists(current) {
 			return fmt.Errorf("canonical transcript unexpectedly written for %q at %s", harp, current)
-		}
-		if w.env.HomeFileExists(legacy) {
-			return fmt.Errorf("canonical transcript unexpectedly written for %q at legacy path %s", harp, legacy)
 		}
 		return nil
 	})

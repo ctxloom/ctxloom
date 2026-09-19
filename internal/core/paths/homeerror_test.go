@@ -54,14 +54,13 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		"HomeCoordDir":              HomeCoordDir,
 	}
 	harpArg := map[string]func(string) (string, error){
-		"HarpDir":                            HarpDir,
-		"HarpEssencePath":                    HarpEssencePath,
-		"HarpEphemeralDir":                   HarpEphemeralDir,
-		"HarpPersistDir":                     HarpPersistDir,
-		"HarpLockPath":                       HarpLockPath,
-		"HarpTranscriptStoreDir":             HarpTranscriptStoreDir,
-		"HarpCanonicalTranscriptPath":        HarpCanonicalTranscriptPath,
-		"ResolveHarpCanonicalTranscriptPath": ResolveHarpCanonicalTranscriptPath,
+		"HarpDir":                     HarpDir,
+		"HarpEssencePath":             HarpEssencePath,
+		"HarpEphemeralDir":            HarpEphemeralDir,
+		"HarpPersistDir":              HarpPersistDir,
+		"HarpLockPath":                HarpLockPath,
+		"HarpTranscriptStoreDir":      HarpTranscriptStoreDir,
+		"HarpCanonicalTranscriptPath": HarpCanonicalTranscriptPath,
 	}
 	// CoordProjectStateDir takes a string too, but it is NOT a harp (no
 	// traversal validation — see its doc), so it gets its own group rather

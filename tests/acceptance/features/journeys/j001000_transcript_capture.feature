@@ -71,11 +71,8 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     below pin the registry name deliberately.
   #
   #   * Canonical filename: transcript.jsonl
-  #     (paths.CanonicalTranscriptFileName). Reads resolve via
-  #     paths.ResolveHarpCanonicalTranscriptPath, which falls back to the
-  #     pre-rename leaf name only when the current one is absent — the step
-  #     definitions below mirror that same fallback rather than hard-coding
-  #     either leaf name.
+  #     (paths.CanonicalTranscriptFileName) — the one name it is read and
+  #     written under; the step definitions below spell the same leaf.
   #
   # DELIBERATELY OUT OF HERMETIC SCOPE (see the @live row and this note):
   #   1. The ON-EXIT conversion for a REAL interactive-pty session needs a real

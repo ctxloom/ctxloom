@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -187,7 +188,10 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 	for _, read := range c.Reads() {
 		bundleInfo, bundle := read, read.Bundle
 
-		for name, frag := range bundle.Fragments {
+		// By name: a listing is what tag selection assembles context from,
+		// so its order is the context's order and must not be the map's.
+		for _, name := range slices.Sorted(maps.Keys(bundle.Fragments)) {
+			frag := bundle.Fragments[name]
 			// Use bundleInfo.Name (full path) instead of bundle.Name (just filename)
 			key := bundleInfo.DisplayName() + "/" + name
 			if seen.Has(key) {
@@ -224,7 +228,8 @@ func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 	for _, read := range c.Reads() {
 		bundleInfo, bundle := read, read.Bundle
 
-		for name, prompt := range bundle.Commands {
+		for _, name := range slices.Sorted(maps.Keys(bundle.Commands)) {
+			prompt := bundle.Commands[name]
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
 			key := bundleInfo.DisplayName() + "/" + name
 			if seen.Has(key) {

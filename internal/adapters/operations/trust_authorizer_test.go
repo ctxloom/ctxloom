@@ -2,6 +2,7 @@ package operations
 
 import (
 	"bytes"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -297,12 +300,12 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 
 	v := admitFragment(t, g, read, mustLocalItemRef("stale-kit", trust.KindFragment, "keeper"), "KEEPER-PAYLOAD")
 
-	require.True(t, v.Allow, "a stale sidecar over LOCAL bytes must never withhold — there is nothing to gate")
+	require.True(t, v.Allow, "a stale manifest over LOCAL files must never withhold — there is nothing to gate")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.True(t, bundles.Warns(v), "the verdict must announce that it carries something to say")
-	assert.Contains(t, v.Detail, "stale-kit.yaml.sig")
+	assert.Contains(t, v.Detail, content.ManifestPath)
 	assert.Contains(t, v.Detail, "ctxloom bundle sign stale-kit", "the warning must name the command that fixes it")
-	assert.Contains(t, warnings.String(), "stale-kit.yaml.sig",
+	assert.Contains(t, warnings.String(), content.ManifestPath,
 		"and bundles.Decide must have EMITTED it: the authorizer is pure, the caller speaks")
 }
 
@@ -313,11 +316,23 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
-	body := []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
-	sig, root := signAs(t, body, "author@example.test")
-	edited := append(append([]byte{}, body...), []byte("# edited, never re-signed\n")...)
-	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), name+".yaml"), edited, 0o644)
-	testsupport.WriteFile(t, fsys, filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), name+".yaml"+bundles.SigSuffix), sig, 0o644)
+	v2 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	require.NoError(t, fsys.MkdirAll(v2, 0o755))
+	st, err := content.NewTreeStore(fsys, v2, content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	require.NoError(t, st.Put(context.Background(),
+		trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: "keeper"},
+		signing.FormRaw,
+		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
+	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest,
+		[]byte("version: \"1.0\"\n")))
+	signer, root, _ := seedSigner(t, "author@example.test")
+	tree, err := st.Open(context.Background(), content.BundleID(name))
+	require.NoError(t, err)
+	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+	// The author's edit after signing: the manifest no longer covers the file.
+	keeper := filepath.Join(v2, name, "fragments", "keeper.md")
+	testsupport.WriteFile(t, fsys, keeper, []byte("KEEPER-PAYLOAD\n# edited, never re-signed\n"), 0o644)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"}, bundles.WithTrustRoot(root)))
 	read := readOf(t, loader, name)

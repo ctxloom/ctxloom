@@ -239,6 +239,9 @@ func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Read
 func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
 	root := cfg.TrustRoot()
 	fs := cfg.FS()
+	if fs == nil {
+		fs = afero.NewOsFs()
+	}
 	baseDir := appDirOf(cfg)
 	var fault error
 	userDir, err := countersign.HomeDir()

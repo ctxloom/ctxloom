@@ -1,17 +1,16 @@
 package cli
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -42,49 +41,45 @@ import (
 func writeDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
 	t.Helper()
 	dir := filepath.Join(authoredV1(cfg.GetAppPaths()[0]), name)
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "skills", "greet"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
 	manifest := filepath.Join(dir, "bundle.yaml")
-	require.NoError(t, os.WriteFile(manifest, []byte(
-		"version: 1.0.0\nskills:\n  greet:\n    notes: say hello\n"), 0o644))
-	// The skill body: a real file in the tree, and the thing a reader of this
+	require.NoError(t, os.WriteFile(manifest, []byte("version: 1.0.0\n"), 0o644))
+	// The item body: a real file in the tree, and the thing a reader of this
 	// test will assume travels with the bundle.
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "greet", "SKILL.md"),
-		[]byte("# greet\n\nSay hello.\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "greet.md"), []byte("# greet\n\nSay hello.\n"), 0o644))
 	return manifest
 }
 
-// TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeAndCarriesTheSidecar
-// REPLACES the refusal this shape used to get: PushBundle's treeForm branch
-// (runTreePush) now publishes a directory-form bundle instead of refusing it
-// (format v2 holds only trees), so a refusal here would assert something false
-// about current production. What survives from this file's own stated
-// purpose — "what does the sidecar cover for a directory-form bundle, and
-// does carry handle it?" — is proven directly: sign the manifest on disk
-// (exactly what `ctxloom bundle sign` leaves behind), push, and check that the
-// signature travels alongside the WHOLE tree, not just the manifest.
-func TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeAndCarriesTheSidecar(t *testing.T) {
+// TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeAndItsSignature:
+// a directory-form bundle publishes as ONE tree — envelope, every item file,
+// and the SHA256SUMS manifest with its .sigs/ entry, which ARE the bundle's
+// signature and live inside the tree.
+func TestPushBundleCfg_DirectoryFormBundle_PublishesTheWholeTreeAndItsSignature(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
-	discoverer, _ := discovererWithSoleAgentIdentity(t)
+	discoverer, signer := discovererWithSoleAgentIdentity(t)
 	manifest := writeDirFormBundle(t, cfg, "dir-form")
-
+	_, err := operations.SignBundleFile(cfg, operations.SignBundleRequest{
+		Target: operations.SignTarget{BundleName: "dir-form"},
+		Signer: signer,
+	})
+	require.NoError(t, err)
 	manifestBytes, err := os.ReadFile(manifest)
 	require.NoError(t, err)
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	sidecar, err := signing.Sign(manifestBytes, signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(manifest+".sig", sidecar, 0o644))
 
 	cmd, _ := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
 
 	const root = ".ctxloom/content/bundles/v2/dir-form"
 	assert.Equal(t, manifestBytes, pub.files[root+"/bundle.yaml"],
-		"the manifest travels at the tree's own root, verbatim")
-	assert.Equal(t, sidecar, pub.files[root+"/bundle.yaml.sig"],
-		"the sidecar signed over the manifest is carried, not dropped")
-	assert.Contains(t, pub.files, root+"/skills/greet/SKILL.md",
-		"the whole tree travels — a skill left behind is a bundle that loads with an item silently missing")
+		"the envelope travels at the tree's own root, verbatim")
+	assert.Contains(t, pub.files, root+"/"+content.ManifestPath, "the manifest travels with the tree")
+	signed := false
+	for path := range pub.files {
+		if strings.HasPrefix(path, root+"/"+content.SigDirName+"/") {
+			signed = true
+		}
+	}
+	assert.True(t, signed, "the .sigs/ entry signed over the manifest is carried, not dropped")
+	assert.Contains(t, pub.files, root+"/fragments/greet.md",
+		"the whole tree travels — an item left behind is a bundle that loads with it silently missing")
 }

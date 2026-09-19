@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
 // The canonical lockfile key these tests read, and the tree root it must
@@ -86,43 +84,6 @@ func TestBundleReader_TreeBundleServesItsManifestAsTheBundleBytes(t *testing.T) 
 	assert.Equal(t, "trent", tcap.owner)
 	assert.Equal(t, "atelier", tcap.repo)
 	assert.Equal(t, "https://github.com/trent/atelier", tcap.repoURL)
-}
-
-// A tree bundle's detached signature is bundle.yaml.sig INSIDE the tree — the
-// sibling of the document just read, the same convention the single-file form
-// uses. Serving anything else here would check a signature over bytes nobody
-// read.
-func TestBundleReader_TreeBundleSignatureIsTheManifestSibling(t *testing.T) {
-	sig := []byte("-----BEGIN SSH SIGNATURE-----\natelier\n")
-	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{
-		BundleManifestName:                   {Data: []byte("version: 1.2.3\n")},
-		BundleManifestName + SignatureSuffix: {Data: sig},
-		"skills/good-night/SKILL.md":         {Data: []byte("x")},
-	}}
-	r := treeReaderOver(t, tcap, treeTestSHA)
-
-	data, err := r.ReadBundleSignature(t.Context(), treeReadCanonical)
-
-	require.NoError(t, err)
-	assert.Equal(t, sig, data, "the signature bytes, not the manifest they cover")
-}
-
-// An ABSENT signature means UNSIGNED, and it has to mean that identically in
-// both bundle forms: a tree bundle reported as broken where a single-file one
-// is reported as unsigned would withhold content for a reason that is not true.
-func TestBundleReader_TreeBundleWithNoSignatureReadsAsUnsigned(t *testing.T) {
-	tcap := &treeCapture{at: treeReadRoot, tree: map[string]TreeFile{
-		BundleManifestName: {Data: []byte("version: 1.2.3\n")},
-	}}
-	r := treeReaderOver(t, tcap, treeTestSHA)
-
-	_, err := r.ReadBundleSignature(t.Context(), treeReadCanonical)
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound,
-		"an unsigned tree bundle must signal absence the way an unsigned single-file bundle does")
-	assert.NotErrorIs(t, err, ErrTreeBundleUnreadable,
-		"nothing about the reader is missing — only the signature is")
 }
 
 // A tree with no bundle.yaml is not a bundle. Reporting that — and naming the

@@ -1,6 +1,5 @@
 # ctxloom-content-digest/1
 d2b59a52d12f4ddb32fa20aecedbff3482371c4e717ffcf6227b4bbf634e14a2  bundle.yaml
-d45e3ed4c6b53a2cf14f7678aa4e29f1a512b84f9a9e2a10600fd0c9b28b420a  bundle.yaml.sig
 68b3ba076a75140ec7e589bd03574bfc3175b2ec83f888c67b0fdfb56480a9db  fragments/conditional-guidance.md
 4d86cd6db2b315f41f584d4c19b90a03b65e186732fb35eed319b2b45af54cbd  fragments/config-hierarchy.md
 d088bc7a34cc551cb49714e49d7d9b854b3b827bd423919dd03c82b9ccf80f8c  fragments/dind-in-agent-cells.md

@@ -21,10 +21,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// A locally authored TREE keeps its payload in files beside its envelope, so
-// the sibling `bundle.yaml.sig` covers a document that declares nothing. Before
-// this, mutating an item file left the bundle reporting SignatureValid while
-// the SHA256SUMS manifest that would have caught it sat on disk unread.
+// A locally authored TREE keeps its payload in files beside its envelope, and
+// its ONE signature is the SHA256SUMS manifest with its .sigs/ entry: the
+// reader establishes the signature axes from that manifest and nothing else
+// (localFSReader.treeSignatureFacts), so a mutated item file is caught and a
+// retired sibling signature is refused rather than read past.
 //
 // EVERY TEST HERE GOES THROUGH THE READER, never through attest.VerifyBundle
 // directly. Calling the verifier would prove the verifier works — which was

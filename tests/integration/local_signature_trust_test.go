@@ -5,7 +5,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,13 +30,19 @@ import (
 
 const localSigFragmentBody = "LOCAL-SIG-CHARACTERIZATION-PAYLOAD"
 
-// localSigBundlePath is the authored (committed content) bundle the harness's
-// writeFragment helper writes to — the same bundle, by name, so a fixture that
-// signs it cannot drift from the one that authored it.
-func localSigBundlePath() string { return testenv.SingleFileBundlePath(localBundleName) }
+// The local tree these scenarios read: one fragment file beside its envelope,
+// under the project's own bundles root. A local bundle's ONE signature is its
+// SHA256SUMS manifest and the .sigs/ entry over it.
+const localSigTree = "local"
 
-// deliverLocalFragment runs the fragment through a real assembly and returns
-// what the language model was actually handed.
+func localSigItemPath() string {
+	return testenv.TreeBundleItemPath(localSigTree, "fragments/signed-local.md")
+}
+
+func localSigManifestPath() string {
+	return testenv.TreeBundleItemPath(localSigTree, content.ManifestPath)
+}
+
 func deliverLocalFragment(t *testing.T, env *testenv.TestEnvironment, mockLM *testenv.MockLM, fragment string) string {
 	t.Helper()
 	_ = env.Run("run", "-f", fragment, "--one-shot", "delivery probe")
@@ -45,46 +51,31 @@ func deliverLocalFragment(t *testing.T, env *testenv.TestEnvironment, mockLM *te
 	return recorded
 }
 
-// setupLocalSigEnv builds a project holding one local bundle with one fragment
-// and returns the environment plus the mock LM that records what is delivered.
-func setupLocalSigEnv(t *testing.T) (*testenv.TestEnvironment, *testenv.MockLM) {
+// setupLocalSigEnv stages the project with the local tree, signed by signer
+// (nil: unsigned).
+func setupLocalSigEnv(t *testing.T, signer *testenv.TestSigner) (*testenv.TestEnvironment, *testenv.MockLM) {
 	t.Helper()
 	env := setupTestEnv(t)
 	mockLM, err := env.SetupMockLM()
 	require.NoError(t, err)
 	require.NoError(t, mockLM.SetResponse("OK"))
-	writeFragment(t, env, "signed-local", []string{"local"}, localSigFragmentBody)
+	require.NoError(t, env.SeedSignedLocalTree(localSigTree, "version: \"1.0\"\n",
+		map[string]string{"fragments/signed-local.md": localSigFragmentBody + "\n"}, signer))
 	return env, mockLM
 }
 
-// signLocalBundle signs the bundle file's exact current bytes and writes the
-// detached sibling, exactly as `ctxloom bundle sign` does.
-func signLocalBundle(t *testing.T, env *testenv.TestEnvironment, signer *testenv.TestSigner) {
-	t.Helper()
-	body, err := env.ReadFile(localSigBundlePath())
-	require.NoError(t, err)
-	sig, err := signing.Sign([]byte(body), signer.Signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	require.NoError(t, env.WriteFile(localSigBundlePath()+".sig", string(sig)))
-}
-
-// editAfterSigning rewrites the bundle's bytes WITHOUT touching the sibling
-// .sig, which is exactly what "edited and forgot to re-sign" looks like on
-// disk: a signature over bytes that no longer exist.
+// editAfterSigning changes the fragment file after the manifest was signed:
+// the author's edit that stales the signature.
 func editAfterSigning(t *testing.T, env *testenv.TestEnvironment) {
 	t.Helper()
-	body, err := env.ReadFile(localSigBundlePath())
+	body, err := env.ReadFile(localSigItemPath())
 	require.NoError(t, err)
-	require.NoError(t, env.WriteFile(localSigBundlePath(), body+"\n# edited after signing, never re-signed\n"))
+	require.NoError(t, env.WriteFile(localSigItemPath(), body+"\n# edited after signing, never re-signed\n"))
 }
 
-// TestLocalBundle_NoSignature_Delivers is the baseline: unsigned local content
-// is delivered, with no trust warning. This is the state the ctxloom-project
-// bundle was deliberately reduced to, and is the regression witness for the
-// whole rule.
 func TestLocalBundle_NoSignature_Delivers(t *testing.T) {
-	env, mockLM := setupLocalSigEnv(t)
-	require.False(t, env.FileExists(localSigBundlePath()+".sig"), "precondition: no signature on disk")
+	env, mockLM := setupLocalSigEnv(t, nil)
+	require.False(t, env.FileExists(localSigManifestPath()), "precondition: no signature on disk")
 
 	delivered := deliverLocalFragment(t, env, mockLM, "signed-local")
 
@@ -105,13 +96,12 @@ func TestLocalBundle_ValidSignature_Delivers(t *testing.T) {
 		{"trusted publisher key", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env, mockLM := setupLocalSigEnv(t)
 			signer, err := testenv.GenerateTestSigner()
 			require.NoError(t, err)
+			env, mockLM := setupLocalSigEnv(t, signer)
 			if tc.trusted {
 				require.NoError(t, env.TrustSigner(signer, "author@example.test", true))
 			}
-			signLocalBundle(t, env, signer)
 
 			delivered := deliverLocalFragment(t, env, mockLM, "signed-local")
 
@@ -140,23 +130,13 @@ func TestLocalBundle_StaleSignature_Delivers(t *testing.T) {
 		{"trusted publisher key", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env, mockLM := setupLocalSigEnv(t)
 			signer, err := testenv.GenerateTestSigner()
 			require.NoError(t, err)
+			env, mockLM := setupLocalSigEnv(t, signer)
 			if tc.trusted {
 				require.NoError(t, env.TrustSigner(signer, "author@example.test", true))
 			}
-			signLocalBundle(t, env, signer)
 			editAfterSigning(t, env)
-
-			// The signature really is stale — assert the precondition rather
-			// than assume it, or this test could pass over a valid pair.
-			body, err := env.ReadFile(localSigBundlePath())
-			require.NoError(t, err)
-			sig, err := env.ReadFile(localSigBundlePath() + ".sig")
-			require.NoError(t, err)
-			require.Error(t, signing.CoversBytes([]byte(body), []byte(sig), signing.NamespacePublish),
-				"precondition: the signature must NOT cover the edited bytes")
 
 			delivered := deliverLocalFragment(t, env, mockLM, "signed-local")
 
@@ -166,7 +146,7 @@ func TestLocalBundle_StaleSignature_Delivers(t *testing.T) {
 			// Delivered, but not silently. The signature is now worthless to
 			// the only thing that consumes it (promotion), and the author is
 			// the only person who can fix that.
-			assert.Contains(t, env.LastOutput(), "local.yaml.sig",
+			assert.Contains(t, env.LastOutput(), content.ManifestPath,
 				"a stale signature must be reported, or the author learns of it at publish time")
 			assert.Contains(t, env.LastOutput(), "still delivered",
 				"the diagnostic must say the content was NOT withheld — that is the reader's first question")
@@ -181,11 +161,29 @@ func TestLocalBundle_StaleSignature_Delivers(t *testing.T) {
 // not withhold, and — the failure mode that matters — it must not make the
 // bundle fail to LOAD either, which would take every other item in it down too.
 func TestLocalBundle_CorruptSignature_Delivers(t *testing.T) {
-	env, mockLM := setupLocalSigEnv(t)
-	require.NoError(t, env.WriteFile(localSigBundlePath()+".sig", "not a signature at all\n"))
+	signer, err := testenv.GenerateTestSigner()
+	require.NoError(t, err)
+	env, mockLM := setupLocalSigEnv(t, signer)
+	// A manifest that is not a manifest: structurally invalid, over a local
+	// tree — the signature is treated as absent, and the author is told.
+	require.NoError(t, env.WriteFile(localSigManifestPath(), "not a manifest at all\n"))
 
 	delivered := deliverLocalFragment(t, env, mockLM, "signed-local")
 
 	assert.Contains(t, delivered, localSigFragmentBody,
 		"local content with a structurally invalid signature must still be delivered")
+}
+
+func TestLocalBundle_RetiredSiblingSignature_IsRefusedUntilReSigned(t *testing.T) {
+	env, mockLM := setupLocalSigEnv(t, nil)
+	// The retired sibling: no reader parses it, and a bundle carrying one is
+	// refused rather than read as unsigned, naming re-sign as the remedy.
+	require.NoError(t, env.WriteFile(testenv.TreeBundleItemPath(localSigTree, "bundle.yaml.sig"), "armored-signature-bytes\n"))
+
+	_ = env.Run("run", "-f", "signed-local", "--one-shot", "delivery probe")
+	if recorded, err := mockLM.GetRecordedInput(); err == nil {
+		assert.NotContains(t, recorded, localSigFragmentBody, "a refused bundle delivers nothing")
+	}
+	assert.Contains(t, env.LastOutput(), "re-sign", "the refusal names the remedy")
+	assert.Contains(t, env.LastOutput(), "ctxloom bundle sign "+localSigTree)
 }

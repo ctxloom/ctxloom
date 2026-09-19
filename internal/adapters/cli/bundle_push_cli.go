@@ -32,17 +32,17 @@ import (
 // the same path is reachable by any frontend.
 //
 // sign/noSign are the --sign/--no-sign flags (spec §7A.3):
-//   - neither: carry whatever valid sidecar is on disk; refuse a stale one;
-//     publish bare when the bundle was never signed.
+//   - neither: publish the tree as it stands — its SHA256SUMS manifest and
+//     .sigs/ entries travel with it; a stale manifest is refused.
 //   - --sign (or sign.default, unless --no-sign): SUGAR for sign-then-publish.
-//     It runs the same signing operation `ctxloom bundle sign` runs, leaving
-//     the same `<bundle>.yaml.sig` on disk, and then carries it. The
+//     It runs the same signing operation `ctxloom bundle sign` runs, so the
+//     manifest entry that travels is the one `bundle sign` writes. The
 //     one-command path survives without signing becoming a property of the
 //     push.
-//   - --no-sign: publish BARE, even when a valid sidecar exists. Unsigned
-//     publishing is not an oversight — third-party unsigned remotes default to
-//     pending, which is what gives operations.EffectiveTrust a pending state
-//     and `ctxloom review` a purpose.
+//   - --no-sign: skip the signing sugar. Unsigned publishing is not an
+//     oversight — third-party unsigned remotes default to pending, which is
+//     what gives the trust gate a pending state and `ctxloom review` a
+//     purpose.
 //
 // Key discovery, and any failure to find a key, happens BEFORE any network
 // call — a signing failure must never degrade to a silent unsigned publish
@@ -88,8 +88,7 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 		// before — nil unless there is a terminal, which is what makes an
 		// agent or CI invocation refuse instead of prompt.
 	}
-	req.Signature, err = resolvePushSignature(cmd, cfg, discoverer, bundleName, bundle.Path, sign, noSign)
-	if err != nil {
+	if err := resolvePushSignature(cmd, cfg, discoverer, bundleName, bundle.Path, sign, noSign); err != nil {
 		return err
 	}
 
@@ -101,46 +100,33 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 	return emit(cmd, result, func() error { return printPushResult(cmd.OutOrStdout(), result) })
 }
 
-// resolvePushSignature decides WHICH signature travels with this publish, and
-// is the only place the three inputs (--sign, --no-sign, sign.default) meet.
-// It returns nil for "publish bare" — which is a legitimate, supported outcome,
-// not a failure — and an error rather than nil for anything it could not
-// resolve, so a signing problem can never degrade into a quiet unsigned
-// publish.
-func resolvePushSignature(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discoverer, bundleName, bundlePath string, sign, noSign bool) ([]byte, error) {
+// resolvePushSignature is the only place the three inputs (--sign, --no-sign,
+// sign.default) meet: it signs the bundle on disk first when asked, and
+// otherwise leaves the tree to publish as it stands. An error rather than a
+// quiet unsigned publish for anything it could not resolve.
+func resolvePushSignature(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discoverer, bundleName, bundlePath string, sign, noSign bool) error {
 	if noSign {
-		return nil, nil
+		return nil
 	}
 	if sign || cfg.ShouldSignByDefault() {
-		if err := mintPushSignature(cmd, cfg, discoverer, bundleName, bundlePath); err != nil {
-			return nil, err
-		}
+		return mintPushSignature(cmd, cfg, discoverer, bundleName, bundlePath)
 	}
-	// One seam, shared with `bundle move` and `bundle export`: read the sidecar
-	// and prove it covers the bytes about to be published, or refuse.
-	return operations.PublisherSignature(nil, bundlePath, nil)
+	return nil
 }
 
 // mintPushSignature is the `--sign` / sign.default SUGAR: it runs exactly the
-// operation `ctxloom bundle sign <bundle>` runs, so the sidecar left on disk is
-// the same artifact by the same producer, and the push that follows merely
-// carries it.
+// operation `ctxloom bundle sign <bundle>` runs, so the manifest entry left on
+// disk is the same artifact by the same producer, and the push that follows
+// merely carries it with the rest of the tree.
 //
-// The sidecar PERSISTS rather than being minted in flight. That is the whole
-// point of "sign is the only producer": a transient signature would mean two
-// producers writing to two different places, and would leave the local tree
-// claiming the bundle is unsigned (or worse, still holding a STALE sidecar)
-// while the remote holds a valid one. Persisting means `push --sign` and
-// `bundle sign && bundle push` end in the same state, and that you can verify
-// at rest exactly what you shipped. The write goes to the author's own
-// `.ctxloom/content/bundles/<name>.yaml.sig` — the path `bundle sign` owns —
-// and never anywhere else.
+// The signature PERSISTS rather than being minted in flight. That is the
+// whole point of "sign is the only producer": `push --sign` and `bundle sign
+// && bundle push` end in the same state, and you can verify at rest exactly
+// what you shipped.
 //
-// It always RE-SIGNS, even when a valid sidecar is already there: --sign is an
+// It always RE-SIGNS, even when a valid entry is already there: --sign is an
 // explicit instruction to sign, and the key it resolves (--key/sign.key/git
-// config/ssh-agent) may not be the one that produced the old sidecar. Carrying
-// somebody else's signature in response to "sign this" would be the surprising
-// reading.
+// config/ssh-agent) may not be the one that produced the old entry.
 //
 // Discovery happens BEFORE any network call, so a missing key fails the whole
 // command rather than degrading to an unsigned publish (spec §7A.4).
@@ -162,8 +148,8 @@ func mintPushSignature(cmd *cobra.Command, cfg *config.Config, discoverer *agent
 	// push resolves the bundle through the SEEDED loader (it can address a
 	// pinned remote bundle) and sign resolves it through the authored store.
 	// For anything actually signable the two agree; if they ever did not, the
-	// sidecar would cover a different file than the one being published, so
-	// say so rather than publish a pair nobody can verify.
+	// signature would cover a different tree than the one being published, so
+	// say so rather than publish what nobody can verify.
 	if filepath.Clean(res.BundlePath) != filepath.Clean(bundlePath) {
 		return fmt.Errorf("refusing to sign %s while publishing %s: signing resolved bundle %q to a different file",
 			res.BundlePath, bundlePath, bundleName)

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
@@ -163,6 +164,35 @@ func (e *TestEnvironment) SeedSignedTreeRemote(root, bundleID, envelope string, 
 // covers what is IN items — leaving the old file behind would publish it
 // unsigned and UNCLAIMED, which attest.VerifyBundle reports as tampering on
 // the very next pull.
+// SeedSignedLocalTree writes a tree-form bundle named bundleID under the
+// project's own bundles root, signed through its ONE signature (the
+// SHA256SUMS manifest and its .sigs/ entry) when signer is non-nil, and
+// unsigned otherwise.
+func (e *TestEnvironment) SeedSignedLocalTree(bundleID, envelope string, items map[string]string, signer *TestSigner) error {
+	var files map[string]string
+	if signer == nil {
+		files = map[string]string{"bundle.yaml": envelope}
+		for rel, body := range items {
+			files[rel] = body
+		}
+	} else {
+		signed, err := signTreeFiles(e.Root, "", bundleID, envelope, items, signer)
+		if err != nil {
+			return err
+		}
+		files = map[string]string{}
+		for rel, body := range signed {
+			files[strings.TrimPrefix(rel, "/")] = body
+		}
+	}
+	for rel, body := range files {
+		if err := e.WriteFile(TreeBundleItemPath(bundleID, rel), body); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *TestEnvironment) AdvanceSignedTreeRemote(bareDir, root, bundleID, envelope string, items map[string]string, signer *TestSigner) error {
 	files, err := signTreeFiles(e.Root, root, bundleID, envelope, items, signer)
 	if err != nil {

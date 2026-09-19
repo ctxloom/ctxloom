@@ -274,7 +274,5 @@ var vocabConversionAllowed = map[string]string{
 	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/adapters/signing.Form":    "same signing.Form assertion from the review side",
 	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/core/bundles.ContentForm": "a stored string asserted into bundles.ContentForm; internal/core/bundles ships no parser for it",
 
-	"internal/adapters/operations/signable.go#bundleSignable.Kind#internal/core/trust.ItemKind": "MINTS trust.ItemKind(\"bundle\"), a value outside the declared set — the call site's own comment records that no constant names a whole bundle. Either declare it or model a whole bundle as a different type; today the trust tier sees a kind its own vocabulary does not contain",
-
 	"internal/taskloom/config/config.go#Config.ResolveMode#internal/shared/tasks/paths.Mode": "a config string asserted into paths.Mode; internal/shared/tasks/paths ships no parser for it",
 }

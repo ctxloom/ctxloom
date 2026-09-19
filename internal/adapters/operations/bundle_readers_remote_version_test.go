@@ -97,7 +97,7 @@ func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	b, err := resolve(canonical, rev1)
 	require.Error(t, err, "a single-file remote bundle must not resolve")
 	assert.Nil(t, b, "and nothing may come back alongside the refusal")
-	assert.Contains(t, err.Error(), "document form is no longer readable",
+	assert.Contains(t, err.Error(), "document form is not readable",
 		"the refusal must name the SHAPE — 'not found' would send a publisher hunting a path problem")
 	assert.Contains(t, err.Error(), "republish it as a tree",
 		"and it must name the remedy, since the publisher is the only one who can apply it")

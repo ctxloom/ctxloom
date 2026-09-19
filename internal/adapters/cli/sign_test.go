@@ -6,8 +6,9 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -16,10 +17,10 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
@@ -46,42 +47,55 @@ func discovererWithSoleAgentIdentity(t *testing.T) (*agentkey.Discoverer, ssh.Si
 	}, signers[0]
 }
 
+// createDirFormBundle writes a directory-form bundle named name — the one
+// form `ctxloom bundle sign` signs — with one fragment file beside its
+// envelope, and returns the tree's directory.
+func createDirFormBundle(t *testing.T, cfg *config.Config, name string) string {
+	t.Helper()
+	dir := filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), name)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: \"1.0.0\"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "go-testing.md"), []byte("x\n"), 0o644))
+	return dir
+}
+
+// signedTree reports whether the tree at dir carries a .sigs/ entry.
+func signedTree(t *testing.T, dir string) bool {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(dir, content.SigDirName))
+	if os.IsNotExist(err) {
+		return false
+	}
+	require.NoError(t, err)
+	return len(entries) > 0
+}
+
 func TestRunSign_WritesVerifiableSigForBareLocalBundle(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
+	createDirFormBundle(t, cfg, "my-tools")
 
 	discoverer, signer := discovererWithSoleAgentIdentity(t)
 
 	cmd, out := testCmd()
 	require.NoError(t, runSign(cmd, cfg, discoverer, "my-tools", false, ""))
 	assert.Contains(t, out.String(), "my-tools")
-	assert.Contains(t, out.String(), ".sig")
-
-	bundlePath := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/my-tools.yaml"
-	bundleBytes, err := afero.ReadFile(afero.NewOsFs(), bundlePath)
-	require.NoError(t, err)
-	sigBytes, err := afero.ReadFile(afero.NewOsFs(), bundlePath+".sig")
-	require.NoError(t, err)
+	assert.Contains(t, out.String(), content.SigDirName)
 
 	root := allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"me@example.com"},
 		KeyType:    signer.PublicKey().Type(),
 		PublicKey:  signer.PublicKey(),
 	})
-	principal, verr := signing.VerifyPublisher(bundleBytes, sigBytes, root, time.Now())
-	require.NoError(t, verr)
-	assert.Equal(t, "me@example.com", principal)
+	reads, err := bundles.NewProjectReader(afero.NewOsFs(), cfg.GetBundleDirs(), bundles.WithTrustRoot(root)).Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	assert.Equal(t, bundles.SignatureValid, reads[0].Signature(), "the tree verifies through its manifest entry")
+	assert.Equal(t, "me@example.com", reads[0].Bundle.Signer())
 }
 
-// TestRunSign_KeyFlagMatchesAgentKeyByCommentName exercises the --key name
-// form end to end through runSign: a ctxloom-specific value (a
-// ssh-agent comment) resolves to the right identity even though the agent
-// holds a second, unrelated key.
 func TestRunSign_KeyFlagMatchesAgentKeyByCommentName(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
+	createDirFormBundle(t, cfg, "my-tools")
 
 	_, wantedPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -107,11 +121,7 @@ func TestRunSign_KeyFlagMatchesAgentKeyByCommentName(t *testing.T) {
 
 func TestRunSign_ItemRefReportsContainingBundle(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
-		Name:      "my-tools",
-		Fragments: map[string]operations.BundleFragmentInput{"go-testing": {Content: "x", NoDistill: true}},
-	})
-	require.NoError(t, err)
+	createDirFormBundle(t, cfg, "my-tools")
 
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	cmd, out := testCmd()
@@ -121,8 +131,7 @@ func TestRunSign_ItemRefReportsContainingBundle(t *testing.T) {
 
 func TestRunSign_NoKeyAnywhereIsHardError(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
+	createDirFormBundle(t, cfg, "my-tools")
 
 	discoverer := &agentkey.Discoverer{
 		GitConfig: func(ctx context.Context, dir, key string) (string, bool, error) { return "", false, nil },
@@ -131,33 +140,29 @@ func TestRunSign_NoKeyAnywhereIsHardError(t *testing.T) {
 	}
 
 	cmd, _ := testCmd()
-	err = runSign(cmd, cfg, discoverer, "my-tools", false, "")
+	err := runSign(cmd, cfg, discoverer, "my-tools", false, "")
 	require.Error(t, err)
 	var noKeyErr *agentkey.NoKeyError
 	require.ErrorAs(t, err, &noKeyErr)
 
 	// And nothing was written: failing to sign must never leave a silent
 	// unsigned publish artifact behind.
-	bundlePath := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/my-tools.yaml"
-	_, statErr := afero.NewOsFs().Stat(bundlePath + ".sig")
-	assert.Error(t, statErr, ".sig must not exist when key discovery failed")
+	assert.False(t, signedTree(t, filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), "my-tools")),
+		"no signature may exist when key discovery failed")
 }
 
 func TestRunSign_AllSignsEveryLocalBundle(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "alpha"})
-	require.NoError(t, err)
-	_, err = operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "beta"})
-	require.NoError(t, err)
+	createDirFormBundle(t, cfg, "alpha")
+	createDirFormBundle(t, cfg, "beta")
 
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	cmd, _ := testCmd()
 	require.NoError(t, runSign(cmd, cfg, discoverer, "", true, ""))
 
 	for _, name := range []string{"alpha", "beta"} {
-		p := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/" + name + ".yaml.sig"
-		_, err := afero.NewOsFs().Stat(p)
-		assert.NoError(t, err, "%s should have been signed", name)
+		assert.True(t, signedTree(t, filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), name)),
+			"%s should have been signed", name)
 	}
 }
 
@@ -166,8 +171,7 @@ func TestRunSign_AllSignsEveryLocalBundle(t *testing.T) {
 // per-target sign result instead of the human "signed by X (Y)" text lines.
 func TestRunSign_FormatJSON_EmitsStructuredTargets(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
-	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
+	createDirFormBundle(t, cfg, "my-tools")
 
 	discoverer, signer := discovererWithSoleAgentIdentity(t)
 
@@ -184,7 +188,7 @@ func TestRunSign_FormatJSON_EmitsStructuredTargets(t *testing.T) {
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
 	require.Len(t, result.Signed, 1)
 	assert.Equal(t, "my-tools", result.Signed[0].Bundle)
-	assert.Contains(t, result.Signed[0].SigPath, ".sig")
+	assert.Contains(t, result.Signed[0].SigPath, content.SigDirName)
 	assert.Equal(t, ssh.FingerprintSHA256(signer.PublicKey()), result.Signed[0].Fingerprint)
 }
 
@@ -253,8 +257,7 @@ func TestRunSign_JSONSignedIsAlwaysAnArray(t *testing.T) {
 	}
 
 	t.Run("a signed run renders signed as a JSON array", func(t *testing.T) {
-		_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "my-tools"})
-		require.NoError(t, err)
+		createDirFormBundle(t, cfg, "my-tools")
 
 		cmd, out := jsonCmd()
 		require.NoError(t, runSign(cmd, cfg, discoverer, "my-tools", false, ""))

@@ -4,68 +4,54 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
 // THE ONE TABLE. ctxloom has two commands that promote a bundle to a remote —
-// `bundle push` and `bundle move --to <remote>` — and they disagreed about
-// whether the author's signature travels with it. This file puts both paths in
-// one matrix (sidecar absent/valid/stale x --sign/--no-sign/neither x
-// sign.default true/false) so the disagreement, and its resolution, is one diff
-// in one place rather than an inference across two packages.
+// `bundle push` and `bundle move --to <remote>` — and this file puts both in
+// one matrix (signature absent/valid/stale x --sign/--no-sign/neither x
+// sign.default true/false) so the contract is one diff in one place rather
+// than an inference across two packages.
 //
-// `bundle move` takes no signing flags at all: it has always CARRIED whatever
-// sidecar was on disk and REFUSED a stale one. So its rows vary only in sidecar
-// state, and they are the target the push rows converge on: push's "no flags,
-// sign.default off" rows now read exactly like the move rows with the same
-// sidecar state. That equality IS the unification — check it by eye.
-//
-// A signature belongs to the BUNDLE, not to the publish. `ctxloom bundle sign`
-// is the only producer; publishing carries a valid sidecar and refuses a stale
-// one; --sign is sugar for sign-then-publish (it mints the sidecar on disk,
-// then carries it); --no-sign publishes bare even when a valid sidecar exists.
+// A bundle's ONE signature is its SHA256SUMS manifest and the .sigs/ entry
+// over it, and it lives INSIDE the tree: publishing carries the tree as it
+// stands, refuses a stale manifest, and --sign is sugar for sign-then-publish
+// (`ctxloom bundle sign` writes the manifest entry; the push carries it).
+// `bundle move` takes no signing flags: its rows vary only in signature
+// state, and push's "no flags, sign.default off" rows read exactly like them.
 //
 // Every assertion is on the PAYLOAD the fake publisher recorded and on the
 // bytes left on disk, never on a success message: "published, exit 0, no
-// signature" is precisely the silent outcome this table exists to make visible.
+// signature" is precisely the silent outcome this table exists to make
+// visible.
 
-// --- table vocabulary --------------------------------------------------------
-
-// sidecarState is the state of the bundle's detached `<name>.yaml.sig` sibling
-// when the publishing command runs.
-type sidecarState int
+// signatureState is the state of the tree's manifest signature when the
+// publishing command runs.
+type signatureState int
 
 const (
-	// sidecarAbsent: the bundle was never signed.
-	sidecarAbsent sidecarState = iota
-	// sidecarValid: `ctxloom bundle sign` ran and nothing changed since.
-	sidecarValid
-	// sidecarStale: signed, then the bundle was edited — the signature covers
-	// bytes that no longer exist.
-	sidecarStale
+	// signatureAbsent: the bundle was never signed.
+	signatureAbsent signatureState = iota
+	// signatureValid: `ctxloom bundle sign` ran and nothing changed since.
+	signatureValid
+	// signatureStale: signed, then the bundle was edited — the manifest no
+	// longer covers the files.
+	signatureStale
 )
 
-func (s sidecarState) String() string {
-	switch s {
-	case sidecarAbsent:
-		return "sidecar-absent"
-	case sidecarValid:
-		return "sidecar-valid"
-	case sidecarStale:
-		return "sidecar-stale"
-	}
-	return "sidecar-?"
+func (s signatureState) String() string {
+	return [...]string{"signature-absent", "signature-valid", "signature-stale"}[s]
 }
 
-// publishVia names which of the two promoting commands the row exercises.
 type publishVia int
 
 const (
@@ -73,172 +59,73 @@ const (
 	viaMove
 )
 
-// publishedSigRelation says what the .sig published to the remote IS, relative
-// to the sidecar on disk. This is the load-bearing column: "a .sig was
-// published" is not the same claim as "the author's signature was published".
-type publishedSigRelation int
-
-const (
-	// sigNotPublished: no .sig sibling reached the remote.
-	sigNotPublished publishedSigRelation = iota
-	// sigEqualsPreSidecar: the published .sig is byte-identical to the sidecar
-	// that was on disk BEFORE the command — a genuine carry.
-	sigEqualsPreSidecar
-	// sigEqualsPostSidecar: the published .sig is byte-identical to the sidecar
-	// on disk AFTER the command — a mint that persisted, then was carried.
-	sigEqualsPostSidecar
-	// sigMintedTransiently: a .sig was published that matches NO sidecar on
-	// disk, before or after — signed during the push and never written down.
-	sigMintedTransiently
-)
-
-func (r publishedSigRelation) String() string {
-	switch r {
-	case sigNotPublished:
-		return "no .sig published"
-	case sigEqualsPreSidecar:
-		return "published .sig == sidecar before (carried)"
-	case sigEqualsPostSidecar:
-		return "published .sig == sidecar after (minted, persisted, carried)"
-	case sigMintedTransiently:
-		return "published .sig matches no on-disk sidecar (minted in-flight)"
-	}
-	return "?"
-}
-
-// sidecarOutcome says what the command did to the local `.sig` on disk.
-type sidecarOutcome int
-
-const (
-	// sidecarStillAbsent: there was none and none was written.
-	sidecarStillAbsent sidecarOutcome = iota
-	// sidecarUntouched: the sidecar is byte-identical to before.
-	sidecarUntouched
-	// sidecarWritten: a sidecar exists now that did not before, or differs.
-	sidecarWritten
-	// sidecarGone: the sidecar was removed (a completed `move` takes it).
-	sidecarGone
-)
-
-func (o sidecarOutcome) String() string {
-	switch o {
-	case sidecarStillAbsent:
-		return "no sidecar, none written"
-	case sidecarUntouched:
-		return "sidecar untouched"
-	case sidecarWritten:
-		return "sidecar written/replaced on disk"
-	case sidecarGone:
-		return "sidecar removed (moved away)"
-	}
-	return "?"
-}
-
-// carryCase is one row of the matrix.
 type carryCase struct {
-	name    string
-	via     publishVia
-	sidecar sidecarState
+	name string
+	via  publishVia
+	sig  signatureState
 
-	// push-only inputs; `bundle move` has no signing flags and no
-	// sign.default participation.
-	sign        bool
-	noSign      bool
-	signDefault bool
+	sign, noSign, signDefault bool
 
-	// expectations
-	wantErrContains  string
+	wantErrIs        error
 	wantBundleSent   bool
-	wantSigRelation  publishedSigRelation
-	wantSidecar      sidecarOutcome
-	wantSourceGone   bool // move only: the source YAML must be removed
+	wantSigPublished bool // a .sigs/ entry reached the remote
+	wantReSigned     bool // the on-disk entry set changed (--sign minted a new one)
+	wantSourceGone   bool // move only: the source tree must be removed
 	wantSourceIntact bool // move only: a refusal must leave the source alone
 }
 
-const (
-	remoteBundlePath = ".ctxloom/content/bundles/v2/for-push/bundle.yaml"
-	remoteSigPath    = ".ctxloom/content/bundles/v2/for-push/bundle.yaml.sig"
-)
+const remoteTreeRoot = ".ctxloom/content/bundles/v2/for-push"
 
-// editedBundleBytes is the rewrite that strands a signature: the same bundle,
-// different bytes. Deliberately NOT an inline `fragments:` key — this file
-// edits a TREE's own bundle.yaml, and an inline item key there would assert a
-// migration that never happened (see reader_local_tree_test.go's package doc:
-// tree-ness is decided by the ABSENCE of inline keys, not by directory-ness).
 var editedBundleBytes = []byte("version: 2.0.0\ndescription: rewritten\n")
 
-// localBundlePath is the on-disk path of the "for-push" bundle's manifest in a
-// pushSignTestSetup project.
 func localBundlePath(cfg *config.Config) string {
 	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push", bundles.DirectoryFormManifest)
 }
 
-// applySidecarState puts the bundle into the requested (bytes, sidecar) state
-// and returns the sidecar bytes on disk immediately before the command runs
-// (nil when unsigned).
-func applySidecarState(t *testing.T, cfg *config.Config, state sidecarState) []byte {
-	t.Helper()
-	switch state {
-	case sidecarAbsent:
-		require.NoFileExists(t, localSigPath(cfg))
-		return nil
-	case sidecarValid:
-		pre := signLocalBundleOnDisk(t, cfg)
-		return pre
-	case sidecarStale:
-		signLocalBundleOnDisk(t, cfg)
-		require.NoError(t, os.WriteFile(localBundlePath(cfg), editedBundleBytes, 0o644))
-		pre, err := os.ReadFile(localSigPath(cfg))
-		require.NoError(t, err)
-		require.Error(t, signing.CoversBytes(editedBundleBytes, pre, signing.NamespacePublish),
-			"precondition: the sidecar must not cover the edited bytes")
-		return pre
-	}
-	t.Fatalf("unknown sidecar state %v", state)
-	return nil
+func localSigsDir(cfg *config.Config) string {
+	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "for-push", content.SigDirName)
 }
 
-// readSidecar returns the sidecar bytes on disk, or nil when there is none.
-func readSidecar(t *testing.T, cfg *config.Config) []byte {
+// sigEntries lists the tree's .sigs/ entry names on disk; nil when unsigned.
+func sigEntries(t *testing.T, cfg *config.Config) []string {
 	t.Helper()
-	data, err := os.ReadFile(localSigPath(cfg))
+	entries, err := os.ReadDir(localSigsDir(cfg))
 	if os.IsNotExist(err) {
 		return nil
 	}
 	require.NoError(t, err)
-	return data
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
 }
 
-// classifySidecar reports what happened to the local sidecar.
-func classifySidecar(pre, post []byte, sourceGone bool) sidecarOutcome {
-	switch {
-	case post == nil && pre != nil && sourceGone:
-		return sidecarGone
-	case post == nil:
-		return sidecarStillAbsent
-	case pre != nil && string(pre) == string(post):
-		return sidecarUntouched
-	default:
-		return sidecarWritten
+// signLocalBundleOnDisk signs the "for-push" tree exactly as `ctxloom bundle
+// sign for-push` does: through its manifest entry, with the sole agent key.
+func signLocalBundleOnDisk(t *testing.T, cfg *config.Config) {
+	t.Helper()
+	_, signer := discovererWithSoleAgentIdentity(t)
+	_, err := operations.SignBundleFile(cfg, operations.SignBundleRequest{
+		Target: operations.SignTarget{BundleName: "for-push"},
+		Signer: signer,
+	})
+	require.NoError(t, err)
+}
+
+func applySignatureState(t *testing.T, cfg *config.Config, state signatureState) {
+	t.Helper()
+	switch state {
+	case signatureAbsent:
+		require.Nil(t, sigEntries(t, cfg))
+	case signatureValid:
+		signLocalBundleOnDisk(t, cfg)
+	case signatureStale:
+		signLocalBundleOnDisk(t, cfg)
+		require.NoError(t, os.WriteFile(localBundlePath(cfg), editedBundleBytes, 0o644))
 	}
 }
 
-// classifyPublishedSig reports what the .sig that reached the remote actually
-// is, relative to the sidecars on disk.
-func classifyPublishedSig(published, pre, post []byte) publishedSigRelation {
-	switch {
-	case published == nil:
-		return sigNotPublished
-	case pre != nil && string(published) == string(pre):
-		return sigEqualsPreSidecar
-	case post != nil && string(published) == string(post):
-		return sigEqualsPostSidecar
-	default:
-		return sigMintedTransiently
-	}
-}
-
-// runCarryCase executes one row and asserts every column.
 func runCarryCase(t *testing.T, tc carryCase) {
 	t.Helper()
 	cfg, pub, mgr := pushSignTestSetup(t)
@@ -248,8 +135,8 @@ func runCarryCase(t *testing.T, tc carryCase) {
 		cfg = config.NewFixture(f)
 	}
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
-
-	pre := applySidecarState(t, cfg, tc.sidecar)
+	applySignatureState(t, cfg, tc.sig)
+	entriesBefore := sigEntries(t, cfg)
 	bundleBytesBefore, err := os.ReadFile(localBundlePath(cfg))
 	require.NoError(t, err)
 
@@ -264,57 +151,39 @@ func runCarryCase(t *testing.T, tc carryCase) {
 		})
 	}
 
-	if tc.wantErrContains != "" {
-		require.Error(t, runErr)
-		assert.Contains(t, runErr.Error(), tc.wantErrContains)
+	if tc.wantErrIs != nil {
+		require.ErrorIs(t, runErr, tc.wantErrIs)
 	} else {
 		require.NoError(t, runErr)
 	}
 
-	sentBundle, bundleSent := pub.files[remoteBundlePath]
+	sentBundle, bundleSent := pub.files[remoteTreeRoot+"/"+bundles.DirectoryFormManifest]
 	assert.Equal(t, tc.wantBundleSent, bundleSent, "bundle published?")
 	if tc.wantBundleSent {
-		assert.Equal(t, bundleBytesBefore, sentBundle,
-			"the published bytes are the local file's bytes, verbatim")
+		assert.Equal(t, bundleBytesBefore, sentBundle, "the published bytes are the local file's bytes, verbatim")
 	}
+	sigPublished := false
+	for path := range pub.files {
+		if strings.HasPrefix(path, remoteTreeRoot+"/"+content.SigDirName+"/") {
+			sigPublished = true
+		}
+	}
+	assert.Equal(t, tc.wantSigPublished, sigPublished, "a .sigs/ entry reached the remote?")
 
-	var sentSig []byte
-	if s, ok := pub.files[remoteSigPath]; ok {
-		sentSig = s
-	}
-	post := readSidecar(t, cfg)
-	// Stat directly rather than borrowing a shared predicate: the only thing
-	// in question here is whether `push`/`move` left the local bundle file
-	// behind, and the predicate this used to call is production code of the
-	// MCP memory tools (internal/adapters/mcp), pinned by its own test there.
 	srcInfo, srcErr := os.Stat(localBundlePath(cfg))
 	sourceGone := srcErr != nil || !srcInfo.Mode().IsRegular()
-
-	assert.Equal(t, tc.wantSigRelation.String(), classifyPublishedSig(sentSig, pre, post).String(),
-		"what reached the remote as a signature")
-	assert.Equal(t, tc.wantSidecar.String(), classifySidecar(pre, post, sourceGone).String(),
-		"what happened to the local sidecar")
-
+	if !sourceGone {
+		reSigned := !assert.ObjectsAreEqual(entriesBefore, sigEntries(t, cfg))
+		assert.Equal(t, tc.wantReSigned, reSigned, "the on-disk signature entries changed?")
+	}
 	if tc.wantSourceGone {
 		assert.True(t, sourceGone, "a completed move removes the source")
 	}
 	if tc.wantSourceIntact {
 		assert.False(t, sourceGone, "a refused move leaves the source in place")
 	}
-
-	// A published signature must actually verify over the published bytes.
-	// Publishing a pair that does not match is the tamper alarm every guard in
-	// this area exists to prevent, and "a .sig was published" alone would not
-	// catch it.
-	if sentSig != nil {
-		assert.NoError(t, signing.CoversBytes(sentBundle, sentSig, signing.NamespacePublish),
-			"a published signature must cover the published bytes")
-	}
 }
 
-// TestPublishCarryMatrix is the whole table. Read the want* columns top to
-// bottom to see what each path does; read `push` rows against the `move` rows
-// with the same sidecar state to see whether the two agree.
 func TestPublishCarryMatrix(t *testing.T) {
 	for _, tc := range publishCarryCases() {
 		t.Run(tc.name, func(t *testing.T) { runCarryCase(t, tc) })
@@ -323,95 +192,29 @@ func TestPublishCarryMatrix(t *testing.T) {
 
 func publishCarryCases() []carryCase {
 	return []carryCase{
-		// --- push, no sidecar on disk ---------------------------------------
-		{
-			name: "push/absent/no-flags/default-off", via: viaPush, sidecar: sidecarAbsent,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarStillAbsent,
-		},
-		{
-			// The sugar: sign, THEN publish. The sidecar it mints is the same
-			// artifact `ctxloom bundle sign` writes, and it stays on disk — so
-			// what shipped is verifiable at rest afterwards.
-			name: "push/absent/sign/default-off", via: viaPush, sidecar: sidecarAbsent, sign: true,
-			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
-		},
-		{
-			name: "push/absent/no-flags/default-on", via: viaPush, sidecar: sidecarAbsent, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
-		},
-		{
-			name: "push/absent/no-sign/default-on", via: viaPush, sidecar: sidecarAbsent, noSign: true, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarStillAbsent,
-		},
+		// --- push, no flags, sign.default off: reads exactly like move ---
+		{name: "push/absent/no-flags/default-off", via: viaPush, sig: signatureAbsent, wantBundleSent: true},
+		{name: "push/valid/no-flags/default-off", via: viaPush, sig: signatureValid, wantBundleSent: true, wantSigPublished: true},
+		{name: "push/stale/no-flags/default-off", via: viaPush, sig: signatureStale, wantErrIs: operations.ErrStaleSignature},
 
-		// --- push, a VALID sidecar sits beside the bundle --------------------
-		{
-			// THE FIX, and identical to move/valid: `bundle sign foo &&
-			// bundle push foo` publishes the signature the author made.
-			name: "push/valid/no-flags/default-off", via: viaPush, sidecar: sidecarValid,
-			wantBundleSent: true, wantSigRelation: sigEqualsPreSidecar, wantSidecar: sidecarUntouched,
-		},
-		{
-			// --sign RE-signs rather than carrying what is there: it is an
-			// explicit instruction to sign, and the key it signs with (sign.key
-			// / --key / agent) may not be the one that made the old sidecar.
-			name: "push/valid/sign/default-off", via: viaPush, sidecar: sidecarValid, sign: true,
-			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
-		},
-		{
-			name: "push/valid/no-flags/default-on", via: viaPush, sidecar: sidecarValid, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
-		},
-		{
-			// --no-sign means publish BARE, even though a perfectly good
-			// signature is sitting right there. The escape hatch survives.
-			name: "push/valid/no-sign/default-on", via: viaPush, sidecar: sidecarValid, noSign: true, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
-		},
+		// --- push --sign: sign-then-publish; a stale manifest is re-signed ---
+		{name: "push/absent/--sign", via: viaPush, sig: signatureAbsent, sign: true, wantBundleSent: true, wantSigPublished: true, wantReSigned: true},
+		{name: "push/valid/--sign", via: viaPush, sig: signatureValid, sign: true, wantBundleSent: true, wantSigPublished: true, wantReSigned: true},
+		{name: "push/stale/--sign", via: viaPush, sig: signatureStale, sign: true, wantBundleSent: true, wantSigPublished: true, wantReSigned: true},
 
-		// --- push, a STALE sidecar (bundle edited after signing) -------------
-		{
-			// Identical to move/stale. A signature over bytes that no longer
-			// exist is the author's own signal that they are about to ship
-			// something they did not re-review; move has always stopped there
-			// and push now does too.
-			name: "push/stale/no-flags/default-off", via: viaPush, sidecar: sidecarStale,
-			wantErrContains: "no longer covers",
-			wantBundleSent:  false, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
-		},
-		{
-			// --sign re-signs FIRST, so the stale sidecar is replaced by one
-			// that covers the current bytes and the push proceeds — and local
-			// and remote now agree, which the mint model never achieved.
-			name: "push/stale/sign/default-off", via: viaPush, sidecar: sidecarStale, sign: true,
-			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
-		},
-		{
-			name: "push/stale/no-flags/default-on", via: viaPush, sidecar: sidecarStale, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
-		},
-		{
-			// --no-sign does not carry, so there is no pair to be stale.
-			name: "push/stale/no-sign/default-on", via: viaPush, sidecar: sidecarStale, noSign: true, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
-		},
+		// --- push --no-sign: never signs; the tree still travels as it stands ---
+		{name: "push/absent/--no-sign", via: viaPush, sig: signatureAbsent, noSign: true, wantBundleSent: true},
+		{name: "push/valid/--no-sign", via: viaPush, sig: signatureValid, noSign: true, wantBundleSent: true, wantSigPublished: true},
+		{name: "push/stale/--no-sign", via: viaPush, sig: signatureStale, noSign: true, wantErrIs: operations.ErrStaleSignature},
 
-		// --- move: the reference behaviour push converges on ------------------
-		{
-			name: "move/absent", via: viaMove, sidecar: sidecarAbsent,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarStillAbsent,
-			wantSourceGone: true,
-		},
-		{
-			name: "move/valid", via: viaMove, sidecar: sidecarValid,
-			wantBundleSent: true, wantSigRelation: sigEqualsPreSidecar, wantSidecar: sidecarGone,
-			wantSourceGone: true,
-		},
-		{
-			name: "move/stale", via: viaMove, sidecar: sidecarStale,
-			wantErrContains: "no longer covers",
-			wantBundleSent:  false, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
-			wantSourceIntact: true,
-		},
+		// --- push, sign.default on: --sign unless --no-sign ---
+		{name: "push/absent/default-on", via: viaPush, sig: signatureAbsent, signDefault: true, wantBundleSent: true, wantSigPublished: true, wantReSigned: true},
+		{name: "push/stale/default-on", via: viaPush, sig: signatureStale, signDefault: true, wantBundleSent: true, wantSigPublished: true, wantReSigned: true},
+		{name: "push/stale/default-on/--no-sign", via: viaPush, sig: signatureStale, signDefault: true, noSign: true, wantErrIs: operations.ErrStaleSignature},
+
+		// --- move: no flags; the target push's no-flags rows converge on ---
+		{name: "move/absent", via: viaMove, sig: signatureAbsent, wantBundleSent: true, wantSourceGone: true},
+		{name: "move/valid", via: viaMove, sig: signatureValid, wantBundleSent: true, wantSigPublished: true, wantSourceGone: true},
+		{name: "move/stale", via: viaMove, sig: signatureStale, wantErrIs: operations.ErrStaleSignature, wantSourceIntact: true},
 	}
 }

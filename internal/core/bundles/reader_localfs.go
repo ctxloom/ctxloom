@@ -2,9 +2,7 @@ package bundles
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -440,14 +438,14 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 			bundle.Name, filepath.Base(path))
 	}
 
-	facts := r.signatureFactsFor(path, data)
-	// A TREE's envelope sibling covers a document that declares no items, so on
-	// its own it says nothing about the payload. The manifest is what covers the
-	// item files, and it can only downgrade the answer above — see
-	// treeIntegrityFacts.
-	if tree != nil {
-		facts = r.treeIntegrityFacts(ctx, tree, facts)
+	// ONE signature shape: a tree's SHA256SUMS manifest and its .sigs/ entry
+	// (treeSignatureFacts). A single-file or inline-item bundle has no tree
+	// to carry one and reads as unsigned; a retired sibling signature beside
+	// either refuses the read rather than being read past.
+	if err := refuseSiblingSignature(r.fsys, path, name); err != nil {
+		return BundleRead{}, err
 	}
+	facts := r.directorySignatureFacts(ctx, path, tree)
 	facts.stamp(bundle)
 	// The RESOLUTION ref is the bare path-relative name for EVERY class this
 	// reader serves, builtins included. A builtin once minted
@@ -461,27 +459,4 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	return NewRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
 }
 
-// signatureFactsFor resolves the signature axes from the sibling `.sig`.
-//
-// A sidecar that EXISTS but cannot be READ is its own state and must not read
-// as unsigned: we cannot show it covers these bytes, so it is exactly as
-// unpublishable as a stale one, and just as silent without this.
-func (r *localFSReader) signatureFactsFor(path string, data []byte) SignatureFacts {
-	sig, err := afero.ReadFile(r.fsys, path+SigSuffix)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	case err != nil:
-		return SignatureFacts{
-			Signature: SignatureInvalid,
-			Signer:    SignerUntrusted,
-			Detail:    fmt.Sprintf("it could not be read: %v", err),
-		}
-	}
-	return readSignatureFacts(data, sig, r.trustRoot())
-}
-
-// trustRoot is the root signer identity resolves against, or nil when the
-// caller supplied none — in which case no key is trusted and every signature
-// reads as untrusted, which is the fail-toward-less-exposure direction.
 func (r *localFSReader) trustRoot() signing.TrustRoot { return r.cfg.root }

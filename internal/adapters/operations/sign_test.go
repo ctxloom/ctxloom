@@ -22,7 +22,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -125,68 +124,6 @@ func TestResolveSignTarget_EmptyRefErrors(t *testing.T) {
 
 // --- SignBundleFile -----------------------------------------------------
 
-// TestSignBundleFile_WritesSigThatVerifyPublisherAccepts is the core
-// red-line assertion: ctxloom bundle sign writes a .sig VerifyPublisher (the real
-// production verification path) accepts as a valid publish signature, over
-// the exact bundle file bytes.
-func TestSignBundleFile_WritesSigThatVerifyPublisherAccepts(t *testing.T) {
-	_, cfg := setupBundleTestDir(t)
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
-
-	signer := testSigner(t)
-
-	res, err := SignBundleFile(cfg, SignBundleRequest{
-		Target: SignTarget{BundleName: "my-tools"},
-		Signer: signer,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, res.BundlePath+".sig", res.SigPath)
-
-	bundleBytes, err := afero.ReadFile(afero.NewOsFs(), res.BundlePath)
-	require.NoError(t, err)
-	sigBytes, err := afero.ReadFile(afero.NewOsFs(), res.SigPath)
-	require.NoError(t, err)
-	require.NotEmpty(t, sigBytes)
-
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"me@example.com"},
-		KeyType:    signer.PublicKey().Type(),
-		PublicKey:  signer.PublicKey(),
-	})
-	principal, verr := signing.VerifyPublisher(bundleBytes, sigBytes, root, time.Now())
-	require.NoError(t, verr)
-	assert.Equal(t, "me@example.com", principal)
-}
-
-// TestSignBundleFile_TamperedBundleBytesFailVerification proves the
-// signature is over the FILE bytes verbatim (spec §3.1): editing the bundle
-// after signing must invalidate the signature, never verify anyway.
-func TestSignBundleFile_TamperedBundleBytesFailVerification(t *testing.T) {
-	_, cfg := setupBundleTestDir(t)
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
-	signer := testSigner(t)
-
-	res, err := SignBundleFile(cfg, SignBundleRequest{
-		Target: SignTarget{BundleName: "my-tools"},
-		Signer: signer,
-	})
-	require.NoError(t, err)
-
-	sigBytes, err := afero.ReadFile(afero.NewOsFs(), res.SigPath)
-	require.NoError(t, err)
-
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"me@example.com"},
-		KeyType:    signer.PublicKey().Type(),
-		PublicKey:  signer.PublicKey(),
-	})
-	tampered := []byte("version: \"9.9.9\"\n# tampered\n")
-	_, verr := signing.VerifyPublisher(tampered, sigBytes, root, time.Now())
-	require.Error(t, verr, "a signature over the original bytes must not verify over tampered bytes")
-}
-
 // TestSignBundleFile_NoSignerIsHardError is the "failing to sign is a hard
 // error, never a silent unsigned publish" red line, at the operations
 // layer: no signer supplied must never produce a bundle silently left
@@ -236,64 +173,6 @@ func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
 }
 
 // --- SignItem (the Signable seam) ------------------------------------------
-
-// TestSignItem_BundleRoundTripsThroughVerifyPublisher exercises the seam
-// directly (bypassing SignBundleFile): a bundleSignable's PublisherPreimage
-// is the bundle file's exact bytes, and SignItem must write a ".sig" sibling
-// at bundle.Path + ".sig" that VerifyPublisher accepts over those exact
-// bytes — the same red-line assertion TestSignBundleFile_... makes through
-// the higher-level entry point, pinned here at the seam itself.
-func TestSignItem_BundleRoundTripsThroughVerifyPublisher(t *testing.T) {
-	_, cfg := setupBundleTestDir(t)
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
-
-	store := bundleStore(cfg, nil)
-	bundle, err := loadBundleForUpdate(store, cfg, "my-tools")
-	require.NoError(t, err)
-
-	fs := afero.NewOsFs()
-	item := &bundleSignable{bundle: bundle, fs: fs}
-	assert.Equal(t, trust.ItemKind("bundle"), item.Kind())
-	assert.Equal(t, bundle.Path+".sig", item.SigPath())
-
-	signer := testSigner(t)
-	require.NoError(t, SignItem(fs, item, signer))
-
-	bundleBytes, err := afero.ReadFile(fs, bundle.Path)
-	require.NoError(t, err)
-	sigBytes, err := afero.ReadFile(fs, item.SigPath())
-	require.NoError(t, err)
-	require.NotEmpty(t, sigBytes)
-
-	root := allowedsigners.NewStore(allowedsigners.Entry{
-		Principals: []string{"me@example.com"},
-		KeyType:    signer.PublicKey().Type(),
-		PublicKey:  signer.PublicKey(),
-	})
-	principal, verr := signing.VerifyPublisher(bundleBytes, sigBytes, root, time.Now())
-	require.NoError(t, verr)
-	assert.Equal(t, "me@example.com", principal)
-}
-
-func TestSignItem_NoSignerIsHardError(t *testing.T) {
-	_, cfg := setupBundleTestDir(t)
-	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
-	require.NoError(t, err)
-
-	store := bundleStore(cfg, nil)
-	bundle, err := loadBundleForUpdate(store, cfg, "my-tools")
-	require.NoError(t, err)
-
-	fs := afero.NewOsFs()
-	item := &bundleSignable{bundle: bundle, fs: fs}
-	err = SignItem(fs, item, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no signer")
-
-	_, statErr := fs.Stat(item.SigPath())
-	assert.Error(t, statErr, "a refused sign must not leave a signature behind")
-}
 
 // SignBundleFile read the bundle file and handed the bytes to
 // signing.Sign with no length check, so a truncated or zero-byte bundle got a
@@ -403,10 +282,10 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 		"sign --all must sign exactly the bundles the loader can load from the authored dirs")
 	assert.Contains(t, names, "gamma", "a directory-form bundle must be signable via --all")
 
-	// Widening the enumeration promotes a previously-theoretical question to
-	// a live one: `sign --all` now HANDS these names to SignBundleFile, so
-	// every name this returns must actually be signable. A list that names
-	// bundles the signer then chokes on would just move the lie.
+	// `sign --all` HANDS these names to SignBundleFile. Every directory-form
+	// bundle among them is signed through its manifest entry; a single-file
+	// bundle is refused by sentinel, never silently skipped — the refusal is
+	// what tells the author to move it to the tree form.
 	signer := testSigner(t)
 	for _, name := range names {
 		res, serr := SignBundleFile(cfg, SignBundleRequest{
@@ -414,8 +293,12 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 			Signer: signer,
 			FS:     fs,
 		})
+		if name == "alpha" {
+			require.ErrorIs(t, serr, ErrSingleFileBundleUnsignable, "a single-file bundle is refused, by name")
+			continue
+		}
 		require.NoError(t, serr, "sign --all must be able to sign %q", name)
-		ok, _ := afero.Exists(fs, res.SigPath)
+		ok, _ := afero.DirExists(fs, res.SigPath)
 		assert.True(t, ok, "no signature landed for %q at %s", name, res.SigPath)
 	}
 }
@@ -605,4 +488,70 @@ func TestSignBundleFile_ReportsEveryStaleSkillNotJustTheFirst(t *testing.T) {
 	assert.Contains(t, err.Error(), "reviewer", "the untouched-then-edited skill must be named")
 	assert.Contains(t, err.Error(), "curator", "the second edited skill must be named too")
 	assert.NotContains(t, err.Error(), "editor", "the skill that stayed in sync must not be named as stale")
+}
+
+// TestSignBundleFile_SingleFileBundleIsRefused: a bundle's ONE signature is
+// the SHA256SUMS manifest and its .sigs/ entry, which only a directory-form
+// bundle carries. A single-file bundle is refused, by sentinel, and nothing
+// is written beside it.
+func TestSignBundleFile_SingleFileBundleIsRefused(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
+	require.NoError(t, err)
+
+	_, err = SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "my-tools"},
+		Signer: testSigner(t),
+	})
+
+	require.ErrorIs(t, err, ErrSingleFileBundleUnsignable)
+	path := paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2) + "/my-tools.yaml"
+	_, statErr := os.Stat(path + ".sig")
+	assert.Error(t, statErr, "a refused sign must not leave a sibling behind")
+}
+
+// TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling: a
+// directory-form bundle is signed through attest.SignBundle — the manifest
+// and its .sigs/ entry — and a retired sibling bundle.yaml.sig beside it is
+// removed on the way, so the reader that refuses a sibling
+// (bundles.ErrSiblingSignatureRetired) reads the re-signed bundle as VALID.
+func TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	dir := filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), "kit")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: \"1.0\"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "keeper.md"), []byte("KEEPER\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest+".sig"), []byte("retired sibling\n"), 0o644))
+	signer := testSigner(t)
+
+	res, err := SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "kit"},
+		Signer: signer,
+	})
+
+	require.NoError(t, err)
+	assert.True(t, res.Tree)
+	assert.Equal(t, filepath.Join(dir, content.SigDirName), res.SigPath)
+	_, statErr := os.Stat(filepath.Join(dir, bundles.DirectoryFormManifest+".sig"))
+	assert.Error(t, statErr, "the retired sibling is removed by re-signing")
+	entries, err := os.ReadDir(filepath.Join(dir, content.SigDirName))
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "one manifest entry is the signature")
+
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"me@example.com"},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+	reads, err := bundles.NewProjectReader(afero.NewOsFs(), cfg.GetBundleDirs(), bundles.WithTrustRoot(root)).Read(context.Background())
+	require.NoError(t, err)
+	var read bundles.BundleRead
+	for _, r := range reads {
+		if r.Bundle.Name == "kit" {
+			read = r
+		}
+	}
+	require.NotNil(t, read.Bundle, "the re-signed bundle reads")
+	assert.Equal(t, bundles.SignatureValid, read.Signature())
+	assert.Equal(t, "me@example.com", read.Bundle.Signer())
 }

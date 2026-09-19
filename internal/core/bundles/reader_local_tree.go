@@ -75,37 +75,20 @@ func (r *localFSReader) readLocalTreeForm(ctx context.Context, manifestPath stri
 	return tree, b, nil
 }
 
-// treeIntegrityFacts folds a locally authored TREE's manifest into the
-// signature facts its envelope sibling established.
+// treeSignatureFacts establishes a locally authored TREE's signature axes from
+// its ONE signature: the SHA256SUMS manifest and its .sigs/ entry, verified
+// by attest.VerifyBundle — the same verifier the pull walk uses, so the two
+// readers refuse the same things. There is no second shape: the sibling
+// bundle.yaml.sig is retired (refuseSiblingSignature) and nothing reads it.
 //
-// # The hole this closes
-//
-// signatureFactsFor checks `bundle.yaml.sig` against the raw bytes of
-// `bundle.yaml`. For a tree that envelope declares NO ITEMS — every fragment,
-// command and skill lives in a file beside it — so the sibling signature covers
-// a document whose entire payload is elsewhere. Mutating an item file left the
-// bundle reporting SignatureValid, with the SHA256SUMS manifest that would have
-// caught it sitting on disk unread.
-//
-// # Why the two are COMPOSED rather than one replacing the other
-//
-// They cover different bytes and both must hold. The manifest covers the item
-// files (and, because operations.signBundleTree writes the sibling FIRST, the
-// envelope and its signature too); the sibling covers the envelope. Taking the
-// manifest's answer alone would discard the envelope fact for trees carrying no
-// manifest, which is every directory bundle authored before this; taking the
-// sibling's alone is the hole above. So the envelope's answer stands and the
-// manifest can only DOWNGRADE it.
-//
-// # Why an unsigned manifest still decides
-//
-// attest.VerifyBundle computes Contents — the tree-against-manifest check, in
-// both directions — whenever a manifest exists at all, independently of whether
-// anything signed or trusts it. Local content is trusted by LOCALITY, so these
-// facts never gate a load; they are the diagnostic that tells an author their
-// bytes and their manifest have parted company, which is worth reporting
-// whether or not a key was involved.
-func (r *localFSReader) treeIntegrityFacts(ctx context.Context, tree content.Bundle, envelope SignatureFacts) SignatureFacts {
+// A manifest that does not honestly cover the tree — a mutated or smuggled
+// item file, a signature over other bytes — is INVALID, not absent, because a
+// manifest that exists and does not describe the tree is a different fact
+// from no manifest at all. Local content is trusted by LOCALITY, so an
+// invalid signature never withholds a local tree (composite.Trust admits it
+// as unsigned, with the stale-signature reason); it is the diagnostic that
+// tells the author their bytes and their manifest have parted company.
+func (r *localFSReader) treeSignatureFacts(ctx context.Context, tree content.Bundle) SignatureFacts {
 	verdict, err := attest.VerifyBundle(ctx, tree, r.trustRoot(), time.Now())
 	switch {
 	case err != nil:
@@ -116,8 +99,56 @@ func (r *localFSReader) treeIntegrityFacts(ctx context.Context, tree content.Bun
 		return invalidTreeFacts("its files no longer match %s: %v", content.ManifestPath, verdict.Contents)
 	case verdict.Status == attest.StatusTampered:
 		return invalidTreeFacts("its %s is present but does not honestly cover this tree: %s", content.ManifestPath, verdict.Detail)
+	case verdict.OK():
+		return SignatureFacts{Signature: SignatureValid, Signer: SignerTrusted, Principal: verdict.Principal}
+	case verdict.UntrustedSignerFingerprint != "":
+		return SignatureFacts{Signature: SignatureValid, Signer: SignerUntrusted, Fingerprint: verdict.UntrustedSignerFingerprint}
 	}
-	return envelope
+	return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
+}
+
+// directorySignatureFacts establishes the signature axes of any bundle read
+// from a bundle.yaml: its directory's manifest, when one exists, verified
+// through treeSignatureFacts. `ctxloom bundle sign` signs every directory-form
+// bundle that way — a tree-form envelope and an envelope declaring its items
+// inline with files beside it alike — so the reader verifies both the same
+// way. A single-file bundle, and a directory with no manifest, is unsigned.
+// tree is the already-opened tree for a tree-form envelope, nil otherwise.
+func (r *localFSReader) directorySignatureFacts(ctx context.Context, manifestPath string, tree content.Bundle) SignatureFacts {
+	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
+	if filepath.Base(manifestPath) != DirectoryFormManifest {
+		return unsigned
+	}
+	if _, err := r.fsys.Stat(filepath.Join(filepath.Dir(manifestPath), content.ManifestPath)); err != nil {
+		return unsigned
+	}
+	if tree == nil {
+		opened, err := r.openLocalTree(ctx, manifestPath)
+		if err != nil {
+			return invalidTreeFacts("its tree could not be opened to check against its manifest: %v", err)
+		}
+		tree = opened
+	}
+	return r.treeSignatureFacts(ctx, tree)
+}
+
+// ErrSiblingSignatureRetired is the reader's refusal of a bundle still
+// carrying the retired detached sibling signature (<file>.yaml.sig). It is a
+// refusal rather than a silent "unsigned": the author believes the bundle
+// signed, and reading past the sibling would let that belief stand while
+// nothing verified it. Re-signing writes the manifest entry and removes the
+// sibling.
+var ErrSiblingSignatureRetired = errors.New("bundles: the detached sibling signature is retired — the .sigs/ manifest entry is the one signature")
+
+// refuseSiblingSignature refuses to read a bundle whose document has a
+// sibling signature beside it, naming the remedy.
+func refuseSiblingSignature(fsys afero.Fs, path, name string) error {
+	sibling := path + ".sig"
+	if _, err := fsys.Stat(sibling); err != nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %s carries %s — re-sign it (`ctxloom bundle sign %s`) so its %s entry is the signature, which also removes the sibling",
+		ErrSiblingSignatureRetired, name, filepath.Base(sibling), name, content.SigDirName)
 }
 
 // invalidTreeFacts is the one shape a failed tree check reports: the signature

@@ -19,12 +19,10 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -711,38 +709,10 @@ type PushBundleRequest struct {
 	// nil so a real network-backed manager is constructed from cfg.
 	PublishManager *remote.PublishManager `json:"-"`
 
-	// Signer, when non-nil, MINTS a signature during the publish: the exact
-	// bytes of the local bundle file are signed under
-	// signing.NamespacePublish and a detached "<path>.sig" sibling is
-	// published alongside (spec §3.1, §4.1), without any sidecar being
-	// written locally.
-	//
-	// NO PRODUCTION CALLER SETS THIS. A signature belongs to the bundle, not
-	// to the publish: `ctxloom bundle sign` is the only producer, and both
-	// `bundle push` and `bundle move` carry the sidecar it leaves on disk via
-	// Signature below. `push --sign` is sugar that runs the signing operation
-	// first and then carries the result, so the signing key never has to be on
-	// the publishing machine and what shipped can be verified at rest. The
-	// field survives as the DI seam PushBundle's own tests drive; a frontend
-	// reaching for it is choosing a model this codebase has moved off.
-	Signer ssh.Signer `json:"-"`
-
-	// Signature, when non-empty, is a PRE-EXISTING detached signature over
-	// this bundle file's exact bytes (its "<path>.sig" sibling), carried
-	// verbatim to the remote instead of being recomputed. This is how every
-	// production publish signs: publish writes the local file's bytes
-	// unchanged (spec §3.0 — no re-serialization anywhere between publisher
-	// and verifier), so a signature over those bytes stays valid at the
-	// destination, and re-signing would be pointless churn needing a key the
-	// publisher may not hold. Callers get it from
-	// operations.PublisherSignature, the one seam that reads the sidecar and
-	// proves it covers the bytes. Mutually exclusive with Signer; Signer wins
-	// if both are set.
-	//
-	// PushBundle VERIFIES it covers the bytes being published before carrying
-	// it, and refuses the push otherwise (a bundle edited after signing). The
-	// pair is the artifact (spec §3.0); half of it is a tamper alarm.
-	Signature []byte `json:"-"`
+	// A bundle's signature is not a publish-time concern: `ctxloom bundle
+	// sign` writes a tree's SHA256SUMS manifest and its .sigs/ entry, and a
+	// tree push carries that store with the rest of the tree. A single-file
+	// bundle publishes unsigned; it cannot carry a signature at all.
 }
 
 // PushBundleResult reports what was (or would be) published.
@@ -764,9 +734,8 @@ type PushBundleResult struct {
 	// Set on dry-run only — human-readable summary of what would happen.
 	Preview string `json:"preview,omitempty"`
 
-	// Signed reports whether a detached "<TargetPath>.sig" sibling was
-	// published alongside the bundle (req.Signer was set and signing
-	// succeeded).
+	// Signed reports whether the published tree carries a signature — an
+	// entry in its .sigs/ store. A single-file bundle is never signed.
 	Signed bool `json:"signed,omitempty"`
 }
 
@@ -796,8 +765,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// in it is named for what it is. ParseBundle refuses this document too
 	// (Bundle.declaresNothing), but as a parse failure — and someone who
 	// truncated a file is served by "the file has no content", not by a sentence
-	// about YAML. Publishing it would overwrite whatever is at the remote path
-	// and, with req.Signer set, sign nothing.
+	// about YAML. Publishing it would overwrite whatever is at the remote path.
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, fmt.Errorf("refusing to publish empty bundle %s: the file has no content", absPath)
 	}
@@ -805,16 +773,13 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return nil, fmt.Errorf("invalid bundle: %w", err)
 	}
 
-	// The last gate before bytes leave the machine. A carried signature is
-	// published verbatim beside these exact bytes (runPush), so if it does not
-	// cover them, publishing the pair hands every consumer a hard tamper alarm
-	// over content that was never attacked — just edited after it was signed.
-	// Refuse. Fail-closed: a signature that does not match is an error state, not
-	// a warning to publish through, and never a quiet downgrade to unsigned.
-	if len(req.Signature) > 0 && req.Signer == nil {
-		if verr := signing.CoversBytes(data, req.Signature, signing.NamespacePublish); verr != nil {
-			return nil, staleSignatureError(absPath, verr)
-		}
+	// The last gate before bytes leave the machine: a tree whose manifest no
+	// longer covers its files is refused (the reader established that fact),
+	// because publishing it hands every consumer a hard tamper alarm over
+	// content that was never attacked — just edited after it was signed.
+	// Fail-closed: never a quiet downgrade to unsigned.
+	if err := refusePushOfStaleTree(cfg, absPath); err != nil {
+		return nil, err
 	}
 
 	registry, err := getRegistry(cfg)
@@ -943,23 +908,6 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		// computed in PushBundle, handed to publish rather than recomputed there.
 		RemotePath: result.TargetPath,
 	}
-	switch {
-	case req.Signer != nil:
-		signer := req.Signer
-		opts.SignPayload = func(payload []byte) ([]byte, error) {
-			return signing.Sign(payload, signer, signing.NamespacePublish)
-		}
-	case len(req.Signature) > 0:
-		// Carry an existing detached signature (see PushBundleRequest.Signature).
-		// The payload handed to SignPayload IS the local file's bytes, verbatim,
-		// which PushBundle has already PROVEN this signature covers — so returning
-		// it unchanged is a signature over the published bytes, not a rubber stamp.
-		// It rides publish's normal sibling-write path, so a failure to land it
-		// is the same hard error a signing failure is (spec §7A.4).
-		sig := req.Signature
-		opts.SignPayload = func([]byte) ([]byte, error) { return sig, nil }
-	}
-
 	pubResult, err := pm.Publish(ctx, absPath, remoteName, opts)
 	if err != nil {
 		return nil, fmt.Errorf("publish: %w", err)
@@ -967,7 +915,7 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
-	result.Signed = pubResult.Signed
+	result.Signed = false // a single-file bundle carries no signature
 	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"
@@ -979,43 +927,21 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 // bundle's directory travels in ONE commit (engaged-chivalry), via
 // remote.PublishManager.PublishTree rather than the single-file Publish.
 //
-// It does not go through remote.PublishOptions.SignPayload. A tree's own
-// signature — today a "<manifest>.sig" sidecar, written to disk before
-// PushBundle runs by `ctxloom bundle sign` (or hand-signed, as
-// TestPushBundleCfg_DirectoryFormBundle_CarriesTheManifestSidecar does) — is
-// just another file gatherPublishTreeFiles walks off disk, so it travels in
-// the SAME commit as everything else rather than the sibling-commit dance the
-// single-file path uses to avoid a half-signed publish. req.Signer (an
-// in-flight, mint-and-publish signature) has no production caller — see
-// PushBundleRequest.Signer's doc — and is refused here rather than silently
-// ignored, since silently dropping a requested signature is exactly the
-// confident-wrong-work this project's startup posture exists to prevent.
+// A tree's signature — its SHA256SUMS manifest and .sigs/ entries, written
+// to disk before PushBundle runs by `ctxloom bundle sign` — is just more of
+// the files gatherPublishTreeFiles walks off disk, so it travels in the SAME
+// commit as everything else.
 func runTreePush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
-	if req.Signer != nil {
-		return nil, fmt.Errorf("publishing a directory-form bundle with an in-flight Signer is not supported: sign the manifest on disk first (ctxloom bundle sign), so the sidecar travels with the rest of the tree")
-	}
-
 	pm := req.PublishManager
 	if pm == nil {
 		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
 	}
 
+	// The tree's signature — SHA256SUMS and its .sigs/ entries — travels as
+	// part of the walked file set; nothing is added or removed here.
 	files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
 	if err != nil {
 		return nil, fmt.Errorf("gather bundle tree: %w", err)
-	}
-	// The manifest's signature sidecar travels IFF req.Signature says so — the
-	// RESOLVED decision (resolvePushSignature's --sign/--no-sign/sign.default
-	// composition, or MoveBundle's PublisherSignature read), never whatever
-	// happens to be sitting in the directory. Without this, gatherPublishTreeFiles
-	// walking the whole tree would publish a sidecar the caller explicitly
-	// declined (--no-sign) purely because the file exists on disk — the
-	// single-file path never had this failure mode, because it always chose
-	// the sidecar explicitly rather than by directory listing.
-	sigRel := bundles.DirectoryFormManifest + bundles.SigSuffix
-	delete(files, sigRel)
-	if len(req.Signature) > 0 {
-		files[sigRel] = req.Signature
 	}
 
 	opts := remote.PublishOptions{
@@ -1035,11 +961,10 @@ func runTreePush(ctx context.Context, cfg *config.Config, registry *remote.Regis
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
-	// A carried sidecar (req.Signature) travels as part of the walked file
-	// set rather than a separate write, so there is no PublishResult.Signed
-	// to read back — report whether one was carried at all, the same fact
-	// runPush's PublisherSignature check upstream already established.
-	result.Signed = len(req.Signature) > 0
+	// The tree's .sigs/ store travels as part of the walked file set rather
+	// than a separate write, so there is no PublishResult.Signed to read back
+	// — report whether one was carried at all.
+	result.Signed = treeCarriesSignature(files)
 	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"
@@ -1515,4 +1440,35 @@ func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Di
 			p.ContentHash = p.ComputeContentHash()
 			b.Commands[name] = p
 		})
+}
+
+// treeCarriesSignature reports whether a walked tree carries a signature:
+// an entry in its .sigs/ store.
+func treeCarriesSignature(files map[string][]byte) bool {
+	for rel := range files {
+		if strings.HasPrefix(filepath.ToSlash(rel), content.SigDirName+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// refusePushOfStaleTree refuses to publish a directory-form bundle whose
+// signature no longer covers its files, by the reader's own facts
+// (refuseStaleSignature over the project's bundle roots). A single-file
+// bundle carries no signature and is never refused here; a tree outside the
+// project's bundle roots has no reader to ask and publishes as it stands.
+func refusePushOfStaleTree(cfg *config.Config, absPath string) error {
+	if filepath.Base(absPath) != bundles.DirectoryFormManifest || cfg == nil {
+		return nil
+	}
+	name := filepath.Base(filepath.Dir(absPath))
+	read, err := bundles.NewLoader(bundles.NewProjectReader(afero.NewOsFs(), cfg.BundleReaderDirs())).Read(name)
+	if err != nil || filepath.Clean(read.Bundle.Path) != filepath.Clean(absPath) {
+		return nil
+	}
+	if read.Signature() != bundles.SignatureInvalid {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrStaleSignature, bundles.StaleSignatureAdvice(read))
 }

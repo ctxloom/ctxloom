@@ -198,6 +198,13 @@ func (r *repoFSReader) syntheticPath() string {
 // installed; what changed is that integrity is checked where the bytes are
 // actually read from.
 func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
+	// The pull walk and the installed reader refuse the same things: a tree
+	// still carrying the retired sibling signature is refused here exactly
+	// as the local reader refuses it (refuseSiblingSignature).
+	if _, err := r.tree.ReadFile(path.Join(path.Base(strings.TrimSuffix(r.ref, "/")), DirectoryFormManifest+".sig")); err == nil {
+		return BundleRead{}, fmt.Errorf("%w: %q carries %s — the publisher re-signs it (`ctxloom bundle sign`) so its %s entry is the signature",
+			ErrSiblingSignatureRetired, r.ref, DirectoryFormManifest+".sig", content.SigDirName)
+	}
 	tree, err := r.openTreeBundle()
 	if err != nil {
 		return BundleRead{}, err

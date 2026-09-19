@@ -72,6 +72,10 @@ func localFragmentState(t *testing.T, cfg *config.Config, ref string) string {
 	t.Helper()
 	rows, err := listItemRows(cfg, ItemTypeFragment)
 	require.NoError(t, err)
+	// A generation's records are read once when its gate is built; a
+	// decision recorded since is the NEXT generation's, so rebuild the gate
+	// exactly as a reload would before stamping.
+	realGated(t, cfg)
 	stampItemTrust(cfg, ItemTypeFragment, rows)
 	row, ok := findRow(rows, ref)
 	require.Truef(t, ok, "%s must be listed", ref)
@@ -89,7 +93,7 @@ func TestRunItemForget_ClearsARejection(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 	const ref = "demo#fragments/curl-pipe-sh"
 
@@ -123,7 +127,7 @@ func TestRunItemForget_ClearsAnApproval(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalFragment(t, cfg, "demo", "x", "approved body")
 
 	c, _ := testCmd()
@@ -148,7 +152,7 @@ func TestRunItemForget_NothingRecorded_SaysSo(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := realGated(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}}))
 	seedLocalFragment(t, cfg, "demo", "x", "never decided")
 
 	c, out := testCmd()

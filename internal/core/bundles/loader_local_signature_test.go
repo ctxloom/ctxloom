@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -156,7 +157,7 @@ func TestLoader_LoadFile_CorruptLocalSignature_WarnsAndDelivers(t *testing.T) {
 	entries, err := afero.ReadDir(mem, filepath.Join(dir, content.SigDirName))
 	require.NoError(t, err)
 	require.NotEmpty(t, entries, "the fixture signed the manifest")
-	require.NoError(t, afero.WriteFile(mem, filepath.Join(dir, content.SigDirName, entries[0].Name()), []byte("not a signature\n"), 0o644))
+	testsupport.WriteFile(t, mem, filepath.Join(dir, content.SigDirName, entries[0].Name()), []byte("not a signature\n"), 0o644)
 
 	lc, warnings := deliverKeeper(t, mem, "corrupt-tools")
 
@@ -184,8 +185,8 @@ func TestLoader_LoadFile_SiblingSignature_IsRefused(t *testing.T) {
 	v2 := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
 	require.NoError(t, mem.MkdirAll(v2, 0o755))
 	path := filepath.Join(v2, "old-tools.yaml")
-	require.NoError(t, afero.WriteFile(mem, path, []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n"), 0o644))
-	require.NoError(t, afero.WriteFile(mem, path+".sig", []byte("armored-signature-bytes"), 0o644))
+	testsupport.WriteFile(t, mem, path, []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n"), 0o644)
+	testsupport.WriteFile(t, mem, path+".sig", []byte("armored-signature-bytes"), 0o644)
 
 	mark := strictness.Checkpoint()
 	reads, err := NewProjectReader(mem, []string{"/bundles"}).Read(context.Background())

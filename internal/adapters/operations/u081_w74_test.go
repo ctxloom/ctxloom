@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -275,41 +274,6 @@ func (f *failRemoveFs) Remove(name string) error {
 		return errors.New("permission denied")
 	}
 	return f.Fs.Remove(name)
-}
-
-// TestMoveBundle_StraySourceSignature_ErrorNamesDestinationAndForbidsRetry is
-// the worst-shaped outcome this command has: the bundle IS at the destination
-// and the source YAML IS gone, so the move happened — only the source .sig
-// survived. The old message said "bundle moved, but its source signature could
-// not be removed", named no destination, and left the user with an exit code
-// that invites a re-run. Re-running cannot work: there is no source left.
-func TestMoveBundle_StraySourceSignature_ErrorNamesDestinationAndForbidsRetry(t *testing.T) {
-	base, cfg := memMoveFS(t, true)
-	require.NoError(t, base.MkdirAll("/out", 0755)) // resolveMoveDest requires an EXISTING dir
-	src := srcBundlePath(cfg)
-	fs := &failRemoveFs{Fs: base, fail: func(name string) bool { return strings.HasSuffix(name, sigSuffix) }}
-
-	// The fixture must be hostile in exactly one place: the .sig removal, and
-	// nothing else. Prove that before asserting on the message.
-	require.Error(t, fs.Remove(src+sigSuffix), "fixture is not broken")
-	ok, _ := afero.Exists(fs, src)
-	require.True(t, ok, "the source bundle must still be removable for the move to reach the .sig step")
-
-	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
-	require.Error(t, err)
-
-	// The payload: the destination the bundle actually reached, and the fact
-	// that a retry is not the remedy.
-	assert.Contains(t, err.Error(), filepath.Join("/out", "seed.yaml"),
-		"the failure must name where the bundle actually went")
-	assert.Contains(t, err.Error(), "re-running the move will not work",
-		"the failure must stop the retry it would otherwise invite")
-
-	// And the state the message describes is the real one.
-	moved, _ := afero.Exists(fs, filepath.Join("/out", "seed.yaml"))
-	assert.True(t, moved, "the bundle did land at the destination")
-	srcGone, _ := afero.Exists(fs, src)
-	assert.False(t, srcGone, "the source YAML was removed — the move happened")
 }
 
 // TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces is the other half:

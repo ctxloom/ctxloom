@@ -167,7 +167,86 @@ var layeringRules = []layeringRule{
 			"internal/schema",
 			"internal/liveness",
 		},
-		allowed: map[string]string{},
+		allowed: map[string]string{
+			// core/trust
+			"internal/trust -> internal/remote": "slice 2: URL normalisation already lives in refuri; the remote import goes",
+
+			// core/sessions
+			"internal/sessions -> internal/shared/upgrade": "slice 1a: the index migrations are deleted",
+			"internal/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
+
+			// core/profiles — Part 1.0 lists remote and shared/agent; shared/agent is a
+			// from-package here (its contract half becomes core/engine in 6b), so that
+			// edge is not a violation under the prefix rule. The other three were
+			// MEASURED, not listed.
+			"internal/profiles -> internal/remote":            "slice 5: the pull-walk reader moves to adapters/remote",
+			"internal/profiles -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row)",
+			"internal/profiles -> internal/shared/strictness": "slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row)",
+			"internal/profiles -> internal/shared/upgrade":    "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
+			"internal/profiles -> resources":                  "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+
+			// core/bundles
+			"internal/bundles -> internal/content":            "slice 5: readers become adapters behind bundles.Reader",
+			"internal/bundles -> internal/content/attest":     "slice 5: attest.VerifyBundle is called by the reader adapters",
+			"internal/bundles -> internal/content/remotetree": "slice 5: readers become adapters behind bundles.Reader",
+			"internal/bundles -> internal/remote":             "slice 5: readers become adapters behind bundles.Reader",
+			"internal/bundles -> internal/signing":            "slice 5: one verifier, behind the trust ports",
+			"internal/bundles -> internal/shared/admission":   "slice 5: admission is decided by composite.Trust, not by the bundle package",
+			"internal/bundles -> internal/shared/upgrade":     "slice 1a: the permanent migrations are deleted",
+			"internal/bundles -> internal/shared/clidiag":     "slice 15: clidiag becomes typed reports",
+			"internal/bundles -> internal/shared/strictness":  "slice 15: strictness becomes a value (measured; not in Part 1.0's bundles row)",
+			"internal/bundles -> resources":                   "slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+
+			// core/config — Part 1.0 also lists config/layerscope, which is under the
+			// from-prefix today and so not a violation until the rename moves it to
+			// adapters/configload/layerscope.
+			"internal/config -> internal/agents":                  "slice 4: the adapters/configload split",
+			"internal/config -> internal/content":                 "slice 4: the adapters/configload split",
+			"internal/config -> internal/content/remotetree":      "slice 4: the adapters/configload split",
+			"internal/config -> internal/projectroot":             "slice 4: the adapters/configload split; config no longer finds its own root",
+			"internal/config -> internal/remote":                  "slice 5: trust ports behind Sources.TrustPorts",
+			"internal/config -> internal/shared/admission":        "slice 5: admission is decided by composite.Trust",
+			"internal/config -> internal/shared/cliversion":       "slice 4: the adapters/configload split",
+			"internal/config -> internal/shared/companionloadout": "slice 4: companion probing moves to adapters/companions",
+			"internal/config -> internal/shared/confload":         "slice 4: the file/env/flag chain is adapters/configload's (measured; not in Part 1.0's config row)",
+			"internal/config -> internal/signing":                 "slice 5: trust ports behind Sources.TrustPorts",
+			"internal/config -> internal/signing/allowedsigners":  "slice 5: trust ports behind Sources.TrustPorts",
+			"internal/config -> internal/shared/upgrade":          "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's config row)",
+			"internal/config -> internal/shared/clidiag":          "slice 15: clidiag becomes typed reports",
+			"internal/config -> internal/shared/strictness":       "slice 15: strictness becomes a value (measured; not in Part 1.0's config row)",
+			"internal/config -> resources":                        "slice 4: the embedded default config is data adapters/configload supplies (measured; Part 1.0 does not classify resources)",
+
+			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
+			// profiles). envswitch is listed there without a slice.
+			"internal/agentcoord/coord -> internal/agentcoord":           "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
+			"internal/agentcoord/coord -> internal/agentcoord/discover":  "slice 10: discover moves to adapters/coordgrpc",
+			"internal/agentcoord/coord -> internal/agentcoord/mcpschema": "slice 10: mcpschema moves to adapters/coordgrpc",
+			"internal/agentcoord/coord -> internal/agents":               "slice 8: harnessspec/SpawnPlan become core/launch types",
+			"internal/agentcoord/coord -> internal/lm/isolation":         "slice 8: the isolation axes become core/launch value types",
+			"internal/agentcoord/coord -> internal/operations":           "slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp",
+			"internal/agentcoord/coord -> internal/transcript":           "slice 14a: the engine-host files move to adapters/runner",
+			"internal/agentcoord/coord -> internal/shared/envswitch":     "Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env",
+			"internal/agentcoord/coord -> internal/shared/clidiag":       "slice 15: clidiag becomes typed reports",
+			"internal/agentcoord/coord -> internal/shared/strictness":    "slice 15: strictness becomes a value",
+
+			// coord/coordtest is the in-process runner double compiled into no binary;
+			// Part 1.0 does not mention it. It stands up the real runner half, so it
+			// imports what the runner imports until the runner is a package of its own.
+			"internal/agentcoord/coord/coordtest -> internal/lm/backends":  "slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest)",
+			"internal/agentcoord/coord/coordtest -> internal/lm/isolation": "slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest)",
+
+			// shared/agent → its contract half becomes core/engine. Part 1.0 also
+			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
+			// excepted, so those two are not violations.
+			"internal/shared/agent -> internal/shared/ledger":     "slice 12: shared/ledger is deleted",
+			"internal/shared/agent -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports",
+			"internal/shared/agent -> internal/shared/strictness": "slice 15: strictness becomes a value",
+
+			// lm/engine → folded into core/engine. Part 1.0 also lists bundles, a
+			// from-package here, so that edge is not a violation.
+			"internal/lm/engine -> internal/engineversion":           "slice 6b: Descriptor becomes Definition; the version command is the engine's own",
+			"internal/lm/engine -> internal/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values the adapter supplies",
+		},
 	},
 	{
 		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE

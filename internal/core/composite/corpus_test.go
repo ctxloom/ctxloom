@@ -15,17 +15,23 @@ import (
 // claude-code and carrying a block for an engine nobody registers), and an
 // MCP server; "beta" ships one fragment tagged for tag selection and one
 // command. Refs are the canonical local grammar the catalog resolves to.
+// alpha's whole-bundle expansion is [maybe, rules, style] by name; the
+// bookend places the second entry last, so the delivered order is
+// [style, rules] with maybe held back.
 const (
 	alphaRef = "ctxloom+local:alpha"
 	betaRef  = "ctxloom+local:beta"
 
-	alphaRules   = alphaRef + "#fragments/rules"
-	alphaStyle   = alphaRef + "#fragments/style"
-	alphaMaybe   = alphaRef + "#fragments/maybe"
-	betaTagged   = betaRef + "#fragments/tagged"
-	alphaReview  = alphaRef + "#commands/review"
-	alphaRelease = alphaRef + "#commands/release"
-	betaShip     = betaRef + "#commands/ship"
+	alphaRules = alphaRef + "#fragments/rules"
+	alphaStyle = alphaRef + "#fragments/style"
+	alphaMaybe = alphaRef + "#fragments/maybe"
+	betaTagged = betaRef + "#fragments/tagged"
+	// A command's trust ref keeps the "prompts" kind segment (trust.KindPrompt)
+	// even though the load selector is "#commands/", so grants survive the
+	// item-kind rename.
+	alphaReview  = alphaRef + "#prompts/review"
+	alphaRelease = alphaRef + "#prompts/release"
+	betaShip     = betaRef + "#prompts/ship"
 )
 
 const alphaYAML = `version: 1.0.0

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -102,7 +103,7 @@ func pushPremiseConfig(t *testing.T, appDir string, defs map[string]config.Profi
 
 // regenerateForPushPremise runs the real push path and returns the bytes that
 // landed in the context file — what a session actually loads at SessionStart.
-func regenerateForPushPremise(t *testing.T) string {
+func regenerateForPushPremise(t *testing.T) (written string, cfg *config.Config) {
 	t.Helper()
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "dev", `version: "1.0"
@@ -110,17 +111,17 @@ fragments:
   loader-fragment:
     content: "LOADER-SELECTED-BODY"
 `)
-	cfg := pushPremiseConfig(t, appDir, map[string]config.Profile{
+	cfg = published(t, pushPremiseConfig(t, appDir, map[string]config.Profile{
 		"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/loader-fragment"}}},
-	})
+	}))
 
-	hash, err := regenerateContext(published(t, cfg), workDir)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash, "the push path must actually write a context file")
 
-	written, err := agent.ReadContextFile(workDir, hash)
+	written, err = agent.ReadContextFile(workDir, hash)
 	require.NoError(t, err)
-	return written
+	return written, cfg
 }
 
 // TestRegenerateContext_WithholdsPremisedBuiltinFromTheContextFile is the test
@@ -129,7 +130,7 @@ fragments:
 // SessionStart context file verbatim.
 func TestRegenerateContext_WithholdsPremisedBuiltinFromTheContextFile(t *testing.T) {
 	pushPremiseCompanion(t)
-	written := regenerateForPushPremise(t)
+	written, _ := regenerateForPushPremise(t)
 
 	// CONTROLS FIRST. Each of these failing means the test stopped being able
 	// to observe the defect, not that the defect is fixed.
@@ -150,7 +151,7 @@ func TestRegenerateContext_WithholdsPremisedBuiltinFromTheContextFile(t *testing
 // SessionStart context of content no one made conditional.
 func TestRegenerateContext_PremiselessBuiltinsStayUnconditional(t *testing.T) {
 	pushPremiseCompanion(t)
-	written := regenerateForPushPremise(t)
+	written, _ := regenerateForPushPremise(t)
 
 	assert.Contains(t, written, pushUnpremisedBody,
 		"a companion fragment carrying no premise is unconditional and must still be pushed")
@@ -166,12 +167,16 @@ func TestRegenerateContext_PremiselessBuiltinsStayUnconditional(t *testing.T) {
 // divergence in either one fails here even if neither path's own tests notice.
 func TestRegenerateContext_PushAndPullAgreeOnThePremisedFragment(t *testing.T) {
 	pushPremiseCompanion(t)
-	written := regenerateForPushPremise(t)
+	written, cfg := regenerateForPushPremise(t)
 
-	// The pull layer's decision for this exact fragment.
-	pull := newPremiseFilter(nil)
-	withheldByPull := pull.withhold("ctxloom+companion:taskloom#fragments/taskloom", pushPremise,
-		func() string { return pushPremisedBody })
+	// The pull layer's decision for this exact fragment: a live assembly
+	// over the same config holds it back and offers it.
+	pull, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{})
+	require.NoError(t, err)
+	var withheldByPull bool
+	for _, e := range pull.PremiseIndex {
+		withheldByPull = withheldByPull || e.Name == "ctxloom+companion:taskloom#fragments/taskloom"
+	}
 	require.True(t, withheldByPull, "precondition: the pull layer withholds a premised fragment")
 
 	pushedIt := strings.Contains(written, pushPremisedBody)

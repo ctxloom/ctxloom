@@ -4,7 +4,7 @@
 // auto-export; an uncurated profile falls back to its referenced bundles'
 // commands (profile-scoped, not the old global sweep); the curated set unions
 // across parents + multiple default profiles.
-package backends
+package operations
 
 import (
 	"testing"
@@ -14,9 +14,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 )
@@ -101,7 +103,7 @@ func TestLoadCommandExports_CuratedSetExportsExactlyThose(t *testing.T) {
 		"p": {Commands: []string{"dev-tools#commands/review"}},
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review"}, bundlePromptItems(prompts),
 		"only the profile-listed prompt is exported; the globally-flagged 'hidden' is suppressed")
@@ -117,7 +119,7 @@ func TestLoadCommandExports_UncuratedProfileWithoutBundlesExportsNoBundleCommand
 		"p": {}, // no prompts: list, no bundles
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.Empty(t, bundlePromptItems(prompts),
 		"an uncurated profile referencing no bundles exports no bundle commands (scoped, not global)")
@@ -133,7 +135,7 @@ func TestLoadCommandExports_CurationUnionsParentsAndDefaults(t *testing.T) {
 		"other": {Commands: []string{"dev-tools#commands/commit"}},
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review", "explain", "commit"}, bundlePromptItems(prompts),
 		"curated set unions parent (review) + child (explain) + the other default (commit); 'hidden' stays suppressed")
@@ -157,12 +159,12 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 		"p": {Commands: []string{"dev-tools#commands/optout"}},
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, seed), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, seed), nil)
 	require.Equal(t, []string{"optout"}, bundlePromptItems(prompts))
 
 	// The downstream backend mapper must see it ENABLED despite the bundle's
 	// opt-out, since the profile curated it.
-	ex := CommandExportsFor("claude-code", prompts)
+	ex := backends.CommandExportsFor("claude-code", prompts)
 	var found bool
 	for _, e := range ex {
 		if e.Name == "dev-tools/optout" {
@@ -206,7 +208,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 	// Gate granting exactly the pinned version's hash → exported as that version.
 	want := promptRawHash("V1-PINNED")
 	cfg.BindTrustForTesting(hashTrust(want))
-	prompts := LoadCommandExports(withResolver(cfg, resolver), nil)
+	prompts := commandsOf(t, withResolver(cfg, resolver), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
 		if p.Item == "review" {
@@ -216,7 +218,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate denying the pinned version → withheld, so no bundle prompt exports
 	// (fail-closed; only builtins remain).
-	cfg.BindTrustForTesting(rejectingAll())
-	denied := LoadCommandExports(withResolver(cfg, resolver), nil)
+	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
+	denied := commandsOf(t, withResolver(cfg, resolver), nil)
 	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

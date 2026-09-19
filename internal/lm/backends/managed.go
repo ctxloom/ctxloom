@@ -76,51 +76,6 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 	return br, nil
 }
 
-// This file is the HOST side of the setup seam: ctxloom owns config and bundles
-// here, resolves them into the wire-typed agent.ManagedConfig, and ships that to
-// the backend over RunStart. The agent's Setup consumes only the result
-// (BaseLifecycle.MergeManaged), so the launch backends never import
-// config/bundles. The assembly that used to run plugin-side in each agent's
-// AssembleManagedConfig resolves the host-side setup payload for one target
-// backend against cfg — the generation the run was resolved from, never a
-// fresh read: the slash-command exports (mapped to that backend's enablement
-// + metadata), the config+default-profile+bundle hook set WITHOUT
-// context-injection (the agent appends that itself from its plugin-side
-// context hash), the merged config+default-profile MCP servers, and whether
-// ctxloom manages the statusline.
-//
-// The executable surfaces (bundle MCP servers + hooks + prompt exports)
-// decide with the generation's Trust (cfg.ExecutableTrustGate), which
-// ResolveBundleMCPServers / AssembleManagedHooks / LoadCommandExports each
-// consult at their own choke.
-//
-// profileNames is the run's SELECTED profile set (the same set AssembleContext
-// scoped context to), so the managed mcp/commands/hooks track the chosen profile
-// rather than always the configured defaults. An empty set falls back to the
-// defaults inside each resolver (scopedProfiles / resolveProfileScope).
-func AssembleManagedConfig(cfg *config.Config, backendName, workDir string, profileNames []string) *agent.ManagedConfig {
-	if cfg == nil {
-		return nil
-	}
-	return &agent.ManagedConfig{
-		Commands:         CommandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
-		Skills:           SkillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
-		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames).Wire(),
-		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
-		ManageStatusline: managedStatuslineEnabled(cfg),
-		DenyTools:        AssembleManagedDenyTools(cfg, profileNames),
-	}
-}
-
-// managedStatuslineEnabled reports whether ctxloom manages the HUD statusline,
-// via the config accessor (not the raw cfg.Settings field — ShouldManageStatusline
-// has a pointer receiver, so it needs a local, addressable copy of the
-// accessor's return value).
-func managedStatuslineEnabled(cfg *config.Config) bool {
-	settings := cfg.GetSettings()
-	return settings.ShouldManageStatusline()
-}
-
 // CommandExportsFor maps loaded bundle content to the named backend's command
 // exports (resolving that backend's per-prompt enablement + metadata), or nil
 // for a backend without slash-command export. Reads the descriptor table's
@@ -152,45 +107,6 @@ func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.
 		return nil
 	}
 	return exports(skills)
-}
-
-// AssembleManagedDenyTools builds the union of deny_tools declared by the
-// config's default profile / the caller's selected profiles: config.yaml
-// inline profiles (config.ResolveProfile) or, when a name isn't inline, a
-// directory profile (cfg.GetProfileLoader().ResolveProfile) — the SAME
-// two-source resolution AssembleManagedHooks uses. Order is
-// deterministic (first-seen wins position) and entries dedup case-sensitively
-// on the exact tool identifier string.
-//
-// Unlike MCP servers and hooks, a deny_tools entry is never passed through
-// the executable trust gate: it names a tool identifier to BLOCK, not an
-// executable to run, so even a remote-sourced directory profile's
-// directly-declared deny_tools is safe to apply unconditionally — it can
-// only narrow what a launch may do.
-func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
-	if cfg == nil {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var out []string
-	add := func(tools []string) {
-		for _, t := range tools {
-			if t == "" || seen[t] {
-				continue
-			}
-			seen[t] = true
-			out = append(out, t)
-		}
-	}
-	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
-		if err != nil {
-			clidiag.Warn("ctxloom", "profile %q unresolved; its deny_tools omitted: %v", profileName, err)
-			continue
-		}
-		add(resolved.DenyTools)
-	}
-	return out
 }
 
 // scopedProfiles returns the caller's selected profiles, or the default agent's

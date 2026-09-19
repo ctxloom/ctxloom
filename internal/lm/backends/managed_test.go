@@ -132,34 +132,6 @@ func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
 }
 
-func TestAssembleManagedDenyTools_CircularProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
-		"loopy": "parents:\n  - loopy\n",
-	})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	AssembleManagedDenyTools(cfg, nil)
-
-	assert.Contains(t, buf.String(), "inheritance",
-		"the real cause (inheritance) must reach the warning: got %q", buf.String())
-}
-
-func TestAssembleManagedDenyTools_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	AssembleManagedDenyTools(cfg, []string{"explicitly-selected-and-missing"})
-
-	assert.NotContains(t, buf.String(), "default profile",
-		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
-}
-
 // TestCommandExportsFor resolves each backend's per-prompt enablement + metadata
 // from the same bundle content, and returns nil for an unknown backend.
 func TestCommandExportsFor(t *testing.T) {

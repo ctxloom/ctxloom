@@ -143,7 +143,9 @@ func parseVersion(output string) (string, error) {
 // CommandExports resolves the per-prompt claude-code export config from
 // each item's own block (claude.DecodeExportBlock). A block the schema
 // refuses withholds the item from this engine, naming the engine; a profile
-// that curated the item exports it even where its block opts out.
+// that curated the item exports it even where its block opts out. The /help
+// text is the block's description when it gives one, else the command's
+// authored description.
 func CommandExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return hosting.BuildCommandExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		cc, err := claude.DecodeExportBlock(p.Exports[claude.EngineName])
@@ -151,9 +153,13 @@ func CommandExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 			clidiag.Warn("ctxloom", "command %q withheld from %s: %v", p.Name, claude.EngineName, err)
 			return agent.CommandExport{Enabled: false}
 		}
+		description := cc.Description
+		if description == "" {
+			description = p.Description
+		}
 		return agent.CommandExport{
 			Enabled:      p.Curated || cc.IsEnabled(),
-			Description:  cc.Description,
+			Description:  description,
 			ArgumentHint: cc.ArgumentHint,
 			AllowedTools: cc.AllowedTools,
 			Model:        cc.Model,

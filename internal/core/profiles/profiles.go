@@ -929,6 +929,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	}
 
 	resolved := &ResolvedProfile{
+		Name:      name,
 		Variables: make(map[string]string),
 	}
 	// SourceRef/Signer are THIS profile's own provenance — never inherited
@@ -1070,6 +1071,9 @@ func cloneVisited(visited map[string]bool) map[string]bool {
 
 // ResolvedProfile contains the fully resolved contents of a profile after parent inheritance.
 type ResolvedProfile struct {
+	// Name is the name this profile resolved under: the ask, so a report can
+	// say which profile pushed what. Never inherited from a parent.
+	Name        string
 	Bundles     []string         // All bundle references
 	Tags        []string         // Descriptive (listing/discovery); does NOT select content
 	SelectTags  []string         // Fragment tags to select content by

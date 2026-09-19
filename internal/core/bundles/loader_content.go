@@ -25,6 +25,7 @@ type LoadedContent struct {
 	Version      string   // Bundle version
 	Tags         []string // Combined tags
 	Content      string   // The actual content
+	Description  string   // A command's authored help text ("" for a fragment)
 	Installation string   // Setup/installation instructions for tooling
 	IsDistilled  bool     // Whether distilled version was used
 	DistilledBy  string   // Model that created distillation
@@ -65,6 +66,7 @@ type ItemRead struct {
 	Item         string       // Bare fragment/command name within the bundle
 	Version      string       // Bundle version
 	Tags         []string     // Combined tags
+	Description  string       // A command's authored help text ("" for a fragment)
 	Installation string       // Setup/installation instructions for tooling
 	DistilledBy  string       // Model that created the distillation, if any
 	Exports      EngineBlocks // per engine name, opaque; that engine decodes its block
@@ -463,6 +465,7 @@ func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*Ite
 	if err != nil {
 		return nil, err
 	}
+	r.Description = prompt.Description
 	r.Exports = prompt.Exports
 	return r, nil
 }

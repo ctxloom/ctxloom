@@ -9,7 +9,7 @@
 // tests build REAL on-disk directory-form bundles/profiles (like
 // operations.TestMaterializeProfile_WritesSkills) rather than seeding bare
 // in-memory bundle structs.
-package backends
+package operations
 
 import (
 	"os"
@@ -81,7 +81,7 @@ func TestLoadSkillExports_CuratedSetExportsExactlyThoseAndSuppressesUncurated(t 
 	writeSkillProfile(t, appDir, "curated", "skills:\n  - skill-bundle#skills/shown\n")
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	skills := LoadSkillExports(cfg, []string{"curated"})
+	skills := skillsOf(t, cfg, []string{"curated"})
 
 	assert.ElementsMatch(t, []string{"shown"}, skillItemNames(skills),
 		"only the profile-curated skill exports; the bundle's other skill ('hidden') is suppressed by curation")
@@ -98,7 +98,7 @@ func TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills(t *testing.T) {
 	writeSkillProfile(t, appDir, "uncurated", "")
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	skills := LoadSkillExports(cfg, []string{"uncurated"})
+	skills := skillsOf(t, cfg, []string{"uncurated"})
 
 	assert.ElementsMatch(t, []string{"shown", "hidden"}, skillItemNames(skills),
 		"an uncurated profile exports every skill its bundles ship")
@@ -129,7 +129,7 @@ func TestLoadSkillExports_CuratedForceEnablesBundleOptOut(t *testing.T) {
 	writeSkillProfile(t, appDir, "curated-hidden", "skills:\n  - skill-bundle#skills/hidden\n")
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	skills := LoadSkillExports(cfg, []string{"curated-hidden"})
+	skills := skillsOf(t, cfg, []string{"curated-hidden"})
 	require.ElementsMatch(t, []string{"hidden"}, skillItemNames(skills))
 
 	ex := claudeengine.SkillExports(skills)

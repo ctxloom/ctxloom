@@ -179,13 +179,15 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// nothing is ever lost. That fork is NOT decided here: this call states
 	// what it is writing and ContextConsumer.static decides, the same way it
 	// decides for every composition that must match this file.
-	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{
+	pkg, err := AssemblePackage(ctx, cfg, PackageRequest{
 		Profiles: req.Profiles,
 		Consumer: MaterializedFor(backend),
+		WorkDir:  req.Target,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context for %v: %w", req.Profiles, err)
 	}
+	asm := contextResultOf(pkg)
 	// An assembly that RESOLVED but carries nothing is a failed assembly too.
 	// The caller NAMED these profiles, and a target built from an empty payload
 	// gets no native context file at all while the result still reports the
@@ -208,9 +210,9 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// Each write reconciles (managed entries overwritten, foreign ones
 	// preserved).
 	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).WireDeclared()
-	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
-	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))
-	skills := backends.SkillExportsFor(backend, backends.LoadSkillExports(cfg, req.Profiles))
+	bundleMCP := pkg.MCP
+	commands := backends.CommandExportsFor(backend, loadedCommands(pkg))
+	skills := backends.SkillExportsFor(backend, LoadedSkills(pkg))
 	// Withheld fragments join the authored skills. A collision between two of
 	// them is fatal rather than a silent overwrite — see PremisedFragmentSkills.
 	withheld := make([]backends.PremisedFragment, 0, len(asm.WithheldFragments))
@@ -227,7 +229,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// fragment that failed to become a skill is reported as delivered nowhere
 	// instead of being described by the branch we hoped we took.
 	res.WithheldByPremise = describePremiseWithholds(asm.PremiseIndex, len(fragmentSkills) > 0)
-	denyTools := backends.AssembleManagedDenyTools(cfg, req.Profiles)
+	denyTools := pkg.DenyTools
 	settings := cfg.GetSettings()
 
 	inputs := agent.SurfaceInputs{

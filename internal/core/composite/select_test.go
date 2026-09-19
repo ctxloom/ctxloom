@@ -49,7 +49,7 @@ func TestSelect_ExclusionsApplyAndVersionPinsSplit(t *testing.T) {
 	cat := corpus(t)
 	p := profiles.ResolvedProfile{
 		Bundles:          []string{"alpha"},
-		Fragments:        []profiles.FragmentRef{{Name: "beta@abc123#fragments/tagged"}},
+		Fragments:        []profiles.FragmentRef{{Name: "ctxloom+local:beta@abc123#fragments/tagged"}},
 		ExcludeFragments: []string{"alpha#fragments/maybe"},
 	}
 	sel, err := composite.Select([]profiles.ResolvedProfile{p}, cat, composite.SelectRequest{})

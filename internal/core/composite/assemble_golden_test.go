@@ -135,9 +135,9 @@ hooks:
       command: echo golden
 `
 
-// renderToday renders what today's two assemblies produce for one engine and
-// one profile set: the live context, the materialized context, and the
-// managed surfaces.
+// renderToday renders what the assembly produces for one engine and one
+// profile set, through every consumer's projection: the live context, the
+// materialized context, and the managed surfaces.
 func renderToday(t *testing.T, g *golden, cfg *config.Config, engine, profile, appDir string) {
 	t.Helper()
 	live, err := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{Profiles: []string{profile}})
@@ -146,8 +146,9 @@ func renderToday(t *testing.T, g *golden, cfg *config.Config, engine, profile, a
 	mat, err := operations.AssembleContext(context.Background(), cfg, operations.AssembleContextRequest{Profiles: []string{profile}, Consumer: operations.MaterializedFor(engine)})
 	require.NoError(t, err)
 	g.section(t, fmt.Sprintf("engine=%s profile=%s consumer=materialized", engine, profile), mat)
-	managed := backends.AssembleManagedConfig(cfg, engine, filepath.Dir(appDir), []string{profile})
-	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), managed)
+	pkg, err := operations.AssemblePackage(context.Background(), cfg, operations.PackageRequest{Profiles: []string{profile}, WorkDir: filepath.Dir(appDir)})
+	require.NoError(t, err)
+	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), operations.ManagedConfigOf(pkg, engine))
 }
 
 // golden accumulates sections. A string longer than blobThreshold is

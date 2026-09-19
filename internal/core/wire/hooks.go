@@ -130,6 +130,16 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 	u.PostFileEdit = appendUniqueHooks(u.PostFileEdit, other.PostFileEdit)
 }
 
+// All is every hook across the unified events, in event order then
+// declaration order — the flat view an engine's Exports routes from.
+func (u UnifiedHooks) All() []Hook {
+	var out []Hook
+	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit} {
+		out = append(out, hooks...)
+	}
+	return out
+}
+
 // hookKey is a hook's identity for dedup: its whole executable content. Two
 // hooks that would run the same thing the same way are the same hook.
 //

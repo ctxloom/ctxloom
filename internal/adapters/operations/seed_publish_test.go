@@ -1,4 +1,4 @@
-package backends
+package operations
 
 import (
 	"context"
@@ -75,7 +75,7 @@ func publish(t *testing.T, cfg *config.Config, src seededSources) *config.Config
 	if carried.Authorizer() != nil {
 		out.BindTrustForTesting(carried)
 	} else {
-		out.BindTrustForTesting(admitting())
+		out.BindTrustForTesting(compositetest.Trust())
 	}
 	return out
 }

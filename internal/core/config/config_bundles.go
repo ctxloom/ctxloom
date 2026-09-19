@@ -351,9 +351,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 // bundleSCM is the marker a resolved MCP server carries to name the bundle
 // that shipped it (wire.MCPServer.SCM). extractMCPFromBundle stamps it and
 // LinkGrant reads it back, so "granted from THIS bundle" is one spelling.
-func bundleSCM(src trust.BundleRef) string {
-	return "bundle:" + string(src.BundleIdentity())
-}
+func bundleSCM(src trust.BundleRef) string { return bundles.BundleSCM(src) }
 
 // LinkGrant answers the link-group question for a run over profileNames from
 // the run's OWN granted set — ResolveBundleMCPServers over the same profiles

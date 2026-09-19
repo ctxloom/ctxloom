@@ -49,9 +49,9 @@ func TestAssemble_ContextIsTheSelectionInOrderSubstituted(t *testing.T) {
 	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
 	require.NoError(t, err)
 
-	assert.Equal(t, "Rules for golden.\n\n---\n\nPrefer small functions.", pkg.Context.Text)
+	assert.Equal(t, "Prefer small functions.\n\n---\n\nRules for golden.", pkg.Context.Text)
 	assert.NotEmpty(t, pkg.Context.Hash)
-	assert.Equal(t, []string{alphaRules, alphaStyle}, itemRefs(pkg.Fragments))
+	assert.Equal(t, []string{alphaStyle, alphaRules}, itemRefs(pkg.Fragments))
 	assert.Equal(t, []string{alphaMaybe}, itemRefs(pkg.Premised))
 	assert.Equal(t, "the agent is about to touch a signed bundle", pkg.Premised[0].Value.Premise)
 	assert.Equal(t, trust.Allow, pkg.Fragments[0].Decision)
@@ -73,7 +73,7 @@ func TestAssemble_PremisedFragmentsLoadWhenExplicitOrStatic(t *testing.T) {
 
 	static, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{Static: true})
 	require.NoError(t, err)
-	assert.Equal(t, []string{alphaRules, alphaStyle, alphaMaybe}, itemRefs(static.Fragments))
+	assert.Equal(t, []string{alphaMaybe, alphaStyle, alphaRules}, itemRefs(static.Fragments))
 	assert.Empty(t, static.Premised)
 	assert.Contains(t, static.Context.Text, "Do not edit a signed bundle in place.")
 }
@@ -105,8 +105,8 @@ func TestAssemble_DuplicateContentUnderTwoRefsIsAssembledOnce(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "Rules for golden.\n\n---\n\nPrefer small functions.\n\n---\n\nAxes.", pkg.Context.Text)
-	assert.Equal(t, []string{alphaRules, alphaStyle, "ctxloom+builtin:tools#fragments/axes"}, itemRefs(pkg.Fragments))
+	assert.Equal(t, "Prefer small functions.\n\n---\n\nRules for golden.\n\n---\n\nAxes.", pkg.Context.Text)
+	assert.Equal(t, []string{alphaStyle, alphaRules, "ctxloom+builtin:tools#fragments/axes"}, itemRefs(pkg.Fragments))
 	require.Len(t, pkg.Findings, 1)
 	assert.Equal(t, composite.FindingDuplicate, pkg.Findings[0].Kind)
 	assert.Equal(t, injected.Name, pkg.Findings[0].Ref)
@@ -162,27 +162,27 @@ func TestAssemble_EngineItemsCarriesOnlyThatEnginesBlock(t *testing.T) {
 
 	items := pkg.EngineItems(engine.Name("claude-code"))
 	require.Len(t, items.Commands, 2)
-	byName := map[string]engine.CommandItem{}
+	byRef := map[string]engine.CommandItem{}
 	for _, c := range items.Commands {
-		byName[c.Name] = c
+		byRef[c.Ref] = c
 	}
 	var review map[string]any
-	require.NoError(t, json.Unmarshal(byName[alphaReview].Exports, &review))
+	require.NoError(t, json.Unmarshal(byRef[alphaReview].Exports, &review))
 	assert.Equal(t, "Review (claude)", review["description"])
 	assert.Equal(t, []any{"Read"}, review["allowed_tools"])
-	assert.JSONEq(t, `{"enabled":false}`, string(byName[alphaRelease].Exports))
+	assert.JSONEq(t, `{"enabled":false}`, string(byRef[alphaRelease].Exports))
 
 	other := pkg.EngineItems(engine.Name("other-engine"))
 	for _, c := range other.Commands {
 		assert.Nil(t, c.Exports, "no block for this engine ⇒ none handed over")
 	}
-	assert.Equal(t, []string{alphaRules, alphaStyle}, func() []string {
+	assert.Equal(t, []string{alphaStyle, alphaRules, alphaMaybe}, func() []string {
 		var out []string
 		for _, f := range items.Fragments {
 			out = append(out, f.Ref)
 		}
 		return out
-	}())
+	}(), "every fragment, the premised ones after the delivered ones")
 	assert.Equal(t, "the agent is about to touch a signed bundle", items.Fragments[0].Premise+items.Fragments[1].Premise+premiseOf(items, alphaMaybe))
 }
 
@@ -242,4 +242,46 @@ func TestIndexOf_EnumeratesTheCatalog(t *testing.T) {
 	assert.Equal(t, "Review the diff", byRef[alphaReview].Description)
 	assert.Contains(t, byRef, betaShip)
 	assert.Contains(t, byRef, betaTagged)
+}
+
+// A builtin or companion-loadout injection reaches the SAME premise rule
+// every other fragment does. "Always-on" describes not being profile-
+// selected; it never meant immunity from a premise. Without this an
+// authored premise was inert in the worst way: the catalog offered the
+// fragment while the context already carried it.
+func TestAssemble_InjectedFragmentsHonourTheirPremise(t *testing.T) {
+	cat := corpus(t)
+	builtins := []composite.Fragment{
+		{Name: "ctxloom+builtin:core#fragments/always", Body: "ALWAYS-BODY"},
+		{Name: "ctxloom+companion:taskloom#fragments/taskloom", Body: "TASKLOOM-BODY", Premise: "You are about to touch the task log."},
+	}
+	empty, err := composite.Select(nil, cat, composite.SelectRequest{})
+	require.NoError(t, err)
+
+	t.Run("dynamic: the premised injection stays OUT of the assembled bytes and is offered", func(t *testing.T) {
+		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{Builtin: builtins})
+		require.NoError(t, err)
+		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY", "an unpremised injection is unconditional")
+		assert.NotContains(t, pkg.Context.Text, "TASKLOOM-BODY", "a premised injection must be HELD BACK")
+		assert.Equal(t, []string{"ctxloom+builtin:core#fragments/always"}, pkg.Loaded, "a held-back fragment is not reported as loaded")
+		assert.Equal(t, []string{"ctxloom+companion:taskloom#fragments/taskloom"}, itemRefs(pkg.Premised))
+	})
+
+	t.Run("explicit: naming it IS the selection", func(t *testing.T) {
+		sel := empty
+		sel.Explicit = []string{"ctxloom+companion:taskloom#fragments/taskloom"}
+		pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{Builtin: builtins})
+		require.NoError(t, err)
+		assert.Contains(t, pkg.Context.Text, "TASKLOOM-BODY")
+		assert.Empty(t, pkg.Premised)
+	})
+
+	t.Run("static: both are delivered, because nothing can pull later", func(t *testing.T) {
+		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{Builtin: builtins, Static: true})
+		require.NoError(t, err)
+		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY")
+		assert.Contains(t, pkg.Context.Text, "TASKLOOM-BODY", "a static surface loses a held-back fragment rather than deferring it")
+		assert.Len(t, pkg.Loaded, 2)
+		assert.Empty(t, pkg.Premised)
+	})
 }

@@ -1,12 +1,10 @@
 package composite
 
 import (
-	"context"
 	"errors"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -37,9 +35,11 @@ type Selection struct {
 	// qualified identity); an explicit ask loads even when it carries a
 	// premise, because naming it is the selection.
 	Explicit []string
-	// Tags were the caller's tag asks; Assemble reports them missing when
-	// none matched.
-	Tags []string
+	// Tags were the caller's tag asks; MissingTags names them all when the
+	// whole tag selection matched nothing (a tag query is a union, so a
+	// zero-fragment result cannot be attributed to one tag).
+	Tags        []string
+	MissingTags []string
 	// Commands and Skills are the CURATED asks. Empty means uncurated: every
 	// command or skill the Bundles ship exports, each still subject to its
 	// own per-engine enablement.
@@ -96,12 +96,6 @@ type SelectRequest struct {
 	Tags      []string
 }
 
-// Select resolves what a profile set asks for over a catalog. profiles are
-// already loaded and inheritance-merged; the result is a value.
-func Select(resolved []profiles.ResolvedProfile, cat bundles.Catalog, req SelectRequest) (Selection, error) {
-	return Selection{}, errors.New("composite: Select is not implemented")
-}
-
 // Package is the composed loadout SOURCE: every admitted item, the assembled
 // context, the premised fragments held back for the catalog, and the
 // attestation. Immutable; only Assemble constructs one.
@@ -120,6 +114,11 @@ type Package struct {
 	// consumers that report it (the profile set, the engine the profiles
 	// prefer).
 	Selection Selection
+	// Loaded names every fragment that loaded, in load order, a collapsed
+	// duplicate included: its content IS in the context through the copy
+	// that survived, so a report that omitted it would call a delivered
+	// fragment missing.
+	Loaded []string
 	// Findings are the content-free facts a surface voices: an ask that did
 	// not load, an undefined variable, a duplicate dropped.
 	Findings []Finding
@@ -221,12 +220,6 @@ type ItemAttestation struct {
 // Attestation returns the record that decided this package.
 func (p Package) Attestation() Attestation { return p.attestation }
 
-// EngineItems is the engine-facing projection an Engine.Exports decides
-// over: this engine's opaque export block per item, and nothing of any other
-// engine's. It is how composite hands content to an engine without an engine
-// package ever importing composite.
-func (p Package) EngineItems(name engine.Name) engine.Items { return engine.Items{} }
-
 // Index is what the runner's search_library and the ctxloom:// resources
 // enumerate: refs, kinds and descriptions of everything in the CATALOG the
 // package was assembled from — not bytes, and not only the selection.
@@ -240,16 +233,16 @@ type IndexEntry struct {
 	Premise     string
 }
 
-// IndexOf enumerates the catalog.
-func IndexOf(cat bundles.Catalog) (Index, error) {
-	return Index{}, errors.New("composite: IndexOf is not implemented")
-}
-
 // Options are the assembly's knobs and the inputs the caller resolved
 // outside the catalog.
 type Options struct {
 	// PreferDistilled picks the distilled form where a bundle offers one.
 	PreferDistilled bool
+	// Pipeline is the injected-stage seam: a process stage built elsewhere
+	// (a test's, over its own gate and link grant) that Assemble reads
+	// through instead of building one from cat and tr. tr still decides
+	// the ungated refusal.
+	Pipeline *bundles.Pipeline
 	// DropWithheld accepts a withheld required item instead of refusing.
 	DropWithheld bool
 	// Static writes premised fragments into the context instead of holding
@@ -269,15 +262,4 @@ type Options struct {
 	MCP        map[string]wire.MCPServer
 	DenyTools  []string
 	Statusline bool
-}
-
-// Assemble is the ONE constructor from sources. It reads nothing: cat is
-// resolved, profiles loaded, trust built. Refuses an ungated trust and a
-// withheld required item (unless Options.DropWithheld, recorded in the
-// attestation).
-func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust, opts Options) (Package, error) {
-	if !tr.Gates() {
-		return Package{}, ErrUngatedAssembly
-	}
-	return Package{}, errors.New("composite: Assemble is not implemented")
 }

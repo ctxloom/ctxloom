@@ -1,7 +1,6 @@
 package backends
 
 import (
-	"bytes"
 	"testing"
 
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
@@ -10,9 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // loadedSkill builds a bundles.LoadedSkill fixture with one SKILL.md file and
@@ -76,41 +73,6 @@ func TestClaudeSkillExports_DisabledSkillReportsDisabled(t *testing.T) {
 func TestSkillExportsFor_UnregisteredBackendReturnsNil(t *testing.T) {
 	skills := []*bundles.LoadedSkill{loadedSkill("humanize", true)}
 	assert.Nil(t, SkillExportsFor("does-not-exist", skills))
-}
-
-// An explicitly-selected (non-default) profile that fails to
-// resolve must not be warned as a "default profile" — mirrors the
-// commands.go/managed.go regression tests for the same wording bug.
-func TestResolveProfileSkillRefs_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	resolveProfileSkillRefs(cfg, []string{"explicitly-selected-and-missing"})
-
-	assert.NotContains(t, buf.String(), "default profile",
-		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
-}
-
-// resolveProfileSkillRefs must diagnose a BROKEN inline profile
-// (circular parent inheritance) instead of silently retrying it as a
-// directory profile. Mirrors the commands.go/managed.go regression tests for
-// the same defect.
-func TestResolveProfileSkillRefs_CircularProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
-		"loopy": "parents:\n  - loopy\n",
-	})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	resolveProfileSkillRefs(cfg, nil)
-
-	assert.Contains(t, buf.String(), "inheritance",
-		"the real cause (inheritance) must reach the warning, not the directory loader's unrelated not-found error: got %q", buf.String())
 }
 
 // enablementBlock is a claude-code block that only sets enablement.

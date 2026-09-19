@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -53,7 +53,7 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 		}
 	}
 	// probeCellResolve (called above, at the top of this function) already
-	// parsed cell.Runtime via agent.ParseRuntimeAxis and rejected anything
+	// parsed cell.Runtime via launch.ParseRuntimeAxis and rejected anything
 	// that does not resolve — including the retired undifferentiated
 	// "container" (task unwatched-discharge split it into container-rootless/
 	// container-rootful; there is deliberately no "any container" value) —
@@ -61,7 +61,7 @@ func probeCellGate(c context.Context, w *World, family string, cell probeCellID)
 	// string. This asks the canonical predicate for "is it a container in
 	// EITHER ownership mode", never a second vocabulary switch: a host cell
 	// needs no further gating and falls through unchanged.
-	if agent.IsContainerRuntimeAxis(agent.RuntimeAxis(cell.Runtime)) {
+	if launch.IsContainerRuntimeAxis(launch.RuntimeAxis(cell.Runtime)) {
 		// The credential mechanism is the SAME mount either way (see the
 		// feature file's own header), so the auth check does not branch on
 		// ownership; only runtime SELECTION does.

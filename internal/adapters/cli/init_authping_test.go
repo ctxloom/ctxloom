@@ -11,6 +11,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -20,8 +23,6 @@ import (
 // branching, not session naming, but the probe now runs inside a named
 // session and an EMPTY harp is a refusal (ErrSharedScratchNoHarp), not a
 // neutral default.
-const pingTestHarp = "testy-pingy-probe"
-
 // authPingTestConfig is a minimal, isolated config for pingEngineAuth tests:
 // AppPaths points at an empty temp dir, so context assembly's default-profile
 // fallback finds nothing to resolve (fault-tolerant no-op) rather than
@@ -29,6 +30,46 @@ const pingTestHarp = "testy-pingy-probe"
 func authPingTestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	return gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+}
+
+// testLaunchDeps composes the resolver's ports over cfg with stateless
+// doubles: an in-memory session store and the dry-run cell (the project root
+// on the host, prepared nowhere), so nothing a setup launch resolves lands on
+// disk. It is also installed as initLaunchDeps for the test's duration.
+func testLaunchDeps(t *testing.T, cfg *config.Config) launch.Deps {
+	t.Helper()
+	deps := launch.Deps{
+		Snapshot:  &config.Snapshot{Config: cfg},
+		Engines:   backends.Engines(),
+		Assembler: launchtestAssembler{},
+		Cells:     dryCells{},
+		Endpoints: sequenceMinter{},
+		Sessions:  sessions.NewMemStore(),
+		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+	}
+	orig := initLaunchDeps
+	initLaunchDeps = func(context.Context) (launch.Deps, error) { return deps, nil }
+	t.Cleanup(func() { initLaunchDeps = orig })
+	return deps
+}
+
+// launchtestAssembler composes nothing: the setup launches select no
+// profiles, so no assembly runs; the managed surfaces are empty.
+type launchtestAssembler struct{}
+
+func (launchtestAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (launch.Assembled, error) {
+	return launch.Assembled{}, nil
+}
+func (launchtestAssembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
+func (launchtestAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
+	return &agent.ManagedConfig{}, nil
+}
+
+// sequenceMinter mints a fresh loopback endpoint per call.
+type sequenceMinter struct{}
+
+func (sequenceMinter) MintMCP(_ context.Context, id sessions.Identity, _ launch.Axes) (sessions.Endpoint, error) {
+	return sessions.Endpoint{URL: "http://127.0.0.1:1/" + id.Harp, Credential: "c-" + id.Harp}, nil
 }
 
 // stubPingClient is a minimal pb.Client for pingEngineAuth/launchDiscovery
@@ -50,8 +91,9 @@ func (s *stubPingClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, s
 	return s.exitCode, nil
 }
 func (s *stubPingClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (s *stubPingClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	return &pb.RunResult{}, nil
+func (s *stubPingClient) RunWithModelInfo(ctx context.Context, req *pb.RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *pb.WindowSize) (*pb.RunResult, error) {
+	code, err := s.Run(ctx, req, stdin, stdout, stderr, resize)
+	return &pb.RunResult{ExitCode: code}, err
 }
 func (s *stubPingClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
 func (s *stubPingClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
@@ -75,7 +117,8 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(func() { authPingFactory = orig })
 
-	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir(), pingTestHarp)
+	cfg := authPingTestConfig(t)
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
 	require.NoError(t, err)
 
 	// The smallest possible prompt actually reached the engine.
@@ -102,7 +145,8 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(func() { authPingFactory = orig })
 
-	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir(), pingTestHarp)
+	cfg := authPingTestConfig(t)
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
 	require.NoError(t, err)
 
 	require.NotNil(t, stub.gotReq)
@@ -111,116 +155,66 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 		"the ping must carry an explicit bypass posture on the request, not rely on the label's configured (or unset) permissions")
 }
 
-// TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly pins that the init
-// DISCOVERY LAUNCH — the interactive setup session init hands the user off to —
-// declares its permission posture on the wire request instead of leaving the
-// field at its zero value. An unset field is indistinguishable from a caller
-// that forgot, which is precisely the silent fall-through the ping's explicit
-// bypass (TestPingEngineAuth_RequestsBypassPermissionExplicitly) closed on the
-// other init launch site.
-//
-// The launch consults exactly ONE rung — the PROJECT DEFAULT — and no other:
-// not the engine label, not a binding, not the claude-code host stopgap. That
-// asymmetry with `ctxloom run` is deliberate and is the point of the whole
-// arrangement. Setup runs inside the vendor's own raw CLI/TUI, whose native
-// approval prompts are the consent surface, so the only thing that may widen it
-// is a human's explicit, project-scoped, per-directory declaration. Everything
-// else the run resolver would consult is a posture inherited from somewhere the
-// human did not decide THIS.
-//
-// These are PAYLOAD assertions on the request that actually rides the wire, not
-// on a helper's return value in isolation: launchEngineWithPrompt hands this
-// very struct to goplugin.NewLauncher.
-//
-// MUTATION TARGET (m3): dropping the cfg.GetPermissions() consultation from
-// discoveryRunRequest turns the "declared" subtest red.
-func TestDiscoveryRunRequest_StatesDefaultPermissionExplicitly(t *testing.T) {
-	// Undeclared: the pinned default stands, exactly as before this key existed.
+// discoveryLaunch drives launchDiscovery over stateless deps with a
+// succeeding probe, capturing the discovery Launch handed to the engine.
+func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
+	t.Helper()
+	testLaunchDeps(t, cfg)
+	stub := &stubPingClient{exitCode: 0}
+	origFactory := authPingFactory
+	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
+	t.Cleanup(func() { authPingFactory = origFactory })
+
+	var got launch.Launch
+	origLaunch := launchEngineWithPromptFn
+	launchEngineWithPromptFn = func(_ context.Context, l launch.Launch) error { got = l; return nil }
+	t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
+
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	_ = captureStdout(t, func() { require.NoError(t, launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)) })
+	require.NotEmpty(t, got.Identity.Harp, "the discovery session resolved")
+	// The probe stamped its OWN harp on the request it drove; the session the
+	// human works in is another identity.
+	require.NotNil(t, stub.gotReq)
+	assert.NotEqual(t, stub.gotReq.Options.Env[sessions.EnvHarp], got.Identity.Harp,
+		"the auth probe and the discovery session are two launches with two identities")
+	return got
+}
+
+// TestDiscoveryLaunch_StatesDefaultPermissionExplicitly pins the discovery
+// launch's one-rung posture: this project's declared default, else the
+// pinned default — never the host stopgap, never a label's.
+func TestDiscoveryLaunch_StatesDefaultPermissionExplicitly(t *testing.T) {
 	t.Run("undeclared project default keeps the pinned default", func(t *testing.T) {
-		for name, cfg := range map[string]*config.Config{
-			"nil config":              nil,
-			"config declaring no key": config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}),
-		} {
-			t.Run(name, func(t *testing.T) {
-				req := discoveryRunRequest(cfg, t.TempDir(), "test-harp")
-
-				require.NotNil(t, req)
-				require.NotNil(t, req.Options)
-				assert.Equal(t, agent.PermissionDefault.String(), req.Options.PermissionMode,
-					"the discovery launch must state its posture out loud; an empty PermissionMode is a fall-through nobody declared")
-
-				// The posture it states is the vendor TUI's own prompting — NOT a
-				// second bypass on top of the engine's native consent surface.
-				assert.NotEqual(t, agent.PermissionBypass.String(), req.Options.PermissionMode,
-					"an undeclared setup session must never launch at bypass: the vendor TUI's native approval prompts are the consent surface")
-				assert.Equal(t, pb.ExecutionMode_INTERACTIVE, req.Options.Mode)
-			})
-		}
+		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}}))
+		assert.Equal(t, agent.PermissionDefault, l.Permission,
+			"an undeclared setup session must never launch at bypass: the vendor TUI's native approval prompts are the consent surface")
+		assert.Equal(t, engine.Interactive, l.Mode)
 	})
 
-	// Declared: the project's own posture rides the request. A human who wrote
-	// `permissions: bypass` into THIS directory's config has said what setup in
-	// this directory may do; the launch would be lying to them to pin `default`
-	// over it and then behave differently on the very next `ctxloom run`.
-	t.Run("a declared project default rides the request", func(t *testing.T) {
-		for _, want := range []agent.PermissionMode{
-			agent.PermissionBypass, agent.PermissionPlan, agent.PermissionAcceptEdits,
-		} {
+	t.Run("a declared project default rides the launch", func(t *testing.T) {
+		for _, want := range []agent.PermissionMode{agent.PermissionBypass, agent.PermissionPlan, agent.PermissionAcceptEdits} {
 			t.Run(want.String(), func(t *testing.T) {
-				cfg := config.NewFixture(config.Fixture{
-					AppPaths:    []string{t.TempDir()},
-					Permissions: want.String(),
-				})
-				req := discoveryRunRequest(cfg, t.TempDir(), "test-harp")
-
-				require.NotNil(t, req)
-				require.NotNil(t, req.Options)
-				assert.Equal(t, want.String(), req.Options.PermissionMode,
-					"a project that declared its own posture must launch setup at it, not at the pinned default")
-				assert.Equal(t, pb.ExecutionMode_INTERACTIVE, req.Options.Mode)
+				l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: want.String()}))
+				assert.Equal(t, want, l.Permission, "a project that declared its own posture must launch setup at it, not at the pinned default")
+				assert.Equal(t, engine.Interactive, l.Mode)
 			})
 		}
 	})
 
-	// Fault tolerance matches every other config-sourced posture rung: a
-	// hand-edited misspelling falls through to the pinned default rather than
-	// failing init, and above all never widens.
 	t.Run("an unparseable project default falls back to the pinned default", func(t *testing.T) {
-		cfg := config.NewFixture(config.Fixture{
-			AppPaths:    []string{t.TempDir()},
-			Permissions: "byapss",
-		})
-		req := discoveryRunRequest(cfg, t.TempDir(), "test-harp")
-
-		require.NotNil(t, req)
-		require.NotNil(t, req.Options)
-		assert.Equal(t, agent.PermissionDefault.String(), req.Options.PermissionMode,
-			"a misspelled posture must never resolve to anything wider than the pinned default")
+		l := discoveryLaunch(t, config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}, Permissions: "byapss"}))
+		assert.Equal(t, agent.PermissionDefault, l.Permission, "a misspelled posture must never resolve to anything wider than the pinned default")
 	})
 }
 
-// TestDiscoveryRunRequest_StampsTheHarpIntoEnv pins the actual bug fix: the
-// discovery launch's wire request must carry the session's harp under
-// agent.SessionHarpEnv, the SAME key BaseBackend.run reads to populate
-// LaunchSpec.Harp (internal/core/agent/base.go) and panelaunch.go's
-// runInteractiveInPane refuses outright without ("interactive launch
-// requires a named session"). Before this fix discoveryRunRequest had no way
-// to receive a harp at all — the init discovery launch built its request with
-// none, so every interactive `ctxloom init` failed to hand off. This is a
-// PAYLOAD assertion on the actual request object, not on discoveryRunRequest
-// returning non-nil.
-//
-// MUTATION TARGET: deleting the Env assignment (or stamping the wrong key)
-// from discoveryRunRequest turns this red.
-func TestDiscoveryRunRequest_StampsTheHarpIntoEnv(t *testing.T) {
+// TestDiscoveryLaunch_CarriesTheSetupPrompt: the discovery session opens
+// on the setup skill.
+func TestDiscoveryLaunch_CarriesTheSetupPrompt(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
-
-	req := discoveryRunRequest(cfg, t.TempDir(), "brave-otter-harp")
-
-	require.NotNil(t, req)
-	require.NotNil(t, req.Options)
-	assert.Equal(t, "brave-otter-harp", req.Options.Env[agent.SessionHarpEnv],
-		"the request must carry the minted harp under the same env key every other session-identity consumer reads")
+	l := discoveryLaunch(t, cfg)
+	assert.Equal(t, discoverySessionPrompt(cfg), l.Prompt)
 }
 
 // TestPrintDiscoveryPostureHint pins the one line the discovery handoff prints
@@ -294,7 +288,8 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 			authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 			t.Cleanup(func() { authPingFactory = orig })
 
-			err := pingEngineAuth(context.Background(), authPingTestConfig(t), engine, t.TempDir(), pingTestHarp)
+			cfg := authPingTestConfig(t)
+			err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, engine, t.TempDir())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), engine, "error must name the engine that failed")
 			assert.Contains(t, err.Error(), engineAuthFixHint(engine),
@@ -312,7 +307,8 @@ func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(func() { authPingFactory = orig })
 
-	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "some-future-engine", t.TempDir(), pingTestHarp)
+	cfg := authPingTestConfig(t)
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "some-future-engine", t.TempDir())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authenticate the engine")
 }
@@ -323,6 +319,7 @@ func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
 // inside a vendor TUI is invisible failure; this proves init never gets that
 // far.
 func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
+	testLaunchDeps(t, authPingTestConfig(t))
 	stub := &stubPingClient{exitCode: 1}
 	origFactory := authPingFactory
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
@@ -330,7 +327,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string, string) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -350,6 +347,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 // re-entry hint (connect via the configured client / `/ctxloom-init`) with no
 // relaunch prompt of its own — init hands off once and is done.
 func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.T) {
+	testLaunchDeps(t, authPingTestConfig(t))
 	stub := &stubPingClient{exitCode: 0}
 	origFactory := authPingFactory
 	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
@@ -357,7 +355,7 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string, string) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -408,13 +406,14 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *testing.T) {
 	setup := func(t *testing.T) *cobra.Command {
 		t.Helper()
+		testLaunchDeps(t, authPingTestConfig(t))
 		stub := &stubPingClient{exitCode: 0}
 		origFactory := authPingFactory
 		authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
 		t.Cleanup(func() { authPingFactory = origFactory })
 
 		origLaunch := launchEngineWithPromptFn
-		launchEngineWithPromptFn = func(context.Context, string, string, string) error {
+		launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
 			return assert.AnError
 		}
 		t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
@@ -465,7 +464,7 @@ func TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, string, string, string) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}

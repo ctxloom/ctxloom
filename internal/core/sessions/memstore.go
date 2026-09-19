@@ -172,6 +172,30 @@ func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error
 	return fmt.Errorf("harp not found in index: %q", harpName)
 }
 
+// BindMCP matches *Manager.BindMCP.
+func (m *MemStore) BindMCP(harpName string, ep Endpoint) error {
+	return m.mutate(harpName, func(e *Entry) { e.MCP = ep })
+}
+
+// BindEngine matches *Manager.BindEngine.
+func (m *MemStore) BindEngine(harpName, engine string) error {
+	return m.mutate(harpName, func(e *Entry) { e.Backend = engine })
+}
+
+// mutate applies fn to the named entry under the lock, or reports
+// ErrNotFound.
+func (m *MemStore) mutate(harpName string, fn func(*Entry)) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName == harpName {
+			fn(&m.sessions[i])
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %q", ErrNotFound, harpName)
+}
+
 // AppendRotations matches *Manager.AppendRotations: dedup-append then
 // re-sort the whole Rotations slice by RotatedAt ascending, so a fake used
 // by an operations-level test observes the same lineage-ordering guarantee

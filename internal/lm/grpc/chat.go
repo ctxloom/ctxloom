@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,7 +33,7 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 		ForwardPermissions:  req.ForwardPermissions,
 		TranscriptRawPolicy: req.TranscriptRawPolicy,
 		ForwardTerminal:     req.ForwardTerminal,
-		Runtime:             string(req.Runtime),
+		Runtime:             req.Runtime,
 		ResumeSessionId:     req.ResumeSessionID,
 	}
 	for _, m := range req.MCPServers {
@@ -52,11 +53,11 @@ func chatStartToProto(req agent.ChatRequest) *ChatStart {
 // chatStartFromProto decodes the wire ChatStart into agent.ChatRequest. The
 // runtime axis is a genuine PARSE boundary — the proto field is a bare string
 // (a proto field cannot carry a Go type), so this is the one place on this
-// path that turns it back into the typed agent.RuntimeAxis, via the single
+// path that turns it back into the typed launch.RuntimeAxis, via the single
 // canonical ParseRuntimeAxis. A value that does not resolve is refused here,
 // loudly, rather than silently landing on the host past this point.
 func chatStartFromProto(p *ChatStart) (agent.ChatRequest, error) {
-	runtime, err := agent.ParseRuntimeAxis(p.GetRuntime())
+	runtime, err := launch.ParseRuntimeAxis(p.GetRuntime())
 	if err != nil {
 		return agent.ChatRequest{}, fmt.Errorf("chat start: %w", err)
 	}
@@ -68,7 +69,7 @@ func chatStartFromProto(p *ChatStart) (agent.ChatRequest, error) {
 		ForwardPermissions:  p.GetForwardPermissions(),
 		TranscriptRawPolicy: p.GetTranscriptRawPolicy(),
 		ForwardTerminal:     p.GetForwardTerminal(),
-		Runtime:             runtime,
+		Runtime:             string(runtime),
 		ResumeSessionID:     p.GetResumeSessionId(),
 	}
 	for _, m := range p.GetMcpServers() {

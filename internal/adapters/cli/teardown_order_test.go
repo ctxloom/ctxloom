@@ -4,20 +4,14 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/require"
 )
 
 // orderWS records when its Cleanup ran, relative to a shared sequence.
-type orderWS struct {
-	seq  *[]string
-	dir  string
-	fail error
-}
-
-func (w *orderWS) Dir() string { return w.dir }
-func (w *orderWS) Cleanup() error {
-	*w.seq = append(*w.seq, "workspace")
-	return w.fail
+// orderCell is a launch.Cell whose Cleanup records its turn.
+func orderCell(seq *[]string) launch.Cell {
+	return launch.Cell{Cleanup: func() error { *seq = append(*seq, "workspace"); return nil }}
 }
 
 // The ORDER is the invariant: the transport is killed before the workspace it
@@ -33,7 +27,7 @@ func TestTeardownAll_KillsTransportBeforeRemovingWorkspace(t *testing.T) {
 			Name: "ctxloom-iso-order-probe",
 			Kill: func() { seq = append(seq, "transport") },
 		},
-		ws: &orderWS{seq: &seq, dir: t.TempDir()},
+		launch: launch.Launch{Cell: orderCell(&seq)},
 	}
 
 	st.teardownAll()
@@ -54,7 +48,7 @@ func TestTeardownAll_NoWorkspaceYetIsNotAPanic(t *testing.T) {
 	}
 
 	require.NotPanics(t, st.teardownAll,
-		"registered before the workspace exists; a nil workspace is the normal early-return case")
+		"registered before the launch resolved; a zero launch is the normal early-return case")
 	require.Equal(t, []string{"transport"}, seq,
 		"the transport must still be torn down when there is no workspace")
 }

@@ -83,12 +83,8 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 	// inside a linked git worktree). What must be absent is the raw-content
 	// warning.
 	assert.NotContains(t, warn.String(), "RAW", "a working configuration must not be warned about")
-	ld, ok := d.(*llmDistiller)
-	require.True(t, ok)
-	assert.Equal(t, "claude-code", ld.llmName)
-	assert.Equal(t, "fast", ld.llmLabel)
-	assert.Equal(t, "haiku", ld.model)
-	assert.NotEmpty(t, ld.prompt, "a distiller with an EMPTY prompt would silently distill against nothing")
+	assert.Equal(t, "fast", d.label, "the fast role's label; the launch resolver maps it to its engine and model")
+	assert.NotEmpty(t, d.prompt, "a distiller with an EMPTY prompt would silently distill against nothing")
 }
 
 // TestLoadDistillPrompt_AbsentSourcesYieldTheDefault pins the arm that is
@@ -102,15 +98,15 @@ func TestLoadDistillPrompt_AbsentSourcesYieldTheDefault(t *testing.T) {
 	assert.NotEmpty(t, got)
 }
 
-// TestNewLLMDistiller_BareBackendNameResolvesToThatBackend pins the
-// ad-hoc `--llm <backend>` form: a label that is not a configured `llm:`
-// entry but names a registered backend resolves to THAT backend, the same
-// way every other launch path resolves it (operations.ResolveBackend). The
-// distiller used to resolve through config.ResolveLLM alone, which has no
-// backend registry and degrades an unknown label to the built-in default —
-// so `bundle distill --llm mock` silently distilled on claude-code and
-// reported success.
-func TestNewLLMDistiller_BareBackendNameResolvesToThatBackend(t *testing.T) {
+// TestNewLLMDistiller_BareBackendNameIsHandedToTheResolver pins the ad-hoc
+// `--llm <engine>` form: a label that is not a configured `llm:` entry is
+// handed to the one launch resolver as named, which admits a registered
+// engine name and refuses anything else by name (launch.Resolve's tests pin
+// that). The distiller used to resolve through config.ResolveLLM alone,
+// which degrades an unknown label to the built-in default — so `bundle
+// distill --llm mock` silently distilled on claude-code and reported
+// success.
+func TestNewLLMDistiller_BareBackendNameIsHandedToTheResolver(t *testing.T) {
 	warn := captureWarnings(t)
 	cfg := config.NewFixture(config.Fixture{LM: config.LMConfig{
 		Defaults: config.RoleDefaults{Primary: "a"},
@@ -125,10 +121,6 @@ func TestNewLLMDistiller_BareBackendNameResolvesToThatBackend(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, d)
-	ld, ok := d.(*llmDistiller)
-	require.True(t, ok)
-	assert.Equal(t, "mock", ld.llmName, "the backend the user named, not the built-in default")
-	assert.Equal(t, "mock", ld.llmLabel)
-	assert.Empty(t, ld.model, "an ad-hoc backend carries no configured model")
+	assert.Equal(t, "mock", d.label, "the engine the user named reaches the resolver as the label, never rounded to a default")
 	assert.NotContains(t, warn.String(), "RAW")
 }

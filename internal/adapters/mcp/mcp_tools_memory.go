@@ -324,9 +324,10 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
 		taskHint, _ := memory.ReadNextStep(harp)
+		distiller := operations.NewLazyOneShot(s.cfg, s.cfg.FastLabel(), model, workDir, "", 0)
+		defer distiller.End()
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
-			LLM:             s.cfg.GetCompactionLLM(),
-			Model:           model,
+			Run:             distiller.Turn,
 			Backend:         backend,
 			EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 			SessionID:       in.SessionID,
@@ -1167,9 +1168,10 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
 	taskHint, _ := memory.ReadNextStep(harp)
+	distiller := operations.NewLazyOneShot(s.cfg, s.cfg.FastLabel(), model, workDir, "", 0)
+	defer distiller.End()
 	compactor, err := makeCompactor(memory.CompactionConfig{
-		LLM:             s.cfg.GetCompactionLLM(),
-		Model:           model,
+		Run:             distiller.Turn,
 		Backend:         backendName,
 		EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 		SessionID:       sessionID,

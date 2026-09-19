@@ -97,10 +97,7 @@ func TestSendOwnedRunTurn_RefusesAnEmptyTurn(t *testing.T) {
 
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp: ownerHarp, Backend: "claude-code", Label: "fast", Model: "sonnet",
-		WorkDir: "/work", Permission: agent.PermissionBypass,
-	}, starter, "turn one")
+	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "turn one")
 	if !assert.NoError(t, err) {
 		return
 	}

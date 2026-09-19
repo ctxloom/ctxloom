@@ -12,75 +12,53 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// SpawnPlan is a resolved agent launch: everything the coordinator needs to
-// enqueue, report, and (re)launch one child.
+// SpawnPlan is a delegated child's launch as the coordinator holds it: the
+// SELECTION made at the verb — the binding's name, the engine and label it
+// declares, its composed MCP set, its resume mode — and, once StartEngine
+// has run under the child's launch context, the RESOLVED Launch. Everything
+// the journal and the roster read before the launch is here; everything the
+// runner is handed comes off the Launch.
 type SpawnPlan struct {
 	AgentName string
-	Backend   string
-	Label     string
-	Profiles  []string
-	Runtime   agent.RuntimeAxis
-	Context   string
-	Perm      agent.PermissionMode
-	// Workspace is GAP 2's per-call workspace-axis override (none|worktree;
-	// empty = fall back to the project's cfg.Workspace default). Unlike
-	// every other SpawnPlan field, it is NOT set by Resolve (agent
-	// definitions carry no workspace opinion — see operations.memberAxes'
-	// identical split between the fan's session-level workspace and a
-	// member's agent-resolved runtime): AgentRun (children.go) stamps it
-	// onto the plan from the caller's agent_run invocation, after Resolve
-	// returns.
-	Workspace string
-	// DirtyTreeHandler is the identical per-call override for what a
-	// worktree spawn does when the parent tree is dirty (the zero value =
-	// fall back to the project's cfg.GetDirtyTreeHandler() default).
-	// Stamped onto the plan the same way and at the same point as
-	// Workspace, for the same reason: this is an ORCHESTRATION trait the
-	// caller supplies per invocation, not something Resolve's pure
-	// agent-definition resolution should carry.
-	//
-	// It is the TYPED value, parsed at the verb's edge (serveSpawnAgent for
-	// the wire, the MCP tool handler for the native surface). The plan can
-	// therefore only carry a handler the vocabulary admits; there is no
-	// spelling on it for a later frame to re-interpret.
-	DirtyTreeHandler operations.DirtyTreeHandler
-	Degraded         []string
-	// MCPServers is the child's fully composed MCP server set (Wave F1),
-	// resolved once at Resolve time so a later config edit cannot
-	// retroactively change a live run's privileges, and so that
-	// resolving it exactly once means Launch/StartEngine and the enqueue
-	// journal (children.go's enqueueRun) all read the identical set instead
-	// of each recomposing it (which would also re-fire the executable trust
-	// gate's withheld-item warning per call).
+	// Backend and Label are the binding's DECLARED engine, read at the verb
+	// so the roster and the reach-back endpoint know the runtime before the
+	// launch resolves; the Launch is authoritative once it exists.
+	Backend  string
+	Label    string
+	Profiles []string
+	Runtime  launch.RuntimeAxis
+	// Workspace and DirtyTreeHandler are the caller's per-invocation
+	// orchestration traits (agent_run's own fields), stamped by AgentRun
+	// before the launch resolves; a binding carries no opinion on either.
+	Workspace        launch.WorkspaceAxis
+	DirtyTreeHandler launch.DirtyTreeHandler
+	// Permission is the posture the plan was enqueued with: the binding's
+	// declaration (empty when it declared none), or an owner run's floored
+	// posture. The launch resolver decides the effective one.
+	Permission string
+	Degraded   []string
+	// MCPServers is the child's composed MCP server set, resolved once at
+	// the verb so a later config edit cannot retroactively change a live
+	// run's privileges and so the journal, the launch and StartEngine read
+	// one set.
 	MCPServers []agent.ChatMCPServer
-	// ResumeMode is the per-engine resume-capability gate's outcome (one-shot
-	// + resume-key plan, Slice 2 / Fork 3's STATIC half): ResumeModeOneShot
-	// only when the resolved agent declared `driving: oneshot` AND the
-	// backend has a cheap resume-by-key primitive (resumeCapableBackends);
-	// ResumeModePersistent (the zero value) otherwise — including every
-	// conversational agent. Resolved once in
-	// Resolve() via resolveResumeMode, mirroring MCPServers above: a
-	// later config edit must not retroactively change a
-	// live run. Since Slice 4, Resolve() returns ResumeModeOneShot for the
-	// WIRED backends (oneShotSupportedBackends) and the
-	// coordinator's turn loop (children.go's oneShotReady/onTurnIdle) actually
-	// tears the engine down and resumes it by key at each turn boundary. A
-	// backend that is resume-capable but NOT yet wired end to end still fails
-	// loud in Resolve() rather than resolving a value the turn loop would
-	// silently run conversationally — see oneShotSupportedBackends' doc for
-	// that residual v0.8 gate.
+	// ResumeMode is the per-engine resume-capability gate's outcome:
+	// ResumeModeOneShot only when the binding declared driving: oneshot AND
+	// the engine has a resume-by-key primitive the turn loop is wired for.
 	ResumeMode ResumeMode
+	// Launch is the resolved launch, set by StartEngine: the cell, the
+	// package, the plan, the endpoint, the permission floored once.
+	Launch launch.Launch
 
-	resolved *operations.ResolvedAgent
-	// cfg is the generation this spawn was resolved from: every later step
-	// of the spawn (its MCP composition, its engine start) reads this value
-	// and never the owner, so one spawn observes one state.
-	cfg *config.Config
+	// cfg is the generation this spawn was selected from; StartEngine
+	// resolves against the same generation, so one spawn observes one state.
+	snap *config.Snapshot
 }
 
 // ResumeMode is a resolved agent's per-turn engine-lifecycle mode: whether
@@ -96,23 +74,38 @@ const (
 	// ResumeModeOneShot is the turn-boundary teardown+resume-by-key model,
 	// LIVE for the wired backends. Reaching this value requires BOTH a
 	// `driving: oneshot` agent declaration and a statically resume-capable
-	// backend (resolveResumeMode); Resolve() narrows it once more to the
+	// backend (resolveResumeMode); Resolve narrows it once more to the
 	// backends whose turn loop is wired end to end (oneShotSupportedBackends)
-	// and fails loud for any other resume-capable one
-	// rather than returning a mode the turn loop would not act on.
+	// and fails loud for any other resume-capable one.
 	ResumeModeOneShot
 )
 
-// Spawner is the coordinator's launch seam: production resolves and spawns
-// real engines through the operations launch tail; tests fake children
-// without config or engines.
+// SpawnStart is what StartEngine resolves the child's launch from beyond
+// the plan: the child's minted identity and, on a resume, the native key
+// the journal holds.
+type SpawnStart struct {
+	Identity sessions.Identity
+	// ResumeKey is the journaled native session id of the run being resumed;
+	// empty on a fresh spawn. A resume reuses the harp's endpoint.
+	ResumeKey string
+	// Resumed says this is a resume even when no native key survived, so
+	// the launch re-resolves the same harp.
+	Resumed bool
+}
+
+// Spawner is the coordinator's launch seam: production selects, resolves
+// and spawns real engines through the operations launch trunk; tests fake
+// children without config or engines.
 type Spawner interface {
-	// Resolve validates the agent name exactly as `run --agent` does,
-	// including the D3 headless-safe permission gate, inside its own
-	// serialized strictness window.
+	// Resolve SELECTS the binding by name against one fresh generation:
+	// the binding must exist and its engine be admitted to delegation; the
+	// composed MCP set and the resume mode are decided here. The launch
+	// itself resolves in StartEngine, under the child's launch context.
 	Resolve(ctx context.Context, agentName string) (*SpawnPlan, error)
 	// AssignSession mints the child's harp (its address and continuation
-	// token) in the host-side session accounting, and does NOTHING ELSE.
+	// token) in the host-side session accounting, recording the engine the
+	// selection named (the launch's resolver confirms it), and does NOTHING
+	// ELSE.
 	//
 	// It is on the pre-registration critical path: AgentRun cannot journal
 	// run.enqueued, and therefore cannot show the caller that the child
@@ -133,16 +126,16 @@ type Spawner interface {
 	// operations.RecordSessionEngineVersion), exactly like MarkSessionEnded
 	// below.
 	RecordEngineVersion(ctx context.Context, harp, backend string)
-	// StartEngine spawns the child's engine RUNNER process (isolation-
-	// prepared, coordinator trio stamped via runnerEnv, env threaded into
-	// the isolation session state) WITHOUT opening the go-plugin Chat
-	// stream — the StartRun path's spawn half. Engine control then arrives
-	// over the runner's own RunnerChannel (StartRun), built from the
-	// returned EngineSpawn.
-	StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error)
-	// ResumeContext composes the context for a RESUMED harp: the plan
+	// StartEngine RESOLVES the child's launch (the one resolver: the cell
+	// prepared, the permission floored, the endpoint minted or reused) and
+	// spawns its runner process with the coordinator trio on the runner's
+	// env, WITHOUT attaching. Engine control then arrives over the runner's
+	// own RunnerChannel (StartRun), built from the returned EngineSpawn. On
+	// success plan.Launch is set.
+	StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error)
+	// ResumeContext composes the context for a RESUMED harp: the launch's
 	// context plus the rendered recorded history when one is loadable.
-	ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string
+	ResumeContext(ctx context.Context, contextText, harp string) string
 	// MarkSessionEnded ends the harp's session: it stamps it ended in session
 	// accounting AND (in production, via operations.EndSession) removes the
 	// child's per-session engine-home instance, credential copy and all, from
@@ -155,20 +148,17 @@ type Spawner interface {
 // once per spawn with the backend and the per-spawn runner env.
 type StarterFunc func(backend string, runnerEnv map[string]string) isolation.EngineStarter
 
-// prodSpawner is the production Spawner over the operations launch tail. It
+// prodSpawner is the production Spawner over the operations launch trunk. It
 // holds the process's App — the one config.Owner — and captures ONE
 // generation per spawn (Resolve's Reload), which the plan then carries to
-// every later step of that spawn.
+// StartEngine's resolution.
 type prodSpawner struct {
 	app        *operations.App
 	projectDir string
-	starter    StarterFunc // test seam; nil = production (isolation binds the starter)
+	starter    StarterFunc // test seam; nil = production (the cell's transport starts the runner)
 }
 
-// newProdSpawner builds the production spawner over the process's App. The
-// executable trust gate for the children's managed-MCP composition is the
-// generation's own (config.Sources.TrustPorts), the same fail-closed gate
-// the run/acp paths apply.
+// newProdSpawner builds the production spawner over the process's App.
 func newProdSpawner(app *operations.App, projectDir string, starter StarterFunc) *prodSpawner {
 	return &prodSpawner{app: app, projectDir: projectDir, starter: starter}
 }
@@ -334,74 +324,65 @@ func (s *prodSpawner) spawnGeneration(ctx context.Context) (*config.Snapshot, er
 }
 
 func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
-	var (
-		cfg      *config.Config
-		rs       *operations.ResolvedAgent
-		perm     agent.PermissionMode
-		degraded []string
-	)
-	if gerr := func() error {
-		mark := strictness.Checkpoint()
-		defer strictness.Close(mark)
-		snap, err := s.spawnGeneration(ctx)
-		if err != nil {
-			return err
-		}
-		cfg = snap.Config
-		rs, err = operations.ResolveAgent(ctx, cfg, agentName, "")
-		if err != nil {
-			return err
-		}
-		perm, degraded = headlessSafePermission(agentName, rs.Permissions)
-		return strictness.FindingsError(mark)
-	}(); gerr != nil {
-		return nil, gerr
+	snap, err := s.spawnGeneration(ctx)
+	if err != nil {
+		return nil, err
 	}
-	// Slice 2 — per-engine resume-capability gate (static half). FAILS LOUD
-	// (never silently downgrades to persistent) when `driving: oneshot` names
-	// a backend with no resume-by-key primitive.
-	resumeMode, rmErr := resolveResumeMode(rs.Driving, rs.Backend)
+	cfg := snap.Config
+	binding, ok := cfg.Agent(agentName)
+	if !ok {
+		return nil, fmt.Errorf("agent_run: %w: %q (declare it with `ctxloom agent set %s`)", launch.ErrNoAgent, agentName, agentName)
+	}
+	// The binding's DECLARED engine, for the roster and the reach-back
+	// endpoint: the label it names, else the project primary. The launch
+	// resolves the same precedence and is authoritative once it exists.
+	label := binding.LLM
+	if label == "" {
+		label = cfg.PrimaryLabel()
+	}
+	backend, _ := operations.ResolveBackend(cfg, label)
+	rtStr := binding.Runtime
+	if rtStr == "" {
+		rtStr = cfg.GetRuntime()
+	}
+	runtime, err := launch.ParseRuntimeAxis(rtStr)
+	if err != nil {
+		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
+	}
+	if err := agents.ValidateDriving(binding.Driving); err != nil {
+		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
+	}
+	// The per-engine resume-capability gate. FAILS LOUD (never silently
+	// downgrades to persistent) when `driving: oneshot` names a backend with
+	// no resume-by-key primitive.
+	resumeMode, rmErr := resolveResumeMode(binding.Driving, backend)
 	if rmErr != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, rmErr)
 	}
-	// Slice 4 landed the one-shot turn loop for oneShotSupportedBackends (the
-	// migrated, live-loadSession-confirmed engines). A
-	// backend that is statically resume-capable but NOT yet wired end to end
-	// still fails loud here rather than resolving a ResumeModeOneShot value
-	// the turn loop would silently run conversationally (ctxloom's banned
-	// silent-no-op; see oneShotSupportedBackends' doc). A backend in neither
-	// table never reaches this gate: resolveResumeMode already fails it loud
-	// on the capability reason above. Every backend currently in
-	// resumeCapableBackends is also in oneShotSupportedBackends today, so
-	// this branch is a defensive residual, not a live gate — it stays wired
-	// for the next resume-capable-but-unwired backend rather than being
-	// deleted and re-added.
-	if resumeMode == ResumeModeOneShot && !oneShotSupportedBackends[rs.Backend] {
+	// A backend that is statically resume-capable but NOT yet wired end to
+	// end still fails loud here rather than resolving a ResumeModeOneShot
+	// value the turn loop would silently run conversationally.
+	if resumeMode == ResumeModeOneShot && !oneShotSupportedBackends[backend] {
 		return nil, fmt.Errorf(
-			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release (its one-shot turn loop lands in v0.8); it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
-			agentName, rs.Backend)
+			"agent_run: agent %q: driving: oneshot is not yet available for backend %q in this release; it is resume-capable but ctxloom does not yet tear down/resume THIS engine at turn boundaries",
+			agentName, backend)
 	}
-
-	if err := s.admit(rs.Backend); err != nil {
+	if err := s.admit(backend); err != nil {
 		return nil, fmt.Errorf("agent_run: agent %q: %w", agentName, err)
 	}
 
 	plan := &SpawnPlan{
 		AgentName:  agentName,
-		Backend:    rs.Backend,
-		Label:      rs.Label,
-		Profiles:   rs.Profiles,
-		Runtime:    rs.Runtime,
-		Context:    rs.Context,
-		Perm:       perm,
-		Degraded:   degraded,
+		Backend:    backend,
+		Label:      label,
+		Profiles:   binding.Profiles,
+		Runtime:    runtime,
+		Permission: binding.Permissions,
 		ResumeMode: resumeMode,
-		resolved:   rs,
-		cfg:        cfg,
+		snap:       snap,
 	}
-	// F1: resolved once here (not per-Launch/StartEngine call) so the
-	// enqueue journal, Launch, and StartEngine all see the IDENTICAL
-	// composed set — see the MCPServers field comment above.
+	// Resolved once here (not per StartEngine call) so the enqueue journal
+	// and the launch see the IDENTICAL composed set.
 	plan.MCPServers = s.childMCPServers(plan)
 	return plan, nil
 }
@@ -418,86 +399,79 @@ func (s *prodSpawner) RecordEngineVersion(ctx context.Context, harp, backend str
 	operations.RecordSessionEngineVersion(ctx, harp, backend)
 }
 
-// prepareAgentChat is operations.PrepareAgentChat's production entry point,
-// indirected so a test can observe the request each launch path builds without a
-// real isolation prepare.
-var prepareAgentChat = operations.PrepareAgentChat
-
-// chatRequest builds StartEngine's AgentChatRequest: the resolved agent, the
-// workspace/dirty-tree axes, the permission posture, the two env maps.
-func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]string) operations.AgentChatRequest {
-	req := operations.AgentChatRequest{
-		Resolved:         plan.resolved,
-		WorkDir:          s.projectDir,
-		Env:              env,
-		RunnerEnv:        runnerEnv,
-		Permissions:      plan.Perm,
-		Verbosity:        childVerbosity(),
-		Workspace:        plan.Workspace,
-		DirtyTreeHandler: plan.DirtyTreeHandler,
-	}
-	if s.starter != nil {
-		req.Starter = s.starter(plan.Backend, runnerEnv)
-	}
-	return req
-}
+// startEngine is operations.StartEngine's production entry point, indirected
+// so a test can observe the launch each spawn resolves without a real
+// runner process.
+var startEngine = operations.StartEngine
 
 // EngineSpawn is a StartEngine result: the spawned-but-not-chatting runner
-// process plus everything the coordinator needs to assemble the StartRun
-// HarnessSpec for it.
+// process plus the resolved launch the coordinator assembles the StartRun
+// spec from.
 type EngineSpawn struct {
-	// WorkDir is the isolation-resolved workspace (HarnessSpec.workspace).
-	WorkDir string
-	// Env is the harness env the legacy Chat path would have carried
-	// (workspace env merged under the child's ambient identity) —
-	// HarnessSpec.config["env"].
-	Env map[string]string
-	// Model is the RESOLVED model (post resolveChatModel — never an alias;
-	// the C1 model-gate guarantee).
-	Model string
+	// Launch is the resolved launch the runner was started for.
+	Launch launch.Launch
 	// MCPServers is the composed managed set for the child session —
 	// HarnessSpec.config["mcp_servers"].
 	MCPServers []agent.ChatMCPServer
-	// Kill tears the engine process and its workspace down (idempotent).
+	// Kill tears the engine process and its cell down (idempotent).
 	Kill func()
 	// StderrTail reads the runner's bounded stderr tail without reaping —
-	// the container's streamed stderr (and, teed through it, the engine
-	// adapter's), the only death reason available when the whole runner dies
-	// without emitting a FAILED RunCompleted (docker-stop / OOM = runner
-	// loss). Nil-safe. See operations.AgentEngineProcess.StderrTail.
+	// the only death reason available when the whole runner dies without
+	// emitting a FAILED RunCompleted. Nil-safe.
 	StderrTail func() string
-	// Wait blocks until the runner PROCESS exits, reporting why (the error
-	// embeds the stderr tail). issueStartRun races it against the dial-home
-	// wait so a runner that died at standup fails the spawn AT ONCE, with its
-	// own dying words, instead of costing the parent the full
-	// runnerAwaitTimeout in total silence. Nil when the spawner captures no
-	// process (test doubles), which degrades to timeout-only detection.
-	// See operations.AgentEngineProcess.Wait.
+	// Wait blocks until the runner PROCESS exits, reporting why. Nil when
+	// the spawner captures no process (test doubles).
 	Wait func() error
 }
 
-func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
-	prep, err := prepareAgentChat(ctx, plan.cfg, s.chatRequest(plan, env, runnerEnv))
+// StartEngine resolves the child's launch against the spawn's generation
+// and starts its runner. A delegated child defaults to its OWN worktree
+// when neither the call nor the project chose a workspace: needing a
+// private cwd is a property of how the parent fans, and the shared
+// checkout is never the silent default for a child.
+func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+	deps, err := operations.LaunchDepsFor(plan.snap)
 	if err != nil {
 		return nil, err
 	}
-	eng, err := prep.StartEngine(ctx)
+	workspace := plan.Workspace
+	if workspace == "" && plan.snap.Config.GetWorkspace() == "" {
+		workspace = launch.WorkspaceWorktree
+	}
+	src := launch.Source{
+		Identity:  start.Identity,
+		Agent:     plan.AgentName,
+		Mode:      launch.StructuredMode(),
+		WorkDir:   s.projectDir,
+		Workspace: workspace,
+		DirtyTree: plan.DirtyTreeHandler,
+	}
+	if start.Resumed {
+		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}}
+	}
+	l, err := launch.Resolve(ctx, deps, src)
 	if err != nil {
 		return nil, err
 	}
+	var starter isolation.EngineStarter
+	if s.starter != nil {
+		starter = s.starter(string(l.Engine), runnerEnv)
+	}
+	proc, err := startEngine(ctx, l, runnerEnv, childVerbosity(), starter)
+	if err != nil {
+		return nil, err
+	}
+	plan.Launch = l
 	return &EngineSpawn{
-		WorkDir:    eng.WorkDir,
-		Env:        eng.Env,
-		Model:      eng.Model,
+		Launch:     l,
 		MCPServers: plan.MCPServers,
-		Kill:       eng.Kill,
-		StderrTail: eng.StderrTail,
-		Wait:       eng.Wait,
+		Kill:       proc.Kill,
+		StderrTail: proc.StderrTail,
+		Wait:       proc.Wait,
 	}, nil
 }
 
-func (s *prodSpawner) ResumeContext(ctx context.Context, plan *SpawnPlan, harp string) string {
-	contextText := plan.Context
+func (s *prodSpawner) ResumeContext(ctx context.Context, contextText, harp string) string {
 	if entries, err := operations.RecordedSessionEntries(ctx, harp); err == nil {
 		rendered := operations.RenderResumedTranscript(harp, entries)
 		// RenderResumedTranscript legitimately returns "" for zero
@@ -537,8 +511,8 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 	// command is the bare executable (agent.CtxloomCommand), which resolves on
 	// PATH wherever the child runs — including inside a container, where the
 	// isolation policy is not even known at this point.
-	servers := agent.ComposeChatMCPServers(plan.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
-	operations.WarnWithheldBy(plan.cfg.ExecutableTrustGate())
+	servers := agent.ComposeChatMCPServers(plan.snap.Config.ResolveBundleMCPServers(plan.Profiles), nil)
+	operations.WarnWithheldBy(plan.snap.Config.ExecutableTrustGate())
 	warnNoReachBack(plan.AgentName, servers)
 	return servers
 }
@@ -580,33 +554,4 @@ func childVerbosity() int {
 		return 3
 	}
 	return 0
-}
-
-// headlessSafePermission enforces D3's structural floor: children never
-// prompt the ENGINE inline, so the agent must DECLARE a headless-safe
-// permission enum (bypass|plan) — an absent field is refused exactly like a
-// non-headless-safe one, loudly. Under degraded mode the refusal becomes a
-// warning and the child launches at the MOST RESTRICTIVE headless-safe
-// posture: degraded never widens a child's permissions, it narrows them.
-// The floor says whether the child may run headless AT ALL. Nothing above it
-// answers the engine permission requests the child makes while doing so — the
-// coordinator does not broker approvals (see doc.go's D3).
-func headlessSafePermission(name, declared string) (agent.PermissionMode, []string) {
-	if declared != "" {
-		if mode, ok := agent.ParsePermissionMode(declared); ok && mode.SafeHeadless() {
-			return mode, nil
-		}
-	}
-	reason := "declares no permissions"
-	if declared != "" {
-		reason = fmt.Sprintf("declares permissions %q, which is not headless-safe", declared)
-	}
-	strictness.Fail(strictness.ClassConfig,
-		fmt.Sprintf("set permissions: plan|bypass on agent %q (agents: in .ctxloom/config.yaml)", name),
-		"agent_run: agent %q %s: a delegated child has no channel to surface a permission prompt (D3)", name, reason)
-	if strictness.Degraded() {
-		return agent.PermissionPlan, []string{fmt.Sprintf(
-			"agent %q %s; degraded mode launches it at %q — the most restrictive headless-safe posture", name, reason, agent.PermissionPlan)}
-	}
-	return agent.PermissionPlan, nil // unreachable in strict mode: strictness.FindingsError refuses
 }

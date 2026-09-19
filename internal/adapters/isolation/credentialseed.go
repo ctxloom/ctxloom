@@ -6,8 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
-	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -40,109 +38,16 @@ import (
 // the engine did not agree to.
 //
 // WHAT to place is not decided here. Each engine declares its seed on its own
-// descriptor (hosting.Hosting.Home.Credentials), and internal/lm/backends
-// pushes that declaration — provided OR declared absent — into this package
-// for every engine it registers, alongside the provisioning policy. This
-// package cannot import the registry (backends imports it), and CopyAmbient is
-// handed a backend NAME, so a name-keyed table populated at registration is
-// the only direction the wiring can run. The consequence is the invariant that
-// matters: every registered engine has an entry here, so a name with no entry
-// is one nobody registered, never one somebody forgot. An engine that keeps no
-// seedable credential says so, with a reason, and that reason is readable back.
+// home declaration (EngineFacts.Home's Credentials), read through the one
+// facts accessor (enginefacts.go); CopyAmbient is handed a backend NAME and
+// asks by it. Every engine the accessor knows has a declaration — provided
+// OR declared absent with a reason — so a name it does not know is one
+// nobody composed, never one somebody forgot.
 
-var (
-	credentialSeedMu sync.RWMutex
-	credentialSeeds  = map[string]agent.Declared[agent.CredentialSeed]{}
-)
-
-// RegisterCredentialSeed installs engine's credential-seed declaration.
-// Called from internal/lm/backends' Register for EVERY descriptor, whether
-// the seed is provided or declared absent; re-registering a name replaces
-// it, and an undecided (zero) value deletes the entry, so a test can unwind
-// its synthetic engine.
-func RegisterCredentialSeed(engine string, seed agent.Declared[agent.CredentialSeed]) {
-	credentialSeedMu.Lock()
-	defer credentialSeedMu.Unlock()
-	if !seed.Decided() {
-		delete(credentialSeeds, engine)
-		return
-	}
-	credentialSeeds[engine] = seed
-}
-
-// credentialSeedDeclared returns engine's declaration and whether the engine
-// is registered at all. ok=false is "nobody registered this name"; a
-// registered engine with no seed is ok=true with an absent declaration — the
-// two are different answers.
-func credentialSeedDeclared(engine string) (agent.Declared[agent.CredentialSeed], bool) {
-	credentialSeedMu.RLock()
-	defer credentialSeedMu.RUnlock()
-	d, ok := credentialSeeds[engine]
-	return d, ok
-}
-
-// credentialSeedFor returns engine's PROVIDED seed. ok=false covers both a
-// declared absence and an unregistered name, which every caller here
-// already treats the same way (nothing to seed); a caller that must tell
-// them apart reads credentialSeedDeclared.
-func credentialSeedFor(engine string) (agent.CredentialSeed, bool) {
-	d, ok := credentialSeedDeclared(engine)
-	if !ok {
-		return agent.CredentialSeed{}, false
-	}
-	return d.Get()
-}
-
-// provisioningPolicies is each engine's DECLARED provisioning policy — the
-// deliveries it will accept for its instance-home material, best first —
-// pushed here by name for the identical reason the credential seed is (see
-// this file's doc: isolation cannot import the registry, and CopyAmbient is
-// handed a backend NAME with no descriptor in hand).
-var (
-	provisioningPolicyMu sync.RWMutex
-	provisioningPolicies = map[string]agent.Declared[agent.ProvisioningPolicy]{}
-)
-
-// RegisterProvisioningPolicy installs engine's provisioning declaration.
-// Called from internal/lm/backends' Register for EVERY descriptor, whether the
-// policy is provided or declared absent; re-registering a name replaces it,
-// and an undecided (zero) value deletes the entry, so a test can unwind its
-// synthetic engine.
-func RegisterProvisioningPolicy(engine string, policy agent.Declared[agent.ProvisioningPolicy]) {
-	provisioningPolicyMu.Lock()
-	defer provisioningPolicyMu.Unlock()
-	if !policy.Decided() {
-		delete(provisioningPolicies, engine)
-		return
-	}
-	provisioningPolicies[engine] = policy
-}
-
-// provisioningPolicyDeclared returns engine's declaration and whether the
-// engine is registered at this seam at all. ok=false is "nobody registered
-// this name"; a registered engine that declared the slot ABSENT is ok=true
-// with an absent declaration — and the two are different answers, because an
-// engine with material to place and no accepted delivery is a contradiction
-// worth naming, while an unregistered name is a wiring bug.
-func provisioningPolicyDeclared(engine string) (agent.Declared[agent.ProvisioningPolicy], bool) {
-	provisioningPolicyMu.RLock()
-	defer provisioningPolicyMu.RUnlock()
-	d, ok := provisioningPolicies[engine]
-	return d, ok
-}
-
-// CredentialSeedEngineNames returns every engine with a declaration at this
-// seam — provided or absent — sorted. It is the registry's own name list as
-// far as this package can see it.
+// CredentialSeedEngineNames returns every engine the facts accessor knows,
+// sorted: each has a credential-seed declaration, provided or absent.
 func CredentialSeedEngineNames() []string {
-	credentialSeedMu.RLock()
-	defer credentialSeedMu.RUnlock()
-	names := make([]string, 0, len(credentialSeeds))
-	for name := range credentialSeeds {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return factNames()
 }
 
 // seedFile is one host file a seed copies, resolved against the host HOME.

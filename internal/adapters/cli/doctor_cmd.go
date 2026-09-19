@@ -21,9 +21,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -239,7 +239,7 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 		return false
 	}
 	projectDefault := cfg.GetRuntime()
-	if agent.IsContainerRuntime(projectDefault) {
+	if launch.IsContainerRuntime(projectDefault) {
 		return true
 	}
 	for _, a := range cfg.GetConfiguredAgents() {
@@ -247,7 +247,7 @@ func doctorContainerRuntimeRequired(cfg *config.Config) bool {
 		if runtime == "" {
 			runtime = projectDefault
 		}
-		if agent.IsContainerRuntime(runtime) {
+		if launch.IsContainerRuntime(runtime) {
 			return true
 		}
 	}

@@ -33,6 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -59,11 +60,11 @@ func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnP
 	}
 	perm := agent.PermissionBypass
 	return &SpawnPlan{
-		AgentName: agentName,
-		Backend:   "mock",
-		Label:     "fast",
-		Runtime:   "container",
-		Perm:      perm,
+		AgentName:  agentName,
+		Backend:    "mock",
+		Label:      "fast",
+		Runtime:    "container",
+		Permission: perm.String(),
 	}, nil
 }
 
@@ -87,7 +88,8 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 // workspace, and launch the runner via isolation.StarterForWorkspace →
 // Container.StartRunner (docker-direct `ctxloom llm host mock`). The session
 // harp on env drives the session-state mounts (transcript survival).
-func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+	env := sessions.HookEnv(start.Identity)
 	rt := isolation.ProbeRuntime("docker")
 	// Container auth keys on the ENGINE, resolved PER CALL from the plan
 	// (containerAuthBackend — the same Backend field StarterForWorkspace below
@@ -112,11 +114,14 @@ func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env
 	s.containers = append(s.containers, handle.Name)
 	s.cleanups = append(s.cleanups, kill)
 	s.mu.Unlock()
-	return &EngineSpawn{WorkDir: ws.Dir(), Env: env, Model: "mock", MCPServers: plan.MCPServers, Kill: kill}, nil
+	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l.Cell.Env = env
+	plan.Launch = l
+	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
 }
 
-func (s *directBusSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
-	return plan.Context
+func (s *directBusSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
+	return contextText
 }
 func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
 

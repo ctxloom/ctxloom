@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -202,7 +202,7 @@ func (c *Coordinator) LoopbackURL() string {
 // runs; the widened bridge/host-interface listener for container runs
 // (opened on demand, never 0.0.0.0). The hosting glue uses it for the parent
 // harness's env trio.
-func (c *Coordinator) ReachURL(runtimeAxis agent.RuntimeAxis) (string, error) {
+func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
 	srv := c.srv.Load()
 	if srv == nil {
 		return "", errors.New("coordinator listeners are not up")
@@ -210,7 +210,7 @@ func (c *Coordinator) ReachURL(runtimeAxis agent.RuntimeAxis) (string, error) {
 	// EITHER ownership mode is a container, and both need the widened
 	// listener: loopback inside a container is the container's own loopback,
 	// so handing one back is not a degraded URL, it is an unreachable one.
-	if !agent.IsContainerRuntimeAxis(runtimeAxis) {
+	if !launch.IsContainerRuntimeAxis(runtimeAxis) {
 		return srv.loopURL, nil
 	}
 	return srv.ensureWide()

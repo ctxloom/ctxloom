@@ -81,56 +81,6 @@ func stubPrepareIsolation(t *testing.T, failFor map[string]bool, mk func() pb.Cl
 	t.Cleanup(func() { prepareIsolation = prev })
 }
 
-// TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict pins the fail-loudly
-// member gate: when isolation.Prepare records a ClassIsolation finding (an
-// explicitly-requested container degraded toward the bare host), strict mode
-// FAILS THE MEMBER — the error carries the finding text — instead of running it
-// unsandboxed with forced bypass. In degraded mode (recording disabled) the
-// member proceeds on the degraded host workspace as before.
-func TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict(t *testing.T) {
-	t.Run("strict: the member fails with the finding text; no engine runs", func(t *testing.T) {
-		resetStrictness(t)
-		stub := &stubClient{out: "should never run"}
-		stubPrepareIsolation(t, map[string]bool{"m1": true}, func() pb.Client { return stub })
-
-		res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:        "t",
-			WorkDir:     t.TempDir(),
-			Label:       "claude-fast",
-			Backend:     "claude-code",
-			Permissions: "bypass", // headless-safe: this test is about the isolation gate, not permission resolution
-			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainerRootless},
-			AgentID:     "m1",
-			Factory:     nil, // the isolation path — the seam under test
-		})
-		require.Error(t, err, "a member whose requested container degraded must FAIL in strict mode")
-		assert.Nil(t, res)
-		assert.Contains(t, err.Error(), "NOT sandboxed", "the error must carry the finding text")
-		assert.Contains(t, err.Error(), "--degraded", "the error must name the escape hatch")
-		assert.Nil(t, stub.gotReq, "the engine must never have run")
-	})
-
-	t.Run("degraded: the member proceeds on the degraded host workspace", func(t *testing.T) {
-		resetStrictness(t)
-		strictness.SetDegraded(true)
-		stub := &stubClient{out: "ran on host"}
-		stubPrepareIsolation(t, map[string]bool{"m1": true}, func() pb.Client { return stub })
-
-		res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:        "t",
-			WorkDir:     t.TempDir(),
-			Label:       "claude-fast",
-			Backend:     "claude-code",
-			Permissions: "bypass", // headless-safe: this test is about the isolation gate, not permission resolution
-			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainerRootless},
-			AgentID:     "m1",
-			Factory:     nil,
-		})
-		require.NoError(t, err, "--degraded keeps the old warn-and-continue host fallback")
-		assert.Equal(t, "ran on host", res.Output)
-	})
-}
-
 // TestIsolationGateErr pins the gate's decision table directly: only strict-mode
 // ClassIsolation findings fail a member; degraded mode and foreign classes pass.
 func TestIsolationGateErr(t *testing.T) {

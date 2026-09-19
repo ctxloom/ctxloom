@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,10 +14,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/compression"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
@@ -108,6 +105,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 		// reports "distilled N items".
 		return refuseWithheldDistillPrompt(cmd, err)
 	}
+	defer distiller.Close()
 
 	result := bundleDistillResult{DryRun: bundleDistillDryRun}
 	for _, filePath := range files {
@@ -115,7 +113,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 			Path:      filePath,
 			Force:     bundleDistillForce,
 			DryRun:    bundleDistillDryRun,
-			Distiller: distiller,
+			Distiller: distillerOrNone(distiller),
 			Cfg:       cfg,
 		})
 		if err != nil {
@@ -410,7 +408,7 @@ var compressionRouter = compression.NewRouter()
 // distillWithModel sends content through compression and returns distilled content and model ID.
 // It first tries AST-based compression for code and JSON structure compression for JSON content.
 // For text/markdown content (or if AST compression doesn't achieve good compression), it falls back to LLM.
-func distillWithModel(ctx context.Context, llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+func distillWithModel(ctx context.Context, turn distillTurn, name, content, distillPrompt, siblingCtx string) (string, string, error) {
 	// Detect content type and try AST/JSON compression first
 	contentType := compression.DetectContentType(name, content)
 
@@ -425,8 +423,12 @@ func distillWithModel(ctx context.Context, llmName, llmLabel, model string, env 
 	}
 
 	// For text content or when AST compression isn't effective, use LLM
-	return distillWithLLM(ctx, llmName, llmLabel, model, env, name, content, distillPrompt, siblingCtx)
+	return distillWithLLM(ctx, turn, name, content, distillPrompt, siblingCtx)
 }
+
+// distillTurn drives one turn of the distiller session: the whole prompt
+// in, the answer and the model that gave it out.
+type distillTurn func(ctx context.Context, prompt string) (answer, model string, err error)
 
 // isStructuredContent returns true for content types that can be compressed structurally.
 func isStructuredContent(ct compression.ContentType) bool {
@@ -474,79 +476,19 @@ func buildDistillMessage(distillPrompt, siblingCtx, name, content string) string
 	return builder.String()
 }
 
-// distillWithLLM sends content through the LLM and returns distilled content and model ID.
-func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env map[string]string, name, content, distillPrompt, siblingCtx string) (string, string, error) {
-	// buildDistillMessage already leads with distillPrompt (see its own doc).
-	// LaunchFormMinimal below DECLARES that this run has no managed surfaces at
-	// all, so the prompt body is its only delivery path — a property of the
-	// form, stated. SILENT NO-OP: this caller used to also set
-	// Fragments:[{Content: distillPrompt}] alongside the already-smuggled
-	// message, which did nothing but read as if the instructions had a second,
-	// redundant delivery path. Removed.
+// distillWithLLM sends content through the distiller session and returns
+// distilled content and model ID.
+func distillWithLLM(ctx context.Context, turn distillTurn, name, content, distillPrompt, siblingCtx string) (string, string, error) {
+	// buildDistillMessage already leads with distillPrompt (see its own doc):
+	// the prompt body is the instruction's one delivery path.
 	message := buildDistillMessage(distillPrompt, siblingCtx, name, content)
-
-	// Create plugin client. The label rides along so serve configures the exact
-	// entry the distill resolved (--llm or the fast role), not a type-scan pick.
-	//
-	// DEGRADE, DON'T DUMP: a failure here means the "ctxloom llm serve
-	// <backend>" subprocess never completed the go-plugin handshake (backend
-	// unregistered/misconfigured, binary missing, or it crashed on startup) —
-	// i.e. no reachable engine for this label. go-plugin's err in that case is
-	// a multi-line internal diagnostic ("Unrecognized remote plugin
-	// message... Additional notes about plugin: Path/Mode/Owner/Group/ELF
-	// architecture...") never meant for an end user; one dumped line reads
-	// exactly like an unrelated package's `go test` failure. The caller
-	// (distillFragments/distillPrompts) already warns-and-continues on any
-	// Distill error — the SAME skip-but-keep-raw-content path SetItemContent
-	// takes for a nil Distiller — so replacing go-plugin's err with one clean
-	// sentence here is enough to keep that existing degrade path from ever
-	// leaking raw handshake output; it does not change the Distiller
-	// contract or add a second skip mechanism.
-	client, err := pb.NewSelfInvokingClientForLabel(llmName, llmLabel, 0)
-	if err != nil {
-		return "", "", fmt.Errorf("no reachable engine for distillation (backend %q, label %q) — content saved raw, undistilled", llmName, llmLabel)
-	}
-	defer client.Kill()
-
-	// Build request
-	req := &pb.RunStart{
-		Prompt: &pb.Fragment{
-			Content: message,
-		},
-		Options: &pb.RunOptions{
-			PermissionMode: agent.PermissionBypass.String(),
-			Mode:           pb.ExecutionMode_ONESHOT,
-			Model:          model, // explicit override; empty → backend's lightweight model
-			Env:            env,
-			// Headless distill declares no managed surfaces.
-			LaunchForm: pb.LaunchFormToProto(agent.LaunchFormMinimal),
-		},
-	}
-
-	// Execute and capture model info
-	var stdout, stderr bytes.Buffer
-	result, err := client.RunWithModelInfo(ctx, req, nil, &stdout, &stderr, nil)
+	out, modelID, err := turn(ctx, message)
 	if err != nil {
 		return "", "", err
 	}
 
-	if result.ExitCode != 0 {
-		return "", "", fmt.Errorf("LLM exited with code %d: %s", result.ExitCode, stderr.String())
-	}
-
-	// Build model ID from model info
-	modelID := llmName
-	if result.ModelInfo != nil {
-		if result.ModelInfo.ModelName != "" {
-			modelID = result.ModelInfo.ModelName
-		}
-		if result.ModelInfo.ModelVersion != "" {
-			modelID = fmt.Sprintf("%s:%s", modelID, result.ModelInfo.ModelVersion)
-		}
-	}
-
 	// Clean up distilled content
-	distilled := cleanDistilledOutput(strings.TrimSpace(stdout.String()))
+	distilled := cleanDistilledOutput(strings.TrimSpace(out))
 
 	// Reject a chat reply: the model followed the (instruction-shaped) content
 	// instead of compressing it. Erroring leaves the item raw rather than

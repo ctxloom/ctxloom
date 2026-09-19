@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 func envKeySet(env map[string]string) []string {
@@ -43,7 +43,7 @@ func TestSessionOwnerEnv_IsTheCoordinatorsOwnProducer(t *testing.T) {
 		"worker": headlessAgent("p1"),
 	})
 
-	env, err := SessionOwnerEnv(c, "owner-harp", agent.RuntimeHost)
+	env, err := SessionOwnerEnv(c, "owner-harp", launch.RuntimeHost)
 	require.NoError(t, err)
 
 	// The credential is freshly minted per call, so the expectation is rebuilt

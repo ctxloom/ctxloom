@@ -8,10 +8,16 @@ import (
 // Source is what a caller KNOWS when it asks for a launch — never more. Every
 // way a launch is asked for is a Source value through one Resolve.
 type Source struct {
-	Identity   sessions.Identity // REQUIRED: minted by the caller (operations.StartRun, coord.AgentRun); Resolve refuses a zero value
-	Agent      string
-	Profiles   []string
+	Identity sessions.Identity // REQUIRED: minted by the caller (operations.StartRun, coord.AgentRun); Resolve refuses a zero value
+	Agent    string
+	Profiles []string
+	// Fragments and Tags are the explicit-assembly arm's selection beyond
+	// the profile set (`run -f`, `run -t`): named fragments and tag matches
+	// composed with the profiles. Only the profile-set arm reads them.
+	Fragments  []string
+	Tags       []string
 	Label      string
+	Model      string // overrides the label's model for this launch; empty keeps the label's
 	Mode       engine.Mode
 	Prompt     string
 	WorkDir    string
@@ -20,6 +26,15 @@ type Source struct {
 	Permission engine.PermissionMode // the flag; zero = not requested
 	Resume     Resume
 	Degraded   bool
+	// Env is the caller's engine passthrough (`run --env`); the identity
+	// carriers are stamped by Resolve and never taken from here.
+	Env map[string]string
+	// Internal marks an internal one-shot (a distill, a triage, the setup
+	// probe): no binding and no profiles are selected — the prompt is the
+	// whole instruction and Label names the engine. It is still a real
+	// session: a harp, an endpoint, the managed surfaces. It exists because
+	// no shipped binding names these runs; a binding for each retires it.
+	Internal bool
 }
 
 // Resume is the resume arm. A non-zero Ref makes Resolve REUSE the session:

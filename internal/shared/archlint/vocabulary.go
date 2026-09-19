@@ -162,14 +162,14 @@ func lookupVocabulary(pass *analysis.Pass, pkgName, typeName string) (string, ma
 }
 
 // vocabularyThroughAlias resolves a name that RE-EXPORTS a vocabulary declared
-// elsewhere, e.g. `type RuntimeAxis = agent.RuntimeAxis`.
+// elsewhere, e.g. `type RuntimeAxis = launch.RuntimeAxis`.
 //
 // discoverVocabularies works from string-literal typed constants, so it sees a
 // vocabulary only in the package that DECLARES it. A package that aliases the
 // type and re-exports its constants publishes no fact of its own and declares
 // no literals, so every conversion written through the alias was invisible —
 // `isolation.RuntimeAxis(s)` went unreported while the identical
-// `agent.RuntimeAxis(s)` was caught. An alias is a second NAME for a closed
+// `launch.RuntimeAxis(s)` was caught. An alias is a second NAME for a closed
 // vocabulary, never a second vocabulary, so it must be governed identically.
 //
 // Resolution goes through go/types rather than the AST because that is what

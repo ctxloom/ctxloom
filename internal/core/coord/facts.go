@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // Fact kinds. Two journals: the run-registry journal (runs.jsonl — run
@@ -120,10 +120,10 @@ type runEnqueued struct {
 	// starts, even though it is depth 0. It is empty only for a child
 	// spawned directly by the plugin-hosted top-level session, whose own
 	// credential carries no run id at all.
-	ParentRunID string            `json:"parent_run_id,omitempty"`
-	Runtime     agent.RuntimeAxis `json:"runtime,omitempty"` // resolved runtime axis
-	CredHash    string            `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
-	Depth       int               `json:"depth"`
+	ParentRunID string             `json:"parent_run_id,omitempty"`
+	Runtime     launch.RuntimeAxis `json:"runtime,omitempty"` // resolved runtime axis
+	CredHash    string             `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token
+	Depth       int                `json:"depth"`
 	// OneShot mirrors this run's own SpawnPlan.ResumeMode ==
 	// ResumeModeOneShot — journaled so this run's OWN future credential
 	// (folds.go's applyEnqueued) reports it via Identity.OneShot without a
@@ -131,12 +131,13 @@ type runEnqueued struct {
 	OneShot bool   `json:"one_shot,omitempty"`
 	Prompt  string `json:"prompt,omitempty"` // briefing (journal is 0600, like the mailbox)
 	Resume  bool   `json:"resume,omitempty"` // a re-attempt for an ended harp
-	// Permission is the child's resolved permission mode's kind name
-	// (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
-	// "acceptEdits") — Wave F1, journaled at enqueue so a later config edit
-	// cannot retroactively change what a live run's privileges were, and so
-	// restart adoption recovers them without re-resolving config. Kind name,
-	// not a wire number, so runs.jsonl stays jq-legible.
+	// Permission is the posture the run was ENQUEUED with: the binding's
+	// declared posture for a delegated child (empty when it declared none),
+	// the launch's floored posture for an owner run. The effective posture a
+	// child runs at is decided once, by the launch resolver, when the run
+	// starts; journaled here so a later config edit cannot retroactively
+	// change what a live run was asked for. Kind name, not a wire number,
+	// so runs.jsonl stays jq-legible.
 	Permission string `json:"permission,omitempty"`
 	// MCPServers is the child's resolved MCP server NAMES ONLY (Wave F1) —
 	// never command, args, or env, which can carry a secret (the SAME

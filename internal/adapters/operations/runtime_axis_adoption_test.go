@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,15 +9,17 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // =============================================================================
 // The runtime axis is a SECURITY BOUNDARY, so every string that becomes one is
-// parsed by agent.ParseRuntimeAxis and an unrecognized spelling is refused —
+// parsed by launch.ParseRuntimeAxis and an unrecognized spelling is refused —
 // never warned, never degraded. The tests below cover the three shapes that
 // matter at each boundary:
 //
@@ -77,7 +78,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 	noAuthLabels := map[string]config.LLMConfig{noAuthLabel: {Type: "acp"}}
 
 	newCfg := func(projectRuntime string, existing map[string]agents.Agent) *config.Config {
-		return gatedFixture(config.Fixture{
+		return config.NewFixture(config.Fixture{
 			LM:      config.LMConfig{Configs: noAuthLabels, Defaults: config.RoleDefaults{Primary: noAuthLabel}},
 			Agents:  existing,
 			Runtime: projectRuntime,
@@ -153,13 +154,37 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 // default IS the axis — asserted past the parser it would have read as the
 // host, launching an engine outside the container boundary the project asked
 // for.
-func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
+// testOneShotOn is testOneShot with the isolation seam the caller already
+// installed (captureRuntimeAxis) left in place; it resolves and drives one
+// turn.
+func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub pb.Client, src launch.Source) (string, error) {
+	t.Helper()
+	deps := launch.Deps{
+		Snapshot:  &config.Snapshot{Config: cfg},
+		Engines:   backends.Engines(),
+		Assembler: assembler{pipe: pipe},
+		Cells:     Cells{cfg: cfg},
+		Endpoints: endpointMinter{},
+		Sessions:  sessions.NewMemStore(),
+		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+	}
+	src.WorkDir = t.TempDir()
+	o, err := StartOneShot(context.Background(), deps, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	if err != nil {
+		return "", err
+	}
+	defer o.End()
+	o.Factory = func(string, string, int) (pb.Client, error) { return stub, nil }
+	return o.Turn(context.Background(), "t")
+}
+
+func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 	oneshotCfg := func(t *testing.T, runtime string) *config.Config {
 		t.Helper()
 		base := oneshotTestConfig(t)
 		f := base.ToFixture()
 		f.Runtime = runtime
-		out := gatedFixture(f)
+		out := config.NewFixture(f)
 		// NewFixture does not carry the injected filesystem, and the profile
 		// this config selects is a FILE on it now.
 		out.SetFS(base.FS())
@@ -171,9 +196,7 @@ func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		got, engine := captureRuntimeAxis(t)
 		cfg := oneshotCfg(t, string(isolation.RuntimeContainerRootless))
 
-		_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-			Profile: "rev", Task: "t", WorkDir: t.TempDir(), Pipeline: opPipe(cfg, loader),
-		})
+		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.NoError(t, err)
 		require.NotNil(t, engine.gotReq, "sanity: the control really did launch an engine")
 		assert.Equal(t, isolation.RuntimeContainerRootless, got.Runtime,
@@ -186,9 +209,7 @@ func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		got, engine := captureRuntimeAxis(t)
 		cfg := oneshotCfg(t, string(isolation.RuntimeContainerRootful))
 
-		_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-			Profile: "rev", Task: "t", WorkDir: t.TempDir(), Pipeline: opPipe(cfg, loader),
-		})
+		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.NoError(t, err)
 		require.NotNil(t, engine.gotReq, "sanity: the control really did launch an engine")
 		assert.Equal(t, isolation.RuntimeContainerRootful, got.Runtime)
@@ -199,13 +220,10 @@ func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		got, engine := captureRuntimeAxis(t)
 		cfg := oneshotCfg(t, "contianer-rootless")
 
-		_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-			Profile: "rev", Task: "t", WorkDir: t.TempDir(), Pipeline: opPipe(cfg, loader),
-		})
+		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "contianer-rootless")
 		assert.Contains(t, err.Error(), "host|container-rootless|container-rootful")
-		assert.Contains(t, err.Error(), "`runtime:`", "the refusal says which key to fix")
 		assert.Nil(t, engine.gotReq, "THE POINT: the engine must never have run")
 		assert.Equal(t, isolation.Axes{}, *got, "no isolation was prepared at all")
 	})
@@ -215,92 +233,10 @@ func TestRunOneshot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		got, engine := captureRuntimeAxis(t)
 		cfg := oneshotCfg(t, "")
 
-		_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-			Profile: "rev", Task: "t", WorkDir: t.TempDir(), Pipeline: opPipe(cfg, loader),
-		})
+		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.NoError(t, err, "a project that declares no runtime must behave exactly as it did before this key existed")
 		require.NotNil(t, engine.gotReq, "and the engine still ran")
-		assert.Equal(t, isolation.RuntimeAxis(""), got.Runtime, "unset passes through as unset")
-		assert.False(t, got.WantsContainer(), "and still means the host")
-	})
-}
-
-// -----------------------------------------------------------------------------
-// delegatedAxes — the delegated-child boundary (agent_run).
-// -----------------------------------------------------------------------------
-
-// TestPrepareAgentChat_RuntimeAxisArrivesAlreadyParsed pins where the
-// delegated child's runtime axis is decided. ResolvedAgent.Runtime is TYPED —
-// resolveAgentBinding produced it from agent.ParseRuntimeAxis over the two
-// string sources (the binding, the project default) — so delegatedAxes carries
-// the typed value through rather than re-converting it. A typo on either
-// source is refused at resolution, before any child is prepared.
-func TestPrepareAgentChat_RuntimeAxisArrivesAlreadyParsed(t *testing.T) {
-	root := t.TempDir()
-	writeAgentProfileFixture(t, root)
-
-	bindingCfg := func(runtime, projectRuntime string) *config.Config {
-		return gatedFixture(config.Fixture{
-			AppPaths: []string{filepath.Join(root, ".ctxloom")},
-			LM: config.LMConfig{
-				Configs:  map[string]config.LLMConfig{"fast": {Type: "mock"}},
-				Defaults: config.RoleDefaults{Primary: "fast"},
-			},
-			Agents:  map[string]agents.Agent{"builder": {LLM: "fast", Profiles: []string{"p1"}, Runtime: runtime}},
-			Runtime: projectRuntime,
-		})
-	}
-
-	for _, axis := range []isolation.RuntimeAxis{isolation.RuntimeContainerRootless, isolation.RuntimeContainerRootful} {
-		t.Run("control: "+string(axis)+" resolves and reaches the child's axes", func(t *testing.T) {
-			got, _ := captureRuntimeAxis(t)
-			cfg := bindingCfg(string(axis), "")
-
-			rs, err := ResolveAgent(context.Background(), cfg, "builder", "")
-			require.NoError(t, err)
-			require.Equal(t, axis, rs.Runtime, "sanity: the binding's axis survived resolution typed")
-
-			p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{Resolved: rs, WorkDir: t.TempDir()})
-			require.NoError(t, err)
-			t.Cleanup(p.Abort)
-			assert.Equal(t, axis, got.Runtime, "the resolved axis drives the child's isolation chain")
-		})
-	}
-
-	t.Run("a typo'd binding runtime is refused; no child is ever prepared", func(t *testing.T) {
-		got, engine := captureRuntimeAxis(t)
-		cfg := bindingCfg("contianer-rootless", "")
-
-		rs, err := ResolveAgent(context.Background(), cfg, "builder", "")
-		require.Error(t, err, "a typo must not ride into ResolvedAgent.Runtime as an unread string")
-		assert.Contains(t, err.Error(), "contianer-rootless")
-		assert.Contains(t, err.Error(), "host|container-rootless|container-rootful")
-		assert.Nil(t, rs, "THE POINT: there is no resolved agent to hand to PrepareAgentChat")
-		assert.Equal(t, isolation.Axes{}, *got, "so no isolation was prepared")
-		assert.Nil(t, engine.gotReq, "and no engine ever ran")
-	})
-
-	t.Run("a typo'd project runtime default is refused the same way", func(t *testing.T) {
-		cfg := bindingCfg("", "contianer-rootful")
-
-		rs, err := ResolveAgent(context.Background(), cfg, "builder", "")
-		require.Error(t, err, "the binding's fallback source is parsed too, not only its own key")
-		assert.Contains(t, err.Error(), "contianer-rootful")
-		assert.Nil(t, rs)
-	})
-
-	t.Run("UNSET still resolves to the existing host default", func(t *testing.T) {
-		got, _ := captureRuntimeAxis(t)
-		cfg := bindingCfg("", "")
-
-		rs, err := ResolveAgent(context.Background(), cfg, "builder", "")
-		require.NoError(t, err)
-		require.Equal(t, isolation.RuntimeAxis(""), rs.Runtime, "an agent naming no runtime keeps saying nothing")
-
-		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{Resolved: rs, WorkDir: t.TempDir()})
-		require.NoError(t, err)
-		t.Cleanup(p.Abort)
-		assert.Equal(t, isolation.RuntimeAxis(""), got.Runtime, "unset reaches the axes as unset")
+		assert.Equal(t, launch.RuntimeHost, got.Runtime, "unset resolves to the host")
 		assert.False(t, got.WantsContainer(), "and still means the host")
 	})
 }
@@ -325,7 +261,7 @@ func TestAgentRuntimeOffer_MenuCanOnlyHoldDeclaredMembers(t *testing.T) {
 		offer := AgentRuntimeOffer(cfg, backend)
 		require.NotEmpty(t, offer.Runtimes, "%s: host is always offered", backend)
 		for _, r := range offer.Runtimes {
-			parsed, err := agent.ParseRuntimeAxis(string(r))
+			parsed, err := launch.ParseRuntimeAxis(string(r))
 			require.NoError(t, err, "%s: the menu offered %q, which the writer's own parser refuses", backend, r)
 			assert.Equal(t, r, parsed)
 			assert.NotEmpty(t, string(r), "an empty axis is not an offer — the menu names what to pick")

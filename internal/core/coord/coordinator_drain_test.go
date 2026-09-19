@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // The application-layer DRAIN's admission half: BeginDrain stops every
@@ -26,7 +27,7 @@ import (
 func TestBeginDrain_AgentRunRefusesNewWorkOnceDraining(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
@@ -62,28 +63,14 @@ func TestBeginDrain_StartOwnedRunRefusesNewWorkOnceDraining(t *testing.T) {
 
 	// Baseline: admission succeeds normally before draining.
 	baselineStarter, baselineStarted := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "claude-code",
-		Label:      "fast",
-		Model:      "sonnet",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-	}, baselineStarter, "hello before drain")
+	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, baselineStarter, "hello before drain")
 	require.NoError(t, err)
 	require.True(t, *baselineStarted, "the baseline run must actually have launched")
 
 	c.BeginDrain()
 
 	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "claude-code",
-		Label:      "fast",
-		Model:      "sonnet",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-	}, starter, "hello after drain")
+	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "hello after drain")
 	require.Error(t, err, "admission must be refused once draining")
 	assert.ErrorIs(t, err, ErrDraining)
 	assert.Contains(t, err.Error(), "draining")
@@ -106,7 +93,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 	gate := make(chan struct{})
 	defer close(gate)
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"}},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}},
 	}, func() *scriptedChat { return &scriptedChat{turnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 

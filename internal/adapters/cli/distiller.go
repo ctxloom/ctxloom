@@ -2,23 +2,23 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// newLLMDistiller builds an operations.Distiller for one config label and the
-// distill prompt. It is the single construction point shared by every CLI
-// frontend (bundle/fragment/prompt distill and item edits), and the ONE place
-// that decides which label distills: an explicit label (`bundle distill --llm
+// newLLMDistiller builds the distiller for one config label and the distill
+// prompt. It is the single construction point shared by every CLI frontend
+// (bundle/fragment/prompt distill and item edits), and the ONE place that
+// decides which label distills: an explicit label (`bundle distill --llm
 // <label>`) is used as named; "" selects the fast (compression) role,
-// cfg.FastLabel. The label resolves to its backend + model through
-// operations.ResolveBackend — the SAME resolver every launch path uses, so a
-// bare backend name that is not a configured entry (`--llm mock`) reaches
-// that backend here exactly as it does on `run`, and a label that names
-// nothing is the finding ResolveBackend raises rather than a silent run on
-// the built-in default. Env comes from the same labeled entry.
+// cfg.FastLabel. The label resolves to its engine through the one launch
+// resolver, so a bare engine name that is not a configured entry (`--llm
+// mock`) reaches that engine here exactly as it does on `run`, and a label
+// that names nothing refuses rather than silently running the default.
 //
 // Returning nil means "this content will be stored RAW", which every caller
 // treats as success — so the reason is warned rather than swallowed: a distill
@@ -28,7 +28,7 @@ import (
 // set and llm.configs does not hold exactly one entry (config.PrimaryLabel).
 //
 // A NON-NIL ERROR IS A REFUSAL, not a fault: see the prompt load below.
-func newLLMDistiller(cfg *config.Config, label string) (operations.Distiller, error) {
+func newLLMDistiller(cfg *config.Config, label string) (*llmDistiller, error) {
 	if cfg == nil {
 		clidiag.Warn("ctxloom", "no config is available, so nothing can be distilled: content will be stored RAW (undistilled)")
 		return nil, nil
@@ -40,7 +40,6 @@ func newLLMDistiller(cfg *config.Config, label string) (operations.Distiller, er
 		clidiag.Warn("ctxloom", "no LLM label resolves for distillation (set llm.defaults.fast or llm.defaults.primary in config.yaml, or keep exactly one llm.configs entry): content will be stored RAW (undistilled)")
 		return nil, nil
 	}
-	backend, model := operations.ResolveBackend(cfg, label)
 	// The ONE error this constructor has: the project configured a `distill`
 	// prompt and the trust gate withheld it. Warning-and-continuing here would
 	// be exactly the swallow being fixed — the run would proceed on ctxloom's
@@ -50,24 +49,41 @@ func newLLMDistiller(cfg *config.Config, label string) (operations.Distiller, er
 	if err != nil {
 		return nil, err
 	}
-	return &llmDistiller{
-		llmName:  backend,
-		llmLabel: label,
-		llmEnv:   operations.MockControlFor(cfg, label),
-		model:    model,
-		prompt:   prompt,
-	}, nil
+	return &llmDistiller{cfg: cfg, label: label, prompt: prompt}, nil
 }
 
 // llmDistiller adapts the cmd distill helpers to the operations.Distiller
-// interface. State is captured at construction so each Distill call is
-// self-contained.
+// interface. The distiller is ONE internal one-shot session on the label —
+// its own harp, started on the first item and ended by Close — whose turns
+// are the items. A nil *llmDistiller is a Distiller that stores raw.
 type llmDistiller struct {
-	llmName  string
-	llmLabel string // resolved config label, so serve configures exactly this entry
-	llmEnv   map[string]string
-	model    string // cheap compression model (e.g. "haiku"); empty = backend default
-	prompt   string
+	cfg    *config.Config
+	label  string
+	prompt string
+	// session is the one-shot, started lazily so a command that distils
+	// nothing mints no session.
+	session *operations.OneShot
+}
+
+// Close ends the distiller's session. Nil-safe; idempotent.
+func (d *llmDistiller) Close() {
+	if d == nil || d.session == nil {
+		return
+	}
+	d.session.End()
+	d.session = nil
+}
+
+// turn drives one distill turn on the session, starting it on first use.
+func (d *llmDistiller) turn(ctx context.Context, prompt string) (answer, model string, err error) {
+	if d.session == nil {
+		s, err := operations.StartInternalOneShot(ctx, d.cfg, d.label, "", projectroot.WorkDir(), "", 0)
+		if err != nil {
+			return "", "", fmt.Errorf("no reachable engine for distillation (label %q): %w — content saved raw, undistilled", d.label, err)
+		}
+		d.session = s
+	}
+	return d.session.TurnWithModel(ctx, prompt)
 }
 
 func (d *llmDistiller) Distill(ctx context.Context, req operations.DistillRequest) (operations.DistillResult, error) {
@@ -82,7 +98,7 @@ func (d *llmDistiller) Distill(ctx context.Context, req operations.DistillReques
 	if req.Bundle != nil {
 		siblingCtx = buildSiblingContext(req.Bundle, excludeName)
 	}
-	distilled, modelID, err := distillWithModel(ctx, d.llmName, d.llmLabel, d.model, d.llmEnv, req.Name, req.Content, d.prompt, siblingCtx)
+	distilled, modelID, err := distillWithModel(ctx, d.turn, req.Name, req.Content, d.prompt, siblingCtx)
 	if err != nil {
 		return operations.DistillResult{}, err
 	}

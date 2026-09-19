@@ -2,7 +2,6 @@ package operations
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path"
 
@@ -232,22 +231,4 @@ func BindAgentHome(ws isolation.Workspace, in InTreeAgentHome) AgentHomeResoluti
 		return absent("%v", err)
 	}
 	return res
-}
-
-// workspaceEnvWithAgentHome is the env both operations launch paths hand
-// their engine: the prepared workspace's own env (isolation.WorkspaceEnv —
-// scratch and git identity) plus the run's controlled engine home, bound
-// through BindAgentHome. The two never name the same var — EnvWorkspace
-// carries no config-home var by contract — so there is no precedence to
-// settle between them; a caller's own env layered on afterwards still wins.
-func workspaceEnvWithAgentHome(ws isolation.Workspace, in InTreeAgentHome) map[string]string {
-	env := isolation.WorkspaceEnv(ws)
-	res := BindAgentHome(ws, in)
-	if len(res.Env) == 0 {
-		return env
-	}
-	merged := make(map[string]string, len(env)+len(res.Env))
-	maps.Copy(merged, env)
-	maps.Copy(merged, res.Env)
-	return merged
 }

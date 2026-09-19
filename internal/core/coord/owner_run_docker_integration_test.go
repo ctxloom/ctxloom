@@ -156,14 +156,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	defer collector.stop()
 
 	seed := "OWNER-STRUCT-" + randID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "mock",
-		Label:      "fast",
-		Model:      "mock",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-	}, starter.start, seed)
+	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass)}, starter.start, seed)
 	require.NoError(t, err)
 	require.Equal(t, ownerHarp, outcome.Harp)
 
@@ -269,15 +262,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	defer collector.stop()
 
 	seed := "OWNER-ONESHOT-" + randID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "mock",
-		Label:      "fast",
-		Model:      "mock",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-		Oneshot:    true,
-	}, starter.start, seed)
+	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), Oneshot: true}, starter.start, seed)
 	require.NoError(t, err)
 
 	want := "mock chat: " + seed

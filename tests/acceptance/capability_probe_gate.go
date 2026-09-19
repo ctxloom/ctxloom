@@ -42,9 +42,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // probeCellSkip prints the cell's own reason and skips. Never silent, and always
@@ -79,7 +78,7 @@ func probeCellSkip(family string, cell probeCellID, reason string) error {
 // This is the GHERKIN SEAM for the runtime axis: cell.Runtime is a string
 // straight out of an Examples-table column (a Go type cannot cross the
 // feature-file/subprocess boundary), and this is the ONE place it gets
-// parsed — via the same agent.ParseRuntimeAxis every other boundary uses,
+// parsed — via the same launch.ParseRuntimeAxis every other boundary uses,
 // never a local switch or string compare. A row naming a value that does not
 // resolve — including the retired undifferentiated "container" (task
 // unwatched-discharge split it into container-rootless/container-rootful;
@@ -88,7 +87,7 @@ func probeCellSkip(family string, cell probeCellID, reason string) error {
 // falling through to whatever cell.Runtime's zero-value behavior happens to
 // be.
 func probeCellResolve(family string, cell probeCellID) (liveAgent, string, error) {
-	if _, err := agent.ParseRuntimeAxis(cell.Runtime); err != nil {
+	if _, err := launch.ParseRuntimeAxis(cell.Runtime); err != nil {
 		return liveAgent{}, "", fmt.Errorf("%s: %w", family, err)
 	}
 	switch cell.Workspace {

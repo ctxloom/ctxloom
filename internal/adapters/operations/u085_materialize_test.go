@@ -65,7 +65,7 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 // The function's own doc already calls the assembled context "the core payload
 // every native surface is built from" and "the one HARD-error surface"; an
 // assembly that resolves to nothing is a failed assembly, exactly as
-// runResolvedAgent rules for a named profile set that assembles to nothing.
+// the launch resolver rules for a named profile set that assembles to nothing.
 func TestMaterializeProfile_RefusesEmptyAssembledContext(t *testing.T) {
 	cfg, target := emptyContextMaterializeFixture(t)
 

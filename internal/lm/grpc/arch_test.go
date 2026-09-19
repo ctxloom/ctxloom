@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/stretchr/testify/require"
 )
@@ -129,6 +130,15 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 		f.t.Fatalf("parity fill: exceeded depth %d at %s — the wire vocabulary became recursive; this helper needs a cycle breaker", parityMaxDepth, path)
 	}
 
+	// ChatRequest.Runtime is the runtime axis as its spelling: it is parsed
+	// by ParseRuntimeAxis on the way back, so only a member of the axis
+	// vocabulary round-trips. Keyed by path because the field is a plain
+	// string (agent sits below the axis vocabulary).
+	if strings.HasSuffix(path, "ChatRequest.Runtime") {
+		v.SetString(string(launch.RuntimeRootless))
+		return
+	}
+
 	// Types whose round trip is lossy or enumerated get an explicit,
 	// round-trippable value rather than an arbitrary one.
 	switch v.Type() {
@@ -141,11 +151,6 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 	case reflect.TypeOf(agent.PermissionMode(0)):
 		// Crosses as its String() spelling, so only a named mode round-trips.
 		v.Set(reflect.ValueOf(agent.PermissionAcceptEdits))
-		return
-	case reflect.TypeOf(agent.RuntimeAxis("")):
-		// Crosses as its own string value and is re-typed by ParseRuntimeAxis
-		// on the way back, so only a member of the axis vocabulary round-trips.
-		v.Set(reflect.ValueOf(agent.RuntimeContainerRootless))
 		return
 	case reflect.TypeOf(agent.CellKind(0)):
 		// Enum with a documented default; pick a non-default member.
@@ -373,7 +378,7 @@ func chatMessageFromInputOrFail(t *testing.T) func(*ChatInput) agent.ChatMessage
 
 // chatStartFromProtoParity adapts the production decoder's (value, error)
 // shape to the parity helper's func(P) G. The filler above only ever
-// populates Runtime with a legal RuntimeAxis member (agent.RuntimeContainerRootless),
+// populates Runtime with a legal RuntimeAxis member (launch.RuntimeRootless),
 // so a parse failure here means ParseRuntimeAxis and the filler have drifted —
 // a real bug this sweep should catch loudly, not swallow.
 func chatStartFromProtoParity(t *testing.T) func(*ChatStart) agent.ChatRequest {

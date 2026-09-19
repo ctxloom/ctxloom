@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -17,256 +16,35 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// TestPrepareAgentChat_RuntimeAxisChosen pins that a delegated child's
-// isolation chain is selected from the AGENT's resolved runtime axis crossed
-// with the project's session workspace default — the same axes semantics the
-// fan applies.
-func TestPrepareAgentChat_RuntimeAxisChosen(t *testing.T) {
-	resetStrictness(t)
-	var gotAxes isolation.Axes
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		gotAxes = axes
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	cfg := gatedFixture(config.Fixture{Workspace: "worktree"})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container-rootless"},
-		WorkDir:  t.TempDir(),
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	assert.Equal(t, isolation.RuntimeAxis("container-rootless"), gotAxes.Runtime, "the agent's runtime axis drives the chain")
-	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the project workspace default is the session trait")
-}
-
-// TestPrepareAgentChat_WorkspaceOverridesProjectDefault is GAP 2's final
-// hop: agent_run's per-call req.Workspace ("worktree") OVERRIDES the
-// project's cfg.GetWorkspace() default ("none" — shared checkout) on the SAME
-// axes Resolve/chainFor uses everywhere else (isolation_test.go's
-// TestResolve_DefaultsAndDegrades already pins that {worktree, host} always
-// selects the Worktree policy — a REAL, isolated git worktree distinct from
-// the shared project dir, never re-derived here).
-func TestPrepareAgentChat_WorkspaceOverridesProjectDefault(t *testing.T) {
-	resetStrictness(t)
-	var gotAxes isolation.Axes
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		gotAxes = axes
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	cfg := gatedFixture(config.Fixture{Workspace: "none"}) // project default: the shared live checkout
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:   t.TempDir(),
-		Workspace: "worktree", // the agent_run caller's per-call override
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "the caller's per-call workspace wins over cfg.GetWorkspace()")
-}
-
-// TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault pins the
-// other half: an agent_run call that never sets workspace changes nothing —
-// cfg.GetWorkspace() still drives the axes exactly like before GAP 2.
-func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) {
-	resetStrictness(t)
-	var gotAxes isolation.Axes
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		gotAxes = axes
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	cfg := gatedFixture(config.Fixture{Workspace: "worktree"})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  t.TempDir(),
-		// Workspace left empty: no per-call override supplied.
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace, "an empty override changes nothing — cfg.GetWorkspace() still decides")
-}
-
-// TestPrepareAgentChat_DelegatedDefaultsToWorktree pins the DELEGATED-CHILD
-// default flip: when NEITHER the agent_run caller (req.Workspace) NOR the
-// project config (cfg.GetWorkspace()) says anything explicit, a delegated
-// child now gets its OWN git worktree rather than inheriting the
-// none/shared-checkout default `ctxloom run` still uses at the top level
-// (internal/adapters/cli/run.go's runAxes, an entirely separate call site that never
-// goes through PrepareAgentChat). This is a WORKSPACE-axis (file-level)
-// change only — it says nothing about the engine's global config/credential
-// store, which worktree isolation never touches (see EnvWorkspace's doc for
-// the load-bearing caveat: some engines honour a config-home env override and
-// some do not).
-func TestPrepareAgentChat_DelegatedDefaultsToWorktree(t *testing.T) {
-	resetStrictness(t)
-	var gotAxes isolation.Axes
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		gotAxes = axes
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	cfg := gatedFixture(config.Fixture{}) // no project workspace: default config
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  t.TempDir(),
-		// Workspace left empty: no per-call override supplied.
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	assert.Equal(t, isolation.WorkspaceAxis("worktree"), gotAxes.Workspace,
-		"a delegated child with no explicit workspace anywhere defaults to worktree, not the shared checkout")
-}
-
-// TestPrepareAgentChat_ExplicitNoneStillNone_ProjectConfig pins the opt-out:
-// a project config that EXPLICITLY says `workspace: none` must still be
-// honored for a delegated child — the new default only fills in when NOTHING
-// explicit was said, never overrides an explicit choice.
-func TestPrepareAgentChat_ExplicitNoneStillNone_ProjectConfig(t *testing.T) {
-	resetStrictness(t)
-	var gotAxes isolation.Axes
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		gotAxes = axes
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	cfg := gatedFixture(config.Fixture{Workspace: "none"}) // explicit project opt-out
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  t.TempDir(),
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	assert.Equal(t, isolation.WorkspaceAxis("none"), gotAxes.Workspace,
-		"an explicit project-level `workspace: none` must still be honored for a delegated child")
-}
-
-// TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride pins the other
-// opt-out lever: the agent_run caller passing Workspace: "none" explicitly
-// must win, even when the project config has no opinion (would otherwise
-// default to worktree per the flip above).
-func TestPrepareAgentChat_ExplicitNoneStillNone_CallerOverride(t *testing.T) {
-	resetStrictness(t)
-	var gotAxes isolation.Axes
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		gotAxes = axes
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	cfg := gatedFixture(config.Fixture{}) // no project default
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:   t.TempDir(),
-		Workspace: "none", // the agent_run caller's explicit opt-out
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	assert.Equal(t, isolation.WorkspaceAxis("none"), gotAxes.Workspace,
-		"an explicit per-call Workspace: \"none\" must still be honored for a delegated child")
-}
-
-// TestPrepareAgentChat_WorkspaceTypoRefusesRatherThanUsingTheParentTree is
-// the workspace axis's half of the same defect: asserted past a parser, an
-// unrecognized spelling reads as the shared checkout, so `workspace:
-// "wroktree"` does not merely fail to isolate a delegated child — it lands it
-// in the PARENT'S LIVE TREE, strictly further from safety than the empty
-// value it resembles (empty defaults a delegated child to its own worktree).
-//
-// The two control subtests are the vacuity guard: they prove this harness
-// observes the axis the spawn actually resolved, so the refusal below is a
-// refusal of the spelling.
-func TestPrepareAgentChat_WorkspaceTypoRefusesRatherThanUsingTheParentTree(t *testing.T) {
-	prepare := func(t *testing.T, cfg *config.Config, perCall string) (isolation.Axes, error) {
-		t.Helper()
-		resetStrictness(t)
-		var gotAxes isolation.Axes
-		prev := prepareIsolation
-		prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-			gotAxes = axes
-			return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+// TestCellsPrepare_ContainerDegradeGate pins the cells adapter's fail-loud
+// gate: an explicitly-requested container that can't start (ClassIsolation
+// finding during Prepare) refuses the cell in strict mode, typed — never a
+// silent host degrade — and proceeds on the degraded workspace only under
+// degraded mode.
+func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
+	req := func(t *testing.T) launch.CellRequest {
+		return launch.CellRequest{
+			Axes:        launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeRootless},
+			Engine:      mock.New(),
+			Identity:    sessions.Identity{Harp: "builder"},
+			ProjectRoot: t.TempDir(),
 		}
-		t.Cleanup(func() { prepareIsolation = prev })
-		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-			Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-			WorkDir:   t.TempDir(),
-			Workspace: perCall,
-		})
-		if p != nil {
-			t.Cleanup(p.Abort)
-		}
-		return gotAxes, err
 	}
 
-	t.Run("control: a declared member reaches the axes", func(t *testing.T) {
-		axes, err := prepare(t, gatedFixture(config.Fixture{}), "worktree")
-		require.NoError(t, err)
-		assert.Equal(t, isolation.WorkspaceWorktree, axes.Workspace)
-	})
-
-	t.Run("control: the shared checkout is reachable by asking for it", func(t *testing.T) {
-		axes, err := prepare(t, gatedFixture(config.Fixture{}), "none")
-		require.NoError(t, err)
-		assert.Equal(t, isolation.WorkspaceShared, axes.Workspace)
-	})
-
-	t.Run("a typo'd per-call workspace refuses and resolves no axes at all", func(t *testing.T) {
-		axes, err := prepare(t, gatedFixture(config.Fixture{}), "wroktree")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "wroktree")
-		assert.Contains(t, err.Error(), "none|worktree")
-		assert.NotEqual(t, isolation.WorkspaceShared, axes.Workspace,
-			"THE POINT: a typo must not resolve to the parent's live checkout")
-		assert.Equal(t, isolation.Axes{}, axes, "isolation was never prepared at all")
-	})
-
-	t.Run("a typo'd project workspace default refuses the same way", func(t *testing.T) {
-		axes, err := prepare(t, gatedFixture(config.Fixture{Workspace: "wroktree"}), "")
-		require.Error(t, err)
-		assert.NotEqual(t, isolation.WorkspaceShared, axes.Workspace)
-		assert.Equal(t, isolation.Axes{}, axes)
-	})
-}
-
-// TestPrepareAgentChat_ContainerDegradeGate pins fail-loud parity with the
-// fan's member gate: an explicitly-requested container that can't start
-// (ClassIsolation finding during Prepare) refuses the child in strict mode —
-// never a silent host degrade — and proceeds on the degraded workspace only
-// under degraded mode.
-func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
-	rs := &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "container-rootless"}
-
-	t.Run("strict: the child is refused with the finding text", func(t *testing.T) {
+	t.Run("strict: the cell is refused with the finding text", func(t *testing.T) {
 		resetStrictness(t)
 		stubPrepareIsolation(t, map[string]bool{"builder": true}, func() pb.Client { return &stubClient{} })
-		_, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-			Resolved: rs,
-			WorkDir:  t.TempDir(),
-		})
+		_, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
 		require.Error(t, err)
+		assert.ErrorIs(t, err, launch.ErrRuntimeUnavailable)
 		// "NOT sandboxed" comes from the FINDING's own message (prepareChain,
 		// isolation.go), not the gate's wrapper text — isolationGateErr's
 		// wrapper is deliberately neutral so it never misdescribes a
@@ -276,55 +54,14 @@ func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
 		assert.Contains(t, err.Error(), "container isolation was requested but could not start")
 	})
 
-	t.Run("degraded: the child proceeds on the degraded workspace", func(t *testing.T) {
+	t.Run("degraded: the cell proceeds on the degraded workspace", func(t *testing.T) {
 		resetStrictness(t)
 		strictness.SetDegraded(true)
 		stubPrepareIsolation(t, map[string]bool{"builder": true}, func() pb.Client { return &stubClient{} })
-		p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-			Resolved: rs,
-			WorkDir:  t.TempDir(),
-		})
+		cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
 		require.NoError(t, err)
-		p.Abort()
+		_ = cell.Cleanup()
 	})
-}
-
-// claudeChatPrepareRequest builds an AgentChatRequest for a claude-code
-// delegated child, with a stub factory so PrepareAgentChat never touches real
-// isolation/plugin machinery — only resolveChatModel's gate is under test.
-func claudeChatPrepareRequest(rs *ResolvedAgent) AgentChatRequest {
-	return AgentChatRequest{
-		Resolved: rs,
-		WorkDir:  "/tmp",
-		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
-	}
-}
-
-// TestPrepareAgentChat_ClaudeModelPinnedConcretePassesThrough pins the
-// descriptor seam's documented default: a backend that registers no
-// resolveModel hook hands the configured model back untouched, so what the
-// child is spawned with is exactly what the user pinned.
-func TestPrepareAgentChat_ClaudeModelPinnedConcretePassesThrough(t *testing.T) {
-	resetStrictness(t)
-	rs := &ResolvedAgent{Name: "coordinator", Backend: "claude-code", Label: "claude-code", Model: "claude-opus-4-8"}
-	p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
-	require.NoError(t, err)
-	defer p.Abort()
-	assert.Equal(t, "claude-opus-4-8", rs.Model, "a pinned concrete model passes through untouched")
-}
-
-// TestPrepareAgentChat_NonClaudeModelUntouched widens the same claim to the
-// empty model on another StructuredChat backend: with no resolveModel hook
-// registered there is nothing to validate or rewrite, so an unset model reaches
-// the spawn unset and records no finding rather than being fabricated.
-func TestPrepareAgentChat_NonClaudeModelUntouched(t *testing.T) {
-	resetStrictness(t)
-	rs := &ResolvedAgent{Name: "w1", Backend: "mock", Label: "fast", Model: ""}
-	p, err := PrepareAgentChat(context.Background(), &config.Config{}, claudeChatPrepareRequest(rs))
-	require.NoError(t, err)
-	defer p.Abort()
-	assert.Empty(t, rs.Model)
-	assert.Empty(t, strictness.All())
 }
 
 // ===== Dirty-parent-tree spawn: handler dispatch =====
@@ -370,8 +107,8 @@ func TestHandleDirtyParentTree_IsDirtyErrorIsInspected(t *testing.T) {
 		Dirty:   map[string]bool{"/proj": true},
 		Changes: []string{" M internal/foo.go"},
 	}
-	cfg := gatedFixture(config.Fixture{})
-	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	cfg := config.NewFixture(config.Fixture{})
+	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerFail)
 	require.NoError(t, err, "an unreadable dirty state degrades to a no-op gate; it must never block the spawn")
 	assert.Equal(t, dirtyTreeOutcome{}, outcome, "and must not carry a snapshot built on state it could not read")
 }
@@ -388,8 +125,8 @@ func TestHandleDirtyParentTree_Fail_RefusesAndNamesEverything(t *testing.T) {
 		Dirty:   map[string]bool{"/proj": true},
 		Changes: []string{" M internal/foo.go", "?? internal/bar.go"},
 	}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerFail)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "coder", "names the agent")
 	assert.Contains(t, err.Error(), "/proj", "names the dirty tree")
@@ -409,8 +146,8 @@ func TestHandleDirtyParentTree_Fail_UntrackedOnlyStillRefuses(t *testing.T) {
 		Dirty:   map[string]bool{"/proj": true},
 		Changes: []string{"?? internal/newthing.go"},
 	}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerFail)
 	require.Error(t, err, "an untracked-but-not-ignored file alone must still refuse the spawn")
 	assert.Contains(t, err.Error(), "internal/newthing.go")
 }
@@ -426,8 +163,8 @@ func TestHandleDirtyParentTree_Fail_BoundsFileList(t *testing.T) {
 		changes = append(changes, fmt.Sprintf(" M internal/file%02d.go", i))
 	}
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: changes}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerFail)
 	require.Error(t, err)
 	for i := 0; i < maxDirtyFilesListed; i++ {
 		assert.Contains(t, err.Error(), fmt.Sprintf("file%02d.go", i))
@@ -441,57 +178,57 @@ func TestHandleDirtyParentTree_Fail_BoundsFileList(t *testing.T) {
 func TestHandleDirtyParentTree_Fail_UnaffectedByMissingAck(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerFail)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "dirty_tree_commit_ack", "fail's refusal has nothing to do with the commit ack")
 }
 
-// TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail is the
+// TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail is the
 // direct proof that --degraded no longer softens this gate at all: before
 // this change, --degraded downgraded the (then-only) refusal to a warning.
 // Now the handler governs, and --degraded changes nothing about it.
-func TestPrepareAgentChat_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
+func TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
 	resetStrictness(t)
 	strictness.SetDegraded(true)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
-	cfg := gatedFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerFail)})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  "/proj",
-		Git:      fake,
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: "/proj",
 	})
 	require.Error(t, err, "--degraded must NOT soften the fail handler's refusal")
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 }
 
 // ----- workspace: none / clean tree escape hatches (unchanged shape) -----
 
-// TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed is the
+// TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed is the
 // escape hatch every handler's message names: a dirty parent tree never
 // blocks a spawn that explicitly opts OUT of worktree isolation, because a
 // shared-checkout child sees the live tree exactly as-is — dirtiness is
 // irrelevant to it, and the dirty-tree handler never even runs.
-func TestPrepareAgentChat_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
+func TestCellsPrepare_DirtyParentTree_ExplicitNoneStillAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}}
-	cfg := gatedFixture(config.Fixture{})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:  &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:   "/proj",
-		Workspace: "none", // the agent_run caller's explicit opt-out
-		Git:       fake,
-		Factory:   func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("none"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: "/proj",
 	})
 	require.NoError(t, err)
-	defer p.Abort()
+	defer func() { _ = p.Cleanup() }()
 	assert.Empty(t, fake.Calls, "the none axis never even probes commit-related git operations")
 }
 
-// TestPrepareAgentChat_CleanParentTree_WorktreeAllowed is the negative
+// TestCellsPrepare_CleanParentTree_WorktreeAllowed is the negative
 // control: a clean parent tree never trips any handler, even when the
 // resolved axis IS worktree.
-func TestPrepareAgentChat_CleanParentTree_WorktreeAllowed(t *testing.T) {
+func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
 	prev := prepareIsolation
@@ -500,14 +237,15 @@ func TestPrepareAgentChat_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := gatedFixture(config.Fixture{Workspace: "worktree"})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  "/proj",
-		Git:      fake,
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: "/proj",
 	})
 	require.NoError(t, err)
-	defer p.Abort()
+	defer func() { _ = p.Cleanup() }()
 	assert.Empty(t, strictness.All())
 }
 
@@ -520,8 +258,8 @@ func TestHandleDirtyParentTree_Stale_ProceedsAndWarns(t *testing.T) {
 	resetStrictness(t)
 	buf := captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
-	cfg := gatedFixture(config.Fixture{})
-	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
+	cfg := config.NewFixture(config.Fixture{})
+	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerStale)
 	require.NoError(t, err)
 	assert.Nil(t, outcome.copy)
 	warned := buf.String()
@@ -540,8 +278,8 @@ func TestHandleDirtyParentTree_Stale_UnaffectedByMissingAck(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerStale)
 	require.NoError(t, err)
 }
 
@@ -559,8 +297,8 @@ func TestHandleDirtyParentTree_Copy_CapturesPatchAndUntrackedList(t *testing.T) 
 		DiffPatchValue: "--- a/tracked.go\n+++ b/tracked.go\n@@ -1 +1 @@\n-old\n+new\n",
 		UntrackedList:  []string{"untracked.go", "nested/other.go"},
 	}
-	cfg := gatedFixture(config.Fixture{}) // copy needs no ack
-	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCopy)
+	cfg := config.NewFixture(config.Fixture{}) // copy needs no ack
+	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCopy)
 	require.NoError(t, err)
 	require.NotNil(t, outcome.copy)
 	assert.Equal(t, fake.DiffPatchValue, outcome.copy.patch)
@@ -569,12 +307,12 @@ func TestHandleDirtyParentTree_Copy_CapturesPatchAndUntrackedList(t *testing.T) 
 	assert.Empty(t, fake.AppliedPatches, "capture never applies — that's applyCopySnapshot's job, run later against the worktree")
 }
 
-// TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree is the
+// TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree is the
 // end-to-end proof: BOTH tracked (via ApplyPatch, asserted on the exact
 // patch text and target dir) AND untracked (via a REAL byte-for-byte
 // filesystem copy, asserted on actual file content — this half never
 // touches git.Fake at all) land in the worktree.
-func TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing.T) {
+func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir()
 	target := t.TempDir() // a REAL, separate directory standing in for the created worktree
@@ -595,15 +333,16 @@ func TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *tes
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := gatedFixture(config.Fixture{})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:         &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:          parent,
-		DirtyTreeHandler: DirtyTreeHandlerCopy,
-		Git:              fake,
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: parent,
+		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
 	require.NoError(t, err)
-	defer p.Abort()
+	defer func() { _ = p.Cleanup() }()
 
 	require.Len(t, fake.AppliedPatches, 1, "the tracked patch was applied exactly once")
 	assert.Equal(t, "FAKE-PATCH-CONTENT", fake.AppliedPatches[0])
@@ -620,9 +359,9 @@ func TestPrepareAgentChat_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *tes
 	require.NoError(t, err, "the PARENT's own copy is untouched — copy only ever reads it")
 }
 
-// TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud pins "FAIL LOUDLY; do
+// TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud pins "FAIL LOUDLY; do
 // not half-apply and continue": an ApplyPatch error refuses the whole spawn.
-func TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
+func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir()
 	target := t.TempDir()
@@ -638,23 +377,24 @@ func TestPrepareAgentChat_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := gatedFixture(config.Fixture{})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:         &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:          parent,
-		DirtyTreeHandler: DirtyTreeHandlerCopy,
-		Git:              fake,
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: parent,
+		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
 	require.Error(t, err)
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 	assert.Contains(t, err.Error(), "patch does not apply")
 }
 
-// TestPrepareAgentChat_Copy_UntrackedFileMissingFailsLoud pins the same
+// TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud pins the same
 // no-half-apply contract for the untracked-file half: a file the snapshot
 // named but that vanished before application refuses the whole spawn rather
 // than silently reproducing a partial WIP set.
-func TestPrepareAgentChat_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
+func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir() // deliberately never write untracked.go here
 	target := t.TempDir()
@@ -669,38 +409,17 @@ func TestPrepareAgentChat_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
-	cfg := gatedFixture(config.Fixture{})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:         &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:          parent,
-		DirtyTreeHandler: DirtyTreeHandlerCopy,
-		Git:              fake,
+	cfg := config.NewFixture(config.Fixture{})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: parent,
+		DirtyTree:   launch.DirtyTreeHandlerCopy,
 	})
 	require.Error(t, err)
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 	assert.Contains(t, err.Error(), "untracked.go")
-}
-
-// TestPrepareAgentChat_Copy_OneshotFallbackRefused pins the documented
-// oneshot-fallback limitation: "copy"'s one-time file reproduction has
-// nowhere durable to land against a backend whose per-turn isolation
-// prepares and tears down a fresh worktree every turn — refused loudly
-// rather than silently reproducing into a worktree that won't outlive the
-// turn.
-func TestPrepareAgentChat_Copy_OneshotFallbackRefused(t *testing.T) {
-	resetStrictness(t)
-	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := gatedFixture(config.Fixture{})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:         &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
-		WorkDir:          "/proj",
-		DirtyTreeHandler: DirtyTreeHandlerCopy,
-		Git:              fake,
-	})
-	require.Error(t, err)
-	assert.Nil(t, p)
-	assert.Contains(t, err.Error(), `dirty_tree_handler "copy"`)
-	assert.Contains(t, err.Error(), "coder")
 }
 
 // ackedFixture builds a *config.Config carrying a REAL, on-disk dirty-tree-
@@ -718,7 +437,7 @@ func ackedFixture(t *testing.T, f config.Fixture) *config.Config {
 	}
 	fs := afero.NewMemMapFs()
 	require.NoError(t, config.SetDirtyTreeCommitAck(fs, f.AppDir, true))
-	cfg := gatedFixture(f)
+	cfg := config.NewFixture(f)
 	cfg.SetFS(fs)
 	return cfg
 }
@@ -737,7 +456,7 @@ func TestHandleDirtyParentTree_Commit_DetachedHeadRefuses(t *testing.T) {
 		CurrentBranchValue: "HEAD", // git's own detached-HEAD sentinel
 	}
 	cfg := ackedFixture(t, config.Fixture{}) // even acknowledged, this must still refuse
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", DirtyTreeHandlerCommit)
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", launch.DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "detached-HEAD")
 	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
@@ -758,7 +477,7 @@ func TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses(t *testing.T) {
 		CurrentBranchErr: fmt.Errorf("git rev-parse: unknown revision or path not in the working tree"),
 	}
 	cfg := ackedFixture(t, config.Fixture{}) // even acknowledged, this must still refuse
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", DirtyTreeHandlerCommit)
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", launch.DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not determine", "names the failure rather than silently guessing a branch")
 	assert.Contains(t, err.Error(), "unknown revision", "carries the underlying git error")
@@ -776,8 +495,8 @@ func TestHandleDirtyParentTree_Commit_NoAckRefusesAndNamesKey(t *testing.T) {
 		Changes:            []string{" M internal/foo.go", "?? internal/bar.go"},
 		CurrentBranchValue: "release/1.0",
 	}
-	cfg := gatedFixture(config.Fixture{}) // no ack recorded -> DirtyTreeCommitAcknowledged defaults false
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	cfg := config.NewFixture(config.Fixture{}) // no ack recorded -> DirtyTreeCommitAcknowledged defaults false
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "release/1.0", "names the branch it would commit to")
 	assert.Contains(t, err.Error(), "internal/foo.go")
@@ -799,13 +518,13 @@ func TestHandleDirtyParentTree_Commit_NoAckRefusesAndNamesKey(t *testing.T) {
 func TestHandleDirtyParentTree_Commit_PerCallHandlerCannotSupplyAck(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := gatedFixture(config.Fixture{}) // project has NOT acknowledged
+	cfg := config.NewFixture(config.Fixture{}) // project has NOT acknowledged
 	// resolveDirtyTreeHandler is exactly what a per-call agent_run
 	// dirty_tree_handler: "commit" resolves to — there is no field anywhere
 	// in AgentChatRequest/agentRunInput that can also carry an ack.
-	handler, rerr := resolveDirtyTreeHandler(cfg, DirtyTreeHandlerCommit)
+	handler, rerr := resolveDirtyTreeHandler(cfg, launch.DirtyTreeHandlerCommit)
 	require.NoError(t, rerr)
-	require.Equal(t, DirtyTreeHandlerCommit, handler)
+	require.Equal(t, launch.DirtyTreeHandlerCommit, handler)
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", handler)
 	require.Error(t, err, "an explicit per-call request for \"commit\" still refuses without the project's own ack")
 	assert.Contains(t, err.Error(), "dirty_tree_commit_ack")
@@ -827,7 +546,7 @@ func TestHandleDirtyParentTree_Commit_AckedWarnsAndCommits(t *testing.T) {
 		CommitAllChanged:   []string{"internal/foo.go", "internal/bar.go"},
 	}
 	cfg := ackedFixture(t, config.Fixture{})
-	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCommit)
 	require.NoError(t, err)
 	assert.Nil(t, outcome.copy)
 
@@ -868,7 +587,7 @@ func TestHandleDirtyParentTree_Commit_EmptyCommitRefusesLoud(t *testing.T) {
 		CommitAllChanged:   nil, // the empty-commit case
 	}
 	cfg := ackedFixture(t, config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "deadbeef")
 	assert.Contains(t, err.Error(), "empty")
@@ -888,18 +607,18 @@ func TestHandleDirtyParentTree_Commit_CommitAllErrorPropagates(t *testing.T) {
 		CommitAllErr:       fmt.Errorf("index.lock exists"),
 	}
 	cfg := ackedFixture(t, config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "index.lock exists")
 }
 
-// TestPrepareAgentChat_Commit_ChildSeesCommittedContent is the full,
+// TestCellsPrepare_Commit_ChildSeesCommittedContent is the full,
 // REAL-git end-to-end proof that "commit" actually achieves its purpose: an
 // uncommitted file on the parent's branch, once auto-committed, is visible
 // to a FRESH worktree checked out from HEAD afterward — exactly what a
 // delegated child's own worktree creation does next. Skips cleanly when git
 // is unavailable.
-func TestPrepareAgentChat_Commit_ChildSeesCommittedContent(t *testing.T) {
+func TestCellsPrepare_Commit_ChildSeesCommittedContent(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH; skipping real-git commit-handler integration test")
 	}
@@ -910,7 +629,7 @@ func TestPrepareAgentChat_Commit_ChildSeesCommittedContent(t *testing.T) {
 
 	real := git.NewExec()
 	cfg := ackedFixture(t, config.Fixture{})
-	outcome, err := handleDirtyParentTree(context.Background(), cfg, real, repo, "coder", DirtyTreeHandlerCommit)
+	outcome, err := handleDirtyParentTree(context.Background(), cfg, real, repo, "coder", launch.DirtyTreeHandlerCommit)
 	require.NoError(t, err)
 	assert.Nil(t, outcome.copy)
 
@@ -933,23 +652,23 @@ func TestPrepareAgentChat_Commit_ChildSeesCommittedContent(t *testing.T) {
 // Workspace's own GAP 2 resolution uses.
 func TestResolveDirtyTreeHandler_Precedence(t *testing.T) {
 	t.Run("per-call wins over project config", func(t *testing.T) {
-		cfg := gatedFixture(config.Fixture{DirtyTreeHandler: string(DirtyTreeHandlerFail)})
-		got, err := resolveDirtyTreeHandler(cfg, DirtyTreeHandlerStale)
+		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
+		got, err := resolveDirtyTreeHandler(cfg, launch.DirtyTreeHandlerStale)
 		require.NoError(t, err)
-		assert.Equal(t, DirtyTreeHandlerStale, got)
+		assert.Equal(t, launch.DirtyTreeHandlerStale, got)
 	})
 	t.Run("empty per-call falls back to project config", func(t *testing.T) {
-		cfg := gatedFixture(config.Fixture{DirtyTreeHandler: string(DirtyTreeHandlerFail)})
+		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
 		got, err := resolveDirtyTreeHandler(cfg, "")
 		require.NoError(t, err)
-		assert.Equal(t, DirtyTreeHandlerFail, got)
+		assert.Equal(t, launch.DirtyTreeHandlerFail, got)
 	})
 	// THE UNSET PATH, unchanged: saying nothing at either level is not an
 	// error and never has been — it is the one input that still resolves to
 	// the built-in default. Typing the vocabulary refused UNPARSEABLE values;
 	// it must not have promoted silence into one.
 	t.Run("both empty falls back to the built-in default (commit)", func(t *testing.T) {
-		cfg := gatedFixture(config.Fixture{})
+		cfg := config.NewFixture(config.Fixture{})
 		got, err := resolveDirtyTreeHandler(cfg, "")
 		require.NoError(t, err, "unset is not an error — only unparseable is")
 		assert.Equal(t, DirtyTreeHandler("commit"), got)
@@ -967,7 +686,7 @@ func TestResolveDirtyTreeHandler_Precedence(t *testing.T) {
 		assert.Contains(t, err.Error(), "commit|copy|stale|fail", "the refusal names the legal values")
 	})
 	t.Run("an unrecognized project config value REFUSES rather than falling back", func(t *testing.T) {
-		cfg := gatedFixture(config.Fixture{DirtyTreeHandler: "bogus-value-2"})
+		cfg := config.NewFixture(config.Fixture{DirtyTreeHandler: "bogus-value-2"})
 		got, err := resolveDirtyTreeHandler(cfg, "")
 		require.Error(t, err)
 		assert.Equal(t, DirtyTreeHandler(""), got)
@@ -999,7 +718,7 @@ func TestParseDirtyTreeHandler(t *testing.T) {
 	}
 }
 
-// TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit is the EFFECT
+// TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit is the EFFECT
 // proof, at the seam that actually touches git: an unrecognized
 // dirty_tree_handler must leave the user's working tree alone.
 //
@@ -1009,7 +728,7 @@ func TestParseDirtyTreeHandler(t *testing.T) {
 // subtest is the vacuity guard: it proves this fixture DOES commit when the
 // handler parses, so the refusal below cannot be passing because the commit
 // path was never reachable in the first place.
-func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
+func TestCellsPrepare_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 	newFake := func() *git.Fake {
 		return &git.Fake{
 			Dirty:              map[string]bool{"/proj": true},
@@ -1024,14 +743,15 @@ func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 		resetStrictness(t)
 		captureWarnings(t)
 		fake := newFake()
-		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerCommit)})
-		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-			Resolved: &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
-			WorkDir:  "/proj",
-			Git:      fake,
+		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerCommit)})
+		p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+			Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+			Engine:      mock.New(),
+			Identity:    sessions.Identity{Harp: "coder"},
+			ProjectRoot: "/proj",
 		})
 		require.NoError(t, err)
-		defer p.Abort()
+		defer func() { _ = p.Cleanup() }()
 		require.Len(t, fake.CommitMessages, 1, "the fixture reaches the auto-commit — the refusal below is therefore meaningful")
 		assert.Contains(t, fake.Calls, "commit-all /proj")
 	})
@@ -1041,52 +761,54 @@ func TestPrepareAgentChat_DirtyTreeHandler_TypoDoesNotCommit(t *testing.T) {
 		captureWarnings(t)
 		fake := newFake()
 		cfg := ackedFixture(t, config.Fixture{Workspace: "worktree", DirtyTreeHandler: "fial"})
-		p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-			Resolved: &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
-			WorkDir:  "/proj",
-			Git:      fake,
+		p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+			Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+			Engine:      mock.New(),
+			Identity:    sessions.Identity{Harp: "coder"},
+			ProjectRoot: "/proj",
 		})
 		require.Error(t, err, "an unrecognized handler refuses the spawn")
-		assert.Nil(t, p)
+		assert.Nil(t, p.Cleanup)
 		assert.Empty(t, fake.CommitMessages, "THE POINT: a typo must not commit the user's working tree")
 		assert.NotContains(t, fake.Calls, "commit-all /proj", "handleDirtyParentTree was never reached")
 	})
 }
 
-// TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject proves the
-// precedence at the PrepareAgentChat seam (not just the resolver in
+// TestCellsPrepare_DirtyTreeHandler_PerCallOverridesProject proves the
+// precedence at the Cells.Prepare seam (not just the resolver in
 // isolation): a project default of "fail" is overridden by a per-call
 // "stale", so the spawn proceeds (with a warning) instead of refusing.
-func TestPrepareAgentChat_DirtyTreeHandler_PerCallOverridesProject(t *testing.T) {
+func TestCellsPrepare_DirtyTreeHandler_PerCallOverridesProject(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := gatedFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerFail)})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:         &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
-		WorkDir:          "/proj",
-		DirtyTreeHandler: DirtyTreeHandlerStale, // the agent_run caller's per-call override
-		Git:              fake,
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: "/proj",
+		DirtyTree:   launch.DirtyTreeHandlerStale,
 	})
 	require.NoError(t, err, "the per-call override beats the project's \"fail\" default")
-	defer p.Abort()
+	defer func() { _ = p.Cleanup() }()
 }
 
-// TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault is
+// TestCellsPrepare_DirtyTreeHandler_EmptyFallsBackToProjectDefault is
 // the other half: an agent_run call that never sets dirty_tree_handler
 // changes nothing — the project default still decides.
-func TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *testing.T) {
+func TestCellsPrepare_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := gatedFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(DirtyTreeHandlerFail)})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  "/proj",
-		// DirtyTreeHandler left empty: no per-call override supplied.
-		Git: fake,
+	cfg := config.NewFixture(config.Fixture{Workspace: "worktree", DirtyTreeHandler: string(launch.DirtyTreeHandlerFail)})
+	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
+		Engine:      mock.New(),
+		Identity:    sessions.Identity{Harp: "coder"},
+		ProjectRoot: "/proj",
 	})
 	require.Error(t, err, "the project's \"fail\" default still applies")
-	assert.Nil(t, p)
+	assert.Nil(t, p.Cleanup)
 }
 
 // TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"
@@ -1146,73 +868,21 @@ func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
 	assert.Contains(t, err.Error(), "pipe", "the refusal names the path it could not reproduce")
 }
 
-// TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking pins the
-// nil-starter refusal. The two spawn seams are independent — Factory fakes
-// the legacy go-plugin Chat dial, Starter fakes the StartRun runner launch
-// — and a non-nil Factory skips the whole isolation block that would
-// otherwise BIND a production starter. A caller that supplies only Factory
-// and then takes
-// the StartRun path therefore reached StartEngine with p.starter == nil and
-// called it: a nil-func panic, from an exported method, naming nothing.
-//
-// (The register's stated mechanism — "p.starter is assigned only inside the
-// p.factory == nil branch" — no longer holds: req.Starter is copied across
-// unconditionally. The reachable defect is the unset case pinned here.)
-func TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking(t *testing.T) {
+// TestStartEngine_CellWithoutTransportRefusesInsteadOfPanicking pins the
+// refusal: a launch whose cell was prepared elsewhere (a test double, a
+// dry-run cell) carries no transport handle, and StartEngine with no
+// starter supplied must refuse by name rather than reach a nil.
+func TestStartEngine_CellWithoutTransportRefusesInsteadOfPanicking(t *testing.T) {
 	resetStrictness(t)
-	p, err := PrepareAgentChat(context.Background(), gatedFixture(config.Fixture{}), AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  t.TempDir(),
-		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
-	})
-	require.NoError(t, err)
-	require.Nil(t, p.starter, "the Factory seam deliberately binds no production starter")
-
-	proc, serr := p.StartEngine(context.Background())
-	require.Error(t, serr, "StartEngine must refuse a launch it has no starter for, not panic")
-	assert.Nil(t, proc)
-	assert.Contains(t, serr.Error(), "Starter", "the refusal names the seam that was not supplied")
-}
-
-// TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured pins a
-// claim that turned out to be REFUTED. The claim was that the
-// oneshot+"copy" refusal firing on an EMPTY capture turns a harmless spawn
-// into an error, so it should be suppressed when there is nothing to
-// reproduce. It should not:
-//
-//   - the refusal is about a CONFIGURATION the fallback path cannot honor
-//     ("copy" needs a durable worktree; the oneshot fallback carves and tears
-//     down a fresh one per turn), which is equally true whether this
-//     particular parent tree had one dirty file or a thousand;
-//   - suppressing it would make the same misconfiguration refuse or proceed
-//     depending on the parent tree's momentary contents — the caller learns
-//     about an unsatisfiable request only sometimes;
-//   - and the "harmless" premise needs a tree git reports DIRTY while both
-//     `git diff HEAD` and `git ls-files --others --exclude-standard` come
-//     back empty, which real git does not produce for any ordinary edit.
-//
-// This pin goes red the moment the refusal is made conditional on the
-// snapshot's contents.
-func TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured(t *testing.T) {
-	resetStrictness(t)
-	fake := &git.Fake{
-		Dirty:   map[string]bool{"/proj": true},
-		Changes: []string{" M f.go"},
-		// The row's premise, made explicit: nothing at all is captured.
-		DiffPatchValue: "",
-		UntrackedList:  nil,
+	l := launch.Launch{
+		Identity: sessions.Identity{Harp: "coder"},
+		Engine:   "mock",
+		Cell:     launch.Cell{Workspace: t.TempDir(), Cleanup: func() error { return nil }},
 	}
-	cfg := gatedFixture(config.Fixture{})
-	p, err := PrepareAgentChat(context.Background(), cfg, AgentChatRequest{
-		Resolved:         &ResolvedAgent{Name: "coder", Backend: "no-structured-chat-backend", Label: "fast"},
-		WorkDir:          "/proj",
-		DirtyTreeHandler: DirtyTreeHandlerCopy,
-		Git:              fake,
-	})
-	require.Error(t, err, "an unsatisfiable copy request is refused on the configuration, not on the snapshot's contents")
-	assert.Nil(t, p)
-	assert.Contains(t, err.Error(), `dirty_tree_handler "copy"`)
-	assert.Contains(t, err.Error(), "stale", "and names the handlers that DO work for this backend")
+	proc, serr := StartEngine(context.Background(), l, nil, 0, nil)
+	require.Error(t, serr, "StartEngine must refuse a launch it has no transport for, not panic")
+	assert.Nil(t, proc)
+	assert.Contains(t, serr.Error(), "starter", "the refusal names the seam that was not supplied")
 }
 
 // TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview pins a
@@ -1232,7 +902,7 @@ func TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview(t *testi
 		CommitAllChanged: []string{"internal/foo.go"},
 	}
 	cfg := ackedFixture(t, config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerCommit)
 	require.NoError(t, err, "a listing failure stays best-effort: it must not block the configured commit")
 	assert.Contains(t, warnings.String(), "could not list",
 		"the preview must SAY the file listing failed rather than showing an empty list")
@@ -1245,8 +915,8 @@ func TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview(t *testi
 func TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, ChangesErr: assert.AnError}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerFail)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not list",
 		"the refusal must distinguish an unreadable listing from an empty one")
@@ -1259,123 +929,8 @@ func TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning(t *testin
 	resetStrictness(t)
 	warnings := captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, ChangesErr: assert.AnError}
-	cfg := gatedFixture(config.Fixture{})
-	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
+	cfg := config.NewFixture(config.Fixture{})
+	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", launch.DirtyTreeHandlerStale)
 	require.NoError(t, err)
 	assert.Contains(t, warnings.String(), "could not list")
-}
-
-// reportingWorkspace mirrors the production Workspace contract every policy
-// implements: a teardown failure is REPORTED from inside Cleanup (see
-// isolation.warnCleanupResidue — it names the residue path, the likely cause
-// and the manual fix) and only then, for the container policy, also returned.
-type reportingWorkspace struct{ dir, residue string }
-
-func (w reportingWorkspace) Dir() string { return w.dir }
-func (w reportingWorkspace) Cleanup() error {
-	clidiag.Warn("ctxloom", "container scratch %s could not be removed (%v)", w.residue, assert.AnError)
-	return fmt.Errorf("remove container scratch %s: %w", w.residue, assert.AnError)
-}
-
-// TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce pins a claim
-// that turned out to be REFUTED. The claim — "both workspace teardowns discard
-// ws.Cleanup()'s error, so a failed worktree removal is invisible" — has a
-// true mechanism and a false consequence:
-//
-//   - isolation's worktreeWorkspace.Cleanup returns nil UNCONDITIONALLY. Every
-//     failure it can have (an unremovable per-agent config-home/curated
-//     HOME/scratch dir, a teardown it must abandon to protect nested WIP) is
-//     already streamed from inside. There is no error to discard.
-//   - containerWorkspace.Cleanup does return one, and its own doc settles the
-//     question in tree: it warns via warnCleanupResidue AND returns, with
-//     "callers discard the returned error by contract" (SD3).
-//   - oneshot.go carries the matching decision block for why the caller must
-//     NOT re-record it: this teardown runs outside the checkpoint→gate window,
-//     so a finding raised here lands in an orphaned window nothing watches.
-//
-// So the report is not missing, and adding a caller-side one would print the
-// same residue twice. This pins that: exactly one report per teardown.
-func TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce(t *testing.T) {
-	resetStrictness(t)
-	warnings := captureWarnings(t)
-	const residue = "/scratch/ctxloom-abcd"
-	prev := prepareIsolation
-	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }},
-			reportingWorkspace{dir: projectDir, residue: residue}
-	}
-	t.Cleanup(func() { prepareIsolation = prev })
-
-	p, err := PrepareAgentChat(context.Background(), gatedFixture(config.Fixture{Workspace: "worktree"}), AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:  t.TempDir(),
-	})
-	require.NoError(t, err)
-	p.Abort()
-
-	assert.Equal(t, 1, strings.Count(warnings.String(), residue),
-		"the workspace reports its own teardown failure; a caller-side report would say it twice")
-	p.Abort() // idempotent: Abort clears its cleanup, so no second teardown either
-	assert.Equal(t, 1, strings.Count(warnings.String(), residue))
-}
-
-// TestPrepareAgentChat_EmptyComposedContextIsAnnounced pins the zero-context
-// floor. The delegated launch funnels through PrepareAgentChat, and it
-// resolved the lead context with no floor: req.Context, else rs.Context,
-// else nothing at all — the child runs with ZERO ctxloom
-// bytes while agent_run reports a healthy spawn. That is this project's
-// signature failure mode (exit 0, success message, nothing delivered), and
-// the composed-context case is NOT covered by resolveAgentBinding's existing
-// "declares no profiles" warning: here profiles ARE declared and assembly
-// SUCCEEDED, producing nothing.
-func TestPrepareAgentChat_EmptyComposedContextIsAnnounced(t *testing.T) {
-	resetStrictness(t)
-	warnings := captureWarnings(t)
-	p, err := PrepareAgentChat(context.Background(), gatedFixture(config.Fixture{}), AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host",
-			Profiles: []string{"reviewer"}, Context: ""},
-		WorkDir: t.TempDir(),
-		Factory: func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
-	})
-	require.NoError(t, err, "an empty context stays fault-tolerant: it warns, it does not refuse")
-	defer p.Abort()
-
-	out := warnings.String()
-	assert.Contains(t, out, "coder", "the warning names the agent")
-	assert.Contains(t, out, "reviewer", "…and the profiles that composed to nothing")
-}
-
-// TestPrepareAgentChat_ComposedContextPresentIsSilent is the other half: the
-// warning must fire on the EMPTY case only, or it is noise every spawn learns
-// to ignore.
-func TestPrepareAgentChat_ComposedContextPresentIsSilent(t *testing.T) {
-	resetStrictness(t)
-	warnings := captureWarnings(t)
-	p, err := PrepareAgentChat(context.Background(), gatedFixture(config.Fixture{}), AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host",
-			Context: "# composed context\n"},
-		WorkDir: t.TempDir(),
-		Factory: func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-	assert.NotContains(t, warnings.String(), "zero bytes")
-}
-
-// TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext pins that the
-// floor reads what is actually DELIVERED: a resume primes req.Context with a
-// rendered transcript, which is real ctxloom content even when the agent's
-// own composed context is empty.
-func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
-	resetStrictness(t)
-	warnings := captureWarnings(t)
-	p, err := PrepareAgentChat(context.Background(), gatedFixture(config.Fixture{}), AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host"},
-		Context:  "## resumed transcript\n",
-		WorkDir:  t.TempDir(),
-		Factory:  func(string, string, int) (pb.Client, error) { return &stubClient{}, nil },
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-	assert.NotContains(t, warnings.String(), "zero bytes")
 }

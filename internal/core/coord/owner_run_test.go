@@ -112,14 +112,7 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	sc := &scriptedChat{}
 	starter, started := ownerRunStarter(ctx, sc, "claude-code")
 
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "claude-code",
-		Label:      "fast",
-		Model:      "sonnet",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-	}, starter, "hello owner run")
+	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "hello owner run")
 	require.NoError(t, err)
 	require.True(t, *started, "StartOwnedRun must launch the runner via the starter")
 	require.Equal(t, ownerHarp, outcome.Harp)
@@ -169,10 +162,7 @@ func TestStartOwnedRun_StampsOwnerAtDepthZero(t *testing.T) {
 		return func() {}, "", errStopBeforeDial
 	}
 
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp: ownerHarp, Backend: "claude-code", Label: "fast", Model: "sonnet",
-		WorkDir: "/work", Permission: agent.PermissionBypass,
-	}, starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "hello")
 	require.ErrorIs(t, err, errStopBeforeDial)
 	require.NotNil(t, gotEnv, "the starter must have been invoked with the runner env")
 	assert.Equal(t, "0", gotEnv[EnvRunDepth], "the owner-owned run must stamp depth 0, matching the session owner it IS")
@@ -197,10 +187,7 @@ func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
 
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp: ownerHarp, Backend: "claude-code", Label: "fast", Model: "sonnet",
-		WorkDir: "/work", Permission: agent.PermissionBypass,
-	}, starter, "turn one")
+	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "turn one")
 	require.NoError(t, err)
 
 	// The owner's credential still resolves to depth 0 — the per-run credential

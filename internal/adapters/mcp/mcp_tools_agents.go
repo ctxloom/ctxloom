@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
@@ -118,8 +119,9 @@ type agentRunInput struct {
 	// — matching run/acp --workspace's enum. Empty defers to the
 	// project's cfg.Workspace when THAT is set explicitly; if neither this
 	// nor the project config says anything, a delegated child now DEFAULTS
-	// to worktree (own checkout) rather than the shared one — see
-	// operations.PrepareAgentChat's workspace-resolution comment. This is a
+	// to worktree (own checkout) rather than the shared one — the
+	// coordinator's spawner states that default when it asks for the
+	// launch. This is a
 	// file-level default only: a worktree isolates the child's WORKSPACE,
 	// never the engine's own global config/credential/session store, which
 	// some engines keep outside any per-agent env override entirely.
@@ -331,11 +333,15 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	// would otherwise default to auto-commits the user's working tree. Parse
 	// it here, so an unrecognized spelling is refused at the tool call
 	// naming the legal values, and only the typed value travels inward.
-	dirtyTreeHandler, err := operations.ParseDirtyTreeHandler(in.DirtyTreeHandler)
+	workspace, err := launch.ParseWorkspaceAxis(in.Workspace)
 	if err != nil {
 		return nil, nil, fmt.Errorf("agent_run: %w", err)
 	}
-	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, in.Workspace, dirtyTreeHandler)
+	dirtyTreeHandler, err := launch.ParseDirtyTreeHandler(in.DirtyTreeHandler)
+	if err != nil {
+		return nil, nil, fmt.Errorf("agent_run: %w", err)
+	}
+	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, workspace, dirtyTreeHandler)
 	if err != nil {
 		return nil, nil, err
 	}

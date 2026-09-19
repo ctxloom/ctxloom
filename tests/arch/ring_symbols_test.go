@@ -257,6 +257,10 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// the test-only read opens a throwaway owner; its own pin (the
 	// configload.Load entry in pinnedCalls) keeps it out of production
 	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through operations.App",
+
+	// the launch fixture plays the CALLER of launch.Resolve — the one that
+	// mints and hands the identity in — against an in-memory store
+	"internal/core/launch/launchtest/launchtest.go#Deps": "sanctioned: launchtest is the resolver's test composition root; it mints the identity the test's Source carries, as operations.StartRun does in production",
 }
 
 func scanOneMintOneOwner(t *testing.T) []ringSite {
@@ -332,7 +336,6 @@ var noEngineNameInCoreAllowed = map[string]string{
 	"internal/adapters/operations/session_adopt.go":       "slice 11b: adopt scans the engine's own store through Engine.Transcripts(); the reader knows its own format",
 	"internal/core/bundles/tree_read.go":                  "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
 	"internal/adapters/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
-	"internal/adapters/memory/distill.go":                 "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/adapters/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
 
 	// adapters choosing a default by name

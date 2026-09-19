@@ -12,6 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -44,19 +46,16 @@ type ownedRunSession struct {
 // assembled context delivered as the harp, and nothing in the type system
 // objecting. A keyed literal makes each value say what it is.
 type ownedRunLaunch struct {
-	Policy      isolation.Policy
-	Workspace   isolation.Workspace
-	Req         *pb.RunStart
-	BackendName string
-	Label       string
-	Verbosity   int
-	Harp        string
-	ContextText string
-	Prompt      string
-	MCPServers  []agent.ChatMCPServer
-	Permission  agent.PermissionMode
-	Mode        pb.ExecutionMode
-	RunnerEnv   map[string]string
+	// Launch is the owner's resolved launch; the coordinator's owned run is
+	// enqueued from it. Policy/Workspace are its cell's transport handle,
+	// Req its wire projection with what only this invocation adds.
+	Launch     launch.Launch
+	Policy     isolation.Policy
+	Workspace  isolation.Workspace
+	Req        *pb.RunStart
+	Verbosity  int
+	MCPServers []agent.ChatMCPServer
+	RunnerEnv  map[string]string
 }
 
 // startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
@@ -75,7 +74,7 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 
 	var handle *isolation.RunnerHandle
 	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), string, error) {
-		h, err := spec.Policy.StartRunner(sctx, spec.BackendName, spec.Label, spec.Verbosity, spec.Workspace, spawnEnv)
+		h, err := spec.Policy.StartRunner(sctx, string(spec.Launch.Engine), spec.Launch.Label.Label, spec.Verbosity, spec.Workspace, spawnEnv)
 		if err != nil {
 			return nil, "", err
 		}
@@ -104,7 +103,7 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 		// The owner Identity is used only for lineage journaling (ParentHarp /
 		// Depth); if the owner token can't be resolved, the session harp at
 		// depth 0 is the honest fallback.
-		owner = coord.Identity{Harp: spec.Harp}
+		owner = coord.Identity{Harp: spec.Launch.Identity.Harp}
 	}
 
 	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is
@@ -117,17 +116,11 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	// not for its whole lifetime.
 	_, events, cancel, narrow := c.WatchRuns(nil)
 
-	lead := operations.JoinLeadBlocks(spec.ContextText, spec.Prompt)
+	lead := operations.JoinLeadBlocks(spec.Launch.Package.Context, spec.Launch.Prompt)
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
-		Harp:       spec.Harp,
-		Backend:    spec.BackendName,
-		Label:      spec.Label,
-		Model:      spec.Req.GetOptions().GetModel(),
-		WorkDir:    spec.Req.GetOptions().GetWorkDir(),
-		Env:        spec.Req.GetOptions().GetEnv(),
+		Launch:     spec.Launch,
 		MCPServers: spec.MCPServers,
-		Permission: spec.Permission,
-		Oneshot:    spec.Mode == pb.ExecutionMode_ONESHOT,
+		Oneshot:    spec.Launch.Mode == engine.Structured,
 	}, starter, lead)
 	if err != nil {
 		cancel()

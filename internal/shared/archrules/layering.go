@@ -162,6 +162,11 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/adapters/agents":                 "measured: agents.Agent is the value type Config carries for an agent binding; Part 1.1 does not place agents, and no slice names this edge",
 			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
 
+			// core/launch/launchtest — the fixture declares agent bindings on a
+			// config.Fixture, whose Agents map is keyed by the same value type
+			// config carries (the edge above); it leaves with config's.
+			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
+
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
 			// profiles). envswitch is listed there without a slice.
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":        "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
@@ -261,6 +266,8 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/agents":                         "slice 4: the adapters/configload split; the agent binding is read through operations.App's Snapshot (measured; Part 1.1 does not place agents)",
 			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/cli -> internal/adapters/coordgrpc":                      "slice 13: the CLI hands the Launch to the spawner and stops encoding the run-start message itself",
+			"internal/adapters/coordgrpc -> internal/lm/grpc":                           "slice 8: EncodeLaunch targets the coordination proto's Launch; the plugin run-start form is deleted in 13",
 			"internal/adapters/cli -> internal/adapters/git":                            "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; Part 1.1 does not place gitignore — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",
@@ -278,6 +285,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/remotetree":      "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":            "slice 13: allowlisted until then per Part 1.0",
+			"internal/adapters/operations -> internal/adapters/coordgrpc":               "slice 13: the one-shot turn is a frame to the runner; operations stops encoding the run-start message itself",
 			"internal/adapters/operations -> internal/adapters/engineversion":           "slice 11b: the version command is the engine's own, on the instance half of the port",
 			"internal/adapters/operations -> internal/adapters/git":                     "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/operations -> internal/adapters/projectroot":             "slice 7: launch.HostFacts carries the project root from cmd/*",

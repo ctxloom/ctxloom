@@ -21,18 +21,6 @@ import (
 // presents a surface that is not there REFUSES instead of quietly doing
 // something else.
 
-// TestLaunchFormForCell pins the selection rule for a fan-out member. It is the
-// ONLY place the shared-vs-isolated decision is made now; everything downstream
-// receives the answer.
-func TestLaunchFormForCell(t *testing.T) {
-	assert.Equal(t, LaunchFormPresent, LaunchFormForCell(CellKindShared),
-		"a member in the shared cwd must present the session's surfaces, never write per-member config over them")
-	assert.Equal(t, LaunchFormDeliver, LaunchFormForCell(CellKindDirectoryIsolated),
-		"a worktree member has a private cwd, so it delivers its own")
-	assert.Equal(t, LaunchFormDeliver, LaunchFormForCell(CellKindProcessIsolated),
-		"a container member likewise")
-}
-
 // TestSetup_PresentForm_NamesWithoutWriting is the form's whole point: the
 // selection is built exactly as a delivering run builds it — same constructors,
 // same inputs — and then NOTHING is written. Asserting the constructors still

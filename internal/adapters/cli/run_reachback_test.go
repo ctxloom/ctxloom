@@ -8,6 +8,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // TestStartContainerOwnedRun_NilCoordinatorRefusesTheLaunch pins the owned-run
@@ -22,8 +24,7 @@ import (
 // run that cannot work.
 func TestStartContainerOwnedRun_NilCoordinatorRefusesTheLaunch(t *testing.T) {
 	handle, sess, err := startContainerOwnedRun(t.Context(), nil, ownedRunLaunch{
-		BackendName: "claude-code",
-		Harp:        "swift-amber-falcon",
+		Launch: launch.Launch{Identity: sessions.Identity{Harp: "swift-amber-falcon"}, Engine: "claude-code"},
 	})
 
 	require.Error(t, err, "no coordinator means no transport — the launch must refuse, not proceed")

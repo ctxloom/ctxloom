@@ -319,14 +319,7 @@ func TestFinalReport_OwnerRunIsNeverEndedByItsOwnReport(t *testing.T) {
 	require.True(t, ok)
 
 	starter, started := ownerRunStarter(ctx, &scriptedChat{}, "claude-code")
-	out, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{
-		Harp:       ownerHarp,
-		Backend:    "claude-code",
-		Label:      "fast",
-		Model:      "sonnet",
-		WorkDir:    "/work",
-		Permission: agent.PermissionBypass,
-	}, starter, "do the thing")
+	out, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "do the thing")
 	require.NoError(t, err)
 	require.True(t, *started)
 

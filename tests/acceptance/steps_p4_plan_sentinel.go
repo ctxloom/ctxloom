@@ -22,14 +22,15 @@
 // THE POSTURE RIDES PRODUCTION'S OWN SURFACE, and it is worth stating exactly
 // which one, because a probe that applied its posture through a back door would
 // measure the back door. `permissions: plan` on the agent binding is read by
-// runState.agentPermissions, resolved by cli.resolvePermissionMode (flag > agent
-// binding > llm label > project default > built-in), and carried to the runner
-// on pb.RunOptions.PermissionMode, where it becomes the ExecuteRequest each
-// backend's buildArgs branches on. Nothing here sets a flag the product does not
-// offer, and nothing here reaches around the resolver.
+// the launch resolver's one floor (launch.Resolve: flag > agent binding > llm
+// label > project default > the engine's host default), carried on the Launch
+// and projected onto pb.RunOptions.PermissionMode (coordgrpc.EncodeLaunch),
+// where it becomes the ExecuteRequest each backend's buildArgs branches on.
+// Nothing here sets a flag the product does not offer, and nothing here
+// reaches around the resolver.
 //
-// AND THE ONE-SHOT INTERACTION MATTERS. resolvePermissionMode floors a ONESHOT
-// up to bypass when the resolved posture is not SafeHeadless — there is no human
+// AND THE ONE-SHOT INTERACTION MATTERS. The floor widens a Structured run
+// at depth 0 up to bypass when the resolved posture is not SafeHeadless — there is no human
 // to answer a prompt — which is why P5's approval probe cannot use this
 // invocation at all. Plan IS SafeHeadless (agent.PermissionMode.SafeHeadless),
 // and all four backends declare enforcesReadOnlyPlan TRUE, so
@@ -234,8 +235,8 @@ func registerP4PlanSentinelSteps(ctx *godog.ScenarioContext) {
 		// evidence for a passing cell exists nowhere.
 		//
 		// The warning flag is EVIDENCE AND NEVER A GATE, and the distinction is
-		// deliberate: warnPlanOneshotCancels is production announcing that a
-		// plan posture survived resolvePermissionMode's ONESHOT floor into this
+		// deliberate: the plan-oneshot warning is production announcing that a
+		// plan posture survived the launch resolver's headless floor into this
 		// run, which is the cheapest per-cell confirmation that the posture
 		// arrived — but it is prose, and prose is precisely what no assertion in
 		// this probe is allowed to depend on. Reading it here costs nothing and

@@ -8,7 +8,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -30,18 +29,10 @@ var premiseAuthorPromptEmbedded = resources.MustGetPromptText(premiseAuthorPromp
 // PremiseAuthorConfig configures how a draft call reaches an LLM. The zero
 // value works: the default plugin drafts with its default model.
 type PremiseAuthorConfig struct {
-	// LLM is the plugin to run (default: claude-code).
-	LLM string
-	// Model selects the model within the plugin (e.g. "haiku", "sonnet").
-	Model string
-	// Env is the resolved LLM label's request-borne environment (the mock's
-	// test-control map, MockControlFor; a real engine's environment is
-	// ambient).
-	Env map[string]string
-	// ClientFactory creates the plugin client; nil uses the real one. It is
-	// the stochastic boundary: a test supplies pb.MockClientFactory and both
-	// sides of the call stay deterministic.
-	ClientFactory pb.ClientFactory
+	// Run drives one turn of the author's session; the caller resolved the
+	// launch. It is the stochastic boundary: a test supplies a canned runner
+	// and both sides of the call stay deterministic.
+	Run memory.Runner
 	// PromptDir loads the authoring prompt from a directory on disk
 	// (<dir>/premise-author.md) instead of the binary's embedded copy, so a
 	// prompt-evaluation harness can A/B variants without a rebuild. Empty uses
@@ -92,12 +83,7 @@ func DraftPremise(ctx context.Context, cfg PremiseAuthorConfig, name, body strin
 		return nil, err
 	}
 	payload := fmt.Sprintf("<fragment name=%q>\n%s\n</fragment>", name, body)
-	out, err := memory.Distill(ctx, memory.DistillConfig{
-		LLM:           cfg.LLM,
-		Model:         cfg.Model,
-		Env:           cfg.Env,
-		ClientFactory: cfg.ClientFactory,
-	}, prompt, payload)
+	out, err := memory.Distill(ctx, cfg.Run, prompt, payload)
 	if err != nil {
 		return nil, fmt.Errorf("draft premise for %q: %w", name, err)
 	}

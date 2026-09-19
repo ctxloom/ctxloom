@@ -73,25 +73,16 @@ const (
 
 // CompactionConfig holds settings for session compaction.
 type CompactionConfig struct {
-	LLM   string // LLM plugin to use for distillation (default: claude-code)
-	Model string // Model to use within the plugin (e.g., "haiku", "sonnet")
-	// Env is the resolved LLM label's request-borne environment — today the
-	// mock's test-control map (operations.MockControlFor; a real engine's
-	// environment is ambient, never config-declared) — forwarded onto every
-	// distillation request.
-	//
-	// It exists because it was MISSING: runDistill built its RunOptions with no
-	// Env at all, while every other RunStart caller forwards it (internal/adapters/cli/
-	// run.go -> st.runEnv), so a distillation ran with none of what the label
-	// carried and behaved as though nothing was set — silently, since an
-	// unconfigured backend does not error.
-	Env             map[string]string
+	// Run drives one turn of the distiller session the caller resolved; every
+	// distillation call this compactor makes goes through it. Required for
+	// any compaction that distils.
+	Run             Runner
 	Backend         string           // Backend name to read session from (e.g., "claude-code")
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
 	OutputDir       string           // TEST SEAM ONLY: redirects per-rotation essences somewhere a test can read. No production caller sets it; empty files them under the harp's own segments dir (rotationEssencePath).
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
-	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
+	ClientFactory   pb.ClientFactory // Factory for the session READER's client (default: pb.DefaultClientFactory())
 	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
 	// Progress receives human-readable distillation progress. It belongs to
 	// the CALLER because only the caller knows whether it has anywhere safe to
@@ -219,9 +210,6 @@ func applyCompactionDefaults(config *CompactionConfig) {
 	}
 	if config.Backend == "" {
 		config.Backend = "claude-code"
-	}
-	if config.LLM == "" {
-		config.LLM = defaultLLMPlugin
 	}
 	if config.ClientFactory == nil {
 		config.ClientFactory = pb.DefaultClientFactory()
@@ -1107,18 +1095,13 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 	}
 }
 
-// runDistill executes one LLM distillation call over transcript-shaped
-// content: Distill with this compactor's configured plugin, model and env, the
-// content enveloped as a <session_log>. The session distillation and the
-// per-result finding repair (recoverFinding) both go through here; the request
-// itself is built by Distill so the shape stays in one place.
+// runDistill executes one distillation turn over transcript-shaped content:
+// Distill on this compactor's runner, the content enveloped as a
+// <session_log>. The session distillation and the per-result finding repair
+// (recoverFinding) both go through here; the prompt itself is built by
+// Distill so the shape stays in one place.
 func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string) (string, error) {
-	return Distill(ctx, DistillConfig{
-		LLM:           c.config.LLM,
-		Model:         c.config.Model,
-		Env:           c.config.Env,
-		ClientFactory: c.clientFactory,
-	}, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
+	return Distill(ctx, c.config.Run, systemPrompt, fmt.Sprintf("<session_log>\n%s\n</session_log>", content))
 }
 
 // distilledMeta is the YAML front-matter stored at the top of every

@@ -16,6 +16,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -91,6 +93,47 @@ func registerSessionHookSteps(ctx *godog.ScenarioContext) {
 		}
 		if sidecar.SessionID != sessionID {
 			return fmt.Errorf("harp %q is bound to session %q, not %q — the hook exited 0 without recording the binding; record:\n%s", harp, sidecar.SessionID, sessionID, body)
+		}
+		return nil
+	})
+
+	// The launch resolver mints the session's MCP endpoint once per harp and
+	// binds it on the session record, so a resume of the same harp reuses
+	// it. Every session the run minted must carry one: the scan refuses a
+	// home with no session record at all (a run that minted nothing would
+	// otherwise pass vacuously).
+	ctx.Step(`^the run's session record carries its MCP endpoint$`, func(c context.Context) error {
+		w := worldFrom(c)
+		root := filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel))
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return fmt.Errorf("read the session store at %s: %w", root, err)
+		}
+		checked := 0
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(root, e.Name(), "session.yaml"))
+			if err != nil {
+				continue
+			}
+			var sidecar struct {
+				MCP struct {
+					URL        string `yaml:"url"`
+					Credential string `yaml:"credential"`
+				} `yaml:"mcp"`
+			}
+			if err := yaml.Unmarshal(body, &sidecar); err != nil {
+				return fmt.Errorf("parse the session record for %q: %w; record:\n%s", e.Name(), err, body)
+			}
+			if sidecar.MCP.URL == "" || sidecar.MCP.Credential == "" {
+				return fmt.Errorf("session %q records no MCP endpoint — the launch resolver mints one per harp and binds it on the record; record:\n%s", e.Name(), body)
+			}
+			checked++
+		}
+		if checked == 0 {
+			return fmt.Errorf("no session record under %s to check — the run minted no session", root)
 		}
 		return nil
 	})

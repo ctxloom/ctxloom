@@ -73,6 +73,11 @@ type Entry struct {
 	// engine-transcript-* symlink is best-effort and is deliberately not
 	// created for a transcript that already lives inside the session dir.
 	TranscriptPath string `yaml:"transcript_path,omitempty" json:"transcript_path,omitempty"`
+	// MCP is the session's MCP endpoint, minted once per harp by the launch
+	// resolver and bound here so a resume of the same harp reuses it; the
+	// credential rides with it because the runner that binds the address
+	// needs both. Omitted until bound.
+	MCP Endpoint `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 
 	// Summary is essence.md's frontmatter `summary:` line, read on demand
 	// (fillFromEssence) for a fast one-line render. Never persisted here —
@@ -298,7 +303,7 @@ func (m *Manager) update(harpName string, mutate func(e *Entry) (changed bool, e
 		return err
 	}
 	if e == nil {
-		return fmt.Errorf("harp not found: %q", harpName)
+		return fmt.Errorf("%w: %q", ErrNotFound, harpName)
 	}
 	changed, err := mutate(e)
 	if err != nil {
@@ -351,6 +356,32 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+// BindMCP records the session's MCP endpoint. Called by the launch resolver
+// once per harp; a resume reads it back through Find and reuses it unless
+// it asks for a rebind, which calls this again with the fresh endpoint.
+func (m *Manager) BindMCP(harpName string, ep Endpoint) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		if e.MCP == ep {
+			return false, nil
+		}
+		e.MCP = ep
+		return true, nil
+	})
+}
+
+// BindEngine records the engine the launch resolver decided for the
+// session. The mint precedes resolution and so cannot know it; a later
+// launch of the same harp may change it only by resolving to another.
+func (m *Manager) BindEngine(harpName, engine string) error {
+	return m.update(harpName, func(e *Entry) (bool, error) {
+		if e.Backend == engine {
+			return false, nil
+		}
+		e.Backend = engine
+		return true, nil
+	})
 }
 
 // BindSession fills in the backend-native session ID and transcript path

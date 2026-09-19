@@ -298,10 +298,11 @@ func TestRunCharacterization_DryRunJSONPayload(t *testing.T) {
 	assert.Positive(t, got.Tokens, "the token estimate is computed over the assembled context")
 	assert.Contains(t, got.Fragments, "ctxloom+local:demo#fragments/testing")
 
-	// Not an --agent run: the three axis fields stay omitted entirely.
+	// Not an --agent run: no agent is named, but the resolved axes are
+	// reported — the preview says what the run would actually use.
 	assert.NotContains(t, res.out, `"agent"`)
-	assert.NotContains(t, res.out, `"workspace"`)
-	assert.NotContains(t, res.out, `"runtime"`)
+	assert.Equal(t, "none", got.Workspace)
+	assert.Equal(t, "host", got.Runtime)
 }
 
 // --workspace is a SESSION trait resolved before the dry-run payload is built,

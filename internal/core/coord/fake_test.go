@@ -11,8 +11,10 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -80,11 +82,11 @@ type fakeSpawner struct {
 	// workspaces records each Launch/StartEngine call's plan.Workspace, in
 	// spawn order — GAP 2's threading proof (AgentRun -> SpawnPlan.Workspace
 	// -> here), without needing real isolation machinery.
-	workspaces []string
+	workspaces []launch.WorkspaceAxis
 	// dirtyTreeHandlers records each Launch/StartEngine call's
 	// plan.DirtyTreeHandler, in spawn order — the identical threading proof
 	// as workspaces, for AgentRun's dirty_tree_handler override.
-	dirtyTreeHandlers []operations.DirtyTreeHandler
+	dirtyTreeHandlers []launch.DirtyTreeHandler
 	// versionProbes records each RecordEngineVersion call's harp, in call
 	// order — the SLOW, post-registration half of session start (the real
 	// one execs a vendor CLI).
@@ -108,7 +110,7 @@ type fakeSpawner struct {
 
 type fakeAgent struct {
 	perm     string // headless permission enum; "" refuses (D3)
-	runtime  agent.RuntimeAxis
+	runtime  launch.RuntimeAxis
 	profiles []string
 	unknown  bool
 	// backend is the SpawnPlan.Backend this agent resolves to (rides into
@@ -141,19 +143,6 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	if !ok || a.unknown {
 		return nil, fmt.Errorf("agent %q not found", agentName)
 	}
-	// Mirror the production spawner's D3 strictness window: the headless
-	// gate's finding must abort the resolve in strict mode.
-	var (
-		perm     agent.PermissionMode
-		degraded []string
-	)
-	if gerr := func() error {
-		mark := strictness.Checkpoint()
-		perm, degraded = headlessSafePermission(agentName, a.perm)
-		return strictness.FindingsError(mark)
-	}(); gerr != nil {
-		return nil, gerr
-	}
 	s.resolved = append(s.resolved, agentName)
 	backend := a.backend
 	if backend == "" {
@@ -169,12 +158,32 @@ func (s *fakeSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Label:      "fast",
 		Profiles:   a.profiles,
 		Runtime:    a.runtime,
-		Context:    "FRAG-ONE",
-		Perm:       perm,
-		Degraded:   degraded,
+		Permission: a.perm,
 		MCPServers: a.mcpServers,
 		ResumeMode: resumeMode,
 	}, nil
+}
+
+// floorChild is the fake's stand-in for the launch resolver's floor on a
+// delegated child (launch.Resolve, the child arm of its permission floor):
+// a declared headless-safe posture passes; anything else is refused, or
+// narrowed to plan under --degraded. The fake applies it where the real
+// spawner's StartEngine resolves the launch, so a test observes the
+// refusal at the same point production raises it.
+func floorChild(agentName, declared string) (agent.PermissionMode, error) {
+	if declared != "" {
+		if mode, ok := agent.ParsePermissionMode(declared); ok && mode.SafeHeadless() {
+			return mode, nil
+		}
+	}
+	if strictness.Degraded() {
+		return agent.PermissionPlan, nil
+	}
+	reason := "declares no permissions"
+	if declared != "" {
+		reason = fmt.Sprintf("declares permissions %q, which is not headless-safe", declared)
+	}
+	return 0, fmt.Errorf("%w: agent %q %s: a delegated run has no human to answer an engine prompt; set permissions: plan|bypass on agent %q", launch.ErrPermissionUnhonoured, agentName, reason, agentName)
 }
 
 func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
@@ -192,7 +201,17 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 // StructuredChat as the engine. Kill models SIGKILL (docker-stop): the
 // shared context dies — no RunExited, no clean teardown; the coordinator's
 // loss synthesis is what must notice.
-func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+	perm, err := floorChild(plan.AgentName, plan.Permission)
+	if err != nil {
+		return nil, err
+	}
+	// The child's engine env is what the launch stamps: the identity
+	// carriers. The fake stamps the same two.
+	env := map[string]string{sessions.EnvHarp: start.Identity.Harp}
+	if start.Identity.Project != "" {
+		env[sessions.EnvProjectID] = start.Identity.Project
+	}
 	s.mu.Lock()
 	var backend agent.StructuredChat
 	if s.nextBackend != nil {
@@ -210,7 +229,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		s.chats = append(s.chats, sc)
 		backend = sc
 	}
-	s.perms = append(s.perms, plan.Perm)
+	s.perms = append(s.perms, perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
 	workDir := s.engineWorkDir
@@ -264,10 +283,21 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		maps.Copy(spawnedEnv, env)
 		maps.Copy(spawnedEnv, engineEnv)
 	}
+	l := launch.Launch{
+		Identity:   start.Identity,
+		Engine:     engine.Name(plan.Backend),
+		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
+		Mode:       engine.Structured,
+		Permission: perm,
+		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
+		Cell:       launch.Cell{Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
+		Package:    launch.Package{Context: "FRAG-ONE"},
+		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
+	}
+	plan.Launch = l
 	return &EngineSpawn{
-		WorkDir:    workDir,
-		Env:        spawnedEnv,
-		Model:      "test-model",
+		Launch:     l,
+		MCPServers: plan.MCPServers,
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,
 	}, nil
@@ -322,7 +352,7 @@ func (s *fakeSpawner) lastPerm() agent.PermissionMode {
 
 // lastWorkspace returns the SpawnPlan.Workspace the most recent Launch/
 // StartEngine call carried (GAP 2 threading proof).
-func (s *fakeSpawner) lastWorkspace() string {
+func (s *fakeSpawner) lastWorkspace() launch.WorkspaceAxis {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.workspaces) == 0 {
@@ -333,7 +363,7 @@ func (s *fakeSpawner) lastWorkspace() string {
 
 // lastDirtyTreeHandler returns the SpawnPlan.DirtyTreeHandler the most
 // recent Launch/StartEngine call carried.
-func (s *fakeSpawner) lastDirtyTreeHandler() operations.DirtyTreeHandler {
+func (s *fakeSpawner) lastDirtyTreeHandler() launch.DirtyTreeHandler {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.dirtyTreeHandlers) == 0 {
@@ -342,8 +372,8 @@ func (s *fakeSpawner) lastDirtyTreeHandler() operations.DirtyTreeHandler {
 	return s.dirtyTreeHandlers[len(s.dirtyTreeHandlers)-1]
 }
 
-func (s *fakeSpawner) ResumeContext(_ context.Context, plan *SpawnPlan, _ string) string {
-	return plan.Context
+func (s *fakeSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
+	return contextText
 }
 
 // awaitResolveGate parks Resolve, WITHOUT holding s.mu (a gated resolve that
@@ -582,4 +612,17 @@ func childRecv(t *testing.T, c *Coordinator, runID string, wait time.Duration) (
 		})
 	}
 	return out, err
+}
+
+// ownerLaunch is the test's resolved owner launch: the fields StartOwnedRun
+// reads off it, and nothing a resolver would decide.
+func ownerLaunch(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
+	return launch.Launch{
+		Identity:   sessions.Identity{Harp: harp},
+		Engine:     engine.Name(backend),
+		Label:      engine.LabelConfig{Label: label, Model: model},
+		Mode:       engine.Structured,
+		Permission: perm,
+		Cell:       launch.Cell{Workspace: workDir, Cleanup: func() error { return nil }},
+	}
 }

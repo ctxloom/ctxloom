@@ -28,8 +28,11 @@ session can grep straight to it.
   (`profiles.go`, `profile_transfer.go`, `profile_materialize.go`, `agents.go`).
 - Managed-harness apply: settings, MCP, context, commands, across backends
   (`hooks.go`, `manage.go`, `mcp_servers.go`, `tooling.go`).
-- Session index, feeds, resume, delegation, and one-shot launches
-  (`sessions.go`, `sessionfeed.go`, `resume.go`, `delegate.go`, `oneshot.go`).
+- The launch trunk — `StartRun` (mint, then the one resolver), the resolver's
+  ports (the assembler, the cells adapter, the endpoint minter), the
+  internal one-shots and the engine start over a resolved launch
+  (`launch.go`, `oneshot.go`, `delegate.go`); session index, feeds, resume
+  (`sessions.go`, `sessionfeed.go`, `resume.go`).
 - Vendor transcript import (`vendorreader*.go`) and Deferred-task trigger triage (`task_triggers*.go`).
 - The hand-maintained JSON-Schema target registry (`schematargets.go`).
 
@@ -67,7 +70,7 @@ flowchart TD
     ET -->|deny| WITHHELD["withheld ledger<br/>warnWithheld trust_gate.go:301"]
 
     ASM --> APPLY["ApplyHooks<br/>hooks.go:54<br/>settings / MCP / context / commands"]
-    ASM --> RUN["runResolvedAgent<br/>oneshot.go:315"]
+    ASM --> RUN["launch.Resolve via operations.StartRun<br/>launch.go"]
     ASM --> MAT["MaterializeProfile<br/>profile_materialize.go:57"]
     APPLY --> SURF["backends.Declared → Select → DeliverUnder<br/>-> native engine files"]
 ```
@@ -239,19 +242,24 @@ flowchart LR
 | `ResolveAgent` / `resolveAgentBinding` | `agents.go:357,383` | The single place engine-override precedence lives: compose profiles into context, resolve label/backend/model, resolve runtime and effective permissions. Callers: `cli/run.go`, `cli/doctor_cmd.go`, `coord/spawner.go`, `engine_session.go`. |
 | `resolveMember` | `agents.go:458` | Agent-name-or-bare-profile sugar for ensembles. |
 
-## Launch: one-shot, ensemble, delegation, engine sessions
+## Launch: the trunk, the one-shots, the engine start
 
-| Function | file:line | Contract |
+Every host-side launch enters through `launch.Resolve`
+([launch.md](./launch.md)); this package supplies the trunk and the ports.
+
+| Function | file | Contract |
 |---|---|---|
-| `RunOneshot` | `oneshot.go:59` | Assembles a profile's context, resolves label/backend/model/axes/gate, delegates to the launch tail. |
-| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `run --one-shot`: prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
-| `resolvedRunRequest` | `oneshot.go:122` | The already-resolved run; `Factory == nil` selects the isolating path. |
-| `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go:490,502` | Label → (backend, model); three-level precedence: override → profile LLM → primary role. |
-| `IsolationImageConfig` / `CellKindForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go` | Capability probes over `isolation.Policy`, declared here so `internal/adapters/isolation` need not import `agent`. |
-| `isolationGateErr` | `oneshot.go:286` | Turns `ClassIsolation` strictness findings into a member-fatal error unless degraded — the fail-loud isolation gate. |
-| `PrepareAgentChat` | `delegate.go:167` | Resolves the workspace axis, handles a dirty parent tree (commit / copy-snapshot / fail), prepares isolation, and picks the chat vs one-shot path. Callers: `coord/spawner.go:410,458`. |
-| `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |
-| `PreparedAgentChat.StartEngine` / `.Abort` | `delegate.go` | The StartRun launch and idempotent teardown. |
+| `StartRun` | `launch.go` | The trunk: `MintIdentity` (the harp assigned in the store, the liveness lock held), then `launch.Resolve`; a refused launch ends its own session. |
+| `LaunchDepsFor` / `App.LaunchDeps` | `launch.go` | Composes the resolver's ports over one generation: the composed engines, the assembler, the cells adapter, the endpoint minter, the session store, the host facts. |
+| `assembler` | `launch.go` | `launch.Assembler`: `AssembleContext` for the selection, `backends.AssembleManagedConfig` gated by the generation's executable gate for the surfaces (a withheld executable is named), the label's request-borne env. |
+| `Cells` / `PreparedCell` / `TransportOf` | `launch.go` | `launch.Cells`: the ONE place a workspace is prepared (`isolation.Prepare` along the degrade chain, the fail-loud gate typed as `launch.ErrRuntimeUnavailable`), the dirty parent tree settled for a worktree cell, the engine home bound by `HomeMode` (`BindAgentHome`); the cell carries the transport handle the plugin transport spawns from. |
+| `endpointMinter` | `launch.go` | `launch.EndpointMinter`: a reserved loopback port and a fresh bearer; carried on the launch, bound by nothing yet. |
+| `OneShot` (`StartOneShot`, `Turn`, `TurnWithModel`, `End`), `LazyOneShot`, `StartInternalOneShot`, `InternalSource` | `oneshot.go` | An internal one-shot: one minted harp, one Launch, many turns over the cell's transport, each recorded on the session's transcript; lazy start for a caller that may never turn. |
+| `StartEngine` / `EngineProcess` | `delegate.go` | Starts the runner process for a resolved launch through its cell's transport (docker-direct or a bare self-invoked runner) with the reach-back trio on the RUNNER's env — the coordinator's spawn half. |
+| `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. Called from `Cells.Prepare`. |
+| `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go` | Label → (backend, model) for `agent show` and the CLI's up-front `--llm` validation; the resolver maps the label itself. |
+| `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go` | Capability probes over a cell's `isolation.Policy`, for the CLI's container arms until the runner is the one process every cell starts. |
+| `isolationGateErr` | `oneshot.go` | Turns `ClassIsolation` strictness findings into a cell-fatal error unless degraded — the fail-loud isolation gate. |
 
 ## Sessions, feeds and transcripts
 
@@ -308,8 +316,10 @@ flowchart LR
 8. **Every `Manager.Update` body is one transaction**: existence check and write happen inside it
    (`AddMCPServer`, `RemoveMCPServer`, `SetAgent`, `RemoveAgent`, `SetDefaultLLM`,
    `SetStatusline`, `SetMCPAutoRegister`).
-9. **`runResolvedAgent` (`oneshot.go:315`) is the single non-interactive launch tail.** Delegated
-   child turns funnel through it directly; `run --one-shot` mirrors the same tail.
+9. **`launch.Resolve` is the single launch constructor and `StartRun` the trunk.** The CLI's
+   run, init's probe and discovery session, every internal one-shot and the coordinator's
+   spawns are `launch.Source` values; nothing prepares a workspace, floors a posture or
+   mints an endpoint anywhere else.
 10. **Path confinement for authored bundles is `requireSafeBundlePath`** (`bundles.go:926`):
     absolute, under a configured dir, and no symlink in any component.
 11. **`AssembleContext` (`context.go:112`) is the single composition entry point.** `hooks.go`'s
@@ -320,7 +330,7 @@ flowchart LR
 
 - **Called by:** `internal/adapters/cli` (all porcelain), the MCP server,
   `internal/adapters/cli/tui`, and `internal/core/coord` (`AssignSession`, `MarkSessionEnded`,
-  `WatchSessionFeed`, `ResolveAgent`, `PrepareAgentChat`).
+  `WatchSessionFeed`, `ResolveBackend`, `LaunchDepsFor`, `StartEngine`).
 - **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/adapters/remote`, `internal/core/profiles`,
   `internal/core/trust`, `internal/adapters/signing`, `internal/adapters/agents`, `internal/core/sessions`, `internal/lm/*`,
   `internal/adapters/git`, `internal/core/paths`, `internal/adapters/projectroot`, `internal/shared/*`.

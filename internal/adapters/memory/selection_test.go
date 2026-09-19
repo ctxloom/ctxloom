@@ -219,7 +219,7 @@ func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}, clientFactory: pb.MockClientFactory(mock)}
 	sel := unreflectedSelection(t)
 
 	got := c.repairResults(context.Background(), sel)
@@ -245,7 +245,7 @@ func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
 			return 0, errors.New("plugin unreachable")
 		},
 	}
-	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}, clientFactory: pb.MockClientFactory(mock)}
 	sel := unreflectedSelection(t)
 	before := sel.Entries[sel.Repairs[0].Index].ToolOutput
 
@@ -271,7 +271,7 @@ func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}, clientFactory: pb.MockClientFactory(mock)}
 	sel := unreflectedSelection(t)
 	before := sel.Entries[sel.Repairs[0].Index].ToolOutput
 
@@ -293,7 +293,7 @@ func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}, clientFactory: pb.MockClientFactory(mock)}
 
 	sel := selectForDistill([]agent.SessionEntry{
 		{Type: agent.EntryTypeToolUse, ToolName: "Bash", ToolInput: []byte(`{"command":"go vet ./..."}`)},
@@ -348,7 +348,7 @@ func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T)
 			return 0, nil
 		},
 	}
-	c := &Compactor{config: CompactionConfig{LLM: "test-plugin"}, clientFactory: pb.MockClientFactory(mock)}
+	c := &Compactor{config: CompactionConfig{Run: runnerOver(mock)}, clientFactory: pb.MockClientFactory(mock)}
 
 	if got := c.repairResults(context.Background(), sel); got != candidates {
 		t.Fatalf("recovered %d of %d", got, candidates)
@@ -440,6 +440,7 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 	c, err := NewCompactor(CompactionConfig{
 		BackendOverride: &mockBackend{history: history},
 		ClientFactory:   pb.MockClientFactory(mock),
+		Run:             runnerOver(mock),
 		OutputDir:       t.TempDir(),
 		HarpName:        "e2e-under-test",
 	})

@@ -12,7 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // TestChildVerbosity pins the env-only diagnostics knob: CTXLOOM_VERBOSE=1
@@ -115,7 +115,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	// spurious drift when nothing changed).
 	plan, err = s.Resolve(context.Background(), "dev")
 	require.NoError(t, err)
-	assert.Equal(t, agent.PermissionPlan, plan.Perm)
+	assert.Equal(t, "plan", plan.Permission, "the binding's declared posture rides the plan; the launch floors it")
 
 	// The mid-session mutation: config.yaml gains a BRAND NEW agent that
 	// never existed in the snapshot captured at newProdSpawner time.
@@ -127,11 +127,11 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	freshPlan, err := s.Resolve(context.Background(), "fresh")
 	require.NoError(t, err)
 	assert.Equal(t, "claude-code", freshPlan.Backend)
-	assert.Equal(t, agent.PermissionBypass, freshPlan.Perm, "the newly-written permission enum resolves, not a stale snapshot")
+	assert.Equal(t, "bypass", freshPlan.Permission, "the newly-written permission enum resolves, not a stale snapshot")
 
 	// The generation the FIRST spawn captured never mutates: a reload is a
 	// new generation, not a rewrite of the one already published.
-	_, ok := plan.cfg.Agent("fresh")
+	_, ok := plan.snap.Config.Agent("fresh")
 	assert.False(t, ok, "the first spawn's generation is never rewritten")
 }
 
@@ -234,7 +234,7 @@ func TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan(t *testing.T) {
 		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "worktree", "")
 		require.NoError(t, err)
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Equal(t, "worktree", sp.lastWorkspace())
+		assert.Equal(t, launch.WorkspaceWorktree, sp.lastWorkspace())
 	})
 
 	t.Run("omitting workspace carries no override", func(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // Child states on the §6a roster (the wire vocabulary of
@@ -34,7 +34,7 @@ type RunRecord struct {
 	// StartRun/RunStarted.parent_run_id on the read-side roster projection
 	// (ListRunsResult.RunInfo).
 	ParentRunID string
-	Runtime     agent.RuntimeAxis
+	Runtime     launch.RuntimeAxis
 	CredHash    string
 	Depth       int
 	// OneShot mirrors Identity.OneShot — see its doc.

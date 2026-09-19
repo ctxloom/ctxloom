@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // oneShotSpawner is startRunSpawner's one-shot sibling: a migrated,
@@ -19,7 +18,7 @@ import (
 // actually tears the engine down at each boundary.
 func oneShotSpawner(mk func() *scriptedChat) *fakeSpawner {
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code", oneshot: true},
 	}, nil)
 	sp.nextChat = mk
@@ -314,7 +313,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	// A resume-capable, live-confirmed engine but a PERSISTENT plan: the gate's
 	// static half is false, so the boundary must NOT tear down.
 	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass", runtime: agent.RuntimeContainerRootless, profiles: []string{"p1"},
+		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code"}, // oneshot:false
 	}, nil)
 	sp.nextChat = func() *scriptedChat { return &scriptedChat{resumable: true} }

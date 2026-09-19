@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -213,7 +214,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 	}
 
 	if req.Runtime != nil {
-		if _, rterr := agent.ParseRuntimeAxis(*req.Runtime); rterr != nil {
+		if _, rterr := launch.ParseRuntimeAxis(*req.Runtime); rterr != nil {
 			return fmt.Errorf("agent %q: %w", name, rterr)
 		}
 	}
@@ -301,7 +302,7 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 	// is written for an engine that cannot authenticate inside a container,
 	// and only the launch discovers it. The runtime axis is a security
 	// boundary, so the typo is refused here instead.
-	axis, rterr := agent.ParseRuntimeAxis(runtime)
+	axis, rterr := launch.ParseRuntimeAxis(runtime)
 	if rterr != nil {
 		return fmt.Errorf("agent %q: %w", name, rterr)
 	}
@@ -530,12 +531,12 @@ type ResolvedAgent struct {
 	Surfaces map[agent.SurfaceKind]string `json:"-"`
 	// Runtime is the RESOLVED runtime axis for this agent (its own choice →
 	// project `runtime:` default → RuntimeHost), already PARSED by
-	// resolveAgentBinding via agent.ParseRuntimeAxis — a typo'd runtime string
+	// resolveAgentBinding via launch.ParseRuntimeAxis — a typo'd runtime string
 	// on either source fails the resolve loudly rather than reaching here as
 	// an unvalidated string a later caller would have to re-interpret. Only
 	// the runtime axis resolves here: the WORKSPACE axis is a session trait
 	// the invocation supplies; the two meet in isolation.Axes at launch.
-	Runtime agent.RuntimeAxis `json:"runtime,omitempty"`
+	Runtime launch.RuntimeAxis `json:"runtime,omitempty"`
 	// Permissions is the agent's DECLARED launch-time permission posture (may be
 	// empty). The run resolver applies the engine-label default and the built-in
 	// fallback on top; the `run --permissions` flag overrides it.
@@ -560,11 +561,11 @@ type ResolvedAgent struct {
 	// policy — always agents.HomeModeSession or agents.HomeModeHost,
 	// never empty, whatever the binding declared (agents.ParseHomeMode's
 	// undeclared/unresolvable → host default already applied). It is the
-	// ONE thing every invocation path (cli/run.go's prepareWorkspace,
-	// operations/delegate.go's bindIsolatedSpawn) threads into
-	// InTreeAgentHome.HomeMode — a run with NO resolved agent binding at
-	// all never has a ResolvedAgent to read this from, and so falls back to
-	// the real host home by construction, not by this field's value.
+	// value `agent show` reports; the launch resolver reads the same
+	// declaration off the binding itself (launch.HomeMode on the
+	// CellRequest) and the cells adapter threads it into
+	// InTreeAgentHome.HomeMode — a launch with NO binding keeps the real host
+	// home by construction, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
 }
 
@@ -657,7 +658,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	if runtimeStr == "" {
 		runtimeStr = cfg.GetRuntime()
 	}
-	runtime, rterr := agent.ParseRuntimeAxis(runtimeStr)
+	runtime, rterr := launch.ParseRuntimeAxis(runtimeStr)
 	if rterr != nil {
 		return nil, fmt.Errorf("agent %q: %w", name, rterr)
 	}

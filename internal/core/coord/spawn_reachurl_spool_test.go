@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -43,7 +43,7 @@ func TestSpawnReachURL_RefusesInEveryMode(t *testing.T) {
 		strictness.SetDegraded(degraded)
 		c := newUnserved(t)
 
-		url, err := c.spawnReachURL("child-harp", agent.RuntimeContainerRootless)
+		url, err := c.spawnReachURL("child-harp", launch.RuntimeRootless)
 
 		require.Error(t, err,
 			"degraded=%v must NOT launch a child whose runner could never dial home: its work would be lost", degraded)

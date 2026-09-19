@@ -362,29 +362,13 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 // as precedent. See taskloom row urgent-staunch.
 //
 // The audit behind this ruling (same row) found exactly one production path
-// to this function (setupViaCells, gated on req.CellKind == CellKindShared)
-// and confirmed every caller that can reach it with CellKind resolved to
-// Shared also carries a non-empty harp by construction: `ctxloom run`
-// (cli/run.go) stamps CTXLOOM_SESSION_HARP into its env before Setup ever
-// runs; the init discovery launch (cli/init_launch.go's discoveryRunRequest)
-// documents its harp as "never \"\" on a real launch"; and the oneshot
-// fan-out's CellKindForPolicy ties CellKind==Shared to isolation.Policy=None,
-// which is exactly the branch that also keeps SkipSetup=true (so Setup, and
-// this function, never run at all) — covering even the harp-less auth-ping
-// probe.
-//
-// THAT LAST LEG IS NO LONGER TRUE, and it is the one the auth-ping probe
-// rested on. SkipSetup does not exist any more: launchform.go replaced it
-// ("not a mode but a BYPASS"), and Setup now runs on every turn, so
-// cli/init_launch.go's pingEngineAuth — a throwaway liveness probe that
-// passes no ExtraEnv and therefore no harp — reaches this function and
-// refuses. It was invisible while a Setup failure was downgraded to a warning
-// and the turn launched anyway; feeble-sway made that refusal real and the
-// probe started failing loudly. The probe's honest form is LaunchFormMinimal
-// (a bare model call, delivering nothing), which returns before any root is
-// resolved; it cannot declare one today because RunOneshotRequest carries no
-// form. Tracked separately — do not paper over it here with a synthesised
-// harp, which is what this whole doc exists to forbid.
+// to this function (setupViaCells, gated on req.CellKind == CellKindShared).
+// Every launch that reaches it carries a harp by construction: every launch
+// is minted before it is resolved (operations.StartRun), and the codec
+// stamps the identity carriers onto the request (coordgrpc.EncodeLaunch)
+// — the auth probe and the internal one-shots included, each a session of
+// its own. Do not paper over a missing harp here with a synthesised one,
+// which is what this whole doc exists to forbid.
 var ErrSharedScratchNoHarp = errors.New("delivery: sharedScratchDir has no harp to derive a private scratch dir from — this is a programming error in the caller, not a case to fall back from; CellKindShared delivery must carry a resolvable CTXLOOM_SESSION_HARP")
 
 // sharedScratchDir is where a SharedCell's race-safe surfaces land: the

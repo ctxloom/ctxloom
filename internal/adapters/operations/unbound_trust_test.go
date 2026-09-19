@@ -31,6 +31,6 @@ func TestDeliveryEntryPoints_RefuseAnUnboundConfig(t *testing.T) {
 	_, err = AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: []string{"p"}})
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "AssembleContext")
 
-	_, err = RunOneshot(ctx, cfg, RunOneshotRequest{Task: "probe"})
-	require.ErrorIs(t, err, config.ErrTrustUnbound, "RunOneshot")
+	_, err = StartInternalOneShot(ctx, cfg, "primary", "", t.TempDir(), "", 0)
+	require.ErrorIs(t, err, config.ErrTrustUnbound, "StartInternalOneShot")
 }

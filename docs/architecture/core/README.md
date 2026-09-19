@@ -19,6 +19,7 @@ here.
 | [config.md](./config.md) | `internal/core/config` | `config.yaml` discovery, layering, migration and persistence; inline profiles; bundle seeding; the trust root union. |
 | [profiles.md](./profiles.md) | `internal/core/profiles` | Directory profiles, the schema-upgrade pipeline, and parent-graph resolution into a `ResolvedProfile`. |
 | [operations.md](./operations.md) | `internal/adapters/operations` | The frontend-neutral orchestration layer: bootstrap, sync, lock, assemble, apply, review, launch. |
+| [launch.md](./launch.md) | `internal/core/launch` | The resolved launch: one Source, one Resolve, one Launch; the floor, the cell, the plan, the endpoint; the internal one-shots. |
 | [premise-selection.md](./premise-selection.md) | `internal/adapters/operations` | Conditional fragments: withholding, the premise index an agent selects from, and what the mechanism measurably costs and saves. |
 | [trust.md](./trust.md) | `internal/core/trust` + the gate | The trust vocabulary and addressing, the seven-step decision cascade, the state machine, and the exposure chokes. |
 | [signing.md](./signing.md) | `internal/adapters/signing` | The signature envelope, the countersignature preimage, and the publisher state machine. |

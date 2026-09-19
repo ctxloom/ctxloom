@@ -846,8 +846,9 @@ func p4Cells() []probeCell {
 	//
 	// The warning flag is the independent confirmation that the ONE line of
 	// config.yaml separating the pair really reached the resolver:
-	// warnPlanOneshotCancels fires only when a plan posture survives
-	// resolvePermissionMode's ONESHOT floor into the run, and it fired on
+	// the plan-oneshot warning (cli's warnPosture) fires only when a plan
+	// posture survives the launch resolver's headless floor into the run,
+	// and it fired on
 	// exactly the cell that bound `permissions: plan`. So the two runs differed
 	// in posture and not merely in outcome — which is the question a lone green
 	// plan cell could never answer.

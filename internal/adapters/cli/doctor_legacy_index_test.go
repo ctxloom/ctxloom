@@ -15,10 +15,11 @@ import (
 
 // --- DOCTOR-CHECK-LEGACY-INDEX-y5 --------------------------------------------
 
-// doctorLegacyIndexRemedy is the fix every wrong-state assertion below expects
-// verbatim: the sidecar under each harp directory is the record, so the only
+// wantLegacyIndexRemedy is the fix every wrong-state assertion below expects,
+// as a literal rather than the production constant so the wording itself is
+// what is pinned: the sidecar under each harp directory is the record, so the only
 // correct action on a pre-rename index is to remove it.
-const doctorLegacyIndexRemedy = "delete it; the sidecars are the record"
+const wantLegacyIndexRemedy = "delete it; the sidecars are the record"
 
 func TestDoctorCheckLegacyIndex_RightState_NoSessionsDirYet(t *testing.T) {
 	testsupport.Isolate(t)
@@ -55,7 +56,7 @@ func TestDoctorCheckLegacyIndex_WrongState_NamesTheIndexWithRemedy(t *testing.T)
 	assert.Equal(t, doctorLegacyIndexMarker, check.Marker)
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stale, "the finding names the file by its full path")
-	assert.Contains(t, check.Detail, doctorLegacyIndexRemedy)
+	assert.Contains(t, check.Detail, wantLegacyIndexRemedy)
 
 	_, statErr := os.Stat(stale)
 	assert.NoError(t, statErr, "doctor reports; it does not delete")
@@ -76,7 +77,7 @@ func TestDoctorCheckLegacyIndex_WrongState_NamesTheMigrationMarkerToo(t *testing
 	check := doctorCheckLegacyIndex()
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, migrated)
-	assert.Contains(t, check.Detail, doctorLegacyIndexRemedy)
+	assert.Contains(t, check.Detail, wantLegacyIndexRemedy)
 
 	stale := filepath.Join(sessionsRoot, paths.IndexFileName)
 	require.NoError(t, os.WriteFile(stale, []byte("sessions: []\n"), 0o644))
@@ -115,5 +116,5 @@ func TestDoctorCmd_ReportCarriesTheLegacyIndexCheck(t *testing.T) {
 	require.NotNil(t, found, "the legacy-index check is missing from the report")
 	assert.Equal(t, doctorWarn, found.Status)
 	assert.Contains(t, found.Detail, stale)
-	assert.Contains(t, found.Detail, doctorLegacyIndexRemedy)
+	assert.Contains(t, found.Detail, wantLegacyIndexRemedy)
 }

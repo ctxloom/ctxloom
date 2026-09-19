@@ -619,8 +619,9 @@ type BundleFragment struct {
 // verifying approval.
 type BundleCommand struct {
 	ItemBody    `yaml:",inline"`
-	Description string     `yaml:"description,omitempty"`
-	LLM         LLMExports `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
+	Description string       `yaml:"description,omitempty"`
+	LLM         LLMExports   `yaml:"llm,omitempty"` // Per-LLM export settings (e.g. claude-code slash-command config)
+	Exports     EngineBlocks `yaml:"exports,omitempty"`
 }
 
 // BundleSkill defines an Agent Skill package within a bundle: a directory
@@ -646,11 +647,12 @@ type BundleCommand struct {
 // Every other field carries a `surface:` classification; the reflective
 // classification test walks this struct like the text kinds.
 type BundleSkill struct {
-	Path  string                   `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
-	Tags  []string                 `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
-	Notes string                   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
-	Files map[string]SkillFileMeta `yaml:"files,omitempty"`                    // GENERATED per-file manifest
-	LLM   SkillLLMExports          `yaml:"llm,omitempty"`                      // Per-engine enablement only (name/description live in SKILL.md)
+	Path    string                   `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
+	Tags    []string                 `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
+	Notes   string                   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
+	Files   map[string]SkillFileMeta `yaml:"files,omitempty"`                    // GENERATED per-file manifest
+	LLM     SkillLLMExports          `yaml:"llm,omitempty"`                      // Per-engine enablement only (name/description live in SKILL.md)
+	Exports EngineBlocks             `yaml:"exports,omitempty"`
 }
 
 // SkillFileMeta is one manifest entry as recorded in bundle.yaml: a file's

@@ -443,9 +443,10 @@ Feature: bundle — the container authored content lives in, and everything that
   Rule: Publishing carries a signature rather than deciding one on the spot
 
     A signature belongs to the bundle, not to the publish: `bundle sign` writes
-    a detached `<name>.yaml.sig` sibling and `push` CARRIES it, so the key that
-    signs never has to be on the machine that publishes. `--sign` is sugar for
-    signing first; `--no-sign` means publish bare. Asking for both in one
+    the tree's SHA256SUMS manifest and its `.sigs/` entry, and `push` CARRIES
+    the tree with them, so the key that signs never has to be on the machine
+    that publishes. `--sign` is sugar for signing first; `--no-sign` skips
+    that sugar. Asking for both in one
     invocation is not a preference the command can resolve, and guessing either
     way would publish something the operator did not ask for.
 

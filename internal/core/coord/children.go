@@ -847,9 +847,8 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		c.failChild(rt, err)
 		return
 	}
-	// The composed context leads the first turn — the same join the legacy
-	// path's leadContextIn performed, done once here (the runner writes
-	// input.prompt verbatim as the first turn).
+	// The composed context leads the first turn, joined once here (the runner
+	// writes input.prompt verbatim as the first turn).
 	first := operations.JoinLeadBlocks(contextText, prompt)
 	_ = c.issueStartRun(ctx, rt, hashToken(token), spec, first, engine.Model, resumeSessionID)
 }

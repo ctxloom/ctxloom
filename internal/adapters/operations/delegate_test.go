@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -18,7 +16,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -290,66 +287,6 @@ func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
 		require.NoError(t, err)
 		p.Abort()
 	})
-}
-
-// TestPrepareAgentChat_OneshotFallback pins the no-structured-chat path
-// ("direct Execute for backends without ACP"): each turn runs as an
-// independent oneshot through the fan's launch tail, with the agent's
-// composed context as the lead fragment and the turn text as the prompt, and
-// the output surfaces as an assistant entry + turn boundary.
-//
-// Backend is a deliberately UNREGISTERED name: every backend the registry
-// actually holds now implements agent.StructuredChat, so
-// backends.Get(rs.Backend) returning nil — the
-// PrepareAgentChat capability check's OTHER route to "!ok" — is the only way
-// left to exercise this fallback with a real registry lookup. The test's own
-// Factory bypasses real backend construction entirely for the actual
-// execution, so the name only matters for that one capability check.
-func TestPrepareAgentChat_OneshotFallback(t *testing.T) {
-	resetStrictness(t)
-	stub := &stubClient{echo: true}
-	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-		Resolved:    &ResolvedAgent{Name: "w1", Backend: "no-structured-chat-backend", Label: "agy", Context: "CTX-LEAD"},
-		WorkDir:     t.TempDir(),
-		Permissions: agent.PermissionBypass,
-		Factory:     func(string, string, int) (pb.Client, error) { return stub, nil },
-	})
-	require.NoError(t, err)
-
-	launch, err := p.Start(context.Background())
-	require.NoError(t, err)
-	assert.True(t, launch.Oneshot, "an unregistered backend name has no structured chat — the oneshot fallback drives it")
-	defer launch.Close()
-
-	launch.In <- agent.ChatMessage{Text: "do the thing"}
-
-	var contents []string
-	sawComplete := false
-	timeout := time.After(5 * time.Second)
-	for !sawComplete {
-		select {
-		case ev := <-launch.Events:
-			switch {
-			case ev.Entry != nil:
-				contents = append(contents, ev.Entry.Content)
-			case ev.Complete != nil:
-				sawComplete = true
-			}
-		case <-timeout:
-			t.Fatal("no turn boundary from the oneshot fallback")
-		}
-	}
-	require.NotEmpty(t, contents)
-	assert.Equal(t, "do the thing", contents[0], "the turn text is the oneshot prompt")
-
-	require.NotNil(t, stub.gotReq)
-	require.Len(t, stub.gotReq.Fragments, 1)
-	assert.Equal(t, "CTX-LEAD", stub.gotReq.Fragments[0].Content, "the composed context leads every oneshot turn")
-	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
-
-	close(launch.In)
-	for range launch.Events { // drain to stream end
-	}
 }
 
 // claudeChatPrepareRequest builds an AgentChatRequest for a claude-code
@@ -1152,98 +1089,6 @@ func TestPrepareAgentChat_DirtyTreeHandler_EmptyFallsBackToProjectDefault(t *tes
 	assert.Nil(t, p)
 }
 
-// hangingChatClient is a pb.Client whose Chat call never returns on its own —
-// it blocks until the ctx it was given is cancelled, standing in for a
-// legacy go-plugin dial that is stuck (a wedged subprocess, a container whose
-// grpc connection never comes up). killed closes when Kill() is called, so a
-// test can assert the stuck client was actually torn down rather than merely
-// abandoned.
-type hangingChatClient struct {
-	killed   chan struct{}
-	killOnce bool
-}
-
-func (h *hangingChatClient) Chat(ctx context.Context, _ agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-	<-ctx.Done()
-	return nil, nil, nil, ctx.Err()
-}
-func (h *hangingChatClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (h *hangingChatClient) Run(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (int32, error) {
-	return 0, nil
-}
-func (h *hangingChatClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	return &pb.RunResult{}, nil
-}
-func (h *hangingChatClient) GetSession(context.Context, string) (*agent.Session, error) {
-	return nil, nil
-}
-func (h *hangingChatClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
-	return nil, nil, nil
-}
-func (h *hangingChatClient) ListSessions(context.Context) ([]agent.SessionMeta, error) {
-	return nil, nil
-}
-func (h *hangingChatClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
-	return nil, nil
-}
-func (h *hangingChatClient) Kill() {
-	if !h.killOnce {
-		h.killOnce = true
-		close(h.killed)
-	}
-}
-
-// TestPrepareAgentChat_Start_ChatDialDoesNotHangForever is the red/green pin
-// for the legacy go-plugin Chat dial's missing bound (spawner.Launch /
-// prep.Start's client.Chat call, internal/adapters/operations/delegate.go). Before the
-// fix, Start blocked on client.Chat until its ctx was externally cancelled —
-// there was no internal budget at all, so a wedged backend hung the launch
-// indefinitely (confirmed red: Start did not return within a 2s watchdog
-// window with no ChatDialTimeout seam to inject). Now Start races the dial
-// against AgentChatRequest.ChatDialTimeout (defaultChatDialTimeout in
-// production; injected short here so the test asserts the real behavior
-// without waiting out the real 5-minute budget) and fails loud within it.
-func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
-	resetStrictness(t)
-	client := &hangingChatClient{killed: make(chan struct{})}
-	const dialTimeout = 50 * time.Millisecond
-	p, err := PrepareAgentChat(context.Background(), &config.Config{}, AgentChatRequest{
-		Resolved:        &ResolvedAgent{Name: "builder", Backend: "mock", Label: "fast", Runtime: "host"},
-		WorkDir:         t.TempDir(),
-		Factory:         func(string, string, int) (pb.Client, error) { return client, nil },
-		ChatDialTimeout: dialTimeout,
-	})
-	require.NoError(t, err)
-	defer p.Abort()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel) // reaps client.Chat's own goroutine once dialChat gives up on it
-
-	done := make(chan struct{})
-	var startErr error
-	start := time.Now()
-	go func() {
-		_, startErr = p.Start(ctx)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		elapsed := time.Since(start)
-		require.Error(t, startErr, "a chat dial that never completes must fail loud, not hang forever")
-		assert.Contains(t, startErr.Error(), "mock", "the failure names the backend that never dialed")
-		assert.Less(t, elapsed, 2*time.Second, "must fail within its injected budget, nowhere near the real 5m default")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Start did not return within 2s despite a 50ms injected ChatDialTimeout — the bound is not being honored")
-	}
-
-	select {
-	case <-client.killed:
-	case <-time.After(2 * time.Second):
-		t.Error("expected the wedged client to be Kill()ed (via reapLateChatDial) once its dial was declared failed")
-	}
-}
-
 // TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"
 // reproduces an untracked SYMLINK, not just an untracked regular file.
 // `git ls-files --others` lists symlinks exactly like regular
@@ -1299,78 +1144,6 @@ func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
 	err := applyCopySnapshot(context.Background(), &git.Fake{}, target, snap)
 	require.Error(t, err, "an unreproducible entry must fail loud, never be skipped silently")
 	assert.Contains(t, err.Error(), "pipe", "the refusal names the path it could not reproduce")
-}
-
-// TestStartOneshot_CloseTerminatesTheDriverGoroutine pins the real half of
-// the fix: AgentChatLaunch.Close is the orchestrator's "this child is over"
-// lever (coord.terminateRun calls it for agent_stop, launch failure and
-// every other terminal cause), and on the oneshot fallback it used to only
-// cancel the per-turn context — the driver goroutine stayed parked on its
-// input channel forever, so Events/Errs never closed and the coordinator's
-// driveChild select stayed alive until the whole coordinator shut down.
-//
-// The claimed DEADLOCK (endChild draining Errs before closing In) is a
-// DIFFERENT proposition and is refuted by construction: endChild is only
-// reached when Events closes, and on this path Events closing already
-// implies In was closed. What was real is the parked goroutine, which is
-// what this pins — Close alone must wind the launch down.
-func TestStartOneshot_CloseTerminatesTheDriverGoroutine(t *testing.T) {
-	resetStrictness(t)
-	p := &PreparedAgentChat{
-		cfg:     config.NewFixture(config.Fixture{}),
-		oneshot: true,
-		req: AgentChatRequest{
-			Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast"},
-			WorkDir:  t.TempDir(),
-		},
-	}
-	launch := p.startOneshot(context.Background())
-	require.True(t, launch.Oneshot)
-
-	launch.Close()
-
-	select {
-	case _, ok := <-launch.Events:
-		assert.False(t, ok, "Events must be CLOSED, not carrying a late event")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Events never closed after Close() — the oneshot driver goroutine is parked forever")
-	}
-	select {
-	case _, ok := <-launch.Errs:
-		assert.False(t, ok, "Errs must be CLOSED")
-	case <-time.After(2 * time.Second):
-		t.Fatal("Errs never closed after Close()")
-	}
-}
-
-// TestStartOneshot_ClosingInStillTerminates keeps the pre-existing wind-down
-// route working: the orchestrator (coord.endChild) closes In as its own
-// last act, and that must still close Events and Errs. Close() gaining its
-// own exit must not become the ONLY way out — and, critically, Close must
-// never itself close In, because endChild closes In too and a second close
-// would panic.
-func TestStartOneshot_ClosingInStillTerminates(t *testing.T) {
-	resetStrictness(t)
-	p := &PreparedAgentChat{
-		cfg:     config.NewFixture(config.Fixture{}),
-		oneshot: true,
-		req: AgentChatRequest{
-			Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast"},
-			WorkDir:  t.TempDir(),
-		},
-	}
-	launch := p.startOneshot(context.Background())
-
-	in := launch.In
-	close(in)
-	launch.Close() // the orchestrator's real order: close In, THEN Close — must not double-close
-
-	select {
-	case _, ok := <-launch.Events:
-		assert.False(t, ok)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Events never closed after In was closed")
-	}
 }
 
 // TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking pins the
@@ -1547,9 +1320,9 @@ func TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce(t *testing.T) {
 }
 
 // TestPrepareAgentChat_EmptyComposedContextIsAnnounced pins the zero-context
-// floor. Both delegated launch paths funnel through PrepareAgentChat, and it
+// floor. The delegated launch funnels through PrepareAgentChat, and it
 // resolved the lead context with no floor: req.Context, else rs.Context,
-// else nothing at all. leadContextIn then prepends "" — the child runs with ZERO ctxloom
+// else nothing at all — the child runs with ZERO ctxloom
 // bytes while agent_run reports a healthy spawn. That is this project's
 // signature failure mode (exit 0, success message, nothing delivered), and
 // the composed-context case is NOT covered by resolveAgentBinding's existing
@@ -1606,96 +1379,3 @@ func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
 	defer p.Abort()
 	assert.NotContains(t, warnings.String(), "zero bytes")
 }
-
-// TestPrepareAgentChat_BothLaunchPathsShareOneResolution pins a claim that
-// turned out to be REFUTED. The claim is that AgentChatRequest and
-// PreparedAgentChat are each "two objects" — a legacy-Chat prep and a
-// StartRun prep — because a few fields (contextText, and the request's
-// Context/MCPServers/ResumeSessionID/ChatDialTimeout) are read by only one of
-// them.
-//
-// One shape, deliberately. Everything load-bearing is SHARED and resolved
-// exactly once: the workspace axis and its dirty-parent-tree decision, the
-// isolation prepare, the resolved (never-aliased) model, the MCP command
-// override, the workspace env and the teardown. That is the point —
-// coord/spawner.go composes both paths' request through ONE chatRequest
-// helper whose doc states the reason ("so a field cannot land on one path and
-// be forgotten on the other"), and each per-path field carries a doc saying
-// which path reads it. Splitting the type would give the two launch paths two
-// preps that can drift, reintroducing exactly what the shared shape prevents;
-// and nothing is lost on the StartRun side, which receives the same composed
-// context through runChildViaStartRun rather than through this field.
-//
-// So this pins the invariant instead: both launch halves report the SAME
-// resolution. It goes red the moment a split lets one path resolve its own.
-func TestPrepareAgentChat_BothLaunchPathsShareOneResolution(t *testing.T) {
-	resetStrictness(t)
-	workDir := t.TempDir()
-	client := &fakeChatClient{}
-	started := false
-	p, err := PrepareAgentChat(context.Background(), config.NewFixture(config.Fixture{}), AgentChatRequest{
-		Resolved: &ResolvedAgent{Name: "coder", Backend: "mock", Label: "fast", Runtime: "host", Model: "resolved-model", Context: "lead"},
-		WorkDir:  workDir,
-		Env:      map[string]string{"CTXLOOM_SESSION_HARP": "ample-tidy-quail"},
-		Factory:  func(string, string, int) (pb.Client, error) { return client, nil },
-		Starter: func(context.Context) (*isolation.RunnerHandle, error) {
-			started = true
-			return &isolation.RunnerHandle{Name: "fake", Kill: func() {}}, nil
-		},
-	})
-	require.NoError(t, err)
-
-	launch, serr := p.Start(context.Background())
-	require.NoError(t, serr)
-	require.NotNil(t, launch)
-	require.NotNil(t, client.gotReq, "the legacy dial must have opened")
-
-	eng, eerr := p.StartEngine(context.Background())
-	require.NoError(t, eerr)
-	require.True(t, started, "the StartRun half must have launched its runner")
-
-	assert.Equal(t, client.gotReq.WorkDir, eng.WorkDir, "both halves run the child in the SAME resolved workspace")
-	assert.Equal(t, client.gotReq.Model, eng.Model, "…against the same resolved model")
-	assert.Equal(t, "ample-tidy-quail", client.gotReq.Env["CTXLOOM_SESSION_HARP"], "…with the same ambient identity")
-	assert.Equal(t, "ample-tidy-quail", eng.Env["CTXLOOM_SESSION_HARP"])
-}
-
-// fakeChatClient is a minimal pb.Client that records the ChatRequest it
-// received, so a test can assert WHAT the engine was told to run with
-// (WorkDir, Model, Env). Distinct from oneshot_test.go's stubClient, which
-// records the RunStart of the Run path instead and returns nils from Chat.
-type fakeChatClient struct {
-	gotReq *agent.ChatRequest
-}
-
-func (c *fakeChatClient) Chat(_ context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-	reqCopy := req
-	c.gotReq = &reqCopy
-	in := make(chan agent.ChatMessage, 1)
-	events := make(chan agent.ChatEvent, 1)
-	events <- agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "engine-marker"}}
-	close(events)
-	errs := make(chan error, 1)
-	close(errs)
-	return in, events, errs, nil
-}
-func (c *fakeChatClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (c *fakeChatClient) Run(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (int32, error) {
-	return 0, nil
-}
-func (c *fakeChatClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	return &pb.RunResult{}, nil
-}
-func (c *fakeChatClient) GetSession(context.Context, string) (*agent.Session, error) {
-	return nil, nil
-}
-func (c *fakeChatClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
-	return nil, nil, nil
-}
-func (c *fakeChatClient) ListSessions(context.Context) ([]agent.SessionMeta, error) {
-	return nil, nil
-}
-func (c *fakeChatClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
-	return nil, nil
-}
-func (c *fakeChatClient) Kill() {}

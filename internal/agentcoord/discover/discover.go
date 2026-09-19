@@ -5,7 +5,7 @@
 // given project's session).
 //
 // Deliberately a LEAF package: internal/core/coord imports
-// internal/adapters/operations (children.go's AgentChatLaunch/JoinLeadBlocks), so
+// internal/adapters/operations (children.go's JoinLeadBlocks), so
 // internal/adapters/operations — this discovery mechanism's only production consumer
 // (sessionfeed.go) — cannot import coord without a cycle.
 //

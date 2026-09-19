@@ -3,15 +3,12 @@ package coord
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 )
 
 // slotsIdleWith reports whether the execution-slot semaphore has EXACTLY
@@ -51,45 +48,6 @@ func waitForSlotWaiter(t *testing.T, s *semaphore.Weighted) {
 		"an acquirer must actually park on the execution-slot cap before the terminal races it")
 }
 
-// blockingLaunchSpawner records the first legacy Launch and then HOLDS it, so
-// a run that reaches Launch cannot quietly give its execution slot back at its
-// own stream end. Without the hold the cap-shrink defect is INVISIBLE: the
-// terminated run goes on to launch, drive a fake engine to completion, and
-// release the slot at endChild — the pool recovers by accident and the
-// assertion passes with the bug still in place.
-type blockingLaunchSpawner struct {
-	*fakeSpawner
-	once     sync.Once
-	launched chan struct{}
-	hold     chan struct{}
-}
-
-func newBlockingLaunchSpawner(t *testing.T, agents map[string]fakeAgent) *blockingLaunchSpawner {
-	t.Helper()
-	s := &blockingLaunchSpawner{
-		fakeSpawner: newFakeSpawner(agents, nil),
-		launched:    make(chan struct{}),
-		hold:        make(chan struct{}),
-	}
-	t.Cleanup(func() { close(s.hold) })
-	return s
-}
-
-func (s *blockingLaunchSpawner) Launch(_ context.Context, _ *SpawnPlan, _, _ string, _, _ map[string]string) (*operations.AgentChatLaunch, error) {
-	s.once.Do(func() { close(s.launched) })
-	<-s.hold
-	return nil, errors.New("blocking-launch spawner: released at test teardown")
-}
-
-func (s *blockingLaunchSpawner) didLaunch() bool {
-	select {
-	case <-s.launched:
-		return true
-	default:
-		return false
-	}
-}
-
 // A run whose spawn is PARKED on the execution-slot cap and is terminated
 // while it waits used to lose the slot permanently.
 //
@@ -107,7 +65,7 @@ func (s *blockingLaunchSpawner) didLaunch() bool {
 // the parked acquire land. Nothing here waits and hopes.
 func TestRunChild_TerminateWhileParkedOnCap_DoesNotStrandTheSlot(t *testing.T) {
 	resetStrictness(t)
-	sp := newBlockingLaunchSpawner(t, map[string]fakeAgent{"worker": {perm: "bypass"}})
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
 	c := newTestCoordinatorCap(t, sp, nil, 1) // exactly one slot in the whole coordinator
 
 	// A peer occupies the only slot, so the spawn below cannot get one.
@@ -140,9 +98,6 @@ func TestRunChild_TerminateWhileParkedOnCap_DoesNotStrandTheSlot(t *testing.T) {
 	}
 	c.mu.Unlock()
 	assert.Equal(t, slotFree, final, "the terminated run's childRt must not be left reading slotHeld")
-
-	assert.False(t, sp.didLaunch(),
-		"a run whose terminal already fired must not go on to launch an engine")
 }
 
 // acquireRunSlot's three outcomes, forced directly. runChild's full-path test

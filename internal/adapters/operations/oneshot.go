@@ -178,9 +178,8 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 }
 
 // resolvedRunRequest is an already-resolved agent run: a composed context and the
-// transport it resolved to. It is the seam shared by RunOneshot (which resolves a
-// single profile) and a delegated child's oneshot fallback (PrepareAgentChat's
-// startOneshot), so the backend-launch tail is written once.
+// transport it resolved to. It is the seam RunOneshot (which resolves a single
+// profile) hands to the backend-launch tail.
 type resolvedRunRequest struct {
 	Context   string // assembled context injected as the agent's lead fragment
 	Task      string // the prompt/task sent to the agent

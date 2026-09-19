@@ -129,6 +129,43 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Then the tool call succeeds
     And the received message is from "librarian" and its body carries its own guidance, not "cartographer"'s
 
+  # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
+  # green only because a REAL runner process stands for the child: the
+  # coordinator self-execs one per delegated run, and it is that process — not
+  # the coordinator — that opens the child's transcript and writes the
+  # automatic turn report the coordinator's mailbox receives
+  # (coord.EngineHost, spoolturnresult.go). A green run cannot show that
+  # dependency on its own: a shim answering in-process for the runner would
+  # produce the same bytes. So this scenario WITHHOLDS the runner and asserts
+  # that the same agent_run, on the same fixture, then yields NEITHER
+  # observable — the mailbox carries the launch failure with the withheld
+  # runner's own dying words in the body and no result at all, and the child's
+  # transcript never gains a turn.
+  #
+  # HOW THE RUNNER IS WITHHELD, with no product seam: the coordinator is
+  # started from a copy of the binary that is unlinked once its MCP handshake
+  # completes, so its self-lookup (selfexec.Path) takes its documented
+  # upgrade-in-place fallback — a PATH lookup — and PATH is led by a decoy
+  # `ctxloom` that prints a marker and exits non-zero. Everything else about
+  # the fixture is R1/R2's.
+  #
+  # FORCED, NOT AWAITED: the failure notice is queued by the run's terminal,
+  # after which nothing can write that child's transcript, so "recorded no
+  # turn" reads a settled state rather than racing one.
+  @negative-probe
+  Scenario: With the runner withheld, the same delegation yields a launch failure in the coordinator's mailbox and no recorded turn
+    Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    And the coordinator's runner is withheld
+    When the agent calls tool "agent_run" with:
+      | agent  | librarian |
+      | prompt | go        |
+    Then the tool call succeeds
+    And "librarian"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
+    Then the tool call succeeds
+    And the received message from "librarian" is the withheld runner's launch failure, and no result carrying its guidance arrived
+    And "librarian" recorded no turn
+
   # @live, both requirement 2 (genuine cross-ENGINE, the claim the hermetic
   # tier above explicitly declines — the
   # proven-working pair; the isolation probe just passed both, both axes)

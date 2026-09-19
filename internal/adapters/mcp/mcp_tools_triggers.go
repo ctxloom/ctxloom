@@ -61,9 +61,9 @@ func (s *ctxServer) registerTriggerTools(server *mcp.Server) {
 }
 
 func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolRequest, in evaluateTriggersInput) (*mcp.CallToolResult, *evaluateTriggersResult, error) {
-	cwd, err := os.Getwd()
+	cwd, err := s.resourceProjectDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve working directory: %w", err)
+		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 	tc := evaluateTriggersTaskContext(s, cwd)
 	res, err := operations.EvaluateTriggers(ctx, s.cfg, operations.EvaluateTriggersRequest{

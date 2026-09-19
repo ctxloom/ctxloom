@@ -257,9 +257,9 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		backend = s.cfg.GetDefaultLLM()
 	}
 
-	workDir, err := os.Getwd()
+	workDir, err := s.resourceProjectDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("get working directory: %w", err)
+		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 
 	ctx, cancel := withDistillBudget(ctx)
@@ -372,9 +372,9 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 		if in.AllProjects {
 			return operations.ListAllSessions()
 		}
-		workDir, err := os.Getwd()
+		workDir, err := s.resourceProjectDir()
 		if err != nil {
-			return nil, fmt.Errorf("get working directory: %w", err)
+			return nil, fmt.Errorf("resolve project directory: %w", err)
 		}
 		return operations.ListSessionsForProject(workDir)
 	}
@@ -500,9 +500,9 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
 	}
 
-	workDir, err := os.Getwd()
+	workDir, err := s.resourceProjectDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("get working directory: %w", err)
+		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 
 	targetSessionID := in.SessionID
@@ -628,9 +628,9 @@ func ownerHarpOf(sessionID string) string {
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
-	workDir, err := os.Getwd()
+	workDir, err := s.resourceProjectDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("get working directory: %w", err)
+		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 
 	backendName := s.cfg.GetDefaultLLM()
@@ -880,9 +880,9 @@ var policyArchived = sessionLoadPolicy{}
 // requiring the user to import the vendor transcript by hand first made the tool fail
 // at exactly the moment it was reached for.
 func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, policy sessionLoadPolicy) (*mcp.CallToolResult, *loadSessionResult, error) {
-	workDir, err := os.Getwd()
+	workDir, err := s.resourceProjectDir()
 	if err != nil {
-		return nil, nil, fmt.Errorf("get working directory: %w", err)
+		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
 	source, backendName, err := operations.ResolveSessionSource(s.cfg, backendName, workDir)
 	if err != nil {

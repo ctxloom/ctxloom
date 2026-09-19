@@ -4,18 +4,21 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// writeSessionIndex writes a minimal ~/.ctxloom/sessions/index.yaml binding
-// each harp to a project dir — the join `plan list` scoping rides on.
-func writeSessionIndex(t *testing.T, home string, harpToDir map[string]string) {
+// writeSessionSidecars seeds one session per harp under ~/.ctxloom/sessions,
+// each bound to a project dir by its sidecar — the join `plan list` scoping
+// rides on, in the store's live on-disk shape (a directory whose sidecar
+// carries project_dir; sessions.IsSessionDir is the predicate the listing
+// answers through).
+func writeSessionSidecars(t *testing.T, home string, harpToDir map[string]string) {
 	t.Helper()
-	body := "sessions:\n"
 	for harp, dir := range harpToDir {
-		body += "    - harp_name: " + harp + "\n      project_dir: " + dir + "\n"
+		mustWrite(t, filepath.Join(home, ".ctxloom", "sessions", harp, paths.SessionSidecarFileName),
+			"project_dir: "+dir+"\nbackend: claude-code\nstarted_at: 2026-09-01T10:00:00Z\n")
 	}
-	mustWrite(t, filepath.Join(home, ".ctxloom", "sessions", "index.yaml"), body)
 }
 
 // seedPlans lays down one plan per harp under the isolated home's sessions dir.
@@ -32,7 +35,7 @@ func seedPlans(t *testing.T, home string, harps ...string) {
 func TestListHomeScoped_ReturnsOnlyThisProject(t *testing.T) {
 	home := testsupport.Isolate(t)
 	seedPlans(t, home, "mine-one", "mine-two", "theirs")
-	writeSessionIndex(t, home, map[string]string{
+	writeSessionSidecars(t, home, map[string]string{
 		"mine-one": "/work/alpha",
 		"mine-two": "/work/alpha",
 		"theirs":   "/work/beta",
@@ -63,7 +66,7 @@ func TestListHomeScoped_ReturnsOnlyThisProject(t *testing.T) {
 func TestListHomeScoped_UnattributedPlansSurvive(t *testing.T) {
 	home := testsupport.Isolate(t)
 	seedPlans(t, home, "mine", "orphan")
-	writeSessionIndex(t, home, map[string]string{"mine": "/work/alpha"})
+	writeSessionSidecars(t, home, map[string]string{"mine": "/work/alpha"})
 
 	matched, unattributed, err := ListHomeScoped("/work/alpha")
 	if err != nil {
@@ -83,7 +86,7 @@ func TestListHomeScoped_UnattributedPlansSurvive(t *testing.T) {
 // ProjectDirOf is the single-plan form of the same join.
 func TestProjectDirOf(t *testing.T) {
 	home := testsupport.Isolate(t)
-	writeSessionIndex(t, home, map[string]string{"known": "/work/alpha"})
+	writeSessionSidecars(t, home, map[string]string{"known": "/work/alpha"})
 
 	px, err := LoadProjectIndex()
 	if err != nil {
@@ -102,7 +105,7 @@ func TestProjectDirOf(t *testing.T) {
 func TestListHomeScoped_PathsAreCleaned(t *testing.T) {
 	home := testsupport.Isolate(t)
 	seedPlans(t, home, "mine")
-	writeSessionIndex(t, home, map[string]string{"mine": "/work/alpha/"})
+	writeSessionSidecars(t, home, map[string]string{"mine": "/work/alpha/"})
 
 	matched, _, err := ListHomeScoped("/work/alpha")
 	if err != nil {

@@ -1,4 +1,4 @@
-package cli
+package strictness_test
 
 import (
 	"bytes"
@@ -53,7 +53,7 @@ func TestDiagnosticSink_RendersWhatClidiagRenderedToday(t *testing.T) {
 	clidiag.ResetWarnOnce()
 	strictness.Reset()
 	t.Cleanup(func() { restore(); clidiag.ResetWarnOnce(); strictness.Reset() })
-	sink := DiagnosticSink("ctxloom")
+	sink := strictness.Sink("ctxloom")
 	for _, f := range found {
 		sink.Report(f)
 	}
@@ -84,7 +84,7 @@ func TestDiagnosticSink_StructuredModeRendersTheEnvelope(t *testing.T) {
 	clidiag.SetStructured(true)
 	t.Cleanup(func() { clidiag.SetStructured(false); restore() })
 
-	DiagnosticSink("ctxloom").Report(report.Warnf("engine transcript link: %v", errors.New("permission denied")))
+	strictness.Sink("ctxloom").Report(report.Warnf("engine transcript link: %v", errors.New("permission denied")))
 	assert.Equal(t, `{"prog":"ctxloom","warning":"engine transcript link: permission denied"}`+"\n", rendered.String())
 }
 
@@ -94,7 +94,7 @@ func TestDiagnosticSink_ProgIsTheSinks(t *testing.T) {
 	restore := clidiag.SetSink(&rendered)
 	t.Cleanup(restore)
 
-	DiagnosticSink("taskloom").Report(report.Warnf("refused"))
+	strictness.Sink("taskloom").Report(report.Warnf("refused"))
 	assert.Equal(t, "taskloom: warning: refused\n", rendered.String())
 }
 
@@ -105,7 +105,7 @@ func TestDiagnosticSink_QuietRecordsWithoutRendering(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { restore(); strictness.Reset() })
 
-	DiagnosticSink("ctxloom").Report(report.Recordf(report.KindApply, "narrow it", "too big"))
+	strictness.Sink("ctxloom").Report(report.Recordf(report.KindApply, "narrow it", "too big"))
 	assert.Empty(t, rendered.String())
 	require.Len(t, strictness.All(), 1)
 	assert.Equal(t, "too big", strictness.All()[0].Message)

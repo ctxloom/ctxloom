@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
@@ -134,7 +133,7 @@ func (p *Pipeline) Withheld() []string {
 // withheld ref is recorded so the caller can report "N withheld" without leaking
 // content.
 func (p *Pipeline) admit(read BundleRead, ref string, payload []byte, form ContentForm) bool {
-	v := Decide(p.authorizer, read, ref, payload, form)
+	v := Decide(p.loader.cat.rep, p.authorizer, read, ref, payload, form)
 	if v.Allow {
 		return true
 	}
@@ -161,7 +160,7 @@ func (p *Pipeline) linkWithholds(read BundleRead, tags []string) (linkID, server
 // withholdLinked tallies and surfaces a link withhold.
 func (p *Pipeline) withholdLinked(ref, linkID, server string) {
 	p.recordWithheld(ref)
-	WarnLinkWithheld(ref, linkID, server)
+	WarnLinkWithheld(p.loader.cat.rep, ref, linkID, server)
 }
 
 // deliver is the process stage in one function: RESOLVE a form from everything
@@ -256,7 +255,7 @@ func (p *Pipeline) deliverSkill(ls *LoadedSkill) *LoadedSkill {
 	}
 	layout, err := content.SkillMaterialization(paths, form)
 	if err != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld: %v", ls.Name, err)
+		p.loader.cat.rep.Warnf("skill %q withheld: %v", ls.Name, err)
 		p.recordWithheld(ls.TrustRef)
 		return nil
 	}

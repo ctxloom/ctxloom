@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -151,7 +153,7 @@ func TestRemoveSettings_WithoutALedger_ReclaimsEveryHookCtxloomConstructs(t *tes
 
 	require.NoError(t, w.RemoveSettings(dir))
 	for _, cmd := range hookCommands(t, dir) {
-		assert.False(t, agent.IsManaged(cmd, "ctxloom"),
+		assert.False(t, exectoken.IsManaged(cmd, "ctxloom"),
 			"without a ledger, uninstall must still reclaim ctxloom's own callback %q rather than leave it as the user's", cmd)
 	}
 }

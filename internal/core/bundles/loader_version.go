@@ -6,6 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Multi-version coexistence (trust rework, TR5)
@@ -65,7 +66,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	defer l.versionMu.Unlock()
 	if l.versionCache != nil {
 		if b, ok := l.versionCache[cacheKey]; ok {
-			return versionRead(canonical, commit, b), nil
+			return versionRead(l.cat.rep, canonical, commit, b), nil
 		}
 	}
 
@@ -107,7 +108,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// withhold every item this path serves.
 	typed, terr := canonicalBundleRefTyped(canonical)
 	if terr != nil {
-		warnUnmintableSource(canonical, terr)
+		warnUnmintableSource(l.cat.rep, canonical, terr)
 	}
 	b.sourceRef = typed
 	b.sourceRefSet = true
@@ -118,7 +119,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 		l.versionCache = make(map[string]*Bundle)
 	}
 	l.versionCache[cacheKey] = b
-	return versionRead(canonical, commit, b), nil
+	return versionRead(l.cat.rep, canonical, commit, b), nil
 }
 
 // versionRead states the trust facts of a HISTORICAL version, which no Reader
@@ -143,7 +144,7 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 //
 // It is unexported and takes the resolver's own output, so it cannot be used to
 // mint a posture for anything else.
-func versionRead(canonical, commit string, b *Bundle) BundleRead {
+func versionRead(rep report.Reporter, canonical, commit string, b *Bundle) BundleRead {
 	tctx, prov := TrustCtxRemote, ProvenanceRemote
 	if parsed, err := remote.ParseReference(canonical); err == nil && parsed.IsLocal {
 		tctx, prov = TrustCtxLocal, ProvenanceProject

@@ -27,8 +27,7 @@ import (
 // imports are XTestImports and add no production edge.
 func TestWorktreeWorkspace_EnvCarriesNoEngineHomeVar(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(true) // a bare runner has no host credential; the home is not this test's concern
-	t.Cleanup(func() { strictness.Reset(); strictness.SetDegraded(false) })
+	t.Cleanup(func() { strictness.Reset() })
 	t.Setenv("HOME", t.TempDir())
 	// The composition root, so the engine's declaration is the shipped one.
 	// Idempotent: a second registration of the same descriptors is a no-op.

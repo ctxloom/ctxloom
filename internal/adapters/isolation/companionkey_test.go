@@ -106,7 +106,7 @@ func TestCompanionVersionKey_UnreportableCompanionRefusesByDefault(t *testing.T)
 
 	_ = HostProvenanceDigest("")
 
-	err := strictness.FindingsError(mark)
+	err := strictness.Mode{}.FindingsError(mark)
 	require.Error(t, err, "an unreportable staged companion must be a fatal finding, not a silent omission")
 	assert.Contains(t, err.Error(), "ltk", "the refusal must name WHICH companion; got %q", err)
 	assert.Contains(t, err.Error(), "fix:", "the refusal must carry a remedy; got %q", err)
@@ -121,14 +121,12 @@ func TestCompanionVersionKey_UnreportableCompanionWarnsUnderDegraded(t *testing.
 
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
-	strictness.SetDegraded(true)
-	t.Cleanup(func() { strictness.SetDegraded(false) })
 	mark := strictness.Checkpoint()
 	t.Cleanup(func() { strictness.Close(mark) })
 
 	got := HostProvenanceDigest("")
 
-	assert.NoError(t, strictness.FindingsError(mark),
+	assert.NoError(t, strictness.Mode{Degraded: true}.FindingsError(mark),
 		"--degraded must warn and continue, never refuse over a companion probe")
 	assert.NotEmpty(t, got, "a degraded run still needs a usable provenance key")
 }

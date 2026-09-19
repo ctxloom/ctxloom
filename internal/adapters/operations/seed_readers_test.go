@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -382,8 +384,9 @@ func seedTampered(t *testing.T, ref, principal string, b *bundles.Bundle) *bundl
 
 	tfs, err := content.NewAferoTreeFS(fsys, treeRoot)
 	require.NoError(t, err)
-	return bundles.NewLoader(bundles.NewRepoFSReader(tfs, ref,
-		bundles.WithRepoURL(seedRepoURL(t, ref)), bundles.WithTrustRoot(root)))
+	return bundles.LoaderOf(bundles.Resolve(context.Background(), strictness.Sink("ctxloom"), bundles.NewRepoFSReader(tfs, ref,
+		bundles.WithRepoURL(seedRepoURL(t, ref)), bundles.WithTrustRoot(root),
+		bundles.WithReaderReporter(strictness.Sink("ctxloom")))))
 }
 
 // seedTrustedSigned is seedUntrustedSigned's counterpart: b as pinned content

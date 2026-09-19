@@ -27,28 +27,13 @@ import (
 	"sync/atomic"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// prog stamps the warning lines. It defaults to ctxloom's own name and a
-// companion binary that joins the strictness contract (taskloom) names
-// itself once at startup via SetProg, so a refusal it prints is attributed to
-// the binary the user actually ran. Read under mu, like the mode.
-var prog = "ctxloom"
-
-// SetProg names the binary that stamps this package's warning lines. Called
-// once at startup by a companion binary; ctxloom itself keeps the default.
-func SetProg(name string) {
-	mu.Lock()
-	defer mu.Unlock()
-	prog = name
-}
-
-// progName returns the current warning-line prefix.
-func progName() string {
-	mu.Lock()
-	defer mu.Unlock()
-	return prog
-}
+// prog stamps the warning lines Fail and its siblings print: they are the
+// ctxloom binary's own legacy channel. A family binary that renders findings
+// under its own name does so through Mode.Sink, never through these.
+const prog = "ctxloom"
 
 // ExitCodeFatalFindings is the process exit status of a strict-mode startup
 // abort — the run refused to launch over the findings collected here. It lives
@@ -134,8 +119,7 @@ type Finding struct {
 }
 
 var (
-	mu       sync.Mutex
-	degraded bool
+	mu sync.Mutex
 	// findings is the process-wide chronological log — every finding ever
 	// recorded, in record order, across every goroutine. It backs ONLY All()
 	// and Reset(); a Mark never indexes into it (see window below) — that
@@ -243,23 +227,6 @@ func goroutineID() int64 {
 	}
 	id, _ := strconv.ParseInt(string(b), 10, 64)
 	return id
-}
-
-// SetDegraded switches the process into (or out of) degraded mode. Called once
-// at startup from the CTXLOOM_DEGRADED env read and the --degraded flag (flag
-// wins when both are set).
-func SetDegraded(v bool) {
-	mu.Lock()
-	defer mu.Unlock()
-	degraded = v
-}
-
-// Degraded reports whether the process runs in degraded (warn-and-continue)
-// mode.
-func Degraded() bool {
-	mu.Lock()
-	defer mu.Unlock()
-	return degraded
 }
 
 // Mark is a checkpoint into ONE GOROUTINE's own findings window; Since(mark)
@@ -387,36 +354,10 @@ func Close(mark Mark) {
 	windowsMu.Unlock()
 }
 
-// FindingsError renders the findings recorded since mark as a single error —
-// "fatal startup findings:" followed by one "  - message (fix: ...)" line
-// per finding — or nil when nothing was collected or the process is
-// degraded. This is the one shared owner for the per-call, keeps-running
-// error-render variant (as opposed to a process-exit abort, which prints a
-// richer class-tagged listing and belongs to its own callers): internal/adapters/cli,
-// internal/core/coord, and internal/adapters/operations each used to carry a
-// byte-identical copy of this rendering because none of those three may
-// import one another — but all three already import this leaf package, so
-// hoisting the render here removes the duplication without an import cycle.
-func FindingsError(mark Mark) error {
-	found := Actionable(Since(mark))
-	if len(found) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	b.WriteString("fatal startup findings:")
-	for _, f := range found {
-		b.WriteString("\n  - " + f.Message)
-		if f.FixIt != "" {
-			b.WriteString(" (fix: " + f.FixIt + ")")
-		}
-	}
-	return errors.New(b.String())
-}
-
 // Reset clears the collected findings — the process-wide log AND every
 // goroutine's window (so no outstanding Mark from before the reset can still
 // read stale data) — the FailOnce dedup set, and the checkpoint generation
-// (test seam; the mode is left untouched — use SetDegraded).
+// (test seam; the mode is a value the caller holds, not state here).
 func Reset() {
 	mu.Lock()
 	findings = nil
@@ -434,6 +375,89 @@ func Reset() {
 	windowsMu.Unlock()
 }
 
+// Ledger records a fail-loudly report.Finding without rendering it. It is
+// the one entry a rendering sink uses after it has written the text itself:
+// the Finding's Once and NonDegradable carry the record's dedup and
+// --degraded semantics, and its Remedy is the FixIt. An advisory finding
+// (empty Kind) is not a fault and is not recorded.
+func Ledger(f report.Finding) {
+	if !f.Fatal() {
+		return
+	}
+	record(Class(f.Kind), f.Remedy, detailOr(Class(f.Kind), f.Text), f.Once, f.NonDegradable)
+}
+
+// Sink is the one place a core report.Finding becomes stderr text. The
+// core returns or reports findings and never touches the process's
+// diagnostic channel; the composition root builds this sink once, with the
+// binary's own name, and hands it down. An advisory renders as the family's
+// "<prog>: warning:" line (or the structured envelope when --format asked
+// for one); a fail-loudly finding renders the same way and is additionally
+// ledgered for the startup gate; a Quiet one is ledgered only.
+func Sink(prog string) report.Sink {
+	return report.SinkFunc(func(f report.Finding) {
+		if !f.Quiet {
+			if f.Once {
+				clidiag.WarnOnce(prog, "%s", f.Text)
+			} else {
+				clidiag.Warn(prog, "%s", f.Text)
+			}
+		}
+		Ledger(f)
+	})
+}
+
+// Mode is the strictness posture ONE composition runs under: the program
+// that renders its findings and whether --degraded waives the ordinary ones.
+// It is a value the composition root builds from its flags and environment
+// and hands down; two compositions in one process may differ, and neither
+// can change the other's.
+type Mode struct {
+	Prog     string
+	Degraded bool
+}
+
+// Actionable filters found to what this mode's gate must act on: everything
+// in strict mode; under Degraded, only the NonDegradable findings.
+func (m Mode) Actionable(found []Finding) []Finding {
+	if !m.Degraded {
+		return found
+	}
+	var out []Finding
+	for _, f := range found {
+		if f.NonDegradable {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// Sink is the rendering sink for this mode's program (see Sink).
+func (m Mode) Sink() report.Sink { return Sink(m.Prog) }
+
+// FindingsError renders the findings recorded since mark that this mode
+// must act on as one error — "fatal startup findings:" with one line per
+// finding — or nil when nothing actionable was collected. It is the one
+// owner of the per-call, keeps-running error-render variant (as opposed to
+// a process-exit abort, which prints a richer class-tagged listing and
+// belongs to its own callers), so the adapters that need it share one
+// rendering without importing one another.
+func (m Mode) FindingsError(mark Mark) error {
+	found := m.Actionable(Since(mark))
+	if len(found) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("fatal startup findings:")
+	for _, f := range found {
+		b.WriteString("\n  - " + f.Message)
+		if f.FixIt != "" {
+			b.WriteString(" (fix: " + f.FixIt + ")")
+		}
+	}
+	return errors.New(b.String())
+}
+
 // Fail reports a fatal-class fault at a choke. The warning line streams to
 // stderr in BOTH modes (identical to the clidiag call it replaces, so command
 // paths that never check findings keep today's diagnostics); in strict mode
@@ -442,7 +466,7 @@ func Reset() {
 // message already says).
 func Fail(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.Warn(progName(), "%s", msg)
+	clidiag.Warn(prog, "%s", msg)
 	record(class, fixit, msg, false, false)
 }
 
@@ -457,7 +481,7 @@ func Fail(class Class, fixit, format string, args ...any) {
 // every loader build).
 func FailOnce(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.WarnOnce(progName(), "%s", msg)
+	clidiag.WarnOnce(prog, "%s", msg)
 	record(class, fixit, msg, true, false)
 }
 
@@ -479,29 +503,8 @@ func FailOnce(class Class, fixit, format string, args ...any) {
 // uses this.
 func FailAlways(class Class, fixit, format string, args ...any) {
 	msg := detailOr(class, fmt.Sprintf(format, args...))
-	clidiag.Warn(progName(), "%s", msg)
+	clidiag.Warn(prog, "%s", msg)
 	record(class, fixit, msg, false, true)
-}
-
-// Actionable returns the findings a gate must ACT on in the current mode: every
-// finding in strict mode, and only the NonDegradable ones under --degraded.
-//
-// It is the single place the mode is consulted when deciding fatality, so the
-// renderers and the class-filtered gates cannot drift into disagreeing about
-// what --degraded means. A gate that filters by class should filter its own
-// class and then pass the result through here, rather than testing Degraded()
-// itself.
-func Actionable(found []Finding) []Finding {
-	if !Degraded() {
-		return found
-	}
-	var out []Finding
-	for _, f := range found {
-		if f.NonDegradable {
-			out = append(out, f)
-		}
-	}
-	return out
 }
 
 // Record collects a finding WITHOUT printing anything — for chokes that

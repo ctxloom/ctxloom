@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -79,7 +81,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	name := hex.EncodeToString(sum[:8]) + agent.SCMFramedContextSuffix
 	path := filepath.Join(dir, name)
 
-	if err := agent.AtomicWriteFile(d.fs, path, []byte(framed), name); err != nil {
+	if err := iox.AtomicWriteFile(d.fs, path, []byte(framed), name); err != nil {
 		d.path = ""
 		return nil, fmt.Errorf("write framed context file: %w", err)
 	}

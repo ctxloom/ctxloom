@@ -5,8 +5,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -56,7 +56,7 @@ var profileKeys = sync.OnceValue(func() map[string]bool {
 // A nil key set (schema unreadable or empty) reports nothing. That is a
 // deliberate fail-open: it means the check itself is broken, and a broken check
 // must not start rejecting keys that are in fact fine.
-func warnUnknownProfileKeys(path string, doc *yaml.Node) {
+func warnUnknownProfileKeys(rep report.Reporter, path string, doc *yaml.Node) {
 	known := profileKeys()
 	if known == nil || doc == nil {
 		return
@@ -87,6 +87,6 @@ func warnUnknownProfileKeys(path string, doc *yaml.Node) {
 		// prints once per load — a fresh `ctxloom init` emitted the same
 		// line ~25 times. Dedup is keyed on the rendered line, so distinct
 		// keys and distinct files each still report.
-		clidiag.WarnOnce("ctxloom", "%s", msg)
+		rep.WarnOncef("%s", msg)
 	}
 }

@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/benjaminabbitt/hew/go/hewfs"
 	"github.com/spf13/afero"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -211,7 +212,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 	if err != nil {
 		return "", err
 	}
-	if err := agent.AtomicWriteFile(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
+	if err := iox.AtomicWriteFile(s.fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("confpatch: write %s: %w", recordPath, err)
 	}
 	// The record just written SUPERSEDES every earlier one for this target, so

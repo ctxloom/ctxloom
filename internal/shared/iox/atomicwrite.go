@@ -1,6 +1,7 @@
 package iox
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/afero"
@@ -94,4 +95,19 @@ func resolveOptions(opts []Option) writeConfig {
 // file is not a truncation.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode, opts ...Option) error {
 	return WriteFileAtomicFs(afero.NewOsFs(), path, data, perm, opts...)
+}
+
+// AtomicWriteFile is WriteFileAtomicFs for a file the caller may have already
+// authored: an existing file keeps its permission bits, a new one is created
+// private (0600). desc names the file in the error the way the caller's user
+// knows it ("settings", the basename).
+func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ...Option) error {
+	perm := os.FileMode(0o600)
+	if info, err := fs.Stat(path); err == nil {
+		perm = info.Mode().Perm()
+	}
+	if err := WriteFileAtomicFs(fs, path, data, perm, opts...); err != nil {
+		return fmt.Errorf("failed to write %s: %w", desc, err)
+	}
+	return nil
 }

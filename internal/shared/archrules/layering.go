@@ -126,18 +126,16 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/refuri",
 			"internal/shared/schema",
 			"internal/shared/liveness",
+			"internal/shared/report",
+			"internal/shared/filelock",
+			"internal/shared/exectoken",
 		},
 		Allowed: map[string]string{
-			// core/sessions
-			"internal/core/sessions -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
-
 			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
 			// not listed.
-			"internal/core/profiles -> internal/adapters/remote":   "slice 5: the pull-walk reader moves to adapters/remote",
-			"internal/core/profiles -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports (measured; not in Part 1.0's profiles row)",
-			"internal/core/profiles -> internal/shared/strictness": "slice 15: strictness becomes a value (measured; not in Part 1.0's profiles row)",
-			"internal/core/profiles -> internal/shared/upgrade":    "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
-			"internal/core/profiles -> resources":                  "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
+			"internal/core/profiles -> internal/adapters/remote": "slice 5: the pull-walk reader moves to adapters/remote",
+			"internal/core/profiles -> internal/shared/upgrade":  "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
+			"internal/core/profiles -> resources":                "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/bundles
 			"internal/core/bundles -> internal/adapters/content":            "slice 5: readers become adapters behind bundles.Reader",
@@ -147,8 +145,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
 			"internal/core/bundles -> internal/shared/upgrade":              "slice 1a: the permanent migrations are deleted",
-			"internal/core/bundles -> internal/shared/clidiag":              "slice 15: clidiag becomes typed reports",
-			"internal/core/bundles -> internal/shared/strictness":           "slice 15: strictness becomes a value (measured; not in Part 1.0's bundles row)",
 			"internal/core/bundles -> resources":                            "slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/config — Part 1.0 also lists config/layerscope, which is under the
@@ -157,8 +153,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
 			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
 			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/core/config -> internal/shared/clidiag":                  "slice 15: clidiag becomes typed reports",
-			"internal/core/config -> internal/shared/strictness":               "slice 15: strictness becomes a value (measured; not in Part 1.0's config row)",
 			"internal/core/config -> internal/adapters/agents":                 "measured: agents.Agent is the value type Config carries for an agent binding; Part 1.1 does not place agents, and no slice names this edge",
 			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
 
@@ -189,9 +183,8 @@ var LayeringRules = []LayeringRule{
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
 			// excepted, so those two are not violations.
-			"internal/core/agent -> internal/shared/ledger":     "slice 12: shared/ledger is deleted",
-			"internal/core/agent -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports",
-			"internal/core/agent -> internal/shared/strictness": "slice 15: strictness becomes a value",
+			"internal/core/agent -> internal/shared/ledger":  "slice 12: shared/ledger is deleted",
+			"internal/core/agent -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
 		},
 	},
 	{

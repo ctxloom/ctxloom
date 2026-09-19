@@ -75,7 +75,7 @@ func TestConvertVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
 // registry entry — a registry hit here would convert, or at least warn.
 func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "not-a-registered-engine")
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 // gets a canonical transcript.jsonl after the interactive session exits.
 func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 // failure mode is silent, so the tool's own success is not evidence.
 func TestConvertVendorTranscriptOnExit_CapturesTheTailAfterAMidSessionRecover(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
 	require.NoError(t, err)

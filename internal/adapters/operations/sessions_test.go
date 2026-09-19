@@ -115,7 +115,7 @@ func TestBindSession_UnknownHarpWritesNothing(t *testing.T) {
 
 	// A VALID store that simply does not hold the harp being bound — so
 	// mgr.Find returns (nil, nil), the branch under test, rather than an error.
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	other, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestBindSession_UnknownHarpWritesNothing(t *testing.T) {
 func TestHarpForSession_ResolvesRotatedAwaySessionID(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)

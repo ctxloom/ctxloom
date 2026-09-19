@@ -1,8 +1,9 @@
 package bundles
 
 import (
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

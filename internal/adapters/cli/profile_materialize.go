@@ -71,7 +71,7 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	gates := newPhaseGates(os.Stderr)
+	gates := newPhaseGates(os.Stderr, App().Strictness)
 	res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
 		Profiles: args,
 		Target:   materializeTarget,

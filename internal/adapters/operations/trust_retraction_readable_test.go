@@ -335,8 +335,6 @@ func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 // be treated as trustworthy.
 func TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues(t *testing.T) {
 	resetStrictness(t)
-	strictness.SetDegraded(true)
-	t.Cleanup(func() { strictness.SetDegraded(false) })
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewOsFs()
 	baseDir := t.TempDir()
@@ -350,6 +348,6 @@ func TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues(t *testing
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "degraded mode governs FATALITY, never whether unreadable trust state may be trusted")
-	assert.Empty(t, strictness.Actionable(strictness.Since(mark)),
+	assert.Empty(t, strictness.Mode{Degraded: true}.Actionable(strictness.Since(mark)),
 		"degraded mode still COLLECTS the finding; what must be empty is what the gate acts on")
 }

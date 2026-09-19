@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -149,12 +148,12 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 	// the bundle's own content. FSDir refuses those values.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
+		c.rep.Warnf("skill %q withheld: %v", name, err)
 		return nil
 	}
 	dir, err := ResolveSkillDir(bundleDir, name, entry)
 	if err != nil {
-		clidiag.Warn("ctxloom", "skipping skill %q: %v", name, err)
+		c.rep.Warnf("skipping skill %q: %v", name, err)
 		return nil
 	}
 
@@ -167,12 +166,12 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 	// A failure to resolve the manifest withholds.
 	manifest, err := entry.EffectiveManifest(c.FS(), bundleDir, name)
 	if err != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
+		c.rep.Warnf("skill %q withheld: %v", name, err)
 		return nil
 	}
 	payload, err := skillPayloadFor(entry.LLM, manifest)
 	if err != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld: encoding trust preimage: %v", name, err)
+		c.rep.Warnf("skill %q withheld: encoding trust preimage: %v", name, err)
 		return nil
 	}
 
@@ -181,13 +180,13 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 	// re-confirms the tree still matches the preimage carried out below, so the
 	// bytes the process stage decides on are the bytes just verified.
 	if verr := VerifyExtractedManifest(c.FS(), dir, manifest); verr != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, verr)
+		c.rep.Warnf("skill %q withheld: %v", name, verr)
 		return nil
 	}
 
 	pkg, err := ParseSkillPackage(c.FS(), dir, 0)
 	if err != nil {
-		clidiag.Warn("ctxloom", "skipping skill %q: %v", name, err)
+		c.rep.Warnf("skipping skill %q: %v", name, err)
 		return nil
 	}
 
@@ -195,7 +194,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 	for _, m := range pkg.Manifest {
 		data, rerr := afero.ReadFile(c.FS(), filepath.Join(dir, filepath.FromSlash(m.Path)))
 		if rerr != nil {
-			clidiag.Warn("ctxloom", "skipping skill %q: reading %s: %v", name, m.Path, rerr)
+			c.rep.Warnf("skipping skill %q: reading %s: %v", name, m.Path, rerr)
 			return nil
 		}
 		mode, perr := strconv.ParseUint(m.Mode, 8, 32)
@@ -207,7 +206,7 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 
 	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindSkill, name)
 	if err != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
+		c.rep.Warnf("skill %q withheld: %v", name, err)
 		return nil
 	}
 

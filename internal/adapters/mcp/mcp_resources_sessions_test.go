@@ -23,7 +23,7 @@ import (
 // explicitly so ordering assertions never depend on how fast the test ran.
 func seedSession(t *testing.T, projectDir string, activity time.Time) string {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude")
 	require.NoError(t, err)

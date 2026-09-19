@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"

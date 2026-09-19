@@ -215,7 +215,7 @@ func TestLocalTree_WithOnlyASiblingSignature_IsRefusedUntilReSigned(t *testing.T
 	testsupport.WriteFileString(t, fsys, filepath.Join(dir, DirectoryFormManifest)+".sig", string(armored), 0o644)
 
 	mark := strictness.Checkpoint()
-	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
+	reads, err := NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger())).Read(context.Background())
 
 	require.NoError(t, err, "one refused bundle does not fail the read of the set")
 	require.Empty(t, reads, "the tree is refused, not read as unsigned")

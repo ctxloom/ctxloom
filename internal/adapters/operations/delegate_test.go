@@ -56,9 +56,8 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 
 	t.Run("degraded: the cell proceeds on the degraded workspace", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		stubPrepareIsolation(t, map[string]bool{"builder": true}, func() pb.Client { return &stubClient{} })
-		cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
+		cell, err := Cells{cfg: config.NewFixture(config.Fixture{}), mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), req(t))
 		require.NoError(t, err)
 		_ = cell.Cleanup()
 	})
@@ -190,10 +189,9 @@ func TestHandleDirtyParentTree_Fail_UnaffectedByMissingAck(t *testing.T) {
 // Now the handler governs, and --degraded changes nothing about it.
 func TestCellsPrepare_DirtyParentTree_DegradedDoesNotSoftenFail(t *testing.T) {
 	resetStrictness(t)
-	strictness.SetDegraded(true)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M internal/foo.go"}}
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
-	p, err := Cells{cfg: cfg, Git: fake}.Prepare(context.Background(), launch.CellRequest{
+	p, err := Cells{cfg: cfg, Git: fake, mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), launch.CellRequest{
 		Axes:        launch.Axes{Workspace: launch.WorkspaceAxis("worktree"), Runtime: launch.RuntimeAxis("host")},
 		Engine:      mock.New(),
 		Identity:    delegatedChild("coder"),

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"maps"
 	"os"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Re-export path constants for backwards compatibility
@@ -259,6 +259,12 @@ type Config struct {
 	// default), so a "c.fs == nil" check would skip the lock for every real
 	// on-disk config.
 	injectedFS bool
+
+	// rep receives what composing a generation reports about one item
+	// without failing the whole load — a bundle withheld, a profile that
+	// selects nothing, a trust file that cannot be read. The Owner sets it
+	// from the Sink the composition root gave it; the caller renders.
+	rep report.Reporter
 
 	// trust is the generation's gate holder (composite.Trust), bound by the
 	// Owner (bindGeneration) before the Snapshot carrying this Config is
@@ -882,7 +888,7 @@ func (c *Config) GetProfileLoader() *profiles.Loader {
 // (operations.profileLoader synthesizes one for a fresh install); the option set
 // is not a place for it to differ.
 func (c *Config) ProfileLoaderOptions() []profiles.LoaderOption {
-	var opts []profiles.LoaderOption
+	opts := []profiles.LoaderOption{profiles.WithReporter(c.rep.Sink)}
 	if c.fs != nil {
 		opts = append(opts, profiles.WithFS(c.fs))
 	}
@@ -951,7 +957,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 			// a seed key built on an unparsed source would be a key nothing
 			// ever looks up, so the profiles would go missing either way —
 			// silently in the first case, diagnosably in this one.
-			clidiag.Warn("ctxloom", "bundle %q ships %d profile(s) that cannot be seeded: %v",
+			c.rep.Warnf("bundle %q ships %d profile(s) that cannot be seeded: %v",
 				read.DisplayName(), bundle.ProfileCount(), err)
 			continue
 		}
@@ -1226,3 +1232,13 @@ func (c *Config) SetFS(fs afero.Fs) {
 	c.fs = fs
 	c.injectedFS = true
 }
+
+// SetReporter names the Sink this Config reports per-item findings to while
+// it composes a generation; nil discards them. The Owner calls it for every
+// generation it builds.
+func (c *Config) SetReporter(sink report.Sink) { c.rep = report.To(sink) }
+
+// Reporter is the Sink this Config reports through, for an adapter that
+// builds a reader or loader over this generation and must report the same
+// way it does. nil when none was set.
+func (c *Config) Reporter() report.Sink { return c.rep.Sink }

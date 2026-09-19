@@ -294,7 +294,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		// The loader resolves its readers at construction, so the read — and
 		// the diagnostic it emits — happens inside the capture window.
-		loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
+		loader := bundles.NewLoader(projectReader(nil, []string{bundlesDir}))
 		res, err = ListFragments(context.Background(), nil, ListFragmentsRequest{Loader: loader})
 	})
 

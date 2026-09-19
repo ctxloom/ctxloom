@@ -1,9 +1,12 @@
 package operations
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -569,8 +572,9 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	// The loader resolves its readers at construction, so the read — and the
 	// diagnostic it emits — happens inside the capture window.
-	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, reviewSeedKey,
-		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey))))
+	loader := bundles.LoaderOf(bundles.Resolve(context.Background(), strictness.Sink("ctxloom"), bundles.NewRepoFSReader(tree, reviewSeedKey,
+		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey)),
+		bundles.WithReaderReporter(strictness.Sink("ctxloom")))))
 	res, err := PendingReview(nil, PendingReviewRequest{
 		UserStore: fx.user, Root: fx.root,
 		Registry: newRegistry(t),

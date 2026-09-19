@@ -145,9 +145,9 @@ type LazyOneShot struct {
 }
 
 // NewLazyOneShot defers StartInternalOneShot to the first turn.
-func NewLazyOneShot(cfg *config.Config, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
+func NewLazyOneShot(cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
 	return &LazyOneShot{start: func(ctx context.Context) (*OneShot, error) {
-		return StartInternalOneShot(ctx, cfg, label, model, workDir, projectID, verbosity)
+		return StartInternalOneShot(ctx, cfg, mode, label, model, workDir, projectID, verbosity)
 	}}
 }
 
@@ -187,14 +187,14 @@ func InternalSource(label, model, workDir string) launch.Source {
 // generation cfg belongs to: the compactor's distiller, the trigger
 // evaluator's triage, the setup probe. projectID is the identity the
 // session serves (empty when the caller resolved none).
-func StartInternalOneShot(ctx context.Context, cfg *config.Config, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
+func StartInternalOneShot(ctx context.Context, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
 	// A Config built outside the Owner carries no Trust: refuse here, at the
 	// entry point, rather than let the assembler withhold every executable
 	// with the "no authorizer" defect reason.
 	if _, err := cfg.RequireTrust(); err != nil {
 		return nil, fmt.Errorf("internal one-shot: %w", err)
 	}
-	deps, err := LaunchDepsFor(&config.Snapshot{Config: cfg})
+	deps, err := LaunchDepsFor(&config.Snapshot{Config: cfg}, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -245,26 +245,26 @@ func ContainerPersistDirForPolicy(p isolation.Policy, harp string) string {
 // describes WHICH case fired — this wrapper adds no case-specific wording, so
 // it never misdescribes one case using the other's vocabulary.
 //
-// MODE HANDLING: this gate no longer tests strictness.Degraded() itself. It
+// MODE HANDLING: this gate never tests the mode itself. It
 // filters to its own class and passes the result through strictness.Actionable,
 // the ONE place the mode is consulted — so under --degraded a DEGRADABLE
 // isolation finding still lets the fan run, while a NON-DEGRADABLE one (a
 // requested container boundary that could not be provided, an image that can
 // start as root) fails the member in both modes.
 //
-// The `if Degraded() { return nil }` this replaces was the amplifier for every
+// A `return nil` under degraded here would be the amplifier for every
 // bypass the degradation audit found: it switched the whole gate off, so
 // converting the raise sites without converting this would have changed
 // nothing at all. A class-filtered gate must filter and then defer to
 // Actionable — never short-circuit on the mode.
-func isolationGateErr(found []strictness.Finding) error {
+func isolationGateErr(mode strictness.Mode, found []strictness.Finding) error {
 	var iso []strictness.Finding
 	for _, f := range found {
 		if f.Class == strictness.ClassIsolation {
 			iso = append(iso, f)
 		}
 	}
-	if iso = strictness.Actionable(iso); len(iso) == 0 {
+	if iso = mode.Actionable(iso); len(iso) == 0 {
 		return nil
 	}
 	var b strings.Builder

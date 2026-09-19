@@ -61,9 +61,6 @@ func rootPersistentPreRun(cmd *cobra.Command, _ []string) {
 	// Applied only when the flag was given, mirroring cmd/ctxloom's root:
 	// the mode is process-global and a bare invocation must not reset a mode
 	// something earlier in the process set (tests drive this tree repeatedly).
-	if cmd.Root().PersistentFlags().Changed(degradedFlagName) {
-		strictness.SetDegraded(degradedFlag)
-	}
 	format, ferr := cliemit.Resolve(cmd)
 	clidiag.SetStructured(ferr == nil && format.Structured())
 }
@@ -91,8 +88,6 @@ var tasksProject string
 var tasksHoming string
 
 func init() {
-	// Refusals this binary prints through strictness carry its own name.
-	strictness.SetProg(progName)
 	rootCmd.PersistentFlags().BoolVar(&degradedFlag, degradedFlagName, false,
 		"degrade instead of failing: a write carrying a tag the tag_schema refuses lands WITHOUT that tag (the refusal is still printed) instead of being refused outright; a refused tag is never written")
 	rootCmd.PersistentFlags().StringVar(&tasksProject, "project", "", "Project id to act on (overrides the session's CTXLOOM_PROJECT_ID pin and cwd resolution)")
@@ -143,6 +138,7 @@ func taskContext() (operations.TaskContext, error) {
 		WorkDirIsBoundary: boundary,
 		ProjectID:         projectID,
 		SessionHarp:       os.Getenv("CTXLOOM_SESSION_HARP"),
+		Strictness:        strictnessMode(),
 	}, nil
 }
 
@@ -309,4 +305,10 @@ func renderTaskTable(out io.Writer, list []tasks.Task, cfg tagma.HideConfig) err
 		w.Printf("[%s] %-*s  %-11s  %s\n", check, idWidth, t.HarpID, t.Status, text)
 	}
 	return w.Err()
+}
+
+// strictnessMode is the posture this invocation runs under: taskloom's own
+// name on every refusal it prints, degraded when --degraded was given.
+func strictnessMode() strictness.Mode {
+	return strictness.Mode{Prog: progName, Degraded: degradedFlag}
 }

@@ -17,7 +17,7 @@ func TestStore_BindMCP_RecordsTheEndpoint_EveryAdapter(t *testing.T) {
 		{"MemStore", func(t *testing.T) Store { return NewMemStore() }},
 		{"Manager", func(t *testing.T) Store {
 			requireIsolatedSessionRoot(t)
-			m, err := Open()
+			m, err := Open(nil)
 			require.NoError(t, err)
 			return m
 		}},
@@ -47,7 +47,7 @@ func TestStore_BindMCP_RecordsTheEndpoint_EveryAdapter(t *testing.T) {
 // when unbound.
 func TestEntry_MCP_RoundTripsThroughTheSidecar(t *testing.T) {
 	requireIsolatedSessionRoot(t)
-	m, err := Open()
+	m, err := Open(nil)
 	require.NoError(t, err)
 	e, err := m.AssignHarp("/proj", "mock")
 	require.NoError(t, err)

@@ -1,14 +1,13 @@
 package agent
 
 import (
-	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // foreignEnvKey/foreignEnvValue are the marker a hostile declaration of the
@@ -64,7 +63,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 	}
 
 	t.Run("resolver drops the source's invocation fields", func(t *testing.T) {
-		out := ResolveManagedMCPServers(source())
+		out, _ := ResolveManagedMCPServers(source())
 
 		own := out[MCPServerName]
 		assert.Empty(t, own.Env, "the source's env must not survive onto ctxloom's own entry")
@@ -74,7 +73,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 	})
 
 	t.Run("descriptive fields still reach the listing", func(t *testing.T) {
-		own := ResolveManagedMCPServers(source())[MCPServerName]
+		own := resolvedManaged(source())[MCPServerName]
 
 		// Notes/Installation/SCM reach only the read-only `ctxloom mcp`
 		// listing (operations.mcpEntry) and are never handed to a process, so
@@ -104,7 +103,7 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 		// it, at the resolver and at every layer below.
 		want := map[string]string{"TOOLS_TOKEN": "keep-me"}
 
-		assert.Equal(t, want, ResolveManagedMCPServers(source())["third-party"].Env)
+		assert.Equal(t, want, resolvedManaged(source())["third-party"].Env)
 
 		for _, s := range ComposeChatMCPServers(source(), nil) {
 			if s.Name == "third-party" {
@@ -115,31 +114,28 @@ func TestForeignEnvNeverReachesCtxloomsOwnMCPServer(t *testing.T) {
 	})
 
 	t.Run("the discarded env is warned about, never silent", func(t *testing.T) {
-		clidiag.ResetWarnOnce()
-		var buf bytes.Buffer
-		restore := clidiag.SetSink(&buf)
-		defer restore()
+		_, found := ResolveManagedMCPServers(source())
+		buf := strings.Join(found.Texts(), "\n")
 
-		ResolveManagedMCPServers(source())
-
-		assert.Contains(t, buf.String(), foreignEnvKey,
+		assert.Contains(t, buf, foreignEnvKey,
 			"an operator who declared an env for ctxloom's own server must be told it did nothing")
-		assert.NotContains(t, buf.String(), foreignEnvValue,
+		assert.NotContains(t, buf, foreignEnvValue,
 			"the warning names the env KEY; echoing the value would print a secret to stderr")
 	})
 
 	t.Run("no env declared warns nothing", func(t *testing.T) {
-		clidiag.ResetWarnOnce()
-		var buf bytes.Buffer
-		restore := clidiag.SetSink(&buf)
-		defer restore()
-
-		ResolveManagedMCPServers(map[string]wire.MCPServer{
+		_, found := ResolveManagedMCPServers(map[string]wire.MCPServer{
 			MCPServerName: ctxloomBundleServer(),
 			"third-party": thirdPartyEntry(),
 		})
 
-		assert.Empty(t, buf.String(),
+		assert.Empty(t, found,
 			"the normal case — the builtin bundle declares no env — must stay quiet")
 	})
+}
+
+// resolvedManaged is ResolveManagedMCPServers for a test that only reads the map.
+func resolvedManaged(servers map[string]wire.MCPServer) map[string]wire.MCPServer {
+	out, _ := ResolveManagedMCPServers(servers)
+	return out
 }

@@ -25,7 +25,7 @@ func TestRecordEngineVersion_PersistsToTheSidecar(t *testing.T) {
 
 	require.NoError(t, m.RecordEngineVersion(e.HarpName, "2.1.225"))
 
-	reopened, err := Open()
+	reopened, err := Open(nil)
 	require.NoError(t, err)
 	got, err := reopened.Find(e.HarpName)
 	require.NoError(t, err)

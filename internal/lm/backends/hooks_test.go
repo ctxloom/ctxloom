@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -58,7 +60,7 @@ func TestNewContextInjectionHook_CarriesNoMachineFact(t *testing.T) {
 	assert.NotContains(t, h.Command, "--project",
 		"the generated hook must not embed a project path; got %q", h.Command)
 	assert.Equal(t, "'ctxloom' hook inject-context hash1", h.Command)
-	assert.True(t, agent.IsManaged(h.Command, "ctxloom"),
+	assert.True(t, exectoken.IsManaged(h.Command, "ctxloom"),
 		"the quoted bare name must still resolve to the ctxloom exec token; got %q", h.Command)
 }
 
@@ -105,7 +107,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		for k, h := range hooks {
 			assert.Containsf(t, h.Command, fmt.Sprintf("--part %d --of %d", k+1, n),
 				"hook %d must be the (k+1)-th of n in order; got %q", k, h.Command)
-			assert.Truef(t, agent.IsManaged(h.Command, "ctxloom"),
+			assert.Truef(t, exectoken.IsManaged(h.Command, "ctxloom"),
 				"chunk hook must be recognized as ctxloom-managed; got %q", h.Command)
 			assert.Equal(t, agent.ContextInjectionTimeout, h.Timeout)
 		}
@@ -230,7 +232,7 @@ func TestClaudeCodeHookWriter_WritesNoAbsolutePaths(t *testing.T) {
 	injectCmd := sessionStart[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
 	assert.NotContains(t, injectCmd, "--project",
 		"the materialized inject-context hook must carry no project path; got %q", injectCmd)
-	assert.True(t, agent.IsManaged(injectCmd, "ctxloom"),
+	assert.True(t, exectoken.IsManaged(injectCmd, "ctxloom"),
 		"the bare name must still resolve to the ctxloom exec token; got %q", injectCmd)
 
 	post := hooks["PostToolUse"].([]any)

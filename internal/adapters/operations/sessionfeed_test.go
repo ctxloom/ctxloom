@@ -44,7 +44,7 @@ const feedWait = 5 * time.Second
 // backend still supports: ctxloom's own canonical capture.
 func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)

@@ -3,8 +3,7 @@ package bundles
 import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // The PROCESS stage's decision function, as a TYPE rather than as a bool.
@@ -390,13 +389,13 @@ func (r Reason) Explain(detail string) string {
 //     silently missing that content is the failure to prevent. It is fatal-class
 //     in strict mode and warn-and-continue under --degraded, exactly as it was
 //     when the loader raised it.
-func ReportVerdict(ref string, v Verdict) {
+func ReportVerdict(rep report.Reporter, ref string, v Verdict) {
 	if Warns(v) {
-		clidiag.WarnOnce("ctxloom", "%s", v.Detail)
+		rep.WarnOncef("%s", v.Detail)
 		return
 	}
 	if !v.Allow && v.Reason == ReasonTampered {
-		strictness.FailOnce(strictness.ClassTrust,
+		rep.FailOncef(report.KindTrust,
 			"re-pull the bundle, or investigate the source — its signature does not cover its bytes",
 			"withholding %s: %s", ref, v.Reason.Explain(v.Detail))
 	}
@@ -449,10 +448,10 @@ type UnaddressableReporter interface {
 // landed, or this parser would have refused every ref they were still
 // emitting in the old one — an unparseable ref withholds SILENTLY apart from
 // a warn line, so reversing the order would have withheld the whole catalog.
-func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
+func Decide(rep report.Reporter, authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
 	if authorizer == nil {
 		v := Verdict{Reason: ReasonUngoverned}
-		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
+		rep.Warnf("withheld %s: %s", ref, v.Reason.Explain(v.Detail))
 		return v
 	}
 	// An ungated surface answers here, above the parse, so a listing behaves
@@ -465,7 +464,7 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 	br, err := trust.ParseBundleRef(ref)
 	if err != nil {
 		v := Verdict{Reason: ReasonUnaddressable, Detail: err.Error()}
-		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
+		rep.Warnf("withheld %s: %s", ref, v.Reason.Explain(v.Detail))
 		if r, ok := authorizer.(UnaddressableReporter); ok {
 			r.Unaddressable(ref, v)
 		}
@@ -473,6 +472,6 @@ func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, 
 	}
 	tRef := trust.RefFromBundleRef(br)
 	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, RefStr: ref, Bytes: payload, Form: form})
-	ReportVerdict(ref, v)
+	ReportVerdict(rep, ref, v)
 	return v
 }

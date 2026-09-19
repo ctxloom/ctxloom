@@ -39,8 +39,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 
 	t.Run("a requested container with no usable runtime refuses", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-		// Host{} is what SelectRuntime returns both for "no runtime at all" and
 		// for "no runtime with the demanded ownership" — chainFor treats them
 		// identically, and so does this guard.
 		stubRuntimeProbe(t, Host{})
@@ -54,7 +52,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 
 	t.Run("a requested container+worktree refuses rather than keeping only the worktree", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		stubRuntimeProbe(t, Host{})
 
 		chainFor(Axes{Runtime: RuntimeContainerRootless, Workspace: WorkspaceWorktree}, "claude", ImageConfig{})
@@ -67,8 +64,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 
 	t.Run("an unrecognised runtime axis refuses instead of landing on the host", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-
 		warnUnknownAxes(Axes{Runtime: "contaienr"})
 
 		assertRefusesUnderDegraded(t,
@@ -77,8 +72,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 
 	t.Run("an unrecognised WORKSPACE axis still degrades quietly", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-
 		warnUnknownAxes(Axes{Workspace: "wurktree"})
 
 		// The negative half, and the reason this guard cannot be satisfied by
@@ -106,7 +99,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 			{"auto-detected project devcontainer", buildSource{desc: "d", base: &baseStage{kind: baseStageKindDevcontainer}}},
 		} {
 			resetStrictness(t)
-			strictness.SetDegraded(true)
 			recordBuildSourceFailure(tc.src, errors.New("build failed"))
 			assertRefusesUnderDegraded(t, "a declared base ctxloom cannot use must not be silently substituted: "+tc.name)
 		}
@@ -114,9 +106,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 
 	t.Run("an UNDECLARED build base still falls through quietly", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-
-		// The negative half of the rule above, and the reason it is about
 		// DECLARATION rather than about build failures in general. ctxloom's
 		// own embedded default base was chosen by nobody, so falling past it
 		// substitutes nothing the project asked for and must stay a warning.
@@ -130,9 +119,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 
 	t.Run("the container argv never carries the run-as-root escape hatch", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-
-		// The narrowest, highest-value assertion in the file: CTXLOOM_ALLOW_ROOT
 		// used to be appended here under exactly this condition, telling the
 		// image entrypoint to downgrade its OWN refusal to run as root into
 		// warn-and-run-as-root — with the user's project bind-mounted, so
@@ -159,8 +145,6 @@ func TestDegradedNeverBypassesIsolation(t *testing.T) {
 // passed against the bypassing code.
 func assertRefusesUnderDegraded(t *testing.T, because string) {
 	t.Helper()
-	require.True(t, strictness.Degraded(), "guard precondition: these cases only mean something with --degraded on")
-
 	all := strictness.All()
 	require.NotEmpty(t, all, "the site must record a finding at all: "+because)
 
@@ -183,7 +167,7 @@ func assertRefusesUnderDegraded(t *testing.T, because string) {
 			"a non-degradable finding must not offer --degraded as its remedy: "+f.FixIt)
 	}
 
-	assert.NotEmpty(t, strictness.Actionable(iso),
+	assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(iso),
 		"THE ASSERTION THAT MATTERS: the finding must survive Actionable under --degraded, "+
 			"or the gate drops it and the run proceeds unsandboxed anyway — "+because)
 }

@@ -998,7 +998,7 @@ func TestCompact_BySessionID(t *testing.T) {
 func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/project", "claude-code")
 	require.NoError(t, err)
@@ -1090,7 +1090,7 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 	testsupport.Isolate(t)
 
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/project", "claude-code")
 	require.NoError(t, err)
@@ -1301,7 +1301,7 @@ func TestDeriveSummary(t *testing.T) {
 func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
 	home := testsupport.Isolate(t)
 
-	// Make sessions.Open() fail: it MkdirAll's the index's parent, so a plain
+	// Make sessions.Open(nil) fail: it MkdirAll's the index's parent, so a plain
 	// file where that directory belongs is enough.
 	sessionsPath := filepath.Join(home, ".ctxloom", "sessions")
 	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
@@ -1311,7 +1311,7 @@ func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) 
 	// before anything is asserted about behaviour: a temp HOME that the
 	// compactor does not actually consult would make this test green for the
 	// wrong reason.
-	_, openErr := sessions.Open()
+	_, openErr := sessions.Open(nil)
 	require.Error(t, openErr, "fixture is not hostile: sessions.Open still succeeds")
 
 	backend := "claude-code"
@@ -1463,7 +1463,7 @@ func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
 	// The bind arm is reached only through Find, so assert the fixture is
 	// hostile from updateSessionIndex's own vantage point before asserting
 	// anything about what it reports.
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	_, ferr := mgr.Find("lively-index-harp")
 	require.Error(t, ferr, "the fixture sidecar must be unreadable, or this pin proves nothing")

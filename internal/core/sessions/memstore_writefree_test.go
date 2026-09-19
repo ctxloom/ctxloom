@@ -28,7 +28,7 @@ func TestMemStore_BindSessionWritesNothingToDisk(t *testing.T) {
 	require.NoError(t, os.WriteFile(transcript, []byte("{}\n"), 0o644))
 
 	// --- the fixture must be hostile: prove the real store writes here. ---
-	mgr, err := Open()
+	mgr, err := Open(nil)
 	require.NoError(t, err)
 	real, err := mgr.AssignHarp("/proj", "claude-code")
 	require.NoError(t, err)

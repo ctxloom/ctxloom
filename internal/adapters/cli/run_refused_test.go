@@ -16,8 +16,8 @@ import (
 
 // refusedFixture is a runState at the point the resolver has just failed:
 // the startup gate open over w, nothing else built.
-func refusedFixture(w *bytes.Buffer) *runState {
-	return &runState{cfg: config.NewFixture(config.Fixture{}), gates: newPhaseGates(w)}
+func refusedFixture(w *bytes.Buffer, mode strictness.Mode) *runState {
+	return &runState{cfg: config.NewFixture(config.Fixture{}), gates: newPhaseGates(w, mode)}
 }
 
 // cellRefusal is the cell adapter's refusal as the resolver returns it: the
@@ -37,7 +37,7 @@ func cellRefusal(msg string) error {
 func TestRunState_Refused_CellRefusalIsTheFatalAbort(t *testing.T) {
 	resetStrictness(t)
 	var out bytes.Buffer
-	st := refusedFixture(&out)
+	st := refusedFixture(&out, strictness.Mode{})
 	strictness.FailAlways(strictness.ClassIsolation, "start the container runtime", "container-rootless requested but no container runtime is available")
 
 	err := st.refused(cellRefusal("container-rootless requested but no container runtime is available"))
@@ -55,9 +55,8 @@ func TestRunState_Refused_CellRefusalIsTheFatalAbort(t *testing.T) {
 // abort stays the gate's.
 func TestRunState_Refused_DegradedStillAbortsOnNonDegradable(t *testing.T) {
 	resetStrictness(t)
-	strictness.SetDegraded(true)
 	var out bytes.Buffer
-	st := refusedFixture(&out)
+	st := refusedFixture(&out, strictness.Mode{Degraded: true})
 	strictness.FailAlways(strictness.ClassIsolation, "fix", "requested container could not start")
 
 	err := st.refused(cellRefusal("requested container could not start"))
@@ -76,7 +75,7 @@ func TestRunState_Refused_DegradedStillAbortsOnNonDegradable(t *testing.T) {
 func TestRunState_Refused_OtherRefusalsReturnAsTheyCame(t *testing.T) {
 	resetStrictness(t)
 	var out bytes.Buffer
-	st := refusedFixture(&out)
+	st := refusedFixture(&out, strictness.Mode{})
 	strictness.Fail(strictness.ClassRef, "fix the ref", "failed to load fragment \"no-such-fragment\"")
 	cause := fmt.Errorf("%w: requested fragments not found: no-such-fragment", launch.ErrContextEmpty)
 

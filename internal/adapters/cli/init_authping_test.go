@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // pingTestHarp is any non-empty harp: these tests exercise the ping's own
@@ -437,7 +436,7 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 
 	t.Run("--degraded warns and continues", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
+		degradedForTest(t)
 		cmd := setup(t)
 
 		var err error

@@ -8,30 +8,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// Strictness puts the process into strict (degraded=false) or degraded mode
-// for the duration of the test, with the findings log, the FailOnce dedup
-// memory and clidiag's WarnOnce memory all cleared on entry and on cleanup,
-// and returns a buffer collecting every diagnostic line clidiag prints
-// meanwhile (the sink is restored on cleanup).
-//
-// Clearing the once-memories is what makes the helper reusable within one
-// process: a refusal a PREVIOUS test already printed would otherwise be
-// deduped away and a sink assertion would see nothing (see
-// clidiag.ResetWarnOnce). The mode is process-global, so the calling test
-// must not be parallel.
-func Strictness(t *testing.T, degraded bool) *strings.Builder {
+// Strictness gives the calling test a clean fail-loudly ledger and a clean
+// dedup memory, and captures the diagnostic stream so the test can read what
+// the user was told. The MODE is not a process fact any more: a test that
+// wants degraded behaviour sets it on the TaskContext (or the binary's flag)
+// it hands the code under test.
+func Strictness(t *testing.T) *strings.Builder {
 	t.Helper()
-	reset := func(mode bool) {
+	reset := func() {
 		strictness.Reset()
 		clidiag.ResetWarnOnce()
-		strictness.SetDegraded(mode)
 	}
-	reset(degraded)
+	reset()
 	var diag strings.Builder
 	restore := clidiag.SetSink(&diag)
 	t.Cleanup(func() {
 		restore()
-		reset(false)
+		reset()
 	})
 	return &diag
 }

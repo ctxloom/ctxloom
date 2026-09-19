@@ -1,8 +1,9 @@
 package bundles
 
 import (
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Form-selection characterization.

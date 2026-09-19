@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/spf13/pflag"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
@@ -21,6 +23,10 @@ type App struct {
 	// NoCompanions is the --no-companions / CTXLOOM_NO_COMPANIONS switch: no
 	// companion binary is executed and none contributes to a generation.
 	NoCompanions bool
+	// Strictness is the posture this composition runs under — the program
+	// its findings render as and whether --degraded waives the ordinary
+	// ones. A value: two Apps in one process may differ.
+	Strictness strictness.Mode
 
 	src    config.Sources
 	once   sync.Once
@@ -66,8 +72,8 @@ func ComposeSources(c Compose) (config.Sources, error) {
 // NewApp holds src as the process's sources; the owner opens on the first
 // Owner/Snapshot/Config call, so a command that never reads configuration
 // never reads the files either.
-func NewApp(src config.Sources, noCompanions bool) *App {
-	return &App{NoCompanions: noCompanions, src: src}
+func NewApp(src config.Sources, noCompanions bool, mode strictness.Mode) *App {
+	return &App{NoCompanions: noCompanions, Strictness: mode, src: src}
 }
 
 // OpenedApp wraps an owner a test already opened.
@@ -97,7 +103,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		a.owner, a.err = config.Open(ctx, a.src, config.WithEngines(backends.Engines()))
+		a.owner, a.err = config.Open(ctx, a.src, config.WithEngines(backends.Engines()), config.WithReporter(a.Strictness.Sink()))
 	})
 	return a.owner, a.err
 }

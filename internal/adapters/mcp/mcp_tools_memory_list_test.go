@@ -38,7 +38,7 @@ func bindProjectSession(t *testing.T, mgr *sessions.Manager, projectDir, backend
 // stops sorting, drops the title, or changes the timestamp shape.
 func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	testsupport.Isolate(t) // isolate HOME → ~/.ctxloom is a temp index
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	projA := t.TempDir()
@@ -77,7 +77,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 // filtering by cwd.
 func TestHandleListSessions_DefaultScopeIsCwdProject(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	projA := t.TempDir()

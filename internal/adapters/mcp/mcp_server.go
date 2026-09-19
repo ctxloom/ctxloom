@@ -155,6 +155,15 @@ func sessionInstructions(harp string) string {
 // (graceful-egomaniac unit 2: identity/stamp mismatch) is different — it
 // falls back to local startup exactly like a session that was never
 // forward-triggered at all, so it DOES reach gate.
+// strictness is the posture this server's composition runs under; a server
+// built without an App (a test double) runs strict.
+func (s *ctxServer) strictness() strictness.Mode {
+	if s.app == nil {
+		return strictness.Mode{Prog: "ctxloom"}
+	}
+	return s.app.Strictness
+}
+
 func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func() error, dryRun bool) error {
 	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
 	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
@@ -250,7 +259,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
+	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
 	s.cfg = cfg
 
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and

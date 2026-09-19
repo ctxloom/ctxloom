@@ -18,10 +18,8 @@ import (
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 
@@ -34,7 +32,7 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 		resetStrictness(t)
 
 		var buf bytes.Buffer
-		gates := newPhaseGates(&buf)
+		gates := newPhaseGates(&buf, strictness.Mode{})
 		strictness.Fail(strictness.ClassSync,
 			"check the remote/network, or pass --degraded to launch anyway",
 			"sync failed: %v", "boom")
@@ -57,10 +55,9 @@ func TestFailOnFindings_StrictAbortsWithFindingsExitCode(t *testing.T) {
 
 	t.Run("degraded mode never aborts", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 
 		var buf bytes.Buffer
-		gates := newPhaseGates(&buf)
+		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
 		strictness.Fail(strictness.ClassSync,
 			"check the remote/network, or pass --degraded to launch anyway",
 			"sync failed: %v", "boom")
@@ -85,7 +82,7 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 		resetStrictness(t)
 
 		var buf bytes.Buffer
-		gates := newPhaseGates(&buf)
+		gates := newPhaseGates(&buf, strictness.Mode{})
 		strictness.Fail(strictness.ClassIsolation, fixit,
 			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
 
@@ -104,10 +101,9 @@ func TestFailOnFindings_ContainerIsolationDegradeIsFatalUnlessDegraded(t *testin
 
 	t.Run("degraded mode never aborts — the host degrade is the accepted outcome", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 
 		var buf bytes.Buffer
-		gates := newPhaseGates(&buf)
+		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
 		strictness.Fail(strictness.ClassIsolation, fixit,
 			"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): %v", "agent-a", "image absent")
 
@@ -129,7 +125,7 @@ func TestStartupGates_TileWithoutHole(t *testing.T) {
 	resetStrictness(t)
 
 	var out bytes.Buffer
-	gates := newPhaseGates(&out)
+	gates := newPhaseGates(&out, strictness.Mode{})
 
 	// Gate 1 passes clean.
 	require.NoError(t, gates.close(PhaseStartup), "gate 1 passes with nothing recorded")
@@ -203,10 +199,9 @@ func TestLoadConfigOrFallback_FailureReturnsMinimalDefault(t *testing.T) {
 func TestPhaseGates_NonDegradableSurvivesDegraded(t *testing.T) {
 	t.Run("degraded still aborts on a non-degradable finding", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 
 		var buf bytes.Buffer
-		gates := newPhaseGates(&buf)
+		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
 		strictness.Fail(strictness.ClassSync, "ordinary remedy", "an ordinary degradable fault")
 		strictness.FailAlways(strictness.ClassIsolation, "start the runtime it promised",
 			"container %q was started but never reached running state", "agent-a")
@@ -227,10 +222,9 @@ func TestPhaseGates_NonDegradableSurvivesDegraded(t *testing.T) {
 
 	t.Run("degraded alone still never aborts", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 
 		var buf bytes.Buffer
-		gates := newPhaseGates(&buf)
+		gates := newPhaseGates(&buf, strictness.Mode{Degraded: true})
 		strictness.Fail(strictness.ClassSync, "ordinary remedy", "an ordinary degradable fault")
 
 		assert.NoError(t, gates.close(PhaseTransportStart), "an ordinary finding still degrades")
@@ -253,7 +247,7 @@ func TestPhaseGates_WindowsAreDisjoint(t *testing.T) {
 	resetStrictness(t)
 
 	var out bytes.Buffer
-	gates := newPhaseGates(&out)
+	gates := newPhaseGates(&out, strictness.Mode{})
 
 	strictness.Fail(strictness.ClassConfig, "fix the config", "fault ALPHA")
 	require.Error(t, gates.close(PhaseStartup), "phase 1 aborts on its own finding")
@@ -267,4 +261,15 @@ func TestPhaseGates_WindowsAreDisjoint(t *testing.T) {
 	assert.Contains(t, second, "fault BRAVO", "phase 2 must report what phase 2 collected")
 	assert.NotContains(t, second, "fault ALPHA",
 		"phase 1's finding must NOT reappear: close() re-opens, so each finding belongs to exactly one phase")
+}
+
+// degradedForTest runs the rest of the test under --degraded: the composed
+// App's strictness posture is the value the commands read, so the test sets
+// it there rather than on a process global.
+func degradedForTest(t *testing.T) {
+	t.Helper()
+	app := App()
+	prev := app.Strictness
+	app.Strictness.Degraded = true
+	t.Cleanup(func() { app.Strictness = prev })
 }

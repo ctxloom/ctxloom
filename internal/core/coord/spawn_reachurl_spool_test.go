@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // TestSpawnReachURL_RefusesInEveryMode pins that a child with no coordinator
@@ -40,7 +39,6 @@ func TestSpawnReachURL_RefusesInEveryMode(t *testing.T) {
 
 	for _, degraded := range []bool{false, true} {
 		resetStrictness(t)
-		strictness.SetDegraded(degraded)
 		c := newUnserved(t)
 
 		url, err := c.spawnReachURL("child-harp", launch.RuntimeRootless)

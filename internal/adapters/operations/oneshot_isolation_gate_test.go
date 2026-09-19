@@ -18,10 +18,8 @@ import (
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 
@@ -92,7 +90,7 @@ func TestIsolationGateErr(t *testing.T) {
 
 	t.Run("strict + isolation finding → member-fatal error with finding and fix", func(t *testing.T) {
 		resetStrictness(t)
-		err := isolationGateErr([]strictness.Finding{isoFinding})
+		err := isolationGateErr(strictness.Mode{}, []strictness.Finding{isoFinding})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), isoFinding.Message)
 		assert.Contains(t, err.Error(), isoFinding.FixIt)
@@ -100,19 +98,18 @@ func TestIsolationGateErr(t *testing.T) {
 
 	t.Run("strict + no findings → nil", func(t *testing.T) {
 		resetStrictness(t)
-		assert.NoError(t, isolationGateErr(nil))
+		assert.NoError(t, isolationGateErr(strictness.Mode{}, nil))
 	})
 
 	t.Run("strict + non-isolation findings only → nil (not this gate's class)", func(t *testing.T) {
 		resetStrictness(t)
-		assert.NoError(t, isolationGateErr([]strictness.Finding{
+		assert.NoError(t, isolationGateErr(strictness.Mode{}, []strictness.Finding{
 			{Class: strictness.ClassSync, Message: "sync failed"},
 		}))
 	})
 
 	t.Run("degraded → nil even with findings", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-		assert.NoError(t, isolationGateErr([]strictness.Finding{isoFinding}))
+		assert.NoError(t, isolationGateErr(strictness.Mode{Degraded: true}, []strictness.Finding{isoFinding}))
 	})
 }

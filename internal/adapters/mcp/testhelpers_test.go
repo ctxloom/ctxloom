@@ -55,10 +55,8 @@ func captureStderr(t *testing.T, fn func()) string {
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 

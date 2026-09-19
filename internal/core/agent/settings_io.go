@@ -5,15 +5,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/spf13/afero"
 )
 
@@ -77,15 +78,19 @@ func CtxloomCommand() string {
 //
 // servers is never mutated: one resolved bundle set is shared across engines
 // and cells.
-func ResolveManagedMCPServers(servers map[string]wire.MCPServer) map[string]wire.MCPServer {
+//
+// The returned Findings say what a declared ctxloom entry carried that was
+// ignored; the caller renders them.
+func ResolveManagedMCPServers(servers map[string]wire.MCPServer) (map[string]wire.MCPServer, report.Findings) {
 	src, ok := servers[MCPServerName]
 	if !ok {
-		return servers
+		return servers, nil
 	}
 	out := make(map[string]wire.MCPServer, len(servers))
 	maps.Copy(out, servers)
-	out[MCPServerName] = ctxloomOwnMCPServer(src)
-	return out
+	var found report.Findings
+	out[MCPServerName] = ctxloomOwnMCPServer(report.To(&found), src)
+	return out, found
 }
 
 // ctxloomOwnMCPServer builds the entry for ctxloom's OWN MCP server from
@@ -120,14 +125,14 @@ func ResolveManagedMCPServers(servers map[string]wire.MCPServer) map[string]wire
 // abort a launch (or a read-only `ctxloom mcp` listing) over our own shipped
 // content. It is still never silent: a discarded Env is warned about, because
 // an operator who wrote one is entitled to know it did nothing.
-func ctxloomOwnMCPServer(src wire.MCPServer) wire.MCPServer {
+func ctxloomOwnMCPServer(rep report.Reporter, src wire.MCPServer) wire.MCPServer {
 	if len(src.Env) > 0 {
-		clidiag.WarnOnce(CtxloomBinary,
+		rep.WarnOncef(
 			"ignoring the env declared for the %q MCP server (%s): ctxloom's own MCP server runs with the environment ctxloom gives it, never one supplied by whatever declared the entry",
 			MCPServerName, strings.Join(slices.Sorted(maps.Keys(src.Env)), ", "))
 	}
 	if src.IsRemote() {
-		clidiag.WarnOnce(CtxloomBinary,
+		rep.WarnOncef(
 			"ignoring the url declared for the %q MCP server (%s): ctxloom's own MCP server is reached the way ctxloom decides, never at an endpoint supplied by whatever declared the entry",
 			MCPServerName, src.URL)
 	}
@@ -166,14 +171,6 @@ func GetFS(fs afero.Fs) afero.Fs {
 	return fs
 }
 
-// Warn prints a "ctxloom: warning:" line to stderr. Thin wrapper over
-// clidiag.Warn so the family's "<prog>: warning:" format lives in exactly one
-// place; the ctxloom-family callers here (the agent-engine libs, settings and
-// context internals) all warn under the ctxloom name.
-func Warn(format string, args ...any) {
-	clidiag.Warn("ctxloom", format, args...)
-}
-
 // ComputeHookHash returns a short, stable hash of a hook's defining fields.
 // ComputeCommandDigest is the ledger's identity for a hook: a short digest of
 // the command string.
@@ -184,6 +181,15 @@ func Warn(format string, args ...any) {
 // duplicate that content into a second file for no gain. A digest is enough to
 // recognise "ctxloom wrote this one" on the next reconcile, which is the only
 // question the ledger has to answer.
+// Warn is the engine base's remaining route to the process's diagnostic
+// channel. It stays until BaseLifecycle, LaunchBackend and the managed
+// package writers carry a report.Reporter the engines hand in; the sites
+// that already do (ResolveManagedMCPServers, RouteUnifiedHooks,
+// ResolveDefault) report findings instead.
+func Warn(format string, args ...any) {
+	clidiag.Warn("ctxloom", format, args...)
+}
+
 func ComputeCommandDigest(command string) string {
 	sum := sha256.Sum256([]byte(command))
 	return hex.EncodeToString(sum[:8])
@@ -200,81 +206,6 @@ func ComputeHookHash(h wire.Hook) string {
 	}
 	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(hash[:8]) // first 8 bytes for brevity
-}
-
-// AtomicWriteFile writes data to path atomically: it backs up any existing file
-// through iox.WriteFileAtomicFs (unique temp
-// in the destination directory, fsync, rename). There is no non-atomic
-// fallback: a rename failure is returned, never papered over.
-//
-// The existing file's mode is preserved across the rewrite, and a brand-new
-// file defaults to 0600 (not a world-readable 0644). Settings files written
-// here can carry MCPServer.Env secrets (API keys/tokens), so a mode a user
-// deliberately tightened must never be silently widened.
-func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ...WriteFileOption) error {
-	var o writeFileOptions
-	for _, opt := range opts {
-		opt(&o)
-	}
-
-	// Default new files to owner-only; reuse the existing mode when present.
-	//
-	// NO BACKUP IS TAKEN. This used to copy the live bytes to
-	// "<path>.ctxloom.bak" first, because a writer that could not tell its own
-	// entries from the user's had to rewrite the file wholesale and keep a
-	// copy in case it was wrong. Every writer reaching this function now knows
-	// what it owns — through the sidecar ledger (internal/shared/ledger) or
-	// through in-file managed markers — so it edits its own content and leaves
-	// the rest untouched, and there is nothing to recover from. The copies were
-	// never free: single-slot and overwritten by the very next write, they had
-	// accumulated into the hundreds across a developer's engine config dirs
-	// while being least useful in the case that actually recurs, a bad write
-	// repeated.
-	perm := os.FileMode(0600)
-	if info, err := fs.Stat(path); err == nil {
-		perm = info.Mode().Perm()
-	}
-
-	// Route through iox: a fixed temp name (path + ".ctxloom.tmp") is exactly
-	// the concurrent-clobber hazard iox.WriteFileAtomicFs's unique name exists
-	// to prevent, and it fsyncs before the rename. A failed rename here is a
-	// real fault and must be reported, never papered over by a DIRECT
-	// non-atomic overwrite of the live file that a reader can observe
-	// half-finished. Such a fallback would only be justified cross-device,
-	// which cannot occur: the temp lives in the destination directory.
-	//
-	// The zero-length-over-existing refusal is iox's own guard now (promoted
-	// from here, fs-consolidation plan C4/Q1): AllowEmptyWrite maps straight
-	// onto iox.AllowEmpty rather than this function keeping a second copy of
-	// the check. The one legitimate exception (codex's config.toml, whose
-	// TOML encoder renders an emptied managed set as literally zero bytes,
-	// unlike JSON's "{}") still opts in explicitly; every other caller's
-	// removal path goes through fs.Remove instead, never here.
-	var iopts []iox.Option
-	if o.allowEmpty {
-		iopts = append(iopts, iox.AllowEmpty())
-	}
-	if err := iox.WriteFileAtomicFs(fs, path, data, perm, iopts...); err != nil {
-		return fmt.Errorf("failed to write %s: %w", desc, err)
-	}
-	return nil
-}
-
-// WriteFileOption configures AtomicWriteFile's default refusal-of-empty-writes
-// behavior.
-type WriteFileOption func(*writeFileOptions)
-
-type writeFileOptions struct {
-	allowEmpty bool
-}
-
-// AllowEmptyWrite opts an AtomicWriteFile call OUT of the zero-byte refusal
-// guard, for the rare caller that has already decided — with its own,
-// narrower reasoning — that an empty result is legitimate (codex's
-// RemoveSettings/save: stripping ctxloom's own keys from a config that held
-// nothing else legitimately renders as zero TOML bytes).
-func AllowEmptyWrite() WriteFileOption {
-	return func(o *writeFileOptions) { o.allowEmpty = true }
 }
 
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file

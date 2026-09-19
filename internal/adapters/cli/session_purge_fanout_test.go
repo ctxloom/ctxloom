@@ -224,7 +224,7 @@ func TestSessionPurge_UndistilledIsNotOnTheParent(t *testing.T) {
 // names the one deliberate way past it.
 func TestSessionPurge_LiveSessionRefuses(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)

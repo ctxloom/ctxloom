@@ -84,7 +84,7 @@ func TestResolveHarpName(t *testing.T) {
 	// summary into the CALLER's own harp dir/index entry.
 	t.Run("explicit SessionID naming a real, different harp wins over caller's own HarpName", func(t *testing.T) {
 		testsupport.Isolate(t)
-		mgr, err := sessions.Open()
+		mgr, err := sessions.Open(nil)
 		if err != nil {
 			t.Fatalf("open index: %v", err)
 		}

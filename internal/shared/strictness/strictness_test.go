@@ -19,10 +19,8 @@ import (
 func resetForTest(t *testing.T) {
 	t.Helper()
 	Reset()
-	SetDegraded(false)
 	t.Cleanup(func() {
 		Reset()
-		SetDegraded(false)
 	})
 }
 
@@ -52,16 +50,16 @@ func TestFail_StrictCollectsFindings(t *testing.T) {
 func TestDegraded_RecordsButNeverAborts(t *testing.T) {
 	resetForTest(t)
 	mark := Checkpoint()
-	SetDegraded(true)
+	degraded := Mode{Degraded: true}
 
 	Fail(ClassConfig, "", "broken config")
 	FailOnce(ClassRef, "", "missing parent")
 	Record(ClassSync, "", "unfetchable")
 
 	require.Len(t, All(), 3, "degraded still collects every finding")
-	assert.NoError(t, FindingsError(mark),
+	assert.NoError(t, degraded.FindingsError(mark),
 		"the GATE is what degraded silences: findings exist, nothing aborts on them")
-	assert.True(t, Degraded())
+	assert.Error(t, Mode{}.FindingsError(mark), "the same findings abort a strict mode in the same process")
 }
 
 // FailOnce dedups the recording per formatted message WITHIN one checkpoint
@@ -127,7 +125,7 @@ func TestFail_EmptyMessageStillSaysWhatBroke(t *testing.T) {
 	assert.NotEmpty(t, strings.TrimSpace(got[0].Message), "a finding must always say something")
 	assert.Contains(t, got[0].Message, string(ClassConfig), "the class is the only detail left to report")
 
-	err := FindingsError(mark)
+	err := Mode{}.FindingsError(mark)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "\n  - (fix:", "no bare bullet whose only content is the fix-it")
 }
@@ -250,7 +248,7 @@ func TestFailOnce_SameMessageUnderTwoClassesRecordsBothButPrintsOnce(t *testing.
 }
 
 // Recording no longer consults the mode at all: degraded suppresses FATALITY,
-// not RECORDING, so a concurrent SetDegraded(true) can neither lose a finding
+// not RECORDING, so a degraded Mode judging concurrently can neither lose a finding
 // nor block one. The count must keep GROWING across the flip -- that is what
 // dies if anyone reinstates record's old degraded early-return, which used to
 // make the flip linearizable with collection and now would silently discard
@@ -258,7 +256,7 @@ func TestFailOnce_SameMessageUnderTwoClassesRecordsBothButPrintsOnce(t *testing.
 //
 // The mode's observer is the GATE, asserted here alongside so the pair reads
 // together: findings accumulate, FindingsError stays silent.
-func TestSetDegraded_DoesNotStopRecording(t *testing.T) {
+func TestDegradedMode_DoesNotStopRecording(t *testing.T) {
 	resetForTest(t)
 
 	var wg sync.WaitGroup
@@ -282,14 +280,14 @@ func TestSetDegraded_DoesNotStopRecording(t *testing.T) {
 	}
 
 	mark := Checkpoint()
-	SetDegraded(true)
+	degraded := Mode{Degraded: true}
 	atFlip := len(All())
 	close(stop)
 	wg.Wait()
 
 	assert.Greater(t, len(All()), atFlip,
 		"recording must continue across the flip: degraded suppresses fatality, not the audit trail")
-	assert.NoError(t, FindingsError(mark),
+	assert.NoError(t, degraded.FindingsError(mark),
 		"the gate is the mode's only observer — it stays silent while collection continues")
 }
 
@@ -538,19 +536,19 @@ func TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows(t *testing.T) {
 func TestFailAlways_SurvivesDegraded(t *testing.T) {
 	resetForTest(t)
 	mark := Checkpoint()
-	SetDegraded(true)
+	degraded := Mode{Degraded: true}
 
 	Fail(ClassConfig, "edit the config", "an ordinary degradable fault")
 	FailAlways(ClassIsolation, "start the runtime it claimed", "the launch itself is the harm")
 
 	require.Len(t, All(), 2, "degraded records both; it is fatality that differs")
 
-	act := Actionable(Since(mark))
+	act := degraded.Actionable(Since(mark))
 	require.Len(t, act, 1, "only the non-degradable finding may survive --degraded")
 	assert.Equal(t, ClassIsolation, act[0].Class)
 	assert.True(t, act[0].NonDegradable)
 
-	err := FindingsError(mark)
+	err := degraded.FindingsError(mark)
 	require.Error(t, err, "a non-degradable finding must still abort under --degraded")
 	assert.Contains(t, err.Error(), "the launch itself is the harm")
 	assert.NotContains(t, err.Error(), "an ordinary degradable fault",
@@ -565,5 +563,5 @@ func TestActionable_StrictModePassesEverything(t *testing.T) {
 	Fail(ClassConfig, "", "degradable")
 	FailAlways(ClassIsolation, "", "non-degradable")
 
-	assert.Len(t, Actionable(All()), 2, "strict mode acts on every finding")
+	assert.Len(t, Mode{}.Actionable(All()), 2, "strict mode acts on every finding")
 }

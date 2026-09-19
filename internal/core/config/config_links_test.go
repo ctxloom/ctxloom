@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -147,11 +149,11 @@ func TestExtractHooksFromBundle_NilLinkGrantWithholdsLinkedHooksOnly(t *testing.
 	}
 	read := bundles.ProjectAuthoredRead("fixture", b)
 
-	got := extractHooksFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), nil)
+	got := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), nil)
 	assert.Empty(t, hookCommands(got.SessionStart))
 	assert.Equal(t, []string{"free-guard"}, hookCommands(got.PreTool))
 
-	unchecked := extractHooksFromBundle(read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	unchecked := extractHooksFromBundle(report.Reporter{}, read, mustLocalRef(t, "src"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	assert.Equal(t, []string{"think-warmup"}, hookCommands(unchecked.SessionStart))
 }
 
@@ -206,6 +208,7 @@ func TestConfig_LinkGrant_ResolvesLazily(t *testing.T) {
 		"default": {Profiles: []string{"link-lazy-missing-one", "link-lazy-missing-two"}},
 	}
 	cfg := NewFixture(f)
+	cfg.rep = ledgerReporter()
 
 	mark := strictness.Checkpoint()
 	grant := cfg.LinkGrant([]string{"link-lazy-missing-one", "link-lazy-missing-two"})

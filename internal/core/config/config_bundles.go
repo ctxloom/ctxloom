@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os/exec"
 	"slices"
 	"sort"
@@ -14,8 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // lookPath is the PATH-resolution seam for tests.
@@ -65,9 +64,9 @@ func (c *Config) Catalog() bundles.Catalog {
 		return c.catalog()
 	}
 	root := c.TrustRoot()
-	return bundles.Resolve(context.Background(),
-		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)))
+	return bundles.Resolve(context.Background(), c.rep.Sink,
+		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)),
+		bundles.NewBuiltinReader(bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
 }
 
 // Trust is the generation's gate holder, bound before publication
@@ -150,7 +149,7 @@ func companionBin(command string) string {
 }
 
 // warnMissingCompanion emits the one-shot install hint for an absent binary.
-func warnMissingCompanion(bin, hint string) {
+func warnMissingCompanion(rep report.Reporter, bin, hint string) {
 	missingWarnedMu.Lock()
 	defer missingWarnedMu.Unlock()
 	if missingWarned[bin] {
@@ -161,7 +160,7 @@ func warnMissingCompanion(bin, hint string) {
 	if hint != "" {
 		msg += " (" + strings.TrimSpace(hint) + ")"
 	}
-	clidiag.Warn("ctxloom", "%s", msg)
+	rep.Warnf("%s", msg)
 }
 
 // builtinBundleSetRef is the source ref addServers attributes the in-binary
@@ -175,7 +174,7 @@ const builtinBundleSetRef = "ctxloom builtin bundles"
 // engine registry writer sees the composed set.
 //
 // The ruling (human, 2026-08-17): a contest between two DIFFERENT source refs
-// is a LOUD ERROR — a strictness.ClassBundle finding naming both refs and the
+// is a LOUD ERROR — a report.KindBundle finding naming both refs and the
 // contested name, and the later claim is WITHHELD — while the SAME ref reached
 // twice (a bundle listed by two profiles in scope, or a companion loadout that
 // a profile also references) dedupes silently.
@@ -201,6 +200,7 @@ const builtinBundleSetRef = "ctxloom builtin bundles"
 // reverses what ctxloom wrote last time before writing what it wants now, so
 // ownership is recorded rather than inferred.
 type mcpNameClaims struct {
+	rep report.Reporter
 	// claimedBy records the source ref that first claimed each name.
 	claimedBy map[string]string
 }
@@ -221,7 +221,7 @@ func (c *mcpNameClaims) claim(name, sourceRef string) bool {
 		// Same bundle reached twice — dedupe, silently and by ruling.
 		return true
 	}
-	strictness.Fail(strictness.ClassBundle,
+	c.rep.Failf(report.KindBundle,
 		"rename the server in one of the two bundles, or exclude it with `exclude_mcp:` in your profile",
 		"MCP server name %q is claimed by two different sources: %q claimed it first and %q also declares it; %q's server is withheld so one bundle's server cannot silently answer for another's declared name",
 		name, holder, sourceRef, sourceRef)
@@ -273,7 +273,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 			// an inherited bundle (while the fragment path, which resolves
 			// recursively, still picks them up). See ResolveBundleHooks for the
 			// matching pattern.
-			resolved, ok := resolveProfileOrReport(profileLoader, profileName)
+			resolved, ok := resolveProfileOrReport(c.rep, profileLoader, profileName)
 			if !ok {
 				continue
 			}
@@ -289,7 +289,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	//
 	// Names are visited in sorted order so that when one source contests two
 	// names at once, the findings it records come out in a stable order.
-	var claims mcpNameClaims
+	claims := mcpNameClaims{rep: c.rep}
 	addServers := func(sourceRef string, servers map[string]wire.MCPServer) {
 		names := make([]string, 0, len(servers))
 		for name := range servers {
@@ -316,7 +316,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// c.ExecutableTrustGate() (AdmitAll on management/listing paths, which
 	// state that they gate nothing) so a builtin item can still be REJECTED —
 	// see resolveBuiltinBundleMCPServers.
-	addServers(builtinBundleSetRef, resolveBuiltinBundleMCPServers(c.ExecutableTrustGate()))
+	addServers(builtinBundleSetRef, resolveBuiltinBundleMCPServers(c.rep, c.ExecutableTrustGate()))
 
 	// BundleLoader includes remote bundles from the active lockfile AND every
 	// discovered companion's loadout, read under its ctxloom:companion@<bin>
@@ -331,7 +331,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range companionRefs(cat) {
-		addServers(ref, loadMCPFromBundleRef(ref, cat, c.ExecutableTrustGate()))
+		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate()))
 	}
 
 	// Finally the profile-referenced bundles. A bundle listed by two profiles
@@ -341,7 +341,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// mcpNameClaims withholds it loudly.
 	for _, resolved := range scopedProfiles {
 		for _, bundleRef := range resolved.Bundles {
-			addServers(bundleRef, loadMCPFromBundleRef(bundleRef, cat, c.ExecutableTrustGate()))
+			addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate()))
 		}
 	}
 
@@ -364,7 +364,7 @@ func bundleSCM(src trust.BundleRef) string {
 // for the one the linked item actually depends on.
 //
 // The granted set is resolved ONCE, on the FIRST question, and never at
-// construction. Both halves matter. The resolve records a strictness finding
+// construction. Both halves matter. The resolve reports a fail-loudly finding
 // per unresolvable ref and per name contest; a grant asked many times in one
 // assembly must not repeat them, so it is memoised. And a grant is BUILT by
 // every pipeline the run constructs -- context assembly, skills, commands,
@@ -399,15 +399,15 @@ func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
 // exemption), but a REJECTED builtin item is now withheld, because rejection is
 // evaluated before the builtin exemption. A nil gate (management/listing paths,
 // matching every other resolver here) is fully ungated, unchanged from before.
-func resolveBuiltinBundleMCPServers(gate bundles.Authorizer) map[string]wire.MCPServer {
+func resolveBuiltinBundleMCPServers(rep report.Reporter, gate bundles.Authorizer) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
-	eachBuiltinBundle(func(read bundles.BundleRead) {
-		for serverName, server := range extractMCPFromBundle(read, read.SourceRef(), gate) {
+	eachBuiltinBundle(rep, func(read bundles.BundleRead) {
+		for serverName, server := range extractMCPFromBundle(rep, read, read.SourceRef(), gate) {
 			// Builtin bundles wire in standalone companion binaries; a
 			// missing one degrades to no entry (and one install hint)
 			// rather than a broken server in every backend.
 			if bin, missing := missingCompanion(server.Command); missing {
-				warnMissingCompanion(bin, server.Installation)
+				warnMissingCompanion(rep, bin, server.Installation)
 				continue
 			}
 			out[serverName] = server
@@ -425,17 +425,17 @@ func resolveBuiltinBundleMCPServers(gate bundles.Authorizer) map[string]wire.MCP
 // skills with no diagnostic from this layer and exit 0 — an empty result that
 // looks exactly like "nothing was configured". It isn't: it is "we could not
 // work out what to deliver". The inline-profile path
-// (resolveProfileParents) already calls strictness.Fail for this, as does the
+// (resolveProfileParents) already reports a fail-loudly finding for this, as does the
 // sibling loadBundleProfileSeed; this brings the bundle resolvers into line.
 //
 // FailOnce, not Fail: one unresolvable profile is hit by all four resolvers
 // (and each of those by several callers), so the per-message dedup keeps it to
 // a single line per window while still recording the finding the startup choke
 // aborts on in strict mode. --degraded downgrades it, as everywhere else.
-func resolveProfileOrReport(profileLoader *profiles.Loader, profileName string) (*profiles.ResolvedProfile, bool) {
+func resolveProfileOrReport(rep report.Reporter, profileLoader *profiles.Loader, profileName string) (*profiles.ResolvedProfile, bool) {
 	resolved, err := profileLoader.ResolveProfile(profileName, nil)
 	if err != nil {
-		strictness.FailOnce(strictness.ClassRef,
+		rep.FailOncef(report.KindRef,
 			"check the profile name (`ctxloom profile list`), or pass --degraded to continue without it",
 			"profile %q could not be resolved; the bundles it references contribute no MCP servers, hooks, commands or skills: %v",
 			profileName, err)
@@ -449,13 +449,13 @@ func resolveProfileOrReport(profileLoader *profiles.Loader, profileName string) 
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Authorizer) map[string]wire.MCPServer {
+func loadMCPFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, gate bundles.Authorizer) map[string]wire.MCPServer {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
-		reportBundleRefLoadFailure(bundleRef, err)
+		reportBundleRefLoadFailure(rep, bundleRef, err)
 		return nil
 	}
-	return extractMCPFromBundle(read, read.SourceRef(), gate)
+	return extractMCPFromBundle(rep, read, read.SourceRef(), gate)
 }
 
 // reportBundleRefLoadFailure reports a bundle ref that could not be loaded on
@@ -471,7 +471,7 @@ func loadMCPFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Au
 // Note the loader's own directory scan reports MALFORMED local bundle files
 // itself; what reaches here is chiefly the not-found ref — a bundle named by a
 // profile but never pulled, or misspelled.
-func reportBundleRefLoadFailure(bundleRef string, err error) {
+func reportBundleRefLoadFailure(rep report.Reporter, bundleRef string, err error) {
 	// A profile's `bundles:` list may carry ITEM-SCOPED refs
 	// ("<bundle>#fragments/<name>") selecting one item out of a bundle. Those
 	// name a fragment/command, not a bundle: loader.Load cannot resolve them
@@ -483,7 +483,7 @@ func reportBundleRefLoadFailure(bundleRef string, err error) {
 	if strings.Contains(bundleRef, "#") {
 		return
 	}
-	strictness.FailOnce(strictness.ClassBundle,
+	rep.FailOncef(report.KindBundle,
 		"run `ctxloom deps pull` or fix the bundle ref, or pass --degraded",
 		"failed to load bundle %q; the MCP servers and hooks it ships are not applied: %v", bundleRef, err)
 }
@@ -511,7 +511,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// gating, no deps pull. Routed through c.ExecutableTrustGate() (see
 	// resolveBuiltinBundleMCPServers for why: allowed by default, but now
 	// reachable by a rejection).
-	result.Append(resolveBuiltinBundleHooks(c.ExecutableTrustGate(), links))
+	result.Append(resolveBuiltinBundleHooks(c.rep, c.ExecutableTrustGate(), links))
 
 	bundleLoader := c.BundleLoader()
 
@@ -520,11 +520,11 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// builtin exemption. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range companionRefs(cat) {
-		result.Append(loadHooksFromBundleRef(ref, cat, c.ExecutableTrustGate(), links))
+		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate(), links))
 	}
 
 	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
-		result.Append(loadHooksFromBundleRef(bundleRef, cat, c.ExecutableTrustGate(), links))
+		result.Append(loadHooksFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate(), links))
 	})
 	return result
 }
@@ -548,7 +548,7 @@ func (c *Config) eachProfileBundleRef(profileNames []string, fn func(bundleRef s
 	}
 	profileLoader := c.GetProfileLoader()
 	for _, profileName := range profiles {
-		resolved, ok := resolveProfileOrReport(profileLoader, profileName)
+		resolved, ok := resolveProfileOrReport(c.rep, profileLoader, profileName)
 		if !ok {
 			continue
 		}
@@ -717,10 +717,10 @@ func resolveCompanionCommandsWith(pipe *bundles.Pipeline, cat bundles.Catalog) [
 // allowed by default (no new review friction), but now reachable by a
 // rejection (rejection is evaluated before the builtin exemption). A nil gate
 // (management/listing paths) stays fully ungated.
-func resolveBuiltinBundleHooks(gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
+func resolveBuiltinBundleHooks(rep report.Reporter, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
-	eachBuiltinBundle(func(read bundles.BundleRead) {
-		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, read.SourceRef(), gate, links)))
+	eachBuiltinBundle(rep, func(read bundles.BundleRead) {
+		out.Append(filterMissingCompanionHooks(rep, extractHooksFromBundle(rep, read, read.SourceRef(), gate, links)))
 	})
 	return out
 }
@@ -728,12 +728,12 @@ func resolveBuiltinBundleHooks(gate bundles.Authorizer, links bundles.LinkGrant)
 // filterMissingCompanionHooks drops hooks whose executable is a companion
 // binary absent from PATH (one install hint per binary). ctxloom's own hooks
 // always pass; see missingCompanion.
-func filterMissingCompanionHooks(in wire.UnifiedHooks) wire.UnifiedHooks {
+func filterMissingCompanionHooks(rep report.Reporter, in wire.UnifiedHooks) wire.UnifiedHooks {
 	keep := func(hooks []wire.Hook) []wire.Hook {
 		var out []wire.Hook
 		for _, h := range hooks {
 			if bin, missing := missingCompanion(h.Command); missing {
-				warnMissingCompanion(bin, "")
+				warnMissingCompanion(rep, bin, "")
 				continue
 			}
 			out = append(out, h)
@@ -793,7 +793,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 	preferDistilled := c.ShouldUseDistilled()
 	var out []BuiltinFragment
 
-	eachBuiltinBundle(func(read bundles.BundleRead) {
+	eachBuiltinBundle(c.rep, func(read bundles.BundleRead) {
 		if _, missing := builtinBundleCompanionMissing(read.Bundle); missing {
 			return
 		}
@@ -808,7 +808,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 		// IsLocal — a second trust identity for the same item, which is how a
 		// rejection recorded against the loader route stops withholding this
 		// one (crispy-scoop).
-		out = fragmentsFromBundle(out, read, read.SourceRef(), preferDistilled, gate)
+		out = fragmentsFromBundle(c.rep, out, read, read.SourceRef(), preferDistilled, gate)
 	})
 
 	// Companion loadouts (S8): unconditional like a builtin fragment (the
@@ -820,7 +820,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 	// that is precisely the nil-gate/exemption bypass the trust rework
 	// forbids for third-party content.
 	for _, read := range companionReads(c.BundleLoader().Catalog()) {
-		out = fragmentsFromBundle(out, read, read.SourceRef(), preferDistilled, gate)
+		out = fragmentsFromBundle(c.rep, out, read, read.SourceRef(), preferDistilled, gate)
 	}
 	return out
 }
@@ -833,7 +833,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []Builti
 // embedded-builtin loop above (signer "", src a BuiltinRef) and the
 // companion-loadout loop (signer b.Signer(), src a CompanionRef)
 // — the only two callers, which differ solely in src/signer.
-func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, src trust.BundleRef, preferDistilled bool, gate bundles.Authorizer) []BuiltinFragment {
+func fragmentsFromBundle(rep report.Reporter, out []BuiltinFragment, read bundles.BundleRead, src trust.BundleRef, preferDistilled bool, gate bundles.Authorizer) []BuiltinFragment {
 	b := read.Bundle
 	fragNames := make([]string, 0, len(b.Fragments))
 	for fragName := range b.Fragments {
@@ -853,10 +853,10 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, src tru
 		if rerr != nil {
 			// One unaddressable bundle costs its own fragments, never the
 			// rest of the loadout.
-			clidiag.Warn("ctxloom", "%v — withheld", rerr)
+			rep.Warnf("%v — withheld", rerr)
 			continue
 		}
-		if !bundles.Decide(gate, read, ref, surface.Preimage(), surface.Form()).Allow {
+		if !bundles.Decide(rep, gate, read, ref, surface.Preimage(), surface.Form()).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)
 		}
 		out = append(out, BuiltinFragment{
@@ -896,13 +896,13 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
+func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.Catalog, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
 	read, err := cat.Read(bundleRef)
 	if err != nil {
-		reportBundleRefLoadFailure(bundleRef, err)
+		reportBundleRefLoadFailure(rep, bundleRef, err)
 		return wire.UnifiedHooks{}
 	}
-	return extractHooksFromBundle(read, read.SourceRef(), gate, links)
+	return extractHooksFromBundle(rep, read, read.SourceRef(), gate, links)
 }
 
 // extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate
@@ -924,7 +924,7 @@ func loadHooksFromBundleRef(bundleRef string, cat bundles.Catalog, gate bundles.
 // pipeline, so this is where the group's atomicity is enforced for them. A nil
 // grant withholds every linked hook; a surface that gates nothing says
 // bundles.LinksUnchecked.
-func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
+func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
@@ -973,7 +973,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 					// Fail CLOSED and NAMED: a hook nothing can address is a
 					// hook nothing can decide about, and one such hook costs
 					// itself, never the bundle's other hooks.
-					strictness.Fail(strictness.ClassBundle,
+					rep.Failf(report.KindBundle,
 						"fix or re-pull the bundle, or pass --degraded",
 						"bundle hook withheld: %v", rerr)
 					continue
@@ -984,12 +984,12 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 					// CLOSED, but never SILENTLY: a hook the user configured would
 					// otherwise vanish from the launched engine with no trace
 					// (U049-F17). Name the ref and the fault.
-					strictness.Fail(strictness.ClassBundle,
+					rep.Failf(report.KindBundle,
 						"fix or re-pull the bundle, or pass --degraded",
 						"bundle hook %q withheld: cannot build its trust preimage: %v", ref, perr)
 					continue
 				}
-				if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
+				if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
 					continue // withheld by the trust gate
 				}
 			}
@@ -997,7 +997,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 			// links are the second question, asked only of a hook trust
 			// would deliver. Effective tags, as LinkGroups computes them.
 			if linkID, server, withheld := bundles.LinkWithholds(links, read, slices.Concat(bundle.Tags, h.Tags)); withheld {
-				bundles.WarnLinkWithheld(read.DisplayName()+"#hooks/"+id, linkID, server)
+				bundles.WarnLinkWithheld(rep, read.DisplayName()+"#hooks/"+id, linkID, server)
 				continue
 			}
 			out = append(out, wire.Hook{
@@ -1032,7 +1032,7 @@ func extractHooksFromBundle(read bundles.BundleRead, src trust.BundleRef, gate b
 // (bundles.ItemRefFor(src, trust.KindMCP, name)); a DENY omits the server entirely
 // — an arbitrary-command executable must never reach settings unevaluated
 // (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt).
-func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) map[string]wire.MCPServer {
+func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
 
@@ -1044,7 +1044,7 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 			ref, rerr := bundles.ItemRefFor(src, trust.KindMCP, name)
 			if rerr != nil {
 				// See extractHooksFromBundle: fail closed, named, per item.
-				strictness.Fail(strictness.ClassBundle,
+				rep.Failf(report.KindBundle,
 					"fix or re-pull the bundle, or pass --degraded",
 					"bundle MCP server withheld: %v", rerr)
 				continue
@@ -1055,12 +1055,12 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 				// CLOSED, but never SILENTLY: an MCP server the user configured
 				// would otherwise vanish from the launched engine with no trace
 				// (U049-F17). Name the ref and the fault.
-				strictness.Fail(strictness.ClassBundle,
+				rep.Failf(report.KindBundle,
 					"fix or re-pull the bundle, or pass --degraded",
 					"bundle MCP server %q withheld: cannot build its trust preimage: %v", ref, perr)
 				continue
 			}
-			if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
+			if !bundles.Decide(rep, gate, read, ref, payload, bundles.FormRaw).Allow {
 				continue // withheld by the trust gate
 			}
 		}
@@ -1105,17 +1105,20 @@ func extractMCPFromBundle(read bundles.BundleRead, src trust.BundleRef, gate bun
 // Both are deliberate — the ingest identity rule exists precisely to collapse
 // one item arriving by both — and the memo makes them provably agree by giving
 // them one parse instead of two.
-var builtinReads = sync.OnceValue(func() []bundles.BundleRead {
-	reads, err := bundles.NewBuiltinReader().Read(context.Background())
-	if err != nil {
-		clidiag.Warn("ctxloom", "read builtin bundles: %v", err)
-		return nil
-	}
-	return reads
+var builtinReads = sync.OnceValues(func() ([]bundles.BundleRead, error) {
+	return bundles.NewBuiltinReader().Read(context.Background())
 })
 
-func eachBuiltinBundle(fn func(read bundles.BundleRead)) {
-	for _, read := range builtinReads() {
+// eachBuiltinBundle visits every builtin bundle; a read failure is reported
+// once per caller through rep (the memo keeps the error, not the warning,
+// so no caller's report is lost to another's first call).
+func eachBuiltinBundle(rep report.Reporter, fn func(read bundles.BundleRead)) {
+	reads, err := builtinReads()
+	if err != nil {
+		rep.Warnf("read builtin bundles: %v", err)
+		return
+	}
+	for _, read := range reads {
 		fn(read)
 	}
 }

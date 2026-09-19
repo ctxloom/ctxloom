@@ -430,7 +430,7 @@ type EngineSpawn struct {
 // private cwd is a property of how the parent fans, and the shared
 // checkout is never the silent default for a child.
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
-	deps, err := operations.LaunchDepsFor(plan.snap)
+	deps, err := operations.LaunchDepsFor(plan.snap, s.app.Strictness)
 	if err != nil {
 		return nil, err
 	}

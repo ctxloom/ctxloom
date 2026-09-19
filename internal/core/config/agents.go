@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"sort"
 	"strings"
 
@@ -9,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // LoadAgents returns every locally-defined agent — the `agents:` config key
@@ -69,7 +69,7 @@ func (c *Config) retiredAgentsDirSignpost() {
 		if len(stranded) == 0 {
 			continue
 		}
-		strictness.FailOnce(strictness.ClassMigration,
+		c.rep.FailOncef(report.KindMigration,
 			fmt.Sprintf("move each binding under the `agents:` key of %s, then delete %s",
 				paths.ConfigPath(appPath), dir),
 			"%s holds %d agent definition(s) (%s) but agents now live only under the `agents:` key of config.yaml — that directory is no longer read, so these bindings are invisible to `agent list`, `run --agent` and `default_agent`",
@@ -104,7 +104,7 @@ func (c *Config) retiredEscalationSignpost() {
 		if len(c.agents[name].Escalation) == 0 {
 			continue
 		}
-		strictness.FailOnce(strictness.ClassMigration,
+		c.rep.FailOncef(report.KindMigration,
 			fmt.Sprintf("delete the `escalation:` key from agent %q", name),
 			"agent %q declares an `escalation:` ladder (%d rung(s)), but the orchestrator-routed approval ladder was removed — the key is still parsed and still shown by `agent show`, yet nothing reads it, so the rungs have no effect on what that agent may do",
 			name, len(c.agents[name].Escalation))

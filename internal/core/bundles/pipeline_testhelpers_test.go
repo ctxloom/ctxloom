@@ -1,5 +1,10 @@
 package bundles
 
+import (
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+)
+
 // Test-only pipeline constructors. Gating and form selection are process-stage
 // policy, so a test that wants either builds the stage that carries it; these
 // two spell the two shapes so the intent of each call site is visible.
@@ -9,6 +14,10 @@ package bundles
 // resolution rather than trust. An ungated authorizer, never nil: nil is a
 // forgotten gate and delivers nothing, which would make every resolution test
 // here fail for a reason that has nothing to do with what it is testing.
+// ledger is the real rendering sink, for a test that asserts on the strictness
+// ledger or the clidiag stream exactly as the binary's user would see them.
+func ledger() report.Sink { return strictness.Sink("ctxloom") }
+
 func ungated(l *Loader, preferDistilled bool) *Pipeline {
 	return NewPipeline(l, admitAllForTest(), LinksUnchecked(), preferDistilled)
 }

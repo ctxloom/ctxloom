@@ -227,10 +227,8 @@ func TestDualCapableSurface_WorksInEveryMechanism(t *testing.T) {
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 
@@ -279,7 +277,6 @@ func TestDeliverOneShared_NoRealization_WarnsThenProceeds(t *testing.T) {
 // fallback is warn-and-proceed in BOTH modes.
 func TestDeliverOneShared_Degraded_WarnsWithoutRecording(t *testing.T) {
 	resetStrictness(t)
-	strictness.SetDegraded(true)
 
 	var call deliveryCall
 	surface := recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/context"}

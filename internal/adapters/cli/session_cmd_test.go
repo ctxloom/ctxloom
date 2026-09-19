@@ -119,7 +119,7 @@ func TestEmitHarpMarker_FailureIsReported(t *testing.T) {
 func seedHomeSession(t *testing.T) (*sessions.Manager, sessions.Entry) {
 	t.Helper()
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
 	require.NoError(t, err)

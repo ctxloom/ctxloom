@@ -23,7 +23,7 @@ func candidateProbe(los []CompanionLoadout, cands []CompanionCandidate) Companio
 // will not parse.
 func mixedCompanionCatalog(t *testing.T) Catalog {
 	t.Helper()
-	return Resolve(context.Background(), NewCompanionReader(candidateProbe(
+	return Resolve(context.Background(), nil, NewCompanionReader(candidateProbe(
 		[]CompanionLoadout{
 			{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: readerBundleYAML},
 			{Bin: "garbled", Path: "/opt/bin/garbled", Bundle: []byte(":\n  not a bundle")},
@@ -111,7 +111,7 @@ func TestCatalogCandidates_SurviveAReaderThatAlsoFailed(t *testing.T) {
 	r := &failingCandidateReader{candidates: []Candidate{
 		{Ref: "ctxloom+companion:taskloom", Path: "/opt/bin/taskloom", Reason: CandidateUnconsented},
 	}}
-	cat := Resolve(context.Background(), r)
+	cat := Resolve(context.Background(), nil, r)
 	assert.Empty(t, cat.Reads())
 	require.Len(t, cat.Candidates(), 1)
 	assert.Equal(t, CandidateUnconsented, cat.Candidates()[0].Reason)

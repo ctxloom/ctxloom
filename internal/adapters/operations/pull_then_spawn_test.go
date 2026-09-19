@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/afero"
@@ -63,7 +66,7 @@ func pulledApp(t *testing.T, appDir string) *App {
 	t.Helper()
 	src, err := ComposeSources(Compose{NoCompanions: true, Options: []configload.Option{configload.WithAppDir(appDir)}})
 	require.NoError(t, err)
-	return NewApp(src, true)
+	return NewApp(src, true, strictness.Mode{Prog: "ctxloom"})
 }
 
 // installPulled writes what a pull writes: the installed tree and the
@@ -125,7 +128,7 @@ func gateVerdict(t *testing.T, snap *config.Snapshot, repoURL string) bundles.Ve
 	require.True(t, ok)
 	ref, err := bundles.ItemRefFor(read.SourceRef(), trust.KindMCP, "tools-server")
 	require.NoError(t, err)
-	return bundles.Decide(snap.Trust.Authorizer(), read, ref, []byte("tools-server"), bundles.FormRaw)
+	return bundles.Decide(report.Reporter{}, snap.Trust.Authorizer(), read, ref, []byte("tools-server"), bundles.FormRaw)
 }
 
 // TestPullThenSpawn_NextGenerationHoldsThePulledBundleAndItsRetraction is

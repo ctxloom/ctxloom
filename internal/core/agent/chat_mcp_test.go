@@ -118,7 +118,7 @@ func TestResolveManagedMCPServers(t *testing.T) {
 		"other":       {Command: "other", Args: []string{"x"}},
 	}
 
-	out := ResolveManagedMCPServers(src)
+	out, _ := ResolveManagedMCPServers(src)
 
 	assert.Equal(t, "ctxloom", out[MCPServerName].Command)
 	assert.Equal(t, CtxloomMCPArgs, out[MCPServerName].Args)
@@ -128,7 +128,7 @@ func TestResolveManagedMCPServers(t *testing.T) {
 		"the caller's map must not be mutated")
 
 	withheld := map[string]wire.MCPServer{"other": {Command: "other"}}
-	assert.Equal(t, withheld, ResolveManagedMCPServers(withheld),
+	assert.Equal(t, withheld, resolvedManaged(withheld),
 		"a set with no ctxloom entry is returned unchanged — nothing invents one")
 }
 

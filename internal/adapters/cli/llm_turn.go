@@ -57,7 +57,7 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	// turn) — but a fatal-class FINDING (a corrupted/malformed
 	// config.yaml) is a different, stronger signal and still aborts unless
 	// --degraded, same as the other two process-owning entry points.
-	gates := newPhaseGates(os.Stderr)
+	gates := newPhaseGates(os.Stderr, App().Strictness)
 
 	backendName := args[0]
 	backend := backends.Get(backendName)

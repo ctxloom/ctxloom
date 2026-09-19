@@ -84,7 +84,7 @@ func TestWithDistillBudget(t *testing.T) {
 // is in relayBudgets for precisely this reason.
 func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	proj := t.TempDir()
@@ -129,7 +129,7 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 // asked to do.
 func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	proj := t.TempDir()
@@ -177,7 +177,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 // the buffer empty and fail here.
 func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testing.T) {
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 
 	proj := t.TempDir()

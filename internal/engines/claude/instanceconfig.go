@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -159,7 +162,7 @@ func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigReque
 	dir := filepath.Join(req.InstanceHome, HomeLeaf)
 	dest := filepath.Join(dir, InstanceConfigFileName)
 
-	err := agent.WithFileLock(fs, dest, func() error {
+	err := sessions.WithFileLock(fs, dest, func() error {
 		cfg, err := loadJSONObject(fs, dest)
 		if err != nil {
 			// The instance file is ctxloom's own; one we cannot read is a real
@@ -184,7 +187,7 @@ func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigReque
 		if err := fs.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("claude instance config: create %s: %w", dir, err)
 		}
-		if err := agent.AtomicWriteFile(fs, dest, data, InstanceConfigFileName); err != nil {
+		if err := iox.AtomicWriteFile(fs, dest, data, InstanceConfigFileName); err != nil {
 			return fmt.Errorf("claude instance config: write %s: %w", dest, err)
 		}
 		rep.Wrote = append(rep.Wrote, dest)

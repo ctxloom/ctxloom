@@ -3,6 +3,8 @@ package config
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"gopkg.in/yaml.v3"
 
 	"github.com/stretchr/testify/assert"
@@ -64,7 +66,7 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 	require.NotEmpty(t, names, "the binary must embed at least one builtin bundle, or this gate proves nothing")
 
 	seen := map[string]bool{}
-	eachBuiltinBundle(func(read bundles.BundleRead) {
+	eachBuiltinBundle(report.Reporter{}, func(read bundles.BundleRead) {
 		require.NotNil(t, read.Bundle)
 		seen[read.DisplayName()] = true
 	})
@@ -96,7 +98,7 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 func TestEachBuiltinBundle_ParsesOncePerProcess(t *testing.T) {
 	collect := func() map[string]*bundles.Bundle {
 		out := map[string]*bundles.Bundle{}
-		eachBuiltinBundle(func(read bundles.BundleRead) { out[read.DisplayName()] = read.Bundle })
+		eachBuiltinBundle(report.Reporter{}, func(read bundles.BundleRead) { out[read.DisplayName()] = read.Bundle })
 		return out
 	}
 
@@ -119,7 +121,7 @@ func TestBuiltinBundleReaders_UseTheCanonicalParser(t *testing.T) {
 	// Exercised through the exported surfaces, so the shared helper is on each
 	// of their live paths rather than merely present in the file.
 	assert.NotPanics(t, func() {
-		_ = resolveBuiltinBundleMCPServers(composite.Ungated().Authorizer())
-		_ = resolveBuiltinBundleHooks(composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+		_ = resolveBuiltinBundleMCPServers(report.Reporter{}, composite.Ungated().Authorizer())
+		_ = resolveBuiltinBundleHooks(report.Reporter{}, composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	})
 }

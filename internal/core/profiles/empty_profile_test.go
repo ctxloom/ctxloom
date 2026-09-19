@@ -1,13 +1,13 @@
 package profiles
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -50,17 +50,13 @@ func TestLoad_EmptyProfileFileIsReported(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			testsupport.WriteFileString(t, fs, "/proj/.ctxloom/profiles/hollow.yaml", body, 0o644)
-			l := NewLoader([]string{"/proj/.ctxloom/profiles"}, WithFS(fs))
-
-			strictness.Reset()
-			strictness.SetDegraded(false)
-			mark := strictness.Checkpoint()
-			defer strictness.Close(mark)
+			var found report.Collector
+			l := NewLoader([]string{"/proj/.ctxloom/profiles"}, WithFS(fs), WithReporter(&found))
 
 			_, err := l.Load("hollow")
 			require.NoError(t, err, "a hollow profile must still ENUMERATE")
-			assert.NotEmpty(t, strictness.Since(mark),
-				"a profile that selects nothing must record a fail-loudly finding, not pass silently")
+			assert.NotEmpty(t, found.All().Fatal(),
+				"a profile that selects nothing must report a fail-loudly finding, not pass silently")
 		})
 	}
 }

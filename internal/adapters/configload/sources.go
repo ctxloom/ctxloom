@@ -13,6 +13,7 @@ package configload
 
 import (
 	"context"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"path/filepath"
 	"time"
 
@@ -135,7 +136,7 @@ func Load(opts ...Option) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	owner, err := config.Open(context.Background(), src)
+	owner, err := config.Open(context.Background(), src, config.WithReporter(strictness.Sink("ctxloom")))
 	if err != nil {
 		return nil, err
 	}
@@ -220,8 +221,8 @@ func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
-		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
+		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
+		bundles.NewBuiltinReader(bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
 	}
 	for _, source := range s.readerSources {
 		readers = append(readers, source(cfg)...)

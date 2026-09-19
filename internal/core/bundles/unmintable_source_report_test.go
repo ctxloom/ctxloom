@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -59,7 +61,7 @@ func TestCanonicalBundleRefTyped_ReportsWhatItCouldNotMint(t *testing.T) {
 		var sink bytes.Buffer
 		t.Cleanup(clidiag.SetSink(&sink))
 
-		warnUnmintableSource("file:///srv/broken@bundles/x", assert.AnError)
+		warnUnmintableSource(report.To(ledger()), "file:///srv/broken@bundles/x", assert.AnError)
 
 		got := sink.String()
 		assert.Contains(t, got, "file:///srv/broken@bundles/x",

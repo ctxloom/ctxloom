@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -84,7 +86,7 @@ func acceptedSkills(skills []agent.SkillExport) []agent.SkillExport {
 	for _, s := range skills {
 		if s.Enabled {
 			if err := checkSkillConstraints(s); err != nil {
-				agent.Warn("refusing skill %q for claude: %v", s.Name, err)
+				clidiag.Warn("ctxloom", "refusing skill %q for claude: %v", s.Name, err)
 				continue
 			}
 		}

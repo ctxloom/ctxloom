@@ -1,7 +1,6 @@
 package sessions
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -35,21 +33,17 @@ func TestLinkEngineTranscript_AbsentTargetIsAnnounced(t *testing.T) {
 	_, statErr := os.Stat(target)
 	require.ErrorIs(t, statErr, os.ErrNotExist, "the fixture target must genuinely be absent")
 
-	var sink bytes.Buffer
-	restore := clidiag.SetSink(&sink)
-	t.Cleanup(restore)
-
-	linkEngineTranscript("swift-amber-falcon", "claude-code", "sess-1", target)
+	sink := linkEngineTranscript("swift-amber-falcon", "claude-code", "sess-1", target)
 
 	link := filepath.Join(home, ".ctxloom", "sessions", "swift-amber-falcon", "engine-transcript-claude-code-sess-1.jsonl")
 	got, err := os.Readlink(link)
 	require.NoError(t, err, "the link is still created; only the silence is the defect")
 	require.Equal(t, target, got)
 
-	require.NotEmpty(t, sink.String(),
+	require.NotEmpty(t, strings.Join(sink.Texts(), "\n"),
 		"a bind pointing at an absent transcript must be announced, not left as a dangling link")
-	require.Contains(t, sink.String(), target,
-		"the warning must name the path that does not resolve; got %q", sink.String())
+	require.Contains(t, strings.Join(sink.Texts(), "\n"), target,
+		"the warning must name the path that does not resolve; got %q", strings.Join(sink.Texts(), "\n"))
 }
 
 // TestLinkEngineTranscript_UninspectableExistingEntryIsAnnounced replaces the
@@ -62,7 +56,7 @@ func TestLinkEngineTranscript_AbsentTargetIsAnnounced(t *testing.T) {
 //
 // The fixture occupies the link path with a NON-EMPTY directory: os.Readlink
 // on a directory fails for a reason that is not absence, and that failure
-// must be the one clidiag reports.
+// must be the one the returned findings carry.
 func TestLinkEngineTranscript_UninspectableExistingEntryIsAnnounced(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation requires privilege on Windows; the feature is best-effort there")
@@ -84,14 +78,10 @@ func TestLinkEngineTranscript_UninspectableExistingEntryIsAnnounced(t *testing.T
 	target := filepath.Join(t.TempDir(), "abc.jsonl")
 	require.NoError(t, os.WriteFile(target, []byte("{}\n"), 0o644))
 
-	var sink bytes.Buffer
-	restore := clidiag.SetSink(&sink)
-	t.Cleanup(restore)
+	sink := linkEngineTranscript("swift-amber-falcon", "claude-code", "sess-1", target)
 
-	linkEngineTranscript("swift-amber-falcon", "claude-code", "sess-1", target)
-
-	require.Contains(t, sink.String(), "could not inspect",
-		"the real inspection failure must be reported, not masked by a downstream EEXIST; got %q", sink.String())
+	require.Contains(t, strings.Join(sink.Texts(), "\n"), "could not inspect",
+		"the real inspection failure must be reported, not masked by a downstream EEXIST; got %q", strings.Join(sink.Texts(), "\n"))
 }
 
 // TestLinkEngineTranscript_SameNameDifferentTargetReplacesAtomicallyAndWarns
@@ -115,22 +105,18 @@ func TestLinkEngineTranscript_SameNameDifferentTargetReplacesAtomicallyAndWarns(
 	require.NoError(t, err)
 	require.Equal(t, target1, got1)
 
-	var sink bytes.Buffer
-	restore := clidiag.SetSink(&sink)
-	t.Cleanup(restore)
-
 	target2 := filepath.Join(t.TempDir(), "second.jsonl")
 	require.NoError(t, os.WriteFile(target2, []byte("{}\n"), 0o644))
-	linkEngineTranscript("swift-amber-falcon", "claude-code", "sess-1", target2)
+	sink := linkEngineTranscript("swift-amber-falcon", "claude-code", "sess-1", target2)
 
 	got2, err := os.Readlink(link)
 	require.NoError(t, err, "the link must exist and resolve after the replace")
 	require.Equal(t, target2, got2, "the replace must land the NEW target")
 
-	require.NotEmpty(t, sink.String(), "a session-id reuse anomaly must be announced")
-	require.Contains(t, sink.String(), "sess-1", "the warning must name the reused session id")
-	require.Contains(t, sink.String(), target1, "the warning must name the target it replaced")
-	require.Contains(t, sink.String(), target2, "the warning must name the target it replaced with")
+	require.NotEmpty(t, strings.Join(sink.Texts(), "\n"), "a session-id reuse anomaly must be announced")
+	require.Contains(t, strings.Join(sink.Texts(), "\n"), "sess-1", "the warning must name the reused session id")
+	require.Contains(t, strings.Join(sink.Texts(), "\n"), target1, "the warning must name the target it replaced")
+	require.Contains(t, strings.Join(sink.Texts(), "\n"), target2, "the warning must name the target it replaced with")
 }
 
 // TestAtomicSymlink_FailureDuringReplaceLeavesOriginalLinkIntact is the

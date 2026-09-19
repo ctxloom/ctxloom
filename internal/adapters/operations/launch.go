@@ -80,7 +80,7 @@ func (a *App) LaunchDeps(ctx context.Context) (launch.Deps, error) {
 	if err != nil {
 		return launch.Deps{}, err
 	}
-	return LaunchDepsFor(snap)
+	return LaunchDepsFor(snap, a.Strictness)
 }
 
 // LaunchDepsFor composes the resolver's ports over one generation: the
@@ -88,7 +88,7 @@ func (a *App) LaunchDeps(ctx context.Context) (launch.Deps, error) {
 // the session store and the host facts. A caller holding only the
 // generation's Config (the compactor, the trigger evaluator) wraps it in a
 // Snapshot; Resolve reads the Config and nothing else off it.
-func LaunchDepsFor(snap *config.Snapshot) (launch.Deps, error) {
+func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, error) {
 	store, err := openSessions()
 	if err != nil {
 		return launch.Deps{}, err
@@ -101,7 +101,7 @@ func LaunchDepsFor(snap *config.Snapshot) (launch.Deps, error) {
 		Snapshot:  snap,
 		Engines:   backends.Engines(),
 		Assembler: assembler{},
-		Cells:     Cells{cfg: snap.Config},
+		Cells:     Cells{cfg: snap.Config, mode: mode},
 		Endpoints: endpointMinter{},
 		Sessions:  store,
 		Host:      host,
@@ -182,7 +182,8 @@ func (assembler) Surfaces(_ context.Context, snap *config.Snapshot, eng engine.N
 // the cell's roots and env. A requested boundary that could not be provided
 // is refused here, typed.
 type Cells struct {
-	cfg *config.Config
+	cfg  *config.Config
+	mode strictness.Mode // the gate's posture: which isolation findings refuse the member
 	// Git overrides the git seam the dirty-parent-tree decision uses (nil
 	// selects the real binary).
 	Git git.Git
@@ -256,7 +257,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	})
 	found := strictness.Since(mark)
 	strictness.Close(mark)
-	if gerr := isolationGateErr(found); gerr != nil {
+	if gerr := isolationGateErr(c.mode, found); gerr != nil {
 		_ = ws.Cleanup()
 		return launch.Cell{}, fmt.Errorf("%w: %v", launch.ErrRuntimeUnavailable, gerr)
 	}

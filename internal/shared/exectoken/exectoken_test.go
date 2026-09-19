@@ -1,6 +1,8 @@
-package agent
+package exectoken
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestExecToken(t *testing.T) {
 	cases := map[string]string{
@@ -14,8 +16,8 @@ func TestExecToken(t *testing.T) {
 		"":                                       "",
 	}
 	for in, want := range cases {
-		if got := execToken(in); got != want {
-			t.Errorf("execToken(%q) = %q; want %q", in, got, want)
+		if got := Token(in); got != want {
+			t.Errorf("Token(%q) = %q; want %q", in, got, want)
 		}
 	}
 }

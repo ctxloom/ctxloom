@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -260,7 +262,7 @@ func (c *converter) reportDrops() {
 	if c.drops.total() == 0 {
 		return
 	}
-	agent.Warn("claude transcript import: dropped %d vendor content item(s) with no canonical representation (%s)", c.drops.total(), c.drops.summary())
+	clidiag.Warn("ctxloom", "claude transcript import: dropped %d vendor content item(s) with no canonical representation (%s)", c.drops.total(), c.drops.summary())
 }
 
 // dropTally counts, by a short label, vendor content that went on the floor.

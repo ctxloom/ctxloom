@@ -15,12 +15,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// newAdoptManager isolates HOME (so sessions.Open() — both here and inside
+// newAdoptManager isolates HOME (so sessions.Open(nil) — both here and inside
 // openSessions() — resolve the SAME sandboxed index.yaml) and opens it.
 func newAdoptManager(t *testing.T) *sessions.Manager {
 	t.Helper()
 	testsupport.Isolate(t)
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	return mgr
 }

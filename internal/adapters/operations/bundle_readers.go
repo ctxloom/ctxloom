@@ -125,6 +125,7 @@ func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEnt
 	}
 	return bundles.NewRepoFSReader(tree, canonical,
 		bundles.WithTrustRoot(root),
+		bundles.WithReaderReporter(cfg.Reporter()),
 		bundles.WithInstalledDir(dir),
 		bundles.WithPinnedRevision(entry.SHA),
 		bundles.WithRepoURL(entry.URL)), nil
@@ -330,4 +331,11 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		// zero items — the real product bundle, silently empty.
 		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.TrustRoot())
 	}
+}
+
+// projectReader is the one-off local reader an operation opens to touch a
+// single bundle by name outside a config generation; its read-time findings
+// render through the process's diagnostic sink.
+func projectReader(fs afero.Fs, dirs []string) bundles.Reader {
+	return bundles.NewProjectReader(fs, dirs, bundles.WithReaderReporter(strictness.Sink("ctxloom")))
 }

@@ -15,7 +15,7 @@ import (
 
 func TestDirtyTreeCommitAcknowledged_AbsentRecordDefaultsFalse(t *testing.T) {
 	fs := afero.NewMemMapFs()
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, "/proj/.ctxloom"))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj/.ctxloom"))
 }
 
 func TestSetDirtyTreeCommitAck_GrantThenRevoke(t *testing.T) {
@@ -23,7 +23,7 @@ func TestSetDirtyTreeCommitAck_GrantThenRevoke(t *testing.T) {
 	appDir := "/proj/.ctxloom"
 
 	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, true))
-	assert.True(t, DirtyTreeCommitAcknowledged(fs, appDir))
+	assert.True(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, appDir))
 
 	// PAYLOAD assertion, not just "no error": the record must actually be on
 	// disk, at the documented path, not merely reported as granted in memory.
@@ -32,7 +32,7 @@ func TestSetDirtyTreeCommitAck_GrantThenRevoke(t *testing.T) {
 	assert.NotEmpty(t, data, "the ack store file must not be empty after granting")
 
 	require.NoError(t, SetDirtyTreeCommitAck(fs, appDir, false))
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, appDir), "revoking must flip the acknowledgement back to false")
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, appDir), "revoking must flip the acknowledgement back to false")
 }
 
 // TestSetDirtyTreeCommitAck_TwoProjectsAreIndependent proves the record is
@@ -42,8 +42,8 @@ func TestSetDirtyTreeCommitAck_TwoProjectsAreIndependent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, SetDirtyTreeCommitAck(fs, "/proj-a/.ctxloom", true))
 
-	assert.True(t, DirtyTreeCommitAcknowledged(fs, "/proj-a/.ctxloom"))
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, "/proj-b/.ctxloom"),
+	assert.True(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj-a/.ctxloom"))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj-b/.ctxloom"),
 		"a different project's checkout must not inherit another's acknowledgement")
 }
 
@@ -76,7 +76,7 @@ func TestDirtyTreeCommitAcknowledged_AbsentRecordWarnsNothing(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, "/proj/.ctxloom"))
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, "/proj/.ctxloom"))
 	assert.Empty(t, buf.String(), "an absent record is the ordinary unasked case, not a fault — it must not warn")
 }
 
@@ -103,7 +103,7 @@ func TestDirtyTreeCommitAcknowledged_UnreadableStoreWarnsAndDenies(t *testing.T)
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, appDir), "an unreadable store must still deny — fail closed")
+	assert.False(t, DirtyTreeCommitAcknowledged(ledgerReporter(), fs, appDir), "an unreadable store must still deny — fail closed")
 
 	warning := buf.String()
 	assert.Contains(t, warning, ackPath, "the warning must name the file that could not be read")

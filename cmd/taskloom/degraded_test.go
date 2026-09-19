@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -74,7 +73,7 @@ func executeAdd(t *testing.T, text string, args ...string) (string, error) {
 // the store's bytes empty.
 func TestAdd_StrictRefusesSchemaRejectedTagAndWritesNothing(t *testing.T) {
 	taskstest.ProjectDir(t)
-	diag := taskstest.Strictness(t, false)
+	diag := taskstest.Strictness(t)
 
 	_, err := executeAdd(t, "strict add", "--tag", "urgent", "--tag", "triage:kind=sparkles")
 	require.Error(t, err, "strict mode must refuse the add")
@@ -90,11 +89,11 @@ func TestAdd_StrictRefusesSchemaRejectedTagAndWritesNothing(t *testing.T) {
 // asserted on the store's bytes.
 func TestAdd_DegradedCreatesRowWithoutRefusedTagAndPrintsRefusal(t *testing.T) {
 	taskstest.ProjectDir(t)
-	diag := taskstest.Strictness(t, false) // the FLAG must flip the mode, not the test
+	diag := taskstest.Strictness(t) // the FLAG must flip the mode, not the test
 
 	out, err := executeAdd(t, "degraded add", "--degraded", "--tag", "urgent", "--tag", "triage:kind=sparkles")
 	require.NoError(t, err, "degraded mode must skip the refused tag, not refuse the add; out:\n%s", out)
-	assert.True(t, strictness.Degraded(), "--degraded must switch the process into degraded mode")
+	assert.True(t, degradedFlag, "--degraded must switch this invocation into degraded mode")
 
 	got := storeBytes(t)
 	assert.Contains(t, got, "degraded add", "the row must land")
@@ -109,7 +108,9 @@ func TestAdd_DegradedCreatesRowWithoutRefusedTagAndPrintsRefusal(t *testing.T) {
 // skipped tag has to come back on the result itself.
 func TestHandleTaskAdd_DegradedReportsRefusedTagsOnTheResult(t *testing.T) {
 	taskstest.ProjectDir(t)
-	taskstest.Strictness(t, true)
+	taskstest.Strictness(t)
+	degradedFlag = true
+	t.Cleanup(func() { degradedFlag = false })
 
 	_, res, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "via mcp", Tags: []string{"urgent", "triage:kind=sparkles"}})
 	require.NoError(t, err)
@@ -123,7 +124,9 @@ func TestHandleTaskAdd_DegradedReportsRefusedTagsOnTheResult(t *testing.T) {
 // task_tag's add list.
 func TestHandleTaskTag_DegradedReportsRefusedTagsOnTheResult(t *testing.T) {
 	taskstest.ProjectDir(t)
-	taskstest.Strictness(t, true)
+	taskstest.Strictness(t)
+	degradedFlag = true
+	t.Cleanup(func() { degradedFlag = false })
 
 	_, added, err := handleTaskAdd(context.Background(), nil, taskAddInput{Text: "via mcp"})
 	require.NoError(t, err)

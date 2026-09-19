@@ -1,15 +1,14 @@
 package profiles
 
 import (
-	"bytes"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestLoad_UnknownProfileKey_IsNamedAndSuggested pins the protection the inline
@@ -23,13 +22,10 @@ func TestLoad_UnknownProfileKey_IsNamedAndSuggested(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "typo.yaml"),
 		[]byte("descriptionn: oops\nselect_tagz:\n  - go\nbundles:\n  - real\n"), 0o644))
 
-	var out bytes.Buffer
-	restore := clidiag.SetSink(&out)
-	defer restore()
-
-	p, err := NewLoader([]string{dir}).Load("typo")
+	var out report.Collector
+	p, err := NewLoader([]string{dir}, WithReporter(&out)).Load("typo")
 	require.NoError(t, err, "an unknown key WARNS; it must not stop the profile loading")
-	said := out.String()
+	said := strings.Join(out.All().Texts(), "\n")
 
 	assert.Contains(t, said, "descriptionn", "the offending key is named")
 	assert.Contains(t, said, "select_tagz")
@@ -55,12 +51,9 @@ func TestLoad_WellFormedProfile_IsSilent(t *testing.T) {
 			"exclude_fragments: [ef]\nexclude_mcp: [em]\ndeny_tools: [Bash]\n"+
 			"hooks:\n  unified:\n    pre_tool:\n      - command: x\n        type: command\n"), 0o644))
 
-	var out bytes.Buffer
-	restore := clidiag.SetSink(&out)
-	defer restore()
-
-	_, err := NewLoader([]string{dir}).Load("good")
+	var out report.Collector
+	_, err := NewLoader([]string{dir}, WithReporter(&out)).Load("good")
 	require.NoError(t, err)
-	assert.Empty(t, out.String(),
+	assert.Empty(t, out.All(),
 		"every key here is real; a gate that warns on a correct profile is worse than none")
 }

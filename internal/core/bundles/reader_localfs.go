@@ -8,13 +8,14 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -165,7 +166,7 @@ func (r *localFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 		}
 		exists, err := afero.DirExists(r.fsys, root.dir)
 		if err != nil {
-			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
+			r.cfg.rep.FailOncef(report.KindBundle, "check the permissions on your bundles directory",
 				"cannot read bundles directory %s: %v", root.dir, err)
 			continue
 		}
@@ -261,7 +262,7 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 		if err != nil {
 			// Per-entry walk failure: report and keep walking, so one unreadable
 			// subdirectory cannot hide every other bundle.
-			strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
+			r.cfg.rep.FailOncef(report.KindBundle, "check the permissions on your bundles directory",
 				"skipping unreadable bundle path %s: %v", path, err)
 			return nil
 		}
@@ -287,7 +288,7 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 			// A local bundle that fails to load is fatal-class in strict mode
 			// (fail-loudly); degraded mode keeps warn-and-skip so a corrupt
 			// bundle never silently vanishes from a listing.
-			strictness.FailOnce(strictness.ClassBundle, "fix or remove the bundle file",
+			r.cfg.rep.FailOncef(report.KindBundle, "fix or remove the bundle file",
 				"skipping bundle %s: %v", manifest, rerr)
 			return done
 		}
@@ -299,7 +300,7 @@ func (r *localFSReader) readDir(ctx context.Context, root bundleSearchRoot, out 
 	if walkErr != nil {
 		// Walk itself gave up: the root could not be opened at all, and the
 		// callback never ran for it.
-		strictness.FailOnce(strictness.ClassBundle, "check the permissions on your bundles directory",
+		r.cfg.rep.FailOncef(report.KindBundle, "check the permissions on your bundles directory",
 			"cannot walk bundles directory %s: %v", dir, walkErr)
 	}
 	return out
@@ -423,7 +424,7 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	if r.provenance == ProvenanceBuiltin {
 		typed, err := trust.BuiltinRef(name)
 		if err != nil {
-			warnUnmintableSource(name, err)
+			warnUnmintableSource(r.cfg.rep, name, err)
 		}
 		bundle.sourceRef = typed
 		bundle.sourceRefSet = true

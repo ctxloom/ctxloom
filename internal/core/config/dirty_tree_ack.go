@@ -5,7 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ===== Dirty-tree-commit human acknowledgement ===============================
@@ -99,10 +99,10 @@ func dirtyTreeAckStore(fs afero.Fs, appPath string) *admission.Store[dirtyTreeAc
 // of this project's admission kinds that neither warned nor escalated
 // (violating the "a refusal is loud" rule). It now warns, naming the file,
 // the underlying error, and how to re-record the decision.
-func DirtyTreeCommitAcknowledged(fs afero.Fs, appPath string) bool {
+func DirtyTreeCommitAcknowledged(rep report.Reporter, fs afero.Fs, appPath string) bool {
 	rec, found, err := dirtyTreeAckStore(fs, appPath).Lookup(dirtyTreeAckKey{})
 	if err != nil {
-		clidiag.Warn("ctxloom",
+		rep.Warnf(
 			"could not read the dirty-tree-commit acknowledgement at %s: %v — refusing to auto-commit on your behalf until it is re-recorded (`ctxloom manage commit trust`)",
 			paths.DirtyTreeCommitAckPath(appPath), err)
 		return false

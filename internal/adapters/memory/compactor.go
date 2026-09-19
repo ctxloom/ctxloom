@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"io"
 	"os"
 	"path/filepath"
@@ -274,7 +275,7 @@ func resolveTranscriptSource(config CompactionConfig) (pb.SessionSource, func(co
 	if backends.NoLegacyHistoryReason(config.Backend) == "" {
 		legacy = reader
 	}
-	store, sErr := sessions.Open()
+	store, sErr := sessions.Open(strictness.Sink("ctxloom"))
 	switch {
 	case sErr == nil:
 		return pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store), plans, nil
@@ -810,7 +811,7 @@ func (c *Compactor) resolveHarpName() string {
 	// memory compact` with no coordinator context) falls back to the
 	// caller's own harp exactly as before this fix.
 	if c.config.SessionID != "" && c.config.HarpName != "" && c.config.SessionID != c.config.HarpName {
-		if mgr, err := sessions.Open(); err == nil {
+		if mgr, err := sessions.Open(strictness.Sink("ctxloom")); err == nil {
 			if entry, _ := mgr.Find(c.config.SessionID); entry != nil {
 				return c.config.SessionID
 			}
@@ -835,7 +836,7 @@ func (c *Compactor) identityBoundSessionID() string {
 	if harpName == "" {
 		return ""
 	}
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return ""
 	}
@@ -857,7 +858,7 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, sour
 	if harpName == "" {
 		return
 	}
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return
 	}
@@ -906,7 +907,7 @@ func transcriptEntryCount(harpName string) int {
 	if harpName == "" {
 		return 0
 	}
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		return 0
 	}

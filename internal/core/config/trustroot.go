@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	_ "embed"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"strings"
 
@@ -10,8 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // embeddedAllowedSigners is ctxloom's compiled-in trust root in the real
@@ -151,7 +150,7 @@ func (c *Config) suppressedEmbeddedPrincipals() (map[string]bool, bool) {
 	out := map[string]bool{}
 	unreadable := false
 	for _, path := range c.distrustedSignersPaths() {
-		principals, bad := readPrincipalLines(fs, path)
+		principals, bad := readPrincipalLines(c.rep, fs, path)
 		if bad {
 			unreadable = true
 		}
@@ -213,13 +212,13 @@ func (c *Config) distrustedSignersPaths() []string {
 // so far and no error anywhere. Every principal below the truncation point
 // would stop being suppressed, so a truncated read is treated exactly like an
 // unreadable one.
-func readPrincipalLines(fs afero.Fs, path string) (map[string]bool, bool) {
+func readPrincipalLines(rep report.Reporter, fs afero.Fs, path string) (map[string]bool, bool) {
 	f, err := fs.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, false // absent: nobody suppressed anything here
 		}
-		clidiag.Warn("ctxloom", "distrusted_signers %s exists but cannot be read; no first-party signer is trusted this session, so that a revocation recorded there cannot be reversed by an I/O error: %v", path, err)
+		rep.Warnf("distrusted_signers %s exists but cannot be read; no first-party signer is trusted this session, so that a revocation recorded there cannot be reversed by an I/O error: %v", path, err)
 		return nil, true
 	}
 	defer func() { _ = f.Close() }()
@@ -234,7 +233,7 @@ func readPrincipalLines(fs afero.Fs, path string) (map[string]bool, bool) {
 		out[line] = true
 	}
 	if err := sc.Err(); err != nil {
-		clidiag.Warn("ctxloom", "distrusted_signers %s could only be read as far as %d entr(ies); no first-party signer is trusted this session, so that a revocation below that point cannot be reversed by a truncated read: %v", path, len(out), err)
+		rep.Warnf("distrusted_signers %s could only be read as far as %d entr(ies); no first-party signer is trusted this session, so that a revocation below that point cannot be reversed by a truncated read: %v", path, len(out), err)
 		return out, true
 	}
 	return out, false
@@ -269,8 +268,8 @@ func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.S
 		// root with no finding beyond the stderr line. Escalate it, matching
 		// EffectiveTrust's fail-closed posture for a corrupt trust store, in
 		// addition to the warning.
-		clidiag.Warn("ctxloom", "allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", path, err)
-		strictness.Fail(strictness.ClassTrust, "make the allowed_signers file readable, or remove it",
+		c.rep.Warnf("allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", path, err)
+		c.rep.Failf(report.KindTrust, "make the allowed_signers file readable, or remove it",
 			"allowed_signers %s exists but cannot be read: %v", path, err)
 		return allowedsigners.FailedSource(path, err)
 	}
@@ -278,13 +277,13 @@ func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.S
 
 	store, parseErrs, err := allowedsigners.Parse(f)
 	if err != nil {
-		clidiag.Warn("ctxloom", "allowed_signers %s unreadable, ignoring it: %v", path, err)
-		strictness.Fail(strictness.ClassTrust, "fix the allowed_signers file, or remove it",
+		c.rep.Warnf("allowed_signers %s unreadable, ignoring it: %v", path, err)
+		c.rep.Failf(report.KindTrust, "fix the allowed_signers file, or remove it",
 			"allowed_signers %s unreadable: %v", path, err)
 		return allowedsigners.FailedSource(path, err)
 	}
 	for _, pe := range parseErrs {
-		clidiag.Warn("ctxloom", "allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
+		c.rep.Warnf("allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
 	}
 	return store.WithSource(path)
 }

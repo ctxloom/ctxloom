@@ -38,6 +38,7 @@ func mcpContestFixture(t *testing.T, bundleYAML map[string]string, profileBundle
 		defaultAgent: "default",
 		agents:       map[string]agents.Agent{"default": {Profiles: []string{}}},
 		appPaths:     []string{appDir},
+		rep:          ledgerReporter(),
 	}
 	cfg.BindTrustForTesting(compositetest.Trust())
 	return cfg

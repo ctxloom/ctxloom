@@ -377,7 +377,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// assembly is caught at one place (gateStartup below) and the launch
 		// aborts with the full list. Degraded mode still RECORDS, but the gate
 		// acts only on a NonDegradable finding there.
-		gates: newPhaseGates(os.Stderr),
+		gates: newPhaseGates(os.Stderr, App().Strictness),
 	}
 
 	if err := st.validateFlags(); err != nil {
@@ -512,7 +512,7 @@ func (st *runState) source() (launch.Source, error) {
 		WorkDir:    st.workDir,
 		Workspace:  workspace,
 		Permission: perm,
-		Degraded:   strictness.Degraded(),
+		Degraded:   App().Strictness.Degraded,
 		Env:        map[string]string{},
 	}
 	if runProfile != "" {
@@ -653,7 +653,7 @@ func (st *runState) loadConfig() error {
 	// The reader records schema-invalid keys and refused overrides as
 	// warnings — surface them so a degraded config.yaml never silently
 	// launches an empty-context session.
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
+	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
 	// If loading upgraded an older config schema in memory, offer to persist
 	// it (interactive + consented only; never a silent rewrite).
 	confirmConfigUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)

@@ -5,6 +5,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -125,7 +127,7 @@ func (r *companionReader) Read(ctx context.Context) ([]BundleRead, error) {
 	}
 	candidates := make([]Candidate, 0, len(probe.Candidates))
 	for _, c := range probe.Candidates {
-		if cand, ok := companionCandidate(c.Bin, c.Path, c.Reason); ok {
+		if cand, ok := companionCandidate(r.cfg.rep, c.Bin, c.Path, c.Reason); ok {
 			candidates = append(candidates, cand)
 		}
 	}
@@ -136,7 +138,7 @@ func (r *companionReader) Read(ctx context.Context) ([]BundleRead, error) {
 			// Bytes arrived and would not parse: the identity is real and the
 			// binary ran, so this is a companion that produced nothing usable
 			// rather than one that was never reached.
-			if cand, ok := companionCandidate(lo.Bin, lo.Path, CandidateProbeFailed); ok {
+			if cand, ok := companionCandidate(r.cfg.rep, lo.Bin, lo.Path, CandidateProbeFailed); ok {
 				candidates = append(candidates, cand)
 			}
 			continue
@@ -167,10 +169,10 @@ func (r *companionReader) Candidates() []Candidate {
 // A name that will not mint has no identity to be reported under, so it is
 // warned about and dropped rather than entered under an empty key where every
 // unmintable name would stand in for every other.
-func companionCandidate(bin, path string, reason CandidateReason) (Candidate, bool) {
+func companionCandidate(rep report.Reporter, bin, path string, reason CandidateReason) (Candidate, bool) {
 	typed, err := trust.CompanionRef(bin)
 	if err != nil {
-		warnUnmintableSource(companionRefPrefix+bin, err)
+		warnUnmintableSource(rep, companionRefPrefix+bin, err)
 		return Candidate{}, false
 	}
 	return Candidate{Ref: typed.BundleIdentity(), Path: path, Reason: reason}, true
@@ -198,7 +200,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	}
 	typed, err := trust.CompanionRef(lo.Bin)
 	if err != nil {
-		warnUnmintableSource(ref, err)
+		warnUnmintableSource(r.cfg.rep, ref, err)
 	}
 	b.sourceRef = typed
 	b.sourceRefSet = true

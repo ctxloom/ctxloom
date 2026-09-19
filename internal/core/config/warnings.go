@@ -1,10 +1,7 @@
 package config
 
 import (
-	"io"
-
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // WarningKind classifies a warning collected during config load, so startup
@@ -58,17 +55,16 @@ const (
 	WarnKindEnginelessAgent WarningKind = "engineless-agent"
 )
 
-// StrictnessClass buckets a warning kind for the fail-loudly gate. Every kind
-// maps to a fatal class — that is what "fatal-class in strict mode" means —
-// and the mapping lives here, beside the kinds themselves, so every consumer
-// of a loaded config (the CLI's startup choke owners, the ACP session opener)
-// records the same class for the same degradation instead of each inventing
-// its own table.
-func (k WarningKind) StrictnessClass() strictness.Class {
+// Kind buckets a warning kind for the fail-loudly gate. Every kind maps to
+// a fatal class — that is what "fatal-class in strict mode" means — and the
+// mapping lives here, beside the kinds themselves, so every consumer of a
+// loaded config records the same class for the same degradation instead of
+// each inventing its own table.
+func (k WarningKind) Kind() report.Kind {
 	if k == WarnKindMigrationLossy {
-		return strictness.ClassMigration
+		return report.KindMigration
 	}
-	return strictness.ClassConfig
+	return report.KindConfig
 }
 
 // FixIt names the edit or command that clears a warning of this kind. The
@@ -87,7 +83,7 @@ func (k WarningKind) FixIt() string {
 	case WarnKindLayerScope:
 		// The message already carries the specific edit (layerscope.Violation's
 		// own FixIt, inlined by Message) — this is only the short pointer the
-		// strictness gate's listing shows alongside it.
+		// startup gate's listing shows alongside it.
 		return "see the finding above for the exact key and where it belongs instead"
 	case WarnKindEnginelessAgent:
 		return "bind the agent to an llm or to profiles (ctxloom agent edit <name> --llm <label> | --profiles <p,...>), or remove it (ctxloom agent remove <name>)"
@@ -97,50 +93,30 @@ func (k WarningKind) FixIt() string {
 }
 
 // Warning is one non-fatal load-time diagnostic: the degradation text plus the
-// kind the strictness gate keys on.
+// kind the startup gate keys on.
 type Warning struct {
 	Kind WarningKind
 	Text string
 }
 
-// RecordWarnings echoes warnings to the ambient diagnostic sink (one
-// "ctxloom: warning: ..." line each) AND records each as a fatal finding for
-// the strict gate, so a present-but-broken config cannot open a session that
-// silently runs on empty context. The recording is deduplicated per strictness
-// window (RecordOnce): a long-lived server re-consults a loaded config from
-// every session, and recording unconditionally would turn one broken file into
-// N copies of one finding inside a single refusal. The finding still re-fires
-// in the next window, so an unfixed config refuses the next session too.
-//
-// A thin call against the ambient sink (clidiag.Warn) — see RecordWarningsTo
-// for the writer-taking variant every `ctxloom run`/`ctxloom mcp`/GetConfig
-// startup path uses instead, so both surfaces share ONE recording loop.
-func RecordWarnings(warnings []Warning) {
-	recordWarnings(warnings, func(format string, args ...any) {
-		clidiag.Warn("ctxloom", format, args...)
-	})
+// Finding is the warning as the fail-loudly finding a sink renders and
+// ledgers, so a present-but-broken config cannot open a session that silently
+// runs on empty context. It is a Once finding: a long-lived server re-consults
+// a loaded config from every session, and recording unconditionally would
+// turn one broken file into N copies of one finding inside a single refusal.
+// The ledger still re-fires it in the next window, so an unfixed config
+// refuses the next session too.
+func (w Warning) Finding() report.Finding {
+	return report.FailOncef(w.Kind.Kind(), w.Kind.FixIt(), "%s", w.Text)
 }
 
-// RecordWarningsTo is RecordWarnings for a caller that owns an explicit
-// writer instead of the ambient sink — `ctxloom run`, `ctxloom mcp`, and the
-// GetConfig-based command entrypoints, none of which may assume stderr is
-// safe to write to directly (a session that owns the terminal redirects the
-// sink for its own lifetime; a caller with its own writer already chose
-// where these lines belong). Same recording/dedup contract as RecordWarnings.
-func RecordWarningsTo(w io.Writer, warnings []Warning) {
-	recordWarnings(warnings, func(format string, args ...any) {
-		clidiag.Fwarn(w, "ctxloom", format, args...)
-	})
-}
-
-// recordWarnings is the ONE warning-recording loop both RecordWarnings and
-// RecordWarningsTo run — each supplies only where the "ctxloom: warning: ..."
-// line goes (the ambient sink vs. a caller's writer); the RecordOnce dedup
-// and class/fix-it lookup live here exactly once so the two entry points
-// cannot drift.
-func recordWarnings(warnings []Warning, warn func(format string, args ...any)) {
+// ReportWarnings hands every warning a load produced to sink, as Findings.
+// Every startup path that consults a loaded config (`ctxloom run`, `ctxloom
+// mcp`, the GetConfig-based command entrypoints) reports through here, so
+// there is one loop and one rendering.
+func ReportWarnings(sink report.Sink, warnings []Warning) {
+	rep := report.To(sink)
 	for _, w := range warnings {
-		warn("%s", w.Text)
-		strictness.RecordOnce(w.Kind.StrictnessClass(), w.Kind.FixIt(), "%s", w.Text)
+		rep.Report(w.Finding())
 	}
 }

@@ -36,11 +36,9 @@ func unstampedBuild(t *testing.T) {
 	orig := version.Version
 	version.Version = "dev"
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		version.Version = orig
 		strictness.Reset()
-		strictness.SetDegraded(false)
 		if f := rootCmd.PersistentFlags().Lookup("degraded"); f != nil {
 			require.NoError(t, f.Value.Set(f.DefValue))
 			f.Changed = false

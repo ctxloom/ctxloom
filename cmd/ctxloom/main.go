@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 func main() {
@@ -40,17 +39,6 @@ func main() {
 	// is why it sits before dispatch rather than inside a command: a shim that
 	// reached cobra would parse flags meant for the engine.
 	mountns.RunChildIfRequested()
-
-	// Degraded mode from the environment, read BEFORE dispatch so the
-	// pre-cobra window (config discovery, projectroot) already runs in the
-	// right mode. CTXLOOM_DEGRADED=1 is the hook/generated-registration
-	// mechanism (e.g. an MCP registration that must serve despite a broken
-	// project); the persistent --degraded flag wins over it once parsed (see
-	// cli root's PersistentPreRun). Deliberately NO config key: a broken
-	// config cannot excuse itself.
-	if envSwitchOn("CTXLOOM_DEGRADED", os.Stderr) {
-		strictness.SetDegraded(true)
-	}
 
 	// Companion discovery off from the environment, read BEFORE dispatch for the
 	// same reason: the pre-cobra window can already assemble context, and probing

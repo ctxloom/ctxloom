@@ -19,10 +19,8 @@ import (
 func resetStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 
@@ -158,11 +156,10 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 	// non-degradable and survives Actionable, so the choke owner still aborts.
 	t.Run("degraded: an unknown RUNTIME axis still refuses", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		warnUnknownAxes(Axes{Runtime: "hyperdrive"})
 		all := strictness.All()
 		require.NotEmpty(t, all, "--degraded suppresses fatality, not recording")
-		assert.NotEmpty(t, strictness.Actionable(all),
+		assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(all),
 			"a typo must not reach the host via --degraded either")
 	})
 
@@ -252,8 +249,6 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 	// surviving strictness.Actionable.
 	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
-
 		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.IsType(t, None{}, policy, "the chain still resolves a workspace; the GATE is what refuses")
@@ -261,7 +256,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		all := strictness.All()
 		require.Len(t, all, 1, "--degraded suppresses fatality, not recording")
 		assert.True(t, all[0].NonDegradable)
-		assert.NotEmpty(t, strictness.Actionable(all),
+		assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(all),
 			"the whole point: under --degraded this finding is STILL actionable, so the choke owner aborts")
 	})
 
@@ -358,7 +353,6 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 	// stops the run is the finding surviving Actionable under --degraded.
 	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
-		strictness.SetDegraded(true)
 		stubRuntimeProbe(t, Host{})
 
 		chain := chainFor(Axes{Runtime: RuntimeContainerRootless}, "claude-code", ImageConfig{})
@@ -366,7 +360,7 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 		assert.IsType(t, None{}, chain[0], "the chain still resolves a workspace; the GATE refuses")
 		all := strictness.All()
 		require.NotEmpty(t, all, "--degraded suppresses fatality, not recording")
-		assert.NotEmpty(t, strictness.Actionable(all),
+		assert.NotEmpty(t, strictness.Mode{Degraded: true}.Actionable(all),
 			"--degraded must NOT be a route to the unsandboxed host")
 	})
 }

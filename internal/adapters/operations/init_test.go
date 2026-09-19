@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -158,7 +160,7 @@ func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
 
 			// Independent read #3: the ack, from its OWN store, via the exact
 			// accessor operations.commitDirtyTree consults.
-			assert.Equal(t, tt.wantAcknowledged, config.DirtyTreeCommitAcknowledged(fs, appDir))
+			assert.Equal(t, tt.wantAcknowledged, config.DirtyTreeCommitAcknowledged(report.Reporter{}, fs, appDir))
 		})
 	}
 }

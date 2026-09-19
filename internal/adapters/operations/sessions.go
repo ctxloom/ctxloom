@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -31,7 +33,7 @@ import (
 // purged; a forgotten one has no sidecar and is not a session at all.
 
 func openSessions() (sessions.Store, error) {
-	return sessions.Open()
+	return sessions.Open(strictness.Sink("ctxloom"))
 }
 
 // ListSessionsForProject returns the sessions whose project dir matches,

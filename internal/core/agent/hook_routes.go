@@ -2,7 +2,7 @@ package agent
 
 import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // HookRoute maps one unified hook slice onto an agent-native event name. The
@@ -43,11 +43,11 @@ type HookRoute struct {
 // nothing and warns once naming the engine, the kind, and the reason — but only
 // when hooks of that kind were actually configured: a gap nobody asked to use
 // costs nothing and stays quiet.
-func RouteUnifiedHooks(engine string, routes []HookRoute, emit func(event string, h wire.Hook)) {
+func RouteUnifiedHooks(rep report.Reporter, engine string, routes []HookRoute, emit func(event string, h wire.Hook)) {
 	for _, r := range routes {
 		if r.Unsupported != "" {
 			if len(r.Hooks) > 0 {
-				clidiag.WarnOnce("ctxloom", "%s: %d unified %s hook(s) are configured but will not run — %s; they are written nowhere for this engine",
+				rep.WarnOncef("%s: %d unified %s hook(s) are configured but will not run — %s; they are written nowhere for this engine",
 					engine, len(r.Hooks), r.Kind, r.Unsupported)
 			}
 			continue

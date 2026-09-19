@@ -15,9 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
@@ -280,12 +279,23 @@ type Loader struct {
 	// profile-side mirror of bundles.WithSeededBundles. Seeded entries are
 	// returned ahead of any fs lookup.
 	seeded map[string]*Profile
+
+	// rep receives what a listing or a load reports about one profile
+	// without failing the operation (an unreadable path, a hollow profile,
+	// a parent that does not resolve). The caller renders it.
+	rep report.Reporter
 }
 
 // LoaderOption is a functional option for configuring a Loader.
 type LoaderOption func(*Loader)
 
 // WithFS sets a custom filesystem implementation (for testing).
+// WithReporter names the Sink the Loader reports per-profile findings to;
+// without one they are discarded.
+func WithReporter(sink report.Sink) LoaderOption {
+	return func(l *Loader) { l.rep = report.To(sink) }
+}
+
 func WithFS(fs afero.Fs) LoaderOption {
 	return func(l *Loader) {
 		l.fs = fs
@@ -485,7 +495,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			// A directory that cannot be interrogated is not an empty one.
 			// Degrading silently here reports "you have no profiles" for a
 			// machine whose profiles are all present but unreachable.
-			clidiag.Warn("ctxloom", "skipping profiles directory %s: %v", dir, err)
+			l.rep.Warnf("skipping profiles directory %s: %v", dir, err)
 			continue
 		}
 		if !exists {
@@ -496,7 +506,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			if err != nil {
 				// Same reasoning one level down: skip the entry, but say which
 				// one and why, or the profiles under it vanish undiagnosably.
-				clidiag.Warn("ctxloom", "skipping unreadable profiles path %s: %v", path, err)
+				l.rep.Warnf("skipping unreadable profiles path %s: %v", path, err)
 				return nil
 			}
 			if info.IsDir() {
@@ -513,7 +523,7 @@ func (l *Loader) List() ([]*Profile, error) {
 				// Walk derives every path from dir, so this cannot fire today;
 				// the guard exists because the alternative is a profile named
 				// "" — which sorts first and addresses nothing.
-				clidiag.Warn("ctxloom", "skipping profile %s: cannot derive a name relative to %s: %v", path, dir, relErr)
+				l.rep.Warnf("skipping profile %s: cannot derive a name relative to %s: %v", path, dir, relErr)
 				return nil
 			}
 			profileName := strings.TrimSuffix(strings.TrimSuffix(relPath, ".yaml"), ".yml")
@@ -529,7 +539,7 @@ func (l *Loader) List() ([]*Profile, error) {
 			if err != nil {
 				// Degrade, but say so: a corrupt profile silently vanishing
 				// from list output is undiagnosable.
-				clidiag.Warn("ctxloom", "skipping profile %s: %v", path, err)
+				l.rep.Warnf("skipping profile %s: %v", path, err)
 				return nil
 			}
 			profile.Name = profileName
@@ -696,7 +706,7 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	// Report a key the schema does not know BEFORE decoding, because decoding
 	// is what loses it: yaml.v3 drops what it cannot map, so a typo becomes an
 	// empty field and the profile selects less than its author wrote.
-	warnUnknownProfileKeys(path, &doc)
+	warnUnknownProfileKeys(l.rep, path, &doc)
 
 	var profile Profile
 	if err := doc.Decode(&profile); err != nil {
@@ -711,7 +721,7 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	// half-authored one is a normal intermediate state), but nothing may
 	// launch on one while pretending it composed something.
 	if !profile.HasContent() {
-		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags) or delete it",
+		l.rep.FailOncef(report.KindConfig, "give the profile something to select (parents, bundles, fragments, select_tags) or delete it",
 			"profile %s selects nothing: no parents, bundles, fragments, bundle_items, commands, skills, select_tags, hooks, mcp, variables or llm — a session launched on it composes no context", path)
 	}
 	profile.Path = path
@@ -779,7 +789,7 @@ func (l *Loader) Save(profile *Profile) error {
 		if profile.IsEmptyDocument() {
 			return fmt.Errorf("profile %q is empty: refusing to write a profile with no content at all (add parents, bundles, fragments, select_tags or an llm)", profile.Name)
 		}
-		strictness.FailOnce(strictness.ClassConfig, "give the profile something to select (parents, bundles, fragments, select_tags)",
+		l.rep.FailOncef(report.KindConfig, "give the profile something to select (parents, bundles, fragments, select_tags)",
 			"profile %q selects nothing: it carries only labels, so a session launched on it composes no context", profile.Name)
 	}
 
@@ -994,11 +1004,11 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 					// automatically once a bundle shipping the profile is
 					// installed — so the fix is to point the parent at the
 					// bundle-shipped form (or install a bundle that ships it).
-					strictness.FailOnce(strictness.ClassRef, "point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it",
+					l.rep.FailOncef(report.KindRef, "point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it",
 						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it (the load-time upgrade then rewrites the parent automatically)",
 						name, parent, bare)
 				} else {
-					strictness.FailOnce(strictness.ClassRef, "ctxloom deps pull",
+					l.rep.FailOncef(report.KindRef, "ctxloom deps pull",
 						"profile %q: parent %s not installed; skipping (run `ctxloom deps pull` to install)",
 						name, parent)
 				}
@@ -1006,7 +1016,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// Corrupt parent (invalid YAML, IO/permission error): skip this
 				// branch rather than aborting the whole resolution — degraded
 				// mode still reaches the LLM; strict mode aborts on the finding.
-				strictness.FailOnce(strictness.ClassRef, "fix or remove the parent profile file",
+				l.rep.FailOncef(report.KindRef, "fix or remove the parent profile file",
 					"profile %q: parent %s failed to load (%v); skipping",
 					name, parent, err)
 			}

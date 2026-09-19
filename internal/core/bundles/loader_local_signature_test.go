@@ -77,7 +77,7 @@ func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) (*LoadedConte
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
 
-	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"})).WithWarnWriter(&warnings),
+	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))).WithReporter(ledger()),
 		signatureRowsAuthorizer(), LinksUnchecked(), false)
 	lc, err := pipe.GetFragment(bundleName + "#fragments/keeper")
 	require.NoError(t, err, "a signature fact about LOCAL content must never withhold it")
@@ -189,7 +189,7 @@ func TestLoader_LoadFile_SiblingSignature_IsRefused(t *testing.T) {
 	testsupport.WriteFile(t, mem, path+".sig", []byte("armored-signature-bytes"), 0o644)
 
 	mark := strictness.Checkpoint()
-	reads, err := NewProjectReader(mem, []string{"/bundles"}).Read(context.Background())
+	reads, err := NewProjectReader(mem, []string{"/bundles"}, WithReaderReporter(ledger())).Read(context.Background())
 
 	require.NoError(t, err)
 	assert.Empty(t, reads, "a bundle with a retired sibling signature is refused, not read as unsigned")

@@ -106,7 +106,7 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 			"config cannot be read; refusing to serve %s unconfigured: %v", backendName, cfgErr)
 		return nil, cfgErr
 	}
-	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
+	config.ReportWarnings(strictness.Sink("ctxloom"), cfg.GetWarnings())
 	if bc := serveBackendConfig(cfg, backendName, label); bc != nil {
 		if c, ok := backend.(backends.Configurable); ok {
 			c.Configure(bc)

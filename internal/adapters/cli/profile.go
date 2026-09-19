@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -199,14 +201,15 @@ func profileCreateDirs(cfg *config.Config) []string {
 }
 
 // profileLoaderFSOptions threads the config's filesystem into a profile loader
-// so reads and WRITES land where the directories were discovered. Empty when
-// the config carries no injected filesystem, which leaves the loader on its OS
-// default.
+// so reads and WRITES land where the directories were discovered (the loader
+// stays on its OS default when the config carries no injected filesystem),
+// and the sink its per-profile findings render through.
 func profileLoaderFSOptions(cfg *config.Config) []profiles.LoaderOption {
+	opts := []profiles.LoaderOption{profiles.WithReporter(strictness.Sink("ctxloom"))}
 	if fs := cfg.FS(); fs != nil {
-		return []profiles.LoaderOption{profiles.WithFS(fs)}
+		opts = append(opts, profiles.WithFS(fs))
 	}
-	return nil
+	return opts
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.

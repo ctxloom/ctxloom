@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // mustParseProducerRef parses ref — an item ref a MIGRATED producer emitted
@@ -114,7 +115,7 @@ func execRead(t *testing.T, principal string) bundles.BundleRead {
 // reports whether it may be delivered.
 func admitExec(t *testing.T, g *contentGate, read bundles.BundleRead, ref string, payload []byte, form string) bool {
 	t.Helper()
-	return bundles.Decide(g, read, ref, payload, bundles.ContentForm(form)).Allow
+	return bundles.Decide(report.Reporter{}, g, read, ref, payload, bundles.ContentForm(form)).Allow
 }
 
 // postureCtxOf spells the READ POSTURE a decision-table row's ref implies, so a

@@ -41,7 +41,7 @@ func seedInstance(t *testing.T, projectDir, harp string) (root, credential strin
 // UNENDED — the index's own definition of a live session.
 func liveSession(t *testing.T, projectDir string) string {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	e, err := mgr.AssignHarp(projectDir, "claude-code")
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func resumedSession(t *testing.T, projectDir string) string {
 
 func markEnded(t *testing.T, harp string) {
 	t.Helper()
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	require.NoError(t, mgr.MarkEnded(harp, time.Now()))
 }
@@ -201,7 +201,7 @@ func TestEndSession_RemovesThisSessionsInstance(t *testing.T) {
 
 	// The end-mark itself still happened: teardown is an ADDITION to the
 	// index write, never a replacement for it (the sweep's backstop reads it).
-	mgr, err := sessions.Open()
+	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
 	entry, err := mgr.Find(ending)
 	require.NoError(t, err)

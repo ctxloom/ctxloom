@@ -37,7 +37,6 @@ func (r failingReader) Read(context.Context) ([]BundleRead, error) { return nil,
 // a fault that can legitimately change between reads must report every time.
 func TestIndex_UnreadableSourceReportsOncePerProcess(t *testing.T) {
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(strictness.Reset)
 	// WarnOnce's dedup is process-wide and permanent by design, so without this
 	// the assertion below is only meaningful on the first run in a process
@@ -57,7 +56,7 @@ func TestIndex_UnreadableSourceReportsOncePerProcess(t *testing.T) {
 	mark := strictness.Checkpoint()
 	const builds = 3
 	for range builds {
-		got, err := NewLoader(failingReader{err: errors.New(detail)}).List()
+		got, err := LoaderOf(Resolve(context.Background(), ledger(), failingReader{err: errors.New(detail)})).List()
 		require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
 		require.Empty(t, got, "the source genuinely could not be read, so nothing can be listed")
 	}

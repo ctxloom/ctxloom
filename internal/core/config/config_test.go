@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
@@ -509,7 +511,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "my-bundle"), composite.Ungated().Authorizer())
+	result := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", bundle), mustLocalRef(t, "my-bundle"), composite.Ungated().Authorizer())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -605,6 +607,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 			defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"nonexistent"}}},
 			appPaths: []string{appDir},
 			fs:       fs,
+			rep:      ledgerReporter(),
 		}
 		cfg.BindTrustForTesting(compositetest.Trust())
 		return cfg
@@ -662,6 +665,7 @@ func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
 		return &Config{
 			defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 			appPaths: []string{appDir},
+			rep:      ledgerReporter(),
 		}
 	}
 
@@ -722,10 +726,8 @@ func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
 func resetConfigStrictness(t *testing.T) {
 	t.Helper()
 	strictness.Reset()
-	strictness.SetDegraded(false)
 	t.Cleanup(func() {
 		strictness.Reset()
-		strictness.SetDegraded(false)
 	})
 }
 
@@ -973,7 +975,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(v2Dir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadMCPFromBundleRef("test-bundle", loader.Catalog(), composite.Ungated().Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, "test-bundle", loader.Catalog(), composite.Ungated().Authorizer())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -984,7 +986,7 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
-	result := loadMCPFromBundleRef("nonexistent-bundle", loader.Catalog(), composite.Ungated().Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, "nonexistent-bundle", loader.Catalog(), composite.Ungated().Authorizer())
 	assert.Empty(t, result)
 }
 
@@ -1015,7 +1017,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	require.NoError(t, err)
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithRepoURL("https://example.test/repo")))
 
-	result := loadMCPFromBundleRef(ref, loader.Catalog(), composite.Ungated().Authorizer())
+	result := loadMCPFromBundleRef(report.Reporter{}, ref, loader.Catalog(), composite.Ungated().Authorizer())
 	assert.Contains(t, result, "sequential-thinking",
 		"a remote bundle resolved only via the seed must still yield its MCP server")
 	assert.Equal(t, "npx", result["sequential-thinking"].Command)
@@ -1047,7 +1049,7 @@ hooks:
 	require.NoError(t, os.WriteFile(filepath.Join(v2Dir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("with-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	result := loadHooksFromBundleRef(report.Reporter{}, "with-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -1073,7 +1075,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("no-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	result := loadHooksFromBundleRef(report.Reporter{}, "no-hooks", loader.Catalog(), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)
@@ -1089,7 +1091,7 @@ mcp:
 // directly via a synthetic bundle through extractHooksFromBundle — the exact
 // code path resolveBuiltinBundleHooks takes.
 func TestResolveBuiltinBundleHooks(t *testing.T) {
-	hooks := resolveBuiltinBundleHooks(composite.Ungated().Authorizer(), bundles.LinksUnchecked())
+	hooks := resolveBuiltinBundleHooks(report.Reporter{}, composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	assert.Empty(t, hooks.PreTool)
 	assert.Empty(t, hooks.PostTool)
 	assert.Empty(t, hooks.SessionStart)
@@ -1097,7 +1099,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 	assert.Empty(t, hooks.PreShell)
 	assert.Empty(t, hooks.PostFileEdit, "no embedded builtin bundle ships a hook anymore")
 
-	synthetic := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
+	synthetic := extractHooksFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
 	}), mustBuiltinRef(t, "future-bundle"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
 	require.Len(t, synthetic.PostFileEdit, 1)
@@ -1113,7 +1115,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 // and directly via extractMCPFromBundle with a BuiltinRef as the source.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 	stubLookPath(t)
-	got := resolveBuiltinBundleMCPServers(composite.Ungated().Authorizer())
+	got := resolveBuiltinBundleMCPServers(report.Reporter{}, composite.Ungated().Authorizer())
 	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
 	own, ok := got["ctxloom"]
 	require.True(t, ok, "the builtin ctxloom bundle must contribute ctxloom's own MCP server; got %v", got)
@@ -1123,7 +1125,7 @@ func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 
 	// Pin the contract directly: a synthetic builtin source through
 	// extractMCPFromBundle produces the expected SCM tag.
-	synthetic := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
+	synthetic := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		MCP: map[string]bundles.BundleMCP{
 			"synthetic": {Command: "fake"},
 		},

@@ -23,8 +23,10 @@ var lockDisciplineScopes = []string{
 // not usage BY. Scanning them would misattribute their own internal
 // read-then-write shapes to a missing lock the caller is responsible for.
 var lockDisciplineExemptFiles = map[string]bool{
-	"internal/core/agent/settings_io.go": true,
-	"internal/core/agent/rmw_lock.go":    true,
+	"internal/core/agent/settings_io.go":   true,
+	"internal/core/sessions/filelock.go":   true,
+	"internal/shared/filelock/filelock.go": true,
+	"internal/shared/iox/atomicwrite.go":   true,
 }
 
 var lockReadPattern = regexp.MustCompile(`(?i)^(read|load)`)
@@ -44,7 +46,7 @@ var lockWritePrimitives = map[string]bool{
 //
 // Two ctxloom processes reconciling the same engine settings file interleave
 // as read-read-write-write, and the second write silently discards the first
-// process's change. agent.WithFileLock is the serialization point; a
+// process's change. sessions.WithFileLock is the serialization point; a
 // read-modify-write that does not take it is a lost-update window.
 //
 // Detection is per-function and name-based: a body that calls something
@@ -53,7 +55,7 @@ var lockWritePrimitives = map[string]bool{
 // here, which is why such helpers are named in archrules.LockDisciplineAllowed.
 var LockDisciplineAnalyzer = &analysis.Analyzer{
 	Name: "archlockdiscipline",
-	Doc:  "engine settings read-modify-write must run under agent.WithFileLock",
+	Doc:  "engine settings read-modify-write must run under sessions.WithFileLock",
 	Run:  runLockDiscipline,
 }
 
@@ -112,9 +114,9 @@ func runLockDiscipline(pass *analysis.Pass) (any, error) {
 				continue
 			}
 			pass.Reportf(at,
-				"%s reads and then writes engine settings without calling agent.WithFileLock — two "+
+				"%s reads and then writes engine settings without calling sessions.WithFileLock — two "+
 					"processes reconciling the same file interleave and the second write discards the "+
-					"first. Wrap the read-modify-write in agent.WithFileLock. If this is a deliberate, "+
+					"first. Wrap the read-modify-write in sessions.WithFileLock. If this is a deliberate, "+
 					"reviewed exception, add %q to archrules.LockDisciplineAllowed "+
 					" naming why it stands.", sym, key)
 		}

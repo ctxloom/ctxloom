@@ -106,5 +106,6 @@ func evaluateTriggersTaskContext(s *ctxServer, cwd string) tasksops.TaskContext 
 		WorkDir:     cwd,
 		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
 		SessionHarp: s.self.Harp,
+		Strictness:  s.strictness(),
 	}
 }

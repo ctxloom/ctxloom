@@ -218,3 +218,14 @@ func TestPurgeSession_PlanAlsoRefuses(t *testing.T) {
 	require.ErrorIs(t, err, ErrPurgeOwnerNotProvenDead)
 	assert.FileExists(t, transcript)
 }
+
+// TestClassifyPurgeFile_PreRenameLeafIsAuthored pins that purge knows one
+// canonical transcript name (paths.CanonicalTranscriptFileName). A file under
+// the pre-rename leaf is nothing purge recognizes: authored, never destroyed,
+// named in the report — a machine class for it would be I/O on a name nothing
+// writes.
+func TestClassifyPurgeFile_PreRenameLeafIsAuthored(t *testing.T) {
+	assert.Equal(t, PurgeClassMachine, classifyPurgeFile(paths.PersistDirName+"/"+paths.CanonicalTranscriptFileName, false))
+	assert.Equal(t, PurgeClassAuthored, classifyPurgeFile(paths.PersistDirName+"/transcript.acp.jsonl", false))
+	assert.Equal(t, PurgeClassAuthored, classifyPurgeFile("transcript.acp.jsonl", false))
+}

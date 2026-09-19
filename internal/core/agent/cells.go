@@ -188,6 +188,7 @@ const (
 	SurfaceContext  = present.Context
 	SurfaceMCP      = present.MCP
 	SurfaceSettings = present.Settings
+	SurfaceHooks    = present.Hooks
 	SurfaceCommands = present.Commands
 	SurfaceSkills   = present.Skills
 )
@@ -348,11 +349,11 @@ func NewIsolatedCell(start present.Start) IsolatedCell {
 	return IsolatedCell{start: start}
 }
 
-// surfaceOrder is the stable cross-backend delivery order — context, MCP,
-// settings, commands — matching every backend's Deliveries() order, so a Build()ed
+// surfaceOrder is the stable cross-backend delivery order — every Kind, in
+// Kind order — matching every backend's Deliveries() order, so a Build()ed
 // selection's report and LIFO teardown are deterministic regardless of the order
 // a caller chained the WithX() calls in.
-var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills}
+var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceHooks, SurfaceCommands, SurfaceSkills}
 
 // SurfaceSelection is an OPT-IN builder over an engine's Declaration: the
 // default selects NOTHING, and each With(kind, name) opts one SurfaceKind in

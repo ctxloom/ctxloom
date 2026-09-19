@@ -148,11 +148,11 @@ const (
 )
 
 // ProbeKind categorises one context surface a vendor CLI reads. It deliberately
-// mirrors SurfaceKind's labels for the five kinds ctxloom DELIVERS, and adds
+// mirrors SurfaceKind's labels for every kind ctxloom DELIVERS, and adds
 // the ones a vendor READS that ctxloom has no delivery surface for. The two
 // vocabularies are kept in step by ProbeKindOf plus the agreement test in
-// enginecli_test.go, so a renamed SurfaceKind label cannot silently diverge
-// from a probe declaration.
+// enginecli_test.go, so a renamed or added SurfaceKind label cannot silently
+// diverge from a probe declaration.
 type ProbeKind string
 
 const (
@@ -161,8 +161,12 @@ const (
 	ProbeKindContext ProbeKind = "context"
 	// ProbeKindMCP is the engine's MCP server config.
 	ProbeKindMCP ProbeKind = "mcp"
-	// ProbeKindSettings is the engine's settings/hooks surface.
+	// ProbeKindSettings is the engine's settings surface.
 	ProbeKindSettings ProbeKind = "settings"
+	// ProbeKindHooks is the engine's hook registrations. Every shipped engine
+	// reads them from its settings file, so a probe for this kind is declared
+	// only by an engine with a separate hooks file.
+	ProbeKindHooks ProbeKind = "hooks"
 	// ProbeKindCommands is the engine's slash-command directory.
 	ProbeKindCommands ProbeKind = "commands"
 	// ProbeKindSkills is the engine's Agent Skill package directory.

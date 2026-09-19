@@ -139,9 +139,10 @@ func (f MinimalArgsFunc) MinimalArgs(model string) []string { return f(model) }
 type LaunchOnly interface{ LaunchOnly() }
 
 // Rider is implemented by an Approach that writes no bytes of its own and
-// RIDES another surface's write — hook-carried context rides the hooks
-// surface. Build refuses a selection naming a Rider without its ridden kind:
-// a rider delivered alone would report success having carried nothing.
+// RIDES another surface's write — hook-carried context rides the surface
+// whose writer emits the hook registrations. Build refuses a selection naming
+// a Rider without its ridden kind: a rider delivered alone would report
+// success having carried nothing.
 type Rider interface{ Rides() SurfaceKind }
 
 // Declaration is an engine's whole static declaration — registration, phase
@@ -150,8 +151,9 @@ type Rider interface{ Rides() SurfaceKind }
 // validation read, and none of them build anything from it.
 //
 // A kind absent from the map is absent or folded for that engine (an engine
-// whose MCP rides its settings file declares no SurfaceMCP): selecting it is a
-// permitted no-op, never an error.
+// whose MCP rides its settings file declares no SurfaceMCP; every shipped
+// engine folds SurfaceHooks into its settings file and declares none):
+// selecting it is a permitted no-op, never an error.
 type Declaration map[SurfaceKind]Presentations
 
 // Names lists the approach names declared for kind, sorted; nil when the kind

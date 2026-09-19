@@ -3,11 +3,13 @@ package present
 // Kind is a surface category: the CROSS-ENGINE union of every engine's
 // surfaces. The set is closed. It is deliberately NOT a dispatch key — no
 // code branches on a surface's kind to decide HOW to write it (that stays
-// each approach's own Deliver). Engines fold several concerns into one file
-// (hooks ride the settings surface on the engines that carry them), so a
-// caller selecting Settings gets the whole folded file. Dynamic-only kinds
-// (premise catalog, link mates, findings, resources) are delivery's
-// vocabulary, not a Kind: they have no native file.
+// each approach's own Deliver). An engine may fold one kind's bytes into
+// another kind's file (MCP into settings; hooks into settings on every
+// shipped engine), and that is the engine's business: the kind is still its
+// own kind, and a caller selecting the folded kind is a permitted no-op on
+// that engine, never an error. Dynamic-only kinds (premise catalog, link
+// mates, findings, resources) are delivery's vocabulary, not a Kind: they
+// have no native file.
 type Kind int
 
 const (
@@ -17,9 +19,14 @@ const (
 	// MCP is the engine's MCP server config (.mcp.json, mcp_config.json,
 	// .kiro/settings/mcp.json). An engine may fold MCP into Settings.
 	MCP
-	// Settings is the engine's settings/hooks surface (.claude/settings.json,
-	// codex config.toml, .agents/hooks.json, kiro agent JSON).
+	// Settings is the engine's settings surface (.claude/settings.json,
+	// codex config.toml, kiro agent JSON).
 	Settings
+	// Hooks is the engine's hook registrations — the surface ltk and the
+	// context-injection hook are delivered through. It is a Kind of its own
+	// because it is a first-class delivered surface, even where the engine's
+	// native form is a section of its settings file.
+	Hooks
 	// Commands is the engine's slash-command files; the export a caller hands
 	// this surface is always a command, never a skill.
 	Commands
@@ -38,6 +45,8 @@ func (k Kind) String() string {
 		return "mcp"
 	case Settings:
 		return "settings"
+	case Hooks:
+		return "hooks"
 	case Commands:
 		return "commands"
 	case Skills:

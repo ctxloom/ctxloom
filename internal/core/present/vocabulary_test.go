@@ -16,6 +16,7 @@ func TestKind_ClosedSet_RendersStableLabels(t *testing.T) {
 		Context:  "context",
 		MCP:      "mcp",
 		Settings: "settings",
+		Hooks:    "hooks",
 		Commands: "commands",
 		Skills:   "skills",
 	}

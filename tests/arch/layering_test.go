@@ -300,7 +300,82 @@ var layeringRules = []layeringRule{
 			"internal/lm/engines",
 			"internal/lm/backends",
 		},
-		allowed: map[string]string{},
+		allowed: map[string]string{
+			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
+			// package may import its own subpackage.
+			"internal/cli -> internal/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",
+			"internal/cli -> internal/cli/tui":                                            "sanctioned: a package's own subpackage",
+			"internal/signing -> internal/signing/allowedsigners":                         "sanctioned: a package's own subpackage",
+			"internal/transcript/vendorreader/claude -> internal/transcript/vendorreader": "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/transcript/vendorreader/mock -> internal/transcript/vendorreader":   "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/transcript/vendorreader/claude -> internal/transcript":              "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/transcript/vendorreader/mock -> internal/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/transcript/vendorreader -> internal/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/signing/countersign -> internal/signing":                            "sanctioned: a package's own parent tree (signing/*)",
+			"internal/vpio/dockerexec -> internal/vpio":                                   "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/vpio/goplugin -> internal/vpio":                                     "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+
+			// cli reaching past operations
+			"internal/cli -> internal/claude":                  "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/cli -> internal/claude/engine":           "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
+			"internal/cli -> internal/lm/backends":             "slice 11b: lm/backends is deleted whole",
+			"internal/cli -> internal/lm/engines":              "slice 11b: engines.Build() is called by the composition root, cmd/*",
+			"internal/cli -> internal/lm/grpc":                 "slice 13: the go-plugin protocol is deleted whole",
+			"internal/cli -> internal/lm/isolation":            "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
+			"internal/cli -> internal/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
+			"internal/cli -> internal/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
+			"internal/cli -> internal/remote":                  "slice 15: operations.ReviewWalk/ResolveLocalSigner take the orchestration out of the CLI",
+			"internal/cli -> internal/signing":                 "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
+			"internal/cli -> internal/signing/agentkey":        "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
+			"internal/cli -> internal/termui":                  "slice 13: termui sits over the pty master the runner owns",
+			"internal/cli -> internal/transcript":              "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
+			"internal/cli -> internal/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
+			"internal/cli -> internal/vpio":                    "slice 13: adapters/hostpty and adapters/attach replace vpio; the CLI reaches them through operations",
+			"internal/cli -> internal/vpio/dockerexec":         "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/cli -> internal/vpio/goplugin":           "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+			"internal/cli -> internal/confpatch":               "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
+
+			// cli/tui and termui
+			"internal/cli/tui -> internal/lm/grpc":    "slice 13: cli/tui sits on the coordination proto and the transcript file; the plugin wire is deleted",
+			"internal/cli/tui -> internal/operations": "slice 13: the watch UI reads the coordination proto and the transcript file, not the application services",
+			"internal/cli/tui -> internal/termui":     "slice 13: termui sits over the pty master; the TUI no longer composes it",
+			"internal/termui -> internal/lm/grpc":     "slice 13: the go-plugin protocol is deleted whole",
+
+			// operations reaching sibling adapters (it is the application-services
+			// layer; it holds ports, not adapters)
+			"internal/operations -> internal/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
+			"internal/operations -> internal/lm/backends":             "slice 11b: lm/backends is deleted whole",
+			"internal/operations -> internal/lm/grpc":                 "slice 13: the go-plugin protocol is deleted whole",
+			"internal/operations -> internal/lm/isolation":            "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
+			"internal/operations -> internal/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
+			"internal/operations -> internal/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
+			"internal/operations -> internal/signing":                 "slice 5: one verifier behind the trust ports",
+			"internal/operations -> internal/signing/agentkey":        "slice 5: one verifier behind the trust ports",
+			"internal/operations -> internal/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",
+			"internal/operations -> internal/signing/countersign":     "slice 5: one signature (the .sigs/ manifest); countersigning goes",
+			"internal/operations -> internal/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
+			"internal/operations -> internal/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
+			"internal/operations -> internal/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values",
+
+			// the runner's two halves today
+			"internal/lm/grpc -> internal/transcript":        "slice 13: the go-plugin protocol is deleted whole",
+			"internal/lm/grpc -> internal/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
+			"internal/mcp -> internal/lm/backends":           "slice 9: runner/mcp serves delivery.Dynamic; it holds no backend",
+			"internal/mcp -> internal/lm/isolation":          "slice 9: runner/mcp serves delivery.Dynamic; the cell is resolved before it exists",
+			"internal/mcp -> internal/memory":                "slice 14a: memory off the plugin; the compactor is an operation",
+			"internal/mcp -> internal/operations":            "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which operations implements",
+			"internal/mcp -> internal/transcript":            "slice 14a: the engine-host half of the runner records the transcript",
+
+			// isolation, memory, and the leaf adapters
+			"internal/lm/isolation -> internal/lm/grpc":                  "slice 13: the go-plugin protocol is deleted whole",
+			"internal/memory -> internal/lm/backends":                    "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
+			"internal/memory -> internal/lm/grpc":                        "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
+			"internal/vpio/dockerexec -> internal/lm/isolation":          "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
+			"internal/vpio/goplugin -> internal/lm/grpc":                 "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
+			"internal/shared/companionloadout -> internal/signing":       "slice 4: adapters/companions probes; signing is reached through the trust ports",
+			"internal/content/attest -> internal/signing":                "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
+			"internal/transcript/vendorreader/claude -> internal/claude": "slice 6b: the claude reader becomes an engine.TranscriptReader the engine package supplies",
+		},
 	},
 	{
 		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE

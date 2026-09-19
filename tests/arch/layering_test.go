@@ -17,8 +17,8 @@
 //	internal/lm/grpc        -> internal/transcript           (production)
 //	internal/transcript_test -> internal/lm/grpc             (test-only)
 //
-//	internal/{claude,codex}    -> internal/shared/agent      (production)
-//	internal/shared/agent_test -> internal/{claude,codex}    (test-only)
+//	internal/claude            -> internal/shared/agent      (production)
+//	internal/shared/agent_test -> internal/claude            (test-only)
 //
 // The Go compiler already refuses a real cycle, but only once BOTH edges
 // exist in production code — which means the developer who adds the SECOND
@@ -50,20 +50,32 @@ import (
 	"testing"
 )
 
-// layeringRule states that no non-test file in a package under `from` (the
-// directory itself or any subdirectory) may import a package under any
-// prefix in `forbid` (same subtree matching). `allowed` is this rule's
-// shrinking allowlist — a `from`-subtree directory that currently violates
-// the rule, mapped to the fix required to remove it, in the same shape as
-// arch_test.go's testSupportImporters and
-// internal/cli/format_coverage_test.go's formatDebtAllowlist. A nil/empty
-// map means the rule holds with zero exceptions.
+// layeringRule states that no non-test file in a package under any prefix in
+// `from` (the directory itself or any subdirectory) may import a package under
+// any prefix in `forbid` (same subtree matching) unless that package is under
+// a prefix in `except`. `except` exists for the ring-shaped rules: "core may
+// import only core and the toolbox" is `forbid: every in-repo root, except:
+// the core and toolbox prefixes`, which forbids a NEW package by default (the
+// conservative direction) instead of leaving it unforbidden until someone
+// lists it. `allowed` is this rule's shrinking allowlist, keyed by EDGE —
+// "<from dir> -> <dep dir>" — mapped to the fix required to remove it, in
+// the same spirit as arch_test.go's testSupportImporters and
+// internal/cli's formatDebtAllowlist. An edge key rather than a package key
+// is what makes the ratchet fine-grained: a package with five forbidden
+// imports has five entries, each deleted (by TestArch_LayeringAllowlist_IsLive)
+// the moment its own import leaves, instead of one entry that stays live —
+// and keeps masking the other four — until the last of them goes. A
+// nil/empty map means the rule holds with zero exceptions.
 type layeringRule struct {
 	name    string
-	from    string
+	from    []string
 	forbid  []string
+	except  []string
 	allowed map[string]string
 }
+
+// edgeKey is the allowed-map key for one import edge.
+func edgeKey(from, dep string) string { return from + " -> " + dep }
 
 // layeringRules is the one table both T11's cycle-prevention rules and
 // T18's layering rule live in. Add a rule here; nothing else in this file
@@ -71,22 +83,22 @@ type layeringRule struct {
 var layeringRules = []layeringRule{
 	{
 		name:   "coord-must-not-import-cli/tui",
-		from:   "internal/agentcoord/coord",
+		from:   []string{"internal/agentcoord/coord"},
 		forbid: []string{"internal/cli/tui"},
 	},
 	{
 		name:   "termui-must-not-import-cli/tui",
-		from:   "internal/termui",
+		from:   []string{"internal/termui"},
 		forbid: []string{"internal/cli/tui"},
 	},
 	{
 		name:   "transcript-must-not-import-lm/grpc",
-		from:   "internal/transcript",
+		from:   []string{"internal/transcript"},
 		forbid: []string{"internal/lm/grpc"},
 	},
 	{
 		name:   "shared/agent-must-not-import-engine-plugins",
-		from:   "internal/shared/agent",
+		from:   []string{"internal/shared/agent"},
 		forbid: []string{"internal/claude"},
 	},
 	{
@@ -97,8 +109,65 @@ var layeringRules = []layeringRule{
 		// be replaced by one per flow (`internal/operations/<flow>` must not
 		// import `internal/cli/<other-flow>`) without touching the mechanism.
 		name:   "operations-must-not-import-cli",
-		from:   "internal/operations",
+		from:   []string{"internal/operations"},
 		forbid: []string{"internal/cli"},
+	},
+	{
+		// THE DECIDED ARCHITECTURE'S CORE RING (docs/architecture/audit-2026-09-18/
+		// 30-decided-architecture.md, Part 1.0): the packages that become
+		// internal/core/* import only each other and the toolbox. Until the
+		// rename slice makes the rings directories, `from` and `except` name
+		// today's paths one by one; after it, each collapses to a prefix.
+		// `forbid` is every in-repo root, so anything that is neither core
+		// nor toolbox is forbidden by default — a new package needs no row.
+		// The allowlist is the MEASURED import list, one edge per entry,
+		// each naming the slice in which it leaves; it is a ratchet, not a
+		// claim (Part 0, invariant 9), and TestArch_LayeringAllowlist_IsLive
+		// deletes an entry the moment its import is gone.
+		name: "core-imports-only-core",
+		from: []string{
+			"internal/trust",
+			"internal/sessions",
+			"internal/profiles",
+			"internal/bundles",
+			"internal/config",
+			"internal/paths",
+			"internal/shared/wire",
+			"internal/shared/agent",
+			"internal/agentcoord/spool",
+			"internal/agentcoord/coord",
+			"internal/lm/engine",
+		},
+		forbid: []string{"cmd", "container", "internal", "pkg", "resources", "scripts"},
+		except: []string{
+			// core (the from-set again: core may import core)
+			"internal/trust",
+			"internal/sessions",
+			"internal/profiles",
+			"internal/bundles",
+			"internal/config",
+			"internal/paths",
+			"internal/shared/wire",
+			"internal/shared/agent",
+			"internal/agentcoord/spool",
+			"internal/agentcoord/coord",
+			"internal/lm/engine",
+			// the toolbox (Part 0: domain-free leaf libraries)
+			"internal/shared/iox",
+			"internal/shared/lockwait",
+			"internal/shared/collections",
+			"internal/shared/keymatch",
+			"internal/shared/textutil",
+			"internal/shared/yamlx",
+			"internal/shared/realpath",
+			"internal/shared/harp",
+			"internal/shared/pidalive",
+			"internal/errs",
+			"internal/refuri",
+			"internal/schema",
+			"internal/liveness",
+		},
+		allowed: map[string]string{},
 	},
 	{
 		// pkg/clifmt is the CLI output layer and SHIPS AS A STANDALONE
@@ -108,17 +177,26 @@ var layeringRules = []layeringRule{
 		// deliberately unchecked -- localDir returns "" for anything outside
 		// this repo, so only in-repo imports reach this rule.
 		name:   "clifmt-must-not-import-ctxloom",
-		from:   "pkg/clifmt",
+		from:   []string{"pkg/clifmt"},
 		forbid: []string{"internal", "cmd"},
 	},
 }
 
-// underRule reports whether dir is inside the from-subtree (or is from
-// itself), and separately whether an import path resolves under any of the
-// rule's forbidden subtrees.
-func (r layeringRule) matchesFrom(dir string) bool {
-	return dir == r.from || strings.HasPrefix(dir, r.from+"/")
+// underAny reports whether dir is one of the prefixes or inside its subtree.
+func underAny(dir string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if dir == p || strings.HasPrefix(dir, p+"/") {
+			return true
+		}
+	}
+	return false
 }
+
+// matchesFrom reports whether dir is inside a from-subtree (or is one
+// itself), and separately whether an import path resolves under any of the
+// rule's forbidden subtrees; excepted whether it is nonetheless permitted by
+// the rule's except list; violates composes the two.
+func (r layeringRule) matchesFrom(dir string) bool { return underAny(dir, r.from) }
 
 func (r layeringRule) matchesForbidden(dep string) bool {
 	for _, f := range r.forbid {
@@ -128,6 +206,10 @@ func (r layeringRule) matchesForbidden(dep string) bool {
 	}
 	return false
 }
+
+func (r layeringRule) excepted(dep string) bool { return underAny(dep, r.except) }
+
+func (r layeringRule) violates(dep string) bool { return r.matchesForbidden(dep) && !r.excepted(dep) }
 
 // TestArch_LayeringRules is the general layering gate: for every rule in
 // layeringRules, no non-test file in a from-subtree package may import a
@@ -149,61 +231,99 @@ func TestArch_LayeringRules(t *testing.T) {
 			}
 			sort.Strings(dirs)
 			if len(dirs) == 0 {
-				t.Fatalf("the scan found no package under %q — rule %q is looking at the wrong tree", rule.from, rule.name)
+				t.Fatalf("the scan found no package under %v — rule %q is looking at the wrong tree", rule.from, rule.name)
+			}
+			// Every prefix the rule names must match a real package: a
+			// from/forbid/except entry that matches nothing is a path that
+			// moved out from under the rule, and it would silently stop
+			// guarding (or stop excepting) whatever it used to name.
+			for _, group := range [][]string{rule.from, rule.forbid, rule.except} {
+				for _, prefix := range group {
+					if !anyPackageUnder(pkgs, prefix) {
+						t.Errorf("rule %q names prefix %q, which matches no package in this module — delete or re-point it", rule.name, prefix)
+					}
+				}
 			}
 
 			for _, dir := range dirs {
 				for _, ip := range pkgs[dir].imports {
 					dep := localDir(ip)
-					if dep == "" || !rule.matchesForbidden(dep) {
+					if dep == "" || !rule.violates(dep) {
 						continue
 					}
-					if why, ok := rule.allowed[dir]; ok {
+					if why, ok := rule.allowed[edgeKey(dir, dep)]; ok {
 						t.Logf("allowed: %s imports %s (%s)", dir, ip, why)
 						continue
 					}
-					t.Errorf("package %s imports %s, which layering rule %q forbids (packages under %q must not "+
+					t.Errorf("package %s imports %s, which layering rule %q forbids (packages under %v must not "+
 						"import packages under %v). If this is a deliberate, reviewed exception, add %q to that "+
 						"rule's allowed map in tests/arch/layering_test.go naming the fix required to remove it.",
-						dir, ip, rule.name, rule.from, rule.forbid, dir)
+						dir, ip, rule.name, rule.from, rule.forbid, edgeKey(dir, dep))
 				}
 			}
 		})
 	}
 }
 
+// anyPackageUnder reports whether the scan found a package at prefix or in
+// its subtree.
+func anyPackageUnder(pkgs map[string]*pkg, prefix string) bool {
+	for dir := range pkgs {
+		if dir == prefix || strings.HasPrefix(dir, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // TestArch_LayeringAllowlist_IsLive fails when a layeringRule's allowed map
-// names a directory that either does not exist or no longer imports
-// anything the rule forbids — the same staleness check
+// names an edge that no longer exists — the from-package is gone, is not
+// under the rule's from-prefixes, no longer imports the dep, or the dep is no
+// longer forbidden — the same staleness check
 // TestArch_TestSupportAllowlist_IsLive runs for testSupportImporters. A
 // stale exception is worse than none: left in place, it would silently
-// cover whatever a later, unrelated import lands in that directory.
+// cover whatever a later, unrelated import lands on that edge. This is the
+// ratchet Part 1.0 of the decided architecture names: an allowlist entry is
+// deleted in the slice that removes its import, and this test is what says
+// so.
 func TestArch_LayeringAllowlist_IsLive(t *testing.T) {
 	pkgs := scan(t)
 
 	for _, rule := range layeringRules {
-		dirs := make([]string, 0, len(rule.allowed))
-		for dir := range rule.allowed {
-			dirs = append(dirs, dir)
+		keys := make([]string, 0, len(rule.allowed))
+		for k := range rule.allowed {
+			keys = append(keys, k)
 		}
-		sort.Strings(dirs)
+		sort.Strings(keys)
 
-		for _, dir := range dirs {
-			p, ok := pkgs[dir]
+		for _, key := range keys {
+			from, dep, ok := strings.Cut(key, " -> ")
 			if !ok {
-				t.Errorf("rule %q allows %q, which is not a package in this module — delete the entry", rule.name, dir)
+				t.Errorf("rule %q allows %q, which is not an edge key (\"<from dir> -> <dep dir>\")", rule.name, key)
 				continue
 			}
-			stillViolates := false
+			p, ok := pkgs[from]
+			switch {
+			case !ok:
+				t.Errorf("rule %q allows %q, but %q is not a package in this module — delete the entry", rule.name, key, from)
+				continue
+			case !rule.matchesFrom(from):
+				t.Errorf("rule %q allows %q, but %q is not under the rule's from-prefixes %v — delete the entry", rule.name, key, from, rule.from)
+				continue
+			case !rule.violates(dep):
+				t.Errorf("rule %q allows %q, but %q is not something the rule forbids — delete the entry", rule.name, key, dep)
+				continue
+			}
+			stillImports := false
 			for _, ip := range p.imports {
-				if rule.matchesForbidden(localDir(ip)) {
-					stillViolates = true
+				if localDir(ip) == dep {
+					stillImports = true
 					break
 				}
 			}
-			if !stillViolates {
-				t.Errorf("rule %q allows %q (%s) but it no longer imports anything the rule forbids — delete the "+
-					"entry, or it will silently exempt whatever import lands there next", rule.name, dir, rule.allowed[dir])
+			if !stillImports {
+				t.Errorf("rule %q allows %q (%s) but %s no longer imports %s — delete the entry, or it will silently "+
+					"exempt that edge when it comes back", rule.name, key, rule.allowed[key], from, dep)
 			}
 		}
 	}

@@ -145,8 +145,8 @@ flowchart TB
     CSPAWN["spawn (the only container exec) — born 8"]:::later
     ISO["isolation (Cells: worktree · docker · podman · host)"]:::adapter
     VPIO["vpio (today) → hostpty · attach at 13"]:::adapter
-    SRC["remote · companions · signing · content (+attest · convert · remotetree · archive) · configload/layerscope · transcript · memory · confpatch"]:::adapter
-    SRC2["configload · fsstore · fsstatic · attest as a leaf — born 4, 5"]:::later
+    SRC["remote · companions (+loadout, the companion-side command) · signing · content (+attest · convert · remotetree · archive) · configload (+layerscope) · transcript · memory · confpatch"]:::adapter
+    SRC2["fsstore · fsstatic · attest as a leaf — born 5"]:::later
     UNPLACED["landed under adapters by the rename map's judgment, retired or folded by later slices: agents · contextmetrics · engineversion · git · gitignore · projectroot · selfexec · tmuxhost · turnchange"]:::adapter
     OPS["operations (application services; implements coord.HostApp)"]:::adapter
     CLI["cli · cli/tui · termui"]:::adapter
@@ -3089,7 +3089,7 @@ flowchart LR
     CRED -->|PASSED per frame| VERBS
   end
   subgraph RL["RESOLVED LAUNCH"]
-    SNAP["config.Owner.Current() → *Snapshot{Config, Catalog, Trust, Generation} — captured ONCE per operation"]:::decide
+    SNAP["config.Owner.Current() → *Snapshot{Config, Catalog(), Trust, Generation} — captured ONCE per operation; Reload after a pull, after a scaffold, once per spawn (landed 4)"]:::decide
     PKG["composite.Assemble(cat, sel, snapshot.Trust) → Package (+ Attestation, Index)"]:::decide
     EXP["engine.Exports(pkg.EngineItems(name))"]:::decide
     CELL["launch.Cells.Prepare(CellRequest{…, Engine, Host}) → Cell{Paths advised once, Mounts}"]:::decide

@@ -72,15 +72,15 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 // authored here and registered under a fixture name.
 func registerVendorlessFixture(t *testing.T, name string, dist engine.Distribution) {
 	t.Helper()
-	RegisterEngineContainer(name, agent.Provide(agent.EngineContainer{
-		Install:            []byte("RUN command -v cat\n"),
-		ValidateCommand:    "cat --version",
-		Auth:               agent.Provide(agent.ContainerAuth{Vendorless: name + " authenticates against no vendor"}),
-		OverlayDirs:        []string{".mock"},
-		TranscriptStoreRel: "",
-	}), dist)
-	t.Cleanup(func() {
-		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
+	stageEngineFacts(t, name, func(f *EngineFacts) {
+		f.Container = agent.Provide(agent.EngineContainer{
+			Install:            []byte("RUN command -v cat\n"),
+			ValidateCommand:    "cat --version",
+			Auth:               agent.Provide(agent.ContainerAuth{Vendorless: name + " authenticates against no vendor"}),
+			OverlayDirs:        []string{".mock"},
+			TranscriptStoreRel: "",
+		})
+		f.Distribution = dist
 	})
 }
 
@@ -128,9 +128,9 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 // it is a declaration, and reads as one.
 func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 	const name = "no-container-fixture"
-	RegisterEngineContainer(name, agent.Absent[agent.EngineContainer](name+" has no container story"), engine.DistributionDefault)
-	t.Cleanup(func() {
-		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
+	stageEngineFacts(t, name, func(f *EngineFacts) {
+		f.Container = agent.Absent[agent.EngineContainer](name + " has no container story")
+		f.Distribution = engine.DistributionDefault
 	})
 
 	assert.False(t, HasContainerAuth(name))
@@ -253,27 +253,26 @@ const renamingCredentialFixtureDestName = "renamed-creds.json"
 // path.Base(ContainerRelHome) alone gives the WRONG answer here.
 func registerRenamingCredentialFixture(t *testing.T, name string) {
 	t.Helper()
-	RegisterCredentialSeed(name, agent.Provide(agent.CredentialSeed{
-		Subdir:    "fixture-home",
-		LoginHint: name + " login",
-		Files: []agent.SeedFile{
-			{HostRelHome: renamingCredentialFixtureHostRel, DestName: renamingCredentialFixtureDestName, Required: true},
-		},
-	}))
-	RegisterEngineContainer(name, agent.Provide(agent.EngineContainer{
-		Install:         []byte("RUN command -v cat\n"),
-		ValidateCommand: "cat --version",
-		Auth: agent.Provide(agent.ContainerAuth{
-			EnvTriggers: []string{"CTXLOOM_TEST_NEVER_SET_" + name},
-			CredentialFiles: []agent.CredentialFile{
-				{HostRelHome: renamingCredentialFixtureHostRel, ContainerRelHome: renamingCredentialFixtureHostRel},
+	stageEngineFacts(t, name, func(f *EngineFacts) {
+		f.Home = agent.Provide(agent.EngineHome{Credentials: agent.Provide(agent.CredentialSeed{
+			Subdir:    "fixture-home",
+			LoginHint: name + " login",
+			Files: []agent.SeedFile{
+				{HostRelHome: renamingCredentialFixtureHostRel, DestName: renamingCredentialFixtureDestName, Required: true},
 			},
-			Hint: name + " has no credential to authenticate with",
-		}),
-	}), engine.DistributionTestOnly)
-	t.Cleanup(func() {
-		RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
-		RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
+		})})
+		f.Container = agent.Provide(agent.EngineContainer{
+			Install:         []byte("RUN command -v cat\n"),
+			ValidateCommand: "cat --version",
+			Auth: agent.Provide(agent.ContainerAuth{
+				EnvTriggers: []string{"CTXLOOM_TEST_NEVER_SET_" + name},
+				CredentialFiles: []agent.CredentialFile{
+					{HostRelHome: renamingCredentialFixtureHostRel, ContainerRelHome: renamingCredentialFixtureHostRel},
+				},
+				Hint: name + " has no credential to authenticate with",
+			}),
+		})
+		f.Distribution = engine.DistributionTestOnly
 	})
 }
 

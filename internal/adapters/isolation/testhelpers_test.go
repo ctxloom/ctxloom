@@ -60,22 +60,75 @@ func TestMain(m *testing.M) {
 	// from here is an import cycle. Calling the seam directly keeps the seed
 	// these tests exercise the one the engine authors on its descriptor,
 	// rather than a fixture that mirrors it and drifts.
-	claudeHome, ok := claudeengine.Hosting().Home.Get()
-	if !ok {
+	claudeDesc := claudeengine.Hosting()
+	if _, ok := claudeDesc.Home.Get(); !ok {
 		panic("isolation tests: claude's descriptor declares no Home; the seed tests have nothing to exercise")
 	}
-	RegisterCredentialSeed(claude.EngineName, claudeHome.Credentials)
-	// And its provisioning policy, which is LOAD-BEARING rather than setup
-	// noise: it is the declaration Select walks to decide how the credential
-	// reaches the instance. With it unregistered every seed would refuse, and
-	// with a fixture standing in for it the tests would exercise an acceptance
-	// order claude never declared.
-	RegisterProvisioningPolicy(claude.EngineName, claudeengine.Hosting().Provisioning)
-	// And its container story with its shipping policy, for the same reason:
-	// the spec the container tests build is the one claude declares.
-	claudeDesc := claudeengine.Hosting()
-	RegisterEngineContainer(claude.EngineName, claudeDesc.Container, engine.DistributionDefault)
+	// The whole record — its home (the seed), its provisioning policy (the
+	// declaration Select walks to decide how the credential reaches the
+	// instance; with it absent every seed would refuse, and with a fixture
+	// standing in the tests would exercise an acceptance order claude never
+	// declared), its container story with its shipping policy — through the
+	// one accessor.
+	UseFacts(&overlayFacts{entries: map[string]EngineFacts{
+		claude.EngineName: {
+			Home:           claudeDesc.Home,
+			Provisioning:   claudeDesc.Provisioning,
+			Container:      claudeDesc.Container,
+			InstanceConfig: claudeDesc.InstanceConfig,
+			Distribution:   engine.DistributionDefault,
+		},
+	}})
 	os.Exit(testsupport.SandboxedMain(m))
+}
+
+// overlayFacts is the test binary's Facts: staged entries over whatever the
+// accessor answered before, so a test can declare a fixture engine (or
+// re-declare one fact of a real one) for its own duration.
+type overlayFacts struct {
+	base    Facts
+	entries map[string]EngineFacts
+}
+
+func (o *overlayFacts) For(name string) (EngineFacts, bool) {
+	if f, ok := o.entries[name]; ok {
+		return f, true
+	}
+	if o.base != nil {
+		return o.base.For(name)
+	}
+	return EngineFacts{}, false
+}
+
+func (o *overlayFacts) Names() []string {
+	seen := map[string]bool{}
+	var names []string
+	if o.base != nil {
+		for _, n := range o.base.Names() {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	for n := range o.entries {
+		if !seen[n] {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+// stageEngineFacts declares name's facts for the test's duration: mutate
+// receives the facts the accessor answers today (zero for a new fixture
+// name) and edits them. The previous accessor is restored on cleanup.
+func stageEngineFacts(t *testing.T, name string, mutate func(f *EngineFacts)) {
+	t.Helper()
+	cur, _ := factsFor(name)
+	mutate(&cur)
+	factsMu.RLock()
+	base := facts
+	factsMu.RUnlock()
+	restore := UseFacts(&overlayFacts{base: base, entries: map[string]EngineFacts{name: cur}})
+	t.Cleanup(restore)
 }
 
 // claudeAuth returns the container-auth plan claude declares, as TestMain

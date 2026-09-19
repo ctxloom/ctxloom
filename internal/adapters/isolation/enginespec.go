@@ -4,7 +4,6 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -64,16 +63,12 @@ import (
 //     keeps no transcripts.
 //
 // WHAT an engine's container story is, is not decided here. Each engine
-// declares it on its own descriptor (hosting.Hosting.Container, with its
-// shipping policy in Distribution), and internal/lm/backends pushes both —
-// a provided container OR a declared absence — into this package for every
-// engine it registers (RegisterEngineContainer). This package cannot import
-// the registry (backends imports it) and every caller here holds a backend
-// NAME, so a name-keyed table populated at registration is the only
-// direction the wiring can run. The consequence is the invariant that
-// matters: every registered engine has an entry, so the fail-closed default
-// below is reached only by a name nobody registered or an engine that SAID
-// it has no container story — never by a forgotten table row.
+// declares it (EngineFacts.Container, with its shipping policy in
+// Distribution), read through the one facts accessor (enginefacts.go) by
+// the engine NAME every caller here holds. Every engine the accessor knows
+// has a declaration — a provided container OR a declared absence — so the
+// fail-closed default below is reached only by a name nobody composed or an
+// engine that SAID it has no container story, never by a forgotten row.
 type engineContainerSpec struct {
 	image         string
 	engineInstall []byte
@@ -92,55 +87,6 @@ type engineContainerSpec struct {
 // (the framed context file), shadowed for EVERY engine's containerized run:
 // it is a fact about ctxloom, not about any engine, so no engine declares it.
 var ctxloomCacheOverlayDir = filepath.FromSlash(".ctxloom/cache")
-
-// engineContainerRegistration is what the registry pushes per engine: the
-// declaration (capability) and the shipping policy that decides which
-// user-facing rosters it appears in.
-type engineContainerRegistration struct {
-	container    agent.Declared[agent.EngineContainer]
-	distribution engine.Distribution
-}
-
-var (
-	engineContainerMu sync.RWMutex
-	engineContainers  = map[string]engineContainerRegistration{}
-)
-
-// RegisterEngineContainer installs engine's container declaration and
-// shipping policy. Called from internal/lm/backends' Register for EVERY
-// descriptor, whether the container story is provided or declared absent;
-// re-registering a name replaces it, and an undecided (zero) declaration
-// deletes the entry, so a test can unwind its synthetic engine.
-func RegisterEngineContainer(engine string, container agent.Declared[agent.EngineContainer], distribution engine.Distribution) {
-	engineContainerMu.Lock()
-	defer engineContainerMu.Unlock()
-	if !container.Decided() {
-		delete(engineContainers, engine)
-		return
-	}
-	engineContainers[engine] = engineContainerRegistration{container: container, distribution: distribution}
-}
-
-// engineContainerDeclared returns engine's registration and whether the
-// engine is registered at all.
-func engineContainerDeclared(engine string) (engineContainerRegistration, bool) {
-	engineContainerMu.RLock()
-	defer engineContainerMu.RUnlock()
-	r, ok := engineContainers[engine]
-	return r, ok
-}
-
-// registeredEngineContainers returns every registration, keyed by engine
-// name — a snapshot for the roster filters below.
-func registeredEngineContainers() map[string]engineContainerRegistration {
-	engineContainerMu.RLock()
-	defer engineContainerMu.RUnlock()
-	out := make(map[string]engineContainerRegistration, len(engineContainers))
-	for k, v := range engineContainers {
-		out[k] = v
-	}
-	return out
-}
 
 // composableEngines is the deterministic set of engines whose single-engine
 // agent image is worth building UNASKED, alphabetical: every engine that CAN

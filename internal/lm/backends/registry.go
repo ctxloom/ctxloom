@@ -91,26 +91,39 @@ func Register(reg engine.Registry, hostings ...hosting.Hosting) error {
 	}
 	for name, r := range batch {
 		records[string(name)] = r
-		// Push the engine-owned isolation facts down to internal/adapters/isolation
-		// at the same moment, so a backend can never be launchable here while
-		// invisible there. isolation resolves engines by NAME (CopyAmbient is
-		// handed a backend name, never an engine value) and cannot import the
-		// engine packages, so this is the only direction the wiring can run.
-		//
-		// The credential seed and the container story are pushed for EVERY
-		// record, absent ones included: isolation's rosters are then the
-		// registry by construction, and an engine with nothing to seed or no
-		// container story is a declaration it can read back, not a lookup
-		// miss.
-		h := &r.host
-		isolation.RegisterCredentialSeed(string(name), credentialSeedOf(h))
-		isolation.RegisterProvisioningPolicy(string(name), h.Provisioning)
-		isolation.RegisterEngineContainer(string(name), h.Container, r.kind.Root().Distribution)
-		if w, ok := h.InstanceConfig.Get(); ok {
-			isolation.RegisterInstanceConfigWriter(string(name), w(agent.SettingsOptions{}))
-		}
 	}
+	// The cells adapter reads engine facts through ONE accessor over these
+	// records (isolation.Facts), installed here, where kinds and hosting
+	// records are paired; isolation resolves engines by NAME (CopyAmbient is
+	// handed a backend name) and cannot import the engine packages.
+	isolation.UseFacts(recordFacts{})
 	return nil
+}
+
+// recordFacts is the isolation.Facts accessor over the paired records.
+type recordFacts struct{}
+
+func (recordFacts) For(name string) (isolation.EngineFacts, bool) {
+	r, ok := records[name]
+	if !ok {
+		return isolation.EngineFacts{}, false
+	}
+	h := &r.host
+	return isolation.EngineFacts{
+		Home:           h.Home,
+		Provisioning:   h.Provisioning,
+		Container:      h.Container,
+		InstanceConfig: h.InstanceConfig,
+		Distribution:   r.kind.Root().Distribution,
+	}, true
+}
+
+func (recordFacts) Names() []string {
+	names := make([]string, 0, len(records))
+	for name := range records {
+		names = append(names, name)
+	}
+	return names
 }
 
 // Engines is the engine.Registry of every kind registered here: for a

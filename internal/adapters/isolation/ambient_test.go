@@ -61,23 +61,17 @@ func (r *recordingInstanceConfig) seen() []agent.InstanceConfigRequest {
 	return append([]agent.InstanceConfigRequest(nil), r.requests...)
 }
 
-// withInstanceConfigWriter installs w as engine's generator for the duration of
-// the test and restores whatever was registered before. The registry is
-// process-global (internal/lm/backends populates it at init, and its external
-// test package links backends into this test binary), so a test that replaced
-// an entry and left it replaced would silently reshape every later test.
+// withInstanceConfigWriter declares w as engine's config generator for the
+// duration of the test (nil: none), leaving the engine's other facts as they
+// are; the accessor is restored on cleanup.
 func withInstanceConfigWriter(t *testing.T, engine string, w agent.InstanceConfigWriter) {
 	t.Helper()
-	instanceConfigMu.Lock()
-	prev, had := instanceConfigWriters[engine]
-	instanceConfigMu.Unlock()
-	RegisterInstanceConfigWriter(engine, w)
-	t.Cleanup(func() {
-		if had {
-			RegisterInstanceConfigWriter(engine, prev)
+	stageEngineFacts(t, engine, func(f *EngineFacts) {
+		if w == nil {
+			f.InstanceConfig = agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter]("no instance config in this test")
 			return
 		}
-		RegisterInstanceConfigWriter(engine, nil)
+		f.InstanceConfig = agent.Provide(func(agent.SettingsOptions) agent.InstanceConfigWriter { return w })
 	})
 }
 
@@ -96,8 +90,9 @@ func TestAmbientSet_IsAnExplicitAllowListPerEngine(t *testing.T) {
 	// has an empty set: the difference between "declared nothing to seed"
 	// and "nobody registered it" is that the former can be read back.
 	const unseeded = "unseeded-fixture"
-	RegisterCredentialSeed(unseeded, agent.Absent[agent.CredentialSeed](unseeded+" keeps its credential in a global store no home var moves"))
-	t.Cleanup(func() { RegisterCredentialSeed(unseeded, agent.Declared[agent.CredentialSeed]{}) })
+	stageEngineFacts(t, unseeded, func(f *EngineFacts) {
+		f.Home = agent.Absent[agent.EngineHome](unseeded + " keeps its credential in a global store no home var moves")
+	})
 
 	names := AmbientEngineNames()
 	sort.Strings(names)

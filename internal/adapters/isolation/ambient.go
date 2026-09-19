@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/gofrs/flock"
 
@@ -46,13 +45,12 @@ type AmbientFile struct {
 	Required bool
 }
 
-// AmbientSet returns engine's ambient allow-list, keyed by REGISTERED backend
-// name. It returns nil both for an unregistered engine and for a registered one
-// whose seed is DECLARED ABSENT — an engine whose credentials live in a global
+// AmbientSet returns engine's ambient allow-list, by engine name. It returns
+// nil both for an engine the facts accessor does not know and for one whose
+// seed is DECLARED ABSENT — an engine whose credentials live in a global
 // store no home var relocates. The two are told apart by AmbientEngineNames,
-// which lists exactly the registered ones: every registered backend has an
-// explicit declaration here, provided or absent, because the registry pushes
-// each one at registration (RegisterCredentialSeed).
+// which lists exactly the known ones: every one has an explicit declaration,
+// provided or absent, on its home (EngineFacts.Home).
 //
 // ALLOW-LIST, NEVER DENY-LIST. Under a deny-list, a file the engine vendor adds
 // tomorrow is copied by DEFAULT, and the default direction of a mistake there
@@ -165,43 +163,6 @@ type AmbientCopyReport struct {
 // It exists for callers with a bounded scope (a test, a probe) and for the day
 // a run gains an explicit teardown to hang it on.
 func (r AmbientCopyReport) Close() error { return r.provisioned.Close() }
-
-// instanceConfigWriters is the engine-owned instance-config generator per
-// registered backend, populated once at init by internal/lm/backends — the one
-// package that can see both this registry and the engine packages.
-//
-// This indirection is not decoration. This package cannot import
-// internal/lm/backends (backends imports this package), so it cannot reach the
-// engine-owned writers directly, and CopyAmbient is handed a backend NAME,
-// not an engine value — so without a name-keyed registry the engine
-// write-config directive could not reach the instance at all.
-var (
-	instanceConfigMu      sync.RWMutex
-	instanceConfigWriters = map[string]agent.InstanceConfigWriter{}
-)
-
-// RegisterInstanceConfigWriter installs engine's own instance-config generator.
-// Called from internal/lm/backends' init, once per backend that declares one;
-// re-registering a name replaces it. An engine with no registration contributes
-// its ambient FILE copies and no generated config — which is also what an
-// isolation-only test binary sees, since nothing links backends into it.
-func RegisterInstanceConfigWriter(engine string, w agent.InstanceConfigWriter) {
-	instanceConfigMu.Lock()
-	defer instanceConfigMu.Unlock()
-	if w == nil {
-		delete(instanceConfigWriters, engine)
-		return
-	}
-	instanceConfigWriters[engine] = w
-}
-
-// instanceConfigWriterFor returns engine's registered generator, or nil — a
-// miss means the engine generates no instance config.
-func instanceConfigWriterFor(engine string) agent.InstanceConfigWriter {
-	instanceConfigMu.RLock()
-	defer instanceConfigMu.RUnlock()
-	return instanceConfigWriters[engine]
-}
 
 // CopyAmbient performs THE ambient copy-in — the one one-way transfer from the
 // user's real host home into an instance config home, shared by both axes that

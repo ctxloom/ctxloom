@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -90,14 +88,8 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 // the shared, package-level table for later tests to trip over. It unwinds
 // every table Register wrote.
 func UnregisterForTesting(name string) {
-	if d, ok := lookup(name); ok {
-		isolation.RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
-		isolation.RegisterProvisioningPolicy(name, agent.Declared[agent.ProvisioningPolicy]{})
-		isolation.RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
-		if _, had := d.InstanceConfig.Get(); had {
-			isolation.RegisterInstanceConfigWriter(name, nil)
-		}
-	}
+	// The facts accessor reads records live, so forgetting the record is
+	// forgetting the facts.
 	delete(records, name)
 }
 

@@ -1294,7 +1294,7 @@ func (st *runState) buildRunRequest() error {
 	st.warnHostBypassStopgap()
 	st.warnPlanOneshotCancels()
 
-	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
+	st.managed = backends.AssembleManagedConfig(st.cfg, st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
 	// The binding's delivery preference rides the managed payload to the
 	// backend, which is the only place with the argv sink system-prompt needs.
 	// Set AFTER assembly rather than inside it: AssembleManagedConfig resolves

@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // Fixture is a direct mirror of every Config field, persisted and
@@ -25,7 +24,7 @@ import (
 // for the reflective gate that keeps a newly added field honest.
 //
 // ONE deliberate exception, matching GetPendingUpgrade: PendingUpgrade and
-// HomePendingUpgrade are carried as the same *upgrade.Pending. They are a
+// HomePendingUpgrade are carried as the same *PendingUpgrade. They are a
 // handle on a pending on-disk schema upgrade that CommitPendingUpgrade
 // consumes, not user data a caller amends, and duplicating one would hand out
 // a second commit token for a single upgrade.
@@ -56,8 +55,8 @@ type Fixture struct {
 	AppDir             string
 	Source             ConfigSource
 	Warnings           []Warning
-	PendingUpgrade     *upgrade.Pending
-	HomePendingUpgrade *upgrade.Pending
+	PendingUpgrade     *PendingUpgrade
+	HomePendingUpgrade *PendingUpgrade
 }
 
 // ToFixture returns a Fixture carrying a copy of every one of c's fields —

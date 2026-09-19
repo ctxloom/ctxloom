@@ -147,6 +147,7 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	}
 
 	res, err := runResolvedAgent(ctx, resolvedRunRequest{
+		Cfg:       cfg,
 		Context:   ctxResult.Context,
 		Task:      req.Task,
 		WorkDir:   req.WorkDir,
@@ -181,6 +182,9 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 // transport it resolved to. It is the seam RunOneshot (which resolves a single
 // profile) hands to the backend-launch tail.
 type resolvedRunRequest struct {
+	// Cfg is the configuration the member was resolved from; its managed
+	// payload is assembled against the same value, never a fresh read.
+	Cfg       *config.Config
 	Context   string // assembled context injected as the agent's lead fragment
 	Task      string // the prompt/task sent to the agent
 	WorkDir   string
@@ -558,7 +562,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	// the isolated one — a member that PRESENTS the session's surfaces still has
 	// to resolve which surfaces those are before it can name them.
 	managed := pb.ManagedConfigToProto(
-		backends.AssembleManagedConfig(req.Backend, workDir, req.Gate, req.Profiles))
+		backends.AssembleManagedConfig(req.Cfg, req.Backend, workDir, req.Gate, req.Profiles))
 
 	// The member's DECLARED form, selected from the cell it actually landed in
 	// and resolved HERE, once. What differs between cells is the form, not

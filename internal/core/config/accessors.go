@@ -28,7 +28,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 func cloneBoolPtr(b *bool) *bool {
@@ -193,11 +192,11 @@ func (c *Config) GetConfiguredAgents() map[string]agents.Agent { return cloneAge
 // GetPendingUpgrade returns the PROJECT (or home, when no project layer)
 // pending schema upgrade, or nil when the on-disk schema was already
 // current.
-func (c *Config) GetPendingUpgrade() *upgrade.Pending { return c.pendingUpgrade }
+func (c *Config) GetPendingUpgrade() *PendingUpgrade { return c.pendingUpgrade }
 
 // GetHomePendingUpgrade returns the HOME layer's pending schema upgrade
 // (only populated when a project layer also exists), or nil.
-func (c *Config) GetHomePendingUpgrade() *upgrade.Pending { return c.homePendingUpgrade }
+func (c *Config) GetHomePendingUpgrade() *PendingUpgrade { return c.homePendingUpgrade }
 
 // GetLMConfig returns a copy of the whole LLM registry + role-default block.
 func (c *Config) GetLMConfig() LMConfig { return cloneLMConfig(c.lm) }

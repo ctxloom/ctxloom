@@ -72,7 +72,7 @@ func TestPrecedence_FullChain_HomeProjectEnvCLI(t *testing.T) {
 	fs := configSetFlagSet(t, "d=cli")
 
 	p := testProduct()
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	result, err := p.Load(Sources{HomePath: homePath, ProjectPath: projectPath}, o)
@@ -103,7 +103,7 @@ func TestEnvOverlay_ResolvesCaseInsensitivelyToExistingKey(t *testing.T) {
 			},
 		},
 	}
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -130,7 +130,7 @@ func TestEnvOverlay_AmbiguousCaseIsError(t *testing.T) {
 			"mycoder": map[string]any{},
 		},
 	}
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -153,7 +153,7 @@ func TestEnvOverlay_UnsetSchemaKeyCreatedWithoutWarning(t *testing.T) {
 
 	p := testProduct("default_agent")
 	base := map[string]any{}
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -169,7 +169,7 @@ func TestEnvOverlay_UnknownKeyWarnsAndCreates(t *testing.T) {
 
 	p := testProduct("default_agent") // schema knows SOMETHING, just not this
 	base := map[string]any{}
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -193,7 +193,7 @@ func TestEnvOverlay_BootstrapVarsExcluded(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_DEFAULT_AGENT", "mycoder")
 
 	p := testProduct("default_agent")
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	assert.NotContains(t, o.Env, "ROOT")
@@ -214,7 +214,7 @@ func TestEnvOverlay_CoercesBoolIntAndList(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_TAGS", "a,b,c")
 
 	p := testProduct("enabled", "count", "tags")
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(map[string]any{}, o)
@@ -240,7 +240,7 @@ func TestEnvOverlay_ZeroAndOneStayIntegers(t *testing.T) {
 	t.Setenv("TESTPROD_CONFIG_QUIET", "F")
 
 	p := testProduct("agent_turn_cap", "count", "enabled", "quiet")
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(map[string]any{}, o)
@@ -261,7 +261,7 @@ func TestEnvOverlay_ExplicitFalseBeatsInheritedTrue(t *testing.T) {
 
 	p := testProduct()
 	base := map[string]any{"enabled": true}
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -280,7 +280,7 @@ func TestFlagOverlay_UnchangedFlagDoesNotOverrideConfig(t *testing.T) {
 	// deliberately not calling fs.Set with this flag
 
 	p := testProduct("default_agent")
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 	assert.Empty(t, o.Flags, "an unset --config-set must not appear in the raw override capture")
 
@@ -298,7 +298,7 @@ func TestConfigSetFlag_OverridesConfigKey(t *testing.T) {
 
 	p := testProduct("llm")
 	base := map[string]any{"llm": map[string]any{"default": "claude"}}
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -342,7 +342,7 @@ func TestConfigSetFlag_DoesNotCollideWithCommandFlags(t *testing.T) {
 		"version":   6,
 		"hooks":     map[string]any{"pretooluse": []any{}},
 	}
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 	assert.Empty(t, o.Flags, "only --config-set may contribute; a same-named command flag must never be scanned at all")
 
@@ -374,7 +374,7 @@ func TestConfigSetFlag_CreatesCaseSensitiveKeyAsTyped(t *testing.T) {
 		},
 	}
 	base := map[string]any{}
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -401,7 +401,7 @@ func TestConfigSetFlag_ResolvesCaseInsensitivelyToExistingKey(t *testing.T) {
 			"MyCoder": map[string]any{"engine": "claude-code"},
 		},
 	}
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -428,7 +428,7 @@ func TestConfigSetFlag_AmbiguousCaseIsError(t *testing.T) {
 			"mycoder": map[string]any{},
 		},
 	}
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(base, o)
@@ -448,7 +448,7 @@ func TestConfigSetFlag_MalformedIsError(t *testing.T) {
 	fs := configSetFlagSet(t, "no-equals-sign-here", "=empty-path")
 
 	p := testProduct()
-	_, err := p.ReadOverrides(fs)
+	_, err := p.ReadOverrides(fs, os.Environ())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no-equals-sign-here")
 	assert.Contains(t, err.Error(), "=empty-path")
@@ -462,7 +462,7 @@ func TestConfigSetFlag_CoercesBoolIntAndList(t *testing.T) {
 	fs := configSetFlagSet(t, "enabled=false", "count=3", "tags=a,b,c")
 
 	p := testProduct("enabled", "count", "tags")
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(map[string]any{}, o)
@@ -484,7 +484,7 @@ func TestConfigSetFlag_UnknownKeyWarnsAndCreates(t *testing.T) {
 	fs := configSetFlagSet(t, "bogus=x")
 
 	p := testProduct("default_agent") // schema knows SOMETHING, just not this
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	out, err := p.ApplyOverrides(map[string]any{}, o)
@@ -517,7 +517,7 @@ func TestConfload_SecondProductReusesPattern(t *testing.T) {
 		EnvPrefix: "TASKLOOM_CONFIG_",
 	}
 
-	o, err := taskloom.ReadOverrides(nil)
+	o, err := taskloom.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	result, err := taskloom.Load(Sources{HomePath: homePath, ProjectPath: projectPath}, o)
@@ -652,7 +652,7 @@ func TestEnvOverlay_PathologicallyLongNameWarnsInsteadOfExhaustingMemory(t *test
 	t.Setenv("TESTPROD_CONFIG_"+suffix, "x")
 
 	p := testProduct("default_agent") // schema knows SOMETHING, just not this
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	// The fixture has to be hostile from ApplyOverrides' own vantage point
@@ -755,52 +755,6 @@ func TestReadOverrides_BareFamilyEnvPrefixIsRefused(t *testing.T) {
 	assert.NotContains(t, good.Env, "ROOT", "the bootstrap var must stay out of the chain")
 }
 
-// TestProcessOverrides_MapsAreNotSharedWithCallers pins what the mutex in
-// this file is actually able to protect. Overrides is a struct of two MAPS, so
-// copying the struct under the lock copies two map HEADERS: both the installer
-// and every reader used to hold live references to the same maps, and a write
-// through any of them was completely outside the mutex — with nothing at the
-// call site to suggest it.
-//
-// A VALUE assertion, deliberately, not a race-detector run: the detector only
-// reports interleavings that actually happen in that run, so a clean -race
-// pass is not evidence that the aliasing is harmless.
-func TestProcessOverrides_MapsAreNotSharedWithCallers(t *testing.T) {
-	t.Cleanup(ResetProcessOverrides)
-
-	installed := Overrides{
-		Env:   map[string]any{"DEFAULT_AGENT": "mycoder"},
-		Flags: map[string]any{"default_agent": "from-flag"},
-	}
-	SetProcessOverrides(installed)
-
-	// The installer's own maps must no longer reach the stored state.
-	installed.Env["DEFAULT_AGENT"] = "mutated-by-installer"
-	installed.Flags["default_agent"] = "mutated-by-installer"
-
-	got := ProcessOverrides()
-	assert.Equal(t, "mycoder", got.Env["DEFAULT_AGENT"],
-		"a write through the caller's own map must not reach the process-wide state")
-	assert.Equal(t, "from-flag", got.Flags["default_agent"])
-
-	// Nor may a reader's copy reach it.
-	got.Env["DEFAULT_AGENT"] = "mutated-by-reader"
-	got.Flags["default_agent"] = "mutated-by-reader"
-	again := ProcessOverrides()
-	assert.Equal(t, "mycoder", again.Env["DEFAULT_AGENT"],
-		"a write through a returned map must not reach the process-wide state")
-	assert.Equal(t, "from-flag", again.Flags["default_agent"])
-
-	// Nil must survive the copy: the zero Overrides{} is a meaningful value
-	// ("none installed") and Stamp's documented "env:|cli:" constant depends
-	// on it.
-	ResetProcessOverrides()
-	zero := ProcessOverrides()
-	assert.Nil(t, zero.Env)
-	assert.Nil(t, zero.Flags)
-	assert.Equal(t, Overrides{}.Stamp(), zero.Stamp())
-}
-
 // TestResolvePath_SchemaMatchPrefersTheTypedCase characterizes resolvePath's
 // preserveTypedCase arm, which nothing else reached: a --config-set path whose
 // ORIGINAL casing the schema recognizes must be returned as typed, without a
@@ -809,7 +763,7 @@ func TestResolvePath_SchemaMatchPrefersTheTypedCase(t *testing.T) {
 	fs := configSetFlagSet(t, "agents.MyCoder.runtime=container")
 
 	p := testProduct("agents.MyCoder.runtime")
-	o, err := p.ReadOverrides(fs)
+	o, err := p.ReadOverrides(fs, os.Environ())
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
@@ -837,7 +791,7 @@ func TestResolvePath_NoSchemaFallsStraightToCaseFour(t *testing.T) {
 	p := testProduct() // no knownPaths at all
 	p.KnownPath = nil
 
-	o, err := p.ReadOverrides(nil)
+	o, err := p.ReadOverrides(nil, os.Environ())
 	require.NoError(t, err)
 
 	var buf bytes.Buffer

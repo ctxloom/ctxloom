@@ -17,6 +17,23 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
+// lockFileMode and lockDirMode are the modes the config-update lock's
+// sidecar and its parent directory are created with, before umask — not
+// group- or world-WRITABLE, matching every other lock site in this project.
+const (
+	lockFileMode = 0o644
+	lockDirMode  = 0o755
+)
+
+// Draft is the mutable view an Owner.Update transaction hands fn: every
+// PERSISTED Config field (the set configDoc carries), exported so the write
+// sites in adapters/operations mutate it directly. Runtime-only facts
+// (AppPaths, Warnings, PendingUpgrade, ...) are absent: they describe WHERE a
+// config came from, not values a write edits. A plain alias for configDoc —
+// the same exported mirror of the persisted fields, for the same reason
+// (yaml reflection and the caller both need exported fields).
+type Draft = configDoc
+
 // Snapshot is one GENERATION of everything that derives from the config files
 // and the lockfile: the Config value, the bundle Catalog resolved from the
 // sources' readers, and the Trust built from the sources' trust ports. Nothing

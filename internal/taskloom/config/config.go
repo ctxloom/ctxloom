@@ -302,14 +302,12 @@ func projectConfigPath(workDir string) string {
 // confload.Product wiring — not just confload itself, already proven by
 // TestConfload_SecondProductReusesPattern — is correct for taskloom's actual
 // DirName/FileName/EnvPrefix. A malformed --config-set entry is downgraded to
-// a warning (clidiag.Warn), matching ctxloom's own
-// InstallOverridesFromFlags convention: one bad override never blocks
-// startup.
+// a warning (clidiag.Warn): one bad override never blocks startup.
 func loadRaw(workDir string, fs *pflag.FlagSet) (map[string]any, error) {
 	validator, _ := newValidator() // nil on failure: degrade, never block a load over it
 	p := product(validator)
 
-	o, oerr := p.ReadOverrides(fs)
+	o, oerr := p.ReadOverrides(fs, os.Environ())
 	if oerr != nil {
 		clidiag.Warn("taskloom", "config override resolution: %v", oerr)
 	}

@@ -1,8 +1,10 @@
-package config
+package configload
 
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +18,7 @@ import (
 // loadYAML writes cfgYAML as the project config on a fake fs and loads it the
 // way every entry point does (Load → migrate → validate), returning the loaded
 // Config so a test can assert on its Warnings.
-func loadYAML(t *testing.T, cfgYAML string) *Config {
+func loadYAML(t *testing.T, cfgYAML string) *config.Config {
 	t.Helper()
 	fs := afero.NewMemMapFs()
 	testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", cfgYAML, 0644)
@@ -27,10 +29,10 @@ func loadYAML(t *testing.T, cfgYAML string) *Config {
 
 // unknownKeyWarnings returns just the unknown-key warnings, so a test can assert
 // on them without depending on unrelated load diagnostics.
-func unknownKeyWarnings(cfg *Config) []Warning {
-	var out []Warning
-	for _, w := range cfg.warnings {
-		if w.Kind == WarnKindUnknownKey {
+func unknownKeyWarnings(cfg *config.Config) []config.Warning {
+	var out []config.Warning
+	for _, w := range cfg.GetWarnings() {
+		if w.Kind == config.WarnKindUnknownKey {
 			out = append(out, w)
 		}
 	}
@@ -137,7 +139,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 	// THIS test pins is orthogonal: whatever warnings come out carry a real
 	// suggestion drawn from the matched branch, instead of none at all.
 	warns := unknownKeyWarnings(cfg)
-	require.NotEmpty(t, warns, "warnings: %+v", cfg.warnings)
+	require.NotEmpty(t, warns, "warnings: %+v", cfg.GetWarnings())
 	for _, w := range warns {
 		assert.Contains(t, w.Text, "llm.configs.big.thinkign", "the dotted path must reach through the dynamic label and the anyOf branch")
 		assert.Contains(t, w.Text, "did you mean `thinking`?", "the matched branch's own field name must be offered, not silently dropped — `thinking` is absent from the mock branch, so offering it proves the branch actually resolved")
@@ -147,14 +149,14 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 
 // A schema violation that is NOT an unknown key (a bad enum, a wrong type) keeps
 // its old kind and its raw text: this change narrows the unknown-key case out of
-// WarnKindValidate, it does not swallow the rest.
+// config.WarnKindValidate, it does not swallow the rest.
 func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions: nonsense\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
-	require.Len(t, cfg.warnings, 1)
-	assert.Equal(t, WarnKindValidate, cfg.warnings[0].Kind)
-	assert.Contains(t, cfg.warnings[0].Text, "config validation warning")
+	require.Len(t, cfg.GetWarnings(), 1)
+	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
+	assert.Contains(t, cfg.GetWarnings()[0].Text, "config validation warning")
 }
 
 // A valid current config must stay silent — a strictness gate that cries wolf on
@@ -183,7 +185,7 @@ agents:
     profiles: [work]
 `)
 
-	assert.Empty(t, cfg.warnings, "a valid config must load clean: %+v", cfg.warnings)
+	assert.Empty(t, cfg.GetWarnings(), "a valid config must load clean: %+v", cfg.GetWarnings())
 }
 
 // TestLoad_UnknownKeyInHomeLayer_StillWarns pins that layering (home <
@@ -196,7 +198,7 @@ func TestLoad_UnknownKeyInHomeLayer_StillWarns(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 
-	homeAppDir := filepath.Join(home, AppDirName)
+	homeAppDir := filepath.Join(home, config.AppDirName)
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
 		[]byte("version: 6\nagentz:\n  definitions: {}\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
@@ -217,7 +219,7 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 
-	homeAppDir := filepath.Join(home, AppDirName)
+	homeAppDir := filepath.Join(home, config.AppDirName)
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir),
 		[]byte("version: 6\ndefault_agent: dev\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml",
@@ -242,7 +244,7 @@ func TestLoad_AgentDriving_NoUnknownKeyWarning(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nagents:\n  coord:\n    llm: main\n    profiles: [work]\n    driving: oneshot\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "driving must validate as a known agent-binding key: %+v", unknownKeyWarnings(cfg))
-	assert.Empty(t, cfg.warnings, "a config using only documented agent-binding keys must load with no warnings at all: %+v", cfg.warnings)
+	assert.Empty(t, cfg.GetWarnings(), "a config using only documented agent-binding keys must load with no warnings at all: %+v", cfg.GetWarnings())
 
 	a, ok := cfg.Agent("coord")
 	require.True(t, ok, "the agent binding must still parse despite the new field")
@@ -268,9 +270,9 @@ func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.
 		"one typo, one warning: the per-branch fan-out is the schema's business, not the user's")
 	assert.Contains(t, warns[0].Text, "llm.configs.big.thinkign")
 
-	require.Len(t, cfg.warnings, 1,
-		"the rejected branches' const failures are how the schema picked a branch, not a second defect: %+v", cfg.warnings)
-	for _, w := range cfg.warnings {
+	require.Len(t, cfg.GetWarnings(), 1,
+		"the rejected branches' const failures are how the schema picked a branch, not a second defect: %+v", cfg.GetWarnings())
+	for _, w := range cfg.GetWarnings() {
 		assert.NotContains(t, w.Text, "/llm/configs/big/type",
 			"nothing may blame the `type` the user got right")
 	}
@@ -283,6 +285,6 @@ func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      thinking: 12\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
-	require.NotEmpty(t, cfg.warnings, "a fault inside a branch must still be reported")
-	assert.Equal(t, WarnKindValidate, cfg.warnings[0].Kind)
+	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")
+	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind)
 }

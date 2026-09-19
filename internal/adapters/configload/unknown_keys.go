@@ -1,4 +1,4 @@
-package config
+package configload
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/keymatch"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
@@ -68,11 +69,11 @@ func fromBranchAlternative(leaf *jsonschema.ValidationError) bool {
 }
 
 // classifyValidationError turns a schema validation failure into load warnings:
-// one WarnKindUnknownKey per unknown key (named, suggested, de-retired), plus a
-// single WarnKindValidate carrying the raw error when the document ALSO breaks
+// one config.WarnKindUnknownKey per unknown key (named, suggested, de-retired), plus a
+// single config.WarnKindValidate carrying the raw error when the document ALSO breaks
 // the schema in some other way (a bad enum, a wrong type). A failure with no
 // recognizable unknown-key cause degrades to today's behavior verbatim: one
-// WarnKindValidate with the original text.
+// config.WarnKindValidate with the original text.
 //
 // Both of those counts are per DEFECT, not per schema leaf, and a branching
 // schema does not report them one-to-one. An object behind an anyOf is
@@ -88,13 +89,13 @@ func fromBranchAlternative(leaf *jsonschema.ValidationError) bool {
 // Suppressing branch failures cannot hide a real one: a document whose ONLY
 // problem is inside a branch produces no unknown-key warnings at all, and the
 // empty-warnings case still emits the raw error verbatim.
-func classifyValidationError(configPath string, validator *schema.ConfigValidator, err error) []Warning {
+func classifyValidationError(configPath string, validator *schema.ConfigValidator, err error) []config.Warning {
 	var ve *jsonschema.ValidationError
 	if !errors.As(err, &ve) {
-		return []Warning{{Kind: WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)}}
+		return []config.Warning{{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)}}
 	}
 
-	var warnings []Warning
+	var warnings []config.Warning
 	var other bool
 	reported := map[string]bool{}
 	for _, leaf := range leafCauses(ve) {
@@ -118,14 +119,14 @@ func classifyValidationError(configPath string, validator *schema.ConfigValidato
 				continue
 			}
 			reported[id] = true
-			warnings = append(warnings, Warning{
-				Kind: WarnKindUnknownKey,
+			warnings = append(warnings, config.Warning{
+				Kind: config.WarnKindUnknownKey,
 				Text: unknownKeyMessage(configPath, leaf.InstanceLocation, key, validator),
 			})
 		}
 	}
 	if len(warnings) == 0 || other {
-		warnings = append(warnings, Warning{Kind: WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
+		warnings = append(warnings, config.Warning{Kind: config.WarnKindValidate, Text: fmt.Sprintf("config validation warning at %s: %v", configPath, err)})
 	}
 	return warnings
 }

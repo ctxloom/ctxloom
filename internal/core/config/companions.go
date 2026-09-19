@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	companionloadout "github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"

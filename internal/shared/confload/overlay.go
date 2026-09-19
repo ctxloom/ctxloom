@@ -117,7 +117,8 @@ func (e *SchemaViolationError) Unwrap() error { return e.Err }
 // later, per load, in ApplyOverrides/Load.
 //
 // Env is built by koanf's env provider (github.com/knadh/koanf/providers/
-// env/v2), which scans os.Environ() for vars starting with p.EnvPrefix and
+// env/v2) over environ — the caller's captured environment (os.Environ() at
+// the composition root; nil contributes nothing) — for vars starting with p.EnvPrefix and
 // hands each surviving "name=value" pair through a TransformFunc that strips
 // EnvPrefix and coerces the value (coerceEnvValue), stored keyed by the
 // stripped name (e.g. CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME becomes key
@@ -153,7 +154,7 @@ func (e *SchemaViolationError) Unwrap() error { return e.Err }
 // is a reported error (joined across every malformed entry), not silently
 // dropped. The value is coerced exactly like an env var's (coerceEnvValue) —
 // bool, then int, then a comma-separated list, else a plain string.
-func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
+func (p Product) ReadOverrides(fs *pflag.FlagSet, environ []string) (Overrides, error) {
 	if !strings.Contains(p.EnvPrefix, EnvPrefixSegment) {
 		// Scanning with this prefix would sweep the product's bootstrap and
 		// process-selection vars into the config chain (see EnvPrefixSegment).
@@ -167,7 +168,8 @@ func (p Product) ReadOverrides(fs *pflag.FlagSet) (Overrides, error) {
 	}
 
 	envProvider := kenv.Provider("", kenv.Opt{
-		Prefix: p.EnvPrefix,
+		Prefix:      p.EnvPrefix,
+		EnvironFunc: func() []string { return environ },
 		TransformFunc: func(name, raw string) (string, any) {
 			suffix := strings.TrimPrefix(name, p.EnvPrefix)
 			if suffix == "" {

@@ -13,7 +13,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload/layerscope"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
 // CommitUpgrade persists a pending in-memory schema upgrade to disk, writing the
@@ -55,7 +54,7 @@ func (c *Config) CommitHomeUpgrade() error {
 // path, verbatim so the comments and key order preserved by the node rewrite
 // survive. Shared by both layers' committers so they cannot drift on how an
 // upgrade is persisted; nil is a no-op.
-func (c *Config) commitPendingUpgrade(p *upgrade.Pending) error {
+func (c *Config) commitPendingUpgrade(p *PendingUpgrade) error {
 	if p == nil {
 		return nil
 	}
@@ -116,7 +115,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	// because there is no live *Config.warnings slice to append to here. When
 	// c.source is SourceHome (this file IS home acting alone), nothing to filter.
 	if c.source == SourceProject {
-		for _, v := range dropLayerScopeViolations(layerscope.LayerProject, desired) {
+		for _, v := range DropLayerScopeViolations(layerscope.LayerProject, desired) {
 			zap.L().Warn("config_layer_scope_save_warning", zap.Strings("key", v.Path))
 		}
 	}
@@ -135,11 +134,6 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	if err := iox.WriteFileAtomicFs(fs, configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
-
-	// The ambient memo now describes a superseded file. Load's stat check would
-	// catch this on its own; dropping the memo here makes the write→read
-	// ordering explicit rather than dependent on mtime granularity.
-	Invalidate()
 
 	return nil
 }
@@ -200,7 +194,7 @@ func reconcileMappingNode(root *yaml.Node, desired map[string]any) error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		want := desired[key]
-		if cur := upgrade.MapValue(root, key); cur != nil {
+		if cur := mappingValue(root, key); cur != nil {
 			same, err := nodeCanonicallyEqual(cur, want)
 			if err != nil {
 				return err
@@ -213,7 +207,7 @@ func reconcileMappingNode(root *yaml.Node, desired map[string]any) error {
 		if err := enc.Encode(want); err != nil {
 			return fmt.Errorf("encode config section %q: %w", key, err)
 		}
-		upgrade.MapSet(root, key, &enc)
+		mappingSet(root, key, &enc)
 	}
 	return nil
 }
@@ -426,4 +420,16 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	setOrDelete(existing, "isolation_devcontainer_service", c.isolationDevcontainerService != "", c.isolationDevcontainerService)
 	setOrDelete(existing, "isolation_engines", len(c.isolationEngines) > 0, c.isolationEngines)
 	setOrDelete(existing, "sync", c.sync.AutoSync != nil, c.sync)
+}
+
+// mappingSet replaces key's value on the mapping node m, or appends the pair
+// when m has no such key.
+func mappingSet(m *yaml.Node, key string, value *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content[i+1] = value
+			return
+		}
+	}
+	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }

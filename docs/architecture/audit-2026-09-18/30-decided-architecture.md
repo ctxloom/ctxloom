@@ -3323,7 +3323,7 @@ Ordering rationale: 0 aims the gates and 0b renames before anything else moves, 
 
 ### 4.2 Design-by-test
 
-Three tests that PROPOSE the three load-bearing interfaces, verbatim from the module where they type-check against Part 1 (`go vet ./...` green, test packages included). Each fails today and is the first thing its slice adds. The fixture packages they name (`core/engine/conformance`, `core/composite/compositetest`, `core/delivery/deliverytest`, `adapters/fsstatic`, `core/launch/launchtest`, `adapters/coordgrpc`) exist in the module as stubs; their bodies are the slice's to write, their signatures are fixed here.
+Three tests that PROPOSE the three load-bearing interfaces, verbatim from the module where they type-check against Part 1 (`go vet ./...` green, test packages included). Each fails today and is the first thing its slice adds. The fixture packages they name (`core/engine/conformance`, `core/composite/compositetest`, `core/delivery/deliverytest`, `adapters/fsstatic`, `core/launch/launchtest`, `adapters/coordgrpc`) do not exist yet: the slice that first names one creates it, and its body is that slice's to write; only their signatures are fixed here. The import paths below use the placeholder module `ctxloom.example/c`; substitute the real module path from `go.mod` — the placeholder is what keeps this prose from claiming a package that has not landed.
 
 **A — the engine interface (slices 6b and 11b).** The constructor-coherence, derived-surfaces, delegation and requiredness tests are the root's; the anti-drift, null-object and two-name tests are the instance half's.
 

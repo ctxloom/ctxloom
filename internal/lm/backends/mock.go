@@ -251,7 +251,7 @@ func ConfigHomeEnvKeys() []string {
 	var keys []string
 	seen := map[string]bool{}
 	for _, name := range List() {
-		home, ok := descriptors[name].Home.Get()
+		home, ok := descriptors[name].host.Home.Get()
 		if !ok {
 			continue
 		}

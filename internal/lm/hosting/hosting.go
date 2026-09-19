@@ -1,19 +1,17 @@
-// Package engine defines what an engine DECLARES about itself: the one
-// record an engine package authors, in its own package, for the backend
-// registry to install. Nothing here names an engine. The registry
-// (internal/lm/backends) reads descriptors; engine packages write them; the
-// composition root (internal/engines) is the only production code that
-// holds the list.
-//
-// Every optional capability is an agent.Declared slot, so absence is a stated
-// reason rather than a nil, and Validate refuses a slot nobody decided.
-package engine
+// Package hosting is the instance half of the engine port as it stands
+// until the runner lands: the record (Hosting) an engine package authors so
+// internal/lm/backends can RUN its kind — the backend constructor, the
+// writers, the export projections, the home and container stories, the
+// transcript readers. Everything DECLARATIVE lives on the kind
+// (engine.Definition); a Hosting is paired with its kind by name at
+// registration. Nothing here names an engine. The package dies with
+// lm/backends.
+package hosting
 
 import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
@@ -22,16 +20,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-// Descriptor is one engine's complete registration record.
-type Descriptor struct {
-	// Name is the registry key: lowercase, and what the backend's Name()
-	// reports. It is the engine's ONLY spelling — there is no alias table,
-	// and a lookup under any other spelling is an unknown engine.
-	Name string
-	// Distribution is the engine's shipping policy — offered by default,
-	// offered on request, or a test double hidden from every user-facing
-	// enumeration. Unset is refused: see engine.Distribution.
-	Distribution engine.Distribution
+// Hosting is one engine's hosting record. Every optional capability is an
+// agent.Declared slot, so absence is a stated reason rather than a nil,
+// and Validate refuses a slot nobody decided.
+type Hosting struct {
+	// Engine names the kind this record hosts: the registry key, and what
+	// the backend's Name() reports. Register refuses a record whose kind is
+	// not in the Registry, and a kind with no record.
+	Engine engine.Name
 
 	// NewBackend constructs a fresh backend, with the registry's launcher
 	// injected — the substrate that execs processes lives with the registry,
@@ -40,9 +36,12 @@ type Descriptor struct {
 	// NewConfig returns the engine's zero typed config; the registry decodes
 	// a labeled LLM entry's body into it.
 	NewConfig func() agent.BackendConfig
-	// Surfaces is the engine's static declaration of the approaches it
-	// delivers, per surface kind. Required; an empty Declaration is the
-	// declared "no surfaces".
+	// Surfaces is the named-form table today's launch path constructs
+	// writers from by selection: for an engine whose typed approaches carry
+	// agent.Forms it is agent.DeclarationOf(kind.Root().Surfaces()); the
+	// mock backend's forms are its own writers here. Required; an empty
+	// Declaration is the declared "no surfaces". Retires with the seam that
+	// constructs by name.
 	Surfaces agent.Declaration
 
 	// SettingsWriter constructs the engine's settings writer.
@@ -81,14 +80,6 @@ type Descriptor struct {
 	// engine's own transcript store back into a canonical transcript.
 	TranscriptReaders agent.Declared[[]vendorreader.VersionedAdapter]
 
-	// EnforcesReadOnlyPlan is true when the engine maps agent.PermissionPlan
-	// to a genuinely read-only, non-prompting mode. false = no such tier; the
-	// run resolver collapses plan to default.
-	EnforcesReadOnlyPlan bool
-	// ResolveModel translates a configured model string into the id the
-	// engine's launch path accepts. nil = pass through untouched — a positive
-	// default, not an absence.
-	ResolveModel func(model string) (resolved string, ok bool)
 	// NoHooksReason declares the engine has NO hook mechanism at all. Empty =
 	// it carries hooks.
 	NoHooksReason string
@@ -120,40 +111,35 @@ type HookGlobalScope struct {
 // is how Validate finds the Declared slots without a list.
 type decided interface{ Decided() bool }
 
-// Validate refuses a descriptor the registry could install only by guessing.
+// Validate refuses a record the registry could install only by guessing.
 // It is total: every rule is checked here, so a registration error names the
-// exact field.
-func (d Descriptor) Validate() error {
-	if d.Name == "" {
-		return errors.New("descriptor: Name is empty")
-	}
-	if d.Name != strings.ToLower(d.Name) {
-		return fmt.Errorf("descriptor %s: name must be lowercase", d.Name)
-	}
-	if !d.Distribution.Decided() {
-		return fmt.Errorf("descriptor %s: Distribution is %s; declare Default, OptIn or TestOnly — an undeclared policy must not default-ship", d.Name, d.Distribution)
+// exact field. The declarative rules (name, distribution, modes, grammars,
+// approaches) are the kind's, checked once by its constructor.
+func (d Hosting) Validate() error {
+	if d.Engine == "" {
+		return errors.New("hosting: Engine is empty")
 	}
 	if d.NewBackend == nil {
-		return fmt.Errorf("descriptor %s: NewBackend is nil", d.Name)
+		return fmt.Errorf("hosting %s: NewBackend is nil", d.Engine)
 	}
 	if d.NewConfig == nil {
-		return fmt.Errorf("descriptor %s: NewConfig is nil", d.Name)
+		return fmt.Errorf("hosting %s: NewConfig is nil", d.Engine)
 	}
 	if d.Surfaces == nil {
-		return fmt.Errorf("descriptor %s: Surfaces is nil; declare an empty Declaration for an engine with none", d.Name)
+		return fmt.Errorf("hosting %s: Surfaces is nil; declare an empty Declaration for an engine with none", d.Engine)
 	}
 	if name, ok := d.undeclaredSlot(); ok {
-		return fmt.Errorf("descriptor %s: %s is undeclared; Provide it or declare it Absent with the reason", d.Name, name)
+		return fmt.Errorf("hosting %s: %s is undeclared; Provide it or declare it Absent with the reason", d.Engine, name)
 	}
 	if err := d.validateProvided(); err != nil {
-		return fmt.Errorf("descriptor %s: %w", d.Name, err)
+		return fmt.Errorf("hosting %s: %w", d.Engine, err)
 	}
 	return nil
 }
 
 // undeclaredSlot reports the first Declared field nobody decided, found by
 // reflection so a new slot is gated without an edit here.
-func (d Descriptor) undeclaredSlot() (string, bool) {
+func (d Hosting) undeclaredSlot() (string, bool) {
 	v := reflect.ValueOf(d)
 	for i := 0; i < v.NumField(); i++ {
 		slot, ok := v.Field(i).Interface().(decided)
@@ -166,7 +152,7 @@ func (d Descriptor) undeclaredSlot() (string, bool) {
 
 // validateProvided checks each PROVIDED slot's value: a nil func is the one
 // omission Declared cannot see, and the compound facts carry their own rules.
-func (d Descriptor) validateProvided() error {
+func (d Hosting) validateProvided() error {
 	if f, ok := d.SettingsWriter.Get(); ok && f == nil {
 		return errors.New("SettingsWriter is provided as nil")
 	}

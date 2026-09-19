@@ -13,20 +13,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
-func TestDescriptor_Validates(t *testing.T) {
-	require.NoError(t, Descriptor().Validate())
+func TestHosting_Validates(t *testing.T) {
+	require.NoError(t, Hosting().Validate())
 }
 
-func TestDescriptor_NameIsTheEnginePackagesOwn(t *testing.T) {
-	d := Descriptor()
-	assert.Equal(t, claude.EngineName, d.Name)
-	assert.Equal(t, engine.DistributionDefault, d.Distribution)
+func TestHosting_NameIsTheEnginePackagesOwn(t *testing.T) {
+	d := Hosting()
+	assert.Equal(t, engine.Name(claude.EngineName), d.Engine)
 }
 
 // The home declaration is built from the engine's own constants, so the
 // directory the seed lands in IS the directory CLAUDE_CONFIG_DIR names.
-func TestDescriptor_HomeIsBuiltFromClaudesOwnConstants(t *testing.T) {
-	home, ok := Descriptor().Home.Get()
+func TestHosting_HomeIsBuiltFromClaudesOwnConstants(t *testing.T) {
+	home, ok := Hosting().Home.Get()
 	require.True(t, ok)
 	require.Len(t, home.Vars, 1)
 	assert.Equal(t, claude.ConfigDirEnv, home.Vars[0].EnvVar)
@@ -43,8 +42,8 @@ func TestDescriptor_HomeIsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.True(t, seed.Files[0].Required)
 }
 
-func TestDescriptor_ContainerAuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.T) {
-	c, ok := Descriptor().Container.Get()
+func TestHosting_ContainerAuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.T) {
+	c, ok := Hosting().Container.Get()
 	require.True(t, ok)
 	assert.NotEmpty(t, c.Install, "claude has an official npm installer")
 	assert.Equal(t, "claude --version", c.ValidateCommand)
@@ -61,8 +60,8 @@ func TestDescriptor_ContainerAuthPrefersEnvAndMountsTheRealCredentialReadWrite(t
 	assert.NotEmpty(t, auth.Hint)
 }
 
-func TestDescriptor_EveryCapabilityClaudeCarriesIsProvided(t *testing.T) {
-	d := Descriptor()
+func TestHosting_EveryCapabilityClaudeCarriesIsProvided(t *testing.T) {
+	d := Hosting()
 	for name, decided := range map[string]bool{
 		"SettingsWriter":    d.SettingsWriter.Decided() && d.SettingsWriter.AbsentReason() == "",
 		"InstanceConfig":    d.InstanceConfig.Decided() && d.InstanceConfig.AbsentReason() == "",
@@ -75,7 +74,6 @@ func TestDescriptor_EveryCapabilityClaudeCarriesIsProvided(t *testing.T) {
 	} {
 		assert.True(t, decided, "%s must be provided for claude", name)
 	}
-	assert.True(t, d.EnforcesReadOnlyPlan, "--permission-mode plan is read-only")
 	assert.Equal(t, claude.EngineName, d.NewBackend(nil).Name())
 	assert.Equal(t, claude.EngineName, d.NewConfig().BackendType())
 }
@@ -113,8 +111,8 @@ func TestSkillExports_ReadsTheClaudeCodeEnablement(t *testing.T) {
 // window in which an instance can present a token another already spent.
 // Asserting the order, not the set, is what keeps a later edit from quietly
 // preferring the mechanism with the failure mode.
-func TestDescriptor_AcceptsMountedBeforeReplicated(t *testing.T) {
-	p, ok := Descriptor().Provisioning.Get()
+func TestHosting_AcceptsMountedBeforeReplicated(t *testing.T) {
+	p, ok := Hosting().Provisioning.Get()
 	require.True(t, ok, "claude has credential material, so it declares a policy rather than absence")
 	require.NoError(t, p.Validate())
 	assert.Equal(t, []agent.MaterialDelivery{agent.MaterialDeliveryMounted, agent.MaterialDeliveryReplicated}, p.Accept)
@@ -125,8 +123,8 @@ func TestDescriptor_AcceptsMountedBeforeReplicated(t *testing.T) {
 // the access token expires and then that instance is stuck with no way back.
 // Accepting it as a last resort would turn a loud launch-time refusal into a
 // run that dies hours later, far from its cause.
-func TestDescriptor_AcceptsNoDeliveryThatCannotRenew(t *testing.T) {
-	p, ok := Descriptor().Provisioning.Get()
+func TestHosting_AcceptsNoDeliveryThatCannotRenew(t *testing.T) {
+	p, ok := Hosting().Provisioning.Get()
 	require.True(t, ok)
 	for _, d := range p.Accept {
 		assert.NotEqual(t, agent.MaterialDeliveryAbsent, d)

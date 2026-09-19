@@ -3,7 +3,7 @@ package backends
 import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
 // The accessors in this file hand a descriptor's DECLARED slots to the
@@ -39,7 +39,7 @@ func CredentialSeedFor(name string) agent.Declared[agent.CredentialSeed] {
 
 // credentialSeedOf is CredentialSeedFor on a descriptor in hand — what
 // Register pushes to isolation before the descriptor is reachable by name.
-func credentialSeedOf(d *engine.Descriptor) agent.Declared[agent.CredentialSeed] {
+func credentialSeedOf(d *hosting.Hosting) agent.Declared[agent.CredentialSeed] {
 	home, ok := d.Home.Get()
 	if !ok {
 		return agent.Absent[agent.CredentialSeed](d.Home.AbsentReason())

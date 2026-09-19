@@ -37,7 +37,8 @@ func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
 // settings, sorted (List()'s settings-scoped twin).
 func BackendsWithSettings() []string {
 	names := make([]string, 0, len(descriptors))
-	for name, d := range descriptors {
+	for name, r := range descriptors {
+		d := &r.host
 		if _, ok := d.SettingsWriter.Get(); ok {
 			names = append(names, name)
 		}

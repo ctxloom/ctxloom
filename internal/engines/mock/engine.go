@@ -65,6 +65,12 @@ func Without(kinds ...present.Kind) Option {
 	}
 }
 
+// WithDistribution sets the shipping policy (registry fixtures use it to
+// stand in for a shippable engine).
+func WithDistribution(d engine.Distribution) Option {
+	return func(def *engine.Definition) { def.Distribution = d }
+}
+
 // WithDynamic provides a dynamic approach (the delegation tests use it).
 func WithDynamic() Option {
 	return func(d *engine.Definition) { d.Dynamic = &endpointEntry{name: "session-endpoint"} }

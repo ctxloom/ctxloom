@@ -18,7 +18,7 @@ import (
 // engine" a readable decision at the seam rather than a lookup miss.
 func TestRegister_PushesTheCredentialSeedDeclarationToIsolation(t *testing.T) {
 	const name = "fixture-seeded"
-	d := enginefixture.Descriptor(name)
+	d := enginefixture.Hosting(name)
 	d.Home = agent.Provide(agent.EngineHome{
 		Vars: []agent.HomeVar{{EnvVar: "FIXTURE_HOME", Subdir: "fixture-home"}},
 		Credentials: agent.Provide(agent.CredentialSeed{
@@ -28,7 +28,7 @@ func TestRegister_PushesTheCredentialSeedDeclarationToIsolation(t *testing.T) {
 			Files:      []agent.SeedFile{{HostRelHome: ".fixture/creds.json", DestName: "creds.json", Required: true}},
 		}),
 	})
-	require.NoError(t, Register(d))
+	require.NoError(t, registerFixtures(d))
 	t.Cleanup(func() { UnregisterForTesting(name) })
 
 	assert.Equal(t, []isolation.AmbientFile{
@@ -42,7 +42,7 @@ func TestRegister_PushesTheCredentialSeedDeclarationToIsolation(t *testing.T) {
 // construction, and an engine outside it is one nobody registered.
 func TestRegister_EveryRegisteredBackendHasAnAmbientDeclaration(t *testing.T) {
 	const absentName = "fixture-unseeded"
-	require.NoError(t, Register(enginefixture.Descriptor(absentName)))
+	require.NoError(t, registerFixtures(enginefixture.Hosting(absentName)))
 	t.Cleanup(func() { UnregisterForTesting(absentName) })
 
 	declared := isolation.AmbientEngineNames()
@@ -57,7 +57,7 @@ func TestRegister_EveryRegisteredBackendHasAnAmbientDeclaration(t *testing.T) {
 // linger as a seedable name for later tests.
 func TestUnregisterForTesting_RemovesTheCredentialSeedDeclaration(t *testing.T) {
 	const name = "fixture-unwound"
-	require.NoError(t, Register(enginefixture.Descriptor(name)))
+	require.NoError(t, registerFixtures(enginefixture.Hosting(name)))
 	require.Contains(t, isolation.AmbientEngineNames(), name)
 	UnregisterForTesting(name)
 	assert.NotContains(t, isolation.AmbientEngineNames(), name)

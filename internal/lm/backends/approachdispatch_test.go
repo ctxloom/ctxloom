@@ -41,7 +41,8 @@ var allSurfaceKinds = []agent.SurfaceKind{
 func nativeSurfaceBackends(t *testing.T) []string {
 	t.Helper()
 	var names []string
-	for name, d := range descriptors {
+	for name, r := range descriptors {
+		d := &r.host
 		if len(d.Surfaces) > 0 {
 			names = append(names, name)
 		}

@@ -104,15 +104,11 @@ var LayeringRules = []LayeringRule{
 		Name: "core-imports-only-core",
 		From: []string{
 			"internal/core",
-			// measured core, retired in place (slice 6b): outside the prefix
-			// until it is deleted, so it is named on its own.
-			"internal/lm/engine",
 		},
 		Forbid: []string{"cmd", "container", "internal", "pkg", "resources", "scripts"},
 		Except: []string{
 			// core (the from-set again: core may import core)
 			"internal/core",
-			"internal/lm/engine",
 			// the toolbox (Part 0: domain-free leaf libraries), listed by
 			// member rather than as the internal/shared prefix: a package
 			// that merely sits under that directory is not thereby a
@@ -191,11 +187,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/agent -> internal/shared/ledger":     "slice 12: shared/ledger is deleted",
 			"internal/core/agent -> internal/shared/clidiag":    "slice 15: clidiag becomes typed reports",
 			"internal/core/agent -> internal/shared/strictness": "slice 15: strictness becomes a value",
-
-			// lm/engine → folded into core/engine. Part 1.0 also lists bundles, a
-			// from-package here, so that edge is not a violation.
-			"internal/lm/engine -> internal/adapters/engineversion":           "slice 6b: Descriptor becomes Definition; the version command is the engine's own",
-			"internal/lm/engine -> internal/adapters/transcript/vendorreader": "slice 6b: the readers become engine.TranscriptReader values the adapter supplies",
 		},
 	},
 	{
@@ -363,7 +354,7 @@ var LayeringRules = []LayeringRule{
 		// names; lm/backends is measured engines-ring and retired in place
 		// (slice 11b).
 		Name:   "engines-import-nothing-above-the-port",
-		From:   []string{"internal/engines", "internal/lm/backends"},
+		From:   []string{"internal/engines", "internal/lm/backends", "internal/lm/hosting"},
 		Forbid: []string{"internal/core", "internal/adapters"},
 		Except: []string{
 			"internal/core/agent",
@@ -378,6 +369,9 @@ var LayeringRules = []LayeringRule{
 			"internal/engines/claude/engine -> internal/core/bundles":                            "slice 6: bundles.LLMExports become opaque; Exports(items engine.Items) imports only core/engine",
 			"internal/engines/claude -> internal/adapters/confpatch":                             "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the engine",
 			"internal/engines/claude -> internal/core/paths":                                     "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no paths",
+			"internal/lm/hosting -> internal/adapters/engineversion":                             "slice 11b: lm/hosting dies with lm/backends; the version command is the engine's own",
+			"internal/lm/hosting -> internal/adapters/transcript/vendorreader":                   "slice 11b: lm/hosting dies with lm/backends; the readers become engine.TranscriptReader values",
+			"internal/lm/hosting -> internal/core/bundles":                                       "slice 11b: lm/hosting dies with lm/backends; Exports(items engine.Items) imports only core/engine",
 			"internal/lm/backends -> internal/adapters/engineversion":                            "slice 11b: lm/backends is deleted whole",
 			"internal/lm/backends -> internal/adapters/isolation":                                "slice 11b: lm/backends is deleted whole",
 			"internal/lm/backends -> internal/adapters/remote":                                   "slice 11b: lm/backends is deleted whole",

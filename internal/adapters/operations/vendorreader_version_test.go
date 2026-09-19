@@ -44,9 +44,9 @@ func stubVersionedAdapter(a vendorreader.VendorAdapter) []vendorreader.Versioned
 func registerReaderFixture(t *testing.T, a vendorreader.VendorAdapter) string {
 	t.Helper()
 	name := "fixture-reader-" + strings.ToLower(strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()))
-	d := enginefixture.Descriptor(name)
+	d := enginefixture.Hosting(name)
 	d.TranscriptReaders = agent.Provide(stubVersionedAdapter(a))
-	require.NoError(t, backends.Register(d))
+	require.NoError(t, backends.Register(enginefixture.Registry(d), d))
 	t.Cleanup(func() { backends.UnregisterForTesting(name) })
 	return name
 }

@@ -4,7 +4,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -19,10 +22,19 @@ import (
 //
 // It composes the shipped engines into this package's registry directly
 // (this package cannot import the composition root, internal/engines,
-// which imports it): the same descriptors, registered once per test binary.
+// which imports it): the same kinds and hosting records, registered once
+// per test binary.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
-		if err := Register(append(MockDescriptors(), claudeengine.Descriptor())...); err != nil {
+		c, err := claude.Build()
+		if err != nil {
+			panic(err)
+		}
+		reg, err := engine.NewRegistry(append(mock.Doubles(), c)...)
+		if err != nil {
+			panic(err)
+		}
+		if err := Register(reg, append(MockHostings(), claudeengine.Hosting())...); err != nil {
 			panic(err)
 		}
 

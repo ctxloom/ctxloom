@@ -1,12 +1,13 @@
-// Package claudeengine is claude-code's engine DESCRIPTOR: the one record the
-// engine authors about itself, for the backend registry to install. It is a
-// subpackage rather than part of internal/engines/claude because the descriptor's
-// export slots are typed on the bundle model, and the lean parent package is
-// linked by the ltk and taskloom binaries, which must not carry that model.
+// Package claudeengine is claude-code's HOSTING record: what the backend
+// registry still needs to run the engine kind claude.Build declares. It is
+// a subpackage rather than part of internal/engines/claude because the
+// export slots are typed on the bundle model, and the lean parent package
+// is linked by the ltk and taskloom binaries, which must not carry that
+// model.
 //
-// Nothing outside this package and internal/engines/claude names this engine; a fact
-// about claude that some other package needs is declared here and read back
-// through the registry.
+// Nothing outside this package and internal/engines/claude names this
+// engine; a fact about claude that some other package needs is declared on
+// its Definition or here and read back through the registry.
 package claudeengine
 
 import (
@@ -17,18 +18,17 @@ import (
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
-// Descriptor returns claude-code's complete declaration. Every fact is built
+// Hosting returns claude-code's hosting record: what the backend registry
+// still needs to run the kind claude.Build declares. Every fact is built
 // from the engine's own constants, so there is no second copy to drift.
-func Descriptor() engine.Descriptor {
+func Hosting() hosting.Hosting {
 	credentialRelHome := filepath.ToSlash(filepath.Join(claude.ConfigDirName, claude.CredentialsFileName))
-	return engine.Descriptor{
-		Name:         claude.EngineName,
-		Distribution: coreengine.DistributionDefault,
+	return hosting.Hosting{
+		Engine: claude.EngineName,
 		NewBackend: func(launch agent.Launcher) agent.Backend {
 			b := claude.NewClaudeCode()
 			b.SetLauncher(launch)
@@ -43,7 +43,7 @@ func Descriptor() engine.Descriptor {
 		// claude's project settings.json collapses onto its user-global one
 		// exactly when workDir == $HOME — found live (`manage hooks install`
 		// run from $HOME silently went global).
-		HookGlobalScope: agent.Provide(engine.HookGlobalScope{
+		HookGlobalScope: agent.Provide(hosting.HookGlobalScope{
 			Paths: func(workDir string) (string, string, error) {
 				global, err := claude.GlobalSettingsPath()
 				return claude.ProjectSettingsPath(workDir), global, err
@@ -114,8 +114,7 @@ func Descriptor() engine.Descriptor {
 			OverlayDirs:        []string{claude.ConfigDirName},
 			TranscriptStoreRel: filepath.Join(claude.ConfigDirName, claude.TranscriptsDirName),
 		}),
-		TranscriptReaders:    agent.Provide(claudereader.VersionedAdapters),
-		EnforcesReadOnlyPlan: true, // --permission-mode plan is read-only
+		TranscriptReaders: agent.Provide(claudereader.VersionedAdapters),
 		// The ~/.claude/projects/*.jsonl scraper was proven broken (wrong
 		// filename) and deleted outright rather than demoted; canonical
 		// capture, read back through TranscriptReaders, is the only source.
@@ -142,7 +141,7 @@ func parseVersion(output string) (string, error) {
 
 // CommandExports resolves the per-prompt claude-code export config.
 func CommandExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return engine.BuildCommandExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
+	return hosting.BuildCommandExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
 		cc := p.LLM.ClaudeCode
 		return agent.CommandExport{
 			Enabled:      cc.IsEnabled(),
@@ -161,5 +160,5 @@ func SkillEnabled(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabl
 
 // SkillExports resolves claude-code's per-skill enablement.
 func SkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return engine.BuildSkillExports(skills, SkillEnabled)
+	return hosting.BuildSkillExports(skills, SkillEnabled)
 }

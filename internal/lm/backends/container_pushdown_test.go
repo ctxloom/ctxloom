@@ -8,16 +8,16 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // containerFixture is a synthetic engine with a full container story: an
 // installer, a validate gate, and an env-passthrough auth plan.
-func containerFixture(name string, dist coreengine.Distribution) engine.Descriptor {
-	d := enginefixture.Descriptor(name)
-	d.Distribution = dist
+func containerFixture(name string) hosting.Hosting {
+	d := enginefixture.Hosting(name)
 	d.Container = agent.Provide(agent.EngineContainer{
 		Install:         []byte("RUN true\n"),
 		ValidateCommand: "true",
@@ -39,16 +39,17 @@ func containerFixture(name string, dist coreengine.Distribution) engine.Descript
 func TestRegister_PushesTheContainerDeclarationToIsolation(t *testing.T) {
 	cases := []struct {
 		name                string
-		dist                coreengine.Distribution
+		dist                engine.Distribution
 		composable, offered bool
 	}{
-		{"fixture-container-default", coreengine.DistributionDefault, true, true},
-		{"fixture-container-optin", coreengine.DistributionOptIn, false, true},
-		{"fixture-container-testonly", coreengine.DistributionTestOnly, false, false},
+		{"fixture-container-default", engine.DistributionDefault, true, true},
+		{"fixture-container-optin", engine.DistributionOptIn, false, true},
+		{"fixture-container-testonly", engine.DistributionTestOnly, false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.dist.String(), func(t *testing.T) {
-			require.NoError(t, Register(containerFixture(c.name, c.dist)))
+			h := containerFixture(c.name)
+			require.NoError(t, Register(enginefixture.RegistryOf(enginefixture.Kind(c.name, mock.WithDistribution(c.dist))), h))
 			t.Cleanup(func() { UnregisterForTesting(c.name) })
 
 			assert.True(t, isolation.HasContainerAuth(c.name), "a declared auth plan is a capability whatever the policy")
@@ -68,7 +69,7 @@ func TestRegister_PushesTheContainerDeclarationToIsolation(t *testing.T) {
 // at the seam but is not a declaration.
 func TestRegister_DeclaredAbsentContainerFailsClosed(t *testing.T) {
 	const name = "fixture-no-container"
-	require.NoError(t, Register(enginefixture.Descriptor(name)))
+	require.NoError(t, registerFixtures(enginefixture.Hosting(name)))
 	t.Cleanup(func() { UnregisterForTesting(name) })
 
 	assert.False(t, isolation.HasContainerAuth(name))
@@ -81,7 +82,8 @@ func TestRegister_DeclaredAbsentContainerFailsClosed(t *testing.T) {
 // Unregistering unwinds the container seam too.
 func TestUnregisterForTesting_RemovesTheContainerDeclaration(t *testing.T) {
 	const name = "fixture-container-unwound"
-	require.NoError(t, Register(containerFixture(name, coreengine.DistributionDefault)))
+	h := containerFixture(name)
+	require.NoError(t, Register(enginefixture.RegistryOf(enginefixture.Kind(name, mock.WithDistribution(engine.DistributionDefault))), h))
 	require.True(t, isolation.HasContainerAuth(name))
 	UnregisterForTesting(name)
 	assert.False(t, isolation.HasContainerAuth(name))

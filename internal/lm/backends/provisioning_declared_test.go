@@ -8,7 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
@@ -16,8 +16,8 @@ import (
 // engine and the test doubles together. The doubles are NOT excluded: tests
 // run the same provisioning path, so a double that declared nothing would be
 // an undeclared hole in exactly the place this gate exists to close.
-func composed() []engine.Descriptor {
-	return append(MockDescriptors(), claudeengine.Descriptor())
+func composed() []hosting.Hosting {
+	return append(MockHostings(), claudeengine.Hosting())
 }
 
 // TestProvisioning_EveryComposedEngineDeclares is the settling assertion:
@@ -27,9 +27,9 @@ func TestProvisioning_EveryComposedEngineDeclares(t *testing.T) {
 	descs := composed()
 	require.NotEmpty(t, descs)
 	for _, d := range descs {
-		t.Run(d.Name, func(t *testing.T) {
+		t.Run(string(d.Engine), func(t *testing.T) {
 			require.True(t, d.Provisioning.Decided(),
-				"%s declared no provisioning policy; Provide one or declare it Absent with the reason", d.Name)
+				"%s declared no provisioning policy; Provide one or declare it Absent with the reason", string(d.Engine))
 			if policy, ok := d.Provisioning.Get(); ok {
 				assert.NoError(t, policy.Validate())
 				return
@@ -39,7 +39,7 @@ func TestProvisioning_EveryComposedEngineDeclares(t *testing.T) {
 			// because that clause is what a report shows a user asking where
 			// their credential went.
 			assert.NotEmpty(t, d.Provisioning.AbsentReason(),
-				"%s declares absence with no reason", d.Name)
+				"%s declares absence with no reason", string(d.Engine))
 		})
 	}
 }
@@ -48,12 +48,12 @@ func TestProvisioning_EveryComposedEngineDeclares(t *testing.T) {
 // against nothing, and "has nothing to provision, because X" must stay
 // distinguishable from "nobody filled this in".
 func TestProvisioning_TestDoublesDeclareAbsenceWithAReason(t *testing.T) {
-	for _, d := range MockDescriptors() {
-		t.Run(d.Name, func(t *testing.T) {
+	for _, d := range MockHostings() {
+		t.Run(string(d.Engine), func(t *testing.T) {
 			require.True(t, d.Provisioning.Decided())
 			_, provided := d.Provisioning.Get()
-			assert.False(t, provided, "%s has no credential material, so it declares absence rather than a policy", d.Name)
-			assert.Contains(t, d.Provisioning.AbsentReason(), d.Name,
+			assert.False(t, provided, "%s has no credential material, so it declares absence rather than a policy", string(d.Engine))
+			assert.Contains(t, d.Provisioning.AbsentReason(), string(d.Engine),
 				"the reason must name the engine it is about")
 			assert.Contains(t, d.Provisioning.AbsentReason(), "authenticates against nothing")
 		})
@@ -64,10 +64,10 @@ func TestProvisioning_TestDoublesDeclareAbsenceWithAReason(t *testing.T) {
 // provisioning must not register, and the refusal must name the engine and
 // the slot so the composition root's message says what to fix.
 func TestRegister_UndeclaredProvisioningIsRefusedByName(t *testing.T) {
-	d := enginefixture.Descriptor("u057-no-provisioning")
+	d := enginefixture.Hosting("u057-no-provisioning")
 	d.Provisioning = agent.Declared[agent.ProvisioningPolicy]{}
 
-	err := Register(d)
+	err := registerFixtures(d)
 
 	require.Error(t, err, "an undeclared provisioning policy must not register")
 	assert.Contains(t, err.Error(), "u057-no-provisioning")
@@ -80,10 +80,10 @@ func TestRegister_UndeclaredProvisioningIsRefusedByName(t *testing.T) {
 // too, at registration rather than at launch: an empty Accept is the
 // undecided state wearing a struct that looks filled in.
 func TestRegister_EmptyAcceptIsRefused(t *testing.T) {
-	d := enginefixture.Descriptor("u057-empty-accept")
+	d := enginefixture.Hosting("u057-empty-accept")
 	d.Provisioning = agent.Provide(agent.ProvisioningPolicy{})
 
-	err := Register(d)
+	err := registerFixtures(d)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "u057-empty-accept")

@@ -82,11 +82,20 @@ func TestRegistry_Default_IsTheOneDefaultDistributionEngine(t *testing.T) {
 	require.ErrorContains(t, err, "2 engines ship by default")
 }
 
+// Distribution's zero value is UNSET, and Validate refuses it: an engine
+// that declared nothing must not default-ship. Every decided member is
+// accepted; a value outside the enum is as undecided as the zero.
 func TestBase_Validate_RefusesAnUndecidedDistributionAndAnUppercaseName(t *testing.T) {
 	b := engine.Base{Definition: engine.Definition{Name: "x", Modes: []engine.Mode{engine.Interactive}, CLI: []engine.CLIGrammar{{Mode: engine.Interactive, Binary: "x"}}}}
 	require.ErrorIs(t, b.Validate(), engine.ErrDefinition)
+	require.ErrorContains(t, b.Validate(), "Distribution")
+	for _, dist := range []engine.Distribution{engine.DistributionDefault, engine.DistributionOptIn, engine.DistributionTestOnly} {
+		b.Distribution = dist
+		require.NoError(t, b.Validate(), "%v", dist)
+	}
+	b.Distribution = engine.Distribution(99)
+	require.ErrorContains(t, b.Validate(), "Distribution")
 	b.Distribution = engine.DistributionDefault
-	require.NoError(t, b.Validate())
 	b.Name = "X"
 	require.ErrorContains(t, b.Validate(), "lowercase")
 }

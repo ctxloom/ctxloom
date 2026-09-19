@@ -47,7 +47,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
@@ -593,14 +593,14 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	// A collision class shaped exactly like the guarded engines' own: the
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
-	fake := enginefixture.Descriptor(fakeBackend)
-	fake.HookGlobalScope = agent.Provide(engine.HookGlobalScope{
+	fake := enginefixture.Hosting(fakeBackend)
+	fake.HookGlobalScope = agent.Provide(hosting.HookGlobalScope{
 		Paths: func(workDir string) (string, string, error) {
 			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
 		},
 		Label: "the T12 fake engine's global settings",
 	})
-	require.NoError(t, backends.Register(fake))
+	require.NoError(t, backends.Register(enginefixture.Registry(fake), fake))
 	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{

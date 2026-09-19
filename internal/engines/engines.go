@@ -37,12 +37,17 @@ var (
 	err  error
 )
 
-// Register composes every shipped engine into the backend registry. It is
-// idempotent per process: the first call does the work and later calls
-// return its result.
+// Register composes every shipped engine into the backend registry: the
+// kinds from Build, each paired with its hosting record. It is idempotent
+// per process: the first call does the work and later calls return its
+// result.
 func Register() error {
 	once.Do(func() {
-		err = backends.Register(append(backends.MockDescriptors(), claudeengine.Descriptor())...)
+		var reg engine.Registry
+		if reg, err = Build(); err != nil {
+			return
+		}
+		err = backends.Register(reg, append(backends.MockHostings(), claudeengine.Hosting())...)
 	})
 	return err
 }

@@ -22,7 +22,7 @@ import (
 // backend-identity branching; operations now calls ResolveModelFor /
 // CheckHookTargetScope and never imports claude/codex itself.
 //
-// Both seams are descriptor fields (HookGlobalScope, ResolveModel on
+// Both seams are descriptor fields (hosting.HookGlobalScope, ResolveModel on
 // engine.Descriptor) rather than a hardcoded switch here, so a backend that needs either capability registers it once,
 // in its own descriptor block, and both operations call sites pick it up with
 // no operations-side edit — closing the gap the pre-fix hardcoded 3-way
@@ -38,11 +38,14 @@ import (
 // unregistered name passes model through unchanged with ok=true: "nothing to
 // resolve" is not a failure.
 func ResolveModelFor(name, model string) (resolved string, ok bool) {
-	d, exists := lookup(name)
-	if !exists || d.ResolveModel == nil {
+	d, exists := Definition(name)
+	if !exists {
 		return model, true
 	}
-	return d.ResolveModel(model)
+	if alias, aliased := d.ModelAliases[model]; aliased {
+		return alias, true
+	}
+	return model, true
 }
 
 // CheckHookTargetScope refuses (or, with force, loudly warns) when workDir
@@ -87,7 +90,7 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 // the shared, package-level table for later tests to trip over. It unwinds
 // every table Register wrote.
 func UnregisterForTesting(name string) {
-	if d, ok := descriptors[name]; ok {
+	if d, ok := lookup(name); ok {
 		isolation.RegisterCredentialSeed(name, agent.Declared[agent.CredentialSeed]{})
 		isolation.RegisterProvisioningPolicy(name, agent.Declared[agent.ProvisioningPolicy]{})
 		isolation.RegisterEngineContainer(name, agent.Declared[agent.EngineContainer]{}, engine.DistributionUnset)
@@ -169,7 +172,7 @@ func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) 
 	// splits config and data across several vars needs this spec to become
 	// a set (one EnvVar/Subdir per var) — lift it here when one does.
 	v := home.Vars[0]
-	engine := d.Name
+	engine := string(d.Engine)
 	return InTreeAgentHomeSpec{
 		EnvVar:  v.EnvVar,
 		Dir:     filepath.Join(root, v.Subdir),

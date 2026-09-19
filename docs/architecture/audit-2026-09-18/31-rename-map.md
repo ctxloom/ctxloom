@@ -40,7 +40,7 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/liveness` | `internal/shared/liveness` | shared | Part 0 toolbox list; rename paragraph: the top-level toolbox packages → internal/shared/ |
 | `internal/lm/backends` | `dies in place` | retired | rename paragraph: retired (slice 11b); dies in place |
 | `internal/lm/conformance` | `internal/engines/conformance` | engines | JUDGMENT: test-only cross-engine equity suite over the engine implementations → engines ring |
-| `internal/lm/engine` | `dies in place` | retired | rename paragraph: retired (slice 6b); dies in place |
+| `internal/lm/hosting` | `dies in place` | retired | slice 6b split lm/engine: the declarative Descriptor became core/engine.Definition and this is its hosting remainder (the instance half lm/backends still runs); retired with lm/backends (slice 11b); dies in place |
 | `internal/lm/engines` | `internal/engines` | engines | rename paragraph: lm/engines → engines (the registry build) |
 | `internal/lm/grpc` | `dies in place` | retired | rename paragraph: retired (slice 13); dies in place |
 | `internal/lm/isolation` | `internal/adapters/isolation` | adapters | rename paragraph: lm/isolation → adapters/isolation |

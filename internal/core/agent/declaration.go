@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"sort"
+	"maps"
+	"slices"
 
 	"github.com/spf13/afero"
 
@@ -194,19 +195,21 @@ func (d Declaration) Construct(kind SurfaceKind, name string, in SurfaceInputs, 
 // AllNames is the union of every approach name across every kind, sorted:
 // what a CLI can offer as "names that exist at all" before an engine is
 // chosen. Pure.
-func (d Declaration) AllNames() []string {
-	seen := map[string]bool{}
-	for _, p := range d {
-		for _, n := range p.Names() {
-			seen[n] = true
+func (d Declaration) AllNames() []string { return ApproachNames(d) }
+
+// ApproachNames is the union of every approach name across every kind of
+// every declaration handed to it, sorted — the one union, whether over one
+// engine's declaration or every registered engine's.
+func ApproachNames(decls ...Declaration) []string {
+	seen := map[string]struct{}{}
+	for _, d := range decls {
+		for _, p := range d {
+			for _, n := range p.Names() {
+				seen[n] = struct{}{}
+			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // Forms is implemented by a typed engine approach (a field of

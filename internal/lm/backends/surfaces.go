@@ -7,7 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
 // This file is the name→Declaration seam: the single place a caller that
@@ -50,18 +50,11 @@ func SurfacesFor(engine string) (agent.Declaration, error) {
 // backend declares, sorted — what a CLI offers as "names that exist at all"
 // before an engine is chosen. Derived from the declarations, never listed.
 func KnownApproachNames() []string {
-	seen := map[string]bool{}
-	for _, d := range descriptors {
-		for _, n := range d.Surfaces.AllNames() {
-			seen[n] = true
-		}
+	decls := make([]agent.Declaration, 0, len(descriptors))
+	for _, r := range descriptors {
+		decls = append(decls, r.host.Surfaces)
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return agent.ApproachNames(decls...)
 }
 
 // UncarriedSurfaces is the delivery's inverse over the SAME inputs: the parts of
@@ -163,7 +156,7 @@ func managedMCPDetail(in agent.SurfaceInputs) string {
 // configure — same "only when it costs something" rule as the whole-backend
 // case above. Sorted by kind so the report is stable across a map's
 // randomized range order.
-func unsupportedHookKindLosses(d *engine.Descriptor, hooks wire.HooksConfig) []agent.SurfaceLoss {
+func unsupportedHookKindLosses(d *hosting.Hosting, hooks wire.HooksConfig) []agent.SurfaceLoss {
 	if len(d.UnsupportedHookKinds) == 0 {
 		return nil
 	}

@@ -1,4 +1,4 @@
-package engine
+package hosting
 
 import (
 	"os"
@@ -11,7 +11,7 @@ import (
 // The two export loops below are the engine-agnostic half of command and
 // skill export: names, content and file bytes are plumbing every engine
 // shares, and only the per-item enablement/metadata projection (pick) is the
-// engine's own. Each engine's descriptor supplies its pick; the loop lives
+// engine's own. Each engine's Hosting supplies its pick; the loop lives
 // here because more than one engine already uses it.
 
 // BuildCommandExports maps prompts to command exports, with pick projecting

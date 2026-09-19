@@ -6,11 +6,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
-// MockDescriptors returns the mock engine and its three doubles. mock is the
+// MockHostings returns the mock engine and its three doubles. mock is the
 // COMPLETE engine with no real model behind it — every capability provided,
 // deliberately: while mock delivered only some surfaces, fixtures quietly
 // came to depend on the gaps, and a gap depended upon is a gap that breaks
@@ -18,14 +18,14 @@ import (
 // declared difference; they are separate doubles rather than flags on mock
 // because mock proves the surface seam is complete, and a double that is
 // sometimes complete cannot prove that.
-func MockDescriptors() []engine.Descriptor {
+func MockHostings() []hosting.Hosting {
 	// The deliberately-LOSSY double: two unified hook kinds declared
 	// unsupported, which is what gives UncarriedSurfaces (and so doctor's
 	// capability-loss check and `manage check`'s loss reporting) a subject.
 	// TWO kinds, not one: a double modelling a single missing event cannot
 	// exercise a report that groups several. Each names its own reason so a
 	// report cannot attribute one kind's absence to the other's cause.
-	lossy := mockDescriptor(config.BackendMockLossy, NewMockLossy, func() agent.BackendConfig { return &MockLossyConfig{} })
+	lossy := mockHosting(config.BackendMockLossy, NewMockLossy, func() agent.BackendConfig { return &MockLossyConfig{} })
 	lossy.UnsupportedHookKinds = map[string]string{
 		"session_start": config.BackendMockLossy + " has no native session_start event",
 		"session_end":   config.BackendMockLossy + " has no native session_end event",
@@ -38,7 +38,7 @@ func MockDescriptors() []engine.Descriptor {
 	// reported missing because the question was never posed. It keeps a
 	// settings writer because the writer is the LAUNCH-time mechanism; the
 	// missing materialize surface is the point.
-	launch := mockDescriptor(config.BackendMockLaunch, NewMockLaunch, func() agent.BackendConfig { return &MockLaunchConfig{} })
+	launch := mockHosting(config.BackendMockLaunch, NewMockLaunch, func() agent.BackendConfig { return &MockLaunchConfig{} })
 	launch.Surfaces = mockLaunchDeclaration(config.BackendMockLaunch)
 	// The clause SAYS WHERE THEY COME FROM, not merely that they were not
 	// written: "not carried" alone reads as this engine losing them.
@@ -49,23 +49,22 @@ func MockDescriptors() []engine.Descriptor {
 	// registered backend exports skills, which left the missing-skills arm of
 	// every caller with nothing to point at. It is a declared absence, so it
 	// cannot be "completed" by accident without rewriting this line.
-	noSkills := mockDescriptor(config.BackendMockNoSkills, NewMockNoSkills, func() agent.BackendConfig { return &MockNoSkillsConfig{} })
+	noSkills := mockHosting(config.BackendMockNoSkills, NewMockNoSkills, func() agent.BackendConfig { return &MockNoSkillsConfig{} })
 	noSkills.SkillExports = agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport](
 		config.BackendMockNoSkills + " declares no skill export: it is the subject of every missing-skills-surface arm")
 
-	return []engine.Descriptor{
-		mockDescriptor(config.BackendMock, NewMock, func() agent.BackendConfig { return &MockConfig{} }),
+	return []hosting.Hosting{
+		mockHosting(config.BackendMock, NewMock, func() agent.BackendConfig { return &MockConfig{} }),
 		lossy,
 		launch,
 		noSkills,
 	}
 }
 
-// mockDescriptor is the shared shape of mock and its doubles.
-func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.BackendConfig) engine.Descriptor {
-	return engine.Descriptor{
-		Name:           name,
-		Distribution:   coreengine.DistributionTestOnly,
+// mockHosting is the shared shape of mock and its doubles.
+func mockHosting(name string, ctor func() *Mock, newConfig func() agent.BackendConfig) hosting.Hosting {
+	return hosting.Hosting{
+		Engine:         engine.Name(name),
 		NewBackend:     func(agent.Launcher) agent.Backend { return ctor() },
 		NewConfig:      newConfig,
 		Surfaces:       mockDeclaration(name),
@@ -78,7 +77,7 @@ func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.Backe
 		// bytes — precisely the silent no-op the mock engine exists to catch.
 		CommandExports:  agent.Provide(mockExports),
 		SkillExports:    agent.Provide(mockSkillExports),
-		HookGlobalScope: agent.Absent[engine.HookGlobalScope](name + "'s settings surface is a project-relative file with no user-global twin"),
+		HookGlobalScope: agent.Absent[hosting.HookGlobalScope](name + "'s settings surface is a project-relative file with no user-global twin"),
 		VersionCommand:  agent.Absent[engineversion.Command](name + " has no binary: there is no single version that would mean anything"),
 		// mock keeps NO engine-global config or credential state: a bare echo
 		// compiled into ctxloom that never spawns a grandchild and never
@@ -122,7 +121,7 @@ func mockDescriptor(name string, ctor func() *Mock, newConfig func() agent.Backe
 }
 
 // mockInstallFragment asserts `cat` (sharedfs.go's probeOneRoot runs `cat
-// /probe/marker` in the image). See mockDescriptor's Container doc.
+// /probe/marker` in the image). See mockHosting's Container doc.
 var mockInstallFragment = []byte(`RUN command -v cat >/dev/null 2>&1 \
     || { echo "ctxloom: this base has no cat (needed by the shared-fs probe, sharedfs.go's probeOneRoot)" >&2; exit 1; }
 `)

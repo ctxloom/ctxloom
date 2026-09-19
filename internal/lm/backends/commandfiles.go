@@ -3,7 +3,7 @@ package backends
 import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/lm/engine"
+	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
 
 // mockExports resolves mock's per-prompt command export. Every prompt is
@@ -13,7 +13,7 @@ import (
 // no-op the mock engine exists to catch in others. It mirrors
 // mockSkillExports's "everything is enabled" for the same reason.
 func mockExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return engine.BuildCommandExports(prompts, func(*bundles.LoadedContent) agent.CommandExport {
+	return hosting.BuildCommandExports(prompts, func(*bundles.LoadedContent) agent.CommandExport {
 		return agent.CommandExport{Enabled: true}
 	})
 }

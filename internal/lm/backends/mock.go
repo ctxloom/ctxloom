@@ -158,7 +158,7 @@ func NewMockLaunch() *Mock { return newMockBackend(config.BackendMockLaunch) }
 func NewMockNoSkills() *Mock { return newMockBackend(config.BackendMockNoSkills) }
 
 // newMockBackend builds a mock-family backend under the given registry name.
-// The doubles differ ONLY in that name and in what their descriptors declare,
+// The doubles differ ONLY in that name and in what their records declare,
 // so they share one constructor rather than a body each that could drift into
 // behaving differently.
 //
@@ -244,14 +244,14 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 
 // ConfigHomeEnvKeys returns the config-home env vars a run can thread into
 // RunOptions.Env — each registered engine's own home-relocation var(s),
-// DERIVED from the descriptors' Home declarations so the roster cannot miss
+// DERIVED from the records' Home declarations so the roster cannot miss
 // an engine that declared one. mock records whichever of these are set so a
 // hermetic test can prove what config-home env the engine received.
 func ConfigHomeEnvKeys() []string {
 	var keys []string
 	seen := map[string]bool{}
 	for _, name := range List() {
-		home, ok := descriptors[name].host.Home.Get()
+		home, ok := records[name].host.Home.Get()
 		if !ok {
 			continue
 		}

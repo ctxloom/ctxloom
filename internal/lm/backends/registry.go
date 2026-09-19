@@ -27,10 +27,10 @@ type record struct {
 	host hosting.Hosting
 }
 
-// descriptors is the per-engine table, keyed by the engine's one registered
+// records is the per-engine table, keyed by the engine's one registered
 // name. It holds values authored in each engine's OWN package; nothing in
 // this package names an engine.
-var descriptors = make(map[string]*record)
+var records = make(map[string]*record)
 
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN
 // agent binary. ctxloom holds no provider SDK and makes no direct call to any
@@ -79,18 +79,18 @@ func Register(reg engine.Registry, hostings ...hosting.Hosting) error {
 		if !ok {
 			return fmt.Errorf("hosting %s: no engine kind of that name was composed", h.Engine)
 		}
-		if _, dup := descriptors[string(h.Engine)]; dup || batch[h.Engine] != nil {
+		if _, dup := records[string(h.Engine)]; dup || batch[h.Engine] != nil {
 			return fmt.Errorf("hosting %s: already registered", h.Engine)
 		}
 		batch[h.Engine] = &record{kind: kind, host: h}
 	}
 	for _, name := range reg.Names(nil) {
-		if batch[name] == nil && descriptors[string(name)] == nil {
+		if batch[name] == nil && records[string(name)] == nil {
 			return fmt.Errorf("engine %s: composed without a hosting record", name)
 		}
 	}
 	for name, r := range batch {
-		descriptors[string(name)] = r
+		records[string(name)] = r
 		// Push the engine-owned isolation facts down to internal/adapters/isolation
 		// at the same moment, so a backend can never be launchable here while
 		// invisible there. isolation resolves engines by NAME (CopyAmbient is
@@ -118,8 +118,8 @@ func Register(reg engine.Registry, hostings ...hosting.Hosting) error {
 // than a hosting record. Names are unique by construction, so composing
 // them cannot fail.
 func Engines() engine.Registry {
-	kinds := make([]engine.Engine, 0, len(descriptors))
-	for _, r := range descriptors {
+	kinds := make([]engine.Engine, 0, len(records))
+	for _, r := range records {
 		kinds = append(kinds, r.kind)
 	}
 	reg, err := engine.NewRegistry(kinds...)
@@ -169,7 +169,7 @@ func EngineBinary(name string) string {
 // Definition returns the named engine's root — its Definition and views —
 // by EXACT match on the registered name.
 func Definition(name string) (engine.Base, bool) {
-	r, ok := descriptors[name]
+	r, ok := records[name]
 	if !ok {
 		return engine.Base{}, false
 	}
@@ -181,7 +181,7 @@ func Definition(name string) (engine.Base, bool) {
 // spelling, and any other reaches the caller unresolved so it is refused
 // rather than rounded to a real backend.
 func lookup(name string) (*hosting.Hosting, bool) {
-	r, ok := descriptors[name]
+	r, ok := records[name]
 	if !ok {
 		return nil, false
 	}
@@ -224,8 +224,8 @@ func Get(name string) agent.Backend {
 // randomized per Go's spec, so every caller (shell completion, help output)
 // would otherwise have to sort defensively.
 func List() []string {
-	names := make([]string, 0, len(descriptors))
-	for name := range descriptors {
+	names := make([]string, 0, len(records))
+	for name := range records {
 		names = append(names, name)
 	}
 	sort.Strings(names)

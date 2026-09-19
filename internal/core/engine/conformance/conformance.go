@@ -20,7 +20,7 @@ func Run(t *testing.T, eng engine.Engine) {
 	t.Helper()
 	def := eng.Root()
 	require.NoError(t, def.Validate(), "the constructor's Validate must hold for every registered engine")
-	require.Equal(t, def.Definition.Name, eng.Root().Definition.Name, "the Definition is a value, equal on every call")
+	require.Equal(t, def.Name, eng.Root().Name, "the Definition is a value, equal on every call")
 	require.Equal(t, def.Modes, eng.Root().Modes)
 
 	s := def.Surfaces()

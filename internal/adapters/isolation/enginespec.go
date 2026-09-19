@@ -64,7 +64,7 @@ import (
 //     keeps no transcripts.
 //
 // WHAT an engine's container story is, is not decided here. Each engine
-// declares it on its own descriptor (engine.Descriptor.Container, with its
+// declares it on its own descriptor (hosting.Hosting.Container, with its
 // shipping policy in Distribution), and internal/lm/backends pushes both —
 // a provided container OR a declared absence — into this package for every
 // engine it registers (RegisterEngineContainer). This package cannot import

@@ -59,7 +59,7 @@ func NoLegacyHistoryReason(name string) string {
 }
 
 // RetiredScraperBackendNames lists the registered engines whose legacy
-// scraper was retired, sorted — a view over the descriptors, for a gate that
+// scraper was retired, sorted — a view over the records, for a gate that
 // wants the set rather than one answer.
 func RetiredScraperBackendNames() []string {
 	return ListWhere(func(name string) bool { return NoLegacyHistoryReason(name) != "" })

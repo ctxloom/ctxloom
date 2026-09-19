@@ -68,7 +68,7 @@ func TestRegistry_List(t *testing.T) {
 	names := List()
 
 	var want []string
-	for name := range descriptors {
+	for name := range records {
 		want = append(want, name)
 	}
 	sort.Strings(want)
@@ -193,8 +193,8 @@ func TestDecodeLLMConfig_DecodeFailureNamesBackend(t *testing.T) {
 // shipped engine carries settings, surfaces and command export. mock is NOT
 // exempt: it is a complete engine with no real model behind it.
 func TestDescriptorTable_Invariants(t *testing.T) {
-	require.NotEmpty(t, descriptors)
-	for name, r := range descriptors {
+	require.NotEmpty(t, records)
+	for name, r := range records {
 		d := &r.host
 		t.Run(name, func(t *testing.T) {
 			require.Equal(t, name, string(d.Engine), "descriptor keyed under a different name than it carries")
@@ -221,7 +221,7 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 // mismatch is silent by construction: the wrong-typed config would be dropped
 // whole, and the run would launch on defaults with every override ignored.
 func TestDescriptorTable_ConfigDecodesToItsOwnType(t *testing.T) {
-	for name := range descriptors {
+	for name := range records {
 		t.Run(name, func(t *testing.T) {
 			cfg, err := DecodeLLMConfig(name, map[string]interface{}{})
 			require.NoError(t, err)

@@ -23,7 +23,7 @@ import (
 // CheckHookTargetScope and never imports claude/codex itself.
 //
 // Both seams are descriptor fields (hosting.HookGlobalScope, ResolveModel on
-// engine.Descriptor) rather than a hardcoded switch here, so a backend that needs either capability registers it once,
+// hosting.Hosting) rather than a hardcoded switch here, so a backend that needs either capability registers it once,
 // in its own descriptor block, and both operations call sites pick it up with
 // no operations-side edit — closing the gap the pre-fix hardcoded 3-way
 // if/else left: a NEW backend with its own project/global collision class (or
@@ -98,7 +98,7 @@ func UnregisterForTesting(name string) {
 			isolation.RegisterInstanceConfigWriter(name, nil)
 		}
 	}
-	delete(descriptors, name)
+	delete(records, name)
 }
 
 // InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE

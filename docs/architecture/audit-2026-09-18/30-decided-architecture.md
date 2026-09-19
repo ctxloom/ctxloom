@@ -103,7 +103,7 @@ Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` o
 | `core/coord` | `adapters/coordgrpc/pb`, `agentcoord/discover`, `adapters/coordgrpc/mcpschema`, `adapters/agents`, `adapters/isolation`, `adapters/operations`, `adapters/transcript`, `shared/envswitch`, `shared/clidiag`, `shared/strictness` | `adapters/coordgrpc/pb`: slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc; `agentcoord/discover`: slice 10: discover moves to adapters/coordgrpc; `adapters/coordgrpc/mcpschema`: slice 10: mcpschema moves to adapters/coordgrpc; `adapters/agents`: slice 8: harnessspec/SpawnPlan become core/launch types; `adapters/isolation`: slice 8: the isolation axes become core/launch value types; `adapters/operations`: slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp; `adapters/transcript`: slice 14a: the engine-host files move to adapters/runner; `shared/envswitch`: Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value |
 | `core/coord/coordtest` | `lm/backends`, `adapters/isolation` | `lm/backends`: slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest); `adapters/isolation`: slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest) |
 | `core/agent` (today's engine base; its contract half becomes `core/engine`) | `shared/ledger`, `shared/clidiag`, `shared/strictness` | `shared/ledger`: slice 12: shared/ledger is deleted; `shared/clidiag`: slice 15: clidiag becomes typed reports; `shared/strictness`: slice 15: strictness becomes a value |
-| `lm/engine` (retired in place; folded into `core/engine`) | `adapters/engineversion`, `adapters/transcript/vendorreader` | `adapters/engineversion`: slice 6b: Descriptor becomes Definition; the version command is the engine's own; `adapters/transcript/vendorreader`: slice 6b: the readers become engine.TranscriptReader values the adapter supplies |
+| `lm/hosting` (the instance-half remainder of the retired `lm/engine`; dies with `lm/backends`) | `adapters/engineversion`, `adapters/transcript/vendorreader` | `adapters/engineversion`: slice 11b: the version command is the engine's own; `adapters/transcript/vendorreader`: slice 11b: the readers become engine.TranscriptReader values the engine supplies |
 | `core/trust`, `core/paths`, `core/wire`, `core/present`, `core/spool`, `shared/harp` | none | pure today |
 | `core/engine`, `core/composite`, `core/launch` | none | born pure in slice 2; zero allowlist from their first commit |
 | `core/delivery` | does not exist | born pure in slice 12; zero allowlist from its first commit |
@@ -121,7 +121,7 @@ flowchart TB
   subgraph CORE["internal/core — imports only core + toolbox (ratchet: Part 1.0)"]
     L1["trust · wire · paths · present · spool"]:::core
     SESS["sessions"]:::core
-    ENG["engine (port + contract) — born (slice 2): the vocabulary; the contract half arrives in 6b; today: agent, the engine base, beside it"]:::core
+    ENG["engine (port + contract) — the vocabulary (slice 2) and the DECLARATIVE half (6b): Definition · Base · Registry · the typed approaches · conformance; the instance half (Exec, Exports, Home, Container, Transcripts) arrives in 11b; today: agent, the delivery seam, beside it"]:::core
     BP["bundles · profiles"]:::core
     COMP["composite — born (slice 2): Trust; the package arrives in 6"]:::core
     CFG["config"]:::core
@@ -136,8 +136,8 @@ flowchart TB
     P4["delivery.Static · delivery.Dynamic · delivery.Ownership"]:::port
     P5["coord.Spawner · coord.RunnerTransport · coord.HostApp · config.Sources"]:::port
   end
-  subgraph ENGINES["internal/engines — import core/engine + core/present only"]
-    ENGS["claude · mock · conformance · engines (registry build) · (codex · opencode when re-added)"]:::adapter
+  subgraph ENGINES["internal/engines — import core/engine + core/present (+ core/agent for the delivery seam until 12)"]
+    ENGS["claude (Build → Claude{Base}; claude/engine = its hosting record) · mock (New/Build → Mock{Base}; mock/runtime = the binary's runtime) · conformance (the settings-writer equity suite) · engines (Build → engine.Registry; Register pairs kinds with lm/hosting records)"]:::adapter
   end
   subgraph ADAPTERS["internal/adapters — import core; imported by no core package"]
     RUNNER["runner (+ runner/mcp inside it) — born 8; today: mcp, the stdio server"]:::later
@@ -203,7 +203,7 @@ Package table — what each ring member owns and what it must never know:
 Layering rules in `archrules.LayeringRules` (each an `archrules.LayeringRule` row, enforced by `tests/arch` and by archlint alike; prefixes, not package lists, once the rename has made the rings directories) and symbol rules in `tests/arch/ring_symbols_test.go` (each an AST walk over the module outside the family products and the test trees, allowlisted by file or by `file#function` with a `_AllowlistIsLive` twin):
 
 - `core-imports-only-core` — `from: internal/core/`, with the Part 1.0 allowlist keyed by edge; `TestArch_LayeringAllowlist_IsLive` deletes exhausted entries.
-- `engines-import-nothing-above-the-port` — `from: internal/engines/` forbids `internal/core/` except `core/engine` (today `core/agent`), `core/present`, `core/sessions`, `core/wire`, and all of `internal/adapters/`; the allowlist is the measured edges of `engines/claude` and the retired-in-place `lm/backends`, each leaving in slice 6, 6b, 11b or 12, and is empty from 11b on.
+- `engines-import-nothing-above-the-port` — `from: internal/engines/` forbids `internal/core/` except `core/engine`, `core/agent` (the delivery seam, until 12), `core/present`, `core/sessions`, `core/wire`, and all of `internal/adapters/`; the allowlist is the measured edges of `engines/claude` and the retired-in-place `lm/backends` and `lm/hosting`, each leaving in slice 6, 11b or 12, and is empty from 12 on.
 - `adapters-import-core-not-each-other` — `from: internal/adapters/` forbids `internal/adapters/` and `internal/engines/`, allowed: `cli → operations`, `cli → cli/tui`, `runner → runner/mcp`, `cmd/* → *`.
 - `cli-through-operations`, `runner-owns-the-engine`, `one-launch-constructor` — the constructor rule matches `launch.Launch{`, `new(launch.Launch)` and `var l launch.Launch` outside `core/launch` and `adapters/coordgrpc` by an `ast` walk, not a `git grep`; the exec rule matches `exec.Command`, method values and interface assertions to a narrower type outside `adapters/runner`, `adapters/spawn`, `adapters/hostpty`, `adapters/attach`.
 - `proto-only-in-adapters` — `adapters/coordgrpc/pb` imported only by `adapters/coordgrpc`, `adapters/runner/mcp`, `adapters/cli/tui`, and (allowlisted until slice 13) `cli`, `operations`. Today the proto is `internal/adapters/coordgrpc/pb` itself and `internal/adapters/mcp` stands for `runner/mcp`; `coord` and `mcpschema` are allowlisted until slice 10.
@@ -3190,7 +3190,7 @@ flowchart TB
   RD["bundles.Reader adapters → []BundleRead with facts (form, signer, retraction) → Catalog (a value in Snapshot)"]:::s
   V2["VERIFY 2 (exposure): composite.Assemble over Snapshot.Trust — TrustRoot · ReviewRecords · RetractionRecords; executable items WITHHELD unless approved; Ungated() cannot assemble"]:::v
   P["Package{Items with Decision, Exports opaque per engine, Attestation}"]:::s
-  E["Engine.Exports(pkg.EngineItems(name)) — decodes its own block against ExportSchema"]:::s
+  E["Engine.Exports(pkg.EngineItems(name)) — decodes its own block against Definition.ExportSchema (11b; today the hosting record's CommandExports/SkillExports project the bundle model)"]:::s
   PL["delivery.Route → Plan (routes; losses)"]:::s
   ENC["Encode → Carrier (inline | claim in <harp>/persist/package/<digest>)"]:::s
   V3["VERIFY 3 (at rest, in the runner): Redeem → Decode checks the digest; skill files written from the decoded set; RequireDelivered asserts the bytes landed"]:::v

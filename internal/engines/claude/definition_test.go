@@ -3,6 +3,7 @@ package claude
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,7 +67,7 @@ func TestDeliverContext_WritesTheFramedPromptUnderTheSessionHome(t *testing.T) {
 	d, err := def.Context.DeliverContext(start, present.RootSessionHome, engine.ContextInputs{Text: []byte("project rules")}, nil)
 	require.NoError(t, err)
 	require.Len(t, d.Wrote, 1)
-	require.True(t, filepath.HasPrefix(d.Wrote[0], home), "landed under the session home: %s", d.Wrote[0])
+	require.True(t, strings.HasPrefix(d.Wrote[0], home+string(filepath.Separator)), "landed under the session home: %s", d.Wrote[0])
 	body, err := os.ReadFile(d.Wrote[0])
 	require.NoError(t, err)
 	require.Contains(t, string(body), "project rules")

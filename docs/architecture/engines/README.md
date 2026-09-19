@@ -12,6 +12,37 @@ licensing invariant, not a style preference, and it lives in the *shape* of the
 registry table — the doc comment above `init()` in
 `internal/lm/backends/registry.go` states it.
 
+## The definition / instance split
+
+An engine is two halves, and since the definition extraction (arch migration
+slice 6b) they live in two places:
+
+- **The DEFINITION — declarative, in `internal/core/engine`.** An engine KIND
+  is a value: the engine package's struct embedding `engine.Base`, whose
+  `Definition` declares one typed approach per surface kind (`Context`, `MCP`,
+  `Settings`, `Hooks`, `Commands`, `Skills`), the optional `Dynamic` approach,
+  the modes and their argv grammars (`CLI`, derived from the L1 `EngineCLI`),
+  the permission facts (the host default posture, whether `plan` is
+  read-only) and the export schema. `Base` derives every view
+  (`Surfaces`, `Carries`, `Static`), decides static-vs-dynamic delegation
+  once (`Delegate`), and `Validate`s coherence in the ONE plain constructor
+  each engine package exposes (`claude.Build`, `mock.New`/`mock.Build`).
+  `engines.Build()` composes the kinds into an `engine.Registry` value.
+  `core/engine/conformance` asserts the declarative half for every kind;
+  each engine package runs it against its own constructor.
+- **The INSTANCE — what runs a session.** The port names it
+  (`Engine.Instance(Session)`, `Instance.Exec/Drivers/Resume`) and the mock
+  kind implements it; for claude it still lives in `internal/lm/backends`
+  (`Setup`/`Execute`) fed by the engine's HOSTING record in
+  `internal/lm/hosting` (the backend constructor, the writers, the export
+  projections, the home/container/transcript stories), paired with the
+  kind by name at `backends.Register`. Slice 11b moves it onto the port and
+  retires `lm/backends` and `lm/hosting`.
+
+Core code reads an engine's facts off the Definition (through the
+registry) and never branches on its name: `tests/arch`'s
+`no-engine-name-in-core` gate holds that, with a shrinking allowlist.
+
 ## Start here
 
 | If you want to know… | Read |

@@ -73,7 +73,9 @@ func (s stubSources) Read(context.Context) (*config.Config, []config.Warning, er
 	cfg, err := config.ParseConfig([]byte(s.yaml))
 	return cfg, nil, err
 }
-func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) { return nil, nil }
+func (stubSources) Readers(context.Context, *config.Config) ([]bundles.Reader, error) {
+	return nil, nil
+}
 func (stubSources) TrustPorts(context.Context, *config.Config) (bundles.Authorizer, error) {
 	return nil, nil
 }

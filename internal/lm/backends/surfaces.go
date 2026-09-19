@@ -50,8 +50,8 @@ func SurfacesFor(engine string) (agent.Declaration, error) {
 // backend declares, sorted — what a CLI offers as "names that exist at all"
 // before an engine is chosen. Derived from the declarations, never listed.
 func KnownApproachNames() []string {
-	decls := make([]agent.Declaration, 0, len(descriptors))
-	for _, r := range descriptors {
+	decls := make([]agent.Declaration, 0, len(records))
+	for _, r := range records {
 		decls = append(decls, r.host.Surfaces)
 	}
 	return agent.ApproachNames(decls...)
@@ -93,8 +93,8 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 // parts of a run's assembled loadout the named backend delivers ONLY at launch,
 // into a per-session engine home, and which a HARPLESS caller (`ctxloom profile
 // materialize`, `ctxloom manage install`, a hooks apply outside a run)
-// therefore cannot write anywhere (agentDescriptor.launchOnlySettingsReason —
-// codex, and only codex).
+// therefore cannot write anywhere (hosting.Hosting.LaunchOnlySettingsReason —
+// the launch-delivered mock double declares it).
 //
 // THE TWO ARE NOT INTERCHANGEABLE and must not be merged. UncarriedSurfaces
 // answers "what can this ENGINE never carry" — a fact about the engine, true
@@ -152,7 +152,7 @@ func managedMCPDetail(in agent.SurfaceInputs) string {
 
 // unsupportedHookKindLosses reports, for a backend that carries hooks
 // generally but declares specific unified KINDS it has no native event for
-// (agentDescriptor.unsupportedHookKinds), the ones the inputs actually
+// (hosting.Hosting.UnsupportedHookKinds), the ones the inputs actually
 // configure — same "only when it costs something" rule as the whole-backend
 // case above. Sorted by kind so the report is stable across a map's
 // randomized range order.

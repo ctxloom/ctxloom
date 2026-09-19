@@ -169,12 +169,15 @@ separate ` + "`taskloom`" + ` binary and its MCP server (` + "`taskloom mcp`" + 
 	return resourceText(req.Params.URI, "text/markdown", body), nil
 }
 
-// resourceProjectDir is the project a resource handler answers for: the
-// caller's OWN identity when the server carries one, falling back to the
-// serving process's cwd when it does not (docgen, tests, any caller with no
-// cell to anchor to). The two differ exactly where it matters — a
+// resourceProjectDir is the project a handler — resource or tool — answers
+// for: the caller's OWN identity when the server carries one, falling back
+// to the serving process's cwd when it does not (docgen, tests, any caller
+// with no cell to anchor to). The two differ exactly where it matters — a
 // workspace:worktree runner inherits the coordinator's cwd while its cell
-// lives in a per-agent worktree — so the identity has to win. A cwd that
+// lives in a per-agent worktree, and a host-relayed tool (coordCustomHandlers)
+// runs in the coordinator's process on behalf of a caller whose cell is
+// another project — so the identity has to win. Every tool handler that
+// needs the project reads it here; none consults os.Getwd() itself. A cwd that
 // cannot be resolved is an error, never an empty string standing in for "every
 // project" or "no project".
 func (s *ctxServer) resourceProjectDir() (string, error) {

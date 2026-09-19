@@ -97,6 +97,32 @@ Feature: run — assembling a project's context and handing it to an engine
       And the output contains "nothing to run"
       And the output does not contain "MOCK-REPLY-NEVER-ASKED"
 
+    # EVERY RUN MINTS A HARP, and the mint is the first thing that can fail.
+    # A run that cannot be named has no session dir, no coordinator, no place
+    # for its transcript, and no address a child could reach back to — so a
+    # run that shrugged past the failed mint would spawn an engine whose every
+    # later phase fails for a cause three phases behind it. The refusal is
+    # here, at the mint, before any engine process exists. What the binary
+    # can show is WHERE the failure was reported from: a run that reached a
+    # plugin relays that plugin's failure, a run refused at the mint has no
+    # plugin to relay. (The mock's record cannot testify here — a runner that
+    # was spawned and then refused inside setup leaves no record either; the
+    # cli package's unit test observes the spawn seam itself.)
+    Scenario: A run whose session cannot be minted refuses before spawning the engine
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the mock LLM responds "MOCK-REPLY-UNNAMED-RUN"
+      And the session store cannot be opened
+      When Alice starts a one-shot that has nowhere to record its session:
+        """
+        ctxloom run --one-shot --profile dev unicorn-prompt
+        """
+      Then the command fails
+      And the output contains "session"
+      And the output does not contain "AI plugin failed"
+
     # ONE-SHOT AS A UNIVERSAL REDUCER: with no prompt on the command line, a
     # one-shot reads it from piped stdin, so anything a shell can produce can
     # be summarized, classified or rewritten with the project's own context

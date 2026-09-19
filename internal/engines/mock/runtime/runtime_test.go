@@ -1,4 +1,4 @@
-package mockengine_test
+package runtime_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 )
 
 // writeFile writes rel (which may contain slashes) under dir, creating parents.
@@ -27,7 +27,7 @@ func writeFile(t *testing.T, dir, rel string, body []byte) {
 // runOneshot drives a Runtime over claude's oneshot surface with the given
 // vendor argv and stdin prompt, returning stdout, the extracted report, and the
 // exit code.
-func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, env map[string]string) (string, mockengine.Report, int) {
+func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, env map[string]string) (string, runtime.Report, int) {
 	t.Helper()
 	cli := claudeOneshot(t)
 	parsed, err := cli.ParseArgv(vendorArgv)
@@ -35,17 +35,17 @@ func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, en
 		t.Fatalf("parse argv %v: %v", vendorArgv, err)
 	}
 	var stdout, stderr bytes.Buffer
-	rt := &mockengine.Runtime{
+	rt := &runtime.Runtime{
 		CLI:    cli,
 		Argv:   parsed,
-		Res:    mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }},
+		Res:    runtime.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }},
 		Getenv: func(k string) string { return env[k] },
 		Stdin:  strings.NewReader(prompt),
 		Stdout: &stdout,
 		Stderr: &stderr,
 	}
 	code := rt.Run()
-	rep, err := mockengine.ExtractReport(stderr.String())
+	rep, err := runtime.ExtractReport(stderr.String())
 	if err != nil {
 		t.Fatalf("extract report from stderr: %v\nstderr:\n%s", err, stderr.String())
 	}
@@ -107,7 +107,7 @@ func TestRuntime_OneshotPlainWithoutJSONFlag(t *testing.T) {
 // exits nonzero, and the discovery report is STILL emitted, because a failing
 // run is exactly when the evidence matters most.
 func TestRuntime_FailSentinelExitsNonzero(t *testing.T) {
-	prompt := "here is a lot of composed context...\n" + mockengine.SentinelFail + "\n...and a task"
+	prompt := "here is a lot of composed context...\n" + runtime.SentinelFail + "\n...and a task"
 	_, rep, code := runOneshot(t, t.TempDir(), []string{"--print"}, prompt, nil)
 	if code == 0 {
 		t.Fatal("fail sentinel did not produce a nonzero exit")
@@ -149,8 +149,8 @@ func TestReport_DigestExcludesAbsolutePaths(t *testing.T) {
 	digest := func() string {
 		cwd := t.TempDir()
 		writeFile(t, cwd, "CLAUDE.md", body)
-		recs := mockengine.Walk(cli, argv, mockengine.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }})
-		return mockengine.BuildReport(cli, recs, nil, nil).DiscoveryDigest
+		recs := runtime.Walk(cli, argv, runtime.Resolver{Cwd: cwd, Home: t.TempDir(), Getenv: func(string) string { return "" }})
+		return runtime.BuildReport(cli, recs, nil, nil).DiscoveryDigest
 	}
 	if a, b := digest(), digest(); a != b {
 		t.Fatalf("digest varied with the absolute root: %s != %s", a, b)

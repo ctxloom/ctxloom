@@ -21,7 +21,7 @@
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/engines/mock/... -tags docker_integration -run MockEngineContainer
-package mockengine_test
+package runtime_test
 
 import (
 	"bytes"
@@ -38,7 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
@@ -167,7 +167,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no report.json in the workspace; stderr:\n%s", stderr.String())
 	}
-	var rep mockengine.Report
+	var rep mockrt.Report
 	if err := json.Unmarshal(rb, &rep); err != nil {
 		t.Fatalf("report did not parse: %v\n%s", err, rb)
 	}
@@ -179,7 +179,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	// Also exercise the marker-bracketed stderr channel ExtractReport
 	// reads — it previously had no container caller at all, despite its own
 	// doc claiming one. Both channels must agree.
-	stderrRep, err := mockengine.ExtractReport(stderr.String())
+	stderrRep, err := mockrt.ExtractReport(stderr.String())
 	if err != nil {
 		t.Fatalf("ExtractReport on captured stderr: %v\nstderr:\n%s", err, stderr.String())
 	}
@@ -220,7 +220,7 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 }
 
 // recordFor returns the (kind, scope) record or fails.
-func recordFor(t *testing.T, rep mockengine.Report, kind, scope string) mockengine.ProbeRecord {
+func recordFor(t *testing.T, rep mockrt.Report, kind, scope string) mockrt.ProbeRecord {
 	t.Helper()
 	for _, r := range rep.Records {
 		if r.Kind == kind && r.Scope == scope {
@@ -228,5 +228,5 @@ func recordFor(t *testing.T, rep mockengine.Report, kind, scope string) mockengi
 		}
 	}
 	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
-	return mockengine.ProbeRecord{}
+	return mockrt.ProbeRecord{}
 }

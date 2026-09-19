@@ -1,6 +1,6 @@
 //go:build arch
 
-package mockengine_test
+package runtime_test
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 )
 
 // ---------------------------------------------------------------------------
@@ -70,12 +70,12 @@ type limbRun struct {
 // told it may assert on. Diagnostic fields (Root, Path, Head, Note) are
 // excluded here for the same reason they are excluded from the digest, which
 // is what makes this gate a statement about evidence rather than about text.
-func fingerprint(rep mockengine.Report) string {
+func fingerprint(rep runtime.Report) string {
 	return rep.DiscoveryDigest + "|prompt=" + strconv.FormatBool(rep.PromptPresent) + "|" + rep.PromptSHA256
 }
 
 // runLimb drives one launch over a fresh workspace and returns its report.
-func runLimb(t *testing.T, r limbRun) mockengine.Report {
+func runLimb(t *testing.T, r limbRun) runtime.Report {
 	t.Helper()
 	cli := claudeOneshot(t)
 	if r.cli != nil {
@@ -118,17 +118,17 @@ func runLimb(t *testing.T, r limbRun) mockengine.Report {
 	}
 	getenv := func(k string) string { return r.env[k] }
 	var stdout, stderr bytes.Buffer
-	rt := &mockengine.Runtime{
+	rt := &runtime.Runtime{
 		CLI:    cli,
 		Argv:   parsed,
-		Res:    mockengine.Resolver{Cwd: cwd, Home: home, Getenv: getenv},
+		Res:    runtime.Resolver{Cwd: cwd, Home: home, Getenv: getenv},
 		Getenv: getenv,
 		Stdin:  strings.NewReader(stdin),
 		Stdout: &stdout,
 		Stderr: &stderr,
 	}
 	rt.Run()
-	rep, err := mockengine.ExtractReport(stderr.String())
+	rep, err := runtime.ExtractReport(stderr.String())
 	if err != nil {
 		t.Fatalf("extract report: %v\nstderr:\n%s", err, stderr.String())
 	}
@@ -159,13 +159,13 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 		// no and yes differ in EXACTLY the one limb under test.
 		no, yes limbRun
 		// check asserts the absent run is legible as absent.
-		check func(t *testing.T, no mockengine.Report)
+		check func(t *testing.T, no runtime.Report)
 	}{
 		{
 			name: "prompt bytes",
 			no:   limbRun{prompt: ""},
 			yes:  limbRun{prompt: promptBody},
-			check: func(t *testing.T, no mockengine.Report) {
+			check: func(t *testing.T, no runtime.Report) {
 				if no.PromptPresent {
 					t.Error("promptPresent is true for a run that received zero bytes")
 				}
@@ -178,7 +178,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 			name: "cwd context surface",
 			no:   limbRun{},
 			yes:  limbRun{files: map[string]string{claude.ContextFileName: "# CLAUDE.md\n"}},
-			check: func(t *testing.T, no mockengine.Report) {
+			check: func(t *testing.T, no runtime.Report) {
 				rec, ok := recordByKind(no, string(agent.ProbeKindContext))
 				if !ok || rec.Present {
 					t.Errorf("undelivered context surface did not record present:false: %+v", rec)
@@ -192,7 +192,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 			// must not be able to render alike.
 			no:  limbRun{cli: &envDirCLI},
 			yes: limbRun{cli: &envDirCLI, env: map[string]string{syntheticHomeEnv: syntheticHome}},
-			check: func(t *testing.T, no mockengine.Report) {
+			check: func(t *testing.T, no runtime.Report) {
 				var fell bool
 				for _, rec := range no.Records {
 					if rec.Scope == string(agent.ScopeEnvDir) && rec.Fallback {
@@ -208,7 +208,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 			name: "declared SetEnv variable",
 			no:   limbRun{},
 			yes:  limbRun{env: map[string]string{agent.SCMContextFileEnv: "/tmp/ctx.md"}},
-			check: func(t *testing.T, no mockengine.Report) {
+			check: func(t *testing.T, no runtime.Report) {
 				rec, ok := envRecord(no, agent.SCMContextFileEnv)
 				if !ok {
 					t.Fatalf("no env record for the declared SetEnv variable %s", agent.SCMContextFileEnv)
@@ -222,7 +222,7 @@ func TestArch_EvidenceReport_EveryLimbCanSayNo(t *testing.T) {
 			name: "declared StripEnv variable",
 			no:   limbRun{cli: &stripCLI},
 			yes:  limbRun{cli: &stripCLI, env: map[string]string{"ANTHROPIC_API_KEY": "sk-leaked"}},
-			check: func(t *testing.T, no mockengine.Report) {
+			check: func(t *testing.T, no runtime.Report) {
 				rec, ok := envRecord(no, "ANTHROPIC_API_KEY")
 				if !ok {
 					t.Fatal("no env record for the declared StripEnv variable")
@@ -279,11 +279,11 @@ func TestArch_EvidenceReport_EnvViolationsNameEveryBreach(t *testing.T) {
 const syntheticHomeEnv = "MOCK_ENGINE_HOME"
 
 // envRecord finds one env observation by name.
-func envRecord(rep mockengine.Report, name string) (mockengine.EnvRecord, bool) {
+func envRecord(rep runtime.Report, name string) (runtime.EnvRecord, bool) {
 	for _, e := range rep.Env {
 		if e.Name == name {
 			return e, true
 		}
 	}
-	return mockengine.EnvRecord{}, false
+	return runtime.EnvRecord{}, false
 }

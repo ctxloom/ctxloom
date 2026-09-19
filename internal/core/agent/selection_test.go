@@ -84,10 +84,10 @@ func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
 // also selecting settings in the SAME Build() is rejected (there is no hook to
 // carry the injection — an unread cache file, or nothing at all).
 func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
-	_, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, agent.ApproachHook).Build(agent.SurfaceInputs{}, nil)
+	_, err := agent.Select(claude.Declaration()).With(agent.SurfaceContext, agent.ApproachHook).Build(agent.SurfaceInputs{}, nil)
 	assert.Error(t, err, "Hook without Settings selected in the same Build() must fail")
 
-	_, err = agent.Select(claude.Surfaces).With(agent.SurfaceContext, agent.ApproachHook).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{}, nil)
+	_, err = agent.Select(claude.Declaration()).With(agent.SurfaceContext, agent.ApproachHook).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{}, nil)
 	assert.NoError(t, err, "Hook WITH Settings selected builds cleanly")
 }
 
@@ -98,7 +98,7 @@ func TestBuild_RejectsContextHookWithoutSettings(t *testing.T) {
 func TestDeliverUnder_RejectsSystemPrompt(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	r, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(agent.SurfaceInputs{Context: "hello"}, fs)
+	r, err := agent.Select(claude.Declaration()).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(agent.SurfaceInputs{Context: "hello"}, fs)
 	require.NoError(t, err, "SystemPrompt is a valid claude approach — Build succeeds")
 
 	dir := "/target"
@@ -130,7 +130,7 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 	isolated := "/isolated-scratch"
 	engineHome := "/engine-home"
 	sharedCwd := "/live/project"
-	r, err := agent.Select(claude.Surfaces).WithEverything().Build(agent.SurfaceInputs{Context: "project rules"}, fs)
+	r, err := agent.Select(claude.Declaration()).WithEverything().Build(agent.SurfaceInputs{Context: "project rules"}, fs)
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {

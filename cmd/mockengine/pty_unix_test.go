@@ -17,7 +17,7 @@ import (
 	pty "github.com/aymanbagabas/go-pty"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -76,7 +76,7 @@ func startMockOnPTY(t *testing.T, cols, rows int, reportPath string, args ...str
 		reexecEnv+"=1",
 		"HOME="+t.TempDir(),
 		"TERM=dumb",
-		mockengine.EnvReportFile+"="+reportPath,
+		runtime.EnvReportFile+"="+reportPath,
 	)
 	s := &mockSession{pty: p, cmd: cmd, out: &ptyCapture{}, exited: make(chan struct{})}
 	go func() { _, _ = io.Copy(s.out, p) }()
@@ -163,7 +163,7 @@ func TestPTY_InteractiveSurface_EndToEnd(t *testing.T) {
 	s.waitFor(t, "mock-engine: ok")
 
 	// The evidence report crossed the pty intact, \r\n and all.
-	rep, err := mockengine.ExtractReport(s.out.String())
+	rep, err := runtime.ExtractReport(s.out.String())
 	if err != nil {
 		t.Fatalf("extract report from pty output: %v\n%s", err, s.out.String())
 	}
@@ -174,16 +174,16 @@ func TestPTY_InteractiveSurface_EndToEnd(t *testing.T) {
 	}
 
 	s.typeLine(t, "ping")
-	s.waitFor(t, mockengine.InteractiveEchoPrefix+"ping")
+	s.waitFor(t, runtime.InteractiveEchoPrefix+"ping")
 
 	// A resize of the master is a SIGWINCH to the mock; it reports the size
 	// it read back off its own tty, so the numbers prove the ioctl round trip.
 	if err := s.pty.Resize(100, 30); err != nil {
 		t.Fatalf("resize pty: %v", err)
 	}
-	s.waitFor(t, mockengine.InteractiveWinsizePrefix+"30x100")
+	s.waitFor(t, runtime.InteractiveWinsizePrefix+"30x100")
 
-	s.typeLine(t, mockengine.InteractiveQuit)
+	s.typeLine(t, runtime.InteractiveQuit)
 	if code := s.waitExit(t); code != 0 {
 		t.Fatalf("exit code = %d, want 0; output:\n%s", code, s.out.String())
 	}
@@ -193,7 +193,7 @@ func TestPTY_InteractiveSurface_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read report file: %v", err)
 	}
-	var fileRep mockengine.Report
+	var fileRep runtime.Report
 	if err := json.Unmarshal(b, &fileRep); err != nil {
 		t.Fatalf("report file did not parse: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestPTY_InteractiveSurface_EndToEnd(t *testing.T) {
 // remains oneshot (whose grammar REQUIRES --print, so an interactive-shaped
 // argv is refused rather than misread).
 func TestRun_SurfaceSelection(t *testing.T) {
-	t.Setenv(mockengine.EnvReportFile, "")
+	t.Setenv(runtime.EnvReportFile, "")
 	if code := run([]string{"--claude-code", "--surface", "no-such-surface", "hello"}); code != 2 {
 		t.Errorf("undeclared surface: exit %d, want 2", code)
 	}

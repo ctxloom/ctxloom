@@ -592,7 +592,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 	t.Run("unsafe-file into a shared cwd honors CLAUDE.md, not the sysprompt scratch", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
-		resolved, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, agent.ApproachUnsafeFile).Build(matrixSentinelInputs(), fs)
+		resolved, err := agent.Select(claude.Declaration()).With(agent.SurfaceContext, agent.ApproachUnsafeFile).Build(matrixSentinelInputs(), fs)
 		require.NoError(t, err)
 		_, kinds, errs := resolved.DeliverShared(runRoots("/live-cwd", scratch))
 		require.Empty(t, errs)
@@ -618,7 +618,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 		require.NoError(t, fs.MkdirAll(scratch, 0o755))
 		// (a) Through the sanctioned at-rest terminal: an honest, loud refusal —
 		// the approach is LaunchOnly (DeliverUnder never runs an out-of-cwd form).
-		resolved, err := agent.Select(claude.Surfaces).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(matrixSentinelInputs(), fs)
+		resolved, err := agent.Select(claude.Declaration()).With(agent.SurfaceContext, claude.ApproachSystemPrompt).Build(matrixSentinelInputs(), fs)
 		require.NoError(t, err, "the approach IS declared, so Build must accept it")
 		_, kinds, errs := resolved.DeliverUnder(present.ProjectOnHost("/cell"))
 		assert.Empty(t, kinds)
@@ -633,7 +633,7 @@ func TestDeliveryApproach_SharedRealizationIsApproachKeyed_U100F05(t *testing.T)
 		// an isolated launch that selected system-prompt was handed project memory
 		// under a different name. The substitution is gone rather than redirected,
 		// so the assertion is that nothing is written at all.
-		d, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+		d, ok := claude.Declaration().Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 		require.True(t, ok)
 		_, err = d.Deliver(present.ProjectOnHost("/raw"))
 		require.Error(t, err, "an unrooted raw Deliver must refuse, not substitute the native file")
@@ -672,7 +672,7 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 	require.NoError(t, fs.MkdirAll(private, 0o755))
 
-	a, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claude.Declaration().Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
 	handle, err := a.Deliver(present.New(present.OnHost(present.Paths{
@@ -707,7 +707,7 @@ func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
 	root := "/cell"
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 
-	a, ok := claude.Surfaces.Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claude.Declaration().Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
 	_, err := a.Deliver(present.ProjectOnHost(root))

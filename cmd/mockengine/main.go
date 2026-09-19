@@ -1,5 +1,5 @@
 // Command mockengine is the standalone deterministic stand-in for a real vendor
-// coding-agent CLI (see internal/engines/mock's package doc). It is installed
+// coding-agent CLI (see internal/engines/mock/runtime's package doc). It is installed
 // UNDER a vendor's name via ctxloom's injection seam — an oneshot config's
 // binary_path, or COPY'd over the resolved binary in a fixture image — so its
 // own name is deliberately vendor-NEUTRAL: nothing here should read as a real
@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -185,10 +185,10 @@ consume:
 		return 2
 	}
 
-	rt := &mockengine.Runtime{
+	rt := &runtime.Runtime{
 		CLI:  cli,
 		Argv: parsed,
-		Res: mockengine.Resolver{
+		Res: runtime.Resolver{
 			Cwd:    cwd,
 			Home:   home,
 			Getenv: os.Getenv,

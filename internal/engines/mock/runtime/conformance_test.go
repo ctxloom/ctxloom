@@ -1,4 +1,4 @@
-package mockengine_test
+package runtime_test
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -103,8 +103,8 @@ func assertWalkConforms(t *testing.T, cli agent.EngineCLI, f conformanceFixture)
 	if err != nil {
 		t.Fatalf("fixture argv %v did not parse against %s/%s: %v", f.argv, cli.Engine, cli.Surface, err)
 	}
-	res := mockengine.Resolver{Cwd: f.cwd, Home: f.home, Getenv: func(k string) string { return f.envRoots[k] }}
-	recs := mockengine.Walk(cli, parsed, res)
+	res := runtime.Resolver{Cwd: f.cwd, Home: f.home, Getenv: func(k string) string { return f.envRoots[k] }}
+	recs := runtime.Walk(cli, parsed, res)
 
 	if len(recs) != len(cli.Probes) {
 		t.Fatalf("walk produced %d records for %d declared probes: the walk reads a different set than L1 declares", len(recs), len(cli.Probes))
@@ -132,19 +132,19 @@ func assertWalkConforms(t *testing.T, cli agent.EngineCLI, f conformanceFixture)
 // SetEnv then StripEnv names, in order, with the declared expectation on each.
 func assertEnvObservationConforms(t *testing.T, cli agent.EngineCLI) {
 	t.Helper()
-	recs := mockengine.ObserveEnv(cli, func(string) (string, bool) { return "v", true })
+	recs := runtime.ObserveEnv(cli, func(string) (string, bool) { return "v", true })
 	want := len(cli.SetEnv) + len(cli.StripEnv)
 	if len(recs) != want {
 		t.Fatalf("env observation has %d records for %d declared variables", len(recs), want)
 	}
 	for i, name := range cli.SetEnv {
-		if recs[i].Name != name || recs[i].Expect != mockengine.EnvExpectSet {
+		if recs[i].Name != name || recs[i].Expect != runtime.EnvExpectSet {
 			t.Errorf("env %d: observed %s/%s, L1 declares SetEnv %s", i, recs[i].Name, recs[i].Expect, name)
 		}
 	}
 	for j, name := range cli.StripEnv {
 		i := len(cli.SetEnv) + j
-		if recs[i].Name != name || recs[i].Expect != mockengine.EnvExpectStripped {
+		if recs[i].Name != name || recs[i].Expect != runtime.EnvExpectStripped {
 			t.Errorf("env %d: observed %s/%s, L1 declares StripEnv %s", i, recs[i].Name, recs[i].Expect, name)
 		}
 	}
@@ -161,10 +161,10 @@ func assertPromptChannelConforms(t *testing.T, cli agent.EngineCLI, f conformanc
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	rt := &mockengine.Runtime{
+	rt := &runtime.Runtime{
 		CLI:       cli,
 		Argv:      parsed,
-		Res:       mockengine.Resolver{Cwd: f.cwd, Home: f.home, Getenv: func(k string) string { return f.envRoots[k] }},
+		Res:       runtime.Resolver{Cwd: f.cwd, Home: f.home, Getenv: func(k string) string { return f.envRoots[k] }},
 		Getenv:    func(string) string { return "" },
 		LookupEnv: func(string) (string, bool) { return "", false },
 		Stdin:     strings.NewReader(stdinPrompt),
@@ -172,7 +172,7 @@ func assertPromptChannelConforms(t *testing.T, cli agent.EngineCLI, f conformanc
 		Stderr:    &stderr,
 	}
 	_ = rt.Run() // the exit code is the wire adapter's business, not this test's
-	rep, err := mockengine.ExtractReport(stderr.String())
+	rep, err := runtime.ExtractReport(stderr.String())
 	if err != nil {
 		t.Fatalf("extract report: %v\nstderr:\n%s", err, stderr.String())
 	}

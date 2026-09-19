@@ -1,4 +1,4 @@
-// Package mockengine is a deterministic, credential-free, network-free stand-in
+// Package runtime is a deterministic, credential-free, network-free stand-in
 // for a real vendor coding-agent CLI. ctxloom's EXISTING, UNMODIFIED backends
 // spawn and drive it exactly as they drive the real engine; it answers the one
 // question a normal engine cannot be made to answer honestly: "what context did
@@ -45,4 +45,4 @@
 // — which validates the REAL engine by execution. Neither substitutes for the
 // other, and a green mock run must never be offered as evidence that the image's
 // real engine works.
-package mockengine
+package runtime

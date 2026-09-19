@@ -1,4 +1,4 @@
-package mockengine_test
+package runtime_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -73,10 +73,10 @@ func startInteractive(t *testing.T, vendorArgv []string) *interactiveRun {
 		stderr: &syncBuf{},
 		done:   make(chan int, 1),
 	}
-	rt := &mockengine.Runtime{
+	rt := &runtime.Runtime{
 		CLI:       cli,
 		Argv:      parsed,
-		Res:       mockengine.Resolver{Cwd: t.TempDir(), Home: t.TempDir(), Getenv: func(string) string { return "" }},
+		Res:       runtime.Resolver{Cwd: t.TempDir(), Home: t.TempDir(), Getenv: func(string) string { return "" }},
 		Getenv:    func(string) string { return "" },
 		LookupEnv: func(string) (string, bool) { return "", false },
 		Stdin:     pr,
@@ -131,7 +131,7 @@ func (s *interactiveRun) typeLine(t *testing.T, line string) {
 func TestRuntime_Interactive_PromptIsTheTrailingPositional(t *testing.T) {
 	const prompt = "open the session with this"
 	s := startInteractive(t, []string{"--name", "harp-x", prompt})
-	s.typeLine(t, mockengine.InteractiveQuit)
+	s.typeLine(t, runtime.InteractiveQuit)
 	code := s.exitCode(t)
 
 	if code != 0 {
@@ -140,7 +140,7 @@ func TestRuntime_Interactive_PromptIsTheTrailingPositional(t *testing.T) {
 	if !strings.Contains(s.stdout.String(), "mock-engine: ok") {
 		t.Errorf("the positional prompt was not answered on the wire; stdout:\n%s", s.stdout.String())
 	}
-	rep, err := mockengine.ExtractReport(s.stderr.String())
+	rep, err := runtime.ExtractReport(s.stderr.String())
 	if err != nil {
 		t.Fatalf("extract report: %v\nstderr:\n%s", err, s.stderr.String())
 	}
@@ -162,20 +162,20 @@ func TestRuntime_Interactive_PromptIsTheTrailingPositional(t *testing.T) {
 func TestRuntime_Interactive_EchoesTypedLinesAndReportsResizes(t *testing.T) {
 	s := startInteractive(t, []string{"--name", "harp-x", "hello"})
 	s.typeLine(t, "ping")
-	s.waitFor(t, mockengine.InteractiveEchoPrefix+"ping\n")
+	s.waitFor(t, runtime.InteractiveEchoPrefix+"ping\n")
 	s.resize <- agent.WindowSize{Rows: 30, Cols: 100}
-	s.waitFor(t, mockengine.InteractiveWinsizePrefix+"30x100\n")
+	s.waitFor(t, runtime.InteractiveWinsizePrefix+"30x100\n")
 	s.typeLine(t, "pong")
-	s.typeLine(t, mockengine.InteractiveQuit)
+	s.typeLine(t, runtime.InteractiveQuit)
 	code := s.exitCode(t)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
 	}
 
 	out := s.stdout.String()
-	echo1 := strings.Index(out, mockengine.InteractiveEchoPrefix+"ping\n")
-	ws := strings.Index(out, mockengine.InteractiveWinsizePrefix+"30x100\n")
-	echo2 := strings.Index(out, mockengine.InteractiveEchoPrefix+"pong\n")
+	echo1 := strings.Index(out, runtime.InteractiveEchoPrefix+"ping\n")
+	ws := strings.Index(out, runtime.InteractiveWinsizePrefix+"30x100\n")
+	echo2 := strings.Index(out, runtime.InteractiveEchoPrefix+"pong\n")
 	if echo1 < 0 || ws < 0 || echo2 < 0 {
 		t.Fatalf("missing echo/winsize lines (ping=%d winsize=%d pong=%d); stdout:\n%s", echo1, ws, echo2, out)
 	}
@@ -201,13 +201,13 @@ func TestRuntime_Interactive_EOFEndsTheSession(t *testing.T) {
 // shared with oneshot — a fail sentinel in the positional prompt makes the
 // interactive session exit nonzero after its (still emitted) report.
 func TestRuntime_Interactive_FailSentinelExitsNonzero(t *testing.T) {
-	s := startInteractive(t, []string{mockengine.SentinelFail + " boom"})
-	s.typeLine(t, mockengine.InteractiveQuit)
+	s := startInteractive(t, []string{runtime.SentinelFail + " boom"})
+	s.typeLine(t, runtime.InteractiveQuit)
 	code := s.exitCode(t)
 	if code == 0 {
 		t.Fatalf("exit code = 0 on a fail sentinel; stdout:\n%s", s.stdout.String())
 	}
-	if _, err := mockengine.ExtractReport(s.stderr.String()); err != nil {
+	if _, err := runtime.ExtractReport(s.stderr.String()); err != nil {
 		t.Errorf("report must be emitted even on a failing run: %v", err)
 	}
 }

@@ -1,4 +1,4 @@
-package mockengine_test
+package runtime_test
 
 import (
 	"crypto/sha256"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/engines/mock"
+	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 )
 
 // sha256hex mirrors the runtime's documented hash (sha256, lowercase hex, raw
@@ -51,12 +51,12 @@ func TestWalk_AbsentSurfaceIsPresentFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse argv: %v", err)
 	}
-	recs := mockengine.Walk(cli, argv, mockengine.Resolver{
+	recs := runtime.Walk(cli, argv, runtime.Resolver{
 		Cwd:    cwd,
 		Home:   t.TempDir(),
 		Getenv: func(string) string { return "" },
 	})
-	rep := mockengine.BuildReport(cli, recs, nil, nil)
+	rep := runtime.BuildReport(cli, recs, nil, nil)
 
 	// The present:false row for the absent agents directory.
 	agents, ok := recordByKind(rep, "agents")
@@ -85,7 +85,7 @@ func TestWalk_AbsentSurfaceIsPresentFalse(t *testing.T) {
 }
 
 // recordAt returns the record for a (kind, scope) pair, failing if absent.
-func recordAt(t *testing.T, rep mockengine.Report, kind, scope string) mockengine.ProbeRecord {
+func recordAt(t *testing.T, rep runtime.Report, kind, scope string) runtime.ProbeRecord {
 	t.Helper()
 	for _, r := range rep.Records {
 		if r.Kind == kind && r.Scope == scope {
@@ -93,7 +93,7 @@ func recordAt(t *testing.T, rep mockengine.Report, kind, scope string) mockengin
 		}
 	}
 	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
-	return mockengine.ProbeRecord{}
+	return runtime.ProbeRecord{}
 }
 
 // recordByKind returns the first record of the given kind, or false. This used
@@ -105,11 +105,11 @@ func recordAt(t *testing.T, rep mockengine.Report, kind, scope string) mockengin
 // rather than deleted outright because two different _test.go files
 // (discovery_test.go, arch_test.go) genuinely want "first record of this
 // kind" with no scope to narrow by.
-func recordByKind(rep mockengine.Report, kind string) (mockengine.ProbeRecord, bool) {
+func recordByKind(rep runtime.Report, kind string) (runtime.ProbeRecord, bool) {
 	for _, r := range rep.Records {
 		if r.Kind == kind {
 			return r, true
 		}
 	}
-	return mockengine.ProbeRecord{}, false
+	return runtime.ProbeRecord{}, false
 }

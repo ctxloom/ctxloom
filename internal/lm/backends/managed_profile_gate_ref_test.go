@@ -133,7 +133,6 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{profileRef}}},
 		AppPaths:     []string{appDir},
 	})
-	cfg.DisableCompanionProbe()
 
 	// A permissive gate: proves the ref PARSES and reaches a decision at all
 	// (before the fix, the double-'#' ref failed to parse inside the gate
@@ -176,7 +175,6 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{profileRef}}},
 		AppPaths:     []string{appDir},
 	})
-	cfg.DisableCompanionProbe()
 	cfg.SetExecutableTrustGate(testAuthorizer(false))
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)

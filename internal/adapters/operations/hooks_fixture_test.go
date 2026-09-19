@@ -38,6 +38,5 @@ func cfgWithProfileHooks(t *testing.T, fs afero.Fs, appDir string, h wire.HooksC
 	}
 	cfg := config.NewFixture(f)
 	cfg.SetFS(fs)
-	cfg.DisableCompanionProbe()
 	return cfg
 }

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -144,7 +144,7 @@ func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, "version: 6\n")
 			offer := AgentRuntimeOffer(cfg, backend)
 
-			_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+			_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 				Name:    "probe",
 				LLM:     ptr(backend),
 				Runtime: ptr(string(isolation.RuntimeContainerRootless)),
@@ -193,7 +193,7 @@ func TestMockBoundToContainer_PassesEveryValidationShortOfADaemon(t *testing.T) 
 			assert.NotContains(t, isolation.ContainerAuthEngines(), "mock",
 				"precondition: mock is absent from the OFFERED roster, so acceptance below is decided by capability alone")
 
-			_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+			_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 				Name:    "mock-container",
 				LLM:     ptr("fast"),
 				Runtime: ptr(string(axis)),
@@ -202,7 +202,7 @@ func TestMockBoundToContainer_PassesEveryValidationShortOfADaemon(t *testing.T) 
 
 			// Re-read what the writer persisted: the launch resolves the
 			// binding on disk, not the fixture's in-memory copy.
-			written, err := config.Load(config.WithAppDir(appDir))
+			written, err := configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
 			rs, err := ResolveAgent(context.Background(), written, "mock-container", "")
 			require.NoError(t, err, "the launch resolves the binding")

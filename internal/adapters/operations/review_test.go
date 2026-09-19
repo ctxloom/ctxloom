@@ -565,11 +565,12 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 	tree := seedHostileTree(t, reviewSeedKey, b, map[string][]byte{
 		"skills/ghost/notes.txt": []byte("no SKILL.md here\n"),
 	})
-	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, reviewSeedKey,
-		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey))))
-
 	var buf strings.Builder
 	restore := clidiag.SetSink(&buf)
+	// The loader resolves its readers at construction, so the read — and the
+	// diagnostic it emits — happens inside the capture window.
+	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, reviewSeedKey,
+		bundles.WithRepoURL(seedRepoURL(t, reviewSeedKey))))
 	res, err := PendingReview(nil, PendingReviewRequest{
 		UserStore: fx.user, Root: fx.root,
 		Registry: newRegistry(t),

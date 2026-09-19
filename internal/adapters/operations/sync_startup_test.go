@@ -26,7 +26,7 @@ func TestSyncOnStartup_RefreshesClonesBeforeProbe(t *testing.T) {
 	// SyncOnStartup short-circuits — exactly the steady state that used to skip
 	// the refresh.
 	cfg := &config.Config{}
-	res, err := SyncOnStartup(context.Background(), cfg)
+	res, err := SyncOnStartup(context.Background(), fixtureApp(t, cfg))
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.Equal(t, "up_to_date", res.Status, "steady state short-circuits")

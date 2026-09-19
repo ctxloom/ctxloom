@@ -96,7 +96,7 @@ func seedRemoteFixture(t *testing.T) (cfg *config.Config, profileRef, bundleRef 
 	require.NoError(t, os.WriteFile(filepath.Join(installDir, "bundle.yaml"),
 		[]byte("version: 1.0.0\ndescription: remote tools bundle\n"), 0o644))
 
-	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), profileRef, bundleRef
+	return published(t, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})), profileRef, bundleRef
 }
 
 // TestListProfiles_IncludesLockfileSeededRemoteProfile pins finding the seed

@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -58,13 +59,11 @@ func dirCurationCfg(t *testing.T, defaults []string, dirProfiles map[string]stri
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), data, 0o644))
 
-	cfg, err := config.Load(config.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	// Setting AppPaths arms companion probing, which execs the companion
-	// binaries on the HOST's PATH — so these exact-set assertions would pick up
-	// e.g. ltk's commands on a machine that has ltk installed and pass on one that
-	// doesn't. The fixture, not the machine, decides what is exported here.
-	cfg.DisableCompanionProbe()
+	// A fixture no Owner published resolves only its project and builtin
+	// readers — never a companion on the HOST's PATH — so the fixture, not
+	// the machine, decides what is exported here.
 	return cfg
 }
 
@@ -77,7 +76,7 @@ func TestLoadCommandExports_DirProfileCuratedSetExportsExactlyThose(t *testing.T
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
 	})
 
-	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
+	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review"}, bundlePromptItems(prompts),
 		"only the directory profile's listed prompt is exported; the globally-flagged 'hidden' is suppressed")
@@ -115,7 +114,7 @@ func TestLoadCommandExports_DirProfileUncuratedScopesToReferencedBundles(t *test
 		}},
 	}
 
-	prompts := LoadCommandExports(cfg, nil, seedOption(t, seed))
+	prompts := LoadCommandExports(withSeed(t, cfg, seed), nil)
 
 	items := bundlePromptItems(prompts)
 	assert.ElementsMatch(t, []string{"review", "explain"}, items,
@@ -133,7 +132,7 @@ func TestLoadCommandExports_DirProfileCurationUnionsParents(t *testing.T) {
 		"child": "parents:\n  - base\ncommands:\n  - \"dev-tools#commands/explain\"\n",
 	})
 
-	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
+	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review", "explain"}, bundlePromptItems(prompts),
 		"curated set unions the directory parent (review) + child (explain); 'hidden'/'commit' stay suppressed")
@@ -151,7 +150,7 @@ func TestLoadCommandExports_CurationUnionsAcrossDefaults(t *testing.T) {
 			"otherP": "commands:\n  - \"dev-tools#commands/review\"\n",
 		})
 
-	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
+	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review", "commit"}, bundlePromptItems(prompts),
 		"the curated set unions both defaults; taking only the first would yield one item")
@@ -173,18 +172,18 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
 	})
-	seed := seedOption(t, devToolsSeed())
+	seed := devToolsSeed()
 
 	// Gate granting exactly the review prompt's content hash → exported.
 	want := promptRawHash("REVIEW")
 	cfg.SetExecutableTrustGate(hashAuthorizer(want))
-	prompts := LoadCommandExports(cfg, nil, seed)
+	prompts := LoadCommandExports(withSeed(t, cfg, seed), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts),
 		"a granted directory-curated prompt is exported")
 
 	// Gate denying → withheld (fail-closed); only builtins remain.
 	cfg.SetExecutableTrustGate(testAuthorizer(false))
-	denied := LoadCommandExports(cfg, nil, seed)
+	denied := LoadCommandExports(withSeed(t, cfg, seed), nil)
 	assert.Empty(t, bundlePromptItems(denied),
 		"an un-granted directory-curated prompt must be withheld")
 }
@@ -202,7 +201,7 @@ func TestLoadCommandExports_DirProfileCuratedPinRoutedAndFailClosed(t *testing.T
 		"x": "commands:\n  - \"dev-tools#commands/review@c1\"\n",
 	})
 
-	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
+	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.Empty(t, bundlePromptItems(prompts),
 		"a curated @<commit> pin that can't be resolved is fail-closed, not silently downgraded to the unpinned HEAD")

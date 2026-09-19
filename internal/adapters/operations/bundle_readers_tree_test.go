@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/config"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,7 +49,7 @@ func treeTrustRoot(principal string, pub ssh.PublicKey) signing.TrustRoot {
 
 // stageInstalledTree writes a directory-form bundle where `deps pull` installs
 // one, and returns the config reading it plus the tree store for signing.
-func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bundle, afero.Fs) {
+func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, content.Bundle, afero.Fs) {
 	t.Helper()
 	ctx := context.Background()
 	fsys := afero.NewMemMapFs()
@@ -79,7 +81,7 @@ func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bund
 	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
 	require.NoError(t, err)
 
-	c := &Config{appPaths: []string{treeBase}}
+	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 	return c, store, tree, fsys
 }
@@ -87,9 +89,9 @@ func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bund
 // readTreeBundle drives the reader the Config builds for one lockfile tree
 // entry, and returns both halves a caller cares about: the bundle document, and
 // the read that carries what its attestation turned out to be.
-func readTreeBundle(t *testing.T, c *Config, ctx context.Context, canonical string, entry remote.LockEntry, root signing.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
+func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical string, entry remote.LockEntry, root signing.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
 	t.Helper()
-	reader, err := c.treeBundleReader(canonical, entry, root)
+	reader, err := treeBundleReader(c, canonical, entry, root)
 	if err != nil {
 		return nil, bundles.BundleRead{}, err
 	}
@@ -229,7 +231,7 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 // to point at it.
 func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	c := &Config{appPaths: []string{treeBase}}
+	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 
 	_, pub := treeTestSigner(t)
@@ -252,7 +254,7 @@ func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *test
 		"https://github.com/acme/ctx@bundles/other": other,
 	}
 
-	readers := c.treeBundleReaders(lock, treeTrustRoot("trent@acme.test", pub), failures)
+	readers := treeBundleReaders(c, lock, treeTrustRoot("trent@acme.test", pub), failures)
 
 	require.Len(t, readers, 1, "the tree entry must get a reader")
 	reads, err := readers[0].Read(context.Background())
@@ -292,7 +294,7 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 	failures := map[string]error{}
 	root := treeTrustRoot("trent@acme.test", pub)
 
-	readers := c.treeBundleReaders(lock, root, failures)
+	readers := treeBundleReaders(c, lock, root, failures)
 	require.Len(t, readers, 2, "both entries have an installed directory, so both get a reader — "+
 		"the manifest is only parsed on Read")
 	assert.Empty(t, failures, "treeBundleReaders itself does not parse manifests, so neither entry fails yet")
@@ -312,7 +314,7 @@ func TestTreeBundleReaders_MalformedEntryIsSkippedGoodOneStillLoads(t *testing.T
 //
 // It is staged here only so the REFUSAL can be asserted. This shape is being
 // removed, not supported — see TestLoadTreeBundle_RetiredLoaderDirectoryFormIsRefused.
-func stageLoaderFormTree(t *testing.T) (*Config, afero.Fs, string) {
+func stageLoaderFormTree(t *testing.T) (*config.Config, afero.Fs, string) {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
 	dir, err := treeBundleDir(treeBase, treeCanonical)
@@ -323,7 +325,7 @@ func stageLoaderFormTree(t *testing.T) (*Config, afero.Fs, string) {
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "skills", "good-night", "SKILL.md"),
 		[]byte("---\nname: good-night\ndescription: d\n---\n\nGOOD-NIGHT-BODY\n"), 0o644))
 
-	c := &Config{appPaths: []string{treeBase}}
+	c := config.NewFixture(config.Fixture{AppPaths: []string{treeBase}})
 	c.SetFS(fsys)
 	return c, fsys, dir
 }

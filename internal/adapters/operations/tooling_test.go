@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/container"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -53,13 +55,13 @@ func TestCollectTooling_NilSafe(t *testing.T) {
 func TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 
-	path, err := ScaffoldContainerBase(managerFor(appDir), cfg, "", false)
+	path, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "", false)
 	require.NoError(t, err)
 	b, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, string(container.Base()), string(b), "the scaffold starts from the embedded default base")
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Equal(t, path, reloaded.IsolationBaseContainerfilePath(),
 		"isolation_base_containerfile survives the config round-trip")
@@ -70,16 +72,16 @@ func TestScaffoldContainerBase_WritesEmbeddedAndWiresConfig(t *testing.T) {
 // (WIP safety) — unless force.
 func TestScaffoldContainerBase_AdoptsExistingFile(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 	target := filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath)
 	require.NoError(t, os.WriteFile(target, []byte("FROM my/custom:base\n"), 0o644))
 
-	path, err := ScaffoldContainerBase(mgr, cfg, "", false)
+	path, err := ScaffoldContainerBase(context.Background(), mgr, cfg, "", false)
 	require.NoError(t, err)
 	b, _ := os.ReadFile(path)
 	assert.Equal(t, "FROM my/custom:base\n", string(b), "existing content adopted, not clobbered")
 
-	_, err = ScaffoldContainerBase(mgr, cfg, "", true)
+	_, err = ScaffoldContainerBase(context.Background(), mgr, cfg, "", true)
 	require.NoError(t, err)
 	b, _ = os.ReadFile(path)
 	assert.Equal(t, string(container.Base()), string(b), "force rewrites from the embedded base")
@@ -90,7 +92,7 @@ func TestScaffoldContainerBase_AdoptsExistingFile(t *testing.T) {
 func TestScaffoldContainerBase_AlreadyConfiguredIsNoOp(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\nisolation_base_containerfile: custom/base.Containerfile\n")
 
-	path, err := ScaffoldContainerBase(managerFor(appDir), cfg, "", false)
+	path, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "", false)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(cfg.GetAppRoot(), "custom/base.Containerfile"), path)
 	_, statErr := os.Stat(filepath.Join(cfg.GetAppRoot(), DefaultContainerBasePath))
@@ -107,7 +109,7 @@ func TestScaffoldContainerBase_RejectsPathTraversal(t *testing.T) {
 	outsideMarker := filepath.Join(filepath.Dir(filepath.Dir(projectRoot)), "evil-base.Containerfile")
 	_ = os.Remove(outsideMarker)
 
-	_, err := ScaffoldContainerBase(managerFor(appDir), cfg, "../../evil-base.Containerfile", false)
+	_, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "../../evil-base.Containerfile", false)
 	require.Error(t, err, "a relPath that escapes the project root must be rejected")
 
 	_, statErr := os.Stat(outsideMarker)
@@ -127,7 +129,7 @@ func TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing(t *testin
 	_, statErr := os.Stat(target)
 	require.True(t, os.IsNotExist(statErr), "precondition: the configured file does not exist yet")
 
-	path, err := ScaffoldContainerBase(managerFor(appDir), cfg, "", false)
+	path, err := ScaffoldContainerBase(context.Background(), managerFor(t, appDir), cfg, "", false)
 	require.NoError(t, err)
 	assert.Equal(t, target, path)
 

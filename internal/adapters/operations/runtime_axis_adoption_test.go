@@ -90,7 +90,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 		require.False(t, isolation.HasContainerAuth("acp"),
 			"fixture precondition: the label's backend must have no container auth")
 
-		_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
+		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
 		require.Error(t, err, "the gate must READ the project default — this is what makes the refusal below meaningful")
 		assert.Contains(t, err.Error(), "container auth")
 		_, ok := readAgentFromDisk(t, appDir, "odd")
@@ -101,7 +101,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 		_, appDir := loadConfigDir(t, "version: 6\n")
 		cfg := newCfg(string(isolation.RuntimeContainerRootful), nil)
 
-		_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
+		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
 		require.Error(t, err, "rootful and rootless are two members, not one; a gate that only saw one would answer host for the other")
 		assert.Contains(t, err.Error(), "container auth")
 	})
@@ -110,7 +110,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 		_, appDir := loadConfigDir(t, "version: 6\n")
 		cfg := newCfg("contianer-rootless", nil)
 
-		_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
+		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", LLM: ptr(noAuthLabel)})
 		require.Error(t, err, "a typo must not read as host and slip past the container-auth gate")
 		assert.Contains(t, err.Error(), "contianer-rootless")
 		assert.Contains(t, err.Error(), "host|container-rootless|container-rootful",
@@ -125,7 +125,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 			"odd": {LLM: noAuthLabel, Runtime: "contianer-rootful"},
 		})
 
-		_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"p1"})})
+		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"p1"})})
 		require.Error(t, err, "a hand-edited binding's typo must be refused by the next write that touches it")
 		assert.Contains(t, err.Error(), "contianer-rootful")
 		_, ok := readAgentFromDisk(t, appDir, "odd")
@@ -136,7 +136,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 		_, appDir := loadConfigDir(t, "version: 6\n")
 		cfg := newCfg("", nil)
 
-		_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "plain", LLM: ptr(noAuthLabel)})
+		_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "plain", LLM: ptr(noAuthLabel)})
 		require.NoError(t, err, "an agent that names no runtime resolves to host downstream — refusing it would refuse every default config")
 		written, ok := readAgentFromDisk(t, appDir, "plain")
 		require.True(t, ok)

@@ -12,10 +12,11 @@
 package backends
 
 import (
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"os"
 	"path/filepath"
 	"testing"
+
+	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

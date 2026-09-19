@@ -62,7 +62,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 
@@ -99,7 +99,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"devprof"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash,
 		"the default agent's profiles must produce a non-empty injected context")
@@ -131,7 +131,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 
@@ -197,7 +197,7 @@ fragments:
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash)
 

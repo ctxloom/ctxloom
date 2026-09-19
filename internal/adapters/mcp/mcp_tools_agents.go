@@ -310,8 +310,8 @@ func (s *ctxServer) delegation() (*agentDelegation, error) {
 	if s.agents != nil {
 		return s.agents, nil
 	}
-	if s.cfg == nil {
-		return nil, errors.New("agent delegation unavailable: server started without a loaded config")
+	if s.app == nil {
+		return nil, errors.New("agent delegation unavailable: server started without the process composition")
 	}
 	d, err := newAgentDelegation(s.app)
 	if err != nil {

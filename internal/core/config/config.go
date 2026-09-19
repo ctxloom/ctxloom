@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -279,7 +278,6 @@ type Config struct {
 	// published; the resolver, attached by the reader (Builder.BindVersionResolver),
 	// materializes a pinned historical version of a remote bundle on demand.
 	catalog         *bundles.Catalog
-	catalogOnce     sync.Once
 	versionResolver bundles.BundleVersionResolver
 
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil

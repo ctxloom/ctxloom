@@ -40,6 +40,5 @@ func cfgWithDirProfiles(t *testing.T, fs afero.Fs, appDir string, defs map[strin
 	}
 	cfg := config.NewFixture(extra)
 	cfg.SetFS(fs)
-	cfg.DisableCompanionProbe()
 	return cfg
 }

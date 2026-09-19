@@ -83,7 +83,6 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 	})
-	cfg.DisableCompanionProbe()
 
 	got := sourcesByCommand(AssembleManagedHooks(cfg, "/tmp", "", nil), "pre_tool")
 

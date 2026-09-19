@@ -276,7 +276,7 @@ func hooksInstall(t *testing.T, cfg *config.Config, backend, dir string) {
 		Backend:           backend,
 		RegenerateContext: true,
 		FS:                afero.NewOsFs(),
-		ConfigLoader:      func() (*config.Config, error) { return cfg, nil },
+		Cfg:               cfg,
 		WorkDir:           dir,
 	})
 	require.NoError(t, err)

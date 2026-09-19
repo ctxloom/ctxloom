@@ -20,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -676,7 +677,7 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 // wiring itself; gating is proven separately in
 // internal/core/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(
 		[]byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
 	require.NoError(t, err)
@@ -691,11 +692,11 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		// fakes would silently reuse the first sub-test's cached result.
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
-		restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 			return "/fake/" + bin, nil // every companion is "installed"
 		})
 		defer restoreLook()
-		restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+		restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 			switch path {
 			case "/fake/ltk":
 				return ltkEnvelope, nil
@@ -707,6 +708,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		})
 		defer restoreProbe()
 
+		cfg = published(t, cfg)
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 		require.NoError(t, err)
 		assert.Contains(t, result.Context, "llm-tool-killer briefing")
@@ -719,14 +721,14 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		_, loader := setupContextTestFS(t)
 		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
-		restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 			if bin == "ltk" {
 				return "", exec.ErrNotFound // ltk not installed
 			}
 			return "/fake/" + bin, nil
 		})
 		defer restoreLook()
-		restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+		restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 			if path == "/fake/taskloom" {
 				return taskloomEnvelope, nil
 			}
@@ -734,6 +736,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		})
 		defer restoreProbe()
 
+		cfg = published(t, cfg)
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 		require.NoError(t, err)
 		assert.NotContains(t, result.FragmentsLoaded, "ctxloom+companion:ltk#fragments/ltk", "absent companion is skipped")

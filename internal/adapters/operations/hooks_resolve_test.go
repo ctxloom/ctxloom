@@ -39,9 +39,7 @@ func TestResolveHooks_ReportsFinalOrderPerEvent(t *testing.T) {
 		hooks = append(hooks, wire.Hook{Type: "command", Command: cmd})
 	}
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) {
-			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: hooks}), nil
-		},
+		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{PreTool: hooks}),
 		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
@@ -60,9 +58,7 @@ func TestResolveHooks_ReportsFinalOrderPerEvent(t *testing.T) {
 // question the user asked — what runs on session_end? — goes unanswered.
 func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) {
-			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: "x"}}}), nil
-		},
+		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: "x"}}}),
 		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
@@ -83,13 +79,11 @@ func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 // leaving the reader to assume it.
 func TestResolveHooks_ReportsDeclaredPositionAlongsideFinal(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) {
-			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{
-				{Type: "command", Command: "one"},
-				{Type: "command", Command: "two"},
-				{Type: "command", Command: "three"},
-			}}), nil
-		},
+		Cfg: cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{
+			{Type: "command", Command: "one"},
+			{Type: "command", Command: "two"},
+			{Type: "command", Command: "three"},
+		}}),
 		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
@@ -113,9 +107,9 @@ func TestResolveHooks_EventFilterNarrowsWithoutChangingTheAnswer(t *testing.T) {
 		}), nil
 	}
 	dir := t.TempDir()
-	all, err := ResolveHooks(context.Background(), ResolveHooksRequest{ConfigLoader: load, WorkDir: dir})
+	all, err := ResolveHooks(context.Background(), ResolveHooksRequest{Cfg: loaded(t, load), WorkDir: dir})
 	require.NoError(t, err)
-	one, err := ResolveHooks(context.Background(), ResolveHooksRequest{ConfigLoader: load, WorkDir: dir, Event: "pre_tool"})
+	one, err := ResolveHooks(context.Background(), ResolveHooksRequest{Cfg: loaded(t, load), WorkDir: dir, Event: "pre_tool"})
 	require.NoError(t, err)
 
 	require.Len(t, one.Events, 1)
@@ -127,9 +121,9 @@ func TestResolveHooks_EventFilterNarrowsWithoutChangingTheAnswer(t *testing.T) {
 // 0 with an empty result, and an inspect command is the last place it belongs.
 func TestResolveHooks_UnknownEventIsRefusedNotAnsweredEmpty(t *testing.T) {
 	_, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) { return cfgWithHooks(t, wire.UnifiedHooks{}), nil },
-		WorkDir:      t.TempDir(),
-		Event:        "pre_toll",
+		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{}),
+		WorkDir: t.TempDir(),
+		Event:   "pre_toll",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre_toll")
@@ -141,13 +135,11 @@ func TestResolveHooks_UnknownEventIsRefusedNotAnsweredEmpty(t *testing.T) {
 // order field exists to prevent.
 func TestResolveHooks_BackendNativeHooksAreReportedNotSilentlyDropped(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) {
-			return cfgWithProfileHooks(t, afero.NewMemMapFs(), "/p/.ctxloom", wire.HooksConfig{
-				Plugins: map[string]wire.BackendHooks{
-					"claude-code": {"PreCompact": []wire.Hook{{Type: "command", Command: "native"}}},
-				},
-			}, config.Fixture{}), nil
-		},
+		Cfg: cfgWithProfileHooks(t, afero.NewMemMapFs(), "/p/.ctxloom", wire.HooksConfig{
+			Plugins: map[string]wire.BackendHooks{
+				"claude-code": {"PreCompact": []wire.Hook{{Type: "command", Command: "native"}}},
+			},
+		}, config.Fixture{}),
 		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)

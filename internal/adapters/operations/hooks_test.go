@@ -14,10 +14,10 @@
 // # Test Injection Patterns
 //
 // Tests inject dependencies to avoid real filesystem operations:
-//   - ConfigLoader: Function returning mock config instead of reading disk
+//   - Cfg: the fixture generation instead of a disk read
 //   - FS: afero virtual filesystem for settings file writes
 //   - WorkDir: Explicit working directory instead of git root detection
-//   - BundleLoaderFS: Separate FS for bundle reading in context regeneration
+//   - the fixture Cfg carries its own fs, which its bundle reads honour
 //
 // # Fault Tolerance
 //
@@ -31,7 +31,6 @@ package operations
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -309,10 +308,10 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: tmpDir,
 	})
 
 	require.NoError(t, err)
@@ -343,10 +342,10 @@ func TestApplyHooks_NamedBackendTargetsOnlyThatOne(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      config.BackendClaudeCode,
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
+		Backend: config.BackendClaudeCode,
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: tmpDir,
 	})
 
 	require.NoError(t, err)
@@ -369,10 +368,10 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "", // empty should default to "all"
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
+		Backend: "", // empty should default to "all"
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: tmpDir,
 	})
 
 	require.NoError(t, err)
@@ -435,10 +434,10 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 		"fixture must configure BOTH engines, or this test proves nothing")
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      config.BackendClaudeCode,
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
+		Backend: config.BackendClaudeCode,
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: tmpDir,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{config.BackendClaudeCode}, result.Backends,
@@ -456,23 +455,17 @@ func TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched(t *testing
 	assert.False(t, mockExists, "a named apply must leave OTHER configured engines' files untouched")
 }
 
-// TestApplyHooks_ConfigLoadError tests error handling when config load fails.
-func TestApplyHooks_ConfigLoadError(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	mockConfigLoader := func() (*config.Config, error) {
-		return nil, fmt.Errorf("config file not found")
-	}
-
+// A request without a generation is refused: there is no configuration to
+// apply from, and nothing here reads one.
+func TestApplyHooks_NoGeneration_Refuses(t *testing.T) {
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      "/project",
+		Backend: "claude-code",
+		FS:      afero.NewMemMapFs(),
+		WorkDir: "/project",
 	})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load config")
+	assert.Contains(t, err.Error(), "config generation is required")
 }
 
 // TestApplyHooks_WithMCPServers proves apply-hooks materializes the MCP surface
@@ -487,10 +480,10 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: tmpDir,
 	})
 
 	require.NoError(t, err)
@@ -534,10 +527,10 @@ func TestApplyHooks_RefusesHomeCollision(t *testing.T) {
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      home, // == the resolved Claude Code GLOBAL settings scope
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: home, // == the resolved Claude Code GLOBAL settings scope
 	})
 	require.Error(t, err, "installing hooks with WorkDir==HOME must be refused")
 	assert.Contains(t, err.Error(), "user-global settings")
@@ -559,11 +552,11 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		var err error
 		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
-			Backend:      "claude-code",
-			FS:           fs,
-			ConfigLoader: mockConfigLoader,
-			WorkDir:      home,
-			Force:        true,
+			Backend: "claude-code",
+			FS:      fs,
+			Cfg:     loaded(t, mockConfigLoader),
+			WorkDir: home,
+			Force:   true,
 		})
 		require.NoError(t, err, "Force:true must let the collision proceed")
 	})
@@ -611,10 +604,10 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      fakeBackend,
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      home,
+		Backend: fakeBackend,
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: home,
 	})
 	require.Error(t, err, "a backend registered with a hookGlobalScopePaths collision must be refused just like every descriptor-registered backend, with no operations-side edit for this backend name")
 	assert.Contains(t, err.Error(), "the T12 fake engine's global settings")
@@ -634,10 +627,10 @@ func TestApplyHooks_SubdirOfHomeIsNotACollision(t *testing.T) {
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      projectDir,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
+		WorkDir: projectDir,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
@@ -661,9 +654,9 @@ func TestApplyHooks_WarnsWhenNotInAGitRepository(t *testing.T) {
 
 	stderr := captureStderr(t, func() {
 		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-			Backend:      "claude-code",
-			FS:           fs,
-			ConfigLoader: mockConfigLoader,
+			Backend: "claude-code",
+			FS:      fs,
+			Cfg:     loaded(t, mockConfigLoader),
 		})
 		require.NoError(t, err)
 	})
@@ -693,7 +686,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 
@@ -744,7 +737,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 
@@ -772,7 +765,7 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err)
@@ -835,7 +828,7 @@ fragments:
 	result1, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "mock",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err)
@@ -856,7 +849,7 @@ fragments:
 	result2, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "mock",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err, "ApplyHooks itself must not hard-fail in degraded mode")
@@ -899,7 +892,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 
@@ -957,7 +950,7 @@ fragments:
 		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
-			ConfigLoader:      mockConfigLoader,
+			Cfg:               loaded(t, mockConfigLoader),
 			WorkDir:           tmpDir,
 		})
 		require.NoError(t, err)
@@ -1012,7 +1005,7 @@ fragments:
 		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
-			ConfigLoader:      mockConfigLoader,
+			Cfg:               loaded(t, mockConfigLoader),
 			WorkDir:           tmpDir,
 		})
 		require.NoError(t, err)
@@ -1058,7 +1051,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 
@@ -1108,7 +1101,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 
@@ -1162,7 +1155,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           tmpDir,
 	})
 
@@ -1182,9 +1175,9 @@ func TestApplyHooks_NoWorkDir(t *testing.T) {
 
 	// Call without WorkDir - exercises the gitutil.FindRoot fallback path
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, mockConfigLoader),
 		// WorkDir not set - will use "." or git root
 	})
 
@@ -1211,9 +1204,8 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
-		ConfigLoader:      mockConfigLoader,
+		Cfg:               loaded(t, mockConfigLoader),
 		WorkDir:           "/project",
-		BundleLoaderFS:    fs,
 	})
 
 	require.NoError(t, err)

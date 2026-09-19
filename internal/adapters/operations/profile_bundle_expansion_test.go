@@ -94,7 +94,7 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      mockLoader,
+		Cfg:               loaded(t, mockLoader),
 		WorkDir:           tmpDir,
 	})
 	require.NoError(t, err)

@@ -78,6 +78,7 @@ func TestListBundles_ExcludesBuiltinsAndKeepsProjectBundles(t *testing.T) {
 // empties the listing for every user with a dependency; this fails on it.
 func TestListBundles_ExcludesBuiltinsAndKeepsPinnedRemotes(t *testing.T) {
 	cfg, _, bundleRef := seedRemoteFixture(t)
+	cfg = published(t, cfg)
 	builtins := builtinRefsIn(t, cfg)
 
 	listed := listedNames(t, cfg)

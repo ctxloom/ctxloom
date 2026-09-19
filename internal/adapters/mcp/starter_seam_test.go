@@ -29,7 +29,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	runners := coordtest.NewRunners()
 	t.Cleanup(runners.Close)
 	c, err := coord.New(coord.Options{
-		Cfg: cfg, ProjectDir: root, StateDir: t.TempDir(),
+		App: fixtureApp(t, cfg), ProjectDir: root, StateDir: t.TempDir(),
 		OwnerHarp: "coordinator-harp",
 		Starter:   runners.Starter,
 	})

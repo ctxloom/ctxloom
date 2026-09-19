@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -43,13 +44,13 @@ func fakeLtkOnPath(t *testing.T, bundleYAML string) func() {
 	t.Helper()
 	envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
 	require.NoError(t, err)
-	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
+	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "ltk" {
 			return "/fake/ltk", nil
 		}
 		return "", os.ErrNotExist
 	})
-	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
+	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
 		return envelope, nil
 	})
 	return func() {
@@ -79,12 +80,12 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	// This test's subject is command EXPORT, not companion admission: grant
 	// exec consent for the fake ltk so the trust-on-first-use gate does not
 	// withhold the loadout before there is anything to export.
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(testAuthorizer(true))
 
-	prompts := LoadCommandExports(cfg, nil)
+	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
 	items := bundlePromptItems(prompts)
 	require.Contains(t, items, "task-runner", "ltk's companion command must export with no profile wiring")
 
@@ -117,12 +118,12 @@ func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExempt
 	// below would pass because nothing was ever produced rather than because
 	// the gate withheld it — the same green-for-the-wrong-reason shape as
 	// trust_surface.feature:269.
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(testAuthorizer(false))
 
-	prompts := LoadCommandExports(cfg, nil)
+	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
 		"an unsigned/withheld companion loadout must not export its commands as slash commands")
 }
@@ -136,7 +137,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	// This test's subject is command EXPORT, not companion admission: grant
 	// exec consent for the fake ltk so the trust-on-first-use gate does not
 	// withhold the loadout before there is anything to export.
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
+	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(testAuthorizer(true))
@@ -151,7 +152,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	})
 	cfg.SetExecutableTrustGate(testAuthorizer(true))
 
-	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
+	prompts := LoadCommandExports(withSeedAndCompanions(t, cfg, devToolsSeed()), nil)
 	items := bundlePromptItems(prompts)
 	assert.Contains(t, items, "review", "the profile's curated command must still export")
 	assert.Contains(t, items, "task-runner", "the companion's command must ALSO export under curation, not be replaced by it")
@@ -163,11 +164,11 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 // hooks/MCP/fragments resolvers).
 func TestLoadCommandExports_NoCompanionOnPath_NoCommandExported(t *testing.T) {
 	cfg := companionCfg(t)
-	restoreLook := config.SetLookPathForTesting(func(string) (string, error) { return "", os.ErrNotExist })
+	restoreLook := companions.SetLookPathForTesting(func(string) (string, error) { return "", os.ErrNotExist })
 	defer restoreLook()
 	cfg.SetExecutableTrustGate(testAuthorizer(true))
 
-	prompts := LoadCommandExports(cfg, nil)
+	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
 		"absent from PATH, ltk contributes no command export")
 }

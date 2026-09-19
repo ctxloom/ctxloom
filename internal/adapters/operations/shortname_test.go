@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -38,9 +38,9 @@ func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 	cfg := agentTestConfig(root, nil)
 	appDir := cfg.GetAppPaths()[0]
 	registerPersonalRemote(t, appDir)
-	mgr := config.NewManager(config.WithAppDir(appDir))
+	mgr := testApp(t, configload.WithAppDir(appDir))
 
-	res, err := SetAgent(mgr, cfg, SetAgentRequest{
+	res, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:     "dev",
 		Profiles: ptr([]string{"personal/agent-ensemble#profiles/finder", "developer"}),
 	})
@@ -49,7 +49,7 @@ func TestSetAgent_CanonicalizesShortProfiles(t *testing.T) {
 	want := []string{shortNamePersonalURL + "@bundles/agent-ensemble#profiles/finder", "developer"}
 	assert.Equal(t, want, res.Profiles, "result reflects the canonical stored form")
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Equal(t, want, reloaded.GetConfiguredAgents()["dev"].Profiles, "binding persists canonical, not the alias")
 }

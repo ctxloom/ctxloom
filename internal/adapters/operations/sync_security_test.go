@@ -54,7 +54,7 @@ func TestSyncDependencies_FirstInstallLandsActive(t *testing.T) {
 	ctx := context.Background()
 	_ = ref
 
-	result, err := SyncDependencies(ctx, cfg, SyncDependenciesRequest{Lock: true})
+	result, err := SyncDependencies(ctx, fixtureApp(t, cfg), SyncDependenciesRequest{Lock: true})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Installed, "the first install lands in the active lockfile")
 

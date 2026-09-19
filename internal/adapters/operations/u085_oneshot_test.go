@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -68,7 +69,7 @@ func stubIsolatedPrepare(t *testing.T, mk func() pb.Client) {
 // real inside the run rather than being simulated.
 func withheldOneshotProject(t *testing.T) *config.Config {
 	t.Helper()
-	restore := config.SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound })
+	restore := companions.SetLookPathForTesting(func(string) (string, error) { return "", exec.ErrNotFound })
 	t.Cleanup(restore)
 	projectDir := testsupport.ProjectDir(t)
 	t.Setenv("SSH_AUTH_SOCK", "")

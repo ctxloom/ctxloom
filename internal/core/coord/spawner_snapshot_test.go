@@ -63,3 +63,14 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 	assert.Equal(t, "claude-code", plan.Backend)
 	assert.Equal(t, int32(3), src.reads.Load())
 }
+
+// spawnerApp opens the process composition a spawner test drives: the real
+// reader pinned to appDir, no remote or companion readers.
+func spawnerApp(t *testing.T, appDir string) *operations.App {
+	t.Helper()
+	src, err := configload.New(nil, nil, configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	owner, err := config.Open(context.Background(), src)
+	require.NoError(t, err)
+	return operations.OpenedApp(owner)
+}

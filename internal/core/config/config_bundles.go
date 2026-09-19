@@ -63,23 +63,20 @@ func (c *Config) bindGeneration(cat bundles.Catalog, gate bundles.Authorizer) {
 }
 
 // Catalog returns the generation's bundle catalog. Every Config an Owner
-// published had one bound before publication (bindGeneration). A Config no
-// Owner published — a fixture — resolves the two readers core itself can
-// build, the project's authored bundles and the builtins, exactly once; it
-// never sees remote or companion content, which only the composition root's
-// Sources supply.
+// published had one bound before publication (bindGeneration) and returns
+// that same resolved set for its life. A Config no Owner published — a
+// fixture — has no generation to pin: it resolves the two readers core
+// itself can build, the project's authored bundles and the builtins, on
+// every call, and never sees remote or companion content, which only the
+// composition root's Sources supply.
 func (c *Config) Catalog() bundles.Catalog {
-	c.catalogOnce.Do(func() {
-		if c.catalog != nil {
-			return
-		}
-		root := c.TrustRoot()
-		cat := bundles.Resolve(context.Background(),
-			bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-			bundles.NewBuiltinReader(bundles.WithTrustRoot(root)))
-		c.catalog = &cat
-	})
-	return *c.catalog
+	if c.catalog != nil {
+		return *c.catalog
+	}
+	root := c.TrustRoot()
+	return bundles.Resolve(context.Background(),
+		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root)),
+		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)))
 }
 
 // ExecutableTrustGate returns the gate the bundle executable surfaces decide

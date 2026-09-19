@@ -28,7 +28,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	c, err := coord.New(coord.Options{
 		ProjectDir: cwd,
 		StateDir:   t.TempDir(),
-		Cfg:        testConfig(),
+		App:        fixtureApp(t, testConfig()),
 		OwnerHarp:  "owner-harp",
 	})
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir(t *testing.T) {
 	c, err := coord.New(coord.Options{
 		ProjectDir: coordCwd,
 		StateDir:   t.TempDir(),
-		Cfg:        testConfig(),
+		App:        fixtureApp(t, testConfig()),
 		OwnerHarp:  "owner-harp",
 	})
 	require.NoError(t, err)

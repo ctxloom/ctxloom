@@ -272,12 +272,13 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 }
 
 func TestResilientStartup_MalformedConfig(t *testing.T) {
-	// Test that malformed config produces warnings but doesn't fail startup
+	// A file that is not YAML is refused by name (Part 1.8: only an ABSENT
+	// layer is the shipped default); a startup never proceeds on a config it
+	// could not read.
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	// Create malformed YAML (array where object expected)
 	malformedYAML := `
 llm:
   configs:
@@ -288,15 +289,9 @@ llm:
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
-	// Should NOT error
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-
-	// Should have warnings
-	assert.NotEmpty(t, cfg.GetWarnings())
-
-	// config.Config should still be usable with defaults
-	assert.NotNil(t, cfg.ToFixture().LM.Configs)
+	require.ErrorIs(t, err, ErrUnparsableLayer)
+	assert.Contains(t, err.Error(), paths.ConfigPath(appDir))
+	assert.Nil(t, cfg)
 }
 
 func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
@@ -304,17 +299,15 @@ func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
 
-	// Completely unparseable YAML
+	// Completely unparseable YAML: refused by name, before any schema
+	// judgement — a file that is not YAML has nothing to validate.
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("{{{{invalid"), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	assert.NotEmpty(t, cfg.GetWarnings())
-	// Schema validation catches parse errors first
-	assert.Contains(t, cfg.GetWarnings()[0].Text, "config validation warning")
-	assert.Equal(t, config.WarnKindValidate, cfg.GetWarnings()[0].Kind, "schema failures carry the validate kind so the strict gate can classify them")
+	require.ErrorIs(t, err, ErrUnparsableLayer)
+	assert.Contains(t, err.Error(), paths.ConfigPath(appDir))
+	assert.Nil(t, cfg)
 }
 
 func TestResilientStartup_NonExistentProfile(t *testing.T) {

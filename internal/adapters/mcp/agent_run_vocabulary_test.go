@@ -27,7 +27,7 @@ func agentRunSurfaces(t *testing.T) map[string]map[string]any {
 	require.True(t, ok, "agent_run must have a generated schema")
 	out["generated (proto-canonical, runner surface)"] = decodeSchema(t, generated.InputSchema)
 
-	s := &ctxServer{cfg: testConfig()}
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 	stdioTool, ok := listServerTools(t, server)[mcpschema.ToolAgentRun]
@@ -108,7 +108,7 @@ func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
 	// no raw os.Chdir).
 	testsupport.ProjectDir(t)
 
-	s := &ctxServer{cfg: testConfig()}
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 

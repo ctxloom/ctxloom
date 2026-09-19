@@ -180,6 +180,12 @@ func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, app
 		pending = &config.PendingUpgrade{Path: configPath, Data: upgraded, Applied: applied}
 		zap.L().Info("config_upgrade_pending", zap.String("path", configPath), zap.Strings("applied", applied))
 	}
+	// The refusal comes before any judgement of the document: a file that is
+	// not YAML has no version to be below the floor and no keys to validate.
+	var raw map[string]any
+	if perr := yaml.Unmarshal(data, &raw); perr != nil {
+		return nil, nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
+	}
 	if v, declared := declaredConfigVersion(data); v < config.CurrentConfigVersion {
 		spelled := "no `version` key, i.e. the pre-versioning generation"
 		if declared {
@@ -198,11 +204,6 @@ func (s *Sources) loadConfigLayer(b *config.Builder, layer layerscope.Layer, app
 			}
 			zap.L().Warn("config_validation_warning", zap.String("path", configPath), zap.Error(verr))
 		}
-	}
-
-	var raw map[string]any
-	if perr := yaml.Unmarshal(data, &raw); perr != nil {
-		return nil, nil, fmt.Errorf("%w: %s: %v", ErrUnparsableLayer, configPath, perr)
 	}
 
 	for _, v := range config.DropLayerScopeViolations(layer, raw) {

@@ -28,7 +28,7 @@ import (
 func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 	const settingsPath = "/project/.claude/settings.json"
 
-	newFixture := func(t *testing.T) (afero.Fs, ConfigLoaderFunc) {
+	newFixture := func(t *testing.T) (afero.Fs, func() (*config.Config, error)) {
 		t.Helper()
 		fs := afero.NewMemMapFs()
 		loader := func() (*config.Config, error) {
@@ -45,10 +45,10 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 		fs, loader := newFixture(t)
 
 		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-			Backend:      "claude-code",
-			FS:           fs,
-			ConfigLoader: loader,
-			WorkDir:      "/project",
+			Backend: "claude-code",
+			FS:      fs,
+			Cfg:     loaded(t, loader),
+			WorkDir: "/project",
 		})
 		require.NoError(t, err)
 
@@ -62,11 +62,11 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 		fs, loader := newFixture(t)
 
 		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-			Backend:      "claude-code",
-			FS:           fs,
-			ConfigLoader: loader,
-			WorkDir:      "/project",
-			DryRun:       true,
+			Backend: "claude-code",
+			FS:      fs,
+			Cfg:     loaded(t, loader),
+			WorkDir: "/project",
+			DryRun:  true,
 		})
 		require.NoError(t, err, "a dry run resolves in full and must not error")
 
@@ -100,11 +100,11 @@ func TestApplyHooksDryRunLeavesExistingSettingsByteIdentical(t *testing.T) {
 	}
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "claude-code",
-		FS:           fs,
-		ConfigLoader: loader,
-		WorkDir:      "/project",
-		DryRun:       true,
+		Backend: "claude-code",
+		FS:      fs,
+		Cfg:     loaded(t, loader),
+		WorkDir: "/project",
+		DryRun:  true,
 	})
 	require.NoError(t, err)
 

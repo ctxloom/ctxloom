@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -52,7 +53,7 @@ const (
 // withholding assertion vacuously true).
 func pushPremiseCompanion(t *testing.T) {
 	t.Helper()
-	t.Cleanup(config.AdmitEveryDiscoveredCompanionForTesting())
+	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
 
 	envelope, err := signing.EncodeLoadoutEnvelope([]byte(
 		"version: \"1.0.0\"\nfragments:\n"+
@@ -63,13 +64,13 @@ func pushPremiseCompanion(t *testing.T) {
 			"    content: |\n      "+pushUnpremisedBody+"\n"), nil, "")
 	require.NoError(t, err)
 
-	t.Cleanup(config.SetLookPathForTesting(func(bin string) (string, error) {
+	t.Cleanup(companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "taskloom" {
 			return "/fake/taskloom", nil
 		}
 		return "", exec.ErrNotFound
 	}))
-	t.Cleanup(config.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+	t.Cleanup(companions.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
 		if path == "/fake/taskloom" {
 			return envelope, nil
 		}
@@ -113,7 +114,7 @@ fragments:
 		"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/loader-fragment"}}},
 	})
 
-	hash, err := regenerateContext(cfg, workDir, nil)
+	hash, err := regenerateContext(published(t, cfg), workDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, hash, "the push path must actually write a context file")
 

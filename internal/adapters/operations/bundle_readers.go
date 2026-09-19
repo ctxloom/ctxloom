@@ -115,11 +115,11 @@ func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEnt
 	// the fix knowable: a lockfile entry with no tree on disk is a pull that has
 	// not happened, and the message has to say so — "cannot list this directory"
 	// reaches the user as a bug in ctxloom.
-	if ok, derr := afero.DirExists(cfg.FS(), dir); derr != nil || !ok {
+	if ok, derr := afero.DirExists(getFS(cfg.FS()), dir); derr != nil || !ok {
 		return nil, fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
 			"(run `ctxloom deps pull`)", canonical, dir)
 	}
-	tree, err := content.NewAferoTreeFS(cfg.FS(), filepath.Dir(dir))
+	tree, err := content.NewAferoTreeFS(getFS(cfg.FS()), filepath.Dir(dir))
 	if err != nil {
 		return nil, fmt.Errorf("the tree installed for %q at %s cannot be opened: %w", canonical, dir, err)
 	}

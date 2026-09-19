@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // Fixture is a direct mirror of every Config field, persisted and
@@ -57,6 +58,11 @@ type Fixture struct {
 	Warnings           []Warning
 	PendingUpgrade     *PendingUpgrade
 	HomePendingUpgrade *PendingUpgrade
+
+	// VersionResolver is the generation's pinned-version resolver (bound by
+	// the reader in production); carried so a fixture can exercise a
+	// version-pinned read.
+	VersionResolver bundles.BundleVersionResolver
 }
 
 // ToFixture returns a Fixture carrying a copy of every one of c's fields —
@@ -96,6 +102,7 @@ func (c *Config) ToFixture() Fixture {
 		Warnings:                     cloneWarnings(c.warnings),
 		PendingUpgrade:               c.pendingUpgrade,
 		HomePendingUpgrade:           c.homePendingUpgrade,
+		VersionResolver:              c.versionResolver,
 	}
 }
 
@@ -144,5 +151,6 @@ func NewFixture(f Fixture) *Config {
 		warnings:                     cloneWarnings(f.Warnings),
 		pendingUpgrade:               f.PendingUpgrade,
 		homePendingUpgrade:           f.HomePendingUpgrade,
+		versionResolver:              f.VersionResolver,
 	}
 }

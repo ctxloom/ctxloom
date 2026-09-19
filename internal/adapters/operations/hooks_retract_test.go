@@ -119,7 +119,7 @@ func claudeHooksInstall(t *testing.T, fs afero.Fs, regenerate bool) (*ApplyHooks
 		Backend:           "claude-code",
 		RegenerateContext: regenerate,
 		FS:                fs,
-		ConfigLoader:      loader,
+		Cfg:               loaded(t, loader),
 		WorkDir:           "/project",
 	})
 	require.NoError(t, err)
@@ -241,7 +241,7 @@ fragments:
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
-		ConfigLoader:      loader,
+		Cfg:               loaded(t, loader),
 		WorkDir:           workDir,
 	})
 	require.NoError(t, err)
@@ -264,7 +264,7 @@ func TestApplyHooks_ClaudeCode_DryRunRetractsNothing(t *testing.T) {
 	}
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend: "claude-code", RegenerateContext: true, DryRun: true,
-		FS: fs, ConfigLoader: loader, WorkDir: "/project",
+		FS: fs, Cfg: loaded(t, loader), WorkDir: "/project",
 	})
 	require.NoError(t, err)
 
@@ -298,7 +298,7 @@ fragments:
 		}), nil
 	}
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend: "mock", RegenerateContext: true, ConfigLoader: loader, WorkDir: workDir,
+		Backend: "mock", RegenerateContext: true, Cfg: loaded(t, loader), WorkDir: workDir,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "applied", result.Status)

@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -29,16 +31,17 @@ func loadConfigDir(t *testing.T, body string) (*config.Config, string) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0644))
-	cfg, err := config.Load(config.WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	return cfg, appDir
 }
 
-// managerFor returns the Manager targeting the same on-disk appDir a
+// managerFor returns the App targeting the same on-disk appDir a
 // loadConfigDir config was read from — the real read-modify-write transaction
-// SetAgent/RemoveAgent/ScaffoldContainerBase now perform, not a stand-in.
-func managerFor(appDir string) *config.Manager {
-	return config.NewManager(config.WithAppDir(appDir))
+// SetAgent/RemoveAgent/ScaffoldContainerBase perform, not a stand-in.
+func managerFor(t *testing.T, appDir string) *App {
+	t.Helper()
+	return testApp(t, configload.WithAppDir(appDir))
 }
 
 // readAgentFromDisk re-reads appDir's config.yaml through ParseConfig (a
@@ -65,7 +68,7 @@ func readAgentFromDisk(t *testing.T, appDir, name string) (agents.Agent, bool) {
 func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
-	entry, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+	entry, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "finder",
 		LLM:      ptr("claude-fast"),
 		Profiles: ptr([]string{"p1", "p2"}),
@@ -73,7 +76,7 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "finder", entry.Name)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("finder")
 	require.True(t, ok, "set agent must survive a reload")
@@ -117,7 +120,7 @@ llm:
 func TestSetAgent_RejectsUnknownEngine(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
 
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "dev",
 		LLM:      ptr("bogus-engine"),
 		Profiles: ptr([]string{"default"}),
@@ -127,7 +130,7 @@ func TestSetAgent_RejectsUnknownEngine(t *testing.T) {
 	assert.Contains(t, err.Error(), "claude-code",
 		"the refusal must list engines that DO exist — otherwise the user learns their spelling was wrong but not what the right spellings are")
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok := reloaded.Agent("dev")
 	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
@@ -139,21 +142,21 @@ func TestSetAgent_RejectsUnknownEngine(t *testing.T) {
 // rejection has to happen before the write, not after it.
 func TestSetAgent_UnknownEngineLeavesExistingBindingIntact(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:     "dev",
 		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
 	})
 	require.NoError(t, err)
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("bogus-engine")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("bogus-engine")})
 	require.Error(t, err)
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok, "the existing agent must survive a refused edit")
@@ -170,16 +173,16 @@ func TestSetAgent_UnknownEngineLeavesExistingBindingIntact(t *testing.T) {
 // membership set has to be the same one `llm default` accepts and lists.
 func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 	_, appDir := loadConfigDir(t, llmLabelsFixture)
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	for _, engine := range []string{
 		"claude-code", // a registered backend
 		"claude-fast", // a config-declared label, no such backend
 		"",            // explicit clear: fall back to the project default
 	} {
-		reloaded, err := config.Load(config.WithAppDir(appDir))
+		reloaded, err := configload.Load(configload.WithAppDir(appDir))
 		require.NoError(t, err)
-		_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+		_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{
 			Name:     "dev",
 			LLM:      ptr(engine),
 			Profiles: ptr([]string{"default"}),
@@ -198,9 +201,9 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 // pins is that SetAgent itself writes the byte, never silently discarding it.
 func TestSetAgent_PersistsRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:     "developer",
 		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
@@ -228,10 +231,10 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 // error; reading the file back is what actually proves the refusal.
 func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	// Create: the agent must not come into existence at all.
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "odd", Runtime: ptr("container")})
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "odd", Runtime: ptr("container")})
 	require.Error(t, err, "unknown runtime must be refused, not warned-and-stored")
 	assert.Contains(t, err.Error(), `unknown runtime axis "container"`)
 	assert.Contains(t, err.Error(), "host|container-rootless|container-rootful",
@@ -241,18 +244,18 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 
 	// Edit: an existing, validly-configured binding must survive untouched —
 	// the refusal must not half-apply over a live binding.
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{
 		Name:     "steady",
 		Profiles: ptr([]string{"default"}),
 		Runtime:  ptr("container-rootless"),
 	})
 	require.NoError(t, err)
 
-	reloaded, err = config.Load(config.WithAppDir(appDir))
+	reloaded, err = configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "steady", Runtime: ptr("container")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "steady", Runtime: ptr("container")})
 	require.Error(t, err, "unknown runtime must be refused on edit too, not just create")
 
 	sub, ok := readAgentFromDisk(t, appDir, "steady")
@@ -267,9 +270,9 @@ func TestSetAgent_RejectsUnknownRuntime(t *testing.T) {
 // is stored as written (advisory warn only; it resolves to the default posture).
 func TestSetAgent_PersistsPermissions(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:        "planner",
 		LLM:         ptr("claude-code"),
 		Profiles:    ptr([]string{"default"}),
@@ -277,16 +280,16 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("planner")
 	require.True(t, ok)
 	assert.Equal(t, "plan", sub.Permissions)
 
 	// Unknown value: stored verbatim, never an error.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"default"}), Permissions: ptr("wildwest")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", Profiles: ptr([]string{"default"}), Permissions: ptr("wildwest")})
 	require.NoError(t, err, "unknown permissions warns, never errors")
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok = final.Agent("odd")
 	require.True(t, ok)
@@ -300,9 +303,9 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 // changes execution semantics, so it never gets the advisory-warn treatment).
 func TestSetAgent_PersistsDriving(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:     "shooter",
 		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
@@ -310,7 +313,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("shooter")
 	require.True(t, ok)
@@ -318,10 +321,10 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 
 	// Unknown value: REJECTED — nothing written, like Runtime and unlike
 	// Permissions.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Driving: ptr("wildwest")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", Driving: ptr("wildwest")})
 	require.Error(t, err, "unknown driving must be rejected, not stored")
 	assert.Contains(t, err.Error(), "wildwest")
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok = final.Agent("odd")
 	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
@@ -339,9 +342,9 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 // be written as though it were valid.
 func TestSetAgent_PersistsHomeMode(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 		Name:     "coder",
 		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
@@ -349,19 +352,19 @@ func TestSetAgent_PersistsHomeMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("coder")
 	require.True(t, ok)
 	assert.Equal(t, string(agents.HomeModeSession), sub.HomeMode)
 
 	// Unknown value: REJECTED — nothing written, naming the two valid values.
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", HomeMode: ptr("wildwest")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "odd", HomeMode: ptr("wildwest")})
 	require.Error(t, err, "unknown engine_home must be rejected, not stored")
 	assert.Contains(t, err.Error(), "wildwest")
 	assert.Contains(t, err.Error(), "session", "the refusal must list the valid values")
 	assert.Contains(t, err.Error(), "host", "the refusal must list the valid values")
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok = final.Agent("odd")
 	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
@@ -372,7 +375,7 @@ func TestSetAgent_PersistsHomeMode(t *testing.T) {
 func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "human-adjacent",
 		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
@@ -380,7 +383,7 @@ func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("human-adjacent")
 	require.True(t, ok)
@@ -391,18 +394,18 @@ func TestSetAgent_PersistsHomeModeHost(t *testing.T) {
 // the binding (whole-binding rewrite, not a merge).
 func TestSetAgent_UpdatesExisting(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	// Real engine names, not "a"/"b" placeholders: SetAgent now validates the
 	// engine against the known set, so a stand-in string no longer stands in.
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"})})
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-code"), Profiles: ptr([]string{"x"})})
 	require.NoError(t, err)
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("mock"), Profiles: ptr([]string{"y", "z"})})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("mock"), Profiles: ptr([]string{"y", "z"})})
 	require.NoError(t, err)
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok)
@@ -424,7 +427,7 @@ agents:
       - action: auto_accept
         kinds: [COMMAND_EXECUTION]
 `)
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	entry, err := GetAgent(cfg, "dev")
 	require.NoError(t, err)
@@ -436,9 +439,9 @@ agents:
 	require.Len(t, list[0].Escalation, 1, "ListAgents must surface it too")
 
 	// A write that doesn't name Escalation must not wipe it.
-	_, err = SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
+	_, err = SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", Runtime: ptr("container-rootless")})
 	require.NoError(t, err)
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	entry, err = GetAgent(reloaded, "dev")
 	require.NoError(t, err)
@@ -488,7 +491,7 @@ agents:
 // TestSetAgent_EmptyName errors rather than writing a nameless binding.
 func TestSetAgent_EmptyName(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "", Profiles: ptr([]string{"p"})})
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "", Profiles: ptr([]string{"p"})})
 	assert.Error(t, err)
 }
 
@@ -496,13 +499,13 @@ func TestSetAgent_EmptyName(t *testing.T) {
 // persists the removal.
 func TestRemoveAgent_RoundTrips(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "finder", Profiles: ptr([]string{"p1"})})
+	mgr := managerFor(t, appDir)
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "finder", Profiles: ptr([]string{"p1"})})
 	require.NoError(t, err)
 
-	require.NoError(t, RemoveAgent(mgr, "finder"))
+	require.NoError(t, RemoveAgent(context.Background(), mgr, "finder"))
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok := final.Agent("finder")
 	assert.False(t, ok, "removed agent must be gone after reload")
@@ -511,7 +514,7 @@ func TestRemoveAgent_RoundTrips(t *testing.T) {
 // TestRemoveAgent_NotFound errors on an unknown name.
 func TestRemoveAgent_NotFound(t *testing.T) {
 	_, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	assert.Error(t, RemoveAgent(managerFor(appDir), "nope"))
+	assert.Error(t, RemoveAgent(context.Background(), managerFor(t, appDir), "nope"))
 }
 
 // TestSetAgent_ConcurrentWritesAllSurvive proves the migrated write path: N
@@ -524,7 +527,7 @@ func TestRemoveAgent_NotFound(t *testing.T) {
 // every writer's change survives regardless of interleaving.
 func TestSetAgent_ConcurrentWritesAllSurvive(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
-	mgr := managerFor(appDir)
+	mgr := managerFor(t, appDir)
 
 	const n = 20
 	var wg sync.WaitGroup
@@ -533,7 +536,7 @@ func TestSetAgent_ConcurrentWritesAllSurvive(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, errs[i] = SetAgent(mgr, cfg, SetAgentRequest{
+			_, errs[i] = SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 				Name:     fmt.Sprintf("agent-%02d", i),
 				Profiles: ptr([]string{"p"}),
 			})
@@ -545,7 +548,7 @@ func TestSetAgent_ConcurrentWritesAllSurvive(t *testing.T) {
 		assert.NoErrorf(t, err, "writer %d", i)
 	}
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	for i := 0; i < n; i++ {
 		name := fmt.Sprintf("agent-%02d", i)
@@ -614,14 +617,14 @@ func TestAgentSetupNudge_AnyProfileOnDiskCountsAsProfiles(t *testing.T) {
 func TestSetAgent_PersistsTheSurfacePreference(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "writer",
 		LLM:      ptr("claude-code"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("writer")
 	require.True(t, ok)
@@ -634,14 +637,14 @@ func TestSetAgent_PersistsTheSurfacePreference(t *testing.T) {
 func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:     "scout",
 		LLM:      ptr("mock"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
 	require.Error(t, err, "system-prompt is claude-only; opencode must refuse it")
 
-	reloaded, rerr := config.Load(config.WithAppDir(appDir))
+	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, rerr)
 	_, ok := reloaded.Agent("scout")
 	assert.False(t, ok, "a refused write must not half-apply a binding")
@@ -668,7 +671,7 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 		t.Run(mode, func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
 
-			_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+			_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 				Name:     "editor",
 				LLM:      ptr("no-auth-engine"),
 				Profiles: ptr([]string{"default"}),
@@ -684,7 +687,7 @@ func TestSetAgent_RejectsContainerRuntimeForEngineWithoutContainerAuth(t *testin
 			}
 			assert.Contains(t, msg, "runtime: host", "the refusal must name the way out")
 
-			reloaded, err := config.Load(config.WithAppDir(appDir))
+			reloaded, err := configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
 			_, ok := reloaded.Agent("editor")
 			assert.False(t, ok, "a refused SetAgent call must persist nothing")
@@ -702,10 +705,10 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 	for _, mode := range []string{"container-rootless", "container-rootful"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, llmLabelsFixture)
-			mgr := managerFor(appDir)
+			mgr := managerFor(t, appDir)
 
 			// That same engine on the host is perfectly legal.
-			_, err := SetAgent(mgr, cfg, SetAgentRequest{
+			_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{
 				Name:    "editor",
 				LLM:     ptr("no-auth-engine"),
 				Runtime: ptr("host"),
@@ -713,13 +716,13 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 			require.NoError(t, err)
 
 			// Adding a container runtime to it is not — the recorded engine is read.
-			reloaded, err := config.Load(config.WithAppDir(appDir))
+			reloaded, err := configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
-			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "editor", Runtime: ptr(mode)})
+			_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "editor", Runtime: ptr(mode)})
 			require.Error(t, err, "the recorded engine must be read when only the runtime is set")
 			assert.Contains(t, err.Error(), "no-auth-engine")
 
-			final, err := config.Load(config.WithAppDir(appDir))
+			final, err := configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
 			sub, ok := final.Agent("editor")
 			require.True(t, ok, "the existing agent must survive a refused edit")
@@ -728,9 +731,9 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 			// And a mapped engine takes the same runtime happily — the accepting side,
 			// which a too-broad refusal would break.
 			for _, engine := range []string{"claude-code", "claude-fast", "mock"} {
-				reloaded, err := config.Load(config.WithAppDir(appDir))
+				reloaded, err := configload.Load(configload.WithAppDir(appDir))
 				require.NoError(t, err)
-				_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+				_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{
 					Name:    "worker",
 					LLM:     ptr(engine),
 					Runtime: ptr(mode),
@@ -743,9 +746,9 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 			// so there is no knowable pair to refuse here. (Profiles are what carry
 			// that engine — a binding with neither is refused outright, see
 			// TestSetAgent_RefusesABindingWithNoEngine.)
-			reloaded, err = config.Load(config.WithAppDir(appDir))
+			reloaded, err = configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
-			_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "unbound", Profiles: ptr([]string{"default"}), Runtime: ptr(mode)})
+			_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "unbound", Profiles: ptr([]string{"default"}), Runtime: ptr(mode)})
 			require.NoError(t, err, "a profile-carried engine has no pair to judge at write time")
 		})
 	}
@@ -759,11 +762,11 @@ func TestSetAgent_ContainerRuntimeChecksThePairTheWriteResultsIn(t *testing.T) {
 func TestSetAgent_RefusesABindingWithNoEngine(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
 
-	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{Name: "help"})
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{Name: "help"})
 	require.ErrorIs(t, err, ErrAgentWithoutEngine, "an agent with no llm and no profiles is not an agent; the write must be refused")
 	assert.Contains(t, err.Error(), `"help"`, "the refusal names the binding")
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	_, ok := reloaded.Agent("help")
 	assert.False(t, ok, "a refused SetAgent call must persist nothing")
@@ -775,16 +778,16 @@ func TestSetAgent_RefusesABindingWithNoEngine(t *testing.T) {
 // must protect — the existing binding survives untouched.
 func TestSetAgent_RefusesAnEditThatClearsTheLastEngineBinding(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
-	mgr := managerFor(appDir)
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-fast")})
+	mgr := managerFor(t, appDir)
+	_, err := SetAgent(context.Background(), mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-fast")})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("")})
+	_, err = SetAgent(context.Background(), mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("")})
 	require.ErrorIs(t, err, ErrAgentWithoutEngine, "clearing the only engine binding must be refused, not written")
 
-	final, err := config.Load(config.WithAppDir(appDir))
+	final, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok, "the live binding must survive the refused edit")
@@ -792,6 +795,6 @@ func TestSetAgent_RefusesAnEditThatClearsTheLastEngineBinding(t *testing.T) {
 
 	// Clearing the llm while profiles remain is a legal edit: the profiles
 	// carry the engine from here on.
-	_, err = SetAgent(mgr, final, SetAgentRequest{Name: "dev", LLM: ptr(""), Profiles: ptr([]string{"default"})})
+	_, err = SetAgent(context.Background(), mgr, final, SetAgentRequest{Name: "dev", LLM: ptr(""), Profiles: ptr([]string{"default"})})
 	require.NoError(t, err, "an edit that leaves profiles bound is not engineless")
 }

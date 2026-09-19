@@ -40,11 +40,10 @@ func TestResolveHooks_DirectoryProfileHookCannotForgeItsProvenance(t *testing.T)
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dirp"}}},
 	})
-	cfg.DisableCompanionProbe()
 
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
-		ConfigLoader: func() (*config.Config, error) { return cfg, nil },
-		WorkDir:      t.TempDir(),
+		Cfg:     cfg,
+		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
 

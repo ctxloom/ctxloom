@@ -1,15 +1,19 @@
 Feature: Fault tolerance
-  ctxloom is fault tolerant above all else: misconfiguration and missing
-  references produce warnings, not crashes, and read commands still work. These
-  scenarios exercise the degradation paths CLAUDE.md names as the top priority.
+  ctxloom is fault tolerant: a missing reference or an unresolvable remote
+  produces a warning, never a crash, and read commands still work. One thing
+  is not degraded: a config.yaml that is PRESENT and cannot be parsed is
+  refused by name, because no command can know what a file it could not read
+  was asking for — an absent config is the shipped default, a broken one is
+  a fault to fix.
 
-  Scenario: A malformed config warns but does not block read commands
+  Scenario: A malformed config is refused by name, not read around
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a malformed ctxloom config
     When I run "ctxloom bundle list"
-    Then the command succeeds
-    And the output contains "warn"
+    Then the command fails
+    And the output contains "cannot be parsed"
+    And the output contains "config.yaml"
 
   Scenario: A profile referencing a missing bundle warns and continues
     Given an initialized ctxloom project

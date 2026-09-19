@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -262,10 +261,10 @@ func TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan(t *testing.T) {
 
 	t.Run("override rides the plan the Spawner launches from", func(t *testing.T) {
 		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", operations.DirtyTreeHandlerStale)
+		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", launch.DirtyTreeHandlerStale)
 		require.NoError(t, err)
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Equal(t, operations.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
+		assert.Equal(t, launch.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
 	})
 
 	t.Run("omitting dirty_tree_handler carries no override", func(t *testing.T) {

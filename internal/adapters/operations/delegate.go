@@ -74,14 +74,14 @@ func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]stri
 // what ctxloom is about to do about it.
 const maxDirtyFilesListed = 10
 
-// Dirty-tree handler values — what a delegated agent_run spawn does when it
+// The dirty-tree handler is what a delegated agent_run spawn does when it
 // resolves to worktree isolation while the PARENT project tree (workDir —
 // the coordinator's own checkout; never the child's future workspace)
-// carries uncommitted changes. Settable as a project config default
-// (config.Config.GetDirtyTreeHandler, key `dirty_tree_handler`) and
-// overridden per call by agent_run's `dirty_tree_handler` parameter — the
-// identical two-tier precedence GAP 2's Workspace override already uses (see
-// resolveDirtyTreeHandler).
+// carries uncommitted changes. The vocabulary, its names and its one parser
+// are launch.DirtyTreeHandler's; which member governs a launch is settled
+// ONCE by launch.Resolve (the invocation's, else the project's
+// `dirty_tree_handler` default, else "commit") and arrives here on the
+// CellRequest already decided.
 //
 // WHY THIS EXISTS AT ALL: worktree isolation runs `git worktree add --detach
 // <ref>` (isolation.NewWorktree, internal/adapters/isolation/worktree.go) — a
@@ -93,81 +93,32 @@ const maxDirtyFilesListed = 10
 // worktree-by-default would introduce it deliberately if nothing decided
 // what to do about it. Four explicit choices, no refuse-or-degrade blur:
 //
-//   - DirtyTreeHandlerCommit ("commit", the DEFAULT): commit the parent's
-//     dirty state first, so the child sees it. Gated behind a per-PROJECT
-//     human acknowledgement (dirty_tree_commit_ack) — see commitDirtyTree.
-//   - DirtyTreeHandlerCopy ("copy"): carve the worktree at HEAD as usual,
-//     then reproduce the parent's uncommitted changes INSIDE it as
+//   - launch.DirtyTreeHandlerCommit ("commit", the DEFAULT): commit the
+//     parent's dirty state first, so the child sees it. Gated behind a
+//     per-PROJECT human acknowledgement (dirty_tree_commit_ack) — see
+//     commitDirtyTree.
+//   - launch.DirtyTreeHandlerCopy ("copy"): carve the worktree at HEAD as
+//     usual, then reproduce the parent's uncommitted changes INSIDE it as
 //     uncommitted WIP — nothing is ever committed to the parent's branch.
-//   - DirtyTreeHandlerStale ("stale"): proceed against committed state only
-//     (today's pre-existing behavior before this gate's original refusal
-//     landed), warning that the child will not see the listed changes.
-//   - DirtyTreeHandlerFail ("fail"): refuse the spawn outright (this gate's
-//     original, sole behavior) — the message names the uncommitted paths and
-//     the alternatives.
+//   - launch.DirtyTreeHandlerStale ("stale"): proceed against committed
+//     state only, warning that the child will not see the listed changes.
+//   - launch.DirtyTreeHandlerFail ("fail"): refuse the spawn outright — the
+//     message names the uncommitted paths and the alternatives.
 //
 // --degraded (strictness.Degraded()) plays NO role in any of the four: which
 // one runs is governed entirely by dirty_tree_handler. Overloading the
 // global degraded flag here would silently convert "refuse/handle a dirty
 // spawn deliberately" back into "hand the child stale content" via a flag
 // set for unrelated startup-finding reasons — reintroducing the exact bug
-// this gate exists to prevent. (resolveChatModel/isolationGateErr above DO
-// still respect --degraded; that is unchanged and unrelated to this gate.)
+// this gate exists to prevent. (isolationGateErr DOES still respect
+// --degraded; that is unchanged and unrelated to this gate.)
 //
-// DirtyTreeHandler is launch.DirtyTreeHandler under this package's
-// established name; the vocabulary, its names and its one parser are
-// declared in core/launch. Unset and unparseable are different inputs —
-// unset takes the default below, unparseable stops.
-type DirtyTreeHandler = launch.DirtyTreeHandler
-
-const (
-	DirtyTreeHandlerCommit = launch.DirtyTreeHandlerCommit
-	DirtyTreeHandlerCopy   = launch.DirtyTreeHandlerCopy
-	DirtyTreeHandlerStale  = launch.DirtyTreeHandlerStale
-	DirtyTreeHandlerFail   = launch.DirtyTreeHandlerFail
-)
-
-// DirtyTreeHandlerNames is launch.DirtyTreeHandlerNames.
-func DirtyTreeHandlerNames() []string { return launch.DirtyTreeHandlerNames() }
-
-// ParseDirtyTreeHandler is launch.ParseDirtyTreeHandler.
-func ParseDirtyTreeHandler(s string) (DirtyTreeHandler, error) {
-	return launch.ParseDirtyTreeHandler(s)
-}
-
-// defaultDirtyTreeHandler is the built-in default when NEITHER the agent_run
-// caller NOR the project config says anything explicit: "commit" (an empty
-// cfg.GetDirtyTreeHandler() falls back to this).
-const defaultDirtyTreeHandler = DirtyTreeHandlerCommit
-
-// resolveDirtyTreeHandler applies the precedence (per-call req wins, else
-// the project config default, else the built-in default) — the same
-// three-tier resolution the workspace axis takes.
-// req arrives ALREADY PARSED (the edge that accepted it — coord's
-// serveSpawnAgent, the MCP tool handler — converted it); the project config
-// is a raw string and is parsed here, the same way and with the same verdict.
+// The ORIGINATOR's own worktree run is not gated: the human who asked for
+// `--workspace worktree` is at the terminal with the tree in front of them,
+// and the handler's whole subject is a child spawned by an agent that
+// cannot see what it would hand over. Cells.Prepare gates on
+// sessions.Identity.IsChild.
 //
-// An unrecognized value at either level REFUSES the spawn. It cannot fall
-// through to the built-in default: that default is the "commit" handler,
-// which mutates the user's branch, and reaching it through a spelling nobody
-// recognized routes around the very consent the commit handler is gated on
-// (see commitDirtyTree's acknowledgement gate). A project that pinned "fail"
-// and a caller who typo'd must land on a refusal, not on the one member that
-// writes.
-func resolveDirtyTreeHandler(cfg *config.Config, req DirtyTreeHandler) (DirtyTreeHandler, error) {
-	if req != "" {
-		return req, nil
-	}
-	handler, err := ParseDirtyTreeHandler(cfg.GetDirtyTreeHandler())
-	if err != nil {
-		return "", fmt.Errorf("agent_run: this project's dirty_tree_handler config default is unusable: %w — fix `dirty_tree_handler:` in .ctxloom/config.yaml, or pass a valid one on this call", err)
-	}
-	if handler == "" {
-		return defaultDirtyTreeHandler, nil
-	}
-	return handler, nil
-}
-
 // dirtyTreeOutcome is what handleDirtyParentTree decided, for the cells
 // adapter to act on. Only the "copy" handler populates copy — its
 // file reproduction is deferred until the worktree actually exists (see
@@ -268,7 +219,7 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 // doubles pass a bare temp dir): never blocks the spawn, matching how the
 // isolation chain's OWN git checks degrade (chainFor's worktree branch
 // degrades silently to None on a non-repo dir rather than failing the run).
-func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, handler DirtyTreeHandler) (dirtyTreeOutcome, error) {
+func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, handler launch.DirtyTreeHandler) (dirtyTreeOutcome, error) {
 	dirty, err := gitClient.IsDirty(ctx, workDir)
 	if err != nil || !dirty {
 		return dirtyTreeOutcome{}, nil
@@ -276,10 +227,10 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 	files := boundDirtyChanges(gitClient.WorkingChanges(ctx, workDir, 0))
 
 	switch handler {
-	case DirtyTreeHandlerFail:
+	case launch.DirtyTreeHandlerFail:
 		return dirtyTreeOutcome{}, dirtyTreeFailError(agentName, workDir, files)
 
-	case DirtyTreeHandlerStale:
+	case launch.DirtyTreeHandlerStale:
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: agent %q is spawning into a worktree while %s has uncommitted changes (dirty_tree_handler: \"stale\") — the child will NOT see these changes, only committed state:\n", agentName, workDir)
 		files.writeTo(&b)
@@ -287,7 +238,7 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 		clidiag.Warn("ctxloom", "%s", b.String())
 		return dirtyTreeOutcome{}, nil
 
-	case DirtyTreeHandlerCopy:
+	case launch.DirtyTreeHandlerCopy:
 		patch, perr := gitClient.DiffPatch(ctx, workDir)
 		if perr != nil {
 			return dirtyTreeOutcome{}, fmt.Errorf(`dirty_tree_handler "copy": reading %s's tracked changes: %w`, workDir, perr)
@@ -298,16 +249,17 @@ func handleDirtyParentTree(ctx context.Context, cfg *config.Config, gitClient gi
 		}
 		return dirtyTreeOutcome{copy: &copySnapshot{patch: patch, untracked: untracked, sourceDir: workDir}}, nil
 
-	case DirtyTreeHandlerCommit:
+	case launch.DirtyTreeHandlerCommit:
 		return dirtyTreeOutcome{}, commitDirtyTree(ctx, cfg, gitClient, workDir, agentName, files)
 
 	default:
-		// Unreachable through resolveDirtyTreeHandler, which parses before
-		// dispatching here. It stays as a REFUSAL rather than a fallback to
-		// the commit arm: a caller that reached this dispatch with a value
-		// no parse admitted has said nothing this function may act on, and
-		// the arm it would otherwise land on rewrites the user's branch.
-		return dirtyTreeOutcome{}, fmt.Errorf("agent_run: dirty_tree_handler %q reached the dirty-tree dispatch unparsed (known: %s) — refusing to spawn rather than guess a handler that could commit %s", handler, strings.Join(DirtyTreeHandlerNames(), "|"), workDir)
+		// Unreachable through launch.Resolve, which settles a parsed handler
+		// before the cell is prepared. It stays as a REFUSAL rather than a
+		// fallback to the commit arm: a caller that reached this dispatch
+		// with a value no parse admitted (or none at all) has said nothing
+		// this function may act on, and the arm it would otherwise land on
+		// rewrites the user's branch.
+		return dirtyTreeOutcome{}, fmt.Errorf("agent_run: dirty_tree_handler %q reached the dirty-tree dispatch unparsed (known: %s) — refusing to spawn rather than guess a handler that could commit %s", handler, strings.Join(launch.DirtyTreeHandlerNames(), "|"), workDir)
 	}
 }
 

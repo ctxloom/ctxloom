@@ -81,7 +81,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	dirty, err := ParseDirtyTreeHandler(firstNonEmpty(string(src.DirtyTree), cfg.GetDirtyTreeHandler()))
+	dirty, err := resolveDirtyTree(cfg, src)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -260,6 +260,27 @@ func resolveAxes(cfg *config.Config, src Source, sel selection) (Axes, error) {
 		rt = RuntimeHost
 	}
 	return Axes{Workspace: ws, Runtime: rt}, nil
+}
+
+// resolveDirtyTree settles what a worktree cell does about a dirty parent
+// tree, ONCE: the invocation's handler, else the project default, else the
+// built-in. The request arrives typed (its edge parsed it); the project
+// default is parsed here and an unusable spelling REFUSES rather than
+// falling through — the built-in is the member that auto-commits the user's
+// branch, and reaching it through a spelling nobody recognised routes
+// around the consent that handler is gated on.
+func resolveDirtyTree(cfg *config.Config, src Source) (DirtyTreeHandler, error) {
+	if src.DirtyTree != "" {
+		return src.DirtyTree, nil
+	}
+	handler, err := ParseDirtyTreeHandler(cfg.GetDirtyTreeHandler())
+	if err != nil {
+		return "", fmt.Errorf("this project's dirty_tree_handler default is unusable: %w — fix `dirty_tree_handler:` in .ctxloom/config.yaml, or pass a valid one on this call", err)
+	}
+	if handler == "" {
+		return DirtyTreeHandlerCommit, nil
+	}
+	return handler, nil
 }
 
 // floorPermission is THE floor, applied once. The first DECLARED source

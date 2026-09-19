@@ -48,7 +48,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/resources"
@@ -121,7 +120,7 @@ type schemaEnumBinding struct {
 var schemaEnumBindings = []schemaEnumBinding{
 	// Project-default axes (top-level).
 	{path: "properties/workspace", goNames: isolation.WorkspaceNames},
-	{path: "properties/dirty_tree_handler", goNames: operations.DirtyTreeHandlerNames},
+	{path: "properties/dirty_tree_handler", goNames: launch.DirtyTreeHandlerNames},
 	{path: "properties/runtime", goNames: launch.RuntimeNames},
 	{path: "properties/permissions", goNames: agentaxis.PermissionModeNames},
 

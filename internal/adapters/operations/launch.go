@@ -177,9 +177,10 @@ func (assembler) Surfaces(_ context.Context, snap *config.Snapshot, eng engine.N
 }
 
 // Cells implements launch.Cells: it settles the dirty parent tree for a
-// worktree cell, prepares the workspace through isolation's degrade chain,
-// binds the engine's controlled home and reports the cell's roots and env.
-// A requested boundary that could not be provided is refused here, typed.
+// delegated child's worktree cell, prepares the workspace through
+// isolation's degrade chain, binds the engine's controlled home and reports
+// the cell's roots and env. A requested boundary that could not be provided
+// is refused here, typed.
 type Cells struct {
 	cfg *config.Config
 	// Git overrides the git seam the dirty-parent-tree decision uses (nil
@@ -217,16 +218,16 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		gitClient   git.Git
 		pendingCopy *copySnapshot
 	)
-	if req.Axes.Workspace == launch.WorkspaceWorktree {
+	// The dirty-tree handler is a DELEGATED spawn's concern (its rationale
+	// is with handleDirtyParentTree): the originator who asked for a
+	// worktree is at the terminal with the tree in front of them, and is
+	// not gated on it. The handler itself arrives settled by the resolver.
+	if req.Axes.Workspace == launch.WorkspaceWorktree && req.Identity.IsChild() {
 		gitClient = c.Git
 		if gitClient == nil {
 			gitClient = git.NewExec()
 		}
-		handler, err := resolveDirtyTreeHandler(c.cfg, req.DirtyTree)
-		if err != nil {
-			return launch.Cell{}, err
-		}
-		outcome, err := handleDirtyParentTree(ctx, c.cfg, gitClient, req.ProjectRoot, harp, handler)
+		outcome, err := handleDirtyParentTree(ctx, c.cfg, gitClient, req.ProjectRoot, harp, req.DirtyTree)
 		if err != nil {
 			return launch.Cell{}, err
 		}

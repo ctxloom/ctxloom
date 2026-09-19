@@ -76,8 +76,17 @@ func TestDirtyTreeHandler_Values_AndParse(t *testing.T) {
 		require.NoError(t, err, s)
 		assert.Equal(t, DirtyTreeHandler(s), got)
 	}
-	_, err := ParseDirtyTreeHandler("comit")
-	require.Error(t, err, "the default member commits the user's tree; a typo must stop the spawn")
+	// The default member commits the user's tree, so anything that is not
+	// exactly a member stops the spawn — a typo, a case variant, stray
+	// whitespace, a value from another vocabulary — and the refusal quotes
+	// what the caller actually typed and names the legal set.
+	for _, bad := range []string{"comit", "fial", "COMMIT", " commit", "commit ", "true", "none"} {
+		got, err := ParseDirtyTreeHandler(bad)
+		require.Error(t, err, "%q is not a member", bad)
+		assert.Equal(t, DirtyTreeHandler(""), got, "a refused parse yields no handler at all, least of all the default")
+		assert.Contains(t, err.Error(), bad)
+		assert.Contains(t, err.Error(), "commit|copy|stale|fail")
+	}
 }
 
 func TestSource_CarriesWhatACallerKnows(t *testing.T) {

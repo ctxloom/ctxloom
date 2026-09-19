@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -143,15 +143,15 @@ func (p *initPrompts) promptPersonalRepos() ([]string, error) {
 // the full line shown for it (already including its trailing consequence
 // text, so the loop below only needs to number and print each one).
 type dirtyTreeHandlerOption struct {
-	value operations.DirtyTreeHandler
+	value launch.DirtyTreeHandler
 	label string
 }
 
 // dirtyTreeHandlerOptions is promptDirtyTreeHandler's menu, in display order.
-// Index 0 (DirtyTreeHandlerCommit) is both the built-in default (operations
-// package's defaultDirtyTreeHandler) and what a bare Enter picks, mirroring
-// promptEngineSelection's "Enter for recommended" convention. The values are
-// the operations constants themselves, not copies of their text: this menu
+// Index 0 (launch.DirtyTreeHandlerCommit) is both the built-in default the
+// resolver falls back to (launch.Resolve) and what a bare Enter picks,
+// mirroring promptEngineSelection's "Enter for recommended" convention. The
+// values are launch's constants themselves, not copies of their text: this menu
 // writes dirty_tree_handler, and the handler that reads it back is the only
 // authority on what the four values are. Wording must stay in lockstep with
 // the real refusal/warning text a mismatched choice would later hit — see
@@ -159,19 +159,19 @@ type dirtyTreeHandlerOption struct {
 // dirtyTreeFailError/commitDirtyTree/handleDirtyParentTree "stale" branch.
 var dirtyTreeHandlerOptions = []dirtyTreeHandlerOption{
 	{
-		value: operations.DirtyTreeHandlerCommit,
+		value: launch.DirtyTreeHandlerCommit,
 		label: "commit — ctxloom may commit your uncommitted changes onto your current branch on your behalf, so the child can see them (each such commit is announced when it happens) (Recommended)",
 	},
 	{
-		value: operations.DirtyTreeHandlerCopy,
+		value: launch.DirtyTreeHandlerCopy,
 		label: "copy — reproduce your uncommitted changes inside the child's own worktree as uncommitted WIP; nothing on your branch is ever touched",
 	},
 	{
-		value: operations.DirtyTreeHandlerStale,
+		value: launch.DirtyTreeHandlerStale,
 		label: "stale — the child sees only your last commit; your uncommitted work stays invisible to it",
 	},
 	{
-		value: operations.DirtyTreeHandlerFail,
+		value: launch.DirtyTreeHandlerFail,
 		label: "fail — refuse the delegation instead of guessing",
 	},
 }
@@ -183,7 +183,7 @@ var dirtyTreeHandlerOptions = []dirtyTreeHandlerOption{
 // your tree is dirty" are the SAME choice among commit/copy/stale/fail, and
 // asking both would just rubber-stamp the first with the second (see this
 // task's brief). ack is true if and only if the chosen handler is the commit
-// handler (operations.DirtyTreeHandlerCommit) —
+// handler (launch.DirtyTreeHandlerCommit) —
 // every other handler never mutates the user's repo and needs no
 // acknowledgement (config.Config.dirtyTreeCommitAck's doc).
 //
@@ -220,7 +220,7 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 			}
 			opt = dirtyTreeHandlerOptions[num-1]
 		}
-		return string(opt.value), opt.value == operations.DirtyTreeHandlerCommit, nil
+		return string(opt.value), opt.value == launch.DirtyTreeHandlerCommit, nil
 	}
 }
 

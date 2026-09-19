@@ -30,6 +30,7 @@ type Env struct {
 	Deps     launch.Deps
 	Identity sessions.Identity
 	Project  string
+	cells    *cells
 }
 
 // Option adjusts the fixture before Deps builds it.
@@ -50,6 +51,8 @@ type fixture struct {
 	// (config.yaml's `runtime:` and `permissions:`).
 	projectRuntime     string
 	projectPermissions string
+	// projectDirtyTree is the project-level `dirty_tree_handler:` default.
+	projectDirtyTree string
 	// profileLLM is the label the "base" profile declares, reported by the
 	// assembler double.
 	profileLLM string
@@ -117,6 +120,9 @@ func ProjectRuntime(s string) Option { return func(f *fixture) { f.projectRuntim
 // ProjectPermissions sets the project's `permissions:` default.
 func ProjectPermissions(s string) Option { return func(f *fixture) { f.projectPermissions = s } }
 
+// ProjectDirtyTree sets the project's `dirty_tree_handler:` default, unparsed.
+func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirtyTree = s } }
+
 // NoReadOnlyPlan makes the fixture engine declare no read-only tier.
 func NoReadOnlyPlan() Option { return func(f *fixture) { f.noReadOnlyPlan = true } }
 
@@ -152,10 +158,11 @@ func Deps(t *testing.T, opts ...Option) Env {
 			},
 			Defaults: config.RoleDefaults{Primary: "primary", Fast: "fast"},
 		},
-		Agents:       bindings,
-		DefaultAgent: "setup",
-		Runtime:      f.projectRuntime,
-		Permissions:  f.projectPermissions,
+		Agents:           bindings,
+		DefaultAgent:     "setup",
+		Runtime:          f.projectRuntime,
+		Permissions:      f.projectPermissions,
+		DirtyTreeHandler: f.projectDirtyTree,
 	})
 	snap := &config.Snapshot{Config: cfg, Trust: composite.Trust{}}
 
@@ -170,12 +177,14 @@ func Deps(t *testing.T, opts ...Option) Env {
 	entry, err := store.AssignHarp(project, "")
 	require.NoError(t, err)
 
+	c := &cells{available: f.available, withoutContainer: f.withoutContainer}
 	return Env{
+		cells: c,
 		Deps: launch.Deps{
 			Snapshot:  snap,
 			Engines:   reg,
 			Assembler: assembler{profileLLM: f.profileLLM},
-			Cells:     &cells{available: f.available, withoutContainer: f.withoutContainer},
+			Cells:     c,
 			Endpoints: &StableMinter{},
 			Sessions:  store,
 			Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
@@ -184,6 +193,10 @@ func Deps(t *testing.T, opts ...Option) Env {
 		Project:  project,
 	}
 }
+
+// LastCellRequest is the request the resolver handed the cells port on its
+// most recent Prepare: what the cell was asked for, as settled by Resolve.
+func (e Env) LastCellRequest() launch.CellRequest { return e.cells.last }
 
 // Expect is what one Source resolves to.
 type Expect struct {
@@ -303,9 +316,11 @@ func (surfaces) Items() engine.Items { return engine.Items{} }
 type cells struct {
 	available        map[launch.RuntimeAxis]bool
 	withoutContainer bool
+	last             launch.CellRequest
 }
 
 func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell, error) {
+	c.last = req
 	if req.Axes.WantsContainer() {
 		if !c.available[req.Axes.Runtime] {
 			return launch.Cell{}, launch.ErrOwnershipMismatch

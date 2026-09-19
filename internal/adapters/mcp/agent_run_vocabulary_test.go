@@ -11,7 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -86,7 +86,7 @@ func agentRunEnum(t *testing.T, schema map[string]any, argument string) []string
 func TestAgentRun_ConstrainsPerCallVocabulariesOnBothSurfaces(t *testing.T) {
 	for name, schema := range agentRunSurfaces(t) {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, operations.DirtyTreeHandlerNames(), agentRunEnum(t, schema, "dirty_tree_handler"),
+			assert.Equal(t, launch.DirtyTreeHandlerNames(), agentRunEnum(t, schema, "dirty_tree_handler"),
 				"the advertised dirty_tree_handler enum must be the vocabulary operations owns")
 			assert.Equal(t, isolation.WorkspaceNames(), agentRunEnum(t, schema, "workspace"),
 				"the advertised workspace enum must be the vocabulary isolation owns")
@@ -139,7 +139,7 @@ func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
 	// fails later, on this fixture's missing agent. So the refusal below is
 	// the enum rejecting the spelling, not the call failing for its own
 	// unrelated reasons.
-	declared := call(string(operations.DirtyTreeHandlerStale))
+	declared := call(string(launch.DirtyTreeHandlerStale))
 	assert.NotContains(t, declared, "does not equal any of", "a declared member is not an argument-validation failure")
 
 	typo := call("fial")

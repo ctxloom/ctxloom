@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
@@ -247,10 +248,10 @@ func consumeCoordinatorReachBack(backendName string, getenv func(string) string,
 			RunID:   getenv(coord.EnvRunID),
 			Harness: backendName,
 			Version: version.Version,
-			Harp:    getenv("CTXLOOM_SESSION_HARP"),
+			Harp:    getenv(sessions.EnvHarp),
 			Depth:   parseRunDepth(getenv(coord.EnvRunDepth)),
 		},
-		harp:        getenv("CTXLOOM_SESSION_HARP"),
+		harp:        getenv(sessions.EnvHarp),
 		cellWorkDir: getenv(coord.EnvCellWorkDir),
 		depth:       parseRunDepth(getenv(coord.EnvRunDepth)),
 		// Any value other than exactly "true" (unset, empty, garbage) reads

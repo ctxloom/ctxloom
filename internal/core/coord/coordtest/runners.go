@@ -28,6 +28,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -73,7 +74,7 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		Version:      "coordtest",
 		Engine:       host.Handle,
 		Capabilities: coord.RunnerCapabilities(true),
-		Harp:         runnerEnv["CTXLOOM_SESSION_HARP"],
+		Harp:         runnerEnv[sessions.EnvHarp],
 		Depth:        runDepth(runnerEnv),
 	})
 	if err != nil {

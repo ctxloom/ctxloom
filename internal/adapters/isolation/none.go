@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
@@ -12,16 +13,6 @@ import (
 // actually forking a `ctxloom llm host` subprocess. Mirrors the
 // selectRuntimeProbe / sharedFSCheck seams.
 var startHostRunner = pb.StartHostRunner
-
-// envCellWorkDir duplicates agentcoord/coord.EnvCellWorkDir's value
-// ("CTXLOOM_CELL_WORKDIR") as a literal rather than importing it: coord
-// already imports THIS package (see runchannel.go), so importing coord back
-// from here would be an import cycle. The copy is not left unguarded —
-// TestEnvCellWorkDir_MatchesTheCanonicalCoordConstant (an EXTERNAL test
-// package, so it adds no production edge) fails if the two ever drift. See
-// internal/core/coord/identity.go's EnvCellWorkDir doc for the
-// canonical source of truth on this variable's meaning and lifecycle.
-const envCellWorkDir = "CTXLOOM_CELL_WORKDIR"
 
 // None is the default, host isolation policy — behaviour-identical to today.
 // The workspace IS the live project directory (no worktree, no container), its
@@ -83,7 +74,7 @@ func spawnEnvWithCellWorkDir(spawnEnv map[string]string, ws Workspace) map[strin
 	}
 	if ws != nil {
 		if dir := ws.Dir(); dir != "" {
-			env[envCellWorkDir] = dir
+			env[sessions.EnvCellWorkDir] = dir
 		}
 	}
 	return env

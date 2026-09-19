@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
@@ -106,7 +107,7 @@ func sessionInstructions(harp string) string {
 	sessionLine := fmt.Sprintf("\n\nYour session is named `%s`. Refer to it by this name when discussing it with the user.", harp)
 	// Resume provenance is a property of THIS serving process's session
 	// only, so the env read stays gated on the ambient harp matching.
-	if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" && harp == os.Getenv("CTXLOOM_SESSION_HARP") {
+	if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" && harp == os.Getenv(sessions.EnvHarp) {
 		parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
 		if parts == "" {
 			parts = "session,tasks"

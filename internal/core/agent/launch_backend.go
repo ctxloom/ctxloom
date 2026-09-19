@@ -12,13 +12,15 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// SessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.
-// "fair-pushy-cable"). The host sets it on the run env; Setup reads it to place
-// session-scoped delivery scratch under the harp's private ephemeral dir.
-const SessionHarpEnv = "CTXLOOM_SESSION_HARP"
+// SessionHarpEnv is sessions.EnvHarp under this package's established name:
+// the env var carrying ctxloom's per-session harp name. The host sets it on
+// the run env; Setup reads it to place session-scoped delivery scratch under
+// the harp's private ephemeral dir.
+const SessionHarpEnv = sessions.EnvHarp
 
 // ManagedLifecycle folds a host-assembled ManagedConfig into its managed hooks +
 // MCP; the surfaces × cells Setup then reads the merged state (GetHooks/GetMCP)

@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -245,7 +246,7 @@ func seedTaskIntoSession(workDir, activeHarp, harpID, status string) {
 	}
 	res, err := taskops.SetTaskStatus(taskops.TaskContext{
 		WorkDir:     workDir,
-		ProjectID:   os.Getenv("CTXLOOM_PROJECT_ID"),
+		ProjectID:   os.Getenv(sessions.EnvProjectID),
 		SessionHarp: activeHarp,
 	}, harpID, status, "")
 	if err != nil {
@@ -1048,7 +1049,7 @@ func (st *runState) openSession() func() {
 	}
 
 	st.activeHarp = entry.HarpName
-	st.runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
+	st.runEnv[sessions.EnvHarp] = entry.HarpName
 	st.applyResumeEnv()
 
 	// Start-session display: a read-only summary of this session,
@@ -1131,7 +1132,7 @@ func (st *runState) exportProjectIdentity() {
 		clidiag.Warn("ctxloom", "project identity unresolved: %v", err)
 		return
 	}
-	st.runEnv["CTXLOOM_PROJECT_ID"] = pid
+	st.runEnv[sessions.EnvProjectID] = pid
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
@@ -1956,7 +1957,7 @@ func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws 
 	// workspace's own mounts+env, not this map.
 	keepaliveEnv := map[string]string{}
 	if harp != "" {
-		keepaliveEnv["CTXLOOM_SESSION_HARP"] = harp
+		keepaliveEnv[sessions.EnvHarp] = harp
 	}
 	handle, err := policy.StartRunner(ctx, backendName, label, verbosity, ws, keepaliveEnv)
 	if err != nil {

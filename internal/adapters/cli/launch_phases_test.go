@@ -118,6 +118,12 @@ func TestResolveViaPhases_FiveSources_ParityWithToday(t *testing.T) {
 		{"internal one-shot",
 			launch.Source{Identity: id, Agent: "distiller", Mode: engine.Structured, Prompt: "payload"},
 			runFlags{agent: "distiller", oneShot: true}},
+		// An EXPLICIT permission is the one input the other rows never carry:
+		// without it, the "was a permission requested" branch is never observed
+		// and an inverted test there survives the whole table.
+		{"explicit permission",
+			launch.Source{Identity: id, Agent: "dev", Mode: engine.Interactive, Prompt: "x", Permission: engine.PermissionBypass},
+			runFlags{agent: "dev", permissions: engine.PermissionBypass.String()}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

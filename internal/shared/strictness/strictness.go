@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // prog stamps the warning lines. It defaults to ctxloom's own name and a
@@ -432,6 +433,18 @@ func Reset() {
 	}
 	windows = map[int64]*window{}
 	windowsMu.Unlock()
+}
+
+// Ledger records a fail-loudly report.Finding without rendering it. It is
+// the one entry a rendering sink uses after it has written the text itself:
+// the Finding's Once and NonDegradable carry the record's dedup and
+// --degraded semantics, and its Remedy is the FixIt. An advisory finding
+// (empty Kind) is not a fault and is not recorded.
+func Ledger(f report.Finding) {
+	if !f.Fatal() {
+		return
+	}
+	record(Class(f.Kind), f.Remedy, detailOr(Class(f.Kind), f.Text), f.Once, f.NonDegradable)
 }
 
 // Fail reports a fatal-class fault at a choke. The warning line streams to

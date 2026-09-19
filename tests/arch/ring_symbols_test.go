@@ -34,8 +34,11 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // outsideRings are the module-relative prefixes the ring rules do not apply
@@ -315,4 +318,86 @@ func TestArch_OneMintOneOwner(t *testing.T) {
 
 func TestArch_OneMintOneOwner_AllowlistIsLive(t *testing.T) {
 	checkRingAllowlistIsLive(t, "one-mint-one-owner", scanOneMintOneOwner(t), oneMintOneOwnerAllowed)
+}
+
+// ---------------------------------------------------------------------------
+// no-engine-name-in-core
+// ---------------------------------------------------------------------------
+
+// engineNameHomes are the directories where an engine's registered name may
+// be a string literal: the engine packages themselves (today's spellings;
+// internal/engines/* after the rename) and the mock engine's binary.
+var engineNameHomes = []string{
+	"internal/claude",
+	"internal/mockengine",
+	"internal/lm/engines",
+	"internal/lm/backends",
+	"cmd/mockengine",
+}
+
+// engineNameInitPrompt reports whether rel is one of the init prompts that
+// WRITE config data (Part 1.1 permits the literal there, until init chooses
+// its default from engine.Registry.Names instead).
+func engineNameInitPrompt(rel string) bool {
+	return filepath.Dir(rel) == "internal/cli" && strings.HasPrefix(filepath.Base(rel), "init")
+}
+
+// noEngineNameInCoreAllowed is the rule's shrinking allowlist, keyed by
+// FILE (the brief's granularity for a literal rule: a file either spells
+// the name or it does not), mapped to the slice in which the spelling
+// leaves.
+var noEngineNameInCoreAllowed = map[string]string{}
+
+// scanEngineNameLiterals finds every string literal equal to a registered
+// engine name outside the engine homes and the init prompts. The names are
+// read from the live registry (composed by TestMain), never listed here.
+func scanEngineNameLiterals(t *testing.T) []ringSite {
+	t.Helper()
+	names := backends.List()
+	if len(names) == 0 {
+		t.Fatal("backends.List() returned nothing — the registry did not populate; the rule has nothing to look for")
+	}
+	isName := make(map[string]bool, len(names))
+	for _, n := range names {
+		isName[n] = true
+	}
+
+	var out []ringSite
+	seen := map[string]bool{}
+	walkRingFiles(t, func(rf ringFile) {
+		if underAny(rf.dir, engineNameHomes) || engineNameInitPrompt(rf.rel) {
+			return
+		}
+		ast.Inspect(rf.f, func(n ast.Node) bool {
+			e, ok := n.(ast.Expr)
+			if !ok {
+				return true
+			}
+			v, ok := vocabStringLit(e)
+			if !ok || !isName[v] {
+				return true
+			}
+			// One site per file: the key is the file, so a second literal in
+			// the same file is the same finding.
+			if seen[rf.rel] {
+				return true
+			}
+			seen[rf.rel] = true
+			out = append(out, ringSite{file: rf.rel, symbol: "", what: "spells the engine name " + strconv.Quote(v), line: rf.fset.Position(n.Pos()).Line})
+			return true
+		})
+	})
+	return out
+}
+
+// TestArch_NoEngineNameInCore is the gate: a registered engine name is a
+// string literal only where the engine lives, in config data and in the
+// init prompts that write config data.
+func TestArch_NoEngineNameInCore(t *testing.T) {
+	checkRingAllowlist(t, "no-engine-name-in-core", scanEngineNameLiterals(t), noEngineNameInCoreAllowed,
+		"Part 1.1: the core reads the engine's declarations and never branches on its name")
+}
+
+func TestArch_NoEngineNameInCore_AllowlistIsLive(t *testing.T) {
+	checkRingAllowlistIsLive(t, "no-engine-name-in-core", scanEngineNameLiterals(t), noEngineNameInCoreAllowed)
 }

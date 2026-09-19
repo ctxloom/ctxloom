@@ -10,6 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
@@ -185,7 +189,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 	// a SessionStart hook, the MCP server, the CLI, the runner, and an
 	// in-container ctxloom (same file bind-mounted) all reach this same
 	// settings.json unlocked otherwise — see agent.WithFileLock's doc.
-	return agent.WithFileLock(fs, settingsPath, func() error {
+	return sessions.WithFileLock(fs, settingsPath, func() error {
 		// Ensure .claude directory exists
 		claudeDir := filepath.Dir(settingsPath)
 		if err := fs.MkdirAll(claudeDir, 0755); err != nil {
@@ -248,7 +252,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 		// the record is current state, never an append-only history, so it cannot
 		// accumulate cruft — a surface ctxloom stops writing is cleared, not grown.
 		var statusNow []string
-		if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
+		if settings.StatusLine != nil && exectoken.IsManaged(settings.StatusLine.Command, "ctxloom") {
 			statusNow = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
 		}
 		return led.Write(ledger.SurfaceStatusLine, statusNow)
@@ -519,7 +523,7 @@ func (w *ClaudeCodeHookWriter) saveSettings(path string, settings *claudeCodeSet
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	return agent.AtomicWriteFile(w.getFS(), path, data, "settings")
+	return iox.AtomicWriteFile(w.getFS(), path, data, "settings")
 }
 
 // writeMCPConfig writes MCP servers to .mcp.json.
@@ -835,7 +839,7 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "tool-reflect", "skill-mates", "next-step", "hud"}
 
 func isCtxloomMachineCallback(command string) bool {
-	if !agent.IsManaged(command, "ctxloom") {
+	if !exectoken.IsManaged(command, "ctxloom") {
 		return false
 	}
 	for _, sub := range ctxloomMachineCallbacks {
@@ -1066,7 +1070,7 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	fs := w.getFS()
 	settingsPath := w.SettingsPath(projectDir)
 	// See writeSettingsFile: same file, same lock, same race to close.
-	return agent.WithFileLock(fs, settingsPath, func() error {
+	return sessions.WithFileLock(fs, settingsPath, func() error {
 		exists, err := configExists(fs, settingsPath)
 		if err != nil {
 			return err
@@ -1151,7 +1155,7 @@ func (w *ClaudeCodeHookWriter) Status(projectDir string) (agent.SettingsStatus, 
 			return status, fmt.Errorf("failed to load existing settings: %w", err)
 		}
 		status.HooksPresent = claudeHasManagedHook(settings)
-		status.StatusLine = settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom")
+		status.StatusLine = settings.StatusLine != nil && exectoken.IsManaged(settings.StatusLine.Command, "ctxloom")
 	}
 
 	mcpPath := w.MCPConfigPath(projectDir)
@@ -1185,7 +1189,7 @@ func claudeHasManagedHook(settings *claudeCodeSettings) bool {
 	for _, matchers := range settings.Hooks {
 		for _, matcher := range matchers {
 			for _, hook := range matcher.Hooks {
-				if hook.SCM != "" || agent.IsManaged(hook.Command, "ctxloom") {
+				if hook.SCM != "" || exectoken.IsManaged(hook.Command, "ctxloom") {
 					return true
 				}
 			}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+
 	"path/filepath"
 
 	hew "github.com/benjaminabbitt/hew/go"
@@ -27,7 +29,6 @@ import (
 	"github.com/spf13/cobra"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -190,7 +191,7 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		return result, err
 	}
 
-	lockErr := agent.WithFileLock(fs, file, func() error {
+	lockErr := sessions.WithFileLock(fs, file, func() error {
 		base, rawBefore, existed, err := readExisting(fs, file, ft)
 		result.Created = !existed
 		if err != nil {
@@ -311,7 +312,7 @@ func writeConfigFile(fs afero.Fs, file string, out []byte) error {
 			return fmt.Errorf("config-write: create directory for %s: %w", file, err)
 		}
 	}
-	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file)); err != nil {
+	if err := iox.AtomicWriteFile(fs, file, out, filepath.Base(file)); err != nil {
 		return fmt.Errorf("config-write: write %s: %w", file, err)
 	}
 	return nil
@@ -633,7 +634,7 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 	if err != nil {
 		return "", err
 	}
-	if err := agent.AtomicWriteFile(fs, recordPath, out, filepath.Base(recordPath)); err != nil {
+	if err := iox.AtomicWriteFile(fs, recordPath, out, filepath.Base(recordPath)); err != nil {
 		return "", fmt.Errorf("write %s: %w", recordPath, err)
 	}
 	return recordPath, nil

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/spf13/afero"
 )
 
@@ -208,81 +206,6 @@ func ComputeHookHash(h wire.Hook) string {
 	}
 	hash := sha256.Sum256([]byte(strings.Join(parts, "|")))
 	return hex.EncodeToString(hash[:8]) // first 8 bytes for brevity
-}
-
-// AtomicWriteFile writes data to path atomically: it backs up any existing file
-// through iox.WriteFileAtomicFs (unique temp
-// in the destination directory, fsync, rename). There is no non-atomic
-// fallback: a rename failure is returned, never papered over.
-//
-// The existing file's mode is preserved across the rewrite, and a brand-new
-// file defaults to 0600 (not a world-readable 0644). Settings files written
-// here can carry MCPServer.Env secrets (API keys/tokens), so a mode a user
-// deliberately tightened must never be silently widened.
-func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ...WriteFileOption) error {
-	var o writeFileOptions
-	for _, opt := range opts {
-		opt(&o)
-	}
-
-	// Default new files to owner-only; reuse the existing mode when present.
-	//
-	// NO BACKUP IS TAKEN. This used to copy the live bytes to
-	// "<path>.ctxloom.bak" first, because a writer that could not tell its own
-	// entries from the user's had to rewrite the file wholesale and keep a
-	// copy in case it was wrong. Every writer reaching this function now knows
-	// what it owns — through the sidecar ledger (internal/shared/ledger) or
-	// through in-file managed markers — so it edits its own content and leaves
-	// the rest untouched, and there is nothing to recover from. The copies were
-	// never free: single-slot and overwritten by the very next write, they had
-	// accumulated into the hundreds across a developer's engine config dirs
-	// while being least useful in the case that actually recurs, a bad write
-	// repeated.
-	perm := os.FileMode(0600)
-	if info, err := fs.Stat(path); err == nil {
-		perm = info.Mode().Perm()
-	}
-
-	// Route through iox: a fixed temp name (path + ".ctxloom.tmp") is exactly
-	// the concurrent-clobber hazard iox.WriteFileAtomicFs's unique name exists
-	// to prevent, and it fsyncs before the rename. A failed rename here is a
-	// real fault and must be reported, never papered over by a DIRECT
-	// non-atomic overwrite of the live file that a reader can observe
-	// half-finished. Such a fallback would only be justified cross-device,
-	// which cannot occur: the temp lives in the destination directory.
-	//
-	// The zero-length-over-existing refusal is iox's own guard now (promoted
-	// from here, fs-consolidation plan C4/Q1): AllowEmptyWrite maps straight
-	// onto iox.AllowEmpty rather than this function keeping a second copy of
-	// the check. The one legitimate exception (codex's config.toml, whose
-	// TOML encoder renders an emptied managed set as literally zero bytes,
-	// unlike JSON's "{}") still opts in explicitly; every other caller's
-	// removal path goes through fs.Remove instead, never here.
-	var iopts []iox.Option
-	if o.allowEmpty {
-		iopts = append(iopts, iox.AllowEmpty())
-	}
-	if err := iox.WriteFileAtomicFs(fs, path, data, perm, iopts...); err != nil {
-		return fmt.Errorf("failed to write %s: %w", desc, err)
-	}
-	return nil
-}
-
-// WriteFileOption configures AtomicWriteFile's default refusal-of-empty-writes
-// behavior.
-type WriteFileOption func(*writeFileOptions)
-
-type writeFileOptions struct {
-	allowEmpty bool
-}
-
-// AllowEmptyWrite opts an AtomicWriteFile call OUT of the zero-byte refusal
-// guard, for the rare caller that has already decided — with its own,
-// narrower reasoning — that an empty result is legitimate (codex's
-// RemoveSettings/save: stripping ctxloom's own keys from a config that held
-// nothing else legitimately renders as zero TOML bytes).
-func AllowEmptyWrite() WriteFileOption {
-	return func(o *writeFileOptions) { o.allowEmpty = true }
 }
 
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file

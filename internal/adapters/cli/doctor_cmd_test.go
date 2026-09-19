@@ -87,7 +87,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 // a bare host. It also pins the injected hook's exec token to "ctxloom" via
 // selfexec.SetPathForTesting (restored on cleanup): left at its `go test`
 // default, the hook would name the test binary itself, and
-// agent.IsManaged(command, "ctxloom") — keyed on that exact exec-token
+// exectoken.IsManaged(command, "ctxloom") — keyed on that exact exec-token
 // identity — would report it as foreign, not ctxloom-managed. Both are
 // needed for doctorCheckHooksTrust to observe "ok" hermetically, on any
 // host, matching the SAME hooks a fully-wired project always carries

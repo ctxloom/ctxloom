@@ -9,13 +9,13 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gofrs/flock"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
+
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
-	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
 )
 
 // The trust-on-first-use store: the first time a given thing would be
@@ -44,18 +44,6 @@ import (
 // "nothing recorded" is exactly the reading that re-opens a door a human
 // closed.
 const storeVersion = 1
-
-// lockFileMode and lockDirMode are the modes the write-lock sidecar and its
-// parent directory are created with, before umask — not group- or
-// world-WRITABLE, so acquiring the lock stays limited to the owner. This is
-// the advisory-lock convention every lock site in this project shares (see
-// internal/core/agent/rmw_lock.go's identically-reasoned pair); it is
-// deliberately NOT the stricter 0o600/0o700 this store's own DATA file uses
-// (write, below) — the lock sidecar is not the trust-sensitive payload.
-const (
-	lockFileMode = 0o644
-	lockDirMode  = 0o755
-)
 
 // Record is one recorded human decision.
 type Record[K comparable] struct {
@@ -219,7 +207,7 @@ type Store[K comparable, R comparable] struct {
 	// (often nonexistent, often unwritable-by-this-user) paths and asking
 	// the REAL OS to create and flock it would touch actual disk at an
 	// address the test never intended, exactly the crosstalk
-	// config.Owner.Update's injectedFS guard exists to avoid. See isOSBackedFs.
+	// config.Owner.Update's injectedFS guard exists to avoid. See filelock.IsOSBackedFs.
 	useLock bool
 	// misconfigured is the construction fault, held rather than panicked so
 	// construction stays total. Every method surfaces it; nothing reads or
@@ -261,14 +249,6 @@ func WithLockPathFor[K comparable](lp LockPathFor) Option[K] {
 	return func(o *options[K]) { o.lockPathFor = lp }
 }
 
-// isOSBackedFs reports whether fs is the real operating-system filesystem, as
-// opposed to a test double (afero.MemMapFs, a ReadOnlyFs wrapping one, ...).
-// See Store.useLock for why this gates locking.
-func isOSBackedFs(fs afero.Fs) bool {
-	_, ok := fs.(*afero.OsFs)
-	return ok
-}
-
 // NewStore builds a store over path, backed by fs, keyed by key.
 //
 // path need not exist — an absent file is the ordinary "nobody has decided
@@ -296,7 +276,7 @@ func NewStore[K comparable, R comparable](
 	}
 	s := &Store[K, R]{
 		fs: fs, path: path, key: key, scope: o.scope, now: o.now, reasons: reasons,
-		lockPathFor: lockPathFor, useLock: isOSBackedFs(fs),
+		lockPathFor: lockPathFor, useLock: filelock.IsOSBackedFs(fs),
 	}
 	if s.scope == nil {
 		s.scope = key
@@ -514,7 +494,10 @@ func (s *Store[K, R]) Forget(k K) (int, error) {
 
 // lockedRMW acquires this store's write lock and runs fn while holding it,
 // unless the store is backed by a non-OS test filesystem (see useLock), in
-// which case fn runs directly — there is no other process to exclude.
+// which case fn runs directly — there is no other process to exclude. The
+// lock sidecar's modes are the toolbox's (filelock), deliberately NOT the
+// stricter 0o600/0o700 this store's own DATA file uses (write, below) — the
+// sidecar is not the trust-sensitive payload.
 //
 // BOTH a lock-path derivation failure and a lock ACQUISITION failure fail
 // closed: fn never runs unlocked as a fallback. Degrading to unlocked on
@@ -529,18 +512,7 @@ func (s *Store[K, R]) lockedRMW(fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("admission: locating write lock for %s: %w", s.path, err)
 	}
-	if err := s.fs.MkdirAll(filepath.Dir(lockPath), lockDirMode); err != nil {
-		return fmt.Errorf("admission: preparing write lock directory for %s: %w", s.path, err)
-	}
-	fl := flock.New(lockPath, flock.SetPermissions(lockFileMode))
-	stop := lockwait.Watch(lockPath)
-	err = fl.Lock()
-	stop()
-	if err != nil {
-		return fmt.Errorf("admission: acquiring write lock for %s: %w", s.path, err)
-	}
-	defer func() { _ = fl.Unlock() }()
-	return fn()
+	return filelock.WithLock(s.fs, lockPath, fn)
 }
 
 // write serializes recs, 0600 in a 0700 directory, atomically (unique temp

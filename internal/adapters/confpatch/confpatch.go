@@ -34,10 +34,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Store is the §9.7 application-record store. Records are home-rooted (see
@@ -214,7 +215,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 		return res, fmt.Errorf("confpatch: this build has no hew document reader for %q, so a write to %s could not be recorded", format, target)
 	}
 
-	err := agent.WithFileLock(targetFS, target, func() error {
+	err := sessions.WithFileLock(targetFS, target, func() error {
 		before, existed, err := readTarget(targetFS, target)
 		if err != nil {
 			return err
@@ -518,7 +519,7 @@ func writeTarget(fs afero.Fs, target string, out []byte) error {
 			return fmt.Errorf("confpatch: create directory for %s: %w", target, err)
 		}
 	}
-	if err := agent.AtomicWriteFile(fs, target, out, filepath.Base(target)); err != nil {
+	if err := iox.AtomicWriteFile(fs, target, out, filepath.Base(target)); err != nil {
 		return fmt.Errorf("confpatch: write %s: %w", target, err)
 	}
 	return nil

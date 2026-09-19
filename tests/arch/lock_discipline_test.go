@@ -1,7 +1,7 @@
 //go:build arch
 
 // LOCK DISCIPLINE: every read-modify-write of an engine-settings or
-// R6-exclusive-owned config file must run inside agent.WithFileLock.
+// R6-exclusive-owned config file must run inside sessions.WithFileLock.
 //
 // R6: a file ctxloom EXCLUSIVELY owns but which lives inside a
 // foreign engine's directory is locked and ledgered like a shared file — one
@@ -34,7 +34,7 @@
 //     managedcontext.go, packagefiles.go and every engine's own
 //     save/saveSettings/saveMCPConfig/saveOpencodeConfig wrapper).
 //   - LOCK SIGNAL: a call whose callee name is exactly "WithFileLock"
-//     (agent.WithFileLock, the SettingsWriter family's one lock idiom —
+//     (sessions.WithFileLock, the SettingsWriter family's one lock idiom —
 //     config.Owner.Update, M7's OWN transactional lock for ctxloom's own
 //     config.yaml, is a different mechanism by design and out of this
 //     gate's scope; see its doc).

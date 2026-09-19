@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+
 	hew "github.com/benjaminabbitt/hew/go"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -298,7 +300,7 @@ func TestSettingsRecord_Deliver_CreatesTheFileWhenTheHomeHasNone(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(after, &parsed))
 	require.NotNil(t, parsed.StatusLine, "the managed statusline is set where none was")
-	assert.True(t, agent.IsManaged(parsed.StatusLine.Command, "ctxloom"), "the statusline is ctxloom's: %q", parsed.StatusLine.Command)
+	assert.True(t, exectoken.IsManaged(parsed.StatusLine.Command, "ctxloom"), "the statusline is ctxloom's: %q", parsed.StatusLine.Command)
 	assert.Len(t, recordFiles(t, fs, recordsDir), 1)
 
 	require.NoError(t, d.Cleanup())

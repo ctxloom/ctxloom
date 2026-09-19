@@ -5,7 +5,7 @@
 //
 // These tests deliberately use a REAL OS filesystem rooted at t.TempDir(),
 // not afero.NewMemMapFs() like the rest of this package's tests: Store skips
-// locking entirely for a non-OS-backed filesystem (see isOSBackedFs) because
+// locking entirely for a non-OS-backed filesystem (see filelock.IsOSBackedFs) because
 // there is no other process to exclude from one, so a lost-update or
 // fails-closed test built on MemMapFs would prove nothing about the real
 // bug this file exists to fix.

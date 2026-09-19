@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	"github.com/spf13/afero"
 )
 
@@ -45,7 +48,7 @@ const (
 // very same packages. See WithFileLock's own doc for the fail-closed/
 // skip-for-non-OS-fs contract this inherits unchanged.
 func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (report ContextReport, err error) {
-	err = WithFileLock(fs, path, func() error {
+	err = sessions.WithFileLock(fs, path, func() error {
 		var lockedErr error
 		report, lockedErr = writeManagedContextLocked(fs, path, rel, content, desc)
 		return lockedErr
@@ -99,7 +102,7 @@ func writeManagedContextLocked(fs afero.Fs, path, rel, content, desc string) (Co
 	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return ContextReport{}, fmt.Errorf("failed to create %s directory: %w", filepath.Dir(path), err)
 	}
-	if err := AtomicWriteFile(fs, path, []byte(merged), desc); err != nil {
+	if err := iox.AtomicWriteFile(fs, path, []byte(merged), desc); err != nil {
 		return ContextReport{}, err
 	}
 	return ContextReport{Wrote: []string{rel}}, nil

@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
@@ -329,7 +330,7 @@ func (p *replicaPair) write(dst string, data []byte) error {
 func (p *replicaPair) locked(fn func() error) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return agent.WithFileLock(afero.NewOsFs(), p.host, fn)
+	return sessions.WithFileLock(afero.NewOsFs(), p.host, fn)
 }
 
 // hashOrZero hashes data, or reports the zero hash for a side that could not

@@ -127,6 +127,8 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/schema",
 			"internal/shared/liveness",
 			"internal/shared/report",
+			"internal/shared/filelock",
+			"internal/shared/exectoken",
 		},
 		Allowed: map[string]string{
 			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,

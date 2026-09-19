@@ -4,10 +4,10 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/exectoken"
+
 	hew "github.com/benjaminabbitt/hew/go"
 	yamlv3 "gopkg.in/yaml.v3"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // ownedCandidate is one pointer a caller believes it manages, and — when it has
@@ -169,13 +169,13 @@ func unescapePointer(seg string) string {
 func ownedBy(node hew.Node, owner string) bool {
 	switch node.Kind() {
 	case hew.KindScalar:
-		return agent.IsManaged(scalarString(node), owner)
+		return exectoken.IsManaged(scalarString(node), owner)
 	case hew.KindMap:
 		cmd, ok := node.Member("command")
 		if !ok || cmd.Kind() != hew.KindScalar {
 			return false
 		}
-		return agent.IsManaged(scalarString(cmd), owner)
+		return exectoken.IsManaged(scalarString(cmd), owner)
 	default:
 		return false
 	}

@@ -1,4 +1,4 @@
-package agent
+package sessions_test
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 
 	"github.com/gofrs/flock"
 	"github.com/spf13/afero"
@@ -68,7 +70,7 @@ func TestWithFileLock_SerializesRMW_BothWritersEntriesSurvive(t *testing.T) {
 	osfs := afero.NewOsFs()
 
 	appendAndWrite := func(name string) error {
-		return WithFileLock(osfs, target, func() error {
+		return sessions.WithFileLock(osfs, target, func() error {
 			d := readRMWDoc(t, target)
 			d.Managed = append(d.Managed, name)
 			writeRMWDoc(t, target, d)
@@ -136,7 +138,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(lockPath, 0o755))
 
 	called := false
-	err = WithFileLock(afero.NewOsFs(), target, func() error {
+	err = sessions.WithFileLock(afero.NewOsFs(), target, func() error {
 		called = true
 		return nil
 	})
@@ -162,7 +164,7 @@ func TestWithFileLock_SkipsLockingForNonOSBackedFs(t *testing.T) {
 	bogusPath := "/proj/.claude/settings.json"
 
 	called := false
-	err := WithFileLock(fs, bogusPath, func() error {
+	err := sessions.WithFileLock(fs, bogusPath, func() error {
 		called = true
 		return nil
 	})

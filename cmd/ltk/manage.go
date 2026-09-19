@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
+
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -153,7 +154,7 @@ func (f *manageFlags) runInstall(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 	}
-	return agent.WithFileLock(afero.NewOsFs(), path, func() error {
+	return sessions.WithFileLock(afero.NewOsFs(), path, func() error {
 		existing, err := readIfExists(path)
 		if err != nil {
 			return err
@@ -197,7 +198,7 @@ func (f *manageFlags) runUninstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	command := eng.HookCommand(f.bin, f.hookRulesPath())
-	return agent.WithFileLock(afero.NewOsFs(), path, func() error {
+	return sessions.WithFileLock(afero.NewOsFs(), path, func() error {
 		existing, err := readIfExists(path)
 		if err != nil {
 			return err

@@ -1,4 +1,4 @@
-package agent
+package iox_test
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -65,7 +67,7 @@ func TestAtomicWriteFile_TempNameIsUniqueNotFixed(t *testing.T) {
 	path := "/proj/.claude/settings.json"
 	require.NoError(t, fs.MkdirAll("/proj/.claude", 0o755))
 
-	require.NoError(t, AtomicWriteFile(fs, path, []byte(`{"a":1}`), "settings"))
+	require.NoError(t, iox.AtomicWriteFile(fs, path, []byte(`{"a":1}`), "settings"))
 
 	for _, name := range fs.createdNames() {
 		assert.NotEqual(t, path+".ctxloom.tmp", name,
@@ -95,7 +97,7 @@ func TestAtomicWriteFile_RenameFailureIsAnError(t *testing.T) {
 	require.NoError(t, fs.MkdirAll("/proj/.claude", 0o755))
 	require.NoError(t, afero.WriteFile(fs, path, []byte(`{"old":true}`), 0o600))
 
-	err := AtomicWriteFile(fs, path, []byte(`{"new":true}`), "settings")
+	err := iox.AtomicWriteFile(fs, path, []byte(`{"new":true}`), "settings")
 	require.Error(t, err, "a rename failure must not be reported as success")
 
 	// The live file is untouched, not half-overwritten.
@@ -111,7 +113,7 @@ func TestAtomicWriteFile_ContractPreserved(t *testing.T) {
 	t.Run("new file defaults to 0600", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/p", 0o755))
-		require.NoError(t, AtomicWriteFile(fs, "/p/s.json", []byte("x"), "settings"))
+		require.NoError(t, iox.AtomicWriteFile(fs, "/p/s.json", []byte("x"), "settings"))
 		info, err := fs.Stat("/p/s.json")
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
@@ -121,7 +123,7 @@ func TestAtomicWriteFile_ContractPreserved(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/p", 0o755))
 		require.NoError(t, afero.WriteFile(fs, "/p/s.json", []byte("old"), 0o640))
-		require.NoError(t, AtomicWriteFile(fs, "/p/s.json", []byte("new"), "settings"))
+		require.NoError(t, iox.AtomicWriteFile(fs, "/p/s.json", []byte("new"), "settings"))
 
 		info, err := fs.Stat("/p/s.json")
 		require.NoError(t, err)
@@ -136,7 +138,7 @@ func TestAtomicWriteFile_ContractPreserved(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/p", 0o755))
 		require.NoError(t, afero.WriteFile(fs, "/p/s.json", []byte("live"), 0o600))
-		err := AtomicWriteFile(fs, "/p/s.json", nil, "settings")
+		err := iox.AtomicWriteFile(fs, "/p/s.json", nil, "settings")
 		require.Error(t, err)
 		got, rerr := afero.ReadFile(fs, "/p/s.json")
 		require.NoError(t, rerr)
@@ -147,7 +149,7 @@ func TestAtomicWriteFile_ContractPreserved(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, fs.MkdirAll("/p", 0o755))
 		require.NoError(t, afero.WriteFile(fs, "/p/c.toml", []byte("live"), 0o600))
-		require.NoError(t, AtomicWriteFile(fs, "/p/c.toml", nil, "config", AllowEmptyWrite()))
+		require.NoError(t, iox.AtomicWriteFile(fs, "/p/c.toml", nil, "config", iox.AllowEmpty()))
 		got, rerr := afero.ReadFile(fs, "/p/c.toml")
 		require.NoError(t, rerr)
 		assert.Empty(t, string(got))

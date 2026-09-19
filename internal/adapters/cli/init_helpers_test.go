@@ -1,12 +1,13 @@
 package cli
 
 import (
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"

@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
+
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -45,7 +47,7 @@ func TestAtomicWriteFile(t *testing.T) {
 		path := "/test/file.json"
 		data := []byte(`{"key": "value"}`)
 
-		require.NoError(t, AtomicWriteFile(fs, path, data, "test file"))
+		require.NoError(t, iox.AtomicWriteFile(fs, path, data, "test file"))
 		contents, err := afero.ReadFile(fs, path)
 		require.NoError(t, err)
 		assert.Equal(t, data, contents)
@@ -58,7 +60,7 @@ func TestAtomicWriteFile(t *testing.T) {
 		updated := []byte(`{"updated": true}`)
 		require.NoError(t, afero.WriteFile(fs, path, original, 0644))
 
-		require.NoError(t, AtomicWriteFile(fs, path, updated, "test file"))
+		require.NoError(t, iox.AtomicWriteFile(fs, path, updated, "test file"))
 
 		// The backup sibling is GONE by design: every writer reaching this
 		// function now knows what it owns (ledger or in-file markers) and no
@@ -76,7 +78,7 @@ func TestAtomicWriteFile(t *testing.T) {
 	t.Run("cleans up temp file on success", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		path := "/test/file.json"
-		require.NoError(t, AtomicWriteFile(fs, path, []byte(`{}`), "test file"))
+		require.NoError(t, iox.AtomicWriteFile(fs, path, []byte(`{}`), "test file"))
 		exists, _ := afero.Exists(fs, path+".ctxloom.tmp")
 		assert.False(t, exists, "temp file is cleaned up")
 	})
@@ -84,7 +86,7 @@ func TestAtomicWriteFile(t *testing.T) {
 	t.Run("new file defaults to owner-only mode", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		path := "/test/file.json"
-		require.NoError(t, AtomicWriteFile(fs, path, []byte(`{}`), "test file"))
+		require.NoError(t, iox.AtomicWriteFile(fs, path, []byte(`{}`), "test file"))
 		info, err := fs.Stat(path)
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "new settings files are not world-readable")
@@ -95,7 +97,7 @@ func TestAtomicWriteFile(t *testing.T) {
 		path := "/test/file.json"
 		require.NoError(t, afero.WriteFile(fs, path, []byte(`{"original": true}`), 0600))
 
-		require.NoError(t, AtomicWriteFile(fs, path, []byte(`{"updated": true}`), "test file"))
+		require.NoError(t, iox.AtomicWriteFile(fs, path, []byte(`{"updated": true}`), "test file"))
 
 		info, err := fs.Stat(path)
 		require.NoError(t, err)
@@ -118,7 +120,7 @@ func TestAtomicWriteFile(t *testing.T) {
 		original := []byte(`{"real": "settings"}`)
 		require.NoError(t, afero.WriteFile(fs, path, original, 0600))
 
-		err := AtomicWriteFile(fs, path, []byte{}, "test file")
+		err := iox.AtomicWriteFile(fs, path, []byte{}, "test file")
 		require.Error(t, err, "zero-length data must not silently win a write over a live file")
 
 		contents, readErr := afero.ReadFile(fs, path)

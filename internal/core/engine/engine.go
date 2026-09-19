@@ -15,11 +15,13 @@ type Name string
 func (n Name) String() string { return string(n) }
 
 // Mode is how a run is driven: Interactive = a pty; Structured = the engine's
-// native structured protocol.
+// native structured protocol. The values are the wire's (llm.proto's
+// ExecutionMode: INTERACTIVE = 0, ONESHOT = 1) and the zero value is a real
+// mode, because every caller that never set one has always meant Interactive.
 type Mode int
 
 const (
-	Interactive Mode = iota + 1
+	Interactive Mode = iota
 	Structured
 )
 

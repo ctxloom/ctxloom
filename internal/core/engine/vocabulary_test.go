@@ -21,6 +21,8 @@ func TestName_IsAStringKey(t *testing.T) {
 
 func TestMode_TwoWaysToDriveARun(t *testing.T) {
 	assert.NotEqual(t, Interactive, Structured)
+	assert.Equal(t, Mode(0), Interactive, "the zero value is Interactive: the wire enum and every unset caller say so")
+	assert.Equal(t, Mode(1), Structured)
 	assert.Equal(t, "interactive", Interactive.String())
 	assert.Equal(t, "structured", Structured.String())
 	assert.Equal(t, "mode(99)", Mode(99).String(), "an unknown mode must be visibly bad, not silently one of the two")

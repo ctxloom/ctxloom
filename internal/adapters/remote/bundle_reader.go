@@ -106,7 +106,8 @@ type BundleReaderOption func(*BundleReader)
 // directory on disk (bundles.Bundle.FSDir) that a fetched-into-memory tree
 // cannot provide, and because verifying the installed bytes is strictly
 // stronger than trusting the pin. Wiring a tree fetcher does not change that:
-// config dispatches on the lockfile's own Tree flag, not on this refusal.
+// every v2 pin is a tree, so config resolves every entry that way and clears
+// this refusal rather than dispatching on it.
 func WithReaderTreeFetcher(tf TreeFetchFunc) BundleReaderOption {
 	return func(r *BundleReader) { r.treeFetch = tf }
 }

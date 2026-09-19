@@ -104,11 +104,6 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	//               triggered right after syncItem's installed-ref re-check
 	//               (operations.checkInstalledRetraction) would drop the flag
 	//               that check had just recorded.
-	//   Tree      — the SHAPE that was installed. A rebuild has no fetcher and
-	//               cannot re-derive it, and losing it sends BundleReader after
-	//               a "<name>.yaml" the publisher never wrote, reporting
-	//               "remote content not found" for a bundle sitting installed
-	//               on disk.
 	prevEntries := map[string]remote.LockEntry{}
 	for _, e := range prev.AllEntries() {
 		prevEntries[string(e.Type)+"\x00"+e.Ref] = e.Entry

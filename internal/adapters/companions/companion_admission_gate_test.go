@@ -1,4 +1,4 @@
-package config
+package companions
 
 import (
 	"bytes"
@@ -148,7 +148,7 @@ func TestProbeCompanionLoadouts_NeverExecsAnUnadmittedCompanion(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	got, err := ProbeCompanionLoadouts(context.Background(), f.root)
+	got, err := Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
 	require.NoError(t, err)
 	assert.Empty(t, got.Loadouts)
 	assert.Empty(t, execed, "an unsigned companion must never be exec'd, not merely have its output discarded")
@@ -156,7 +156,7 @@ func TestProbeCompanionLoadouts_NeverExecsAnUnadmittedCompanion(t *testing.T) {
 	// Now VOUCH for it and prove the SAME fixture does run — otherwise the
 	// assertion above would also pass against a probe that is simply broken.
 	f.sign(t, acmePath)
-	_, _ = ProbeCompanionLoadouts(context.Background(), f.root)
+	_, _ = Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
 	assert.Len(t, execed, 1, "once signed by a trusted key the very same companion is exec'd")
 }
 
@@ -177,7 +177,7 @@ func TestProbeCompanions_ReportsRefusalRatherThanAbsence(t *testing.T) {
 	defer restoreVersion()
 
 	var acme CompanionStatus
-	for _, st := range ProbeCompanions(f.root) {
+	for _, st := range (Prober{}).ProbeCompanions(f.root) {
 		if st.Bin == "ctxloom-companion-acme" {
 			acme = st
 		}
@@ -220,8 +220,8 @@ func TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary(t *testing.T) {
 	// Nothing has vouched for it — the fail-closed shape of every agent and CI
 	// run. Deliberately NO seam overrides: the probes below reach the real
 	// exec.
-	statuses := ProbeCompanions(f.root)
-	probe, err := ProbeCompanionLoadouts(context.Background(), f.root)
+	statuses := Prober{}.ProbeCompanions(f.root)
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
 	require.NoError(t, err)
 	assert.Empty(t, probe.Loadouts)
 
@@ -244,8 +244,8 @@ func TestProbes_NeverExecuteAnUnadmittedCompanion_RealBinary(t *testing.T) {
 	// and sentinel do fire — otherwise the assertion above would prove only
 	// that this test is incapable of executing anything.
 	f.sign(t, filepath.Join(f.elsewhere, "ctxloom-companion-acme"))
-	ProbeCompanions(f.root)
-	_, err = ProbeCompanionLoadouts(context.Background(), f.root)
+	Prober{}.ProbeCompanions(f.root)
+	_, err = Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
 	require.NoError(t, err)
 
 	ran, rerr := os.ReadFile(sentinel)
@@ -273,7 +273,7 @@ func TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate(t 
 	restorePath := setPathDirsForTesting(t, []string{f.elsewhere, f.elsewhere})
 	defer restorePath()
 
-	probe, err := ProbeCompanionLoadouts(context.Background(), f.root)
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), f.root)
 	require.NoError(t, err)
 	require.Empty(t, probe.Loadouts, "an unapproved companion contributes no content")
 

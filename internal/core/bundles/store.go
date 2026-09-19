@@ -43,8 +43,9 @@ type fsStore struct {
 // resolved its own sources held a SECOND view of the same bundles, so a write
 // through the store and a read through the session's loader disagreed until
 // something re-read by luck — two caches of one thing, reconciled by accident.
-// Sharing the loader makes the store's Save invalidate the very set every other
-// reader consults.
+// A write through the store changes what the readers would see; the caller
+// announces that by building the next generation (config.Owner.Reload) —
+// this store never re-reads on its own.
 //
 // It also settles which filesystem a write lands on: loader.FS() is the one the
 // content was READ from, so a caller that injected a filesystem no longer has
@@ -104,10 +105,6 @@ func (s *fsStore) Save(b *Bundle) error {
 	if err := iox.WriteFileAtomicFs(s.fs, b.Path, data, 0o644); err != nil {
 		return fmt.Errorf("write bundle: %w", err)
 	}
-	// The bytes on disk changed, so the loader's memoized read of them is now a
-	// lie. Dropping it is what makes a save-then-read within one command see
-	// what was just written.
-	s.Invalidate()
 	return s.invalidateStaleSignature(b.Path, data)
 }
 
@@ -168,9 +165,5 @@ func (s *fsStore) Delete(name string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.fs.Remove(path); err != nil {
-		return err
-	}
-	s.Invalidate()
-	return nil
+	return s.fs.Remove(path)
 }

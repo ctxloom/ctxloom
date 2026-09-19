@@ -1,9 +1,10 @@
 package mcp
 
 import (
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )

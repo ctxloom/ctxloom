@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -97,7 +96,7 @@ func loadSessionEntries(all bool) ([]sessions.Entry, error) {
 // cannot be loaded — the session index is cwd-independent, so a listing must
 // still render for a project with a broken config.
 func sessionAppDir() string {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return ""
 	}
@@ -344,7 +343,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

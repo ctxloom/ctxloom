@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/turnchange"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -106,7 +105,7 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	// The delivered set is resolved the way the session's own assembly
 	// resolved it -- the default agent's profiles over the project config the
 	// hook process inherits -- so the mates named are skills the engine has.
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return claude.PostToolUseOutput{}, fmt.Errorf("load project config: %w", err)
 	}

@@ -1,9 +1,11 @@
-package config
+package configload
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +21,7 @@ import (
 // The key no longer exists in the schema at all (it moved to
 // paths.DirtyTreeCommitAckPath), so this is a STRUCTURAL closure, not merely
 // a ScopeAllows verdict — proving it requires showing the value never reaches
-// cfg no matter how it is injected, and that DirtyTreeCommitAcknowledged is
+// cfg no matter how it is injected, and that config.DirtyTreeCommitAcknowledged is
 // wired to the state store alone, never Load's result.
 
 func TestLoad_EscalationPath1_EnvCannotGrantDirtyTreeCommitAck(t *testing.T) {
@@ -34,10 +36,10 @@ func TestLoad_EscalationPath1_EnvCannotGrantDirtyTreeCommitAck(t *testing.T) {
 
 	// MUTATION TARGET: if dirty_tree_commit_ack were still a live schema/
 	// struct field, this would be true.
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, appDir),
+	assert.False(t, config.DirtyTreeCommitAcknowledged(fs, appDir),
 		"an env override must never grant the dirty-tree-commit acknowledgement — it is not even a config key any longer")
 	// And the merged config must never have decoded a stray value onto
-	// anything an accessor could reach; GetDirtyTreeHandler is untouched,
+	// anything an accessor could reach; config.GetDirtyTreeHandler is untouched,
 	// proving the env override didn't corrupt an unrelated sibling key either.
 	assert.Equal(t, "", cfg.GetDirtyTreeHandler())
 }
@@ -52,7 +54,7 @@ func TestLoad_EscalationPath1_ConfigSetCannotGrantDirtyTreeCommitAck(t *testing.
 	_, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	assert.False(t, DirtyTreeCommitAcknowledged(fs, appDir),
+	assert.False(t, config.DirtyTreeCommitAcknowledged(fs, appDir),
 		"--config-set must never grant the dirty-tree-commit acknowledgement either")
 }
 
@@ -73,16 +75,16 @@ func TestLoad_EscalationPath2_EnvCannotMintPrivilegedAgent(t *testing.T) {
 
 	// MUTATION TARGET: with ScopeAllows/agentBindingMergeFunc removed, this
 	// would be a real, permission-bypassing "evil" agent.
-	_, exists := cfg.agents["evil"]
+	_, exists := cfg.GetConfiguredAgents()["evil"]
 	assert.False(t, exists, "an env var must not be able to mint a brand-new agent binding at all")
 
 	foundLayerScopeWarning := false
-	for _, w := range cfg.warnings {
-		if w.Kind == WarnKindLayerScope {
+	for _, w := range cfg.GetWarnings() {
+		if w.Kind == config.WarnKindLayerScope {
 			foundLayerScopeWarning = true
 		}
 	}
-	assert.True(t, foundLayerScopeWarning, "the drop must be reported as a WarnKindLayerScope finding, not silent")
+	assert.True(t, foundLayerScopeWarning, "the drop must be reported as a config.WarnKindLayerScope finding, not silent")
 }
 
 // TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign is the deliberate
@@ -104,7 +106,7 @@ func TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign(t *testing.T) {
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	evil, exists := cfg.agents["evil"]
+	evil, exists := cfg.GetConfiguredAgents()["evil"]
 	require.True(t, exists, "--config-set targets ScopeShared, which explicitly keeps flag reach")
 	assert.Equal(t, "bypass", evil.Permissions)
 }
@@ -133,7 +135,7 @@ agents:
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
 
-	reviewer, ok := cfg.agents["reviewer"]
+	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok, "the project's own agent must still be present")
 
 	// MUTATION TARGET: with agentBindingMergeFunc removed (falling back to
@@ -143,8 +145,8 @@ agents:
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "the project's own field must survive untouched")
 
 	foundLayerScopeWarning := false
-	for _, w := range cfg.warnings {
-		if w.Kind == WarnKindLayerScope {
+	for _, w := range cfg.GetWarnings() {
+		if w.Kind == config.WarnKindLayerScope {
 			foundLayerScopeWarning = true
 		}
 	}
@@ -269,7 +271,7 @@ agents:
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	reviewer, ok := cfg.agents["reviewer"]
+	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok)
 	assert.Equal(t, "bypass", reviewer.Permissions, "the override itself must still apply")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
@@ -298,23 +300,23 @@ func TestManagerUpdate_DoesNotPersistHomeInheritedMachineValueIntoProjectFile(t 
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
 
-	mgr := NewManager(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, mgr.Update(func(d *Draft) error {
+	mgr := newUpdater(t, WithFS(fs), WithAppDir(appDir))
+	require.NoError(t, mgr.Update(func(d *config.Draft) error {
 		d.DefaultAgent = "reviewer" // any write unrelated to the editor
 		return nil
 	}))
 
-	// MUTATION TARGET: read the raw PROJECT file (ParseConfig, no layering,
+	// MUTATION TARGET: read the raw PROJECT file (config.ParseConfig, no layering,
 	// no merge) -- if saveLocked's scope filter is skipped/disabled, home's
 	// editor.command shows up here, persisted into the committed project
 	// file by a write that never touched the editor at all.
 	data, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
 	require.NoError(t, err)
-	persisted, err := ParseConfig(data)
+	persisted, err := config.ParseConfig(data)
 	require.NoError(t, err)
-	assert.Equal(t, "", persisted.editor.Command, "home's Machine-scoped editor.command must never be written into the committed project file")
+	assert.Equal(t, "", persisted.ToFixture().Editor.Command, "home's Machine-scoped editor.command must never be written into the committed project file")
 
 	// The unrelated write must still have landed -- this filter must not
 	// swallow legitimate project-scope content along with what it drops.
-	assert.Equal(t, "reviewer", persisted.defaultAgent)
+	assert.Equal(t, "reviewer", persisted.ToFixture().DefaultAgent)
 }

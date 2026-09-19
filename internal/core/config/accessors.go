@@ -118,6 +118,10 @@ func cloneEditor(e EditorConfig) EditorConfig {
 // most one today).
 func (c *Config) GetAppPaths() []string { return slices.Clone(c.appPaths) }
 
+// Source reports which layer set this value was read from: a project
+// .ctxloom, or the user home standing alone.
+func (c *Config) Source() ConfigSource { return c.source }
+
 // GetAppDir returns the full path to the resolved .ctxloom directory.
 func (c *Config) GetAppDir() string { return c.appDir }
 

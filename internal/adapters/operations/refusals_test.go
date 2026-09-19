@@ -37,7 +37,7 @@ func newRefusal(t *testing.T) refusal {
 	r.cfg = testConfigWithSCMPath(r.baseDir)
 
 	ctx := context.Background()
-	_, err := LockDependencies(ctx, r.cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, r.cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	r.proposed = addFileToLocalRepo(t, r.src, repoV2("demo")+"/bundle.yaml", "version: \"2.0.0\"\n")

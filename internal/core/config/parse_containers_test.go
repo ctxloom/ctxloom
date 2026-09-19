@@ -1,9 +1,12 @@
-package config
+package config_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,9 +18,9 @@ import (
 // downstream code may write into it, and a document is free to null it back
 // out. These pin that the guard survives both decoders.
 //
-// The guard belongs in fromDoc rather than in ParseConfig, because ParseConfig
+// The guard belongs in fromDoc rather than in config.ParseConfig, because config.ParseConfig
 // is not the only decoder: loadLayeredConfig decodes the merged layer into a
-// Config through the same UnmarshalYAML path, so a fix at ParseConfig alone
+// config.Config through the same UnmarshalYAML path, so a fix at config.ParseConfig alone
 // would have left the path a real user config actually takes still broken.
 //
 // This file used to pin the same contract for profiles.Definitions as well,
@@ -27,23 +30,23 @@ import (
 
 func TestParseConfig_NullLLMConfigsStillYieldsAUsableMap(t *testing.T) {
 	t.Run("bare_null_is_absorbed_by_decode_into_existing", func(t *testing.T) {
-		cfg, err := ParseConfig([]byte("version: 5\nllm: null\n"))
+		cfg, err := config.ParseConfig([]byte("version: 5\nllm: null\n"))
 		require.NoError(t, err)
-		assert.NotNil(t, cfg.lm.Configs)
+		assert.NotNil(t, cfg.ToFixture().LM.Configs)
 	})
 
 	t.Run("explicit_null_configs", func(t *testing.T) {
-		cfg, err := ParseConfig([]byte("version: 5\nllm:\n  configs: null\n"))
+		cfg, err := config.ParseConfig([]byte("version: 5\nllm:\n  configs: null\n"))
 		require.NoError(t, err)
-		require.NotNil(t, cfg.lm.Configs,
+		require.NotNil(t, cfg.ToFixture().LM.Configs,
 			"lm.Configs is pre-populated because downstream code assumes it is writable")
-		assert.NotPanics(t, func() { cfg.lm.Configs["x"] = LLMConfig{} },
+		assert.NotPanics(t, func() { cfg.ToFixture().LM.Configs["x"] = config.LLMConfig{} },
 			"the whole point of the pre-population is that the map is writable")
 	})
 }
 
 // TestLoad_NullLLMConfigsStillYieldsAUsableMap is the path that matters: a real
-// config.yaml read through Load, not ParseConfig's two embedded-resource
+// config.yaml read through Load, not config.ParseConfig's two embedded-resource
 // callers. This is what proves the guard had to live in fromDoc.
 func TestLoad_NullLLMConfigsStillYieldsAUsableMap(t *testing.T) {
 	testsupport.Isolate(t)
@@ -52,11 +55,11 @@ func TestLoad_NullLLMConfigsStillYieldsAUsableMap(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"),
 		[]byte("version: 5\nllm:\n  configs: null\n"), 0o644))
 
-	cfg, err := Load(WithAppDir(appDir))
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, err)
 
-	require.NotNil(t, cfg.lm.Configs,
+	require.NotNil(t, cfg.ToFixture().LM.Configs,
 		"a user config that nulls the configs map must still load with a writable one")
-	assert.NotPanics(t, func() { cfg.lm.Configs["x"] = LLMConfig{} },
+	assert.NotPanics(t, func() { cfg.ToFixture().LM.Configs["x"] = config.LLMConfig{} },
 		"the whole point of the pre-population is that the map is writable")
 }

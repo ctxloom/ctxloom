@@ -24,11 +24,11 @@ With an LLM name argument, sets that LLM as the default.`,
 }
 
 func runLLMDefaultCmd(cmd *cobra.Command, args []string) error {
-	cfg, err := GetConfigForUpdate()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return runLLMDefault(cmd, config.NewManager(), cfg, args)
+	return runLLMDefault(cmd, App(), cfg, args)
 }
 
 // llmDefaultShowResult is emit()'s result for the show path (`llm default`
@@ -43,9 +43,9 @@ type llmDefaultShowResult struct {
 // it reports the current default; with one, it validates and sets it. Both
 // paths route through emit() so --format json/yaml/toml/markdown works
 // without duplicating this branch. cfg serves the read-only show path and the
-// known-LLM validation; mgr is the write half SetDefaultLLM performs its
+// known-LLM validation; app is the write half SetDefaultLLM performs its
 // locked transaction through.
-func runLLMDefault(cmd *cobra.Command, mgr *config.Manager, cfg *config.Config, args []string) error {
+func runLLMDefault(cmd *cobra.Command, app *operations.App, cfg *config.Config, args []string) error {
 	if len(args) == 0 {
 		result := llmDefaultShowResult{Default: cfg.PrimaryLabel()}
 		return emit(cmd, result, func() error {
@@ -60,7 +60,7 @@ func runLLMDefault(cmd *cobra.Command, mgr *config.Manager, cfg *config.Config, 
 		return fmt.Errorf("unknown LLM %q; available: %s", name, strings.Join(available, ", "))
 	}
 
-	res, err := operations.SetDefaultLLM(cmd.Context(), mgr, operations.SetDefaultLLMRequest{Name: name})
+	res, err := operations.SetDefaultLLM(cmd.Context(), app, operations.SetDefaultLLMRequest{Name: name})
 	if err != nil {
 		return err
 	}

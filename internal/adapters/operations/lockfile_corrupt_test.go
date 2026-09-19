@@ -37,7 +37,7 @@ func TestLockDependencies_CorruptLockfileIsNotOverwritten(t *testing.T) {
 	corrupt := []byte("version: 1\nbundles:\n  https://github.com/test/repo@bundles/demo:\n    sha: \"abc\n    pinned: true\n")
 	require.NoError(t, os.WriteFile(lockPath, corrupt, 0o644))
 
-	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.Error(t, err, "a rebuild that could not read the previous holds/retractions must not persist")
 	assert.ErrorIs(t, err, remote.ErrLockfileUnreadable)
 	assert.Contains(t, err.Error(), lockPath, "the error names the file to fix")
@@ -61,12 +61,12 @@ func TestLockDependencies_DeletingTheCorruptLockfileRecovers(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(lockPath), 0o755))
 	require.NoError(t, os.WriteFile(lockPath, []byte("\tnot: [yaml\n"), 0o644))
 
-	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.Error(t, err)
 
 	require.NoError(t, os.Remove(lockPath))
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err, "removing the unreadable lockfile restores a working rebuild")
 	assert.Equal(t, "generated", result.Status)
 	assert.Equal(t, 1, result.ItemCount)

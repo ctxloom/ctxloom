@@ -779,7 +779,7 @@ func setStatusline(cmd *cobra.Command, enabled bool) error {
 	if _, err := GetConfig(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	result, err := operations.SetStatusline(cmd.Context(), config.NewManager(), operations.SetStatuslineRequest{Enabled: enabled})
+	result, err := operations.SetStatusline(cmd.Context(), App(), operations.SetStatuslineRequest{Enabled: enabled})
 	if err != nil {
 		return err
 	}

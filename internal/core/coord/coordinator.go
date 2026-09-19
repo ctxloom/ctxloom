@@ -16,8 +16,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
@@ -58,9 +58,10 @@ const (
 
 // Options configures a Coordinator.
 type Options struct {
-	// Cfg is the loaded project config (required for the production
-	// spawner; tests inject Spawner instead).
-	Cfg *config.Config
+	// App is the process's composition — the one config.Owner the production
+	// spawner captures a generation from per spawn (tests inject Spawner
+	// instead).
+	App *operations.App
 	// ProjectDir is the project working directory the coordinator serves.
 	ProjectDir string
 	// ProjectKey is the stable project identity keying the durable state
@@ -436,10 +437,10 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
-		if opts.Cfg == nil {
-			return nil, c.abortNew(errors.New("coord: Options.Cfg is required without an injected Spawner"))
+		if opts.App == nil {
+			return nil, c.abortNew(errors.New("coord: Options.App is required without an injected Spawner"))
 		}
-		c.spawner = newProdSpawner(opts.Cfg, opts.ProjectDir, opts.Starter)
+		c.spawner = newProdSpawner(opts.App, opts.ProjectDir, opts.Starter)
 	}
 	if err := c.openJournals(); err != nil {
 		return nil, c.abortNew(err)

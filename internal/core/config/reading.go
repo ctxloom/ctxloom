@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 // PendingUpgrade is a schema upgrade the reader applied in memory to one
@@ -122,6 +124,13 @@ func (b *Builder) OverlayDefaultRegistry(defaultConfig []byte) {
 		overlay.Defaults.Fast = def.lm.Defaults.Fast
 	}
 	cfg.lmDefaultOverlay = &overlay
+}
+
+// BindVersionResolver attaches the resolver that materializes a pinned
+// historical version of a remote bundle; the reader supplies it because
+// fetching is an adapter's job.
+func (b *Builder) BindVersionResolver(r bundles.BundleVersionResolver) {
+	b.cfg.versionResolver = r
 }
 
 // Build hands out the value. The Builder is spent.

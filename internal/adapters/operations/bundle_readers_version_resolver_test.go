@@ -6,13 +6,15 @@
 // withholds just that item. These exercise the exact loader methods profile
 // assembly calls (GetFragmentAtVersion / GetPromptAtVersion), so they cover a
 // profile pinning a local fragment/prompt to a historical project revision.
-package config
+package operations
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -64,8 +66,8 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 // to resolve (mirroring how assembly sees today's working copy).
 func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	t.Helper()
-	cfg := &Config{appPaths: []string{appDir}}
-	resolver := cfg.bundleVersionResolver()
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	resolver := BundleVersionResolver(cfg)
 	require.NotNil(t, resolver, "an app dir must yield a version resolver")
 	// The working-tree default is read as what it is: a project bundle on a
 	// filesystem, through the project reader.

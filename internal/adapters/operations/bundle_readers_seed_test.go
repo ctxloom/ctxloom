@@ -1,9 +1,13 @@
-package config
+package operations
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// remoteBundleSeed reads every pinned-remote reader the Config builds and
+// remoteBundleSeed reads every pinned-remote reader the config.Config builds and
 // returns what they reported, keyed by canonical ref.
 //
 // It is the honest replacement for the retired seed map: the same content, the
@@ -21,9 +25,9 @@ import (
 // that ERRORS (a tampered tree, a document that will not parse) contributes
 // nothing and is not a fatal condition here, exactly as the seed map's failure
 // path behaved.
-func remoteBundleSeed(t *testing.T, cfg *Config) map[string]*bundles.Bundle {
+func remoteBundleSeed(t *testing.T, cfg *config.Config) map[string]*bundles.Bundle {
 	t.Helper()
-	readers := cfg.remoteBundleReaders()
+	readers := RemoteBundleReaders(cfg)
 	if len(readers) == 0 {
 		return nil
 	}
@@ -81,7 +85,7 @@ func TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	cfg := &Config{appPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seed := remoteBundleSeed(t, cfg)
 
 	assert.Nil(t, seed)
@@ -103,10 +107,29 @@ func TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	cfg := &Config{appPaths: []string{appDir}}
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seed := remoteBundleSeed(t, cfg)
 
 	assert.Nil(t, seed)
 	assert.Contains(t, buf.String(), "lockfile",
 		"a real lockfile parse failure must be diagnosed, not silently indistinguishable from \"nothing pinned\"")
+}
+
+// syncBuffer serializes writes from the probe goroutines against the test's
+// reads.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

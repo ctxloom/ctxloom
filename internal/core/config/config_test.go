@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,15 +9,12 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/configload/layerscope"
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
@@ -61,93 +57,6 @@ func withDefaultProfiles(cfg *Config, names ...string) *Config {
 // - Config is fault-tolerant: invalid entries warn but don't block startup
 //
 // =============================================================================
-
-// TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored pins the load-bearing half
-// of the agent_turn_cap -> delegation.concurrency rename: a config still
-// carrying the retired flat key must FAIL LOUD, naming the new key — never
-// silently drop the setting back to the built-in default. This decode path
-// (loadLayeredConfig's merged-layer Unmarshal) is lenient (no KnownFields),
-// so without this explicit check an untouched `agent_turn_cap:` would be
-// dropped in silence.
-//
-// Load() itself is fault-tolerant by this package's own design (every load
-// fault, this one included, downgrades to a recorded Warning rather than a
-// returned error — see decodeMergedLayers and warnings.go's "EVERY kind
-// declared below is fatal-class in strict mode"): the actual fail-loud
-// enforcement is the STRICT-MODE gate a caller runs over cfg.GetWarnings()
-// (config.RecordWarnings + strictness.FindingsError), not Load's own return
-// value. So this test asserts what Load() actually contracts: cfg still
-// loads (never nil), but carries a warning whose text names BOTH the
-// retired key and its replacement — the exact text a fatal-class finding
-// surfaces to a user under that gate.
-func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml", []byte("version: 6\nagent_turn_cap: 3\n"), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
-
-	var found *Warning
-	for _, w := range cfg.GetWarnings() {
-		if strings.Contains(w.Text, "agent_turn_cap") {
-			found = &w
-		}
-	}
-	require.NotNil(t, found, "a config carrying the retired key must record a warning naming it, not silently ignore it: %+v", cfg.GetWarnings())
-	assert.Contains(t, found.Text, "delegation.concurrency", "the warning must name the CURRENT key, not just reject the old one")
-}
-
-// TestLoad_RetiredLLMEnvKeyRefusedNotIgnored pins the retirement of
-// llm.configs.<label>.env: ctxloom no longer carries an engine's environment
-// or credentials in its config at all (every engine authenticates itself
-// from the ambient environment, and the launched process inherits it), so a
-// config still spelling the key must FAIL LOUD and name the replacement —
-// never decode into a dead Body key that nothing reads, which would leave a
-// user believing their variable reached the engine.
-//
-// Same contract as TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored: Load()
-// records the refusal as a fatal-class Warning naming both the retired key
-// and its replacement; ParseConfig (the init path, which returns decode
-// errors outright) surfaces the sentinel itself.
-func TestLoad_RetiredLLMEnvKeyRefusedNotIgnored(t *testing.T) {
-	const doc = "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      env:\n        ANTHROPIC_API_KEY: sk-secret\n"
-
-	t.Run("Load records a fatal-class warning naming the key, the label and the replacement", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		testsupport.WriteFileString(t, fs, "/proj/.ctxloom/config.yaml", doc, 0644)
-
-		cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
-		require.NoError(t, err)
-		require.NotNil(t, cfg)
-
-		var found *Warning
-		for _, w := range cfg.GetWarnings() {
-			if strings.Contains(w.Text, ErrRetiredLLMEnvKey.Error()) {
-				found = &w
-			}
-		}
-		require.NotNil(t, found, "a config carrying llm.configs.<label>.env must record the refusal, not silently ignore it: %+v", cfg.GetWarnings())
-		assert.Contains(t, found.Text, `"big"`, "the refusal must name the label carrying the key")
-		assert.Contains(t, found.Text, "ambient environment", "the refusal must name the replacement, not just reject the key")
-		_, decoded := cfg.GetLLMEntry("big")
-		assert.False(t, decoded, "a refused document must not half-decode into a label whose env silently went nowhere")
-	})
-
-	t.Run("ParseConfig returns the sentinel", func(t *testing.T) {
-		_, err := ParseConfig([]byte(doc))
-		require.ErrorIs(t, err, ErrRetiredLLMEnvKey)
-	})
-
-	t.Run("the mock's control channel is not the retired key", func(t *testing.T) {
-		const mockDoc = "version: 6\nllm:\n  configs:\n    m:\n      type: mock\n      mock_control:\n        CTXLOOM_MOCK_RESPONSE: canned\n"
-		cfg, err := ParseConfig([]byte(mockDoc))
-		require.NoError(t, err)
-		entry, ok := cfg.GetLLMEntry("m")
-		require.True(t, ok)
-		assert.Equal(t, map[string]any{"CTXLOOM_MOCK_RESPONSE": "canned"}, entry.Body["mock_control"])
-	})
-}
 
 // =============================================================================
 // Default Plugin Tests
@@ -494,201 +403,9 @@ func TestConfig_Save(t *testing.T) {
 	assert.Contains(t, string(data), "llm")
 }
 
-// Regression: Save round-trips the labeled-config registry, the role map, the
-// config (settings) block, and the editor block. The fast role's labeled
-// config carries the compression model; essence_max_chars lives under config.
-func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
-	// Real-OS-fs Load below (no WithFS): isolate HOME so the home-layer read
-	// (D2/D3 layering) never reaches this developer's real ~/.ctxloom.
-	testsupport.Isolate(t)
-	tmpDir := t.TempDir()
-	require.NoError(t, os.MkdirAll(tmpDir, 0755))
-
-	cfg := &Config{
-		appPaths: []string{tmpDir},
-		// source: SourceHome -- this represents a personal, single-file
-		// config with no separate project layer (the zero value would be
-		// SourceProject, and saveLocked now enforces layerscope's
-		// project-scope policy whenever source is SourceProject: see its own
-		// doc). editor.command/args are ScopeMachine (internal/core/config/
-		// layerscope) -- legitimate in a HOME file, exactly the case this
-		// represents -- but a genuine violation saveLocked now strips before
-		// ever reaching a real project's committed config.yaml. Using
-		// SourceHome here is what lets this test assert editor survives a
-		// save at all, and it doubles as coverage for saveLocked's
-		// skip-the-filter-when-SourceHome branch.
-		source: SourceHome,
-		lm: LMConfig{
-			Configs: map[string]LLMConfig{
-				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
-				"fast": {Type: "mock", Body: map[string]interface{}{"model": "haiku"}},
-			},
-			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
-		},
-		settings: SettingsConfig{EssenceMaxChars: 4096},
-		editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
-	}
-	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
-
-	// Round-trip through ParseConfig (a single-document parse, no layering)
-	// rather than the layered Load: ParseConfig checks Save's own
-	// serialization fidelity -- does Marshal emit every field it was given --
-	// independent of any layer-scope policy (which cfg.source above already
-	// keeps saveLocked from applying to this particular save).
-	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
-	require.NoError(t, err)
-	loaded, err := ParseConfig(data)
-	require.NoError(t, err)
-	assert.Equal(t, "big", loaded.lm.Defaults.Primary)
-	assert.Equal(t, "fast", loaded.lm.Defaults.Fast)
-	assert.Equal(t, "mock", loaded.GetCompactionLLM())
-	assert.Equal(t, "haiku", loaded.GetCompactionModel())
-	assert.Equal(t, 4096, loaded.GetEssenceMaxChars())
-	assert.Equal(t, "vim", loaded.editor.Command)
-	assert.Equal(t, []string{"-p"}, loaded.editor.Args)
-}
-
 // =============================================================================
 // Load and LoadOption Tests
 // =============================================================================
-
-func TestWithFS(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	opt := WithFS(fs)
-
-	opts := &loadOptions{}
-	opt(opts)
-
-	assert.Equal(t, fs, opts.fs)
-}
-
-func TestWithAppDir(t *testing.T) {
-	opt := WithAppDir("/custom/.ctxloom")
-
-	opts := &loadOptions{}
-	opt(opts)
-
-	assert.Equal(t, "/custom/.ctxloom", opts.appDir)
-}
-
-func TestLoad_WithOptions(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	// Create .ctxloom directory structure with persistent subdir
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// A valid config file already in the new (default-agent) shape.
-	configContent := `
-version: 6
-llm:
-  configs:
-    claude-code: { type: claude-code }
-  defaults:
-    primary: claude-code
-default_agent: dev
-agents:
-  dev:
-    profiles: [test]
-`
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"test"}, cfg.DefaultAgentProfiles())
-	assert.Equal(t, "claude-code", cfg.lm.Defaults.Primary)
-	assert.Equal(t, []string{appDir}, cfg.appPaths)
-	assert.Equal(t, appDir, cfg.appDir)
-	assert.Equal(t, SourceProject, cfg.source)
-}
-
-// TestLoad_PreservesBodyMapKeyCase is a regression guard: the Load path must
-// not lowercase case-sensitive keys inside a backend's polymorphic Body. The
-// previous decoder (viper) lowercased every key, so a `SOME_KEY` inside a
-// label's map reached the launched process as `some_key` and the engine never
-// saw it. ParseConfig (init) was always correct, which masked the divergence.
-// The mock's control map is the case-sensitive Body map that survives today.
-func TestLoad_PreservesBodyMapKeyCase(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	configContent := `
-version: 3
-llm:
-  configs:
-    m:
-      type: mock
-      mock_control:
-        CTXLOOM_MOCK_RESPONSE: canned
-        Mixed_Case: x
-  defaults:
-    primary: m
-`
-	testsupport.WriteFileString(t, fs, paths.ConfigPath(appDir), configContent, 0644)
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, err)
-
-	control, ok := cfg.lm.Configs["m"].Body["mock_control"].(map[string]any)
-	require.True(t, ok, "mock_control should decode into Body as a map, got %#v", cfg.lm.Configs["m"].Body["mock_control"])
-	assert.Equal(t, "canned", control["CTXLOOM_MOCK_RESPONSE"], "uppercase key must be preserved verbatim")
-	assert.Contains(t, control, "Mixed_Case")
-	assert.NotContains(t, control, "ctxloom_mock_response", "key must not be lowercased")
-}
-
-func TestLoad_CurrentConfigHasNoPendingUpgrade(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	current := "version: 6\nllm:\n  configs:\n    claude-code: { type: claude-code }\n  defaults:\n    primary: claude-code\n"
-	cfgPath := paths.ConfigPath(appDir)
-	require.NoError(t, afero.WriteFile(fs, cfgPath, []byte(current), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, err)
-	assert.Nil(t, cfg.pendingUpgrade, "a current-version config must not record a pending upgrade")
-	assert.Equal(t, CurrentConfigVersion, cfg.version)
-}
-
-func TestLoad_NoConfigFile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// No config.yaml file - should still work
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	require.NoError(t, err)
-
-	assert.NotNil(t, cfg.lm.Configs)
-}
-
-func TestLoadConfigFile_Errors(t *testing.T) {
-	t.Run("file not found is not error", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-
-		cfg := &Config{}
-		// Missing file should be OK - config is optional
-		values, pending, err := loadConfigLayer(cfg, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", nil, fs)
-		assert.NoError(t, err)
-		assert.Nil(t, values)
-		assert.Nil(t, pending)
-	})
-
-	t.Run("invalid yaml produces warning not error", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, afero.WriteFile(fs, "/config.yaml", []byte("invalid: ["), 0644))
-
-		cfg := &Config{}
-		values, _, err := loadConfigLayer(cfg, layerscope.LayerProject, "/", "", "/config.yaml", nil, fs)
-		// Invalid YAML no longer errors - adds warning instead for resilient startup
-		assert.NoError(t, err)
-		assert.Nil(t, values, "a layer that failed to parse contributes no values to the merge")
-		assert.Len(t, cfg.warnings, 1)
-		assert.Contains(t, cfg.warnings[0].Text, "failed to parse config")
-		assert.Equal(t, WarnKindParse, cfg.warnings[0].Kind, "parse failures carry the parse kind so the strict gate can classify them")
-	})
-}
 
 // =============================================================================
 // SetFS Tests
@@ -1146,7 +863,6 @@ func hasHookCommand(hooks []wire.Hook, command, wantSCM string) bool {
 // SCM "bundle:<ref>"; unresolvable profiles and bundle refs are skipped without
 // affecting the always-present builtin hooks.
 func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
 	const bundleSCM = "bundle:ctxloom+local:hook-bundle"
 
 	newProject := func(t *testing.T) (appDir, profilesDir, bundlesDir string) {
@@ -1192,42 +908,18 @@ func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
 			"a hook from a parent-inherited bundle must resolve (recursive ResolveProfile)")
 	})
 
-	t.Run("unresolvable profile and bundle ref are skipped, companion loadout hooks remain", func(t *testing.T) {
+	t.Run("unresolvable profile and bundle ref are skipped", func(t *testing.T) {
 		appDir, profilesDir, _ := newProject(t)
 		// A default profile that does not exist (ResolveProfile errors → skip) and
 		// a profile referencing a bundle that is not on disk (Load errors → skip).
 		require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "real.yaml"),
 			[]byte("name: real\nbundles:\n  - ghost-bundle\n"), 0644))
 
-		// taskloom's stamp-plan hook used to come from the embedded builtin
-		// bundle (always-on, no profile gating); it now comes from taskloom's
-		// LOADOUT (S8), discovered on PATH — fake that discovery here.
-		restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
-			if bin == "taskloom" {
-				return "/fake/taskloom", nil
-			}
-			return "", exec.ErrNotFound
-		})
-		defer restoreLook()
-		envelope, err := signing.EncodeLoadoutEnvelope(
-			[]byte("version: \"1.0.0\"\nhooks:\n  post_file_edit:\n    - command: ctxloom hook stamp-plan\n      type: command\n"), nil, "")
-		require.NoError(t, err)
-		restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-		defer restoreProbe()
-
 		cfg := &Config{defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"missing", "real"}}}, appPaths: []string{appDir}}
 		result := cfg.ResolveBundleHooks(nil)
 
 		assert.False(t, hasHookCommand(result.PreTool, "echo pre-tool", bundleSCM),
 			"a ghost bundle ref contributes no hooks")
-		found := false
-		for _, h := range result.PostFileEdit {
-			if strings.Contains(h.Command, "hook stamp-plan") && h.SCM == "bundle:ctxloom+companion:taskloom" {
-				found = true
-			}
-		}
-		assert.True(t, found,
-			"companion loadout hooks survive when profile-gated resolution skips everything")
 	})
 }
 
@@ -1466,58 +1158,6 @@ llm:
 // Load Schema Validation Error
 // =============================================================================
 
-func TestLoad_SchemaValidationProducesWarning(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// Create config that fails schema validation (using wrong type)
-	configContent := `
-llm:
-  configs: "should be a map not string"
-`
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
-
-	// Now returns config with warnings instead of error for resilient startup
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	// Should have collected warnings about parse/validation issues
-	assert.NotEmpty(t, cfg.warnings)
-}
-
-// A schema-COMPILE failure (as opposed to a document that fails validation
-// against a good schema) used to degrade to "everything is valid" —
-// zap-only, invisible to cfg.warnings and therefore invisible to the
-// strict-startup gate, which keys exclusively on that slice. Force the
-// compile step itself to fail via the newConfigValidatorFn seam (the real
-// embedded schema cannot be made to fail without corrupting a build
-// artifact) and assert the failure is now a fatal-class warning.
-func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
-	orig := newConfigValidatorFn
-	newConfigValidatorFn = func() (*schema.ConfigValidator, error) {
-		return nil, fmt.Errorf("simulated schema compile failure")
-	}
-	defer func() { newConfigValidatorFn = orig }()
-
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("llm:\n  default_agent: claude\n"), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-	assert.NoError(t, err, "a compile failure must degrade to a warning, not abort Load")
-	require.NotNil(t, cfg)
-
-	var found bool
-	for _, w := range cfg.warnings {
-		if w.Kind == WarnKindValidate && strings.Contains(w.Text, "schema failed to compile") {
-			found = true
-		}
-	}
-	assert.True(t, found, "a schema-compile failure must surface as a fatal-class (WarnKindValidate) warning so the strict-startup gate can see it; warnings: %v", cfg.warnings)
-}
-
 // =============================================================================
 // mergeHooks Complete Coverage (SessionEnd)
 // =============================================================================
@@ -1525,153 +1165,6 @@ func TestLoad_SchemaCompileFailureProducesWarning(t *testing.T) {
 // =============================================================================
 // Resilient Startup Tests
 // =============================================================================
-
-func TestResilientStartup_MalformedConfig(t *testing.T) {
-	// Test that malformed config produces warnings but doesn't fail startup
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// Create malformed YAML (array where object expected)
-	malformedYAML := `
-llm:
-  configs:
-    - this is wrong format
-    claude-code: {}
-`
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(malformedYAML), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-
-	// Should NOT error
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-
-	// Should have warnings
-	assert.NotEmpty(t, cfg.warnings)
-
-	// Config should still be usable with defaults
-	assert.NotNil(t, cfg.lm.Configs)
-}
-
-func TestResilientStartup_CompletelyInvalidYAML(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// Completely unparseable YAML
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("{{{{invalid"), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	assert.NotEmpty(t, cfg.warnings)
-	// Schema validation catches parse errors first
-	assert.Contains(t, cfg.warnings[0].Text, "config validation warning")
-	assert.Equal(t, WarnKindValidate, cfg.warnings[0].Kind, "schema failures carry the validate kind so the strict gate can classify them")
-}
-
-func TestResilientStartup_NonExistentProfile(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
-
-	// Config references a non-existent profile. Written in the CURRENT schema:
-	// a fixture spelled in a retired one only passes while a migration happens
-	// to carry it forward, which makes it a test of the migration rather than
-	// of the behaviour it names.
-	configYAML := fmt.Sprintf(`
-version: %d
-default_agent: default
-agents:
-  default:
-    profiles:
-      - nonexistent-profile
-`, CurrentConfigVersion)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-
-	// Loading should succeed. The legacy defaults.profiles upgrades through the
-	// v1→…→v6 chain into the synthesized default agent's profiles.
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	assert.Equal(t, "default", cfg.defaultAgent)
-
-	// DefaultAgentProfiles returns the name even if the profile doesn't exist.
-	defaults := cfg.DefaultAgentProfiles()
-	assert.Contains(t, defaults, "nonexistent-profile")
-}
-
-func TestResilientStartup_EmptyConfig(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/.ctxloom"
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// Empty config file - schema validation will warn but not fail
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(appDir, "config.yaml"), []byte(""), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	// Schema validation warns on empty config, but we still start
-	assert.NotNil(t, cfg.lm.Configs)
-}
-
-func TestResilientStartup_PartiallyValidConfig(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// Config with some valid and some invalid parts (unknown property in plugin).
-	// Schema validation may catch this, but we should still not fail -- and the
-	// VALID part must survive, which is the whole claim. The profile lives in
-	// .ctxloom/profiles/ now that the inline arm is retired, so the surviving
-	// good part is read through the loader rather than off the config struct.
-	configYAML := fmt.Sprintf(`
-version: %d
-llm:
-  configs:
-    claude-code:
-      unknown_property: true
-`, CurrentConfigVersion)
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(paths.ProfilesPath(appDir), "valid-profile.yaml"),
-		[]byte("description: \"This is valid\"\n"), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	loaded, lerr := cfg.GetProfileLoader().Load("valid-profile")
-	require.NoError(t, lerr, "the valid profile must survive a partially-invalid config")
-	assert.Equal(t, "This is valid", loaded.Description,
-		"and survive with its CONTENT, not merely as a name in a map")
-}
-
-func TestResilientStartup_WarningsAreCollected(t *testing.T) {
-	// Test that schema validation warnings are collected
-	fs := afero.NewMemMapFs()
-	appDir := "/project/" + paths.AppDirName
-	require.NoError(t, fs.MkdirAll(appDir, 0755))
-
-	// Create config with type mismatch that schema validation should catch
-	configYAML := `
-llm:
-  configs: invalid-should-be-map
-`
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configYAML), 0644))
-
-	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
-
-	// Should not error, should have warnings
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	// The config struct is valid even if content is wrong
-}
 
 // =============================================================================
 // Compaction Settings Tests
@@ -1893,53 +1386,56 @@ func TestRewriteRetiredSeedParents(t *testing.T) {
 	}, got)
 }
 
-// TestTestOnlyMutators_CannotReachTheSharedInstance pins the property that
-// makes SetFS and DisableCompanionProbe safe to export: they mutate the
-// receiver in place, so the only thing standing between them and every Load()
-// holder in the process is that no caller ever has the ambient instance to
-// mutate. NewFixture is the constructor those callers use, and it must keep
-// returning a config that neither IS nor aliases the memoized one — otherwise a
-// single test-only setter silently repoints production's filesystem or disarms
-// its companion probe for the rest of the process.
-func TestTestOnlyMutators_CannotReachTheSharedInstance(t *testing.T) {
+// Regression: Save round-trips the labeled-config registry, the role map, the
+// config (settings) block, and the editor block. The fast role's labeled
+// config carries the compression model; essence_max_chars lives under
+func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
+	// Real-OS-fs Load below (no WithFS): isolate HOME so the home-layer read
+	// (D2/D3 layering) never reaches this developer's real ~/.ctxloom.
 	testsupport.Isolate(t)
-	Invalidate()
-	t.Cleanup(Invalidate)
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(tmpDir, 0755))
 
-	shared, err := Load()
+	cfg := &Config{
+		appPaths: []string{tmpDir},
+		// source: SourceHome -- this represents a personal, single-file
+		// config with no separate project layer (the zero value would be
+		// SourceProject, and saveLocked now enforces layerscope's
+		// project-scope policy whenever source is SourceProject: see its own
+		// doc). editor.command/args are ScopeMachine (internal/core/config/
+		// layerscope) -- legitimate in a HOME file, exactly the case this
+		// represents -- but a genuine violation saveLocked now strips before
+		// ever reaching a real project's committed yaml. Using
+		// SourceHome here is what lets this test assert editor survives a
+		// save at all, and it doubles as coverage for saveLocked's
+		// skip-the-filter-when-SourceHome branch.
+		source: SourceHome,
+		lm: LMConfig{
+			Configs: map[string]LLMConfig{
+				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
+				"fast": {Type: "mock", Body: map[string]interface{}{"model": "haiku"}},
+			},
+			Defaults: RoleDefaults{Primary: "big", Fast: "fast"},
+		},
+		settings: SettingsConfig{EssenceMaxChars: 4096},
+		editor:   EditorConfig{Command: "vim", Args: []string{"-p"}},
+	}
+	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
+
+	// Round-trip through ParseConfig (a single-document parse, no layering)
+	// rather than the layered Load: ParseConfig checks Save's own
+	// serialization fidelity -- does Marshal emit every field it was given --
+	// independent of any layer-scope policy (which cfg.source above already
+	// keeps saveLocked from applying to this particular save).
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
 	require.NoError(t, err)
-	require.NotNil(t, shared)
-
-	owned := NewFixture(Fixture{AppPaths: []string{t.TempDir()}})
-	require.NotSame(t, shared, owned, "NewFixture must never hand back the memoized ambient instance")
-
-	memFS := afero.NewMemMapFs()
-	owned.SetFS(memFS)
-	owned.DisableCompanionProbe()
-
-	assert.NotSame(t, memFS, shared.FS(),
-		"a test-only SetFS must not have repointed the shared ambient config's filesystem")
-
-	again, err := Load()
+	loaded, err := ParseConfig(data)
 	require.NoError(t, err)
-	assert.Same(t, shared, again, "the ambient memo must still serve the instance it built")
-}
-
-// TestCtxloomProduct_NilValidatorLeavesKnownPathNil pins the degradation
-// confload's Product doc describes: "Nil is treated as 'no schema knowledge
-// available'". That branch is guarded by `if p.KnownPath != nil`, and a
-// METHOD VALUE on a nil pointer is never a nil func — so passing
-// validator.KnownPath unconditionally made the documented path unreachable
-// from this product, no matter how the schema failed. The resolved config is
-// the same either way (a predicate answering false for everything and an
-// absent predicate both land on case 4), which is exactly why nothing else
-// would ever notice.
-func TestCtxloomProduct_NilValidatorLeavesKnownPathNil(t *testing.T) {
-	assert.Nil(t, ctxloomProduct(nil).KnownPath,
-		"no schema means no schema knowledge — confload's nil branch must be reachable")
-
-	validator, err := newConfigValidatorFn()
-	require.NoError(t, err, "the real embedded schema must compile, or the other half of this test proves nothing")
-	assert.NotNil(t, ctxloomProduct(validator).KnownPath,
-		"a compiled schema must still be handed through, or the nil case above is vacuous")
+	assert.Equal(t, "big", loaded.ToFixture().LM.Defaults.Primary)
+	assert.Equal(t, "fast", loaded.ToFixture().LM.Defaults.Fast)
+	assert.Equal(t, "mock", loaded.GetCompactionLLM())
+	assert.Equal(t, "haiku", loaded.GetCompactionModel())
+	assert.Equal(t, 4096, loaded.GetEssenceMaxChars())
+	assert.Equal(t, "vim", loaded.ToFixture().Editor.Command)
+	assert.Equal(t, []string{"-p"}, loaded.ToFixture().Editor.Args)
 }

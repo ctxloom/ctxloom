@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -37,7 +38,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/vpio/dockerexec"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
@@ -562,7 +562,7 @@ func (st *runState) validateFlags() error {
 // config that can be trusted to launch from, and the warnings it downgraded
 // are what arms the startup gate.
 func (st *runState) loadConfig() error {
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -573,13 +573,13 @@ func (st *runState) loadConfig() error {
 	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
 	// If loading upgraded an older config schema in memory, offer to persist
 	// it (interactive + consented only; never a silent rewrite).
-	confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
+	confirmConfigUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
 	// The HOME layer gets the same offer when a project config also exists.
 	// Without this, a stale ~/.ctxloom/config.yaml was upgraded
 	// in memory on every load forever and never converged. The prompt names
 	// the path, so consenting to rewrite HOME is an informed choice rather
 	// than a surprise side effect of a project-scoped run.
-	confirmUpgrade(cfg.GetHomePendingUpgrade(), cfg.CommitHomeUpgrade)
+	confirmConfigUpgrade(cfg.GetHomePendingUpgrade(), cfg.CommitHomeUpgrade)
 	// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
 	// persist those rewrites the same way.
 	confirmProfileUpgrades(cfg)
@@ -640,7 +640,7 @@ func (st *runState) runStartupTasks() {
 	syncCfg := st.cfg.GetSyncConfig()
 	if syncCfg.ShouldAutoSync() && !runDryRun && confirmSyncInstall(st.ctx, st.cfg) {
 		syncCtx, syncCancel := context.WithTimeout(st.ctx, 60*time.Second)
-		result, syncErr := operations.SyncOnStartup(syncCtx, st.cfg)
+		result, syncErr := operations.SyncOnStartup(syncCtx, App())
 		syncCancel()
 		if syncErr != nil {
 			if !errors.Is(syncErr, context.Canceled) {
@@ -654,7 +654,7 @@ func (st *runState) runStartupTasks() {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`.
 	if !runDryRun {
-		operations.ReportCompanions(os.Stderr, st.cfg.TrustRoot())
+		operations.ReportCompanions(os.Stderr, companions.Prober{Disabled: App().NoCompanions}, st.cfg.TrustRoot())
 	}
 
 	// Startup reaper: sweep any per-agent worktree checkout left behind by a
@@ -1198,7 +1198,7 @@ func recordCoordinatorStartupFinding(cerr error) {
 }
 
 func (st *runState) hostCoordinator() func() {
-	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(st.cfg, st.workDir, st.activeHarp, st.agentRuntime)
+	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(App(), st.workDir, st.activeHarp, st.agentRuntime)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
 		return func() {}
@@ -2271,22 +2271,28 @@ func init() {
 // interactive terminal it leaves the file untouched and the upgrade simply stays
 // in memory for this run (the next interactive run prompts again). A nil pending
 // means the file was already current.
-func confirmUpgrade(p *upgrade.Pending, commit func() error) {
-	if p == nil {
-		return
-	}
+func confirmUpgrade(path string, applied []string, commit func() error) {
 	if runAssumeYes {
-		commitUpgrade(p, commit)
+		commitUpgrade(path, commit)
 		return
 	}
 	if !isInteractiveTerminal() {
 		return // in-memory only — never a silent rewrite
 	}
 
-	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s).\n", p.Path, strings.Join(p.Applied, ", "))
+	fmt.Fprintf(os.Stderr, "ctxloom: %s is an older schema (%s).\n", path, strings.Join(applied, ", "))
 	if yes, err := promptYesNo("Rewrite it to the current format? [y/N] "); err == nil && yes {
-		commitUpgrade(p, commit)
+		commitUpgrade(path, commit)
 	}
+}
+
+// confirmConfigUpgrade offers to persist one config layer's pending
+// in-memory schema upgrade; nil means that layer is current.
+func confirmConfigUpgrade(p *config.PendingUpgrade, commit func() error) {
+	if p == nil {
+		return
+	}
+	confirmUpgrade(p.Path, p.Applied, commit)
 }
 
 // confirmProfileUpgrades offers to persist any older-schema rewrites that loading
@@ -2301,15 +2307,15 @@ func confirmProfileUpgrades(cfg *config.Config) {
 		_, _ = loader.ResolveProfile(name, nil)
 	}
 	for _, p := range loader.PendingUpgrades() {
-		confirmUpgrade(p, func() error { return loader.CommitUpgrade(p) })
+		confirmUpgrade(p.Path, p.Applied, func() error { return loader.CommitUpgrade(p) })
 	}
 }
 
 // commitUpgrade persists a pending upgrade, warning (never fatal) on failure —
 // the in-memory config is valid regardless.
-func commitUpgrade(p *upgrade.Pending, commit func() error) {
+func commitUpgrade(path string, commit func() error) {
 	if err := commit(); err != nil {
-		clidiag.Warn("ctxloom", "could not rewrite %s: %v", p.Path, err)
+		clidiag.Warn("ctxloom", "could not rewrite %s: %v", path, err)
 	}
 }
 

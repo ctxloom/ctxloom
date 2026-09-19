@@ -1,4 +1,4 @@
-package config
+package companions
 
 import (
 	"context"
@@ -63,8 +63,8 @@ func TestCompanionProbeSeams_ConcurrentProbesAreRaceFree(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			statuses[i] = ProbeCompanions(nil)
-			_, _ = ProbeCompanionLoadouts(context.Background(), nil)
+			statuses[i] = Prober{}.ProbeCompanions(nil)
+			_, _ = Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
 		}(i)
 	}
 	wg.Wait()

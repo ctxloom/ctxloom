@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -69,7 +68,7 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 	}
 
 	appDir := ""
-	if cfg, cErr := config.Load(); cErr == nil {
+	if cfg, cErr := GetConfig(); cErr == nil {
 		appDir = cfg.GetAppDir()
 	}
 

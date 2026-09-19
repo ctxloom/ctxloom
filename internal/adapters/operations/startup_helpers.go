@@ -4,9 +4,9 @@ import (
 	"context"
 	"io"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -78,11 +78,11 @@ func SweepOrphanedContainers(ctx context.Context, w io.Writer) {
 //
 // Both `ctxloom mcp` startup and `ctxloom run` call this so the surface is
 // the same regardless of how the session was started.
-func ReportCompanions(w io.Writer, root signing.TrustRoot) {
+func ReportCompanions(w io.Writer, prober companions.Prober, root signing.TrustRoot) {
 	// Best-effort reporting on fault-tolerant startup paths; failed writes
 	// are intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 	ew := iox.NewErrWriter(w)
-	for _, st := range config.ProbeCompanions(root) {
+	for _, st := range prober.ProbeCompanions(root) {
 		switch {
 		case st.Path == "":
 		case !st.Executed():

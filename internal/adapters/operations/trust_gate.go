@@ -354,6 +354,15 @@ func (e *ExecutableTrustGate) Authorizer() bundles.Authorizer {
 	return e.gate
 }
 
+// WarnWithheldBy is WarnWithheld for a gate reached as the generation's
+// authorizer (config.Config.ExecutableTrustGate): a value that is not this
+// package's gate has withheld nothing it can report.
+func WarnWithheldBy(auth bundles.Authorizer) {
+	if gate, ok := auth.(*contentGate); ok {
+		(&ExecutableTrustGate{gate: gate}).WarnWithheld()
+	}
+}
+
 // WarnWithheld surfaces one content-free advisory line PER bundle executable
 // this gate withheld (MCP servers, hooks, prompt exports), naming the item and
 // WHY — rejected, retracted by the publisher, or pending review — never a
@@ -384,8 +393,8 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 // This shape serves an explicit by-name ask or a listing, never a run's
 // assembly, so it does not consult link groups (bundles.LinksUnchecked): the
 // caller named the item, and "what exists" must not shrink with a profile.
-func exposurePipeline(cfg *config.Config, opts ...config.BundleLoaderOption) *bundles.Pipeline {
-	pipe, _ := exposurePipelineGated(cfg, bundles.LinksUnchecked(), opts...)
+func exposurePipeline(cfg *config.Config) *bundles.Pipeline {
+	pipe, _ := exposurePipelineGated(cfg, bundles.LinksUnchecked())
 	return pipe
 }
 
@@ -402,9 +411,9 @@ func exposurePipeline(cfg *config.Config, opts ...config.BundleLoaderOption) *bu
 // links is the run's link grant (cfg.LinkGrant over the profiles being
 // assembled) for a surface that assembles a run, or bundles.LinksUnchecked
 // for one that does not — stated by the caller, because only it knows which.
-func exposurePipelineGated(cfg *config.Config, links bundles.LinkGrant, opts ...config.BundleLoaderOption) (*bundles.Pipeline, *contentGate) {
+func exposurePipelineGated(cfg *config.Config, links bundles.LinkGrant) (*bundles.Pipeline, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))
-	return bundles.NewPipeline(cfg.BundleLoader(opts...), gate, links, cfgPreferDistilled(cfg)), gate
+	return bundles.NewPipeline(cfg.BundleLoader(), gate, links, cfgPreferDistilled(cfg)), gate
 }
 
 // cfgPreferDistilled returns the caller's raw-vs-distilled form choice, nil-safe.

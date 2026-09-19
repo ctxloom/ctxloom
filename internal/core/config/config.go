@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -15,14 +14,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // Re-export path constants for backwards compatibility
@@ -276,50 +273,16 @@ type Config struct {
 	// func. Never persisted.
 	execGate bundles.Authorizer
 
-	// companionSeed memoizes the companion loadout probe for this Config's
-	// LIFETIME: probing execs a subprocess per discovered companion (and can
-	// PROMPT for consent to do so), and BundleLoader is called repeatedly
-	// within one process (hooks, MCP, fragments, assembly) — without this, each
-	// call would re-pay that cost and re-ask that question. Deliberately
-	// per-Config (not a package var):
-	// tests construct fresh Configs and must never observe another test's
-	// fake companion output.
-	//
-	// A VALUE field, and that makes Config NON-COPYABLE — which is the point,
-	// not a side effect. govet copylocks now refuses any attempt to copy a
-	// Config, so the pass-by-pointer rule this codebase already follows
-	// everywhere is enforced by a tool instead of by convention.
-	//
-	// It was previously a pointer guarded by a package-level mutex, because a
-	// test double rebuilt a Config in place (`*cfg = *rebuilt`) to make a
-	// profile definition appear mid-run. That simulated a channel production
-	// cannot use — config-defined profiles are fixed at load, since nothing
-	// rewrites .ctxloom/config.yaml during a run — so it was the test that was
-	// wrong, not this field. Production reveals new state exactly one way: bytes
-	// land on disk and the next read lists them through a fresh loader.
-	companionSeed companionSeedState
+	// catalog and versionResolver are the generation's bundle view: the
+	// catalog resolved from the Sources' readers, bound by the Owner
+	// (bindGeneration) before the Snapshot carrying this Config is
+	// published; the resolver, attached by the reader (Builder.BindVersionResolver),
+	// materializes a pinned historical version of a remote bundle on demand.
+	catalog         *bundles.Catalog
+	catalogOnce     sync.Once
+	versionResolver bundles.BundleVersionResolver
 
-	// bundleLoader memoizes the default-shape read-path loader for this
-	// Config's lifetime; see BundleLoader and InvalidateBundleLoader. A value
-	// mutex is safe here because Config is non-copyable (companionSeed's
-	// sync.Once makes it so, and govet copylocks enforces it).
-	bundleLoaderMu sync.Mutex
-	bundleLoader   *bundles.Loader
-
-	// catalog is the generation's resolved bundle catalog, bound by the Owner
-	// (bindGeneration) before the Snapshot carrying this Config is published.
-	catalog *bundles.Catalog
-
-	// companionProbe overrides companion-loadout discovery; nil means the real
-	// ProbeCompanionLoadouts. The real probe execs whatever companion binaries
-	// happen to be on the HOST's PATH, so any test that sets AppPaths (the only
-	// guard) silently inherits the developer's machine: the same test passes
-	// where ltk is not installed and fails where it is. Tests that assert on an
-	// exact command/bundle set must pin this (see DisableCompanionProbe) so the
-	// result depends on the fixture, never the host.
-	companionProbe bundles.CompanionProber
-
-	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
+	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
 	// still match it: the overlay is a runtime fallback, and persisting it
 	// would pin the user to a snapshot of shipped model defaults.
@@ -1093,16 +1056,6 @@ func (c *Config) registryFSOptions() []remote.RegistryOption {
 	return nil
 }
 
-// lockfileFSOptions threads the injected filesystem into a remote lockfile
-// manager so lockfile reads honor c.fs alongside the registry reads. Empty for
-// the OS default.
-func (c *Config) lockfileFSOptions() []remote.LockfileOption {
-	if c.fs != nil {
-		return []remote.LockfileOption{remote.WithLockfileFS(c.fs)}
-	}
-	return nil
-}
-
 // ProfileRemoteResolver returns a function mapping a profile's local name to the
 // short remote it was installed from, backed by the remotes registry. Nil when no
 // registry is available (the loader then reads profiles verbatim). Exposed so
@@ -1238,449 +1191,21 @@ func (c *Config) BundleReaderDirs() []string {
 	return dirs
 }
 
-// BundleLoaderOption configures how a Config builds its bundle loader. It is a
-// CONFIG-level option, not a loader one: what a Config assembles is a set of
-// READERS, and "which filesystem do the project bundles come from" is a
-// question about that assembly rather than about the loader that composes it.
-type BundleLoaderOption func(*bundleLoaderConfig)
-
-type bundleLoaderConfig struct {
-	fs              afero.Fs
-	extraReaders    []bundles.Reader
-	versionResolver bundles.BundleVersionResolver
-}
-
-// WithBundleLoaderFS overrides the filesystem the PROJECT reader reads from
-// (tests that pin a bundle set on a memory fs). It replaces the Config's own
-// filesystem rather than adding a second source, so real on-disk bundles cannot
-// leak into a fixture's result.
-func WithBundleLoaderFS(fsys afero.Fs) BundleLoaderOption {
-	return func(c *bundleLoaderConfig) { c.fs = fsys }
-}
-
-// WithExtraBundleReaders appends further sources to the loader — the seam a
-// test uses to pin content that would otherwise come off the host (a fake
-// companion, a synthetic pinned tree). Later readers win a name collision, so
-// an extra reader shadows a project bundle of the same name.
-func WithExtraBundleReaders(readers ...bundles.Reader) BundleLoaderOption {
-	return func(c *bundleLoaderConfig) { c.extraReaders = append(c.extraReaders, readers...) }
-}
-
-// WithBundleVersionResolver overrides how the loader materializes a specific
-// historical commit-version of a bundle. The default is this Config's own
-// resolver (the clone cache for remote refs, the project's git history for
-// local ones); a test injects a fake so a pinned "@<commit>" ask is answerable
-// without a repository.
-func WithBundleVersionResolver(resolver bundles.BundleVersionResolver) BundleLoaderOption {
-	return func(c *bundleLoaderConfig) { c.versionResolver = resolver }
-}
-
-// BundleLoader returns the read-path bundle loader: a bundles.Loader composed
-// of one reader per SOURCE this session can see — the project's own bundle
-// directories, every remote bundle in the active lockfile (pinned, read out of
-// the local clone cache or its installed tree), and every discovered
-// companion's loadout.
-//
-// This is what replaced the anonymous seed map. The old shape gathered remote
-// bundles, companion loadouts and their trust facts into one
-// map[string]*Bundle behind a "<seeded>:" path sentinel, which meant the
-// content of three sources arrived with their origins erased and their
-// signature facts already collapsed into a single stamped string. Each source
-// is now a reader that reports what it read, on the record, on three axes.
-//
-// Failures are degraded gracefully (CLAUDE.md fault tolerance): a missing
-// lockfile, unregistered remote, single bad SHA, or unreachable/invalid
-// companion loadout produces a diagnostic and the loader serves the rest.
+// BundleLoader returns the read-path bundle loader over this generation's
+// resolved catalog (bound by the config Owner before publication). A Config
+// nobody bound a catalog to — a fixture — sees an empty catalog: nothing here
+// re-reads the world, and a write that changes what the readers would see is
+// announced by the next generation (config.Owner.Reload).
 //
 // It takes NO form preference: raw-vs-distilled is a PROCESS-stage decision
 // (docs/design/engine-delivery-seam.design.md), so a caller that reads content
 // names the form it wants at the read itself — see ShouldUseDistilled.
-func (c *Config) BundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
-	// Memoized for the DEFAULT shape only. This factory was called 16 times
-	// across the tree and `ctxloom doctor` went through 22 loader builds in one
-	// run, each re-walking the bundle directories and re-parsing every bundle to
-	// produce the same answer.
-	//
-	// Only the no-option shape is shared, and that is not a compromise: exactly
-	// ONE production caller passes an option at all (operations/hooks.go, which
-	// overrides the filesystem). An option-bearing call asks for a DIFFERENT set
-	// of sources, so it builds its own — and the option fields are a func and a
-	// slice, neither usable as a cache key, so keying on them is not merely
-	// unnecessary but impossible.
-	//
-	// Anything that changes what is on disk must call InvalidateBundleLoader.
-	// A fresh loader used to pick up such a change BY ACCIDENT, because it
-	// re-read; sharing one removes the accident and makes the obligation
-	// explicit.
-	if len(opts) == 0 {
-		c.bundleLoaderMu.Lock()
-		defer c.bundleLoaderMu.Unlock()
-		if c.bundleLoader == nil {
-			c.bundleLoader = c.buildBundleLoader()
-		}
-		return c.bundleLoader
-	}
-	return c.buildBundleLoader(opts...)
-}
-
-// InvalidateBundleLoader drops the memoized loader so the next BundleLoader
-// re-reads every source.
-//
-// Callers are the paths that CHANGE what the readers would see: a bundle
-// written or deleted locally, and a remote pull landing new pinned content. A
-// missed call yields stale content with exit 0, which is this codebase's
-// characteristic failure, so each caller carries a test.
-func (c *Config) InvalidateBundleLoader() {
-	c.bundleLoaderMu.Lock()
-	defer c.bundleLoaderMu.Unlock()
-	if c.bundleLoader != nil {
-		// IN PLACE, keeping the pointer. The bundle store now reads and writes
-		// through this same loader, so replacing the object would leave the
-		// store holding one nothing else refers to — reintroducing, quietly,
-		// the two-views-of-one-thing split that sharing it removed.
-		c.bundleLoader.Invalidate()
-	}
-}
-
-func (c *Config) buildBundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
-	var lc bundleLoaderConfig
-	for _, opt := range opts {
-		opt(&lc)
-	}
-	fsys := lc.fs
-	if fsys == nil {
-		// Thread the injected filesystem so fs-installed local bundle discovery
-		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
-		fsys = c.getFS()
-	}
-
-	// Order is precedence: a later reader wins a name collision, so pinned
-	// remote content still shadows a stale extracted copy on disk, and a
-	// companion's own ref (which nothing else can claim) is last.
-	//
-	// The builtin reader's presence here is what makes a builtin bundle
-	// resolvable BY REF — a profile naming `isolation#fragments/isolation-axes`
-	// reaches it through the ordinary loader rather than only through the
-	// unconditional injection route. A builtin and a project bundle may share a
-	// declared name without either displacing the other: the catalog keys on the
-	// canonical URI, so the two are separate entries and a BARE name that matches
-	// both is refused as ambiguous rather than silently resolved to one. The
-	// builtin still reaches the session by injection either way — the two routes
-	// are collapsed by the ingest identity rule, not by the catalog.
-	//
-	// Its position here is NAME precedence only. It once also decided which
-	// filesystem Loader.FS() reported — the builtin reader has one, the
-	// EMBEDDED fs — so listing it first derived every project skill's trust
-	// preimage from a tree that does not exist there and withheld the skill in
-	// silence. bundles.readersFS now selects by provenance instead, so that
-	// failure is no longer reachable by reordering this slice.
-	//
-	// A SOURCE, not a slice: the remote readers are one per lockfile entry, and
-	// a pull adds entries while this loader is alive (it is shared for the
-	// Config's life and the sync builds it before any fetch). Deriving the set
-	// on every (re)index is what makes InvalidateBundleLoader mean what it says
-	// — "re-reads every source" — for the lockfile too, not only for the
-	// content behind the readers that already existed.
-	source := func() []bundles.Reader {
-		readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.BundleReaderDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
-		readers = append(readers, bundles.NewBuiltinReader(bundles.WithTrustRoot(c.TrustRoot())))
-		readers = append(readers, c.remoteBundleReaders()...)
-		readers = append(readers, c.companionReader())
-		return append(readers, lc.extraReaders...)
-	}
-
-	loader := bundles.NewLoaderFrom(source)
-	// Multi-version coexistence (trust rework, TR5): give every read-path loader
-	// the capability to materialize a specific historical commit-version of a
-	// remote bundle via FetchItem. This is opt-in at the loader's version-aware
-	// methods only — the default (lockfile-pinned) path is unaffected — so wiring
-	// it everywhere is free until a caller asks for an "@<commit>" version.
-	resolver := lc.versionResolver
-	if resolver == nil {
-		resolver = c.bundleVersionResolver()
-	}
-	if resolver != nil {
-		loader.WithVersionResolver(resolver)
+func (c *Config) BundleLoader() *bundles.Loader {
+	loader := bundles.LoaderOf(c.Catalog())
+	if c.versionResolver != nil {
+		loader.WithVersionResolver(c.versionResolver)
 	}
 	return loader
-}
-
-// companionReader builds the reader that contributes every discovered
-// companion's loadout, seeded under its ctxloom:companion@<bin> ref.
-//
-// The reader owns the trust facts (it verifies any signature against THIS
-// config's full trust root — embedded + user + project allowed_signers, the
-// same root the pinned-remote readers use); this function owns only WHICH
-// prober it reads through, and the memoization of that prober's result.
-func (c *Config) companionReader() bundles.Reader {
-	return bundles.NewCompanionReader(c.companionProber(), bundles.WithTrustRoot(c.TrustRoot()))
-}
-
-// companionProber returns the exec seam the companion reader reads through:
-// the loadouts of every companion this machine's human has agreed ctxloom may
-// execute, probed at most ONCE per Config.
-//
-// The memoization is not an optimization detail. Probing execs a subprocess per
-// discovered companion and can PROMPT for consent to do so, and a loader is
-// built repeatedly within one process (hooks, MCP, fragments, assembly) — so
-// without it the same question would be asked several times in one run.
-//
-// Skipped entirely when there is no project directory: companion content only
-// matters for a real project session, and this keeps a bare/management Config —
-// the shape most unit tests construct — from spawning companion subprocesses it
-// has no use for.
-func (c *Config) companionProber() bundles.CompanionProber {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	// No lazy allocation and no package-level lock: the state is a value field,
-	// so it exists as soon as the Config does, and its own sync.Once is the only
-	// synchronization the probe needs.
-	state := &c.companionSeed
-	probe := c.companionProbe
-
-	// Otherwise a Config's own override (the test seam) wins over the real probe,
-	// so a parallel test can pin its own fixture without touching the global.
-	if probe == nil {
-		// Adapter, so bundles.CompanionProber stays a plain func(ctx): the
-		// trust root is CONFIG-provided, and this closure is the point where a
-		// Config is in scope. TrustRoot() reads allowed-signers files and never
-		// probes companions, so consulting it here cannot recurse back into
-		// this probe.
-		root := c.TrustRoot()
-		probe = func(ctx context.Context) (bundles.CompanionProbe, error) {
-			return ProbeCompanionLoadouts(ctx, root)
-		}
-	}
-	return func(ctx context.Context) (bundles.CompanionProbe, error) {
-		// The process-wide switch (--no-companions / CTXLOOM_NO_COMPANIONS) wins
-		// over everything, INCLUDING an injected probe: "off" must mean no
-		// companion code runs, not "off unless something wired an override".
-		// Disabled short-circuits before any probe is called, so no companion
-		// subprocess is executed and no loadout is contributed — skipping the
-		// exec, not discarding its result, is the point, since probing shells out
-		// to whatever companion binaries happen to be on the host's PATH.
-		if CompanionsDisabled() {
-			return bundles.CompanionProbe{}, nil
-		}
-		var err error
-		state.once.Do(func() {
-			state.cache, err = probe(ctx)
-		})
-		return state.cache, err
-	}
-}
-
-// DisableCompanionProbe makes companion-loadout discovery a no-op for this
-// Config. Companion probing execs the companion binaries found on the host's
-// PATH, which makes any assertion over an exact command set depend on what the
-// developer happens to have installed. Tests that pin such a set call this so
-// the fixture — not the machine — decides the result.
-func (c *Config) DisableCompanionProbe() {
-	c.companionProbe = func(context.Context) (bundles.CompanionProbe, error) { return bundles.CompanionProbe{}, nil }
-}
-
-// SetCompanionProbeForTesting pins the companion loadouts this Config will see,
-// so a test's fixture — never the developer's PATH — decides what companion
-// content a session carries.
-func (c *Config) SetCompanionProbeForTesting(probe bundles.CompanionProber) {
-	c.companionProbe = probe
-}
-
-// companionSeedState is the memoized result of one Config's companion-loadout
-// probe, held as a VALUE on Config.companionSeed. Its sync.Once is the whole
-// synchronization story: the state exists as soon as the Config does, so there
-// is no allocation to guard and no second lock.
-type companionSeedState struct {
-	once  sync.Once
-	cache bundles.CompanionProbe
-}
-
-// bundleVersionResolver returns a bundles.BundleVersionResolver that materializes
-// a bundle at a specific commit and parses the bytes into a Bundle. It dispatches
-// by the ref's SOURCE — the loader's multi-version coexistence backed end to end:
-//
-//   - remote/canonical ref → the whole pinned TREE out of the local git clone
-//     cache (bundles.ReadRemoteRef), verified before it is interpreted;
-//   - ctxloom:local ref → the file's bytes as of <commit> in the PROJECT'S OWN
-//     git history (the committed .ctxloom/content/ tree), via the local working-copy
-//     VCS — `git show <commit>:<path>` semantics. The unversioned local path is
-//     untouched: the loader only invokes the resolver for an explicit "@<commit>".
-//
-// Given a version-less canonical ref and an opaque commit, it reads exactly that
-// historical version. Returns nil when there is no app dir to anchor either
-// source. The fetch is lazy — nothing happens until a version-aware loader method
-// actually requests a pinned commit — and any failure (unknown rev, non-git
-// project, path-absent-at-rev) fails closed: the caller withholds just that item.
-//
-// Auth and both git backends are inherently OS-backed (the remote cache shells
-// out to git; the local backend opens the on-disk project .git), so they do not
-// honor c.fs — matching loadRemoteBundleSeed.
-func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	baseDir := c.appPaths[0]
-	// Defer the auth read + clone-cache construction to the FIRST actual remote
-	// version fetch: the default (lockfile) path never invokes the resolver, and a
-	// local-only pin never touches the remote cache, so neither pays for it.
-	var (
-		once    sync.Once
-		factory remote.FetcherFactory
-		auth    remote.AuthConfig
-	)
-	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
-		ref, err := remote.ParseReference(canonicalRef)
-		if err != nil {
-			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
-		}
-
-		// Local (project-authored) refs version against the PROJECT'S own git
-		// history, not the remote clone cache. The committed .ctxloom/content/ tree
-		// is read at <commit> through the working-copy VCS; a non-git project,
-		// unknown rev, or path-absent-at-rev errors here and the caller withholds.
-		if ref.IsLocal {
-			data, err := remote.NewLocalRefFetcher(
-				remote.LocalGitVCSFactory(afero.NewOsFs()),
-				paths.LocalPath(baseDir),
-			).FetchItem(context.Background(), ref, commit)
-			if err != nil {
-				return nil, err
-			}
-			return bundles.ParseBundle(data)
-		}
-
-		// Remote/canonical refs: FetchItem over the local clone cache (auth +
-		// cache built once, lazily, on the first remote pin).
-		once.Do(func() {
-			auth = remote.LoadAuth(baseDir)
-			cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-			factory = remote.NewCachedFetcherFactory(cache)
-		})
-		// The WHOLE tree, not its manifest: a tree bundle's fragments, commands
-		// and skills are FILES beside its bundle.yaml, so reading the manifest
-		// alone resolved every @<commit>-pinned tree bundle to a bundle with
-		// zero items — the real product bundle, silently empty.
-		return bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, c.TrustRoot())
-	}
-}
-
-// reportBundleLoadFailures records one fatal-class finding per lockfile-active
-// bundle whose bytes could not be read.
-//
-// Fatal-class in strict mode because the user PINNED these: content silently
-// missing from a session is exactly the failure fail-loudly exists to catch. It
-// warns and continues in degraded mode.
-//
-// A WITHHELD tree is reported differently, and deliberately: its bytes are on
-// disk and re-pulling would fetch the same ones, so the default fix cannot fix
-// it. It is also not a delivery problem at all — the content disagrees with what
-// its publisher signed — so it is classed as a trust failure rather than a
-// delivery one. It no longer mirrors anything: the single-file tamper branch it
-// was written against is gone, because single-file bundles are no longer read at
-// all, so this is now the only path on which installed remote bytes can be
-// refused for disagreeing with their signature. A fix line that cannot fix the
-// thing it is attached to is worse than no fix line at all.
-func reportBundleLoadFailures(failures map[string]error) {
-	for name, err := range failures {
-		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
-			strictness.FailOnce(strictness.ClassTrust,
-				"re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed",
-				"remote bundle %q was installed but withheld: %v", name, err)
-			continue
-		}
-		strictness.FailOnce(strictness.ClassBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
-			"failed to load remote bundle %q from cache: %v", name, err)
-	}
-}
-
-// remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:
-// the bytes come from the local git clone cache at the pinned SHA (single-file
-// bundles) or from the tree `deps pull` installed (directory-form bundles),
-// and each reader does its OWN signature checking over exactly those bytes.
-//
-// Canonical refs are the sole resolution identity: profiles author canonical
-// refs and resolve straight to these readers' content, so each reader is
-// constructed FOR one canonical ref rather than discovering names from paths.
-//
-// Returns nil when there is no lockfile or registry — no remote bundles, just
-// the project's own.
-func (c *Config) remoteBundleReaders() []bundles.Reader {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	// PINS RIDE A PROJECT, NEVER HOME. When findAppDir fell back to
-	// ~/.ctxloom there is no project, and a lockfile there pins a closure
-	// nothing declares — home config carries settings (llm configs,
-	// delegation), not bundles or profiles.
-	//
-	// This is not symmetry with the config chain, and deliberately so: config
-	// LAYERS because settings merge sensibly, but two dependency closures do
-	// not merge — their union is a set neither side asked for. So home may
-	// supply CONFIG; only a project supplies a CLOSURE.
-	//
-	// It is also the only way this state can stay true. `deps` writes at
-	// project scope and would never revisit a home lock, so a home lock is
-	// read-but-never-written — and that always rots. The one on this machine
-	// pinned 33 bundles against ZERO declarations for six weeks, until both
-	// pinned revisions stopped parsing against the current bundle schema and
-	// every project-less launch aborted on findings no supported command
-	// could clear. Refusing to read it here is what makes the reader agree
-	// with `deps check`, which already reports nothing installed there.
-	if c.source == SourceHome {
-		return nil
-	}
-	baseDir := c.appPaths[0]
-
-	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
-	if err != nil {
-		// A real error here (corrupt remotes.yaml, unreadable dir) is not "no
-		// remotes registered" — the doc comment's nil-return case above — so it
-		// fails loud instead of silently vanishing every lockfile-pinned remote
-		// bundle from assembly/hooks/MCP/commands.
-		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
-			"failed to open the remotes registry; no remote bundles loaded: %v", err)
-		return nil
-	}
-	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
-	if err != nil {
-		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
-			"failed to load the remote lockfile; no remote bundles loaded: %v", err)
-		return nil
-	}
-	if lock.IsEmpty() {
-		return nil
-	}
-	// Auth config and the git clone cache are inherently OS-backed (the cache
-	// shells out to git), so they intentionally do not honor c.fs.
-	auth := remote.LoadAuth(baseDir)
-	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
-	factory := remote.NewCachedFetcherFactory(cache)
-	// Wrap in the caching decorator so repeated loader constructions within a
-	// session don't re-walk the clone for the same SHAs.
-	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
-
-	ctx := context.Background()
-	_, failures := remote.LoadAllBytes(ctx, reader)
-
-	// The trust root (embedded + user + project allowed_signers) is resolved once
-	// for the whole set and handed to every reader, so no two pinned bundles are
-	// judged against different roots.
-	root := c.TrustRoot()
-
-	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
-	//
-	// There used to be a document-reader loop here, skipped for tree entries.
-	// With the document form removed it would match everything, and presenting
-	// a tree's bundle.yaml as a lone document drops the items beside it — the
-	// fragments, skills and prompts that live as FILES in the tree — while
-	// checking a signature over the manifest alone rather than over the tree.
-	// That is not hypothetical: leaving the loop unguarded is exactly what made
-	// a published fragment stop reaching the consumer's assistant while every
-	// other surface kind still arrived.
-	out := c.treeBundleReaders(lock, root, failures)
-	reportBundleLoadFailures(failures)
-	return out
 }
 
 // GetConfigFilePath returns the path to the primary config file.

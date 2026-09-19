@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
-	"golang.org/x/crypto/ssh"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"golang.org/x/crypto/ssh"
 )
 
 // mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
@@ -474,7 +475,7 @@ func scrubCompanionDirs(path string) string {
 // The names are asked of config rather than spelled here, so a companion added
 // there is scrubbed without anyone remembering to update this list.
 func holdsCompanion(dir string) bool {
-	for _, bin := range config.FirstPartyCompanionNames() {
+	for _, bin := range companions.FirstPartyCompanionNames() {
 		if _, err := os.Stat(filepath.Join(dir, bin)); err == nil {
 			return true
 		}

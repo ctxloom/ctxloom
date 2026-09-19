@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 )
 
 // Companion-binary status for `manage check`. Companions are separate binaries
@@ -62,12 +62,12 @@ func hintForCompanion(bin string) companionHint {
 // contributes nothing.
 func printCompanionStatus(w io.Writer) {
 	fmt.Fprintln(w, "Companions:")
-	if config.CompanionsDisabled() {
+	if App().NoCompanions {
 		fmt.Fprintln(w, "  (companion discovery disabled for this run — --no-companions/CTXLOOM_NO_COMPANIONS)")
 		return
 	}
 	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
-	for _, adm := range config.AdmitCompanions(config.DiscoverCompanions(), root) {
+	for _, adm := range companions.AdmitCompanions(companions.DiscoverCompanions(), root) {
 		hint := hintForCompanion(adm.Bin)
 		switch {
 		case adm.Path == "":

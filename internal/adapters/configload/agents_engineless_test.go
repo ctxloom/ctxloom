@@ -1,8 +1,10 @@
-package config
+package configload
 
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -23,12 +25,12 @@ import (
 func TestLoad_EnginelessAgentIsRefusedNamingKeyAndPath(t *testing.T) {
 	cfg := writeLayers(t, "", "version: 6\nagents:\n  x: {}\n  dev:\n    profiles: [default]\n")
 
-	_, present := cfg.agents["x"]
+	_, present := cfg.GetConfiguredAgents()["x"]
 	assert.False(t, present, "an agent with no llm and no profiles must be dropped from the agents map, not carried as an empty binding")
-	_, present = cfg.agents["dev"]
+	_, present = cfg.GetConfiguredAgents()["dev"]
 	assert.True(t, present, "a sibling that CAN resolve an engine through its profiles is untouched")
 
-	found := warningsOfKind(cfg, WarnKindEnginelessAgent)
+	found := warningsOfKind(cfg, config.WarnKindEnginelessAgent)
 	require.Len(t, found, 1, "exactly one finding for the one refused binding")
 	assert.Contains(t, found[0], "agents.x", "the finding must name the key that was refused")
 	assert.Contains(t, found[0], paths.ConfigPath("/proj/.ctxloom"), "the finding must name the file the binding came from")
@@ -49,7 +51,7 @@ func TestLoad_AgentWithProfilesButNoLLMIsAccepted(t *testing.T) {
 	got, ok := cfg.Agent("reviewer")
 	require.True(t, ok)
 	assert.Equal(t, []string{"cr-correctness"}, got.Profiles)
-	assert.Empty(t, warningsOfKind(cfg, WarnKindEnginelessAgent))
+	assert.Empty(t, warningsOfKind(cfg, config.WarnKindEnginelessAgent))
 }
 
 // TestLoad_AgentWithLLMButNoProfilesIsAccepted is the other edge: an llm
@@ -61,7 +63,7 @@ func TestLoad_AgentWithLLMButNoProfilesIsAccepted(t *testing.T) {
 	got, ok := cfg.Agent("quick")
 	require.True(t, ok)
 	assert.Equal(t, "fast", got.LLM)
-	assert.Empty(t, warningsOfKind(cfg, WarnKindEnginelessAgent))
+	assert.Empty(t, warningsOfKind(cfg, config.WarnKindEnginelessAgent))
 }
 
 // TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath is the row's observed
@@ -83,13 +85,13 @@ func TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath(t *testing.T) {
 	cfg, err := Load(WithFS(fs), WithAppDir(projectAppDir))
 	require.NoError(t, err)
 
-	_, present := cfg.agents["help"]
+	_, present := cfg.GetConfiguredAgents()["help"]
 	assert.False(t, present, "a home-only engineless agent must not reach the merged agents map")
 
-	found := warningsOfKind(cfg, WarnKindEnginelessAgent)
+	found := warningsOfKind(cfg, config.WarnKindEnginelessAgent)
 	require.Len(t, found, 1)
 	assert.Contains(t, found[0], "agents.help")
-	assert.Contains(t, found[0], paths.ConfigPath(filepath.Join(home, AppDirName)),
+	assert.Contains(t, found[0], paths.ConfigPath(filepath.Join(home, config.AppDirName)),
 		"the finding must name the HOME file, which is where the offending declaration lives")
 	assert.NotContains(t, found[0], "/proj/", "the project file did not declare it and must not be blamed")
 }
@@ -103,11 +105,11 @@ func TestLoad_HomeEnginelessAgentIsRefusedNamingHomePath(t *testing.T) {
 func TestManagerUpdate_ProjectWriteDoesNotFoldHomeAgentIntoProjectFile(t *testing.T) {
 	home := testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
-	homeAppDir := filepath.Join(home, AppDirName)
+	homeAppDir := filepath.Join(home, config.AppDirName)
 	projectAppDir := seedLayers(t, fs, home, "version: 6\nagents:\n  help: {}\n", "version: 6\n")
 
-	mgr := NewManager(WithFS(fs), WithAppDir(projectAppDir))
-	require.NoError(t, mgr.Update(func(d *Draft) error {
+	mgr := newUpdater(t, WithFS(fs), WithAppDir(projectAppDir))
+	require.NoError(t, mgr.Update(func(d *config.Draft) error {
 		if d.Agents == nil {
 			d.Agents = map[string]agents.Agent{}
 		}

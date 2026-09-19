@@ -1,8 +1,10 @@
-package config
+package configload
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +18,7 @@ import (
 // warningsOfKind returns the texts of cfg's warnings of one kind, so an
 // assertion can name what it expected instead of matching on substrings of the
 // whole warning list.
-func warningsOfKind(cfg *Config, kind WarningKind) []string {
+func warningsOfKind(cfg *config.Config, kind config.WarningKind) []string {
 	var out []string
 	for _, w := range cfg.GetWarnings() {
 		if w.Kind == kind {
@@ -46,12 +48,12 @@ agents:
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	reviewer, ok := cfg.agents["reviewer"]
+	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok, "fixture check: the override must have reached the binding")
 	assert.Equal(t, "plann", reviewer.Permissions,
 		"the refused value is still applied, so the consumer's own fail-closed handling sees what was typed")
 
-	found := warningsOfKind(cfg, WarnKindValidate)
+	found := warningsOfKind(cfg, config.WarnKindValidate)
 	require.Len(t, found, 1, "exactly one validate warning for the one bad override")
 	assert.Contains(t, found[0], "agents.reviewer.permissions", "the warning must name the key that broke")
 	assert.Contains(t, strings.ToLower(found[0]), "config-set", "and the override that set it")
@@ -83,7 +85,7 @@ llm:
 	_, isString := entry.Body["model"].(string)
 	require.False(t, isString, "fixture check: the coerced list is what reached the document")
 
-	found := warningsOfKind(cfg, WarnKindValidate)
+	found := warningsOfKind(cfg, config.WarnKindValidate)
 	require.Len(t, found, 1)
 	assert.Contains(t, found[0], "llm.configs.big.model")
 }
@@ -108,7 +110,7 @@ agents:
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
-	reviewer, ok := cfg.agents["reviewer"]
+	reviewer, ok := cfg.GetConfiguredAgents()["reviewer"]
 	require.True(t, ok)
 	require.Equal(t, "plan", reviewer.Permissions, "fixture check: the overrides really did apply")
 	assert.Empty(t, cfg.GetWarnings(), "a legitimate override must produce no warning of any kind")

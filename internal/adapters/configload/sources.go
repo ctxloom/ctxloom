@@ -53,6 +53,13 @@ func WithProfileRefCanonicalizer(fn func(shell *config.Config, ref string) strin
 	return func(s *Sources) { s.canonicalize = fn }
 }
 
+// WithVersionResolver supplies the per-generation resolver that materializes
+// a pinned historical version of a remote bundle; fetching is the remote
+// adapter's job, so the root wires it.
+func WithVersionResolver(fn func(cfg *config.Config) bundles.BundleVersionResolver) Option {
+	return func(s *Sources) { s.versionResolver = fn }
+}
+
 // WithReaderSource adds a factory for bundle readers a generation's Catalog
 // is resolved from, after the project and builtin readers: the lockfile's
 // pinned remotes, every discovered companion's loadout.
@@ -84,10 +91,11 @@ type Sources struct {
 	validatorErr  error
 	defaultConfig []byte
 
-	canonicalize  func(shell *config.Config, ref string) string
-	readerSources []func(cfg *config.Config) []bundles.Reader
-	extraReaders  []bundles.Reader
-	trustGate     func(cfg *config.Config) bundles.Authorizer
+	canonicalize    func(shell *config.Config, ref string) string
+	versionResolver func(cfg *config.Config) bundles.BundleVersionResolver
+	readerSources   []func(cfg *config.Config) []bundles.Reader
+	extraReaders    []bundles.Reader
+	trustGate       func(cfg *config.Config) bundles.Authorizer
 }
 
 // New builds the process's Sources from its parsed flag set and environment
@@ -96,9 +104,13 @@ type Sources struct {
 // A flag or env override that cannot be BOUND is returned as the error
 // alongside a usable Sources: the root degrades it to a warning, and each
 // individual override is still resolved (and warned about) per Read.
+// newConfigValidator is the schema-compile seam: the embedded schema is a
+// build artifact, so a compile failure is only reachable by a test faking it.
+var newConfigValidator = schema.NewConfigValidator
+
 func New(flags *pflag.FlagSet, environ []string, opts ...Option) (*Sources, error) {
 	s := &Sources{}
-	s.validator, s.validatorErr = schema.NewConfigValidator()
+	s.validator, s.validatorErr = newConfigValidator()
 	if s.validatorErr != nil {
 		zap.L().Warn("failed to create config validator", zap.Error(s.validatorErr))
 		s.validator = nil
@@ -180,6 +192,9 @@ func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, e
 		return nil, nil, err
 	}
 	b.OverlayDefaultRegistry(s.defaultConfig)
+	if s.versionResolver != nil {
+		b.BindVersionResolver(s.versionResolver(b.Shell()))
+	}
 	cfg := b.Build()
 	return cfg, cfg.GetWarnings(), nil
 }

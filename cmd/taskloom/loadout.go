@@ -33,12 +33,12 @@ var loadoutSigFiles embed.FS
 // signing.NamespacePublish), read from the embedded loadout.yaml.sig sibling
 // when `just sign-loadouts` has produced and committed one — never held or
 // computed at runtime (spec §4.3, §7A.5). Empty when no .sig is committed,
-// which companionloadout.NewCommand already treats as "emit unsigned".
-var loadoutSig = companionloadout.ReadEmbeddedSig(loadoutSigFiles)
+// which companions.NewCommand already treats as "emit unsigned".
+var loadoutSig = companions.ReadEmbeddedSig(loadoutSigFiles)
 
 // newLoadoutCmd is a factory (rather than a package-level *cobra.Command
 // wired via this file's own init() convention) so registration has no
 // hidden ordering dependency; main.go adds it explicitly.
 func newLoadoutCmd() *cobra.Command {
-	return companionloadout.NewCommand(progName, loadoutYAML, loadoutSig)
+	return companions.NewCommand(progName, loadoutYAML, loadoutSig)
 }

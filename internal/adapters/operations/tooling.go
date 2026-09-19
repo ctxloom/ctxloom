@@ -11,6 +11,7 @@
 package operations
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfi
 // ScaffoldContainerBase makes the base Containerfile EDITABLE: it materializes
 // the embedded default base to relPath (project-root-relative;
 // "" = DefaultContainerBasePath), wires `isolation_base_containerfile` in
-// config inside one Manager.Update transaction, and returns the path — so the
+// config inside one Update transaction, and returns the path — so the
 // default auto-build and `container build` pick the file up from then on.
 // Idempotent and WIP-safe:
 //
@@ -105,12 +106,12 @@ var DefaultContainerBasePath = filepath.Join(paths.AppDirName, "base.Containerfi
 // same shape as SetAgent's shadow-agent warning): the config write below is
 // an unconditional field set, not a read-check-then-write, so no lost-update
 // window exists for it to close.
-func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath string, force bool) (string, error) {
+func ScaffoldContainerBase(ctx context.Context, app *App, cfg *config.Config, relPath string, force bool) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("config is required")
 	}
-	if mgr == nil {
-		return "", fmt.Errorf("manager is required")
+	if app == nil {
+		return "", fmt.Errorf("app is required")
 	}
 	fs := getFS(cfg.FS())
 	if existing := cfg.IsolationBaseContainerfilePath(); existing != "" && !force {
@@ -168,7 +169,7 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		}
 	}
 
-	if err := mgr.Update(func(d *config.Draft) error {
+	if _, err := app.Update(ctx, func(d *config.Draft) error {
 		d.IsolationBaseContainerfile = relPath
 		return nil
 	}); err != nil {

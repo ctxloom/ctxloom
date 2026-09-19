@@ -1,10 +1,12 @@
-package config
+package configload
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +62,7 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 		testsupport.Isolate(t)
 		resetStrictness(t)
 		_, linked := realGitWorktreeFixture(t)
-		require.NoError(t, os.MkdirAll(filepath.Join(linked, AppDirName), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(linked, config.AppDirName), 0o755))
 		testsupport.ChangeDir(t, linked)
 
 		mark := strictness.Checkpoint()
@@ -68,8 +70,8 @@ func TestFindAppDir_WorktreeSignpost(t *testing.T) {
 
 		assert.Empty(t, strictness.Since(mark),
 			"an opted-out worktree (own .ctxloom) must behave exactly as today — no finding")
-		assert.Equal(t, filepath.Join(linked, AppDirName), path)
-		assert.Equal(t, SourceProject, src)
+		assert.Equal(t, filepath.Join(linked, config.AppDirName), path)
+		assert.Equal(t, config.SourceProject, src)
 	})
 
 	t.Run("plain_directory_is_unaffected", func(t *testing.T) {
@@ -194,7 +196,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 
 // findAppDir's last resort — reached only when os.UserHomeDir()
 // fails — returned <pwd>/.ctxloom without creating it, or, when os.Getwd() had
-// ALSO failed, the bare RELATIVE string ".ctxloom" tagged SourceProject.
+// ALSO failed, the bare RELATIVE string ".ctxloom" tagged config.SourceProject.
 // loadUncached then derives appRoot as filepath.Dir(appPath), so the relative
 // case resolves the whole project to "." and every path built from it —
 // bundles, agents, sessions, the config file itself — becomes relative to
@@ -221,7 +223,7 @@ func TestFindAppDir_LastResortIsAbsoluteAndCreated(t *testing.T) {
 
 	require.True(t, filepath.IsAbs(appPath),
 		"a relative app dir makes appRoot \".\" and every derived path cwd-dependent; got %q", appPath)
-	assert.Equal(t, SourceProject, source)
+	assert.Equal(t, config.SourceProject, source)
 	exists, err := afero.DirExists(fs, appPath)
 	require.NoError(t, err)
 	assert.True(t, exists,

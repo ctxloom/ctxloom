@@ -850,7 +850,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	if config.CompanionsDisabled() {
+	if App().NoCompanions {
 		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "companion probing disabled (--no-companions)"}
 	}
 	decided := readCompanionDecisions(cfg)

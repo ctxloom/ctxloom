@@ -1,8 +1,10 @@
-package config
+package configload
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -44,7 +46,7 @@ func TestLoad_OlderThanCurrentVersion_IsRefusedWithAnActionableFinding(t *testin
 	require.Len(t, found, 1, "exactly one finding: %+v", found)
 	assert.Equal(t, strictness.ClassMigration, found[0].Class)
 	assert.Contains(t, found[0].Message, "version: 5", "the finding must quote the version the file declares")
-	assert.Contains(t, found[0].Message, fmt.Sprintf("%d", CurrentConfigVersion), "and the version this build requires")
+	assert.Contains(t, found[0].Message, fmt.Sprintf("%d", config.CurrentConfigVersion), "and the version this build requires")
 	assert.Contains(t, found[0].Message, paths.ConfigPath("/project/"+paths.AppDirName), "and name the file")
 	assert.Contains(t, found[0].FixIt, "ctxloom init", "the remedy is re-scaffolding, and the finding must say so")
 }
@@ -66,7 +68,7 @@ func TestLoad_UnversionedConfig_IsRefusedAsPreVersioning(t *testing.T) {
 // on EVERY config would pass both tests above while breaking every user.
 func TestLoad_CurrentVersion_RaisesNoFinding(t *testing.T) {
 	found := loadRefusalFindings(t,
-		fmt.Sprintf("version: %d\nllm:\n  defaults:\n    primary: claude-code\n", CurrentConfigVersion))
+		fmt.Sprintf("version: %d\nllm:\n  defaults:\n    primary: claude-code\n", config.CurrentConfigVersion))
 
 	assert.Empty(t, found, "a current config must raise nothing: %+v", found)
 }

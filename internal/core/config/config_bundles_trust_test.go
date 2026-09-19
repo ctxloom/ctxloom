@@ -2,7 +2,6 @@ package config
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
@@ -139,29 +137,10 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 
 // TestResolveBundleMCPServers_GatedEndToEnd drives the full profile→bundle→
 // settings path with a field-injected gate: a denied profile-bundle MCP server
-// is absent from the resolved set while a trusted one survives, and a
-// COMPANION LOADOUT's MCP server (S8) is routed through the identical gate —
-// never exempt like the old in-binary builtin path was before that gate
-// threading fix — so it comes through only because this fake gate's
-// denySubstrs doesn't happen to match it (see
-// TestExecGate_ResolveBundleMCPServers_CompanionRejectable for the proof that
-// a companion server CAN be specifically withheld, and
-// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated for the
-// full allow/deny pair against this exact wiring).
+// is absent from the resolved set while a trusted one survives. A COMPANION
+// LOADOUT's MCP server rides the identical gate; the companions adapter's
+// own integration test proves that, where both halves are reachable.
 func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
-		if bin == "ltk" {
-			return "/fake/ltk", nil
-		}
-		return "", exec.ErrNotFound
-	})
-	defer restoreLook()
-	envelope, err := signing.EncodeLoadoutEnvelope(
-		[]byte("version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n"), nil, "")
-	require.NoError(t, err)
-	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-	defer restoreProbe()
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
@@ -178,14 +157,6 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 	result := cfg.ResolveBundleMCPServers(nil)
 	assert.Contains(t, result, "quiet-server", "trusted profile-bundle MCP server must be written")
 	assert.NotContains(t, result, "noisy-server", "denied profile-bundle MCP server must NOT be written")
-
-	foundCompanion := false
-	for _, srv := range result {
-		if strings.HasPrefix(srv.SCM, "bundle:ctxloom+companion:") {
-			foundCompanion = true
-		}
-	}
-	assert.True(t, foundCompanion, "a companion loadout MCP server passes the SAME gate as a profile-bundle server — not specifically denied here, and never exempt")
 }
 
 // TestResolveBundleHooks_GatedEndToEnd drives the full path for hooks: a denied

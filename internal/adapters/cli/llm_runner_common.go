@@ -100,7 +100,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 // engine. Mirrors GetConfig/GetConfigForUpdate (root.go) and runMCPServerSDK
 // (mcp_server.go), the other process-owning entry points.
 func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (*config.Config, error) {
-	cfg, cfgErr := config.Load()
+	cfg, cfgErr := GetConfig()
 	if cfgErr != nil {
 		clidiag.Warn("ctxloom", "config load failed; serving %s unconfigured: %v", backendName, cfgErr)
 	}
@@ -294,13 +294,13 @@ func exportRunnerMCPSocket(set func(string, string) error, socketPath string) er
 // runnerMustRefuseNoConfigReachBack reports whether standUpRunner must
 // refuse to launch its engine because this runner hosts a delegated run
 // (engineHost != nil, i.e. it has a RunID and a StructuredChat backend) but
-// config.Load() failed, so there is no config to build a runner-local MCP
+// GetConfig() failed, so there is no config to build a runner-local MCP
 // endpoint from. Binding EngineHost in that state would let the
 // engine launch with CTXLOOM_MCP_SOCKET never exported — the same "hosted
 // delegated run with no reach-back" condition standUpRunner's merr branch
 // (a few lines up) already refuses for when mcp.ServeRunnerMCP itself fails.
 // Extracted as a pure predicate so the branch condition is unit-testable
-// without needing config.Load() to actually fail — which the loader's own
+// without needing GetConfig() to actually fail — which the loader's own
 // fault tolerance (CLAUDE.md) makes hard to trigger from real file content;
 // nearly every load fault degrades to a warning (cfg != nil, cfg.GetWarnings()
 // non-empty) rather than this cfg == nil path.

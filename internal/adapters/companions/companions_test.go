@@ -1,4 +1,4 @@
-package config
+package companions
 
 import (
 	"bytes"
@@ -16,9 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	companionloadout "github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 )
@@ -40,7 +39,7 @@ func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	statuses := ProbeCompanions(nil)
+	statuses := Prober{}.ProbeCompanions(nil)
 	require.Len(t, statuses, 3)
 	for _, st := range statuses {
 		assert.Equal(t, "/usr/bin/"+st.Bin, st.Path)
@@ -61,7 +60,7 @@ func TestProbeCompanions_MissingBinaryYieldsEmptyPathAndNoProbe(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	for _, st := range ProbeCompanions(nil) {
+	for _, st := range (Prober{}).ProbeCompanions(nil) {
 		assert.Empty(t, st.Path)
 		assert.Empty(t, st.Version)
 		assert.NoError(t, st.Err, "missing is a state, not a probe error")
@@ -80,7 +79,7 @@ func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
 			return nil, errors.New("boom")
 		})
 		defer restore()
-		for _, st := range ProbeCompanions(nil) {
+		for _, st := range (Prober{}).ProbeCompanions(nil) {
 			assert.NotEmpty(t, st.Path, "binary still counts as present")
 			assert.Error(t, st.Err)
 		}
@@ -91,7 +90,7 @@ func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
 			return []byte("not json"), nil
 		})
 		defer restore()
-		for _, st := range ProbeCompanions(nil) {
+		for _, st := range (Prober{}).ProbeCompanions(nil) {
 			assert.Error(t, st.Err)
 			assert.Empty(t, st.Version)
 		}
@@ -102,7 +101,7 @@ func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
 			return []byte(`{"name":"ltk"}`), nil
 		})
 		defer restore()
-		for _, st := range ProbeCompanions(nil) {
+		for _, st := range (Prober{}).ProbeCompanions(nil) {
 			assert.Error(t, st.Err)
 		}
 	})
@@ -188,43 +187,6 @@ echo '{"name":"goodtool","version":"v9.9.9"}'`)
 // Companion disable switch (--no-companions / CTXLOOM_NO_COMPANIONS)
 // ==========================================================================
 
-// companionLoadoutsOf drives the Config's companion prober exactly as the
-// companion reader does, so a test asserts on what a session would obtain
-// rather than on a field.
-func companionLoadoutsOf(t *testing.T, cfg *Config) []bundles.CompanionLoadout {
-	t.Helper()
-	probe := cfg.companionProber()
-	if probe == nil {
-		return nil
-	}
-	got, err := probe(context.Background())
-	require.NoError(t, err)
-	return got.Loadouts
-}
-
-// TestCompanionsDisabled_SkipsProbeEntirely is the contract of the switch:
-// when companions are disabled process-wide, discovery must not run at all —
-// no companion subprocess is executed and no loadout is contributed. Probing
-// execs whatever companion binaries sit on the host PATH, so this is what makes
-// a run (and CI) reproducible regardless of the machine.
-func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
-	t.Cleanup(func() { SetCompanionsDisabled(false) })
-
-	probed := 0
-	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
-		probed++
-		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{
-			{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")},
-		}}, nil
-	})
-
-	SetCompanionsDisabled(true)
-
-	assert.Empty(t, companionLoadoutsOf(t, cfg), "no companion loadout may be contributed when disabled")
-	assert.Zero(t, probed, "the probe must not be executed at all when companions are disabled")
-}
-
 // TestProbeCompanions_DisabledYieldsNothing proves ProbeCompanions itself
 // honours the switch at the exec boundary — the prior gate
 // (TestCompanionsDisabled_SkipsProbeEntirely) only proved
@@ -234,30 +196,43 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 // (cli/startup_helpers.go, called unconditionally from `ctxloom run`/`ctxloom
 // mcp`) did.
 func TestProbeCompanions_DisabledYieldsNothing(t *testing.T) {
-	t.Cleanup(func() { SetCompanionsDisabled(false) })
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		t.Fatal("lookPath must not run when companions are disabled")
 		return "", nil
 	})
 	defer restoreLook()
 
-	SetCompanionsDisabled(true)
-	assert.Empty(t, ProbeCompanions(nil), "no companion binary may be probed when disabled")
+	assert.Empty(t, Prober{Disabled: true}.ProbeCompanions(nil), "no companion binary may be probed when disabled")
+}
+
+// The reader source of a disabled prober contributes nothing — no exec, no
+// loadout — while an enabled one reads through the probe.
+func TestProberReaderSource_DisabledContributesNothing(t *testing.T) {
+	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
+		t.Fatal("lookPath must not run when companions are disabled")
+		return "", nil
+	})
+	defer restoreLook()
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
+
+	readers := Prober{Disabled: true}.ReaderSource()(cfg)
+	require.Len(t, readers, 1)
+	reads, err := readers[0].Read(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, reads)
 }
 
 // TestProbeCompanionLoadouts_DisabledYieldsNothing is ProbeCompanionLoadouts'
 // half of the same fix: the loadout probe execs companion binaries too, and
 // had no gate of its own either.
 func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
-	t.Cleanup(func() { SetCompanionsDisabled(false) })
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		t.Fatal("lookPath must not run when companions are disabled")
 		return "", nil
 	})
 	defer restoreLook()
 
-	SetCompanionsDisabled(true)
-	got, err := ProbeCompanionLoadouts(context.Background(), nil)
+	got, err := Prober{Disabled: true}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, got, "no loadout may be probed when disabled")
 }
@@ -302,7 +277,7 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 	restoreSink := clidiag.SetSink(buf)
 	defer restoreSink()
 
-	out, err := ProbeCompanionLoadouts(context.Background(), nil)
+	out, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, out.Loadouts, "a wedged companion still contributes nothing")
 	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
@@ -327,7 +302,7 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 	restoreSink := clidiag.SetSink(buf)
 	defer restoreSink()
 
-	out, err := ProbeCompanionLoadouts(context.Background(), nil)
+	out, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, out.Loadouts)
 	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
@@ -335,12 +310,12 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 
 // TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide bridges the two ends
 // of the cross-process wire contract this probe's argv and
-// companionloadout.NewCommand's cobra dispatch both have to agree on
+// NewCommand's cobra dispatch both have to agree on
 // (subcommand name, flag name, format value) — previously duplicated as
 // bare string literals with no shared constant and no test exercising both
 // real sides, so renaming any of the three passed the whole suite while
 // silently breaking every companion in production. Drives the REAL
-// companionloadout.NewCommand (the emitter side) with the EXACT argv
+// NewCommand (the emitter side) with the EXACT argv
 // companionLoadoutOutput builds (the consumer side) and checks the output
 // round-trips through the real signing.DecodeLoadoutEnvelope decoder.
 func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
@@ -350,9 +325,9 @@ func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
 	// argv applies here — the Subcommand constant is what a real companion
 	// binary's root command would dispatch ON to reach this command in the
 	// first place.
-	cmd := companionloadout.NewCommand("acme", bundleYAML, nil)
-	require.Equal(t, companionloadout.Subcommand, cmd.Use, "the emitter side's command name must still match Subcommand")
-	cmd.SetArgs([]string{"--" + companionloadout.FormatFlag, companionloadout.FormatJSON})
+	cmd := NewCommand("acme", bundleYAML, nil)
+	require.Equal(t, Subcommand, cmd.Use, "the emitter side's command name must still match Subcommand")
+	cmd.SetArgs([]string{"--" + FormatFlag, FormatJSON})
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	require.NoError(t, cmd.Execute())
@@ -360,39 +335,6 @@ func TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide(t *testing.T) {
 	decoded, _, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), nil, time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, bundleYAML, decoded)
-}
-
-// TestCompanionsEnabled_ProbesByDefault is the converse: the default is on, so
-// the switch cannot silently suppress companions for everyone.
-func TestCompanionsEnabled_ProbesByDefault(t *testing.T) {
-	t.Cleanup(func() { SetCompanionsDisabled(false) })
-	SetCompanionsDisabled(false)
-
-	probed := 0
-	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.SetCompanionProbeForTesting(func(context.Context) (bundles.CompanionProbe, error) {
-		probed++
-		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{
-			{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")},
-		}}, nil
-	})
-
-	assert.Len(t, companionLoadoutsOf(t, cfg), 1)
-	assert.Equal(t, 1, probed)
-}
-
-// TestDisableCompanionProbe_BeatsGlobalEnabled pins the precedence a test needs:
-// the per-Config seam wins over the process-wide switch, so a parallel test can
-// pin its own fixture without depending on (or clobbering) global state.
-func TestDisableCompanionProbe_BeatsGlobalEnabled(t *testing.T) {
-	t.Cleanup(func() { SetCompanionsDisabled(false) })
-	SetCompanionsDisabled(false) // companions ON process-wide
-
-	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.DisableCompanionProbe()
-
-	assert.Empty(t, companionLoadoutsOf(t, cfg),
-		"a Config that disabled its own probe must see no companions even when the process has them enabled")
 }
 
 // TestCompanionVersion_ReadsTheCliversionContract pins the cross-binary

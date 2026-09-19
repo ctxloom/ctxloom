@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/harp"
@@ -97,13 +96,13 @@ func selfIdentityFromEnv(projectDir string) coord.Identity {
 // of that listener set — no separate per-harp viewer bind step exists
 // anymore). Children spawned from here reach back over the coordinator's
 // authenticated MCP endpoint exactly like run/acp-hosted ones.
-func newAgentDelegation(cfg *config.Config) (*agentDelegation, error) {
+func newAgentDelegation(app *operations.App) (*agentDelegation, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
 	}
 	self := selfIdentityFromEnv(cwd)
-	c, err := NewHostedCoordinator(cfg, cwd, self.Harp)
+	c, err := NewHostedCoordinator(app, cwd, self.Harp)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +313,7 @@ func (s *ctxServer) delegation() (*agentDelegation, error) {
 	if s.cfg == nil {
 		return nil, errors.New("agent delegation unavailable: server started without a loaded config")
 	}
-	d, err := newAgentDelegation(s.cfg)
+	d, err := newAgentDelegation(s.app)
 	if err != nil {
 		return nil, fmt.Errorf("agent delegation unavailable: %w", err)
 	}

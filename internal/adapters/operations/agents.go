@@ -363,19 +363,19 @@ func validateContainerAuth(cfg *config.Config, name string, req SetAgentRequest)
 // so a binding cannot be authored here that the loader would then drop.
 var ErrAgentWithoutEngine = errors.New("an agent needs an llm or at least one profile to bind an engine; neither was given")
 
-func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
+func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
-	if mgr == nil {
-		return nil, fmt.Errorf("manager is required")
+	if app == nil {
+		return nil, fmt.Errorf("app is required")
 	}
 	name := req.Name
 	if name == "" {
 		return nil, fmt.Errorf("agent name is required")
 	}
 
-	// Pre-flight, both halves BEFORE the Manager.Update transaction opens, so
+	// Pre-flight, both halves BEFORE the Update transaction opens, so
 	// a refusal writes nothing and a typo'd `agent edit` cannot half-apply over
 	// a live binding.
 	warnAgentAxisTypos(name, req)
@@ -389,7 +389,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// remote rename would strand. Bare/local names stay verbatim (decision A). This
 	// replaces the old verbatim store.
 	var entry agents.Agent
-	err := mgr.Update(func(d *config.Draft) error {
+	_, err := app.Update(ctx, func(d *config.Draft) error {
 		if d.Agents == nil {
 			d.Agents = make(map[string]agents.Agent)
 		}
@@ -450,20 +450,21 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 // against the same locked, freshly-reloaded Draft, so a concurrent writer can
 // never resurrect the entry between the check and the save. An unknown name
 // errors.
-func RemoveAgent(mgr *config.Manager, name string) error {
-	if mgr == nil {
-		return fmt.Errorf("manager is required")
+func RemoveAgent(ctx context.Context, app *App, name string) error {
+	if app == nil {
+		return fmt.Errorf("app is required")
 	}
 	if name == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	return mgr.Update(func(d *config.Draft) error {
+	_, err := app.Update(ctx, func(d *config.Draft) error {
 		if _, ok := d.Agents[name]; !ok {
 			return fmt.Errorf("agent %q not found in config.yaml", name)
 		}
 		delete(d.Agents, name)
 		return nil
 	})
+	return err
 }
 
 // AgentSetupNudge returns a one-line, user-facing nudge toward

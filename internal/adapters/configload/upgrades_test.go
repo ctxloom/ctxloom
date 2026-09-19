@@ -1,4 +1,4 @@
-package config
+package configload
 
 import (
 	"testing"
@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
@@ -42,7 +43,9 @@ func agentProfiles(t *testing.T, root map[string]any, name string) []string {
 // a short "<remote>/<bundle>#profiles/<name>" agent profile is rewritten to its
 // canonical URL, while bare/local and canonical refs are left verbatim.
 func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
-	pipe := upgrade.Pipeline{agentProfileCanonicalizeUpgrade{aliasToURL: aliasToPersonal}}
+	pipe := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string {
+		return remote.CanonicalizeProfileShortRef(ref, aliasToPersonal)
+	}}}
 	in := "agents:\n" +
 		"  dev:\n" +
 		"    engine: claude-code\n" +
@@ -75,8 +78,10 @@ func TestAgentProfileCanonicalizeUpgrade(t *testing.T) {
 // TestAgentProfileCanonicalizeUpgrade_NilResolver pins the fault-tolerant
 // self-gate: with no registry resolver the migration is a no-op and short refs
 // survive for the read-path loader to resolve.
-func TestAgentProfileCanonicalizeUpgrade_NilResolver(t *testing.T) {
-	pipe := upgrade.Pipeline{agentProfileCanonicalizeUpgrade{aliasToURL: nil}}
+// A canonicalizer that changes nothing applies nothing: the step fires only
+// when a ref actually rewrites.
+func TestProfileRefCanonicalizeUpgrade_IdentityAppliesNothing(t *testing.T) {
+	pipe := upgrade.Pipeline{profileRefCanonicalizeUpgrade{canonical: func(ref string) string { return ref }}}
 	in := "agents:\n  dev:\n    profiles:\n      - personal/agent-ensemble#profiles/finder\n"
 	out, applied := pipe.Run([]byte(in))
 	assert.Empty(t, applied)

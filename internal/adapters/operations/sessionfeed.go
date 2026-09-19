@@ -87,6 +87,9 @@ type SessionFeed struct {
 type SessionFeedRequest struct {
 	Harp   string
 	Source FeedSource
+	// Cfg supplies the default backend for a session record that carries
+	// none; required in that case.
+	Cfg *config.Config
 }
 
 // WatchSessionFeed resolves a harp to its observation feed. Only delegation
@@ -103,11 +106,10 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 	}
 	backend := entry.Backend
 	if backend == "" {
-		cfg, cerr := config.Load()
-		if cerr != nil {
-			return nil, fmt.Errorf("load config: %w", cerr)
+		if req.Cfg == nil {
+			return nil, fmt.Errorf("session %q records no backend and no config generation was supplied", req.Harp)
 		}
-		backend = cfg.GetDefaultLLM()
+		backend = req.Cfg.GetDefaultLLM()
 	}
 
 	source := req.Source

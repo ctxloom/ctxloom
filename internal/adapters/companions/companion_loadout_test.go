@@ -1,4 +1,4 @@
-package config
+package companions
 
 import (
 	"bytes"
@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -127,7 +128,7 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 // user gets rather than about either half's internals.
 func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.Bundle {
 	t.Helper()
-	probe, err := ProbeCompanionLoadouts(context.Background(), nil)
+	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
 	reads, err := bundles.NewCompanionReader(
 		func(context.Context) (bundles.CompanionProbe, error) { return probe, nil },
@@ -370,7 +371,7 @@ func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := &Config{appPaths: []string{appDir}}
+	cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, nil)
 
 	loader := cfg.BundleLoader()
 	infos, err := loader.List()
@@ -407,7 +408,7 @@ func TestBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	})
 	defer restoreLook()
 
-	cfg := &Config{}
+	cfg := companionConfig(t, config.Fixture{}, nil)
 	_, err := cfg.BundleLoader().List()
 	require.NoError(t, err)
 	assert.False(t, probed, "no AppPaths means no project to seed companion content into — must not probe at all")
@@ -461,8 +462,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion hook is included", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(testAuthorizer(true))
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, testAuthorizer(true))
 		result := cfg.ResolveBundleHooks(nil)
 		require.Len(t, result.PreTool, 1)
 		assert.Equal(t, "ltk evaluate", result.PreTool[0].Command)
@@ -470,8 +470,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(testAuthorizer(false))
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, testAuthorizer(false))
 		result := cfg.ResolveBundleHooks(nil)
 		assert.Empty(t, result.PreTool, "a companion hook must be withheld by a denying gate — a builtin would NOT be (it's exempt below rejection)")
 	})
@@ -488,16 +487,14 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion MCP server is included", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(testAuthorizer(true))
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, testAuthorizer(true))
 		result := cfg.ResolveBundleMCPServers(nil)
 		require.Contains(t, result, "ltk-server")
 		assert.Equal(t, "bundle:ctxloom+companion:ltk", result["ltk-server"].SCM)
 	})
 
 	t.Run("denying gate withholds it", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(testAuthorizer(false))
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, testAuthorizer(false))
 		result := cfg.ResolveBundleMCPServers(nil)
 		assert.NotContains(t, result, "ltk-server")
 	})
@@ -520,8 +517,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion command is included with no profile selected", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(testAuthorizer(true))
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, testAuthorizer(true))
 		result := cfg.ResolveBundleCommands(nil)
 		require.Len(t, result, 1)
 		assert.Equal(t, "task-runner", result[0].Item)
@@ -533,8 +529,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(testAuthorizer(false))
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, testAuthorizer(false))
 		result := cfg.ResolveBundleCommands(nil)
 		assert.Empty(t, result, "a companion command must be withheld by a denying gate — a true builtin would NOT be")
 		assert.Empty(t, cfg.ResolveCompanionCommands(nil))
@@ -552,7 +547,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
 	t.Run("trusted gate: companion fragment is included, ref carries the companion source (not builtin:)", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, nil)
 		var seenRef string
 		var seenSignature bundles.Signature
 		var seenSigner bundles.Signer
@@ -578,7 +573,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := &Config{appPaths: []string{appDir}}
+		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, nil)
 		got := cfg.ResolveBuiltinBundleFragments(testAuthorizer(false))
 		for _, f := range got {
 			assert.NotEqual(t, "ctxloom+companion:ltk#fragments/ltk", f.Name,
@@ -611,14 +606,12 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"),
 		[]byte("name: dev\nexclude_mcp:\n  - ltk-server\n"), 0o644))
 
-	newCfg := func() *Config {
-		cfg := &Config{
-			defaultAgent: "default",
-			agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
-			appPaths:     []string{appDir},
-		}
-		cfg.SetExecutableTrustGate(testAuthorizer(true))
-		return cfg
+	newCfg := func() *config.Config {
+		return companionConfig(t, config.Fixture{
+			DefaultAgent: "default",
+			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
+			AppPaths:     []string{appDir},
+		}, testAuthorizer(true))
 	}
 
 	t.Run("default profile scope", func(t *testing.T) {
@@ -643,7 +636,7 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 }
 
 // A companion loadout fragment's PREMISE must survive the projection into
-// BuiltinFragment. It did not: the field simply was not on the struct, so an
+// config.BuiltinFragment. It did not: the field simply was not on the struct, so an
 // authored premise was accepted by the schema, surfaced in the premise INDEX
 // from the catalog, and then discarded here — leaving assembly to deliver the
 // body anyway. The agent was offered a menu item its context already carried,
@@ -660,13 +653,13 @@ func TestResolveBuiltinBundleFragments_CarriesThePremise(t *testing.T) {
 
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := &Config{appPaths: []string{appDir}}
+	cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}}, nil)
 
 	gate := bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonCompanion}
 	})
 
-	var found *BuiltinFragment
+	var found *config.BuiltinFragment
 	for _, f := range cfg.ResolveBuiltinBundleFragments(gate) {
 		if strings.Contains(f.Name, "fragments/ltk") {
 			frag := f
@@ -675,6 +668,6 @@ func TestResolveBuiltinBundleFragments_CarriesThePremise(t *testing.T) {
 	}
 	require.NotNil(t, found, "precondition: the companion fragment must resolve at all")
 	require.Equal(t, "You are about to run a shell command this project redirects.", found.Premise,
-		"the authored premise must reach BuiltinFragment, or assembly cannot honour it")
+		"the authored premise must reach config.BuiltinFragment, or assembly cannot honour it")
 	require.NotEmpty(t, found.Content, "the body still travels; the premise decides whether it is DELIVERED")
 }

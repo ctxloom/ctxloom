@@ -2,7 +2,7 @@
 // "@<commit>" ref must fetch that commit's bundle document out of the local git
 // clone cache and turn those exact bytes into a Bundle through the schema
 // upgrade pipeline. Its local sibling is covered in local_version_resolver_test.go.
-package config
+package operations
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -86,8 +88,8 @@ func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), "consumer", ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 
-	cfg := &Config{appPaths: []string{appDir}}
-	resolve := cfg.bundleVersionResolver()
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 
 	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"
@@ -177,8 +179,8 @@ func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 		[]byte("publisher@example.com namespaces=\""+signing.NamespacePublish+"\" "+
 			string(ssh.MarshalAuthorizedKey(pub))), 0o644))
 
-	cfg := &Config{appPaths: []string{appDir}}
-	resolve := cfg.bundleVersionResolver()
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	resolve := BundleVersionResolver(cfg)
 	require.NotNil(t, resolve, "an app dir must yield a version resolver")
 
 	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"

@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/contextmetrics"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -179,7 +178,7 @@ func recordContextSample(session agentSessionJSON) {
 func gatherCtxloomInfo() ctxloomHudInfo {
 	info := ctxloomHudInfo{}
 
-	cfg, err := config.Load()
+	cfg, err := GetConfig()
 	if err != nil {
 		return info
 	}

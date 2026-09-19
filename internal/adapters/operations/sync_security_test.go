@@ -70,7 +70,7 @@ func TestLockDependencies_DefaultLockAppliesFirstInstalls(t *testing.T) {
 	baseDir, _, identity, c1 := setupUpgrade(t)
 	cfg := testConfigWithSCMPath(baseDir)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	assert.Equal(t, "generated", result.Status)
 	e, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
@@ -186,7 +186,7 @@ func TestLockDependencies_TreeFormParentExpandsTheClosure(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 
 	stderr := captureStderr(t, func() {
-		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 		require.NoError(t, err)
 		assert.Equal(t, "generated", result.Status)
 	})
@@ -229,7 +229,7 @@ func TestLockDependencies_UnsignedTreeParentIsRefusedNotSilentlyExpanded(t *test
 	cfg := testConfigWithSCMPath(baseDir)
 
 	stderr := captureStderr(t, func() {
-		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 		require.NoError(t, err)
 		assert.Equal(t, "generated", result.Status)
 	})
@@ -261,7 +261,7 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 
 	// Healthy first lock: both the parent bundle and the bundle its profile
 	// composes pin.
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	active0 := mustLoadActive(t, baseDir)
 	pe0, okP := active0.GetEntry(remote.ItemTypeBundle, parentBundleID)
@@ -275,7 +275,7 @@ func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 	require.NoError(t, os.RemoveAll(src))
 
 	stderr := captureStderr(t, func() {
-		result, lerr := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true})
+		result, lerr := LockDependencies(ctx, cfg, LockDependenciesRequest{})
 		require.NoError(t, lerr)
 		assert.Equal(t, "generated", result.Status)
 		assert.Equal(t, 2, result.ItemCount, "both entries survive the incomplete rebuild")
@@ -311,7 +311,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	be0, okB := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, bundleID)
 	require.True(t, okB, "bundle under the remote parent locked")

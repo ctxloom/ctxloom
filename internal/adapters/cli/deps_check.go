@@ -233,7 +233,7 @@ func checkAll(cmd *cobra.Command, cfg *config.Config, auth remote.AuthConfig, lo
 
 	printAvailableUpdates(os.Stdout, bundleUpdates)
 
-	missingDefaults, defaultsErr := checkDefaultProfiles(config.Load)
+	missingDefaults, defaultsErr := checkDefaultProfiles(GetConfig)
 	reportMissingDefaults(os.Stdout, missingDefaults, defaultsErr)
 
 	fmt.Println("\nRun 'ctxloom deps upgrade' to advance these pins.")
@@ -433,7 +433,7 @@ func reportMissingDefaults(out io.Writer, missing []string, err error) {
 // is missing" and "nothing was checked" are different answers and the caller
 // renders them differently. loadConfig is seam'd for tests; production passes
 // config.Load.
-func checkDefaultProfiles(loadConfig func(...config.LoadOption) (*config.Config, error)) ([]string, error) {
+func checkDefaultProfiles(loadConfig func() (*config.Config, error)) ([]string, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err

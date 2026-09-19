@@ -1,4 +1,4 @@
-package config
+package companions
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	companionloadout "github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -87,14 +87,10 @@ func (s CompanionStatus) Executed() bool {
 // never block startup). Admission runs SEQUENTIALLY before the fan-out, so two
 // consent prompts can never interleave on one terminal. Output order is
 // preserved (sorted by bin) since each goroutine writes its own slot.
-func ProbeCompanions(root signing.TrustRoot) []CompanionStatus {
-	// Enforce the invariant at the exec boundary, not just at each caller —
-	// companionBundleSeed and doctor already check CompanionsDisabled
-	// themselves, but reportCompanions (cli/startup_helpers.go, called
-	// unconditionally from `ctxloom run`/`ctxloom mcp`) did not, so
-	// --no-companions/CTXLOOM_NO_COMPANIONS=1 still exec'd every companion
-	// binary on PATH.
-	if CompanionsDisabled() {
+func (p Prober) ProbeCompanions(root signing.TrustRoot) []CompanionStatus {
+	// Enforced at the exec boundary, not only at each caller: a report path
+	// that forgets the switch must still never exec a companion binary.
+	if p.Disabled {
 		return nil
 	}
 	admissions := companionAdmission(DiscoverCompanions(), root)
@@ -227,7 +223,7 @@ func companionsOnPathByConvention() []string {
 var companionLoadoutOutput = func(path string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), companionProbeTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, companionloadout.Subcommand, "--"+companionloadout.FormatFlag, companionloadout.FormatJSON)
+	cmd := exec.CommandContext(ctx, path, Subcommand, "--"+FormatFlag, FormatJSON)
 	cmd.WaitDelay = companionProbeWaitDelay
 	return cmd.Output()
 }
@@ -240,34 +236,34 @@ func SetCompanionLoadoutOutputForTesting(fn func(string) ([]byte, error)) func()
 	return func() { companionLoadoutOutput = prev }
 }
 
-// companionsDisabled is the process-wide companion switch, set once at startup
-// from CTXLOOM_NO_COMPANIONS and the --no-companions flag (the flag wins when
-// both are set). It mirrors strictness.SetDegraded rather than living on Config
-// because config.Load is called from ~10 places across the CLI: a per-Config
-// toggle applied at one of them would silently miss the others.
-//
-// Deliberately NO config key: turning companions off is a per-invocation or CI
-// decision, not project state someone can leave set and later wonder why their
-// ltk commands vanished.
-var (
-	companionsMu       sync.Mutex
-	companionsDisabled bool
-)
-
-// SetCompanionsDisabled turns companion-loadout discovery off (or back on) for
-// the process. When off, no companion binary is executed and no companion
-// commands/hooks/MCP/context are contributed.
-func SetCompanionsDisabled(v bool) {
-	companionsMu.Lock()
-	defer companionsMu.Unlock()
-	companionsDisabled = v
+// Prober is the companion-probing adapter for one invocation. Disabled is
+// the --no-companions / CTXLOOM_NO_COMPANIONS switch, a property of the value
+// rather than a process global so every exec boundary honours it — no
+// companion binary is executed and no companion commands/hooks/MCP/context
+// are contributed. Deliberately NO config key: turning companions off is a
+// per-invocation or CI decision, not project state someone can leave set and
+// later wonder why their ltk commands vanished.
+type Prober struct {
+	Disabled bool
 }
 
-// CompanionsDisabled reports whether companion-loadout discovery is off.
-func CompanionsDisabled() bool {
-	companionsMu.Lock()
-	defer companionsMu.Unlock()
-	return companionsDisabled
+// ReaderSource is the per-generation companion reader the composition root
+// hands the config Sources: every discovered companion's loadout, seeded
+// under its ctxloom:companion@<bin> ref. The reader owns the trust facts (it
+// verifies any signature against the generation's full trust root); a
+// generation resolves its catalog once, so each probe runs once per
+// generation.
+func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
+	return func(cfg *config.Config) []bundles.Reader {
+		if len(cfg.GetAppPaths()) == 0 {
+			return nil
+		}
+		root := cfg.TrustRoot()
+		probe := func(ctx context.Context) (bundles.CompanionProbe, error) {
+			return p.ProbeCompanionLoadouts(ctx, root)
+		}
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root))}
+	}
 }
 
 // ProbeCompanionLoadouts is the companion reader's EXEC seam: it discovers
@@ -297,9 +293,9 @@ func CompanionsDisabled() bool {
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
-func ProbeCompanionLoadouts(ctx context.Context, root signing.TrustRoot) (bundles.CompanionProbe, error) {
+func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root signing.TrustRoot) (bundles.CompanionProbe, error) {
 	// See ProbeCompanions' identical guard.
-	if CompanionsDisabled() {
+	if p.Disabled {
 		return bundles.CompanionProbe{}, nil
 	}
 	if err := ctx.Err(); err != nil {

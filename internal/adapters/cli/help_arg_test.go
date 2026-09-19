@@ -3,10 +3,11 @@ package cli
 import (
 	"bytes"
 	"context"
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/afero"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

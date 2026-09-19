@@ -62,7 +62,7 @@ func TestUpgrade_RefusesAdvanceOntoUnverifiableSignature(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	e0, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
 	require.True(t, ok)
@@ -99,7 +99,7 @@ func TestUpgrade_AdvancesOntoReSignedContent(t *testing.T) {
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
 
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	bundlePath := repoV2("demo") + "/bundle.yaml"
@@ -133,7 +133,7 @@ func TestUpgrade_UnsignedContentStillAdvances(t *testing.T) {
 
 	cfg := testConfigWithSCMPath(baseDir)
 	ctx := context.Background()
-	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 
 	c2 := addFileToLocalRepo(t, src, repoV2("demo")+"/bundle.yaml", "version: \"2.0.0\"\n")

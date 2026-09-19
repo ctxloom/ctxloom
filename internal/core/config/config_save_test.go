@@ -118,7 +118,7 @@ func TestConfig_Save_PrunesEmptiedEditor(t *testing.T) {
 func TestConfig_Save_DoesNotPersistEmbeddedDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &Config{appPaths: []string{tmpDir}}
-	mergeDefaultConfig(cfg)
+	overlayDefaultRegistry(cfg)
 	require.NotEmpty(t, cfg.lm.Configs, "precondition: the overlay populated the registry")
 
 	configPath := paths.ConfigPath(tmpDir)
@@ -148,7 +148,7 @@ func TestConfig_Save_UserRegistryStillPersists(t *testing.T) {
 			"mine": {Type: "claude-code"},
 		}},
 	}
-	mergeDefaultConfig(cfg) // no-op for a non-empty registry
+	overlayDefaultRegistry(cfg) // no-op for a non-empty registry
 
 	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 	data, err := os.ReadFile(paths.ConfigPath(tmpDir))

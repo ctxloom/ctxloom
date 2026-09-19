@@ -77,6 +77,10 @@ type SpawnPlan struct {
 	ResumeMode ResumeMode
 
 	resolved *operations.ResolvedAgent
+	// cfg is the generation this spawn was resolved from: every later step
+	// of the spawn (its MCP composition, its engine start) reads this value
+	// and never the owner, so one spawn observes one state.
+	cfg *config.Config
 }
 
 // ResumeMode is a resolved agent's per-turn engine-lifecycle mode: whether
@@ -151,22 +155,22 @@ type Spawner interface {
 // once per spawn with the backend and the per-spawn runner env.
 type StarterFunc func(backend string, runnerEnv map[string]string) isolation.EngineStarter
 
-// prodSpawner is the production Spawner over the operations launch tail.
+// prodSpawner is the production Spawner over the operations launch tail. It
+// holds the process's App — the one config.Owner — and captures ONE
+// generation per spawn (Resolve's Reload), which the plan then carries to
+// every later step of that spawn.
 type prodSpawner struct {
-	cfg        *config.Config
+	app        *operations.App
 	projectDir string
-	gate       *operations.ExecutableTrustGate
 	starter    StarterFunc // test seam; nil = production (isolation binds the starter)
 }
 
-// newProdSpawner builds the production spawner, installing the executable
-// trust gate for the children's managed-MCP composition (the same fail-closed
-// gate the run/acp paths apply).
-func newProdSpawner(cfg *config.Config, projectDir string, starter StarterFunc) *prodSpawner {
-	s := &prodSpawner{cfg: cfg, projectDir: projectDir, starter: starter}
-	s.gate = operations.NewExecutableTrustGate(cfg)
-	cfg.SetExecutableTrustGate(s.gate.Authorizer())
-	return s
+// newProdSpawner builds the production spawner over the process's App. The
+// executable trust gate for the children's managed-MCP composition is the
+// generation's own (config.Sources.TrustPorts), the same fail-closed gate
+// the run/acp paths apply.
+func newProdSpawner(app *operations.App, projectDir string, starter StarterFunc) *prodSpawner {
+	return &prodSpawner{app: app, projectDir: projectDir, starter: starter}
 }
 
 // viaStartRunBackends is the delegation allowlist: the set of backend types
@@ -309,42 +313,23 @@ func backendNames(table map[string]bool) []string {
 	return names
 }
 
-// loadConfig is config.Load's production entry point, indirected so tests
-// can inject a failing loader (config.Load itself is fault-tolerant per
-// CLAUDE.md — a malformed/unreadable config.yaml degrades to Warnings, not
-// an error — so resolveCfg's fallback branch below has no naturally
-// occurring trigger through the real loader; this seam is what makes it
-// independently testable, mirroring oneshot.go's prepareIsolation var swap).
-var loadConfig = config.Load
-
-// resolveCfg re-reads the project config from disk so a mid-session
-// `ctxloom agent set` (or a brand-new agent) is visible to the VERY NEXT
-// agent_run without a coordinator restart (GAP 1: the captured s.cfg is a
-// startup snapshot otherwise). Pinned to s.cfg.AppPaths[0] — the .ctxloom
-// dir this spawner's OWN config already resolved to at construction — so
-// the reload never depends on this process's current working directory.
-//
-// Scoped STRICTLY to agent-DEFINITION resolution: durable stores,
-// credentials, the broker, and the run loop all keep using the startup
-// s.cfg (childMCPServers, PrepareAgentChat's gate, etc.) — only the
-// agent-def lookup below re-reads. A transient read failure (permission
-// blip, a concurrent partial write) must not break spawning, so it falls
-// back to the captured snapshot rather than erroring.
-func (s *prodSpawner) resolveCfg() *config.Config {
-	appPaths := s.cfg.GetAppPaths()
-	if len(appPaths) == 0 || appPaths[0] == "" {
-		return s.cfg
+// spawnGeneration is the ONE Reload a spawn performs: an agent definition
+// edited mid-session takes effect on the NEXT spawn and never mid-session.
+// A reload that fails (a transient read problem, a concurrent partial write)
+// must not break spawning, so it degrades — with a warning — to the
+// generation already published, which is complete and consistent.
+func (s *prodSpawner) spawnGeneration(ctx context.Context) (*config.Snapshot, error) {
+	snap, err := s.app.Reload(ctx)
+	if err == nil {
+		return snap, nil
 	}
-	cfg, err := loadConfig(config.WithAppDir(appPaths[0]))
-	if err != nil {
-		clidiag.Warn("ctxloom", "agent_run: reload config for agent resolution: %v (using the startup snapshot)", err)
-		return s.cfg
-	}
-	return cfg
+	clidiag.Warn("ctxloom", "agent_run: reload configuration for agent resolution: %v (using the published generation)", err)
+	return s.app.Snapshot(ctx)
 }
 
 func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan, error) {
 	var (
+		cfg      *config.Config
 		rs       *operations.ResolvedAgent
 		perm     agent.PermissionMode
 		degraded []string
@@ -352,8 +337,12 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 	if gerr := func() error {
 		mark := strictness.Checkpoint()
 		defer strictness.Close(mark)
-		var err error
-		rs, err = operations.ResolveAgent(ctx, s.resolveCfg(), agentName, "")
+		snap, err := s.spawnGeneration(ctx)
+		if err != nil {
+			return err
+		}
+		cfg = snap.Config
+		rs, err = operations.ResolveAgent(ctx, cfg, agentName, "")
 		if err != nil {
 			return err
 		}
@@ -402,6 +391,7 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		Degraded:   degraded,
 		ResumeMode: resumeMode,
 		resolved:   rs,
+		cfg:        cfg,
 	}
 	// F1: resolved once here (not per-Launch/StartEngine call) so the
 	// enqueue journal, Launch, and StartEngine all see the IDENTICAL
@@ -424,7 +414,7 @@ func (s *prodSpawner) RecordEngineVersion(ctx context.Context, harp, backend str
 
 // prepareAgentChat is operations.PrepareAgentChat's production entry point,
 // indirected so a test can observe the request each launch path builds without a
-// real isolation prepare (mirroring loadConfig above).
+// real isolation prepare.
 var prepareAgentChat = operations.PrepareAgentChat
 
 // chatRequest builds StartEngine's AgentChatRequest: the resolved agent, the
@@ -437,7 +427,7 @@ func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]str
 		Env:              env,
 		RunnerEnv:        runnerEnv,
 		Permissions:      plan.Perm,
-		Gate:             s.gate.Authorizer(),
+		Gate:             plan.cfg.ExecutableTrustGate(),
 		Verbosity:        childVerbosity(),
 		Workspace:        plan.Workspace,
 		DirtyTreeHandler: plan.DirtyTreeHandler,
@@ -483,7 +473,7 @@ type EngineSpawn struct {
 }
 
 func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, runnerEnv map[string]string) (*EngineSpawn, error) {
-	prep, err := prepareAgentChat(ctx, s.cfg, s.chatRequest(plan, env, runnerEnv))
+	prep, err := prepareAgentChat(ctx, plan.cfg, s.chatRequest(plan, env, runnerEnv))
 	if err != nil {
 		return nil, err
 	}
@@ -543,8 +533,8 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 	// command is the bare executable (agent.CtxloomCommand), which resolves on
 	// PATH wherever the child runs — including inside a container, where the
 	// isolation policy is not even known at this point.
-	servers := agent.ComposeChatMCPServers(s.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
-	s.gate.WarnWithheld()
+	servers := agent.ComposeChatMCPServers(plan.cfg.ResolveBundleMCPServers(plan.Profiles), nil)
+	operations.WarnWithheldBy(plan.cfg.ExecutableTrustGate())
 	warnNoReachBack(plan.AgentName, servers)
 	return servers
 }

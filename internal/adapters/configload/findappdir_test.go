@@ -1,10 +1,12 @@
-package config
+package configload
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -30,9 +32,9 @@ func TestFindAppDirCtxloomRoot(t *testing.T) {
 		}
 		path, src := findAppDir(fs)
 
-		want := filepath.Join(root, AppDirName)
+		want := filepath.Join(root, config.AppDirName)
 		assert.Equal(t, want, path)
-		assert.Equal(t, SourceProject, src,
+		assert.Equal(t, config.SourceProject, src,
 			"a named root resolves as a project dir, not the home fallback")
 
 		exists, _ := afero.DirExists(fs, want)
@@ -48,7 +50,7 @@ func TestFindAppDirCtxloomRoot(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		path, _ := findAppDir(fs)
 
-		badApp := filepath.Join(bad, AppDirName)
+		badApp := filepath.Join(bad, config.AppDirName)
 		assert.NotEqual(t, badApp, path,
 			"an invalid override must not be treated as the project root")
 		exists, _ := afero.DirExists(fs, badApp)
@@ -78,7 +80,7 @@ func TestFindAppDirBareTempDirDoesNotEscapeToSharedTempRoot(t *testing.T) {
 	testsupport.ChangeDir(t, dir)
 
 	tmpRoot := os.TempDir()
-	sharedMarker := filepath.Join(tmpRoot, AppDirName)
+	sharedMarker := filepath.Join(tmpRoot, config.AppDirName)
 
 	fs := afero.NewOsFs()
 	path, _ := findAppDir(fs)

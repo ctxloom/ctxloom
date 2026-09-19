@@ -155,7 +155,7 @@ func sessionReapCutoff(now time.Time) (time.Time, error) {
 		return parseAgeBound("--older-than", cleanOlderThan, now)
 	}
 	age := config.DefaultSessionReapAge
-	if cfg, err := config.Load(); err != nil {
+	if cfg, err := GetConfig(); err != nil {
 		clidiag.Warn("ctxloom", "config could not be loaded (%v); the session sweep proceeds on the built-in session_reap_age %s", err, age)
 	} else {
 		age = cfg.SessionReapAge()

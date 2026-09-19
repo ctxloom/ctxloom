@@ -32,14 +32,6 @@ func TestLockDependenciesRequest_FSField(t *testing.T) {
 	assert.NotNil(t, req.FS)
 }
 
-func TestLockDependenciesRequest_SkipSyncField(t *testing.T) {
-	req := LockDependenciesRequest{
-		SkipSync: true,
-	}
-
-	assert.True(t, req.SkipSync)
-}
-
 func TestLockDependenciesResult_Fields(t *testing.T) {
 	result := LockDependenciesResult{
 		Status:    "generated",
@@ -81,7 +73,7 @@ func writeLocalProfile(t *testing.T, baseDir, name, body string) {
 func TestLockDependencies_NoProfiles(t *testing.T) {
 	cfg := testConfigWithSCMPath(t.TempDir())
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "empty", result.Status)
@@ -94,7 +86,7 @@ func TestLockDependencies_BuildsFromClosure(t *testing.T) {
 		"bundles:\n  - https://github.com/test/repo@bundles/demo@abc123def456\n")
 	cfg := testConfigWithSCMPath(tmp)
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	assert.Equal(t, "generated", result.Status)
 	assert.Equal(t, 1, result.ItemCount)
@@ -117,7 +109,7 @@ func TestLockDependencies_ProfileBundleSurvives(t *testing.T) {
 		"inline": {Bundles: []string{"https://github.com/test/repo@bundles/demo@abc123def456"}},
 	})
 
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	assert.Equal(t, "generated", result.Status)
 	assert.Equal(t, 1, result.ItemCount)
@@ -136,44 +128,14 @@ func TestLockDependencies_ConflictSurfacedImmediately(t *testing.T) {
 	cfg := testConfigWithSCMPath(tmp)
 
 	// Explicit lock → hard error naming the conflict.
-	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: true})
+	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "conflict")
 	assert.Contains(t, err.Error(), "bundles/demo")
 
 	// Startup auto-lock → warn + degrade (conflicted item dropped, here leaving none).
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{SkipSync: true, FailOnConflict: false})
+	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: false})
 	require.NoError(t, err)
-	assert.Equal(t, "empty", result.Status)
-}
-
-func TestLockDependencies_SyncFirstByDefault(t *testing.T) {
-	// This test verifies that lock runs sync by default before generating lockfile.
-	// When SkipSync is false (default), sync should run first.
-	// We test this by having a profile that references a remote bundle that doesn't
-	// exist locally - sync would try to fetch it.
-	fs := afero.NewMemMapFs()
-
-	// Create directory structure
-	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0755))
-	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
-
-	// Create a profile that references a remote bundle (no slash = local, with slash = remote)
-	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
-		"test": {
-			Bundles: []string{"local-only-bundle"}, // Local bundle, no sync needed
-		},
-	}, config.Fixture{})
-
-	// With SkipSync: false (default), sync runs first but finds no remote refs
-	result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{
-		FS:       fs,
-		SkipSync: false, // Default behavior - sync first
-	})
-	require.NoError(t, err)
-
-	// Should complete (sync found nothing to do, lock found nothing to lock)
 	assert.Equal(t, "empty", result.Status)
 }
 

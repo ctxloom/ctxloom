@@ -61,17 +61,12 @@ func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersR
 	}, nil
 }
 
-// resolveListConfig returns cfg when the caller already has one loaded, or
-// loads a fresh one when cfg is nil.
+// resolveListConfig is the one refusal for a listing without a generation.
 func resolveListConfig(cfg *config.Config) (*config.Config, error) {
-	if cfg != nil {
-		return cfg, nil
+	if cfg == nil {
+		return nil, fmt.Errorf("list mcp servers: a config generation is required")
 	}
-	freshCfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-	return freshCfg, nil
+	return cfg, nil
 }
 
 // registeredMCPServers resolves the server set a settings writer would

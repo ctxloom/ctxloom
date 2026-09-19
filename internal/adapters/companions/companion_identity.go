@@ -1,7 +1,8 @@
-package config
+package companions
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -79,3 +80,16 @@ func resolveCompanionPath(path string) (string, error) {
 }
 
 // ===== First-party pinning ===================================================
+
+// lookPath is the PATH-resolution seam: the one place this package asks the
+// host which binaries exist. Tests fake it so companion discovery is a
+// property of the test, not of the developer's machine.
+var lookPath = exec.LookPath
+
+// SetLookPathForTesting overrides the PATH-resolution seam and returns a
+// restore function.
+func SetLookPathForTesting(fn func(string) (string, error)) func() {
+	prev := lookPath
+	lookPath = fn
+	return func() { lookPath = prev }
+}

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -44,7 +43,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		// reading the transcript (see runSessionDistill for why chdir is
 		// required and safe for a one-shot CLI) — or back in origWd when
 		// this entry has none of its own (leaving the PREVIOUS
-		// entry's chdir in place here meant config.Load() silently read the
+		// entry's chdir in place here meant GetConfig() silently read the
 		// wrong project's config for THIS entry, using another project's
 		// cwd-bound legacy LLM/backend settings for a distillation that
 		// never intended to touch it at all).
@@ -52,7 +51,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 			clidiag.Warn("ctxloom", "could not enter project dir %q for %s: %v", e.ProjectDir, e.HarpName, cerr)
 			continue
 		}
-		cfg, cErr := config.Load()
+		cfg, cErr := GetConfig()
 		if cErr != nil {
 			clidiag.Warn("ctxloom", "could not load config to distill %s: %v", e.HarpName, cErr)
 			continue
@@ -82,7 +81,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 
 // situateForEntry chdirs the process to e's own ProjectDir, or back to
 // origWd when e has none — the shared cwd-management step distillMissingOrStale
-// needs before every config.Load()/operations.CompactEntry call, extracted so it is
+// needs before every GetConfig()/operations.CompactEntry call, extracted so it is
 // independently testable rather than living as an inline branch
 // that only ever changed directory FORWARD and never restored it for an
 // entry with no ProjectDir of its own. A no-op when the process is already

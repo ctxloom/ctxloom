@@ -323,7 +323,7 @@ func runContainerScaffold(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	path, err := operations.ScaffoldContainerBase(config.NewManager(), cfg, containerScaffoldPath, containerScaffoldForce)
+	path, err := operations.ScaffoldContainerBase(cmd.Context(), App(), cfg, containerScaffoldPath, containerScaffoldForce)
 	if err != nil {
 		return err
 	}

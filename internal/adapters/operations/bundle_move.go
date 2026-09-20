@@ -312,7 +312,7 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 // reached only once the destination holds the whole thing.
 //
 // A DIRECTORY-form bundle's source is its WHOLE directory, not just the
-// manifest and its sidecar: moveToRemote (runTreePush) and moveToPath
+// manifest and its sidecar: moveToRemote (runPush, tree form) and moveToPath
 // (exportBundleTree) both already carry every file beneath it, so leaving
 // fragments/, skills/ etc. behind here would strand exactly what the publish
 // side just proved it could carry — orphaned at the source, at exit 0, with

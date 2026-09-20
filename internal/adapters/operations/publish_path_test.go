@@ -84,7 +84,7 @@ func newPushManagerFixture(t *testing.T) (*config.Config, pushManagerFixture) {
 // TestPushBundle_TreeForm_TwoBundlesPublishUnderTheirOwnNames and
 // TestPushBundle_TreeForm_WholeTreeTravels REPLACE
 // TestPushBundle_DirectoryForm_IsRefusedUnderADocumentLayout, which pinned a
-// REFUSAL that predates format v2: PushBundle's treeForm branch (runTreePush)
+// REFUSAL that predates format v2: PushBundle's treeForm branch (runPush)
 // now publishes a directory-form bundle instead of refusing it, so a test
 // asserting the refusal simply asserts something false about current
 // production. These three are exactly what that test's own doc comment named

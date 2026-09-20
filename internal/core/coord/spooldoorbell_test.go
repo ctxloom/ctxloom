@@ -490,7 +490,8 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	h, err := NewHome(ctx, HomeConfig{
-		URL: url, Token: token, Harness: "test", Version: "test",
+		Reporter: termSink(),
+		URL:      url, Token: token, Harness: "test", Version: "test",
 		Capabilities: caps,
 		Harp:         harp,
 	})

@@ -29,12 +29,13 @@ func ownerHome(t *testing.T, c *Coordinator) *Home {
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 	h, err := NewHome(context.Background(), HomeConfig{
-		URL:     c.LoopbackURL(),
-		Token:   token,
-		RunID:   "", // depth-0: the channel attaches to the owning session
-		Harness: "mock",
-		Version: "test",
-		Harp:    ownerIdentity().Harp,
+		Reporter: termSink(),
+		URL:      c.LoopbackURL(),
+		Token:    token,
+		RunID:    "", // depth-0: the channel attaches to the owning session
+		Harness:  "mock",
+		Version:  "test",
+		Harp:     ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
@@ -287,12 +288,13 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 	env := waitForChildEnv(t, c, out.RunID)
 
 	h, err := NewHome(context.Background(), HomeConfig{
-		URL:     env[EnvCoordURL],
-		Token:   env[EnvCoordCred],
-		RunID:   "run-not-mine",
-		Harness: "mock",
-		Version: "test",
-		Harp:    env["CTXLOOM_SESSION_HARP"],
+		Reporter: termSink(),
+		URL:      env[EnvCoordURL],
+		Token:    env[EnvCoordCred],
+		RunID:    "run-not-mine",
+		Harness:  "mock",
+		Version:  "test",
+		Harp:     env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

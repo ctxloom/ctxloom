@@ -46,7 +46,7 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
-		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	t.Run("an unreviewed backend type is refused at Resolve", func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions: bypass\n")
-		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), starter)
+		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), starter)
 	}
 
 	t.Run("no Starter: mock resolves off the allowlist alone", func(t *testing.T) {

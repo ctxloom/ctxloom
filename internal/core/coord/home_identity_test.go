@@ -15,7 +15,7 @@ import (
 // engine host as it drives. Until then the Home has no spool to sweep and
 // sweeps nothing.
 func TestHome_IdentityArrivesOnTheLaunch_NotTheEnvironment(t *testing.T) {
-	h, err := NewHome(context.Background(), HomeConfig{URL: "http://127.0.0.1:1/mcp", Token: "t", RunID: "run-1", Harness: "mock", Version: "test"})
+	h, err := NewHome(context.Background(), HomeConfig{Reporter: termSink(), URL: "http://127.0.0.1:1/mcp", Token: "t", RunID: "run-1", Harness: "mock", Version: "test"})
 	require.NoError(t, err, "a hosted run's Home needs no harp to dial: its identity is on the launch")
 	t.Cleanup(func() { h.Close(0, "") })
 	assert.Equal(t, "", h.Harp(), "unbound until the launch arrives")
@@ -33,7 +33,7 @@ func TestHome_IdentityArrivesOnTheLaunch_NotTheEnvironment(t *testing.T) {
 // runner receives no StartRun (the plugin-hosted arm), so its harp rides
 // HomeConfig from the process env — bound at dial, depth 0.
 func TestHome_ThePluginArmsOwnerBindsFromItsConfig(t *testing.T) {
-	h, err := NewHome(context.Background(), HomeConfig{URL: "http://127.0.0.1:1/mcp", Token: "t", Harness: "mock", Version: "test", Harp: "owner-harp"})
+	h, err := NewHome(context.Background(), HomeConfig{Reporter: termSink(), URL: "http://127.0.0.1:1/mcp", Token: "t", Harness: "mock", Version: "test", Harp: "owner-harp"})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
 	assert.Equal(t, "owner-harp", h.Harp())

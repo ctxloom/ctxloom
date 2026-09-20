@@ -95,7 +95,7 @@ func serveAckDroppingCoordinator(t *testing.T) (*ackDroppingCoordinator, string)
 func TestReport_SurvivesADroppedAck(t *testing.T) {
 	fake, url := serveAckDroppingCoordinator(t)
 
-	h, err := NewHome(context.Background(), HomeConfig{URL: url, Token: "t", Harness: "mock", Version: "test", Harp: "child-harp-1"})
+	h, err := NewHome(context.Background(), HomeConfig{Reporter: termSink(), URL: url, Token: "t", Harness: "mock", Version: "test", Harp: "child-harp-1"})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
 	require.Eventually(t, h.Attached, 10*time.Second, 10*time.Millisecond, "the run channel must attach")

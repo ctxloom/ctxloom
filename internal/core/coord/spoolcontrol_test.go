@@ -124,7 +124,8 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fresh, err := NewHome(ctx, HomeConfig{
-		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh-steer",
+		Reporter: termSink(),
+		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh-steer",
 		Harness: "mock", Harp: out.Harp,
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})

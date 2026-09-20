@@ -67,7 +67,7 @@ func TestDialRunner_RejectionCarriesTheCoordinatorsReason(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	link, err := DialRunner(ctx, c.LoopbackURL(), token, "run-never-issued-to-me", "mock", "test", nil)
+	link, err := DialRunner(ctx, nil, c.LoopbackURL(), token, "run-never-issued-to-me", "mock", "test", nil)
 	if link != nil {
 		t.Cleanup(func() { link.Shutdown(0, "") })
 	}

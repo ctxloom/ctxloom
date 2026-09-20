@@ -244,6 +244,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	sctx, cancel := context.WithCancel(ctx)
 	host := newTestEngineHost(sctx, backend, plan.Backend, runnerEnv[EnvRunID])
 	home, err := NewHome(sctx, HomeConfig{
+		Reporter:     termSink(),
 		URL:          runnerEnv[EnvCoordURL],
 		Token:        runnerEnv[EnvCoordCred],
 		RunID:        runnerEnv[EnvRunID],
@@ -495,6 +496,7 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 		ConcurrencyCap: concurrencyCap,
 		Depth:          depthCap,
 		OwnerHarp:      ownerIdentity().Harp,
+		Reporter:       termSink(),
 	})
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)
@@ -579,6 +581,7 @@ func newTestCoordinatorAt(t *testing.T, stateDir string) *Coordinator {
 		Spawner:    newFakeSpawner(nil, nil),
 		Clock:      nil,
 		OwnerHarp:  ownerIdentity().Harp,
+		Reporter:   termSink(),
 	})
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)

@@ -41,7 +41,7 @@ func artifactFactAt(harp, artifactID string, rev uint32, sha string) Fact {
 // character: mojibake in the one line an operator scans to see what an agent
 // is doing. The truncation must land on a rune boundary.
 func TestLatestSummary_TruncatesOnARuneBoundary(t *testing.T) {
-	f := newReportsFold()
+	f := newReportsFold(termRep())
 	// "日" is 3 bytes, so a 200-BYTE cut lands mid-rune (200 % 3 == 2).
 	f.apply(summaryFactAt("child-a", "run-1", 1, strings.Repeat("日", 300)))
 
@@ -57,7 +57,7 @@ func TestLatestSummary_TruncatesOnARuneBoundary(t *testing.T) {
 // changing the ordinary cases: a short line is verbatim, and the first line
 // alone is used.
 func TestLatestSummary_ShortAndASCIILinesUnchanged(t *testing.T) {
-	f := newReportsFold()
+	f := newReportsFold(termRep())
 	f.apply(summaryFactAt("child-a", "run-1", 1, "all good\nsecond line ignored"))
 
 	assert.Equal(t, "PROGRESS: all good", f.latestSummary("child-a"))
@@ -75,7 +75,7 @@ func TestLatestSummary_ShortAndASCIILinesUnchanged(t *testing.T) {
 // The fold's own documented meaning is "each artifact's LATEST revision", so a
 // lower revision is never the latest.
 func TestReportsFold_ArtifactRevisionNeverGoesBackwards(t *testing.T) {
-	f := newReportsFold()
+	f := newReportsFold(termRep())
 	f.apply(artifactFactAt("child-a", "plan", 2, "sha-two"))
 	f.apply(artifactFactAt("child-a", "plan", 1, "sha-one"))
 

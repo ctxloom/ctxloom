@@ -131,7 +131,7 @@ func customFillEvent(seq uint64) *agentcoordpb.AgentEvent {
 // (deliver forgetting noteLost) turns this red: after the ring's own
 // contents the reader would see seq 261 with no marker before it.
 func TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent(t *testing.T) {
-	h := newWatchHub()
+	h := newWatchHub(termRep())
 	ch, cancel, _ := h.subscribe(nil)
 	defer cancel()
 
@@ -189,7 +189,7 @@ func TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent(t *testing.
 // each eviction is a loss the subscriber is told about, in the same marker as
 // the events the full ring refused, delivered BEFORE the terminal.
 func TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker(t *testing.T) {
-	h := newWatchHub()
+	h := newWatchHub(termRep())
 	ch, cancel, _ := h.subscribe(nil)
 	defer cancel()
 
@@ -263,7 +263,7 @@ func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
 	sub.ch <- nonTerminalEvent(2, "r")
 	term := terminalEvent(3, "r")
 
-	sendTerminal(sub, term)
+	sendTerminal(termRep(), sub, term)
 
 	require.Len(t, sub.ch, 2, "sendTerminal must not grow the ring — evict, then place")
 	got := <-sub.ch
@@ -287,7 +287,7 @@ func TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed(t *testing.T) {
 	sub.ch <- nonTerminalEvent(5, "r")
 	term := terminalEvent(6, "r")
 
-	sendTerminal(sub, term)
+	sendTerminal(termRep(), sub, term)
 
 	require.Len(t, sub.ch, 2)
 	assert.Equal(t, "other", (<-sub.ch).GetRunId(), "the other run's terminal survives")
@@ -306,7 +306,7 @@ func TestSendTerminal_NeverBlocksWhenChannelIsWedged(t *testing.T) {
 	term := &agentcoordpb.AgentEvent{Seq: 1, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}
 	done := make(chan struct{})
 	go func() {
-		sendTerminal(sub, term)
+		sendTerminal(termRep(), sub, term)
 		close(done)
 	}()
 	select {

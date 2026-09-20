@@ -108,7 +108,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 
 	c.BeginDrain()
 
-	fresh, err := DialRunner(context.Background(), env[EnvCoordURL], env[EnvCoordCred], "", "mock", "test", nil)
+	fresh, err := DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], "", "mock", "test", nil)
 	assert.Nil(t, fresh, "a refused Hello hands back no link")
 	require.Error(t, err, "a fresh runner Hello must be refused once draining")
 	assert.Contains(t, err.Error(), "draining", "the reason must be stated, not just refused")
@@ -116,7 +116,7 @@ func TestBeginDrain_RunnerChannelHelloRefusesFreshRunnerButAdmitsReconnect(t *te
 	// A reconnect naming the run this credential already owns replaces the
 	// baseline registration ("newest wins") rather than disconnecting it —
 	// the same non-lossy path a genuine network-blip reconnect takes.
-	reconnect, err := DialRunner(context.Background(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+	reconnect, err := DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err, "a runner reconnecting to a run it already holds must still be admitted while draining")
 	require.NotNil(t, reconnect)
 	t.Cleanup(func() { reconnect.Shutdown(0, "") })

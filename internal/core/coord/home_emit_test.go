@@ -20,6 +20,7 @@ func testHome(t *testing.T) *Home {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	return &Home{
+		rep:         termRep(),
 		ctx:         ctx,
 		cancel:      cancel,
 		ackCh:       make(chan struct{}),

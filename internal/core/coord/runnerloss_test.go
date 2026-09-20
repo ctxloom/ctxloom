@@ -28,7 +28,7 @@ func dialFakeRunner(t *testing.T, c *Coordinator, runID string) *RunnerLink {
 	// engine would have received. The conformance path already asserts the
 	// engine gets EnvCoordCred; here we reuse that exact token.
 	env := waitForChildEnv(t, c, runID)
-	link, err := DialRunner(context.Background(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err)
 	return link
 }

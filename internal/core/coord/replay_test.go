@@ -98,7 +98,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "runs.jsonl")
-			runsF, queueF, rosterF, reportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+			runsF, queueF, rosterF, reportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(termRep())
 			store, err := openStore(path, runsF, queueF, rosterF, reportsF)
 			require.NoError(t, err)
 
@@ -159,7 +159,7 @@ func TestReplayEquivalence_RunRegistry(t *testing.T) {
 			require.NoError(t, store.Close())
 
 			// Replay the same journal into fresh folds.
-			rRunsF, rQueueF, rRosterF, rReportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+			rRunsF, rQueueF, rRosterF, rReportsF := newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(termRep())
 			rStore, err := openStore(path, rRunsF, rQueueF, rRosterF, rReportsF)
 			require.NoError(t, err)
 			replayed := projectRuns(rRunsF, rQueueF, rRosterF, rReportsF)

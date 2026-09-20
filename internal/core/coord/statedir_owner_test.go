@@ -31,7 +31,7 @@ func TestClaimOwner_UnstampableLockIsRemovedAndTheClaimDeclined(t *testing.T) {
 	}
 	t.Cleanup(func() { writeOwnerPID = prev })
 
-	release, err := claimOwner(dir)
+	release, err := claimOwner(termRep(), dir)
 	require.Error(t, err, "a lock that could not be stamped must never be reported as a won claim")
 	assert.Nil(t, release, "no release closure may be handed back for a claim that was declined")
 
@@ -49,7 +49,7 @@ func TestClaimOwner_UnreadableLeftoverLockIsTreatedAsStale(t *testing.T) {
 	lock := filepath.Join(dir, "owner.pid")
 	require.NoError(t, os.WriteFile(lock, nil, 0o600))
 
-	release, err := claimOwner(dir)
+	release, err := claimOwner(termRep(), dir)
 	require.NoError(t, err, "crash debris with no pid in it must not wedge the project onto ephemeral state forever")
 	require.NotNil(t, release)
 	t.Cleanup(release)
@@ -65,7 +65,7 @@ func TestClaimOwner_StampsPidAndReleasesLock(t *testing.T) {
 	dir := t.TempDir()
 	lock := filepath.Join(dir, "owner.pid")
 
-	release, err := claimOwner(dir)
+	release, err := claimOwner(termRep(), dir)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 

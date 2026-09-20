@@ -103,7 +103,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
 
-	s := newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+	s := newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 
 	// The agent present at construction resolves fine (baseline).
 	plan, err := s.Resolve(context.Background(), "dev")
@@ -146,7 +146,7 @@ func TestProdSpawner_ResolveFallsBackToPublishedGenerationOnReloadFailure(t *tes
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
 
-	s := newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+	s := newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	writeSpawnerConfig(t, appDir, "version: 6\nagents: [unclosed\n  : nonsense\n")
 
 	plan, err := s.Resolve(context.Background(), "dev")
@@ -169,7 +169,7 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
-		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	t.Run("absent driving resolves persistent, unchanged from today", func(t *testing.T) {

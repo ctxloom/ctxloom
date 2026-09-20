@@ -128,7 +128,7 @@ func TestTrackedGroup_BoundedJoinGivesUpAndSaysSo(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	var g trackedGroup
+	g := trackedGroup{rep: termRep()}
 	block := make(chan struct{})
 	defer close(block)
 	g.dispatch(func() { <-block })
@@ -147,7 +147,7 @@ func TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	var g trackedGroup
+	g := trackedGroup{rep: termRep()}
 	block := make(chan struct{})
 	defer close(block)
 	g.dispatch(func() { <-block })

@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // THE OWNER-SIDE SPOOL READER: the session owner's in/ spool, drained by the
@@ -54,7 +53,7 @@ func (c *Coordinator) claimSpoolInbox(role string) ([]Message, bool) {
 		return nil, false
 	}
 	for _, p := range res.Problems {
-		clidiag.Warn("ctxloom", "coordinator: a file in the owner's in/ spool is not a message and will not be delivered: %v", p.Error())
+		c.rep.Warnf("coordinator: a file in the owner's in/ spool is not a message and will not be delivered: %v", p.Error())
 		c.spoolDeliveryCount.failed.Add(1)
 	}
 	type unreadable struct {
@@ -90,7 +89,7 @@ func (c *Coordinator) claimSpoolInbox(role string) ([]Message, bool) {
 	c.mu.Unlock()
 	for _, f := range failed {
 		c.spoolDeliveryCount.failed.Add(1)
-		failSpool("coordinator", f.entry.Ref, "refusing an undeliverable message in the owner's in/ spool", f.err)
+		failSpool(c.rep, "coordinator", f.entry.Ref, "refusing an undeliverable message in the owner's in/ spool", f.err)
 	}
 	if len(out) == 0 {
 		return nil, false
@@ -128,7 +127,7 @@ func (c *Coordinator) ackSpoolInbox(role string) {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}
-			clidiag.Warn("ctxloom", "coordinator: the owner received %s but it could not be marked consumed: %v (it will be delivered again on the next receive)", id, err)
+			c.rep.Warnf("coordinator: the owner received %s but it could not be marked consumed: %v (it will be delivered again on the next receive)", id, err)
 			c.spoolDeliveryCount.failed.Add(1)
 			continue
 		}

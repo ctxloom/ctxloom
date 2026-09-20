@@ -19,9 +19,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ErrNotInjectable rejects a user injection whose target the coordinator does
@@ -149,6 +148,10 @@ type Options struct {
 // registry + the delegation orchestration, served over gRPC (RunnerChannel)
 // and streamable-HTTP MCP by the listeners in httpserver.go.
 type Coordinator struct {
+	// rep is the Reporter the composition root handed in (Options.Reporter);
+	// every diagnostic this coordinator and the types it builds raise goes
+	// through it.
+	rep        report.Reporter
 	projectDir string
 	stateDir   string
 	ephemeral  bool // state dir is per-process (owner lock lost); no adoption
@@ -413,6 +416,7 @@ func New(opts Options) (*Coordinator, error) {
 	t := resolveTunables(opts)
 
 	c := &Coordinator{
+		rep:                report.To(opts.Reporter),
 		projectDir:         opts.ProjectDir,
 		stateDir:           claim.dir,
 		ephemeral:          claim.ephemeral,
@@ -431,7 +435,7 @@ func New(opts Options) (*Coordinator, error) {
 		launchBackoffMax:   t.launchBackoffMax,
 		drainBound:         t.drainBound,
 		drains:             make(map[*Drain]struct{}),
-		watch:              newWatchHub(),
+		watch:              newWatchHub(report.To(opts.Reporter)),
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
 		byHarp:             make(map[string]*childRt),
@@ -451,7 +455,7 @@ func New(opts Options) (*Coordinator, error) {
 		if opts.App == nil {
 			return nil, c.abortNew(errors.New("coord: Options.App is required without an injected Spawner"))
 		}
-		c.spawner = newProdSpawner(opts.App, opts.ProjectDir, opts.Starter)
+		c.spawner = newProdSpawner(c.rep, opts.App, opts.ProjectDir, opts.Starter)
 	}
 	if err := c.openJournals(); err != nil {
 		return nil, c.abortNew(err)
@@ -538,7 +542,7 @@ func resolveTunables(opts Options) tunables {
 	// The launch-retry budget has no Options field (deliberately — it is an
 	// operator/env tunable, not a per-call test seam): resolved once, here,
 	// from the environment (resolveLaunchTunables), never per attempt.
-	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables()
+	t.maxLaunchAttempts, t.launchBackoffBase, t.launchBackoffMax = resolveLaunchTunables(report.To(opts.Reporter))
 	// ONE POLICY, TWO BOUNDS: a wait on a process is bounded at the longest
 	// wait agent_recv itself will park for; a wait on a human (a parked
 	// child) is not bounded at all. The drain bound is therefore agent_recv's
@@ -561,6 +565,7 @@ type stateDirClaim struct {
 // Options.StateDir verbatim (tests), otherwise the project's durable dir under
 // its exclusive-owner lock, otherwise an ephemeral fallback.
 func acquireStateDir(opts Options) (stateDirClaim, error) {
+	rep := report.To(opts.Reporter)
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
@@ -572,7 +577,7 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 	if err != nil {
 		return stateDirClaim{}, err
 	}
-	release, err := claimOwner(dir)
+	release, err := claimOwner(rep, dir)
 	if err == nil {
 		return stateDirClaim{dir: dir, release: release}, nil
 	}
@@ -581,7 +586,7 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 	// runs on an ephemeral state dir (no adoption; its own state dies with
 	// it). Warned, not fatal — concurrent sessions in one project are
 	// legitimate.
-	clidiag.Warn("ctxloom", "coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
+	rep.Warnf("coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
 	tmp, terr := os.MkdirTemp("", "ctxloom-coord-")
 	if terr != nil {
 		return stateDirClaim{}, fmt.Errorf("coord: ephemeral state dir: %w", terr)
@@ -593,7 +598,7 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 // blob store) in the claimed state dir. On failure the caller aborts; each
 // store opened so far is closed by closePartial.
 func (c *Coordinator) openJournals() error {
-	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold()
+	c.runsF, c.queueF, c.rosterF, c.reportsF = newRunsFold(), newQueueFold(), newRosterFold(), newReportsFold(c.rep)
 	runs, err := openStore(filepath.Join(c.stateDir, "runs.jsonl"), c.runsF, c.queueF, c.rosterF, c.reportsF)
 	if err != nil {
 		return err
@@ -605,7 +610,7 @@ func (c *Coordinator) openJournals() error {
 	// starts at its offset instead of byte 0 — openStoreFromOffset falls
 	// back to a full replay by itself if the offset is stale (journal.go).
 	itemsOffset := int64(0)
-	if snap, ok := loadItemsSnapshot(c.stateDir); ok {
+	if snap, ok := loadItemsSnapshot(c.rep, c.stateDir); ok {
 		c.itemsF.restore(snap)
 		itemsOffset = snap.Offset
 	}
@@ -797,7 +802,7 @@ func (c *Coordinator) Close() {
 		// The stream handlers' deferred terminals run AFTER Stop returns;
 		// join them before the writers close so a runner dropped by the
 		// shutdown still gets its terminal recorded, not raced.
-		waitBounded(&c.streams, closeJoinBudget, "coordinator close: stream handlers")
+		waitBounded(c.rep, &c.streams, closeJoinBudget, "coordinator close: stream handlers")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
@@ -845,7 +850,7 @@ func (c *Coordinator) closePartial() {
 	shut("interactions.jsonl", c.auditJ)
 	c.spoolIn.close() // idempotent: Close already closed it before the join
 	if len(errs) > 0 {
-		clidiag.Warn("ctxloom", "coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
+		c.rep.Warnf("coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}
 	if c.releaseOwner != nil {
 		c.releaseOwner()
@@ -859,7 +864,7 @@ func (c *Coordinator) audit(kind, actor string, detail map[string]string) {
 	if err := c.auditJ.Exec(func() ([]Fact, error) {
 		return []Fact{factAt("interaction", c.now(), interaction{Kind: kind, Actor: actor, Detail: detail})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator audit (%s): %v", kind, err)
+		c.rep.Warnf("coordinator audit (%s): %v", kind, err)
 	}
 }
 
@@ -888,7 +893,7 @@ func (c *Coordinator) RevokeSessionOwner(token string) {
 		}
 		return []Fact{factAt(factSessionCredRevoked, c.now(), sessionCred{CredHash: credHash})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: revoke session credential: %v", err)
+		c.rep.Warnf("coordinator: revoke session credential: %v", err)
 	}
 }
 

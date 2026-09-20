@@ -15,8 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // SpawnPlan is a delegated child's launch as the coordinator holds it: the
@@ -160,14 +160,15 @@ type StarterFunc func(backend string, runnerEnv map[string]string) isolation.Eng
 // generation per spawn (Resolve's Reload), which the plan then carries to
 // StartEngine's resolution.
 type prodSpawner struct {
+	rep        report.Reporter
 	app        *operations.App
 	projectDir string
 	starter    StarterFunc // test seam; nil = production (the cell's transport starts the runner)
 }
 
 // newProdSpawner builds the production spawner over the process's App.
-func newProdSpawner(app *operations.App, projectDir string, starter StarterFunc) *prodSpawner {
-	return &prodSpawner{app: app, projectDir: projectDir, starter: starter}
+func newProdSpawner(rep report.Reporter, app *operations.App, projectDir string, starter StarterFunc) *prodSpawner {
+	return &prodSpawner{rep: rep, app: app, projectDir: projectDir, starter: starter}
 }
 
 // viaStartRunBackends is the delegation allowlist: the set of backend types
@@ -326,7 +327,7 @@ func (s *prodSpawner) spawnGeneration(ctx context.Context) (*config.Snapshot, er
 	if err == nil {
 		return snap, nil
 	}
-	clidiag.Warn("ctxloom", "agent_run: reload configuration for agent resolution: %v (using the published generation)", err)
+	s.rep.Warnf("agent_run: reload configuration for agent resolution: %v (using the published generation)", err)
 	return s.app.Snapshot(ctx)
 }
 
@@ -482,7 +483,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 func (s *prodSpawner) ResumeHistory(ctx context.Context, harp string) string {
 	entries, err := operations.RecordedSessionEntries(ctx, harp)
 	if err != nil {
-		clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
+		s.rep.Warnf("agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
 		return ""
 	}
 	rendered := operations.RenderResumedTranscript(harp, entries)
@@ -490,14 +491,14 @@ func (s *prodSpawner) ResumeHistory(ctx context.Context, harp string) string {
 	// entries — indistinguishable, from the outside, from "loaded the whole
 	// conversation" — so a resume that primes with no history says so.
 	if rendered == "" {
-		clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (transcript rendered empty); resuming with the agent context only", harp)
+		s.rep.Warnf("agent resume %s: no recorded history to prime (transcript rendered empty); resuming with the agent context only", harp)
 	}
 	return rendered
 }
 
 func (s *prodSpawner) MarkSessionEnded(harp string) {
 	if err := operations.EndSession(harp, time.Now()); err != nil {
-		clidiag.Warn("ctxloom", "agent %s: end session: %v", harp, err)
+		s.rep.Warnf("agent %s: end session: %v", harp, err)
 	}
 }
 
@@ -518,7 +519,7 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 	// isolation policy is not even known at this point.
 	servers := agent.ComposeChatMCPServers(plan.snap.Config.ResolveBundleMCPServers(plan.Profiles), nil)
 	operations.WarnWithheldBy(plan.snap.Config.ExecutableTrustGate())
-	warnNoReachBack(plan.AgentName, servers)
+	warnNoReachBack(s.rep, plan.AgentName, servers)
 	return servers
 }
 
@@ -534,13 +535,13 @@ func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
 // either), so it warns rather than refusing: withholding it is a deliberate
 // project choice and mirrors the documented degraded no-reach-back posture.
 // What it must not be is SILENT.
-func warnNoReachBack(agentName string, servers []agent.ChatMCPServer) {
+func warnNoReachBack(rep report.Reporter, agentName string, servers []agent.ChatMCPServer) {
 	for _, srv := range servers {
 		if srv.Name == agent.MCPServerName {
 			return
 		}
 	}
-	clidiag.Warn("ctxloom", "agent_run: agent %q composed no %q MCP server (the builtin ctxloom bundle's server is withheld for this project — check `exclude_mcp` on its profiles, and whether the item is rejected); the child launches WITHOUT agent_send/agent_recv/agent_report — it cannot report back or be steered",
+	rep.Warnf("agent_run: agent %q composed no %q MCP server (the builtin ctxloom bundle's server is withheld for this project — check `exclude_mcp` on its profiles, and whether the item is rejected); the child launches WITHOUT agent_send/agent_recv/agent_report — it cannot report back or be steered",
 		agentName, agent.MCPServerName)
 }
 

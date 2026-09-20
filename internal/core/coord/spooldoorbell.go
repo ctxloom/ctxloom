@@ -6,7 +6,6 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // The spool doorbell: the wire half of the file-spool substrate.
@@ -223,7 +222,7 @@ func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
 // observer polls, so incrementing it LAST is what makes "the count moved"
 // imply "the report is already written" rather than "is about to be".
 func (c *Coordinator) noteSpoolDrop(role string, ref spool.Ref, why string) {
-	clidiag.WarnOnce("ctxloom", "coordinator: spool doorbell for %s dropped (%s); %s is still on disk and will be delivered by the next sweep",
+	c.rep.WarnOncef("coordinator: spool doorbell for %s dropped (%s); %s is still on disk and will be delivered by the next sweep",
 		role, why, ref)
 	c.spoolDoorbell.dropped.Add(1)
 }
@@ -252,7 +251,7 @@ func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolCha
 	ref, err := SpoolRefFromProto(msg)
 	if err != nil {
 		// Report, then count — see noteSpoolDrop.
-		clidiag.Warn("ctxloom", "coordinator: refusing an invalid spool doorbell from %s: %v", ch.role, err)
+		c.rep.Warnf("coordinator: refusing an invalid spool doorbell from %s: %v", ch.role, err)
 		c.spoolDoorbell.rejected.Add(1)
 		return
 	}
@@ -262,7 +261,7 @@ func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolCha
 		// leaves a probe reading like ordinary doorbell contention. Nothing
 		// is lost by refusing — the file is on disk and the reactor's tick
 		// sweeps ch.role's spool regardless.
-		clidiag.Warn("ctxloom", "coordinator: refusing a spool doorbell from %s that names %q's spool; %s's own spool is swept regardless",
+		c.rep.Warnf("coordinator: refusing a spool doorbell from %s that names %q's spool; %s's own spool is swept regardless",
 			ch.role, ref.Harp, ch.role)
 		c.spoolDoorbell.rejected.Add(1)
 		return
@@ -300,7 +299,7 @@ func (h *Home) ringSpool(ref spool.Ref) error {
 	frame := &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: msg}}
 	if !h.trySend(frame) {
 		// Report, then count — see Coordinator.noteSpoolDrop.
-		clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", ref)
+		h.rep.WarnOncef("runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", ref)
 		h.spoolDoorbell.dropped.Add(1)
 	}
 	return nil
@@ -326,7 +325,7 @@ func (h *Home) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	ref, err := SpoolRefFromProto(msg)
 	if err != nil {
-		clidiag.Warn("ctxloom", "runner: refusing an invalid spool doorbell from the coordinator: %v", err)
+		h.rep.Warnf("runner: refusing an invalid spool doorbell from the coordinator: %v", err)
 		h.spoolDoorbell.rejected.Add(1)
 		return
 	}
@@ -337,7 +336,7 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	// the per-session mount exists to draw.
 	switch {
 	case ref.Harp != h.Harp():
-		clidiag.Warn("ctxloom", "runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.Harp())
+		h.rep.Warnf("runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.Harp())
 		h.spoolDoorbell.rejected.Add(1)
 		return
 	case ref.Dir == spool.DirInWithdrawn:
@@ -352,7 +351,7 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	case ref.Dir != spool.DirIn:
 		// out/ and the remaining terminal directories are this runner's
 		// own writes coming back at it; nothing to read there.
-		clidiag.Warn("ctxloom", "runner: ignoring a spool doorbell for %s: only inbound mail is delivered to this run", ref.Dir)
+		h.rep.Warnf("runner: ignoring a spool doorbell for %s: only inbound mail is delivered to this run", ref.Dir)
 		h.spoolDoorbell.rejected.Add(1)
 		return
 	}

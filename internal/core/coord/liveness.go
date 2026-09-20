@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
@@ -159,7 +158,7 @@ func (c *Coordinator) livenessTargets() []liveness.Target {
 			// observation of a broken agent: leave it empty so the monitor
 			// degrades to the evidence it does have rather than reading the
 			// absence as zero events.
-			clidiag.Warn("ctxloom", "liveness: %s: resolve transcript path: %v", r.harp, err)
+			c.rep.Warnf("liveness: %s: resolve transcript path: %v", r.harp, err)
 			txPath = ""
 		}
 		out = append(out, liveness.Target{
@@ -212,7 +211,7 @@ func (c *Coordinator) livenessWatchdog() {
 				prev := last[rep.Harp]
 				last[rep.Harp] = rep.State
 				if rep.Firing() && prev != rep.State {
-					clidiag.Warn("ctxloom", "agent %s (%s, runtime %s) looks %s: %s",
+					c.rep.Warnf("agent %s (%s, runtime %s) looks %s: %s",
 						rep.Harp, orDash(rep.Agent), orDash(rep.Runtime), rep.State, rep.Reason)
 				}
 			}

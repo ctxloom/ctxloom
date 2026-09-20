@@ -9,7 +9,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Structured report-back (plan B1.5, folded into B1.6 deliverable 5):
@@ -88,6 +89,7 @@ type ArtifactRecord struct {
 // latest CHECKPOINT kept for seeding) and each artifact's latest revision
 // per (harp, artifact_id). It rides the runs journal.
 type reportsFold struct {
+	rep        report.Reporter
 	latest     map[string]summaryFact               // harp → latest summary
 	checkpoint map[string]summaryFact               // harp → latest SCOPE_CHECKPOINT
 	artifacts  map[string]map[string]ArtifactRecord // harp → artifact_id → latest
@@ -104,8 +106,9 @@ type reportsFold struct {
 // key here so one harp's watermark can never suppress another's report.
 func reportKey(harp, runID string) string { return harp + "\x00" + runID }
 
-func newReportsFold() *reportsFold {
+func newReportsFold(rep report.Reporter) *reportsFold {
 	return &reportsFold{
+		rep:        rep,
 		latest:     make(map[string]summaryFact),
 		checkpoint: make(map[string]summaryFact),
 		artifacts:  make(map[string]map[string]ArtifactRecord),
@@ -123,7 +126,7 @@ func (f *reportsFold) apply(fact Fact) {
 			// must not fail on its own store's history, so the fold still
 			// continues — but silently is how a corrupt log looks identical to
 			// an agent that simply never reported.
-			clidiag.Warn("ctxloom", "coordinator: skipping an undecodable %s fact in the reports journal (the report it carried is lost): %v", factSummary, err)
+			f.rep.Warnf("coordinator: skipping an undecodable %s fact in the reports journal (the report it carried is lost): %v", factSummary, err)
 			return
 		}
 		k := reportKey(p.Harp, p.RunID)
@@ -143,7 +146,7 @@ func (f *reportsFold) apply(fact Fact) {
 			// Same as factSummary above: an undecodable manifest means bytes
 			// that exist in a session dir are unreachable through the log, and
 			// the only way anyone can find that out is if it is said out loud.
-			clidiag.Warn("ctxloom", "coordinator: skipping an undecodable %s fact in the reports journal (the artifact manifest it carried is unresolvable): %v", factArtifact, err)
+			f.rep.Warnf("coordinator: skipping an undecodable %s fact in the reports journal (the artifact manifest it carried is unresolvable): %v", factArtifact, err)
 			return
 		}
 		byID := f.artifacts[p.Harp]
@@ -250,7 +253,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 			ArtifactIDs:   s.GetArtifactIds(),
 		})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: journal report for %s: %v — the report is LOST "+
+		c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
 			"(the runner's ack has already advanced past it and nothing re-sends it)", harp, err)
 		return
 	}
@@ -311,7 +314,7 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s *agentcoordpb.Sum
 		return
 	}
 	if _, _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.GetText()); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: %s's FINAL report is journaled but could not be queued to %s: %v "+
+		c.rep.Warnf("coordinator: %s's FINAL report is journaled but could not be queued to %s: %v "+
 			"(the report is intact in the reports fold; its parent will not be woken by it)", harp, rec.ParentHarp, err)
 	}
 }
@@ -343,7 +346,7 @@ func (c *Coordinator) recordArtifact(harp string, a *agentcoordpb.ArtifactProduc
 			UploadID:   a.GetUploadId(),
 		})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
+		c.rep.Warnf("coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+
 			"so any bytes already uploaded for it are unreachable through the log", harp, err)
 	}
 }

@@ -71,7 +71,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 
 	if homeCfg.RunID != "" {
 		if sc, ok := backend.(agent.StructuredChat); ok {
-			standup.engineHost = coord.NewEngineHost(cmd.Context(), sc, backendName, homeCfg.RunID)
+			standup.engineHost = coord.NewEngineHost(cmd.Context(), App().Strictness.Sink(), sc, backendName, homeCfg.RunID)
 			homeCfg.Engine = standup.engineHost.Handle
 		}
 	}
@@ -79,6 +79,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	// ride only when this runner actually hosts an engine that could execute
 	// them, so an engineless runner advertises the mailbox surface alone.
 	homeCfg.Capabilities = coord.RunnerCapabilities(standup.engineHost != nil)
+	homeCfg.Reporter = App().Strictness.Sink()
 	h, herr := coord.NewHome(cmd.Context(), homeCfg)
 	if herr != nil {
 		clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)

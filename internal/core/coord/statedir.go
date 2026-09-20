@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // State layout (all 0700 dirs / 0600 files — journals carry message bodies
@@ -136,14 +136,14 @@ var writeOwnerPID = func(f *os.File, pid int) error {
 // journals, the single outcome this lock exists to prevent. Declining a claim
 // costs this session adoption; leaving an unstamped lock costs the journal its
 // single writer.
-func claimOwner(dir string) (release func(), err error) {
+func claimOwner(rep report.Reporter, dir string) (release func(), err error) {
 	lock := filepath.Join(dir, "owner.pid")
 	for range 2 {
 		f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			if werr := writeOwnerPID(f, os.Getpid()); werr != nil {
 				_ = os.Remove(lock)
-				clidiag.Warn("ctxloom", "coordinator: could not stamp the project state lock %s (%v); declining the claim rather than leaving a lock that reads as a dead owner", lock, werr)
+				rep.Warnf("coordinator: could not stamp the project state lock %s (%v); declining the claim rather than leaving a lock that reads as a dead owner", lock, werr)
 				return nil, errStateOwned
 			}
 			return func() { _ = os.Remove(lock) }, nil

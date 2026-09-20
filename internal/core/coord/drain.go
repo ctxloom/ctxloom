@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ---------------------------------------------------------------------------
@@ -304,11 +302,11 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 	// Expiry is LOUD, and so is a park: a coordinator that goes quiet about
 	// either is one whose operator finds out in the morning the hard way.
 	if len(outcome.Interrupted) > 0 {
-		clidiag.Warn("ctxloom", "%s: %d child(ren) still running after %s were interrupted: %s",
+		c.rep.Warnf("%s: %d child(ren) still running after %s were interrupted: %s",
 			p.label, len(outcome.Interrupted), bound, strings.Join(outcome.Interrupted, ", "))
 	}
 	if len(outcome.Parked) > 0 {
-		clidiag.Warn("ctxloom", "%s: %d child(ren) are parked on a human and were left waiting (turn open, session lock held): %s",
+		c.rep.Warnf("%s: %d child(ren) are parked on a human and were left waiting (turn open, session lock held): %s",
 			p.label, len(outcome.Parked), strings.Join(outcome.Parked, ", "))
 	}
 	d.settle(outcome)

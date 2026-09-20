@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Runner liveness parameters. The runner heartbeats every HeartbeatInterval;
@@ -332,7 +331,7 @@ func (c *Coordinator) handleRunExited(credHash string, exited *agentcoordpb.RunE
 		}
 	})
 	if !owned {
-		clidiag.Warn("ctxloom", "coordinator: RunExited for %s from a credential that does not own it; ignored", runID)
+		c.rep.Warnf("coordinator: RunExited for %s from a credential that does not own it; ignored", runID)
 		return
 	}
 	c.recordHarnessSession(runID, exited.GetHarnessSessionId())

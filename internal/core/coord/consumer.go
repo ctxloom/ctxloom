@@ -8,7 +8,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // D1 — the consumer watch API: read-only observation for viewers (the TUI,
@@ -88,11 +89,14 @@ const watchRingSize = 256
 // child's live activity becomes observable again, independent of the
 // legacy agentbus TapHub this hub does not replace until D2.
 type watchHub struct {
+	rep  report.Reporter
 	mu   sync.Mutex
 	subs map[*watchSub]struct{}
 }
 
-func newWatchHub() *watchHub { return &watchHub{subs: make(map[*watchSub]struct{})} }
+func newWatchHub(rep report.Reporter) *watchHub {
+	return &watchHub{rep: rep, subs: make(map[*watchSub]struct{})}
+}
 
 // watchSub is one WatchRuns call's subscription. runIDs nil/empty means
 // "every run visible to this credential" (D1 does not yet scope visibility
@@ -190,7 +194,7 @@ func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 			continue
 		}
 		if isTerminal(ev) {
-			sendTerminal(sub, ev)
+			sendTerminal(h.rep, sub, ev)
 			continue
 		}
 		deliver(sub, ev)
@@ -273,7 +277,7 @@ const terminalEvictAttempts = 4
 // pending for the next flush: dropping the terminal hangs the watcher,
 // deferring the marker does not. Never blocks: this races only the serving
 // loop draining sub.ch from the other end, which can only free slots.
-func sendTerminal(sub *watchSub, ev *agentcoordpb.AgentEvent) {
+func sendTerminal(rep report.Reporter, sub *watchSub, ev *agentcoordpb.AgentEvent) {
 	for attempt := 0; attempt < terminalEvictAttempts; attempt++ {
 		if sub.room() >= sub.need() {
 			sub.flushLost()
@@ -295,7 +299,7 @@ func sendTerminal(sub *watchSub, ev *agentcoordpb.AgentEvent) {
 	// unlike an ordinary lost event, cannot wait for a marker the reader will
 	// stop listening for: name the run whose terminal was lost so a hung
 	// viewer is diagnosable from the coordinator's logs.
-	clidiag.Warn("ctxloom", "consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
+	rep.Warnf("consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
 		ev.GetRunId(), terminalEvictAttempts)
 }
 

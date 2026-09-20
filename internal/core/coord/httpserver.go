@@ -19,7 +19,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
@@ -150,7 +149,7 @@ func (s *coordServing) loadEndpoint() endpointState {
 		return ep
 	}
 	if uerr := json.Unmarshal(raw, &ep); uerr != nil {
-		clidiag.Warn("ctxloom", "coordinator: %s does not decode (%v): re-binding on fresh ports, so a relaunched endpoint will not match the recorded one", discover.FileName, uerr)
+		s.c.rep.Warnf("coordinator: %s does not decode (%v): re-binding on fresh ports, so a relaunched endpoint will not match the recorded one", discover.FileName, uerr)
 		return endpointState{}
 	}
 	return ep
@@ -177,7 +176,7 @@ func (s *coordServing) saveEndpointLocked() {
 	ep.ConsumerCred = s.c.consumerCreds.token()
 	raw, _ := json.Marshal(ep)
 	if err := os.WriteFile(s.endpointPath(), raw, 0o600); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: persist endpoint: %v", err)
+		s.c.rep.Warnf("coordinator: persist endpoint: %v", err)
 	}
 }
 

@@ -19,8 +19,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Custom event/request names — the namespaced "ctxloom/*" vocabulary riding
@@ -102,7 +101,7 @@ func (c *Coordinator) Host(ctx context.Context, caller Identity, req HostRequest
 		return HostResult{}, fmt.Errorf("%w: %s answered %d bytes, past the 4MiB relay cap — narrow the request (e.g. target a specific session) or run the tool on the host session", ErrHostAnswerTooLarge, req.Tool, len(res.Body))
 	}
 	if len(res.Body) > relayWarnBytes {
-		strictness.Record(strictness.ClassApply, "narrow the relayed tool's request before the 4MiB cap fails it",
+		c.rep.Recordf(report.KindApply, "narrow the relayed tool's request before the 4MiB cap fails it",
 			"host-relay tool %s returned %d bytes (watch: >3MiB)", req.Tool, len(res.Body))
 	}
 	return res, nil
@@ -317,7 +316,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		// they lagged when nothing was lost. Ack-and-drop before the tee,
 		// like any foreign payload, but named — a runner emitting it is
 		// either hostile or confused, and either is worth a line.
-		clidiag.Warn("ctxloom", "run %q sent an events_lost marker — that kind is coordinator-emitted only; dropped", ch.id.RunID)
+		c.rep.Warnf("run %q sent an events_lost marker — that kind is coordinator-emitted only; dropped", ch.id.RunID)
 		c.flushItems(ch)
 		return
 	}
@@ -385,7 +384,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 			// one (oneShotReady). recordHarnessSession drops an empty id, so
 			// losing it here used to leave no trace at all — the run simply
 			// stopped being resumable and nothing said why.
-			clidiag.Warn("ctxloom", "coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
+			c.rep.Warnf("coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
 				CustomHarnessSession, ch.role, ch.id.RunID)
 			return
 		}
@@ -634,7 +633,7 @@ func (c *Coordinator) respond(ch *runChan, resp *agentcoordpb.CoordinatorRespons
 		case ch.send <- frame:
 		case <-c.baseCtx.Done():
 		case <-time.After(responseQueueWindow):
-			clidiag.Warn("ctxloom", "coordinator: response to %s found its send pump full for %s and was dropped; the runner's request fails at its own timeout — only a reconnect reissues it, and the cached response is re-delivered then",
+			c.rep.Warnf("coordinator: response to %s found its send pump full for %s and was dropped; the runner's request fails at its own timeout — only a reconnect reissues it, and the cached response is re-delivered then",
 				role, responseQueueWindow)
 		}
 	})

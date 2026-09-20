@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // D4 — CHECKPOINT compaction (pre-made semantics, Wave D playbook): a
@@ -48,13 +48,13 @@ func (c *Coordinator) writeItemsSnapshot() {
 	var snap itemsSnapshot
 	_, err := c.items.OffsetView(func(offset int64) { snap = c.itemsF.snapshot(offset) })
 	if err != nil {
-		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: read items journal offset: %v", err)
+		c.rep.Warnf("coordinator: checkpoint snapshot: read items journal offset: %v", err)
 		return
 	}
 
 	raw, err := json.Marshal(snap)
 	if err != nil {
-		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: marshal: %v", err)
+		c.rep.Warnf("coordinator: checkpoint snapshot: marshal: %v", err)
 		return
 	}
 	// Route through iox: a fixed temp name (path + ".tmp") gives two
@@ -62,7 +62,7 @@ func (c *Coordinator) writeItemsSnapshot() {
 	// without an fsync a power loss can persist the rename ahead of the data.
 	// iox.WriteFileAtomic owns that invariant.
 	if err := iox.WriteFileAtomic(itemsSnapshotPath(c.stateDir), raw, 0o600); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot: write: %v", err)
+		c.rep.Warnf("coordinator: checkpoint snapshot: write: %v", err)
 	}
 }
 
@@ -77,17 +77,17 @@ func (c *Coordinator) writeItemsSnapshot() {
 // because compaction is a performance contract rather than a functional one,
 // that failure has no symptom of its own — the coordinator just replays the
 // whole journal on every boot, permanently and quietly.
-func loadItemsSnapshot(stateDir string) (snap itemsSnapshot, ok bool) {
+func loadItemsSnapshot(rep report.Reporter, stateDir string) (snap itemsSnapshot, ok bool) {
 	path := itemsSnapshotPath(stateDir)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", path, err)
+			rep.Warnf("coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", path, err)
 		}
 		return itemsSnapshot{}, false
 	}
 	if err := json.Unmarshal(raw, &snap); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot unreadable, falling back to a full replay: %v", err)
+		rep.Warnf("coordinator: checkpoint snapshot unreadable, falling back to a full replay: %v", err)
 		return itemsSnapshot{}, false
 	}
 	return snap, true

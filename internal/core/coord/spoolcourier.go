@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // spoolCourier pairs a spool WRITE with its DOORBELL so that neither can be
@@ -31,6 +31,7 @@ import (
 // whether the send is audited. Everything else was identical prose in two
 // files.
 type spoolCourier struct {
+	rep report.Reporter
 	// writers is this end's writer cache. Writers are per-harp and cached
 	// because two writers for one directory can mint the same filename twice.
 	writers *spoolWriterCache
@@ -89,7 +90,7 @@ func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, e
 	// Unconditional, and unreachable from outside: a caller holding a courier
 	// cannot obtain the ref without this having run.
 	if rerr := x.ring(to, ref); rerr != nil {
-		clidiag.Warn("ctxloom", "%s: wrote %s for %s but could not ring it: %v (it will be swept)", x.side, ref, to, rerr)
+		x.rep.Warnf("%s: wrote %s for %s but could not ring it: %v (it will be swept)", x.side, ref, to, rerr)
 	}
 	return ref, nil
 }
@@ -108,6 +109,6 @@ func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, e
 // which one was lost rather than only that something was.
 func (x *spoolCourier) Announce(to string, ref spool.Ref, what string) {
 	if rerr := x.ring(to, ref); rerr != nil {
-		clidiag.Warn("ctxloom", "%s: %s %s but could not announce it: %v", x.side, what, ref, rerr)
+		x.rep.Warnf("%s: %s %s but could not announce it: %v", x.side, what, ref, rerr)
 	}
 }

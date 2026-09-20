@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // THE RESULT PLANE: a child's automatic turn report is written by ITS OWN
@@ -106,7 +105,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		// transcript existence and exit code all stay green.
 		kind = KindError
 		body = fmt.Sprintf("agent %q (run %s) turn produced no output — nothing to report", h.Harp(), h.cfg.RunID)
-		clidiag.Warn("ctxloom", "runner: this turn ended with no report and no output; telling the parent so (%s)", h.Harp())
+		h.rep.Warnf("runner: this turn ended with no report and no output; telling the parent so (%s)", h.Harp())
 	}
 	if _, err := h.writeOutbound(Message{
 		From: h.Harp(), To: ParentAddress, Kind: kind, Body: body, InReplyTo: inReplyTo,
@@ -119,7 +118,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		// parent will never hear about, and the accumulator that held it has
 		// already been taken — there is nothing to retry from, so the failure
 		// is the only trace and it must exist.
-		clidiag.Warn("ctxloom", "runner: could not write this turn's report for %s: %v (the parent will not hear about this turn)", h.Harp(), err)
+		h.rep.Warnf("runner: could not write this turn's report for %s: %v (the parent will not hear about this turn)", h.Harp(), err)
 		h.spoolDeliveryCount.failed.Add(1)
 		return err
 	}
@@ -171,6 +170,7 @@ func (h *Home) writeOutbound(msg Message) (spool.Ref, error) {
 // addressed to — the runner owns one spool, not one per recipient.
 func (h *Home) outboundCourier() *spoolCourier {
 	return &spoolCourier{
+		rep:     h.rep,
 		writers: h.spoolOut,
 		keyFor:  func(string) string { return h.Harp() },
 		ring:    func(_ string, ref spool.Ref) error { return h.ringSpool(ref) },

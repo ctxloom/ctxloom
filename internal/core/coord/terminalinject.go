@@ -1,6 +1,8 @@
 package coord
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"io"
 	"sync"
 	"sync/atomic"
@@ -8,7 +10,6 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TERMINAL INJECTION — the delivery half of the session-owner's wake.
@@ -124,6 +125,9 @@ type TerminalInjector struct {
 	// nil means the engine implements no gate, which is NOT the same as
 	// "safe". See run: an engine that has given no signal is refused.
 	gate agent.InputGate
+	// rep is the Home's Reporter: the injector is built on one Home and
+	// reports where it does.
+	rep report.Reporter
 	// gateWarn makes the refusal above loud exactly once per injector, rather
 	// than on every nudge. Silence here would be the project's characteristic
 	// failure — a wake that never fires and never says why.
@@ -158,6 +162,7 @@ type TerminalInjector struct {
 // injector then REFUSES to inject rather than assuming the terminal is idle.
 func NewTerminalInjector(home *Home, gate agent.InputGate) *TerminalInjector {
 	ti := &TerminalInjector{
+		rep:        home.rep,
 		gate:       gate,
 		quiet:      terminalInjectQuiet,
 		inputQuiet: terminalInjectInputQuiet,
@@ -238,7 +243,7 @@ func (ti *TerminalInjector) run() {
 	// delayed wake whose mail agent_recv still collects.
 	if ti.gate == nil {
 		ti.gateWarn.Do(func() {
-			clidiag.Warn("ctxloom", "coordinator: this engine publishes no input-state gate, so terminal wakes are withheld to avoid answering a prompt for you; "+
+			ti.rep.Warnf("coordinator: this engine publishes no input-state gate, so terminal wakes are withheld to avoid answering a prompt for you; " +
 				"the mail stays buffered and agent_recv still collects it. Measure this engine's modal markers and implement agent.InputGate to turn wakes back on")
 		})
 		return
@@ -326,7 +331,7 @@ func (ti *TerminalInjector) awaitAck(before int) {
 		}
 		time.Sleep(ti.ackTick)
 	}
-	clidiag.Warn("ctxloom", "coordinator: injected a mail-pending reminder into this session's terminal but %d message(s) are still unread %s later — "+
+	ti.rep.Warnf("coordinator: injected a mail-pending reminder into this session's terminal but %d message(s) are still unread %s later — "+
 		"the frame may be staged in the input box unsubmitted; call agent_recv to collect it",
 		before, ti.ackWait)
 }

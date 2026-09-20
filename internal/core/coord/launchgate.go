@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Launch gating: the per-harp bookkeeping that makes a failing launch STOP.
@@ -105,25 +105,25 @@ type launchTunable interface {
 // budget or a zero backoff is the exact defect class this whole gate exists to
 // prevent). An unset or empty-string variable falls back to def SILENTLY: that
 // is the ordinary, unconfigured case, not an operator error.
-func envLaunchPositive[T launchTunable](name string, def T, parse func(string) (T, error), unit string) T {
+func envLaunchPositive[T launchTunable](rep report.Reporter, name string, def T, parse func(string) (T, error), unit string) T {
 	raw, ok := os.LookupEnv(name)
 	if !ok || raw == "" {
 		return def
 	}
 	v, err := parse(raw)
 	if err != nil || v <= 0 {
-		clidiag.Warn("ctxloom", "%s=%q is not a positive %s; using the default %v instead (a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, unit, def)
+		rep.Warnf("%s=%q is not a positive %s; using the default %v instead (a zero or negative value here would silently reopen the unbounded-retry bug this budget exists to close)", name, raw, unit, def)
 		return def
 	}
 	return v
 }
 
-func envLaunchInt(name string, def int) int {
-	return envLaunchPositive(name, def, strconv.Atoi, "integer")
+func envLaunchInt(rep report.Reporter, name string, def int) int {
+	return envLaunchPositive(rep, name, def, strconv.Atoi, "integer")
 }
 
-func envLaunchDuration(name string, def time.Duration) time.Duration {
-	return envLaunchPositive(name, def, time.ParseDuration, "duration")
+func envLaunchDuration(rep report.Reporter, name string, def time.Duration) time.Duration {
+	return envLaunchPositive(rep, name, def, time.ParseDuration, "duration")
 }
 
 // resolveLaunchTunables reads the container launch-retry budget's operator
@@ -133,10 +133,10 @@ func envLaunchDuration(name string, def time.Duration) time.Duration {
 // launchBackoffMax fields, which is what every per-attempt read (launchBackoff,
 // nextRelaunch, giveUpLaunching) actually consults. No env var is read inside
 // the retry loop itself.
-func resolveLaunchTunables() (maxAttempts int, backoffBase, backoffMax time.Duration) {
-	maxAttempts = envLaunchInt(EnvLaunchMaxAttempts, defaultMaxLaunchAttempts)
-	backoffBase = envLaunchDuration(EnvLaunchBackoffBase, defaultLaunchBackoffBase)
-	backoffMax = envLaunchDuration(EnvLaunchBackoffMax, defaultLaunchBackoffMax)
+func resolveLaunchTunables(rep report.Reporter) (maxAttempts int, backoffBase, backoffMax time.Duration) {
+	maxAttempts = envLaunchInt(rep, EnvLaunchMaxAttempts, defaultMaxLaunchAttempts)
+	backoffBase = envLaunchDuration(rep, EnvLaunchBackoffBase, defaultLaunchBackoffBase)
+	backoffMax = envLaunchDuration(rep, EnvLaunchBackoffMax, defaultLaunchBackoffMax)
 	return
 }
 
@@ -379,7 +379,7 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 		// stays dead, whatever it left queued. Said out loud, because a
 		// mailbox nobody is told about is the same blind spot this loop's
 		// own give-up notice exists to close.
-		clidiag.Warn("ctxloom", "coordinator drain: agent %q (session %s) ended (%s) with %d message(s) still queued; not relaunched — they wait for the harp's next run",
+		c.rep.Warnf("coordinator drain: agent %q (session %s) ended (%s) with %d message(s) still queued; not relaunched — they wait for the harp's next run",
 			rec.Agent, rec.Harp, cause, pending)
 		return
 	}
@@ -415,12 +415,12 @@ func (c *Coordinator) giveUpLaunching(rec RunRecord, cause, detail string) {
 		"its queued messages are still waiting. Last failure: %s. "+
 		"Fix the launch (image, runtime, auth, workspace) and agent_send again to retry.",
 		rec.Agent, rec.Harp, what, detail)
-	clidiag.Warn("ctxloom", "%s", body)
+	c.rep.Warnf("%s", body)
 	if rec.ParentHarp == "" {
 		return
 	}
 	if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, "error", body); err != nil {
-		clidiag.Warn("ctxloom", "agent %s: queue launch give-up notice: %v", rec.Harp, err)
+		c.rep.Warnf("agent %s: queue launch give-up notice: %v", rec.Harp, err)
 	}
 }
 

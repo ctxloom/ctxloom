@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Coordinator→agent CONTROL (steer, question, summarize, pause, resume): the
@@ -180,7 +179,7 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 	// initiator.
 	if by.Kind == agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN {
 		if _, _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
-			clidiag.Warn("ctxloom", "steer %s: mirror notice: %v", harp, merr)
+			c.rep.Warnf("steer %s: mirror notice: %v", harp, merr)
 		}
 	}
 	return outcome, nil

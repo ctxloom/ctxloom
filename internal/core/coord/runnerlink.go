@@ -14,7 +14,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // rejectedHelloError renders a refused handshake using the coordinator's own
@@ -55,6 +56,7 @@ type RunnerRequestHandler func(*agentcoordpb.RunnerRequest) *agentcoordpb.Runner
 // delivery layer treats the credential as opaque, so that is a mint/verify
 // change, not plumbing.
 type RunnerLink struct {
+	rep    report.Reporter
 	runID  string
 	conn   *grpc.ClientConn
 	stream grpc.BidiStreamingClient[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]
@@ -158,7 +160,7 @@ func (bearerCreds) RequireTransportSecurity() bool { return false }
 // observe lifecycle). Returns an error when the coordinator is unreachable or
 // the Hello is rejected — callers treat that as a warning, never a launch
 // blocker (the coordinator's synthesis covers a runner that never dialed).
-func DialRunner(ctx context.Context, coordURL, token, runID, harness, version string, handler RunnerRequestHandler) (*RunnerLink, error) {
+func DialRunner(ctx context.Context, rep report.Sink, coordURL, token, runID, harness, version string, handler RunnerRequestHandler) (*RunnerLink, error) {
 	target, err := grpcTarget(coordURL)
 	if err != nil {
 		return nil, err
@@ -211,7 +213,7 @@ func DialRunner(ctx context.Context, coordURL, token, runID, harness, version st
 		return unwind("coord: %w", rejectedHelloError("RunnerHello", ha.GetRejectReason()))
 	}
 
-	l := &RunnerLink{runID: runID, conn: conn, stream: stream, cancel: cancel, done: make(chan struct{}), handler: handler}
+	l := &RunnerLink{rep: report.To(rep), runID: runID, conn: conn, stream: stream, cancel: cancel, done: make(chan struct{}), handler: handler}
 	l.goTracked(func() { l.heartbeatLoop(linkCtx) })
 	l.goTracked(l.receiveLoop)
 	return l, nil
@@ -244,7 +246,7 @@ func (l *RunnerLink) heartbeatLoop(ctx context.Context) {
 			if err := l.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Heartbeat{
 				Heartbeat: &agentcoordpb.RunnerHeartbeat{ActiveRuns: 1},
 			}}); err != nil {
-				clidiag.Warn("ctxloom", "runner: heartbeat: %v (coordinator will synthesize loss)", err)
+				l.rep.Warnf("runner: heartbeat: %v (coordinator will synthesize loss)", err)
 				return
 			}
 		case <-ctx.Done():
@@ -265,7 +267,7 @@ func (l *RunnerLink) receiveLoop() {
 		frame, err := l.stream.Recv()
 		if err != nil {
 			if l.stream.Context().Err() == nil {
-				clidiag.WarnOnce("ctxloom", "runner: RunnerChannel receive: %v (coordinator will synthesize loss)", err)
+				l.rep.WarnOncef("runner: RunnerChannel receive: %v (coordinator will synthesize loss)", err)
 			}
 			return
 		}
@@ -292,7 +294,7 @@ func (l *RunnerLink) serveRequest(req *agentcoordpb.RunnerRequest) {
 	}
 	resp.RequestId = req.GetRequestId()
 	if err := l.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Response{Response: resp}}); err != nil {
-		clidiag.Warn("ctxloom", "runner: reply to %s: %v", req.GetRequestId(), err)
+		l.rep.Warnf("runner: reply to %s: %v", req.GetRequestId(), err)
 	}
 }
 

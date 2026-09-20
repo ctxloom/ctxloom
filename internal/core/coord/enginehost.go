@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // engineHome is the slice of *Home the engine host consumes — an interface so
@@ -85,6 +85,7 @@ const homeBindTimeout = 10 * time.Second
 // transport — and adapts the engine's native event stream onto plane-1
 // AgentEvents on the RunChannel.
 type EngineHost struct {
+	rep     report.Reporter
 	backend agent.StructuredChat
 	harness string // the backend name RunnerHello advertised
 	runID   string // CTXLOOM_RUN_ID — the one run this runner may host
@@ -157,8 +158,9 @@ type EngineHost struct {
 
 // NewEngineHost builds the host for the runner's one hostable run. ctx bounds
 // the engine's whole lifetime (the runner process's serve context).
-func NewEngineHost(ctx context.Context, backend agent.StructuredChat, harness, runID string) *EngineHost {
+func NewEngineHost(ctx context.Context, rep report.Sink, backend agent.StructuredChat, harness, runID string) *EngineHost {
 	return &EngineHost{
+		rep:       report.To(rep),
 		backend:   backend,
 		harness:   harness,
 		runID:     runID,
@@ -338,7 +340,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	// session).
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunStarted{RunStarted: &agentcoordpb.RunStarted{
 		Input:  runStartedInput(prompt),
-		Config: runStartedConfig(t),
+		Config: runStartedConfig(eh.rep, t),
 	}}})
 
 	// Capture this run's canonical transcript on the runner process that
@@ -357,7 +359,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	if harp := t.Launch.Identity.Harp; harp != "" {
 		r, rerr := transcript.NewRecorder(harp, eh.harness, transcript.WithRawPolicy(transcript.RawPolicy(t.Chat.TranscriptRawPolicy)))
 		if rerr != nil {
-			clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", harp, eh.harness, rerr)
+			eh.rep.Warnf("transcript capture: open recorder for harp %s (engine %s): %v", harp, eh.harness, rerr)
 		} else {
 			rec = r
 		}
@@ -484,7 +486,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			// the coordinator is told the child is idle — which is the
 			// moment a leftover-mail resume decision reads the spool.
 			if err := home.ReportTurnResult(eh.takeTurnFinal(), tag.mail); err != nil {
-				clidiag.Warn("ctxloom", "engine host: this turn's report was not written: %v", err)
+				eh.rep.Warnf("engine host: this turn's report was not written: %v", err)
 			}
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
 			// TURN-BOUNDARY SWEEP (the §6a drain): mail that arrived mid-turn
@@ -497,7 +499,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 	// An engine that died mid-turn had taken that turn's message too; when
 	// no turn is open endTurn hands back the zero tag and nothing is added.
 	accepted = appendMail(accepted, eh.endTurn())
-	awaitAcceptedAcks(home, accepted)
+	awaitAcceptedAcks(eh.rep, home, accepted)
 
 	result, exitCode := terminalResult(<-chatErr, ctx.Err(), lastMeta, turns)
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
@@ -526,14 +528,14 @@ const mailAckFlushBudget = 5 * time.Second
 // nothing and idles forever. The wait is short (the pump is in that id's ack
 // tail) and bounded: a stuck rename is warned about, never allowed to hold
 // the exit.
-func awaitAcceptedAcks(home engineHome, accepted []string) {
+func awaitAcceptedAcks(rep report.Reporter, home engineHome, accepted []string) {
 	if len(accepted) == 0 {
 		return
 	}
 	actx, cancel := context.WithTimeout(context.Background(), mailAckFlushBudget)
 	defer cancel()
 	if err := home.AwaitMailAcked(actx, accepted); err != nil {
-		clidiag.Warn("ctxloom", "engine host: exiting with %d delivered turn(s) not yet marked consumed (%v) — the coordinator may relaunch this harp for mail it already answered", len(accepted), err)
+		rep.Warnf("engine host: exiting with %d delivered turn(s) not yet marked consumed (%v) — the coordinator may relaunch this harp for mail it already answered", len(accepted), err)
 	}
 }
 
@@ -683,7 +685,7 @@ func runStartedInput(prompt string) *structpb.Struct {
 
 // runStartedConfig echoes the launch's facts into RunStarted.config so the
 // log alone shows what the run was started with (resume lineage included).
-func runStartedConfig(t Turn) *structpb.Struct {
+func runStartedConfig(rep report.Reporter, t Turn) *structpb.Struct {
 	cfg, err := structpb.NewStruct(map[string]any{
 		"harness":                         string(t.Launch.Engine),
 		"model":                           t.Launch.Label.Model,
@@ -692,7 +694,7 @@ func runStartedConfig(t Turn) *structpb.Struct {
 		"resumed_from_harness_session_id": t.Launch.Resume.NativeKey,
 	})
 	if err != nil {
-		clidiag.Warn("ctxloom", "engine host: RunStarted config echo for harness %q: %v", t.Launch.Engine, err)
+		rep.Warnf("engine host: RunStarted config echo for harness %q: %v", t.Launch.Engine, err)
 		return nil
 	}
 	return cfg

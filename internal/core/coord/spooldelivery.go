@@ -16,7 +16,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // THE MAIL PLANE: coordinator<->child mail is DELIVERED FROM FILES.
@@ -454,6 +454,7 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 // mailCourier delivers coordinator mail into the RECIPIENT's inbound spool.
 func (c *Coordinator) mailCourier() *spoolCourier {
 	return &spoolCourier{
+		rep:     c.rep,
 		writers: c.spoolIn,
 		keyFor:  func(to string) string { return to },
 		ring:    c.ringSpool,
@@ -479,7 +480,7 @@ func (c *Coordinator) spoolPendingCount(role string) int {
 		return 0
 	}
 	if err := res.ProblemErr(); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: %s's spool holds files that cannot be read as messages and are NOT counted as pending: %v", role, err)
+		c.rep.Warnf("coordinator: %s's spool holds files that cannot be read as messages and are NOT counted as pending: %v", role, err)
 	}
 	return len(res.Entries)
 }
@@ -510,7 +511,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	mapper := spool.NewHomeMapper()
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
-		clidiag.Warn("ctxloom", "coordinator: cannot resolve %s's %s spool (%s): %v", harp, dir, why, err)
+		c.rep.Warnf("coordinator: cannot resolve %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		return spool.SweepResult{}, false
 	}
@@ -519,7 +520,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	}
 	res, err := sweep(mapper, harp, dir)
 	if err != nil {
-		clidiag.Warn("ctxloom", "coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
+		c.rep.Warnf("coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		return spool.SweepResult{}, false
 	}
@@ -569,7 +570,7 @@ func (c *Coordinator) sweepChildOut(role string) {
 		return
 	}
 	for _, p := range res.Problems {
-		clidiag.Warn("ctxloom", "coordinator: %s wrote a spool file that is not a message and will not be routed: %v", role, p.Error())
+		c.rep.Warnf("coordinator: %s wrote a spool file that is not a message and will not be routed: %v", role, p.Error())
 		c.spoolDeliveryCount.failed.Add(1)
 	}
 	for _, e := range res.Entries {
@@ -588,13 +589,13 @@ func (c *Coordinator) sweepChildOut(role string) {
 func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 	sender, ok := c.spoolSenderIdentity(role)
 	if !ok {
-		clidiag.Warn("ctxloom", "coordinator: %s's spool holds an outbound message but that harp has no run record; leaving %s in place", role, e.Ref)
+		c.rep.Warnf("coordinator: %s's spool holds an outbound message but that harp has no run record; leaving %s in place", role, e.Ref)
 		c.spoolDeliveryCount.failed.Add(1)
 		return
 	}
 	msg, err := mailFromSpool(e, role)
 	if err != nil {
-		clidiag.Warn("ctxloom", "coordinator: refusing an unroutable message from %s: %v", role, err)
+		c.rep.Warnf("coordinator: refusing an unroutable message from %s: %v", role, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		c.noticeSpoolDrop(role, e, err)
 		c.failSpoolOut(role, e.Ref, err)
@@ -605,7 +606,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		// hub-and-spoke, unknown recipient). The agent's local write already
 		// returned success, so the refusal is reported back the only way that
 		// still reaches it: as mail.
-		clidiag.Warn("ctxloom", "coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
+		c.rep.Warnf("coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
 		c.noticeSpoolDrop(role, e, err)
@@ -635,7 +636,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
-	failSpool("coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+	failSpool(c.rep, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
 }
 
 // failSpool moves ref out of its live directory into the failed/ sibling
@@ -643,16 +644,16 @@ func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
 // terminal-state move for a file a reader parsed but could not deliver or
 // route, on both sides and in both directions. A lost race (ErrAlreadyGone)
 // is the other path having won: nothing to strand, nothing to warn about.
-func failSpool(side string, ref spool.Ref, why string, cause error) {
+func failSpool(rep report.Reporter, side string, ref spool.Ref, why string, cause error) {
 	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
-		clidiag.Warn("ctxloom", "%s: %s: %v (also could not move %s to its failed/ directory: %v; it will be re-read, and re-refused, on the next sweep)",
+		rep.Warnf("%s: %s: %v (also could not move %s to its failed/ directory: %v; it will be re-read, and re-refused, on the next sweep)",
 			side, why, cause, ref, err)
 		return
 	}
-	clidiag.Warn("ctxloom", "%s: %s: %v (moved %s to its failed/ directory; it will NOT be retried)", side, why, cause, ref)
+	rep.Warnf("%s: %s: %v (moved %s to its failed/ directory; it will NOT be retried)", side, why, cause, ref)
 }
 
 // replySpoolRefusal tells a child that the message it wrote could not be
@@ -661,7 +662,7 @@ func failSpool(side string, ref spool.Ref, why string, cause error) {
 func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 	body := fmt.Sprintf("your message to %q was not delivered: %v", msg.To, cause)
 	if _, _, err := c.queueMail(role, role, KindError, body); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: could not tell %s that its message was refused (%v): %v", role, cause, err)
+		c.rep.Warnf("coordinator: could not tell %s that its message was refused (%v): %v", role, cause, err)
 	}
 }
 
@@ -697,7 +698,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 		}
 	})
 	if parent == "" {
-		clidiag.Warn("ctxloom", "coordinator: dropped %s and cannot tell anyone: %s has no parent on record (%v)", e.Ref, role, cause)
+		c.rep.Warnf("coordinator: dropped %s and cannot tell anyone: %s has no parent on record (%v)", e.Ref, role, cause)
 		return
 	}
 	kind, body := SpoolKindUnkinded, ""
@@ -710,7 +711,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 			"\n--- the message text, as %s wrote it ---\n%s",
 		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
 	if _, _, err := c.queueMail(role, parent, KindError, notice); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
+		c.rep.Warnf("coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
 	}
 }
 
@@ -751,7 +752,7 @@ func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
-		clidiag.Warn("ctxloom", "coordinator: routed %s but could not mark it consumed: %v (it will be routed again on the next sweep)", ref, err)
+		c.rep.Warnf("coordinator: routed %s but could not mark it consumed: %v (it will be routed again on the next sweep)", ref, err)
 		c.spoolDeliveryCount.failed.Add(1)
 		return
 	}
@@ -886,7 +887,7 @@ func (h *Home) sweepSpoolIn() {
 	mapper := spool.NewHomeMapper()
 	path, err := spool.DirPath(mapper, h.Harp(), spool.DirIn)
 	if err != nil {
-		clidiag.Warn("ctxloom", "runner: cannot resolve this run's in/ spool: %v", err)
+		h.rep.Warnf("runner: cannot resolve this run's in/ spool: %v", err)
 		h.spoolDeliveryCount.failed.Add(1)
 		return
 	}
@@ -895,12 +896,12 @@ func (h *Home) sweepSpoolIn() {
 	}
 	res, err := spool.Sweep(mapper, h.Harp(), spool.DirIn)
 	if err != nil {
-		clidiag.Warn("ctxloom", "runner: sweeping this run's in/ spool: %v", err)
+		h.rep.Warnf("runner: sweeping this run's in/ spool: %v", err)
 		h.spoolDeliveryCount.failed.Add(1)
 		return
 	}
 	for _, p := range res.Problems {
-		clidiag.Warn("ctxloom", "runner: a file in this run's in/ spool is not a message and will not be delivered: %v", p.Error())
+		h.rep.Warnf("runner: a file in this run's in/ spool is not a message and will not be delivered: %v", p.Error())
 		h.spoolDeliveryCount.failed.Add(1)
 	}
 	for _, e := range res.Entries {
@@ -942,7 +943,7 @@ func (h *Home) sweepSpoolIn() {
 // three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.failed.Add(1)
-	failSpool("runner", e.Ref, why, cause)
+	failSpool(h.rep, "runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the
@@ -979,7 +980,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 			// delivery this reader never made. Said loudly rather than
 			// swallowed: an ack that matches nothing is a bookkeeping fault,
 			// not a no-op.
-			clidiag.Warn("ctxloom", "runner: asked to acknowledge message %s, which no spool file delivered", id)
+			h.rep.Warnf("runner: asked to acknowledge message %s, which no spool file delivered", id)
 			h.spoolDeliveryCount.failed.Add(1)
 			continue
 		}
@@ -988,7 +989,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}
-			clidiag.Warn("ctxloom", "runner: delivered %s but could not mark it consumed: %v (the coordinator will see it as still pending)", ref, err)
+			h.rep.Warnf("runner: delivered %s but could not mark it consumed: %v (the coordinator will see it as still pending)", ref, err)
 			h.spoolDeliveryCount.failed.Add(1)
 			continue
 		}

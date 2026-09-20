@@ -106,24 +106,21 @@ func TestRunChannel_ChildSendReachesParent(t *testing.T) {
 // gets the CACHED response — one queued message, same message_id back.
 func TestRunChannel_RequestIdempotency(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
 	// A request kind that still rides the wire (agent_send does not: it is a
-	// local spool write). A custom handler makes the double execution
-	// directly countable.
+	// local spool write). A host app makes the double execution directly
+	// countable.
 	var calls atomic.Int32
-	c.SetCustomHandlers(map[string]CustomHandler{
-		"count": func(context.Context, Identity, json.RawMessage) (json.RawMessage, error) {
-			calls.Add(1)
-			return json.RawMessage(`{"n":1}`), nil
-		},
-	})
+	c := newTestCoordinatorWithHost(t, researcherSpawner(), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
+		calls.Add(1)
+		return HostResult{Body: json.RawMessage(`{"n":1}`)}, nil
+	}})
 	out := spawnResearcher(t, c)
 	h := childHome(t, c, out.RunID)
 
 	mk := func() *agentcoordpb.AgentRequest {
 		return &agentcoordpb.AgentRequest{
 			RequestId: "req-fixed-1",
-			Kind:      &agentcoordpb.AgentRequest_Custom{Custom: &agentcoordpb.CustomRequest{Name: "count"}},
+			Kind:      &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "count"}},
 		}
 	}
 	first, err := h.Request(context.Background(), mk())
@@ -131,7 +128,7 @@ func TestRunChannel_RequestIdempotency(t *testing.T) {
 	second, err := h.Request(context.Background(), mk())
 	require.NoError(t, err)
 	require.EqualValues(t, 0, first.GetStatus().GetCode(), first.GetStatus().GetMessage())
-	assert.Equal(t, first.GetCustom().AsMap(), second.GetCustom().AsMap(),
+	assert.Equal(t, first.GetHost().GetBody().AsMap(), second.GetHost().GetBody().AsMap(),
 		"the reissued request_id returns the cached response")
 	assert.EqualValues(t, 1, calls.Load(), "the handler ran exactly once for the reissued request_id")
 }

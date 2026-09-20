@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // A bundle's .sigs/ store holds ONE entry per (signing key, namespace): a
@@ -85,7 +86,7 @@ func TestVerifyBundle_ADirectoryAlreadyHoldingTwoEntriesForOneKeyStillVerifies(t
 	// Re-create the pre-ruling shape: the stale signature filed under a
 	// signature-bytes-derived tag, beside the live entry.
 	legacy := filepath.Join(sigDir, content.BundleSigKey+".publish.v1.ctxloom.dev.0123456789abcdef.sig")
-	require.NoError(t, afero.WriteFile(fsys, legacy, stale, 0o644))
+	testsupport.WriteFile(t, fsys, legacy, stale, 0o644)
 	require.Len(t, sigEntries(t, fsys), 2)
 
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)

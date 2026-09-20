@@ -20,6 +20,9 @@ import (
 // root — the listing here, the reaper, doctor — must answer the question
 // through this one function, or they will disagree about what exists.
 //
+// The sidecar is the table's identity member (paths.IdentityMember), so the
+// predicate and the tree cannot disagree about which file makes a session.
+//
 // A directory WITHOUT the sidecar is not a session. That is what
 // `session remove` (purge, then Forget) leaves behind on purpose, and what an
 // engine-created directory nobody ever recorded looks like; neither is
@@ -31,7 +34,7 @@ func IsSessionDir(root string, e fs.DirEntry) bool {
 	if harp.Validate(e.Name()) != nil {
 		return false
 	}
-	info, err := os.Lstat(filepath.Join(root, e.Name(), paths.SessionSidecarFileName))
+	info, err := os.Lstat(filepath.Join(root, e.Name(), filepath.FromSlash(paths.IdentityMember().Rel())))
 	return err == nil && info.Mode().IsRegular()
 }
 

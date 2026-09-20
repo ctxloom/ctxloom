@@ -73,8 +73,9 @@ func TestMountedLocations_AreTheLocationDirsOfTheMountedRows(t *testing.T) {
 }
 
 // TestClassifyMember_ResolvesEveryRowAndWhatLiesBeneathIt: a path relative
-// to the session dir classifies to the member it is or lives under; a name
-// no row carries is not a member.
+// to the session dir classifies to the member it is or the DEEPEST member it
+// lives under (a nested row beats the directory holding it); a top-level
+// name no row carries is not a member.
 func TestClassifyMember_ResolvesEveryRowAndWhatLiesBeneathIt(t *testing.T) {
 	for _, m := range HarpMembers {
 		got, ok := ClassifyMember(m.Rel())
@@ -89,8 +90,9 @@ func TestClassifyMember_ResolvesEveryRowAndWhatLiesBeneathIt(t *testing.T) {
 	assert.False(t, ok, "the session dir itself is not a member")
 	_, ok = ClassifyMember("not-a-member")
 	assert.False(t, ok)
-	_, ok = ClassifyMember(path.Join(PersistDirName, "not-a-member"))
-	assert.False(t, ok, "an unlisted name under persist/ classifies to nothing — the persist row is a directory, not a catch-all")
+	got, ok := ClassifyMember(path.Join(PersistDirName, "plan.plan.md"))
+	require.True(t, ok, "a pattern-named file under persist/ (a plan file) is persist's")
+	assert.Equal(t, PersistDirName, got.Name)
 }
 
 // TestHarpMembers_IdentityMemberIsTheSidecarAtTop: the session-dir predicate

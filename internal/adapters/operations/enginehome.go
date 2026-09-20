@@ -25,17 +25,14 @@ import (
 type InTreeAgentHome struct {
 	// Backend is the resolved backend name (internal/lm/backends).
 	Backend string
-	// WorkDir is the run's PROJECT root — the live checkout, not a prepared
-	// workspace directory. The controlled home hangs off it.
-	WorkDir string
 	// Cwd is the directory the engine actually RUNS in — the prepared
-	// workspace's Dir(): WorkDir itself on the live tree, a checkout elsewhere
-	// on a worktree cell. It is what the seeded instance config's
+	// workspace's Dir(): the project root itself on the live tree, a checkout
+	// elsewhere on a worktree cell. It is what the seeded instance config's
 	// workspace-trust answer names, because trusting WorkDir would answer for
 	// a directory a worktree run never enters.
 	Cwd string
-	// Harp is THIS SESSION's name, the second half of the instance key
-	// (<WorkDir>/.ctxloom/state/<Harp>/home). Empty resolves ABSENT — no
+	// Harp is THIS SESSION's name, the instance key (paths.HarpSessionHome:
+	// ~/.ctxloom/sessions/<Harp>/home). Empty resolves ABSENT — no
 	// env var, no directory, a warn — because there is no session-less
 	// instance, and falling back to a project-wide path would recreate the
 	// durable per-project engine home the per-session model retired.
@@ -115,7 +112,7 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
-// INSTANCE under paths.SessionHomePath — and returns it present or absent, with
+// INSTANCE under paths.HarpSessionHome — and returns it present or absent, with
 // the reason when absent. It creates the instance and prepares it as a side
 // effect, so a present result always names a directory that exists and (for
 // an engine with copyable credentials) can authenticate.
@@ -183,7 +180,7 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)
 		return absent("this run carries no session name and a config-home instance is per-session")
 	}
-	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.WorkDir, in.Harp)
+	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.Harp)
 	if !ok {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: engine_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.HomeModeSession, in.Backend)
 		return absent("%s declares no relocatable config home", in.Backend)

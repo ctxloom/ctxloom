@@ -1,8 +1,10 @@
 package claude
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // This file is claude's DEFINITION on the engine port: the one typed
@@ -74,7 +77,7 @@ func Build(opts ...Option) (engine.Engine, error) {
 			HostDefault:       engine.PermissionBypass,
 			HostDefaultReason: "permissions bypassed on the host (claude-code stopgap)",
 		},
-		Context:  &contextApproach{traits{present.Traits{Roots: home, Channel: present.ChannelArgv, LaunchOnly: true}}},
+		Context:  &contextApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelArgv}}},
 		MCP:      &mcpApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
 		Settings: &settingsApproach{traits{present.Traits{Roots: []present.RootKind{present.RootProjectRoot, present.RootSessionHome}, Channel: present.ChannelFile}}},
 		Hooks:    &hooksApproach{traits{present.Traits{Roots: []present.RootKind{present.RootProjectRoot, present.RootSessionHome}, Channel: present.ChannelFile}}},
@@ -140,7 +143,11 @@ func delivered(a agent.Approach, start present.Start, h agent.Delivered) present
 }
 
 // contextApproach is claude's context surface: the framed system prompt,
-// announced on --append-system-prompt-file, under the session home.
+// announced on --append-system-prompt-file, under the session home; at the
+// project root (a materialize, or a binding that selects the shared root)
+// the well-known CLAUDE.md, the assembled context appended to whatever the
+// file already holds. The ownership record owns the write and restores the
+// prior bytes on removal — there is no marker section to parse.
 type contextApproach struct{ traits }
 
 func (*contextApproach) Name() string { return ApproachSystemPrompt }
@@ -153,7 +160,11 @@ func (*contextApproach) Forms() agent.Presentations {
 		Or(agent.ApproachHook, agent.HookCarriedContext)
 }
 func (a *contextApproach) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
-	if root != present.RootSessionHome {
+	switch root {
+	case present.RootProjectRoot:
+		return appendContextFile(start.UnderProjectRoot(ContextFileName).Build(), in.Text, agent.GetFS(fs))
+	case present.RootSessionHome:
+	default:
 		return present.Delivered{}, errRoot(a.Name(), root)
 	}
 	s := &systemPromptContext{content: string(in.Text), fs: agent.GetFS(fs)}
@@ -162,6 +173,28 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 		return present.Delivered{}, err
 	}
 	return delivered(s, start, h), nil
+}
+
+// appendContextFile writes the context after the file's current bytes (a
+// blank line between), creating the file when there is none.
+func appendContextFile(p present.Presentation, text []byte, fs afero.Fs) (present.Delivered, error) {
+	current, err := afero.ReadFile(fs, p.HostPath)
+	if err != nil && !os.IsNotExist(err) {
+		return present.Delivered{}, err
+	}
+	body := bytes.TrimRight(current, "\n")
+	if len(body) > 0 {
+		body = append(body, '\n', '\n')
+	}
+	body = append(body, bytes.TrimRight(text, "\n")...)
+	body = append(body, '\n')
+	if err := fs.MkdirAll(filepath.Dir(p.HostPath), 0o755); err != nil {
+		return present.Delivered{}, err
+	}
+	if err := iox.WriteFileAtomicFs(fs, p.HostPath, body, 0o644); err != nil {
+		return present.Delivered{}, err
+	}
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
 }
 
 // mcpApproach is claude's MCP surface: .mcp.json under the session home
@@ -195,25 +228,33 @@ func (a *mcpApproach) DeliverMCP(start present.Start, root present.RootKind, in 
 	return delivered(form, start, h), nil
 }
 
-// deliverSettingsFile writes claude's settings file through the writer for
-// the root: the well-known .claude/settings.json under the project root, or
-// the record-backed settings.json under the session home. Settings and
-// hooks share it because claude keeps both in the one file.
+// deliverSettingsFile writes ctxloom's entries INTO claude's settings file
+// for the root — the well-known .claude/settings.json under the project
+// root, or settings.json under the session home — additively: hooks are
+// added, the statusline set when asked for, the deny list merged, and
+// nothing already there is removed. Removal is the ownership record's
+// (the static writer reconciles a delivery from clean), which is what
+// lets the settings and hooks kinds share one file: each adds its own
+// entries and neither undoes the other's. Settings and hooks share it
+// because claude keeps both in the one file.
 func deliverSettingsFile(name string, start present.Start, root present.RootKind, hooks *wire.HooksConfig, statusline bool, deny []string, fs afero.Fs) (present.Delivered, error) {
-	var form agent.Approach
+	var p present.Presentation
 	switch root {
 	case present.RootProjectRoot:
-		form = &settingsSurface{hooks: hooks, manageStatusline: statusline, denyTools: deny, fs: agent.GetFS(fs)}
+		p = start.UnderProjectRoot(filepath.Join(ConfigDirName, SettingsFileName)).Build()
 	case present.RootSessionHome:
-		form = &settingsRecord{hooks: hooks, manageStatusline: statusline, denyTools: deny, fs: agent.GetFS(fs)}
+		if err := agent.EngineHomeRooted(start); err != nil {
+			return present.Delivered{}, err
+		}
+		p = start.UnderEngineHome(SettingsFileName).Build()
 	default:
 		return present.Delivered{}, errRoot(name, root)
 	}
-	h, err := form.Deliver(start)
-	if err != nil {
+	w := &ClaudeCodeHookWriter{FS: agent.GetFS(fs)}
+	if err := w.addToSettingsFile(p.HostPath, hooks, statusline, deny); err != nil {
 		return present.Delivered{}, err
 	}
-	return delivered(form, start, h), nil
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
 }
 
 // settingsApproach is claude's settings surface: statusline and the deny
@@ -234,10 +275,9 @@ func (a *settingsApproach) DeliverSettings(start present.Start, root present.Roo
 
 // hooksApproach is claude's hooks surface: the hook registrations, written
 // as the hooks section of the same settings.json the settings approach
-// writes — the native form, through the settings writer. The writer
-// manages hooks, statusline and the deny list as ONE block of that file, so
-// the router composes the two kinds into one write when it plans claude's
-// settings file; each typed Deliver here is real on its own.
+// writes — the native form. Each typed Deliver adds its own entries to
+// that file and removes nothing (deliverSettingsFile), so the two kinds
+// share it without either undoing the other.
 type hooksApproach struct{ traits }
 
 func (*hooksApproach) Name() string { return "settings-hooks" }
@@ -267,7 +307,10 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
 		})
 	}
-	form := &commandsSurface{commands: cmds, fs: agent.GetFS(fs)}
+	// The plan's commands land as given: a copy in the materializing
+	// host's own ~/.claude/commands is no reason to withhold one from a
+	// tree that will be read elsewhere.
+	form := &commandsSurface{commands: cmds, fs: agent.GetFS(fs), selfContainedCommands: true}
 	h, err := form.Deliver(start)
 	if err != nil {
 		return present.Delivered{}, err
@@ -291,7 +334,11 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 	for _, s := range in.Skills {
 		e := agent.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled}
 		for _, f := range s.Files {
-			e.Files = append(e.Files, agent.PackageFile{RelPath: f.Path, Content: f.Bytes, Mode: os.FileMode(0o644)})
+			mode := os.FileMode(f.Mode)
+			if mode == 0 {
+				mode = 0o644
+			}
+			e.Files = append(e.Files, agent.PackageFile{RelPath: f.Path, Content: f.Bytes, Mode: mode})
 		}
 		skills = append(skills, e)
 	}

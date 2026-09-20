@@ -400,50 +400,6 @@ func TestMaterializeProfile_Validation(t *testing.T) {
 	assert.Error(t, err, "nil config is rejected")
 }
 
-// TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands is the claim
-// the whole --surface flag rests on: an override has to REACH delivery.
-//
-// Written after a surviving mutation. Deleting the loop that copies
-// req.Surfaces onto the selection — so every override was parsed, validated and
-// then silently dropped — passed this package's entire suite. The flag would
-// have shipped accepting a value, reporting success, and changing nothing:
-// exactly the accepted-and-ignored shape j000500_editor.feature exists to catch on a
-// different command.
-//
-// claude-code is the engine that can show it, because its context surface is
-// the only one offering more than one approach. Default is unsafe-file, so the
-// assembled context lands in CLAUDE.md; asked for the hook instead, it must not.
-func TestMaterializeProfile_SurfaceOverrideChangesWhereContextLands(t *testing.T) {
-	cfg, target := materializeFixture(t, "OVERRIDE-ROUTED-CONTENT")
-
-	// Baseline: the default approach writes the context as a file.
-	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"},
-		Target:   target,
-	})
-	require.NoError(t, err)
-	def, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
-	require.NoError(t, err, "the default context approach writes CLAUDE.md; without that this test proves nothing")
-	require.Contains(t, string(def), "OVERRIDE-ROUTED-CONTENT")
-
-	// Same profile, same engine, context routed through the hook instead.
-	overridden := t.TempDir()
-	_, err = MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
-		Profiles: []string{"reviewer"},
-		Target:   overridden,
-		Surfaces: map[agent.SurfaceKind]string{
-			agent.SurfaceContext: agent.ApproachHook,
-		},
-	})
-	require.NoError(t, err)
-
-	body, rerr := os.ReadFile(filepath.Join(overridden, "CLAUDE.md"))
-	if rerr == nil {
-		assert.NotContains(t, string(body), "OVERRIDE-ROUTED-CONTENT",
-			"context was routed to the hook, so the native context file must not carry the assembled payload")
-	}
-}
-
 // TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName pins the resolver
 // to the registry's exact vocabulary. An engine has one name: the registered
 // spelling resolves and is what the result reports; the retired short

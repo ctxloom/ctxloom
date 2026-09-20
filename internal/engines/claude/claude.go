@@ -261,6 +261,36 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 	})
 }
 
+// addToSettingsFile is the ADDITIVE settings write the typed approaches
+// deliver through: the unified and claude-native hooks are added, the
+// ctxloom statusline set when asked for (a statusline that is not
+// ctxloom's is left alone), the deny list merged; nothing present is
+// removed. No ledger: the ownership record that owns this write is what
+// takes the entries back out.
+func (w *ClaudeCodeHookWriter) addToSettingsFile(path string, hooks *wire.HooksConfig, statusline bool, denyTools []string) error {
+	fs := w.getFS()
+	return sessions.WithFileLock(fs, path, func() error {
+		if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
+		}
+		settings, err := w.loadSettings(path)
+		if err != nil {
+			return fmt.Errorf("failed to load existing settings: %w", err)
+		}
+		if hooks != nil {
+			w.addUnifiedHooks(settings, hooks.Unified)
+			if backendHooks, ok := hooks.Plugins[EngineName]; ok {
+				w.addBackendHooks(settings, backendHooks)
+			}
+		}
+		if statusline {
+			w.ensureStatusLine(settings, false)
+		}
+		w.mergeDenyTools(settings, denyTools, nil)
+		return w.saveSettings(path, settings)
+	})
+}
+
 // ContextPath returns the path to Claude Code's native context file
 // (<projectDir>/CLAUDE.md). Sibling of SettingsPath/MCPConfigPath, added for
 // the read half (contextSurface.State in surfaces.go) so it shares the exact

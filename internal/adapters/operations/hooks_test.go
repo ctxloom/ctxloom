@@ -41,6 +41,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -144,17 +145,16 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 // facade. manageStatusline mirrors the old WithStatusLineDisabled inverse.
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
-	sel := agent.Select(backends.Declared(backend)).With(agent.SurfaceSettings, agent.ApproachUnsafeFile).With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
-	_, _, errs := sel.DeliverUnder(agent.SurfaceInputs{
-		Hooks:            hooks,
-		BundleMCP:        bundleMCP,
-		ManageStatusline: manageStatusline,
-	}, fs, present.ProjectOnHost(dir))
-	require.Empty(t, errs)
+	kind, ok := backends.Kind(backend)
+	require.True(t, ok)
+	pkg := composite.Package{MCP: bundleMCP, Statusline: manageStatusline}
+	if hooks != nil {
+		pkg.Hooks = *hooks
+	}
+	_, _, err := DeliverProject(context.Background(), fs, kind, pkg, dir)
+	require.NoError(t, err)
 }
 
-// TestManagedSettings_ClaudeCode verifies Claude Code settings file creation via
-// the settings + MCP surfaces. Claude Code reads .claude/settings.json for hooks.
 func TestManagedSettings_ClaudeCode(t *testing.T) {
 	fs := afero.NewMemMapFs()
 

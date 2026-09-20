@@ -8,8 +8,10 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -27,19 +29,6 @@ type MaterializeProfileRequest struct {
 	Target   string   `json:"target"`
 	Backend  string   `json:"backend,omitempty"` // "" or "claude" → claude-code
 	FS       afero.Fs `json:"-"`
-	// Surfaces overrides WHERE a surface kind is delivered, for the kinds named.
-	// An absent kind keeps the engine's own default, so an empty map is exactly
-	// today's behaviour. Overriding is how a caller asks for a portable artifact
-	// an engine would not otherwise leave behind: claude-code delivers context
-	// through a SessionStart hook by default — deliberately, since a hook
-	// reflects the profile as composed at launch — so a user who wants their
-	// assembled context as a file on disk has to say so.
-	//
-	// An unsupported (kind, approach) pair is REFUSED by the builder's Build(),
-	// naming what the engine does support. It is not silently downgraded to the
-	// default: a caller who asked for a file and received a hook would have no
-	// file and no error.
-	Surfaces map[agent.SurfaceKind]string `json:"-"`
 }
 
 // MaterializeProfileResult reports which managed surfaces were written under
@@ -197,28 +186,11 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 			req.Profiles, backend, req.Target)
 	}
 
-	// Select over the backend's OWN Declaration with the assembled pieces and deliver
-	// every native surface into the target as an isolated cell — the single,
-	// per-provider-correct delivery path (claude → CLAUDE.md + .mcp.json +
-	// .claude/settings.json + .claude/commands; kiro →
-	// .kiro/…). codex opts out of a NATIVE context file, writing only its
-	// config/cache surfaces. The orchestrator holds no per-backend file knowledge:
-	// correctness comes from routing through backends.BuildSurfaces.
-	//
-	// contextHash "" omits the SessionStart context-injection hook — the context is
-	// STATIC in the native file, so re-injecting it at launch would double it.
-	// Each write reconciles (managed entries overwritten, foreign ones
-	// preserved).
-	hooks := backends.AssembleManagedHooks(terminalReporter(), cfg, req.Target, "", req.Profiles).WireDeclared()
-	bundleMCP := pkg.MCP
-	exports, err := ExportsFor(pkg, backend)
-	if err != nil {
-		return nil, err
-	}
-	commands := CommandExportsOf(exports)
-	skills := SkillExportsOf(exports)
-	// Withheld fragments join the authored skills. A collision between two of
-	// them is fatal rather than a silent overwrite — see PremisedFragmentSkills.
+	// Withheld fragments join the package as skill packages: a materialized
+	// tree is ctxloom OUT of the loop, so a premised fragment withheld here
+	// cannot be pulled later — as a skill the engine's own progressive
+	// disclosure carries it. A collision between two of them is fatal rather
+	// than a silent overwrite — see PremisedFragmentSkills.
 	withheld := make([]backends.PremisedFragment, 0, len(asm.WithheldFragments))
 	for _, w := range asm.WithheldFragments {
 		withheld = append(withheld, backends.PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
@@ -227,93 +199,42 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	if err != nil {
 		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)
 	}
-	skills = append(skills, fragmentSkills...)
-	// Report the withholds. Built from what ACTUALLY happened rather than from
-	// the capability flag: fragmentSkills is what was really produced, so a
-	// fragment that failed to become a skill is reported as delivered nowhere
-	// instead of being described by the branch we hoped we took.
+	for _, sk := range fragmentSkills {
+		skill := composite.Skill{Name: sk.Name, Description: sk.Description}
+		for _, f := range sk.Files {
+			skill.Files = append(skill.Files, engine.SkillFile{Path: f.RelPath, Bytes: f.Content, Size: int64(len(f.Content)), Mode: uint32(f.Mode.Perm())})
+		}
+		pkg.Skills = append(pkg.Skills, composite.Item[composite.Skill]{Ref: "materialize#skill/" + sk.Name, Value: skill})
+	}
+	// Built from what ACTUALLY happened rather than from the capability
+	// flag: fragmentSkills is what was really produced.
 	res.WithheldByPremise = describePremiseWithholds(asm.PremiseIndex, len(fragmentSkills) > 0)
-	denyTools := pkg.DenyTools
 	settings := cfg.GetSettings()
+	pkg.Statusline = settings.ShouldManageStatusline()
 
-	inputs := agent.SurfaceInputs{
-		Context:          asm.Context,
-		BundleMCP:        bundleMCP,
-		Hooks:            hooks,
-		ManageStatusline: settings.ShouldManageStatusline(),
-		Commands:         commands,
-		// The --target tree is a PORTABLE, self-contained artifact meant to be
-		// launched on a DIFFERENT machine (an externally-launched agent, CI) with
-		// ctxloom out of the loop. Deduping commands against THIS (materializing)
-		// machine's ~/.claude/commands would silently drop any command that
-		// happens to already exist here — wrong, since the launch environment
-		// won't have it. So materialize alone opts out of that dedup.
-		SelfContainedCommands: true,
-		Skills:                skills,
-		SelfContainedSkills:   true,
-		DenyTools:             denyTools,
+	// Materialize is the ONE sanctioned human-invoked project-root writer:
+	// the same static delivery a session gets, with the project root as the
+	// target and the project writer's record. Every kind the engine offers
+	// at the project root lands there; a kind it does not is reported as
+	// not carried, never routed elsewhere. The context is the engine's
+	// native file — a materialized tree must be readable with ctxloom out
+	// of the loop, so no injection hook is written.
+	kind, ok := backends.Kind(backend)
+	if !ok {
+		return nil, fmt.Errorf("materialize: no engine kind is composed for %s", backend)
 	}
-	decl := backends.Declared(backend)
-
-	// The LOSS half of the report, read from the SAME inputs the delivery is
-	// built from. res.Wrote can only ever list what landed — every line true —
-	// so a surface this engine has no place for is invisible in it by
-	// construction: materializing a team profile onto opencode dropped the
-	// team's session_start guardrail and said nothing.
-	// Reported, not fatal: the rest of the tree is still worth having, and the
-	// decision to ship it anyway belongs to whoever now knows.
-	if !cfg.ShouldSilenceUnsupported() {
-		res.NotCarried = backends.UncarriedSurfaces(backend, inputs)
-	}
-	// The OTHER half of the same report, for the other kind of absence: a
-	// surface this engine delivers only at launch, into a per-session engine
-	// home, which THIS harpless call has no way to name (codex — see
-	// backends.LaunchOnlySurfaces and internal/codex/declared_absence.go). The
-	// surfaces themselves skip and warn; without this line the structured
-	// result would list four true "wrote" entries and stay silent about the
-	// settings, MCP servers, prompts and skills that went nowhere.
-	res.NotCarried = append(res.NotCarried, backends.LaunchOnlySurfaces(backend, inputs)...)
-
-	// Materialize delivers EVERY native surface (the full opt-in selection). Fail
-	// loud, fail early (CLAUDE.md): each surface is attempted and each write failure
-	// is a fatal-class finding the `profile materialize` choke owner aborts on;
-	// --degraded downgrades every finding to a loud warning (strictness.record
-	// no-ops) and keeps the partial target. Collecting ALL failures (not stopping at
-	// the first) is what lets degraded mode produce maximal output. res.Wrote lists
-	// the kinds that ACTUALLY delivered — codex's context surface is a no-op here (no
-	// fragments → no native context file), so codex reports settings + commands only.
-	// Materialize writes a tree for a launch with ctxloom OUT of the loop, so it
-	// names the context approach rather than inheriting the engine's live
-	// default. Those defaults are ordered for a RUNNING session — an out-of-cwd
-	// scratch file first, a SessionStart hook next — and neither survives
-	// ctxloom's absence: the scratch is passed by flag on a command line nobody
-	// here will issue, and the hook invokes a ctxloom that may not be installed.
-	// The native file is the only context an engine reads unaided, which is the
-	// whole product of this command.
-	//
-	// Every engine declares unsafe-file for context, so this request is always
-	// honourable: claude, kiro and opencode have always had it, and
-	// codex gained it when its native AGENTS.md route stopped being folded
-	// invisibly into the hook approach.
-	// Context and MCP are pinned to the engine's native file. A materialized
-	// tree must outlive ctxloom, so it cannot carry a surface whose only form
-	// is a file some future launch names on argv: MCP's declared DEFAULT is now
-	// exactly that, and WithEverything would otherwise take it and refuse here.
-	sel := agent.Select(decl).WithEverything().
-		With(agent.SurfaceContext, agent.ApproachUnsafeFile).
-		With(agent.SurfaceMCP, agent.ApproachUnsafeFile)
-	for kind, approach := range req.Surfaces {
-		sel = sel.With(kind, approach)
-	}
-	_, kinds, errs := sel.DeliverUnder(inputs, fs, present.ProjectOnHost(req.Target))
-	for _, e := range errs {
+	delivered, plan, err := DeliverProject(ctx, fs, kind, pkg, req.Target)
+	if err != nil {
 		strictness.Fail(strictness.ClassApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",
-			"materialize %s surface: %v", backend, e)
-		res.Warnings = append(res.Warnings, e.Error())
+			"materialize %s: %v", backend, err)
+		res.Warnings = append(res.Warnings, err.Error())
 	}
-	for _, k := range kinds {
+	for _, k := range delivered.Wrote {
 		res.Wrote = append(res.Wrote, k.String())
+	}
+	if !cfg.ShouldSilenceUnsupported() {
+		res.NotCarried = notCarried(backend, kind, pkg, plan)
 	}
 
 	// Surface (content-free) any executable the trust gate withheld.
@@ -340,6 +261,39 @@ func describePremiseWithholds(index []PremiseIndexEntry, asSkills bool) []Premis
 	out := make([]PremiseWithhold, 0, len(index))
 	for _, e := range index {
 		out = append(out, PremiseWithhold{Name: e.Name, Premise: e.Premise, Delivered: delivered})
+	}
+	return out
+}
+
+// notCarried is the LOSS half of the materialize report, read from the same
+// plan the delivery was built from: a kind the engine does not carry at all
+// (the plan's accepted losses), and a hook event the engine fires no hook
+// for (absent from its exported event table — the port's own statement of
+// an uncarried event). res.Wrote can only ever list what landed, so a loss
+// is invisible in it by construction; this names it.
+func notCarried(backend string, kind engine.Engine, pkg composite.Package, plan delivery.Plan) []agent.SurfaceLoss {
+	var out []agent.SurfaceLoss
+	for _, loss := range plan.Losses {
+		out = append(out, agent.SurfaceLoss{
+			Surface: loss.Kind.String(),
+			Detail:  fmt.Sprintf("%s has no %s surface; nothing was written for it", backend, loss.Kind),
+			Reason:  fmt.Sprintf("%s declares no approach for %s", backend, loss.Kind),
+		})
+	}
+	exports, err := kind.Exports(pkg.EngineItems(kind.Root().Name))
+	if err != nil {
+		return out
+	}
+	for _, event := range backends.HookEvents() {
+		n := len(backends.UnifiedEventHooks(pkg.Hooks.Unified, event))
+		if n == 0 || exports.HookEvent[event] != "" {
+			continue
+		}
+		out = append(out, agent.SurfaceLoss{
+			Surface: "hooks",
+			Detail:  fmt.Sprintf("%d %s", n, event),
+			Reason:  fmt.Sprintf("%s fires no %s hook", backend, event),
+		})
 	}
 	return out
 }

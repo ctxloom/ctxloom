@@ -24,7 +24,7 @@ import (
 // --- event coverage ---------------------------------------------------------
 
 // TestManagedHooks_EveryUnifiedEventIsCovered turns the drift wire.HooksConfig.Append
-// warns about into a failing test. HookEvents/unifiedEventHooks/setUnifiedEventHooks
+// warns about into a failing test. HookEvents/UnifiedEventHooks/setUnifiedEventHooks
 // enumerate the six events by hand; a SEVENTH field added to wire.UnifiedHooks
 // and not added here would not fail to compile — it would silently never be
 // assembled, never reported, and never written, which is the same shape as the
@@ -49,7 +49,7 @@ func TestManagedHooks_EveryUnifiedEventIsCovered(t *testing.T) {
 		var u wire.UnifiedHooks
 		marker := []wire.Hook{{Command: "marker-" + event}}
 		setUnifiedEventHooks(&u, event, marker)
-		assert.Equal(t, marker, unifiedEventHooks(u, event), "accessors must round-trip %q", event)
+		assert.Equal(t, marker, UnifiedEventHooks(u, event), "accessors must round-trip %q", event)
 	}
 }
 

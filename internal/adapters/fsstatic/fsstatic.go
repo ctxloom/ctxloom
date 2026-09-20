@@ -77,11 +77,20 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, surfaces engi
 			if err != nil {
 				return delivery.Delivered{}, err
 			}
+			info, err := layer.Stat(path)
+			if err != nil {
+				return delivery.Delivered{}, err
+			}
 			entry := relativeTo(paths, path)
 			if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
 				return bytes, []string{entry}, nil
 			}); err != nil {
 				return delivery.Delivered{}, fmt.Errorf("fsstatic: record %s for %s: %w", path, target.Writer, err)
+			}
+			// The record writes the bytes; the mode is the approach's (an
+			// exec bit on a skill's script is load-bearing).
+			if err := s.fs.Chmod(path, info.Mode().Perm()); err != nil {
+				return delivery.Delivered{}, fmt.Errorf("fsstatic: mode of %s: %w", path, err)
 			}
 		}
 		out.Presented = append(out.Presented, d.Presented)
@@ -91,13 +100,19 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, surfaces engi
 }
 
 // reconcileToEmpty reverses the writer's contribution to every file its
-// record names.
+// record names UNDER THIS TARGET's roots: the record is home-rooted and one
+// writer (the project's) delivers into many projects, so a target's empty
+// plan reaches its own files and no other project's.
 func (s *Static) reconcileToEmpty(ctx context.Context, target delivery.Target) error {
 	targets, err := target.Ownership.Targets(target.Writer)
 	if err != nil {
 		return err
 	}
+	paths := target.Root.Paths()
 	for _, path := range targets {
+		if !underARoot(paths, path) {
+			continue
+		}
 		if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
 			return nil, nil, nil
 		}); err != nil {
@@ -156,11 +171,27 @@ func writtenFiles(layer afero.Fs) []string {
 	return out
 }
 
+// rootsOf are the target's resolved roots, in the order a written file is
+// attributed to them.
+func rootsOf(paths present.Paths) []string {
+	return []string{paths.Scratch.Host, paths.EngineHome.Host, paths.ProjectRoot.Host}
+}
+
+// underARoot reports whether path lies under one of the target's roots.
+func underARoot(paths present.Paths, path string) bool {
+	for _, root := range rootsOf(paths) {
+		if root != "" && present.Under(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
 // relativeTo names a written file as the record's entry: its path relative
 // to the target root it lies under, or the path itself when it lies under
 // none.
 func relativeTo(paths present.Paths, path string) string {
-	for _, root := range []string{paths.Scratch.Host, paths.EngineHome.Host, paths.ProjectRoot.Host} {
+	for _, root := range rootsOf(paths) {
 		if root == "" || !present.Under(path, root) {
 			continue
 		}

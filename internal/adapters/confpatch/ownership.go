@@ -3,10 +3,12 @@ package confpatch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -221,13 +223,26 @@ func provenReversal(binding hew.Binding, format hew.FormatID, target string, bef
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from; refusing to write: %w", target, err)
 	}
-	if !bytes.Equal(roundTripped, before) {
-		residue, err := hew.Invert(format, roundTripped, before, inversionOptions(target))
-		if err != nil || len(residue.Transform) > 0 {
-			return nil, fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from; refusing to write an undo that does not undo", target)
-		}
+	if !bytes.Equal(roundTripped, before) && !sameDocument(format, roundTripped, before, target) {
+		return nil, fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from; refusing to write an undo that does not undo", target)
 	}
 	return reversal, nil
+}
+
+// sameDocument reports whether two images are the same document under the
+// format: parsed equality for JSON (a writer's re-rendering of the user's
+// layout is not a change of content), an empty hew inverse otherwise.
+func sameDocument(format hew.FormatID, a, b []byte, target string) bool {
+	switch format {
+	case hew.FormatJSON, hew.FormatJSONC:
+		var da, db any
+		if json.Unmarshal(a, &da) != nil || json.Unmarshal(b, &db) != nil {
+			return false
+		}
+		return reflect.DeepEqual(da, db)
+	}
+	residue, err := hew.Invert(format, a, b, inversionOptions(target))
+	return err == nil && len(residue.Transform) == 0
 }
 
 // bindingFor names the hew binding a target's format has, when it has one.

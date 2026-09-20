@@ -135,6 +135,16 @@ var nativeHookEvents = []struct{ unified, native string }{
 	{"turn_end", "Stop"},
 }
 
+// hookEventMap is the unified→native event table as Exports carries it:
+// the events claude fires, by the name it registers each under.
+func hookEventMap() map[string]string {
+	out := make(map[string]string, len(nativeHookEvents))
+	for _, e := range nativeHookEvents {
+		out[e.unified] = e.native
+	}
+	return out
+}
+
 // hookCodec decodes the JSON claude writes to a hook's stdin: the native
 // session id and transcript path every payload carries, and the event —
 // the payload's own hook_event_name when present, else the event the hook

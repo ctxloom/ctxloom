@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -154,33 +152,6 @@ func surfaceHelpFor(engines []string) string {
 		"    ctxloom profile materialize default --target ./keep\n" +
 		"\n  Use --surface only to choose a DIFFERENT delivery than the default above.\n")
 	return b.String()
-}
-
-// completeSurfaceOverrides offers `kind=approach` pairs valid for the backend
-// ALREADY on the command line, so completion answers for the engine being used
-// rather than listing every name the enums carry.
-func completeSurfaceOverrides(cmd *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	engine := materializeBackend
-	if f := cmd.Flags().Lookup("backend"); f != nil && f.Changed {
-		engine = f.Value.String()
-	}
-	decl, err := backends.SurfacesFor(engine)
-	if err != nil || decl == nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	var out []string
-	for _, k := range surfaceKinds() {
-		for _, a := range decl.Names(k) {
-			pair := k.String() + "=" + a
-			if strings.HasPrefix(pair, toComplete) {
-				if def, ok := decl.Default(k); ok && def == a {
-					pair += "\tdefault for " + engine
-				}
-				out = append(out, pair)
-			}
-		}
-	}
-	return out, cobra.ShellCompDirectiveNoFileComp
 }
 
 // surfaceKinds re-resolves the kind enum from its names, so this file holds no

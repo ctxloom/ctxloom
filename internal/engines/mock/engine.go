@@ -39,9 +39,12 @@ const (
 type Mock struct {
 	engine.Base
 	noSkillExport bool
-	home          engine.HomeSpec
-	container     *engine.ContainerSpec
-	transcripts   []engine.TranscriptReader
+	// fires is the unified hook events this kind fires (hooks.go); the
+	// lossy double drops two.
+	fires       map[string]bool
+	home        engine.HomeSpec
+	container   *engine.ContainerSpec
+	transcripts []engine.TranscriptReader
 }
 
 // Option adjusts the kind before Validate.
@@ -122,6 +125,17 @@ func Without(kinds ...present.Kind) Option {
 	}
 }
 
+// WithoutHookEvents drops unified hook events from the kind: it fires
+// none of them and exports none of them (the lossy double's declared
+// difference — TWO events, so a report that groups several is exercised).
+func WithoutHookEvents(events ...string) Option {
+	return func(m *Mock) {
+		for _, e := range events {
+			delete(m.fires, e)
+		}
+	}
+}
+
 // WithDistribution sets the shipping policy (registry fixtures use it to
 // stand in for a shippable engine).
 func WithDistribution(d engine.Distribution) Option {
@@ -177,7 +191,7 @@ func Doubles(opts ...Option) []engine.Engine {
 	shipped := append([]Option{WithContainer()}, opts...)
 	return []engine.Engine{
 		New(shipped...),
-		NewNamed(NameLossy, shipped...),
+		NewNamed(NameLossy, append(shipped, WithoutHookEvents("session_start", "session_end"))...),
 		NewNamed(NameLaunch, append(shipped, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
 		NewNoSkills(shipped...),
 	}
@@ -205,18 +219,21 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 	// when the binding selects the shared root, the project root — the
 	// session home first, so the default keeps the project tree clean.
 	shared := []present.RootKind{present.RootSessionHome, present.RootProjectRoot}
+	// Every surface is a FILE the mock opens (the context file is a
+	// well-known file it reads at rest, ctxloom in the loop or not); the
+	// context and hook files are also announced on argv so a session home
+	// the mock was not started in can be found.
 	file := present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}
-	flagged := present.Traits{Roots: shared, Channel: present.ChannelArgv, Persists: true}
 	flags := []engine.Flag{{Name: "--resume", HasValue: true}, {Name: contextFlag, HasValue: true}, {Name: hooksFlag, HasValue: true}}
 	d := engine.Definition{
 		Name:         name,
 		Distribution: engine.DistributionTestOnly,
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
 		Permissions:  engine.PermissionFacts{Native: []engine.PermissionMode{engine.PermissionDefault, engine.PermissionBypass}, HostDefault: engine.PermissionDefault},
-		Context:      &contextFile{surface{"context-file", flagged}},
+		Context:      &contextFile{surface{"context-file", file}},
 		MCP:          &mcpFile{surface{"mcp-config", file}},
 		Settings:     &settingsFile{surface{"settings", file}},
-		Hooks:        &hooksFile{surface{"hooks-file", flagged}},
+		Hooks:        &hooksFile{surface{"hooks-file", file}},
 		Commands:     &commandsDir{surface{"commands-dir", file}},
 		Skills:       &skillsDir{surface{"skills-dir", file}},
 		CLI: []engine.CLIGrammar{
@@ -226,7 +243,10 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		ModelAliases: map[string]string{},
 		ExportSchema: []byte(`{"type":"object"}`),
 	}
-	m := Mock{Base: engine.Base{Definition: d}}
+	m := Mock{Base: engine.Base{Definition: d}, fires: map[string]bool{}}
+	for _, e := range hookEvents {
+		m.fires[e] = true
+	}
 	for _, o := range opts {
 		o(&m)
 	}
@@ -273,12 +293,13 @@ func (m Mock) Instance(s engine.Session) (engine.Instance, error) {
 	if m.Context == nil {
 		return nil, engine.ErrUnsupported{Engine: m.Name, Capability: "context"}
 	}
-	return &instance{s: s}, nil
+	return &instance{s: s, fires: m.fires}, nil
 }
 
 type instance struct {
-	s   engine.Session
-	key string
+	s     engine.Session
+	key   string
+	fires map[string]bool
 }
 
 // Exec composes the process from the presentations in delivery order: each
@@ -301,16 +322,27 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	}
 	return engine.Exec{Binary: "mock", Args: args, Env: env, WorkDir: i.s.WorkDir, Interactive: i.s.Mode == engine.Interactive}, nil
 }
-func (i *instance) Drivers() []engine.StructuredDriver { return []engine.StructuredDriver{driver{}} }
-func (i *instance) Resume(key string) error            { i.key = key; return nil }
+func (i *instance) Drivers() []engine.StructuredDriver {
+	return []engine.StructuredDriver{driver{fires: i.fires}}
+}
+func (i *instance) Resume(key string) error { i.key = key; return nil }
 
-// driver answers the prompt back; a prompt carrying a tool call (ToolCall)
-// runs that tool, which fires the delivered pre_tool hooks first.
-type driver struct{}
+// driver answers the prompt back, firing the delivered hooks for every
+// event the turn passes through; a prompt carrying a tool call (ToolCall)
+// runs that tool.
+type driver struct{ fires map[string]bool }
 
-func (driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, _ chan<- engine.Event) (engine.TurnResult, error) {
-	if tool, ok := toolCallIn(in.Prompt); ok {
-		if err := fireHooks(ctx, ex, "pre_tool", tool); err != nil {
+func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, _ chan<- engine.Event) (engine.TurnResult, error) {
+	hooks, err := deliveredHooks(ex)
+	if err != nil {
+		return engine.TurnResult{}, err
+	}
+	tool, hasTool := toolCallIn(in.Prompt)
+	for _, event := range eventsOfTurn(tool, hasTool) {
+		if !d.fires[event] {
+			continue
+		}
+		if err := fireHooks(ctx, ex, hooks, event, tool); err != nil {
 			return engine.TurnResult{}, err
 		}
 	}
@@ -325,7 +357,12 @@ func (driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, _ chan<-
 // NoSkills double exports no skill: that absence is the subject of every
 // missing-skills-surface arm.
 func (m Mock) Exports(items engine.Items) (engine.Exports, error) {
-	var out engine.Exports
+	// The events this kind fires (hooks.go); the mock translates nothing,
+	// so the unified name is the native one.
+	out := engine.Exports{HookEvent: map[string]string{}}
+	for e := range m.fires {
+		out.HookEvent[e] = e
+	}
 	for _, item := range items.Commands {
 		out.Commands = append(out.Commands, engine.CommandExport{Name: item.Name, Body: item.Body, Enabled: true})
 	}

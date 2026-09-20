@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,7 +10,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -537,7 +538,7 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, retr
 		if ctx.Err() != nil {
 			return applied, retracted, applyErrors, ctx.Err()
 		}
-		took, e := applyHooksToBackend(backendName, p)
+		took, e := applyHooksToBackend(ctx, backendName, p)
 		if e != nil {
 			strictness.Fail(strictness.ClassApply, "fix the failure, then re-apply (ctxloom manage hooks install)", "%s", e)
 			applyErrors = append(applyErrors, e.Error())
@@ -549,222 +550,55 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, retr
 	return applied, retracted, applyErrors, nil
 }
 
-// applyHooksToBackend writes one backend's managed config into the project via
-// the surfaces × cells seam: settings (hooks) + MCP + context + commands. The hook
-// set is assembled fresh per backend (config + default-profile + bundle-shipped +
-// context-injection, via AssembleManagedHooks) so this write matches the
-// `ctxloom run` Setup path and avoids duplicate-hook accumulation from aliasing
-// freshCfg.Hooks across the loop.
-//
-// Context takes the route installRoute resolves from the engine's Declaration.
-// For an engine that declares hook-carried context the route is the
-// settings-carried SessionStart inject hook keyed to the regenerated
-// contextHash (the crucial difference from materialize, which passes "" so
-// context stays static) — a Rider that writes no native file, since a static
-// file beside the hook would double the context. For an engine whose only
-// route is the native file, the file is materialized from the assembled
-// context.
-//
-// And where the file is NOT the route, ctxloom's managed section must not be
-// in it either: an earlier `profile materialize` writes the same file for a
-// launch with no ctxloom behind it, and left in place beside the hook it is
-// the doubled context again, going stale. So the install RETRACTS it —
-// delivers the native-file route with EMPTY content, which strips the section
-// and removes a wholly-managed file — and returns one line per file it
-// touched. Retraction rides skipContext exactly as delivery does: a round with
-// no fresh context has no verdict on the file and leaves it alone.
-//
-// Commands are delivered only when there are prompts, preserving the prior
-// guard (no prompts ⇒ command files left untouched).
-func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []string, err error) {
-	// The resolved model is what AssembleManagedHooks returns; a settings writer
-	// takes its Wire() projection. Ordering and provenance stay in the model, so
-	// what `manage hooks list` reports and what lands in this backend's settings
-	// file are the same resolution, read twice.
-	hooksCfg := backends.AssembleManagedHooks(terminalReporter(), p.freshCfg, p.workDir, p.contextHash, nil).Wire()
-	settings := p.freshCfg.GetSettings()
+// contextRidesTheHook decides, from the engine's declaration alone, how
+// the context reaches it with ctxloom IN the loop: an engine whose context
+// approach is told on argv (a launch-time channel, nothing it opens at
+// rest) and which fires a session-start hook takes the context LIVE
+// through the injection hook; an engine that opens a context file reads
+// the file written at rest.
+func contextRidesTheHook(root engine.Base, exports engine.Exports) bool {
+	a, ok := root.Surfaces()[present.Context]
+	return ok && a.Traits().Channel == present.ChannelArgv && exports.HookEvent["session_start"] != ""
+}
 
-	decl := backends.Declared(backendName)
-	exports, err := ExportsFor(p.pkg, backendName)
+// applyHooksToBackend delivers the package AT REST into the project root
+// for one engine — the ONE static writer over the at-rest plan, under the
+// project writer's record. The context reaches an engine that fires a
+// session-start hook through the injection hook the package now carries
+// (contextHash names the cache the hook reads), and any other engine as its
+// native file at the project root. A dry run stops before the write.
+func applyHooksToBackend(ctx context.Context, backendName string, p hookApplyParams) (retracted []string, err error) {
+	kind, ok := backends.Kind(backendName)
+	if !ok {
+		return nil, fmt.Errorf("failed to apply %s: no engine kind is composed for it", backendName)
+	}
+	pkg := p.pkg
+	exports, err := kind.Exports(pkg.EngineItems(kind.Root().Name))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
 	}
-	inputs := agent.SurfaceInputs{
-		// Empty when context was not regenerated this round (assembledContext ==
-		// ""), which strips a native-file backend's managed context section —
-		// matching the prior write. Ignored by a hook-context approach (context
-		// via the hook writes no native file), so it is safe to set for every
-		// backend.
-		Context:          p.assembledContext,
-		BundleMCP:        p.pkg.MCP,
-		Hooks:            hooksCfg,
-		ManageStatusline: settings.ShouldManageStatusline(),
-		Commands:         CommandExportsOf(exports),
-		DenyTools:        p.pkg.DenyTools,
+	viaHook := contextRidesTheHook(kind.Root(), exports)
+	if viaHook && p.contextHash != "" {
+		pkg.Hooks.Unified.SessionStart = append(append([]wire.Hook(nil), pkg.Hooks.Unified.SessionStart...),
+			agent.NewContextInjectionHooks(terminalReporter(), p.contextHash, p.workDir)...)
 	}
-
-	// Settings and MCP install through the route installRoute resolves — the
-	// same one `manage check` reads — rather than a hand-named approach beside
-	// it. Hand-naming is what let the writer and the check disagree before.
-	sel := agent.Select(decl).With(agent.SurfaceSettings, agent.ApproachUnsafeFile)
-	if name, _, ok := installRoute(decl, agent.SurfaceMCP); ok {
-		sel = sel.With(agent.SurfaceMCP, name)
+	if viaHook {
+		// The context rides the hook — never a native file beside it, which
+		// would double it — so the context kind is left out of this
+		// delivery's items. A file-route engine gets the package's context
+		// whether or not the cache regenerated: the file and the cache
+		// are composed from one package, so a redelivery leaves the same
+		// bytes it found.
+		pkg.Context = composite.Context{}
+		pkg.Fragments, pkg.Premised = nil, nil
 	}
-	// skipContext omits WithContext entirely rather than selecting
-	// it with empty content — Select's opt-in model means an unselected
-	// surface is never delivered at all (cells.go), so this is a true no-op:
-	// nothing is written, nothing is stripped. Selecting the native file
-	// with p.assembledContext == "" is what used to reach the native-file
-	// writers and get interpreted as "clear the managed section" regardless of
-	// WHY it was empty.
-	retractContextFile := false
-	if !p.skipContext {
-		if name, _, ok := installRoute(decl, agent.SurfaceContext); ok {
-			sel = sel.With(agent.SurfaceContext, name)
-		}
-		retractContextFile = !installedThroughProjectFile(decl, agent.SurfaceContext)
-	}
-	if len(p.pkg.Commands) > 0 {
-		sel = sel.With(agent.SurfaceCommands, agent.ApproachUnsafeFile)
-	}
-	// The writes in this function start here. Everything above resolves;
-	// nothing above touches disk. A dry run therefore stops exactly here,
-	// having done all the work that can surface a problem and none that can
-	// cause one — retraction included, since retraction is a write.
 	if p.dryRun {
 		return nil, nil
 	}
-	if _, _, errs := sel.DeliverUnder(inputs, p.fs, present.ProjectOnHost(p.workDir)); len(errs) > 0 {
-		return nil, fmt.Errorf("failed to apply %s: %w", backendName, errors.Join(errs...))
+	if _, _, err := DeliverProject(ctx, p.fs, kind, pkg, p.workDir); err != nil {
+		return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
 	}
-	if retractContextFile {
-		line, err := retractNativeContext(backendName, decl, p.fs, p.workDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
-		}
-		if line != "" {
-			retracted = append(retracted, line)
-		}
-	}
-	return retracted, nil
-}
-
-// retractNativeContext strips ctxloom's managed section from backend's native
-// context file under workDir — the write an earlier `profile materialize`
-// left for an engine whose installed context route is not that file. It is
-// bounded by the markers: the native-file route is delivered with EMPTY
-// content, which is the writer's own reconcile-to-nothing (WriteManagedContext:
-// content outside the markers survives byte-for-byte; a file that held only
-// the section is removed rather than left as a husk). Empty is deliberate and
-// distinct from the NIL case, which never reaches here: a round with nothing
-// to say about the file (skipContext) skips retraction along with delivery.
-//
-// It reads the file's state first and touches nothing when no properly
-// terminated managed section is present — there is nothing of ctxloom's to
-// take back, and an unterminated begin marker is a truncated surface the
-// user must see rather than have quietly reconciled. Returns one sentence
-// describing what it did, or "" when it did nothing, so the caller reports
-// the edit rather than performing it in silence.
-func retractNativeContext(backendName string, decl agent.Declaration, fs afero.Fs, workDir string) (string, error) {
-	route, ok := decl.Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: ""}, fs)
-	if !ok {
-		return "", nil // no native file to retract from
-	}
-	reader, ok := route.(agent.StateReader)
-	if !ok {
-		return "", nil
-	}
-	state, err := reader.State(workDir)
-	if err != nil {
-		return "", err
-	}
-	file, ok := state.(agent.FileDeliveryState)
-	if !ok || !file.HasSection {
-		return "", nil
-	}
-	if _, err := route.Deliver(present.ProjectOnHost(workDir)); err != nil {
-		return "", fmt.Errorf("retracting ctxloom's managed section from %s: %w", file.Rel, err)
-	}
-	after, err := reader.State(workDir)
-	if err != nil {
-		return "", err
-	}
-	if remaining, ok := after.(agent.FileDeliveryState); ok && !remaining.Found {
-		return fmt.Sprintf("%s: removed %s, which held only ctxloom's managed section — context reaches this engine through the SessionStart hook, not that file", backendName, file.Rel), nil
-	}
-	return fmt.Sprintf("%s: retracted ctxloom's managed section from %s — context reaches this engine through the SessionStart hook, not that file; everything outside the markers is untouched", backendName, file.Rel), nil
-}
-
-// installRoute resolves the approach `manage hooks install` delivers kind at
-// for decl, constructed content-free so its capabilities can be read; ok is
-// false when the engine declares no approach for kind at all. A declared
-// Rider wins over the default: it rides another surface's write (hook-carried
-// context rides the settings surface), and a well-known file written beside
-// it would deliver the same content twice. The route is a fact of the
-// engine's Declaration — never a config key, never inferred from the hooks
-// found installed — which is what lets the writer and `manage check` agree.
-func installRoute(decl agent.Declaration, kind agent.SurfaceKind) (name string, route agent.Approach, ok bool) {
-	for _, n := range decl.Names(kind) {
-		a, ok := decl.Construct(kind, n, agent.SurfaceInputs{}, nil)
-		if !ok {
-			continue
-		}
-		if _, rider := a.(agent.Rider); rider {
-			return n, a, true
-		}
-	}
-	// The route must be deliverable AT REST. A LaunchOnly approach is announced
-	// to the engine on argv and DeliverUnder refuses it, so it can never be
-	// what an at-rest caller writes through — even when the engine declares it
-	// the DEFAULT, which claude's MCP surface now does: its default is the
-	// private config file a launch names on --mcp-config, and the project
-	// .mcp.json is the only form that can be installed.
-	//
-	// Without this, the two sides of the managed surfaces come apart exactly as
-	// they once did over hand-named kinds: the install writes the project file
-	// while `manage check` reads the default and reports the surface is not a
-	// project file at all.
-	if def, ok := decl.Default(kind); ok {
-		if a, built := decl.Construct(kind, def, agent.SurfaceInputs{}, nil); built && !launchOnly(a) {
-			return def, a, true
-		}
-	}
-	for _, n := range decl.Names(kind) {
-		a, built := decl.Construct(kind, n, agent.SurfaceInputs{}, nil)
-		if !built || launchOnly(a) {
-			continue
-		}
-		return n, a, true
-	}
-	return "", nil, false
-}
-
-// launchOnly reports whether a is announced to the engine on argv and so has
-// no at-rest form.
-func launchOnly(a agent.Approach) bool {
-	_, ok := a.(agent.LaunchOnly)
-	return ok
-}
-
-// installedThroughProjectFile is the ONE predicate both sides of the managed
-// surfaces consult: does kind reach the engine as a file or directory under
-// the project root once installed? ctxloom's managed content lives in that
-// file exactly when this is true — the install writes it and `manage check`
-// misses it — and otherwise the install retracts it and the check stays
-// quiet about its absence.
-//
-// It asks the route's PRESENTER where the bytes land
-// (agent.PresentsUnderProjectRoot) rather than enumerating marker
-// interfaces. A Rider presents nothing; a LaunchOnly route presents under
-// Scratch; a record-backed write presents under the engine home — and every
-// one of those is "not a project file" by the same test, including the ones
-// no marker names. An approach's OutOfCwd form is NOT consulted: it is the
-// shared-cwd LAUNCH form of the same approach, and at rest the well-known
-// write still lands under the project root — the settings and MCP files are
-// exactly that.
-func installedThroughProjectFile(decl agent.Declaration, kind agent.SurfaceKind) bool {
-	_, route, ok := installRoute(decl, kind)
-	return ok && agent.PresentsUnderProjectRoot(route)
+	return nil, nil
 }
 
 // installedContextFile composes what ApplyHooks writes into a native-file

@@ -16,12 +16,41 @@ import (
 )
 
 // The mock IMPLEMENTS AND USES hooks: a hook delivered through its hooks
-// surface fires when a turn runs a tool, exactly as a vendor engine's would.
-// The turn reads the hook file its argv names (--hooks, announced by the
-// hooks approach), runs every command hook registered for the event whose
-// matcher admits the tool, and writes the mock's own payload to the hook's
-// stdin. Hooks() decodes that payload. A turn that runs no tool spawns
-// nothing.
+// surface fires when the event it names happens in a turn, exactly as a
+// vendor engine's would. Each turn is one engine process, so a turn fires
+// session_start first, the tool's events around a tool call (pre_shell for
+// a shell tool, pre_tool, then post_tool and post_file_edit for an editing
+// tool), turn_end, and session_end last. The turn reads the hook file its
+// argv names (--hooks, announced by the hooks approach), runs every command
+// hook registered for the event whose matcher admits the tool, and writes
+// the mock's own payload to the hook's stdin. Hooks() decodes that payload.
+// A turn with no hooks delivered spawns nothing.
+
+// The unified events the mock can fire, in the order a turn fires them.
+// The lossy double drops session_start and session_end (WithoutHookEvents).
+var hookEvents = []string{"session_start", "pre_shell", "pre_tool", "post_tool", "post_file_edit", "turn_end", "session_end"}
+
+// shellTools and editTools are the tools that narrow pre_tool to pre_shell
+// and post_tool to post_file_edit.
+var (
+	shellTools = map[string]bool{"Bash": true, "PowerShell": true}
+	editTools  = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
+)
+
+// eventsOfTurn lists the events one turn fires, in order.
+func eventsOfTurn(tool string, hasTool bool) []string {
+	out := []string{"session_start"}
+	if hasTool {
+		if shellTools[tool] {
+			out = append(out, "pre_shell")
+		}
+		out = append(out, "pre_tool", "post_tool")
+		if editTools[tool] {
+			out = append(out, "post_file_edit")
+		}
+	}
+	return append(out, "turn_end", "session_end")
+}
 
 // toolCallPattern is the mock's control grammar for a tool call: a prompt
 // carrying `mock:tool=<name>` runs the named tool for that turn.
@@ -76,28 +105,55 @@ func hooksFileOf(ex engine.Exec) string {
 	return ""
 }
 
-// fireHooks runs every pre_tool command hook the delivered hook file
-// registers for tool. The mock's unified event is the file's own key: the
-// mock translates nothing, so the payload names the unified event.
-func fireHooks(ctx context.Context, ex engine.Exec, event, tool string) error {
+// deliveredHooks reads the hook file the exec's argv names; the zero set
+// when the turn was composed without a hooks surface.
+func deliveredHooks(ex engine.Exec) (wire.UnifiedHooks, error) {
+	var hooks wire.UnifiedHooks
 	file := hooksFileOf(ex)
 	if file == "" {
-		return nil
+		return hooks, nil
 	}
 	raw, err := os.ReadFile(file)
 	if err != nil {
-		return fmt.Errorf("mock: read the delivered hook file: %w", err)
+		return hooks, fmt.Errorf("mock: read the delivered hook file: %w", err)
 	}
-	var hooks wire.UnifiedHooks
 	if err := json.Unmarshal(raw, &hooks); err != nil {
-		return fmt.Errorf("mock: decode the delivered hook file %s: %w", file, err)
+		return hooks, fmt.Errorf("mock: decode the delivered hook file %s: %w", file, err)
 	}
+	return hooks, nil
+}
+
+// registered is the hook file's slice for one unified event: the mock's
+// native event IS the unified one, so the file's own key names it.
+func registered(hooks wire.UnifiedHooks, event string) []wire.Hook {
+	switch event {
+	case "session_start":
+		return hooks.SessionStart
+	case "pre_shell":
+		return hooks.PreShell
+	case "pre_tool":
+		return hooks.PreTool
+	case "post_tool":
+		return hooks.PostTool
+	case "post_file_edit":
+		return hooks.PostFileEdit
+	case "turn_end":
+		return hooks.TurnEnd
+	case "session_end":
+		return hooks.SessionEnd
+	}
+	return nil
+}
+
+// fireHooks runs every command hook the delivered set registers for event
+// whose matcher admits tool, with the mock's payload on stdin.
+func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, event, tool string) error {
 	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: ex.WorkDir})
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, h := range hooks.PreTool {
+	for _, h := range registered(hooks, event) {
 		if h.Type != "" && h.Type != "command" {
 			continue
 		}

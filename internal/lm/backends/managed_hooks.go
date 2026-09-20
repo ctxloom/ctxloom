@@ -479,7 +479,7 @@ func (m *ManagedHooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor
 // mergeUnified merges the seven unified events.
 func (m *ManagedHooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributor) {
 	for _, event := range HookEvents() {
-		hooks := unifiedEventHooks(u, event)
+		hooks := UnifiedEventHooks(u, event)
 		if len(hooks) == 0 {
 			continue
 		}
@@ -500,11 +500,11 @@ func (m *ManagedHooks) resolve(hooks []wire.Hook, base int, attribute hookAttrib
 	return out
 }
 
-// unifiedEventHooks selects one event's slice. A switch rather than reflection
+// UnifiedEventHooks selects one event's slice. A switch rather than reflection
 // so an eighth event added to wire.UnifiedHooks and not added here is a hole a
 // reader can see — and TestManagedHooks_EveryUnifiedEventIsCovered makes it a
 // failing test rather than a silently absent row in every hook report.
-func unifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
+func UnifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
 	switch event {
 	case bundles.HookEventPreTool:
 		return u.PreTool
@@ -524,7 +524,7 @@ func unifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
 	return nil
 }
 
-// setUnifiedEventHooks is unifiedEventHooks' write half, used by Wire.
+// setUnifiedEventHooks is UnifiedEventHooks' write half, used by Wire.
 func setUnifiedEventHooks(u *wire.UnifiedHooks, event string, hooks []wire.Hook) {
 	switch event {
 	case bundles.HookEventPreTool:

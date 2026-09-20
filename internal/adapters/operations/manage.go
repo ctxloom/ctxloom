@@ -2,8 +2,9 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -11,6 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -38,7 +41,6 @@ type RemoveHooksResult struct {
 func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) (*RemoveHooksResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
-	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs), agent.WithSettingsReporter(terminalReporter().Sink)}
 
 	names, err := manageBackendNames(req.Backend)
 	if err != nil {
@@ -50,7 +52,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 		if ctx.Err() != nil {
 			return &RemoveHooksResult{Status: "partial", Backends: removed, Errors: errs}, ctx.Err()
 		}
-		if err := removeBackendHarness(name, workDir, fs, settingsOpts); err != nil {
+		if err := removeBackendHarness(ctx, name, workDir, fs); err != nil {
 			clidiag.Warn("ctxloom", "%s", err)
 			errs = append(errs, err.Error())
 			continue
@@ -65,26 +67,20 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 	return &RemoveHooksResult{Status: status, Backends: removed, Errors: errs}, nil
 }
 
-// removeBackendHarness strips one backend's ctxloom harness: RemoveSettings
-// reverts the per-backend hooks/MCP (unchanged), and the commands surface — built
-// from an EMPTY export set and delivered — clears ONLY ctxloom-managed command
-// files. That clear routes through the same manifest-scoped writer the old
-// WriteCommandFilesFor(nil) used: it removes exactly the .ctxloom-manifest-tracked
-// files ctxloom wrote and leaves user-authored commands untouched (never a blanket
-// wipe of the commands dir). Context is deliberately NOT selected, so CLAUDE.md and
-// the other native context files are left in place.
-func removeBackendHarness(name, workDir string, fs afero.Fs, settingsOpts []backends.SettingsOption) error {
-	if err := backends.RemoveSettings(name, workDir, settingsOpts...); err != nil {
-		return fmt.Errorf("failed to remove %s settings: %w", name, err)
+// removeBackendHarness delivers the EMPTY plan against the project target:
+// the project writer's record says what ctxloom put there and only that is
+// removed — the user's own hooks, servers, commands and context stay.
+func removeBackendHarness(ctx context.Context, name, workDir string, fs afero.Fs) error {
+	kind, ok := backends.Kind(name)
+	if !ok {
+		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
 	}
-	sel := agent.Select(backends.Declared(name)).With(agent.SurfaceCommands, agent.ApproachUnsafeFile)
-	if _, _, errs := sel.DeliverUnder(agent.SurfaceInputs{}, fs, present.ProjectOnHost(workDir)); len(errs) > 0 {
-		return fmt.Errorf("failed to remove %s commands: %w", name, errors.Join(errs...))
+	if err := RemoveProject(ctx, fs, kind, workDir); err != nil {
+		return fmt.Errorf("failed to remove %s: %w", name, err)
 	}
 	return nil
 }
 
-// HarnessStatusRequest contains parameters for inspecting ctxloom's wiring.
 type HarnessStatusRequest struct {
 	FS      afero.Fs `json:"-"`
 	WorkDir string   `json:"-"`
@@ -131,18 +127,12 @@ type HarnessStatusResult struct {
 	CapabilityLoss []AgentSurfaceLoss `json:"capability_loss,omitempty"`
 	// Surfaces reports delivery currency for the native context files
 	// (CLAUDE.md and its per-backend analogues) under WorkDir — see
-	// SurfaceCurrency. This is the read half of the
-	// engine-delivery seam (docs/design/engine-delivery-seam.design.md): the
-	// hop wiring alone (Backends, above) cannot answer, because "hooks
-	// present" says nothing about whether a materialized native file's
-	// CONTENT still matches what the project's default profiles currently
-	// compose (J001900's B6 finding — this command used to report on WIRING
-	// only, never on DELIVERY, so a stale `profile materialize` output was
-	// invisible to it). A backend with no read half yet, or with nothing
-	// materialized here AND no engine-declared expectation of one, is simply
-	// absent from this list. A missing verdict appears only where the install
-	// itself would have written the file (installedThroughProjectFile) AND the
-	// composed context has something to put in it — see surfaceCurrencies.
+	// Surfaces is the read half: whether a context file the project
+	// writer's record owns still carries what the project's default
+	// profiles currently compose. Wiring alone (Backends, above) cannot
+	// answer that — "hooks present" says nothing about a stale materialized
+	// file. A file the record does not own is absent from this list — see
+	// surfaceCurrencies.
 	Surfaces []SurfaceCurrency `json:"surfaces,omitempty"`
 	// Errors records per-backend status-read failures; non-empty means the
 	// report is partial. One backend's corrupt/unreadable settings.json no
@@ -208,187 +198,107 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 	return result, nil
 }
 
-// surfaceCurrencies walks every registered backend's NATIVE-FILE context
-// surface and reports its delivery currency.
-//
-// It resolves agent.ApproachUnsafeFile deliberately, not the backend's default
-// approach: "materialized native file" IS that approach, and asking for the
-// default gets codex's hook route — a content-addressed <hash>.md whose name a
-// harpless caller cannot even derive. A backend that declares no file approach
-// for context (or no context surface at all) is skipped; so is one whose file
-// route offers no read half (agent.StateReader). Either way the backend is
-// structurally ABSENT from the report rather than reported as unreadable.
-//
-// It walks backends.BackendsWithSettings, the SAME set the wiring half above
-// enumerates, rather than backends.List. The difference is the hermetic `mock`
-// engine, which has no settings surface and is absent from every other line of
-// this report — before the missing verdict existed it surfaced here only in the
-// hermetic tests that materialize a MOCK_CONTEXT.md, but a verdict that fires on
-// an ABSENT file would put a test engine in front of every real user. One
-// report, one set of engines.
-//
-// A materialized file that is present reports delivered or stale. A file that
-// is ABSENT reports missing only when the install would have WRITTEN it —
-// installedThroughProjectFile, the same predicate the install writes and
-// retracts by. That predicate is the whole of the "no false alarms" rule here:
-// without it every hook-delivered project would be told its CLAUDE.md is
-// gone, which is the fastest way to teach a user to skip this section.
-//
-// The composed ("intended") context is assembled lazily, at most once PER
-// BACKEND, and only for a backend that actually has a readable file route to
-// answer for — every verdict depends on it, missing included, because "does
-// this loadout carry anything for the file surface" cannot be answered without
-// composing it. Per backend rather than once, because what a materialized file
-// holds is a property of the engine it was written for, and of which writer
-// wrote it (intendedContextFiles).
-// It reads via the existing AssembleContext, never regenerateContext: this is
-// the read half the design doc calls out — "a status command that rewrites the
-// surface it inspects is its own bug" — so it must never write.
+// surfaceCurrencies is the read half `manage check` walks: for every
+// shipped engine whose context approach writes a file at the project root,
+// whether the file the project writer's record OWNS still carries the
+// context the current configuration composes. A file the record does not
+// own is not reported: the hook-delivered default materializes nothing,
+// and an absent file is no finding then.
 func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, workDir string) (surfaces []SurfaceCurrency, errs []string) {
-	intended := map[string][]string{}
-	var composeFailed bool
-	compose := func(backend string) ([]string, bool) {
-		if composeFailed {
-			return nil, false
-		}
-		if _, ok := intended[backend]; !ok {
-			composed, err := intendedContextFiles(ctx, cfg, backend)
-			if err != nil {
-				errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
-				composeFailed = true
-				return nil, false
-			}
-			intended[backend] = composed
-		}
-		return intended[backend], true
+	records, err := OwnershipRecordsOn(fs)
+	if err != nil {
+		return nil, []string{err.Error()}
 	}
-
 	for _, name := range backends.BackendsWithSettings() {
-		// A test double is not part of a user's wiring, so it never appears in
-		// their report. Stated rather than implied: an exclusion that depends
-		// on a backend staying incomplete stops holding when it is completed.
 		if backends.IsTestOnly(name) {
 			continue
 		}
-		decl := backends.Declared(name)
-		reader, ok := contextFileReader(decl, fs)
+		kind, ok := backends.Kind(name)
 		if !ok {
 			continue
 		}
-		state, err := reader.State(workDir)
+		rel, ok := contextFileOf(kind)
+		if !ok {
+			continue
+		}
+		intended, err := intendedContextFile(ctx, cfg, name)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("failed to compose the current context to compare materialized surfaces against: %v", err))
+			return surfaces, errs
+		}
+		cur, owned, err := contextFileCurrency(fs, records, workDir, rel, intended)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("failed to read %s's materialized context surface: %v", name, err))
 			continue
 		}
-		current, ok := compose(name)
-		if !ok {
-			return surfaces, errs
-		}
-		cur, report := reportableContextCurrency(state, current, installedThroughProjectFile(decl, agent.SurfaceContext))
-		if !report {
+		if !owned {
 			continue
 		}
-		surfaces = append(surfaces, SurfaceCurrency{
-			Backend: name,
-			Route:   state.Route(),
-			Status:  string(cur.Status),
-			Detail:  cur.Detail,
-		})
+		surfaces = append(surfaces, SurfaceCurrency{Backend: name, Route: rel, Status: string(cur.Status), Detail: cur.Detail})
 	}
 	return surfaces, errs
 }
 
-// intendedContextFiles composes every context a ctxloom writer states for
-// backend's native context file, for the configured default profiles — the
-// check's side of the currency comparison.
-//
-// Two writers reach that file and they state DIFFERENT subjects. `profile
-// materialize` composes MaterializedFor(backend): a launch with no ctxloom
-// behind it, so an engine without a skills surface gets its premised fragments
-// written into the file. `manage hooks install` composes for a live session
-// (installedContextFile) and withholds them for every engine — it is included
-// only where ApplyHooks routes context through the file at all
-// (installedThroughProjectFile), since for an engine that injects it never
-// writes this file; it retracts it. The file records bytes, not its writer, and both writers leave the
-// same hooks and MCP server beside it, so the check cannot know which one it
-// is reading: it holds the file against each, and a file current under the
-// writer that produced it is delivered. Composing one subject alone reports
-// the other writer's correct file stale forever; the two are equal exactly
-// when the engine has a skills surface, which is why the divergence is
-// invisible until it is not.
-func intendedContextFiles(ctx context.Context, cfg *config.Config, backend string) ([]string, error) {
+// contextFileOf is the file an engine's context approach writes at the
+// project root, relative to it (a materialize's context file); false for
+// an engine whose context approach offers no project root.
+func contextFileOf(kind engine.Engine) (string, bool) {
+	a, ok := kind.Root().Surfaces()[present.Context]
+	if !ok || !a.Traits().Offers(present.RootProjectRoot) {
+		return "", false
+	}
+	c, ok := a.(engine.ContextApproach)
+	if !ok {
+		return "", false
+	}
+	const probe = "/probe"
+	d, err := c.DeliverContext(present.ProjectOnHost(probe), present.RootProjectRoot, engine.ContextInputs{Text: []byte("probe")}, afero.NewMemMapFs())
+	if err != nil || d.Presented.HostPath == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(probe, d.Presented.HostPath)
+	if err != nil {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// intendedContextFile composes the context the current configuration
+// would deliver to backend's file, from the default agent's profile set.
+func intendedContextFile(ctx context.Context, cfg *config.Config, backend string) (string, error) {
 	materialized, err := AssembleContext(ctx, cfg, AssembleContextRequest{
 		Profiles: cfg.DefaultAgentProfiles(),
 		Consumer: MaterializedFor(backend),
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	intended := []string{materialized.Context}
-	if installedThroughProjectFile(backends.Declared(backend), agent.SurfaceContext) {
-		installed, err := installedContextFile(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		intended = append(intended, installed)
-	}
-	return intended, nil
+	return materialized.Context, nil
 }
 
-// reportableContextCurrency is the whole "report it or stay quiet" rule, in one
-// place so the two halves cannot drift apart. intended is every composition a
-// ctxloom writer states for the file (intendedContextFiles): the file is
-// delivered when it matches any of them, and stale only when it matches none.
-//
-// A file that EXISTS is always reported — delivered or stale — for any engine
-// that can read it, expectation or not: content sitting on disk that nobody
-// composes any more is exactly the drift this report is for, and the engine
-// clearly did materialize there at some point.
-//
-// A file that is ABSENT is reported only when BOTH halves of the ruling hold:
-// the install routes context through that file (expected — see
-// installedThroughProjectFile), AND the composed loadout actually carries context to
-// put in it. The second half is the rule backends.UncarriedSurfaces already
-// states — "A capability gap nobody asked to use costs nothing and stays
-// quiet" — read against agent.SurfaceInputs.Context, the field the native-file
-// route is fed from. Either half false is silence.
-func reportableContextCurrency(state agent.DeliveryState, intended []string, expected bool) (agent.Currency, bool) {
-	var cur agent.Currency
-	carries := false
-	for _, want := range intended {
-		carries = carries || strings.TrimSpace(want) != ""
-		cur = state.Currency(want)
-		if cur.Status == agent.StatusDelivered {
-			return cur, true
-		}
+// contextFileCurrency is the verdict on one context file the project
+// writer's record owns: delivered when it carries the composed context,
+// stale when it does not, missing when it is gone. owned is false when the
+// record does not own it, and the verdict is then nobody's business.
+func contextFileCurrency(fs afero.Fs, records delivery.Ownership, workDir, rel, intended string) (cur agent.Currency, owned bool, err error) {
+	path := filepath.Join(workDir, filepath.FromSlash(rel))
+	entries, err := records.Owned(path, delivery.ProjectWriter)
+	if err != nil || len(entries) == 0 {
+		return agent.Currency{}, false, err
 	}
-	if cur.Status != agent.StatusMissing {
-		return cur, true
+	raw, err := afero.ReadFile(fs, path)
+	switch {
+	case os.IsNotExist(err):
+		return agent.Currency{Status: agent.StatusMissing, Detail: fmt.Sprintf("%s does not exist", rel)}, true, nil
+	case err != nil:
+		return agent.Currency{}, true, err
+	case strings.Contains(string(raw), strings.TrimSpace(intended)):
+		return agent.Currency{Status: agent.StatusDelivered}, true, nil
+	default:
+		return agent.Currency{Status: agent.StatusStale, Detail: fmt.Sprintf("%s carries ctxloom-written context that no longer matches the composed context", rel)}, true, nil
 	}
-	if !expected || !carries {
-		return agent.Currency{}, false
-	}
-	return cur, true
 }
 
-// contextFileReader resolves a backend's materialized-file context route to its
-// read half, or reports false when it has none to read.
-//
-// It asks for agent.ApproachUnsafeFile by name, constructed with no content
-// (only its READ side is used). A backend that declares no context surface
-// at all has a FOLD, not a loss (backends.UncarriedSurfaces' doc: "reporting
-// a folded surface as lost would be a false alarm"), so it is skipped in
-// silence rather than reported as an unreadable route.
-func contextFileReader(decl agent.Declaration, fs afero.Fs) (agent.StateReader, bool) {
-	approach, ok := decl.Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{}, fs)
-	if !ok {
-		return nil, false
-	}
-	reader, ok := approach.(agent.StateReader)
-	return reader, ok
-}
-
-// SetStatuslineRequest contains parameters for toggling the ctxloom HUD statusline.
 type SetStatuslineRequest struct {
 	Enabled bool `json:"enabled"`
 }

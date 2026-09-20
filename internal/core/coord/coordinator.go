@@ -131,6 +131,10 @@ type Options struct {
 	// whose inbox it drains would write every child->parent message into a
 	// directory nothing reads.
 	OwnerHarp string
+	// Mapper resolves spool references to paths — the ONE mapper every spool
+	// read and write this coordinator performs goes through. Nil is the
+	// home-relative mapper (spool.NewHomeMapper).
+	Mapper spool.PathMapper
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval). Exposed for tests, which must be able to
 	// prove that a DROPPED doorbell is still delivered by the sweep without
@@ -233,6 +237,8 @@ type Coordinator struct {
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
+	// mapper is Options.Mapper: the one spool path mapper. Read-only after New.
+	mapper spool.PathMapper
 	// streams holds the RunnerChannel/RunChannel handlers in flight. Their
 	// deferred teardown is where a dropped runner becomes a terminal
 	// (runnerLost -> terminateRun -> the session index, the parent's notice),
@@ -428,6 +434,10 @@ func New(opts Options) (*Coordinator, error) {
 	t := resolveTunables(opts)
 
 	rep := report.To(opts.Reporter)
+	mapper := opts.Mapper
+	if mapper == nil {
+		mapper = spool.NewHomeMapper()
+	}
 	c := &Coordinator{
 		rep:                rep,
 		tracked:            trackedGroup{rep: rep},
@@ -463,8 +473,9 @@ func New(opts Options) (*Coordinator, error) {
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
 		ownerHarp:          opts.OwnerHarp,
+		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            newSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {

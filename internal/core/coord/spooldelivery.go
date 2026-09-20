@@ -514,7 +514,7 @@ func (c *Coordinator) sweepSpoolDirNames(harp string, dir spool.Dir, why string)
 // sweepSpoolDirNames, parameterized on which spool primitive actually reads
 // the directory.
 func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, sweep func(spool.PathMapper, string, spool.Dir) (spool.SweepResult, error)) (spool.SweepResult, bool) {
-	mapper := spool.NewHomeMapper()
+	mapper := c.mapper
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: cannot resolve %s's %s spool (%s): %v", harp, dir, why, err)
@@ -642,7 +642,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
-	failSpool(c.rep, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+	failSpool(c.rep, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
 }
 
 // failSpool moves ref out of its live directory into the failed/ sibling
@@ -650,8 +650,8 @@ func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
 // terminal-state move for a file a reader parsed but could not deliver or
 // route, on both sides and in both directions. A lost race (ErrAlreadyGone)
 // is the other path having won: nothing to strand, nothing to warn about.
-func failSpool(rep report.Reporter, side string, ref spool.Ref, why string, cause error) {
-	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
+func failSpool(rep report.Reporter, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
+	if err := spool.Fail(mapper, ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
@@ -753,7 +753,7 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 // race (ErrAlreadyGone) is the expected outcome of the other path having won
 // and is never reported as a failure.
 func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
-	done, err := spool.Consume(spool.NewHomeMapper(), ref)
+	done, err := spool.Consume(c.mapper, ref)
 	if err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
@@ -890,7 +890,7 @@ func (h *Home) sweepSpoolIn() {
 		// would consume it into a sink nothing reads.
 		return
 	}
-	mapper := spool.NewHomeMapper()
+	mapper := h.cfg.Mapper
 	path, err := spool.DirPath(mapper, h.Harp(), spool.DirIn)
 	if err != nil {
 		h.rep.Warnf("runner: cannot resolve this run's in/ spool: %v", err)
@@ -949,7 +949,7 @@ func (h *Home) sweepSpoolIn() {
 // three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.failed.Add(1)
-	failSpool(h.rep, "runner", e.Ref, why, cause)
+	failSpool(h.rep, h.cfg.Mapper, "runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the
@@ -990,7 +990,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 			h.spoolDeliveryCount.failed.Add(1)
 			continue
 		}
-		done, err := spool.Consume(spool.NewHomeMapper(), ref)
+		done, err := spool.Consume(h.cfg.Mapper, ref)
 		if err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue

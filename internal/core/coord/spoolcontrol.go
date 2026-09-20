@@ -137,7 +137,7 @@ func (c *Coordinator) WithdrawSteer(by ControlInitiator, harp, messageID string)
 			"(withdrawal exists because the instruction is a file; on the request route the body is not one): %w", harp, ErrNoSuchSteer)
 	}
 
-	mapper := spool.NewHomeMapper()
+	mapper := c.mapper
 	ref, found := c.findSpoolMessage(harp, spool.DirIn, messageID)
 	if !found {
 		// Not in in/. Either it was consumed (the child took it) or it never

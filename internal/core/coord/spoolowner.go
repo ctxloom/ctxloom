@@ -89,7 +89,7 @@ func (c *Coordinator) claimSpoolInbox(role string) ([]Message, bool) {
 	c.mu.Unlock()
 	for _, f := range failed {
 		c.spoolDeliveryCount.failed.Add(1)
-		failSpool(c.rep, "coordinator", f.entry.Ref, "refusing an undeliverable message in the owner's in/ spool", f.err)
+		failSpool(c.rep, c.mapper, "coordinator", f.entry.Ref, "refusing an undeliverable message in the owner's in/ spool", f.err)
 	}
 	if len(out) == 0 {
 		return nil, false
@@ -123,7 +123,7 @@ func (c *Coordinator) ackSpoolInbox(role string) {
 	}
 	consumed := uint64(0)
 	for id, ref := range refs {
-		if _, err := spool.Consume(spool.NewHomeMapper(), ref); err != nil {
+		if _, err := spool.Consume(c.mapper, ref); err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}

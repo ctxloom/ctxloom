@@ -169,6 +169,10 @@ type HomeConfig struct {
 	// the process env and binds at dial, at depth 0. A hosted run leaves it
 	// empty and binds its identity from the Launch (BindIdentity).
 	Harp string
+	// Mapper resolves spool references to paths on this runner's side — the
+	// one mapper every spool read and write here goes through. Nil is the
+	// home-relative mapper.
+	Mapper spool.PathMapper
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
@@ -257,7 +261,10 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	// still keyed by harp because spoolWriterCache is shared with the
 	// coordinator's half, which serves many; the writer id is the harp,
 	// stamped at bind.
-	h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, "")
+	if h.cfg.Mapper == nil {
+		h.cfg.Mapper = spool.NewHomeMapper()
+	}
+	h.spoolOut = newSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
 	h.startSpoolReactor()
 	if cfg.Harp != "" {

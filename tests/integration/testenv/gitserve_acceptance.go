@@ -3,6 +3,7 @@
 package testenv
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -243,4 +244,28 @@ func runGitE(dir string, args ...string) error {
 		return fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return nil
+}
+
+// GitIgnores reports whether git in ProjectDir ignores rel — the project's
+// committed and nested .gitignore files as git itself reads them, not as
+// ctxloom believes it wrote them.
+func (e *TestEnvironment) GitIgnores(rel string) (bool, error) {
+	cmd := exec.Command("git", "check-ignore", "-q", "--", rel)
+	cmd.Dir = e.ProjectDir
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
+	)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("git check-ignore %s: %v: %s", rel, err, stderr.String())
 }

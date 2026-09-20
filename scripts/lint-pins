@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Pin-direction gate: refuse a staged change that moves any pinned version
+# BACKWARDS from what HEAD carries.
+#
+# The pin-agreement tests (internal/shared/buildpins, internal/shared/enginepins)
+# prove the pin files agree with their consumers; none of them can see the
+# DIRECTION of an edit, so a 1.26.8 -> 1.26.7 that is copied faithfully
+# everywhere passes all of them. This gate compares the INDEX against HEAD,
+# pin by pin, so what is about to be committed is what is judged.
+#
+# A deliberate downgrade names its pin in CTXLOOM_ALLOW_PIN_DOWNGRADE (comma-
+# separated). The gate echoes the override it honoured, so the reviewer of the
+# commit sees the decision in the hook output rather than inferring it.
+#
+# Pure shell over `git show`: no go build, no dependency past git and bash,
+# because a slow pre-commit hook is one people learn to bypass (see
+# lefthook.yml's archlint entry for that rule). internal/shared/buildpins'
+# TestLintPins_* drive this script over a throwaway repository, and its --list
+# census is what documents the pins covered.
+#
+# Usage:
+#   scripts/lint-pins          compare index vs HEAD; exit 1 on a downgrade
+#   scripts/lint-pins --list   print every pin read from HEAD, `name value`
+set -euo pipefail
+
+override_var=CTXLOOM_ALLOW_PIN_DOWNGRADE
+
+# The pin sources, each as `<parser> <path>`. A parser turns a file's bytes
+# into `name value` lines.
+sources=(
+  "env .devcontainer/tool-versions.env"
+  "env .github/engine-versions.env"
+  "gomod go.mod"
+)
+
+# parse_env: KEY=value lines, `#` comments and blanks skipped — the same
+# filter every consumer of these files applies.
+parse_env() {
+  grep -v '^#' | grep -v '^[[:space:]]*$' | sed -n 's/^\([^=]*\)=\(.*\)$/\1 \2/p'
+}
+
+# parse_gomod: the `go` and `toolchain` directives, the toolchain's `go`
+# prefix stripped so both compare as dotted-numeric versions.
+parse_gomod() {
+  sed -n \
+    -e 's/^go[[:space:]]\+\([^[:space:]]*\).*$/go.mod:go \1/p' \
+    -e 's/^toolchain[[:space:]]\+go\([^[:space:]]*\).*$/go.mod:toolchain \1/p'
+}
+
+parse_with() {
+  case "$1" in
+    env) parse_env ;;
+    gomod) parse_gomod ;;
+    *) echo "lint-pins: unknown parser $1" >&2; exit 2 ;;
+  esac
+}
+
+# pins_at REV PARSER PATH: the file's pins at a git revision ("" for the
+# index). Prints nothing when the file is absent there — creation and
+# deletion are not downgrades.
+pins_at() {
+  local rev=$1 parser=$2 path=$3
+  if git cat-file -e "$rev:$path" 2>/dev/null; then
+    git show "$rev:$path" | parse_with "$parser"
+  fi
+}
+
+is_dotted_numeric() {
+  [[ $1 =~ ^[0-9]+(\.[0-9]+)*$ ]]
+}
+
+# compare_versions A B over dotted-numeric versions: prints -1, 0 or 1 as A
+# is older than, equal to, or newer than B. Missing components count as 0,
+# so 1.26 and 1.26.0 are equal and 1.26.10 is newer than 1.26.9.
+compare_versions() {
+  local -a a b
+  IFS=. read -r -a a <<<"$1"
+  IFS=. read -r -a b <<<"$2"
+  local n=${#a[@]}
+  (( ${#b[@]} > n )) && n=${#b[@]}
+  local i x y
+  for ((i = 0; i < n; i++)); do
+    x=${a[i]:-0}; y=${b[i]:-0}
+    if ((10#$x < 10#$y)); then echo -1; return; fi
+    if ((10#$x > 10#$y)); then echo 1; return; fi
+  done
+  echo 0
+}
+
+overridden() {
+  local name=$1 entry
+  IFS=, read -r -a entries <<<"${!override_var:-}"
+  for entry in "${entries[@]:-}"; do
+    [[ $entry == "$name" ]] && return 0
+  done
+  return 1
+}
+
+if [[ ${1:-} == --list ]]; then
+  for src in "${sources[@]}"; do
+    read -r parser path <<<"$src"
+    pins_at HEAD "$parser" "$path"
+  done
+  exit 0
+fi
+
+failed=0
+for src in "${sources[@]}"; do
+  read -r parser path <<<"$src"
+  declare -A head_pins=()
+  while read -r name value; do
+    [[ -n $name ]] && head_pins[$name]=$value
+  done < <(pins_at HEAD "$parser" "$path")
+
+  while read -r name new; do
+    [[ -n $name ]] || continue
+    [[ -v head_pins[$name] ]] || continue
+    old=${head_pins[$name]}
+    [[ $old == "$new" ]] && continue
+
+    if is_dotted_numeric "$old" && is_dotted_numeric "$new"; then
+      [[ $(compare_versions "$old" "$new") == 1 ]] || continue
+      why="downgrade"
+    else
+      why="not a dotted-numeric version, so its direction cannot be ranked (parser: $parser)"
+    fi
+
+    if overridden "$name"; then
+      echo "lint-pins: ALLOWED $name $old -> $new in $path ($why) — $override_var=${!override_var}"
+      continue
+    fi
+    echo "lint-pins: REFUSED $name $old -> $new in $path: $why." >&2
+    echo "  A deliberate downgrade names its pin: $override_var=$name git commit ..." >&2
+    failed=1
+  done < <(pins_at "" "$parser" "$path")
+  unset head_pins
+done
+
+exit $failed

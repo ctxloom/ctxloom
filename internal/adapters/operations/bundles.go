@@ -815,7 +815,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 	// hold more than its manifest, and if so must all of it travel).
 	// treeForm answers a question about the SOURCE — does this directory hold
 	// more than its manifest, so must all of it travel — and it decides that
-	// alone (see runTreePush below). It does NOT decide the target's shape:
+	// alone (see runPush below). It does NOT decide the target's shape:
 	// where a bundle lands is the LAYOUT's business, resolved once in
 	// remote.RepoItemPath. Letting the source's shape pick the target path is
 	// how publish and fetch came to disagree.
@@ -850,10 +850,7 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return result, nil
 	}
 
-	if treeForm {
-		return runTreePush(ctx, cfg, registry, req.Remote, absPath, req, result)
-	}
-	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result)
+	return runPush(ctx, cfg, registry, req.Remote, absPath, req, result, treeForm)
 }
 
 // validatePushRequest checks the request preconditions for PushBundle.
@@ -891,9 +888,17 @@ func pushDryRunPreview(bundleName string, size int, remURL, targetPath string, c
 		bundleName, size, remURL, targetPath, action, title)
 }
 
-// runPush performs the actual (non-dry-run) publish and records the outcome on
-// result.
-func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
+// runPush performs the actual (non-dry-run) publish and records the outcome
+// on result. A single-file bundle travels through remote.PublishManager.Publish;
+// a directory-form one (treeForm) through PublishTree, so that every file
+// under the bundle's directory lands in ONE commit (engaged-chivalry).
+//
+// A tree's signature — its SHA256SUMS manifest and .sigs/ entries, written to
+// disk before PushBundle runs by `ctxloom bundle sign` — is just more of the
+// files gatherPublishTreeFiles walks off disk, so it travels in that same
+// commit and result.Signed reports whether one was carried. A single-file
+// bundle carries no signature.
+func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult, treeForm bool) (*PushBundleResult, error) {
 	pm := req.PublishManager
 	if pm == nil {
 		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
@@ -905,66 +910,33 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		Message:  result.Message,
 		ItemType: remote.ItemTypeBundle,
 		// The reported destination IS the published destination: one value,
-		// computed in PushBundle, handed to publish rather than recomputed there.
+		// computed in PushBundle, handed to publish rather than recomputed here.
 		RemotePath: result.TargetPath,
 	}
-	pubResult, err := pm.Publish(ctx, absPath, remoteName, opts)
-	if err != nil {
-		return nil, fmt.Errorf("publish: %w", err)
+
+	var (
+		pubResult *remote.PublishResult
+		signed    bool
+	)
+	if treeForm {
+		files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
+		if err != nil {
+			return nil, fmt.Errorf("gather bundle tree: %w", err)
+		}
+		if pubResult, err = pm.PublishTree(ctx, files, remoteName, opts); err != nil {
+			return nil, fmt.Errorf("publish: %w", err)
+		}
+		signed = treeCarriesSignature(files)
+	} else {
+		var err error
+		if pubResult, err = pm.Publish(ctx, absPath, remoteName, opts); err != nil {
+			return nil, fmt.Errorf("publish: %w", err)
+		}
 	}
 
 	result.CommitSHA = pubResult.SHA
 	result.PRURL = pubResult.PRURL
-	result.Signed = false // a single-file bundle carries no signature
-	result.Status = "pushed"
-	if req.CreatePR {
-		result.Status = "pr-created"
-	}
-	return result, nil
-}
-
-// runTreePush is runPush's directory-form counterpart: every file under the
-// bundle's directory travels in ONE commit (engaged-chivalry), via
-// remote.PublishManager.PublishTree rather than the single-file Publish.
-//
-// A tree's signature — its SHA256SUMS manifest and .sigs/ entries, written
-// to disk before PushBundle runs by `ctxloom bundle sign` — is just more of
-// the files gatherPublishTreeFiles walks off disk, so it travels in the SAME
-// commit as everything else.
-func runTreePush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
-	pm := req.PublishManager
-	if pm == nil {
-		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
-	}
-
-	// The tree's signature — SHA256SUMS and its .sigs/ entries — travels as
-	// part of the walked file set; nothing is added or removed here.
-	files, err := gatherPublishTreeFiles(afero.NewOsFs(), filepath.Dir(absPath))
-	if err != nil {
-		return nil, fmt.Errorf("gather bundle tree: %w", err)
-	}
-
-	opts := remote.PublishOptions{
-		CreatePR: req.CreatePR,
-		Title:    result.Title,
-		Message:  result.Message,
-		ItemType: remote.ItemTypeBundle,
-		// The reported destination IS the published destination, exactly as
-		// runPush's RemotePath is.
-		RemotePath: result.TargetPath,
-	}
-
-	pubResult, err := pm.PublishTree(ctx, files, remoteName, opts)
-	if err != nil {
-		return nil, fmt.Errorf("publish: %w", err)
-	}
-
-	result.CommitSHA = pubResult.SHA
-	result.PRURL = pubResult.PRURL
-	// The tree's .sigs/ store travels as part of the walked file set rather
-	// than a separate write, so there is no PublishResult.Signed to read back
-	// — report whether one was carried at all.
-	result.Signed = treeCarriesSignature(files)
+	result.Signed = signed
 	result.Status = "pushed"
 	if req.CreatePR {
 		result.Status = "pr-created"

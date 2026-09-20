@@ -74,27 +74,32 @@ type Fixture struct {
 // engine, and marshals the result — none of which touches the shared ambient
 // config, so amending fields on this INDEPENDENT value is not the bug the
 // rest of this package guards against.
+//
+// The persisted half is taken from toDoc, so the two conversions share ONE
+// clone discipline: a Fixture cannot own its containers more weakly than
+// the document Owner.Update hands out, because it holds that document's.
 func (c *Config) ToFixture() Fixture {
+	d := c.toDoc()
 	return Fixture{
-		Version:                      c.version,
-		LM:                           cloneLMConfig(c.lm),
-		Editor:                       cloneEditor(c.editor),
-		Settings:                     cloneSettings(c.settings),
-		Sync:                         cloneSync(c.sync),
-		Agents:                       cloneAgentsMap(c.agents),
-		DefaultAgent:                 c.defaultAgent,
-		Workspace:                    c.workspace,
-		DirtyTreeHandler:             c.dirtyTreeHandler,
-		Runtime:                      c.runtime,
-		Permissions:                  c.permissions,
-		Delegation:                   c.delegation,
-		IsolationImages:              maps.Clone(c.isolationImages),
-		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
-		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
-		IsolationDevcontainerService: c.isolationDevcontainerService,
-		IsolationEngines:             slices.Clone(c.isolationEngines),
-		UI:                           cloneUIConfig(c.ui),
-		SessionReapAge:               c.sessionReapAge,
+		Version:                      d.Version,
+		LM:                           d.LM,
+		Editor:                       d.Editor,
+		Settings:                     d.Settings,
+		Sync:                         d.Sync,
+		Agents:                       d.Agents,
+		DefaultAgent:                 d.DefaultAgent,
+		Workspace:                    d.Workspace,
+		DirtyTreeHandler:             d.DirtyTreeHandler,
+		Runtime:                      d.Runtime,
+		Permissions:                  d.Permissions,
+		Delegation:                   d.Delegation,
+		IsolationImages:              d.IsolationImages,
+		IsolationBaseContainerfile:   d.IsolationBaseContainerfile,
+		IsolationDevcontainerBase:    d.IsolationDevcontainerBase,
+		IsolationDevcontainerService: d.IsolationDevcontainerService,
+		IsolationEngines:             d.IsolationEngines,
+		UI:                           d.UI,
+		SessionReapAge:               d.SessionReapAge,
 		AppPaths:                     slices.Clone(c.appPaths),
 		AppRoot:                      c.appRoot,
 		AppDir:                       c.appDir,

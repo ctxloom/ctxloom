@@ -1024,6 +1024,26 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	assert.True(t, env.FileExists(".ctxloom/config.yaml"), "Expected .ctxloom/config.yaml to exist")
 }
 
+// TestInit_ProjectIDMarkerIsIgnored asks git, not ctxloom: after init the
+// project-id marker init minted must be invisible to `git status`, because a
+// checkout must never carry one project's private identity into another and
+// a delegated worktree must not read its own freshly-minted marker as dirt.
+func TestInit_ProjectIDMarkerIsIgnored(t *testing.T) {
+	env, err := testenv.NewTestEnvironment()
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
+	require.NoError(t, env.Setup())
+	require.NoError(t, env.InitGitRepo())
+
+	_ = env.Run("init", "--non-interactive")
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	require.True(t, env.FileExists(".ctxloom/project-id"), "init mints the project-id marker")
+
+	ignored, err := env.GitIgnores(".ctxloom/project-id")
+	require.NoError(t, err)
+	assert.True(t, ignored, "git must ignore the private project-id marker in a freshly inited project")
+}
+
 // TestInit_GitMissing_FailsLoudBeforeClone pins PRIME's targeted
 // system-dependency gate (init-as-skill slice ④, coordinator addendum): a
 // machine with no `git` on PATH must fail init loud, naming git, BEFORE the

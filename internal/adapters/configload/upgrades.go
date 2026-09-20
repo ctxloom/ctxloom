@@ -3,7 +3,7 @@ package configload
 import (
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // profileRefCanonicalizeUpgrade rewrites every agents.<name>.profiles entry
@@ -18,7 +18,7 @@ type profileRefCanonicalizeUpgrade struct {
 func (profileRefCanonicalizeUpgrade) Name() string { return "canonicalize agent profile refs" }
 
 func (u profileRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
-	agentsNode := upgrade.MapValue(root, "agents")
+	agentsNode := yamlx.MapValue(root, "agents")
 	if agentsNode == nil || agentsNode.Kind != yaml.MappingNode {
 		return false
 	}
@@ -27,7 +27,7 @@ func (u profileRefCanonicalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 		if agent.Kind != yaml.MappingNode {
 			continue
 		}
-		seq := upgrade.MapValue(agent, "profiles")
+		seq := yamlx.MapValue(agent, "profiles")
 		if seq == nil || seq.Kind != yaml.SequenceNode {
 			continue
 		}

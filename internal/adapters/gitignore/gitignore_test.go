@@ -148,11 +148,25 @@ func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
 		".mcp.json",
 		".claude/",
 		".ctxloom/cache/",
+		".ctxloom/project-id",
 		"CLAUDE.md",
 		".mock/",
 		"MOCK_CONTEXT.md",
 		ledger.Name,
 	}, WorktreeArtifactPatterns)
+}
+
+// TestWorktreeArtifactPatterns_CoverTheProjectIDMarker pins the one
+// artifact ctxloom writes into a linked worktree BEFORE any engine runs:
+// resolveProject mints <worktree>/.ctxloom/project-id on first contact, and
+// the marker is private state (PrivateStatePatterns) so a checkout never
+// carries one. In a repository whose committed .gitignore predates the nested
+// rule, the mint shows up untracked, and the dirty-tree gate refuses to
+// delegate over ctxloom's own artifact.
+func TestWorktreeArtifactPatterns_CoverTheProjectIDMarker(t *testing.T) {
+	assert.Contains(t, WorktreeArtifactPatterns, ".ctxloom/project-id")
+	assert.Contains(t, PrivateStatePatterns, ".ctxloom/project-id",
+		"the worktree exclude and the project's own nested .gitignore must agree the marker is private")
 }
 
 // TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. Every production call site of Ensure /

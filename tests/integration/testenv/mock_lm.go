@@ -11,6 +11,7 @@ import (
 
 	ctxloomconfig "github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // MockLM provides a fake language model for testing.
@@ -106,28 +107,28 @@ func (m *MockLM) WriteConfig() error {
 	// -y.
 	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
 
-	llm := upgrade.EnsureMap(root, "llm")
-	configs := upgrade.EnsureMap(llm, "configs")
+	llm := yamlx.EnsureMap(root, "llm")
+	configs := yamlx.EnsureMap(llm, "configs")
 	mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	upgrade.MapSet(mockNode, "type", upgrade.ScalarNode("mock"))
+	yamlx.MapSet(mockNode, "type", yamlx.ScalarNode("mock"))
 	control := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	upgrade.MapSet(control, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))
+	yamlx.MapSet(control, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))
 	if !m.echo {
-		upgrade.MapSet(control, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(m.Response))
+		yamlx.MapSet(control, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(m.Response))
 	}
-	upgrade.MapSet(control, "CTXLOOM_MOCK_EXIT_CODE", quotedYAMLString(fmt.Sprint(m.ExitCode)))
-	upgrade.MapSet(mockNode, "mock_control", control)
+	yamlx.MapSet(control, "CTXLOOM_MOCK_EXIT_CODE", quotedYAMLString(fmt.Sprint(m.ExitCode)))
+	yamlx.MapSet(mockNode, "mock_control", control)
 	// Only the mock entry is touched — any other engine's llm.configs entry
 	// survives untouched (that survival is the whole point of the fix).
-	upgrade.MapSet(configs, "mock", mockNode)
+	yamlx.MapSet(configs, "mock", mockNode)
 
-	defaults := upgrade.EnsureMap(llm, "defaults")
-	upgrade.MapSet(defaults, "primary", upgrade.ScalarNode("mock"))
+	defaults := yamlx.EnsureMap(llm, "defaults")
+	yamlx.MapSet(defaults, "primary", yamlx.ScalarNode("mock"))
 
-	cfgSection := upgrade.EnsureMap(root, "config")
-	useDistilled := upgrade.ScalarNode("false")
+	cfgSection := yamlx.EnsureMap(root, "config")
+	useDistilled := yamlx.ScalarNode("false")
 	useDistilled.Tag = "!!bool"
-	upgrade.MapSet(cfgSection, "use_distilled", useDistilled)
+	yamlx.MapSet(cfgSection, "use_distilled", useDistilled)
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

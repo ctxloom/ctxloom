@@ -28,7 +28,7 @@ func permittingProbe() func(context.Context, string) error {
 // report absence, and that reporting absence changes the outcome.
 func TestSelect_AProbeThatSaysNoIsBelievedAndTheNextAcceptanceIsUsed(t *testing.T) {
 	p, delivery, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
+		[]Delivery{DeliveryMounted, DeliveryReplicated},
 		SharingShared,
 		WithNamespaceProbe(refusingProbe("unprivileged user namespaces are disabled by policy on this host")),
 		WithProvisionScratch(t.TempDir()),
@@ -46,7 +46,7 @@ func TestSelect_AProbeThatSaysNoIsBelievedAndTheNextAcceptanceIsUsed(t *testing.
 // answerable from the failure itself, not by reading the selection code.
 func TestSelect_RefusesNamingEveryCandidateAndItsReason(t *testing.T) {
 	_, delivery, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
+		[]Delivery{DeliveryMounted, DeliveryReplicated},
 		SharingShared,
 		WithNamespaceBindsPerformed(),
 		WithNamespaceProbe(refusingProbe("userns denied by apparmor")),
@@ -76,7 +76,7 @@ func TestSelect_RefusesNamingEveryCandidateAndItsReason(t *testing.T) {
 // silent substitution this design exists to forbid.
 func TestSelect_RefusesRatherThanSubstitutingAWrongSharing(t *testing.T) {
 	_, _, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
+		[]Delivery{DeliveryMounted, DeliveryReplicated},
 		SharingPrivate,
 		WithNamespaceBindsPerformed(),
 		WithNamespaceProbe(permittingProbe()),
@@ -93,7 +93,7 @@ func TestSelect_RefusesRatherThanSubstitutingAWrongSharing(t *testing.T) {
 // An engine that declared no acceptance has not made a decision, and Select
 // must not make one for it.
 func TestSelect_RefusesAnEmptyDeclaredAcceptance(t *testing.T) {
-	_, _, err := Select(context.Background(), ProvisioningPolicy{}, SharingShared,
+	_, _, err := Select(context.Background(), nil, SharingShared,
 		WithProvisionScratch(t.TempDir()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "declared no acceptance at all")
@@ -104,7 +104,7 @@ func TestSelect_RefusesAnEmptyDeclaredAcceptance(t *testing.T) {
 // so it is refused rather than defaulted.
 func TestSelect_RefusesAnUndeclaredSharing(t *testing.T) {
 	_, _, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted}}, SharingUnset,
+		[]Delivery{DeliveryMounted}, SharingUnset,
 		WithProvisionScratch(t.TempDir()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no sharing was demanded")
@@ -115,7 +115,7 @@ func TestSelect_RefusesAnUndeclaredSharing(t *testing.T) {
 // even though the imperative one would also have worked.
 func TestSelect_HonoursDeclaredPreferenceOrder(t *testing.T) {
 	p, delivery, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted, DeliveryReplicated}},
+		[]Delivery{DeliveryMounted, DeliveryReplicated},
 		SharingShared,
 		WithContainerHome("/root"),
 		WithNamespaceBindsPerformed(),
@@ -133,7 +133,7 @@ func TestSelect_HonoursDeclaredPreferenceOrder(t *testing.T) {
 // walking past it would make the declaration decorative.
 func TestSelect_NeverUsesAnUndeclaredDelivery(t *testing.T) {
 	p, delivery, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryReplicated}},
+		[]Delivery{DeliveryReplicated},
 		SharingShared,
 		WithContainerHome("/root"),
 		WithNamespaceBindsPerformed(),
@@ -151,7 +151,7 @@ func TestSelect_NeverUsesAnUndeclaredDelivery(t *testing.T) {
 func TestSelect_UsesTheRealProbesWhenNoneAreInjected(t *testing.T) {
 	scratch := t.TempDir()
 	p, delivery, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted}}, SharingShared,
+		[]Delivery{DeliveryMounted}, SharingShared,
 		WithNamespaceBindsPerformed(),
 		WithProvisionScratch(scratch))
 	if err != nil {
@@ -177,7 +177,7 @@ func TestSelect_UsesTheRealProbesWhenNoneAreInjected(t *testing.T) {
 // the permitting probe here proves the host was never the reason.
 func TestSelect_RejectsANamespaceMountNobodyWouldPerform(t *testing.T) {
 	_, _, err := Select(context.Background(),
-		ProvisioningPolicy{Accept: []Delivery{DeliveryMounted}}, SharingShared,
+		[]Delivery{DeliveryMounted}, SharingShared,
 		WithNamespaceProbe(permittingProbe()),
 		WithProvisionScratch(t.TempDir()),
 	)

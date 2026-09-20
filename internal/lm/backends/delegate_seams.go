@@ -105,7 +105,7 @@ type InTreeAgentHomeSpec struct {
 	// package's own paths.SessionHomePath-derived helper — the engine package
 	// owns its own leaf, so no two engines can collide under one session root.
 	Dir string
-	// Subdir is the engine's DECLARED leaf (agent.HomeVar.Subdir) — Dir's last
+	// Subdir is the engine's DECLARED leaf (engine.HomeVar.Subdir) — Dir's last
 	// element, stated rather than re-derived, so a run that presents the home
 	// elsewhere (a container's fixed instance root) hangs it at the leaf the
 	// engine declared, never at a guess from the host path.
@@ -144,19 +144,19 @@ type InTreeAgentHomeSpec struct {
 // validation warns and declines, because a caller that got this far with an
 // unusable session name has a bug the run should not paper over.
 //
-// It is DERIVED from the engine's Home declaration, not a slot of its own:
-// the home var and its leaf are the same facts on every axis, so the
-// in-tree instance is <session home>/<leaf> with the declared var pointing at
-// it, prepared by THE ambient copy-in (isolation.CopyAmbient). An engine
-// with Home declared absent (mock: no engine-global home to control) has no
+// It is DERIVED from the engine's Home declaration (Engine.Home), not a slot
+// of its own: the home var and its leaf are the same facts on every axis, so
+// the in-tree instance is <session home>/<leaf> with the declared var
+// pointing at it, prepared by THE ambient copy-in (isolation.CopyAmbient).
+// An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
 func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) {
-	d, exists := lookup(name)
+	kind, exists := Kind(name)
 	if !exists {
 		return InTreeAgentHomeSpec{}, false
 	}
-	home, ok := d.Home.Get()
-	if !ok || harp == "" {
+	home := kind.Home()
+	if !home.Relocates() || harp == "" {
 		return InTreeAgentHomeSpec{}, false
 	}
 	// The error is harp validation (paths.SessionHomePath): an instance
@@ -167,14 +167,14 @@ func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) 
 		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
 		return InTreeAgentHomeSpec{}, false
 	}
-	// ONE var, assumed explicitly: agent.EngineHome.Validate refuses a Home
-	// with more than one var today, so Vars[0] is the var. An engine that
-	// splits config and data across several vars needs this spec to become
-	// a set (one EnvVar/Subdir per var) — lift it here when one does.
+	// ONE var, assumed explicitly: no engine declares more than one today,
+	// so Vars[0] is the var. An engine that splits config and data across
+	// several vars needs this spec to become a set (one EnvVar/Subdir per
+	// var) — lift it here when one does.
 	v := home.Vars[0]
-	engine := string(d.Engine)
+	engine := name
 	return InTreeAgentHomeSpec{
-		EnvVar:  v.EnvVar,
+		EnvVar:  v.Name,
 		Dir:     filepath.Join(root, v.Subdir),
 		Subdir:  v.Subdir,
 		Prepare: func(cwd string) (func() error, error) { return prepareInTreeAmbient(engine, root, cwd) },

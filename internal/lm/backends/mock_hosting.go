@@ -2,7 +2,6 @@ package backends
 
 import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
-	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -62,58 +61,12 @@ func MockHostings() []hosting.Hosting {
 // mockHosting is the shared shape of mock and its doubles.
 func mockHosting(name string, ctor func() *Mock, newConfig func() agent.BackendConfig) hosting.Hosting {
 	return hosting.Hosting{
-		Engine:         engine.Name(name),
-		NewBackend:     func(agent.Launcher) agent.Backend { return ctor() },
-		NewConfig:      newConfig,
-		Surfaces:       mockDeclaration(name),
-		SettingsWriter: agent.Provide(NewMockSettingsWriter),
-		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
-			name + " generates no instance config: it has no config file of its own"),
-		HookGlobalScope: agent.Absent[hosting.HookGlobalScope](name + "'s settings surface is a project-relative file with no user-global twin"),
-		VersionCommand:  agent.Absent[engineversion.Command](name + " has no binary: there is no single version that would mean anything"),
-		// mock keeps NO engine-global config or credential state: a bare echo
-		// compiled into ctxloom that never spawns a grandchild and never
-		// touches disk. This is a NAMED, verified exemption from home
-		// isolation — a real engine that keeps state declares a Home.
-		Home: agent.Absent[agent.EngineHome](name + " keeps no engine-global config or credential state: a bare echo that never touches disk"),
-		// Nothing to provision, for the same reason mock declares no Home and
-		// no credential projector: it authenticates against nothing, so there
-		// is no material whose delivery mechanism could matter. Declared
-		// ABSENT rather than left blank so a test engine cannot be the
-		// undeclared hole in the middle of the gate that closes them.
-		Provisioning: agent.Absent[agent.ProvisioningPolicy](
-			name + " has no credential material to provision: it authenticates against nothing and keeps no engine-global state"),
-		Container: agent.Provide(agent.EngineContainer{
-			// mock installs NO vendor CLI: its engine is the ctxloom binary
-			// itself, which composeAgentContainerfile copies in after every
-			// engine fragment regardless. The fragment's only job is to be
-			// non-nil (so the spec is composable) and to assert the one
-			// mock-specific need — `cat`, for the shared-filesystem probe —
-			// as a build-time gate rather than an assumption. NOT a template
-			// for a real engine, whose fragment must install and validate a
-			// real client.
-			Install:         mockInstallFragment,
-			ValidateCommand: "cat --version",
-			// mock authenticates against no vendor: there is no API key,
-			// token or credential file it could need, so resolution always
-			// succeeds with nothing. A POSITIVE fact about this one engine,
-			// verified by reading its implementation — not a template.
-			Auth:        agent.Provide(agent.ContainerAuth{Vendorless: name + " authenticates against no vendor"}),
-			OverlayDirs: []string{MockConfigDirName},
-			// mock keeps no transcripts (NewMock wires NilSessionHistory), so
-			// there is no native store root to bind-mount.
-			TranscriptStoreRel: "",
-		}),
-		// mock has no vendor-native transcript store; it carries a DEGENERATE
-		// reader anyway because a single-entry reader registry cannot fail —
-		// version dispatch and lookup have no branch to take wrongly with one
-		// engine. See internal/adapters/transcript/vendorreader/mock.
-		TranscriptReaders: agent.Provide(mockreader.VersionedAdapters),
+		Engine:          engine.Name(name),
+		NewBackend:      func(agent.Launcher) agent.Backend { return ctor() },
+		NewConfig:       newConfig,
+		Surfaces:        mockDeclaration(name),
+		SettingsWriter:  engine.Provide(NewMockSettingsWriter),
+		HookGlobalScope: engine.Absent[hosting.HookGlobalScope](name + "'s settings surface is a project-relative file with no user-global twin"),
+		VersionCommand:  engine.Absent[engineversion.Command](name + " has no binary: there is no single version that would mean anything"),
 	}
 }
-
-// mockInstallFragment asserts `cat` (sharedfs.go's probeOneRoot runs `cat
-// /probe/marker` in the image). See mockHosting's Container doc.
-var mockInstallFragment = []byte(`RUN command -v cat >/dev/null 2>&1 \
-    || { echo "ctxloom: this base has no cat (needed by the shared-fs probe, sharedfs.go's probeOneRoot)" >&2; exit 1; }
-`)

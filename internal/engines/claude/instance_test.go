@@ -162,5 +162,7 @@ func TestBuildArgs_IsInstanceExec(t *testing.T) {
 	ex, err := b.exec(req)
 	require.NoError(t, err)
 	require.Equal(t, ex.Args, b.buildArgs(req))
-	require.Equal(t, fmt.Sprint(ex.Env), fmt.Sprint(b.ExecuteEnv(req)))
+	merged := maps.Clone(req.Env)
+	maps.Copy(merged, ex.Env)
+	require.Equal(t, fmt.Sprint(merged), fmt.Sprint(b.ExecuteEnv(req)), "the launch env is the request's with Exec's engine-native vars over it")
 }

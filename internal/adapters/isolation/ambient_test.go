@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -26,17 +27,17 @@ import (
 // edits.
 type recordingInstanceConfig struct {
 	mu       sync.Mutex
-	requests []agent.InstanceConfigRequest
+	requests []engine.InstanceConfigRequest
 	// inFlight/maxInFlight measure overlap, so the serialization test observes
 	// serialization rather than asserting a lock file exists.
 	inFlight    atomic.Int32
 	maxInFlight atomic.Int32
 	hold        time.Duration
-	report      agent.InstanceConfigReport
+	report      engine.InstanceConfigReport
 	err         error
 }
 
-func (r *recordingInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigRequest) (agent.InstanceConfigReport, error) {
+func (r *recordingInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, _ afero.Fs) (engine.InstanceConfigReport, error) {
 	n := r.inFlight.Add(1)
 	for {
 		max := r.maxInFlight.Load()
@@ -55,24 +56,18 @@ func (r *recordingInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigRe
 	return r.report, r.err
 }
 
-func (r *recordingInstanceConfig) seen() []agent.InstanceConfigRequest {
+func (r *recordingInstanceConfig) seen() []engine.InstanceConfigRequest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return append([]agent.InstanceConfigRequest(nil), r.requests...)
+	return append([]engine.InstanceConfigRequest(nil), r.requests...)
 }
 
 // withInstanceConfigWriter declares w as engine's config generator for the
 // duration of the test (nil: none), leaving the engine's other facts as they
 // are; the accessor is restored on cleanup.
-func withInstanceConfigWriter(t *testing.T, engine string, w agent.InstanceConfigWriter) {
+func withInstanceConfigWriter(t *testing.T, name string, w engine.InstanceConfigWriter) {
 	t.Helper()
-	stageEngineFacts(t, engine, func(f *EngineFacts) {
-		if w == nil {
-			f.InstanceConfig = agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter]("no instance config in this test")
-			return
-		}
-		f.InstanceConfig = agent.Provide(func(agent.SettingsOptions) agent.InstanceConfigWriter { return w })
-	})
+	stageEngineFacts(t, name, func(f *EngineFacts) { f.Home.InstanceConfig = w })
 }
 
 // TestAmbientSet_IsAnExplicitAllowListPerEngine is the roster guard the plan
@@ -91,7 +86,7 @@ func TestAmbientSet_IsAnExplicitAllowListPerEngine(t *testing.T) {
 	// and "nobody registered it" is that the former can be read back.
 	const unseeded = "unseeded-fixture"
 	stageEngineFacts(t, unseeded, func(f *EngineFacts) {
-		f.Home = agent.Absent[agent.EngineHome](unseeded + " keeps its credential in a global store no home var moves")
+		f.Home = engine.HomeSpec{} // relocates nothing: nothing to seed
 	})
 
 	names := AmbientEngineNames()
@@ -128,7 +123,7 @@ func TestCopyAmbient_ReachesTheEngineWithTheInstanceAndWorkDir(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	writeCreds(t, home, true)
-	rec := &recordingInstanceConfig{report: agent.InstanceConfigReport{
+	rec := &recordingInstanceConfig{report: engine.InstanceConfigReport{
 		Wrote:    []string{"/generated/.claude.json"},
 		Warnings: []string{"the host .claude.json carries no \"hasCompletedOnboarding\""},
 	}}
@@ -287,11 +282,9 @@ func TestCopyAmbient_ReportsTheDeliveryItGot(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = report.Close() })
 
-	policy, ok := provisioningPolicyDeclared("claude-code")
+	seed, ok := credentialSeedFor("claude-code")
 	require.True(t, ok)
-	accepted, ok := policy.Get()
-	require.True(t, ok)
-	assert.Contains(t, accepted.Accept, report.Delivery,
+	assert.Contains(t, seed.Accept, report.Delivery,
 		"the delivery must be one the engine DECLARED it accepts, never one it was handed")
 	assert.NotEmpty(t, report.Mechanism, "the implementation that placed it must be nameable")
 }

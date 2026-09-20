@@ -18,9 +18,9 @@ import (
 // writes a marker file under the selected root, so a test can assert what
 // was delivered without an engine binary. It provides no dynamic approach
 // unless a test asks (WithDynamic): the static half only, everything through
-// its typed approaches, exactly as Base.Delegate decides. The mock BACKEND
-// that runs today's launches (lm/backends) is a separate value paired with
-// this kind by name at the composition root.
+// its typed approaches, exactly as Base.Delegate decides. The bare kind
+// (New) has no image, so Container refuses; the SHIPPED doubles (Doubles)
+// carry one (WithContainer), because the isolation matrix runs on them.
 
 // Name is the mock kind's registry name. The three doubles are the same
 // kind under another name with one declared difference each: Lossy carries
@@ -41,15 +41,58 @@ const (
 type Mock struct {
 	engine.Base
 	noSkillExport bool
+	container     *engine.ContainerSpec
+	transcripts   []engine.TranscriptReader
 }
 
-// Option adjusts the Definition before Validate.
-type Option func(*engine.Definition)
+// Option adjusts the kind before Validate.
+type Option func(*Mock)
+
+// WithContainer gives the kind an image: mock installs NO vendor CLI — its
+// engine is the ctxloom binary itself, which the image composer copies in
+// after every engine fragment regardless. The fragment's only job is to be
+// non-nil (so the spec is composable) and to assert the one mock-specific
+// need — `cat`, for the shared-filesystem probe — as a build-time gate
+// rather than an assumption. NOT a template for a real engine, whose
+// fragment must install and validate a real client. mock authenticates
+// against no vendor: there is no API key, token or credential file it could
+// need, so resolution always succeeds with nothing — a POSITIVE fact about
+// this one engine, verified by reading its implementation.
+func WithContainer() Option {
+	return func(m *Mock) {
+		m.container = &engine.ContainerSpec{
+			Install:         installFragment,
+			ValidateCommand: "cat --version",
+			Auth:            engine.Provide(engine.ContainerAuth{Vendorless: string(m.Name) + " authenticates against no vendor"}),
+			OverlayDirs:     []string{ConfigDirName},
+			// mock keeps no transcripts, so there is no native store root to
+			// bind-mount.
+			TranscriptStoreRel: "",
+		}
+	}
+}
+
+// WithTranscripts hands the kind the readers of its (degenerate) transcript
+// store: a transcript adapter's values, composed at the root.
+func WithTranscripts(readers ...engine.TranscriptReader) Option {
+	return func(m *Mock) { m.transcripts = append(m.transcripts, readers...) }
+}
+
+// ConfigDirName is the mock engine's project-relative managed-config
+// directory: the one directory its container overlays shadow.
+const ConfigDirName = ".mock"
+
+// installFragment asserts `cat` (the shared-fs probe runs `cat /probe/marker`
+// in the image). See WithContainer.
+var installFragment = []byte(`RUN command -v cat >/dev/null 2>&1 \
+    || { echo "ctxloom: this base has no cat (needed by the shared-fs probe, sharedfs.go's probeOneRoot)" >&2; exit 1; }
+`)
 
 // Without nils the typed field for each kind: the lossy variant the
 // uncarried and requiredness tests use.
 func Without(kinds ...present.Kind) Option {
-	return func(d *engine.Definition) {
+	return func(m *Mock) {
+		d := &m.Definition
 		for _, k := range kinds {
 			switch k {
 			case present.Context:
@@ -72,12 +115,12 @@ func Without(kinds ...present.Kind) Option {
 // WithDistribution sets the shipping policy (registry fixtures use it to
 // stand in for a shippable engine).
 func WithDistribution(d engine.Distribution) Option {
-	return func(def *engine.Definition) { def.Distribution = d }
+	return func(m *Mock) { m.Distribution = d }
 }
 
 // WithDynamic provides a dynamic approach (the delegation tests use it).
 func WithDynamic() Option {
-	return func(d *engine.Definition) { d.Dynamic = &endpointEntry{name: "session-endpoint"} }
+	return func(m *Mock) { m.Dynamic = &endpointEntry{name: "session-endpoint"} }
 }
 
 // endpointEntry is the mock's dynamic approach: it names the session
@@ -92,14 +135,14 @@ func (e *endpointEntry) Endpoint(ep sessions.Endpoint) wire.MCPServer { return e
 
 // WithoutGrammar drops a mode's argv grammar (the incoherence test uses it).
 func WithoutGrammar(mode engine.Mode) Option {
-	return func(d *engine.Definition) {
+	return func(m *Mock) {
 		var keep []engine.CLIGrammar
-		for _, g := range d.CLI {
+		for _, g := range m.CLI {
 			if g.Mode != mode {
 				keep = append(keep, g)
 			}
 		}
-		d.CLI = keep
+		m.CLI = keep
 	}
 }
 
@@ -118,13 +161,15 @@ func NewNamed(name engine.Name, opts ...Option) engine.Engine {
 }
 
 // Doubles builds the mock kind and its three doubles, the set the
-// composition root registers.
-func Doubles() []engine.Engine {
+// composition root registers — each with the container the isolation matrix
+// runs on, and the readers the root hands every one of them.
+func Doubles(opts ...Option) []engine.Engine {
+	shipped := append([]Option{WithContainer()}, opts...)
 	return []engine.Engine{
-		New(),
-		NewNamed(NameLossy),
-		NewNamed(NameLaunch, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills)),
-		NewNoSkills(),
+		New(shipped...),
+		NewNamed(NameLossy, shipped...),
+		NewNamed(NameLaunch, append(shipped, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills))...),
+		NewNoSkills(shipped...),
 	}
 }
 
@@ -132,8 +177,8 @@ func Doubles() []engine.Engine {
 // ENTIRE POINT. Every other kind exports skills, which would leave the
 // missing-skills arm of every caller with nothing to point at; it is a
 // declared difference, so it cannot be "completed" by accident.
-func NewNoSkills() engine.Engine {
-	m := NewNamed(NameNoSkills).(Mock)
+func NewNoSkills(opts ...Option) engine.Engine {
+	m := NewNamed(NameNoSkills, opts...).(Mock)
 	m.noSkillExport = true
 	return m
 }
@@ -166,14 +211,47 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		ModelAliases: map[string]string{},
 		ExportSchema: []byte(`{"type":"object"}`),
 	}
+	m := Mock{Base: engine.Base{Definition: d}}
 	for _, o := range opts {
-		o(&d)
+		o(&m)
 	}
-	b := engine.Base{Definition: d}
-	if err := b.Validate(); err != nil {
+	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	return Mock{Base: b}, nil
+	if m.container != nil {
+		if err := m.container.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Home: mock keeps NO engine-global config or credential state — a bare
+// echo compiled into ctxloom that never spawns a grandchild and never
+// touches disk — so the null object: nothing relocates, nothing seeds.
+func (m Mock) Home() engine.HomeSpec { return engine.HomeSpec{} }
+
+// Container is the image WithContainer gave the kind, or the refusal: the
+// bare conformance double has none.
+func (m Mock) Container() (engine.ContainerSpec, error) {
+	if m.container == nil {
+		return engine.ContainerSpec{}, engine.ErrUnsupported{Engine: m.Name, Capability: "container"}
+	}
+	return *m.container, nil
+}
+
+// Transcripts are the readers WithTranscripts handed the kind; none on the
+// bare double.
+func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
+
+// Hooks: mock fires no hooks, so its codec refuses — unreachable, since no
+// payload arrives.
+func (m Mock) Hooks() engine.HookCodec { return noHooks{m.Name} }
+
+type noHooks struct{ name engine.Name }
+
+func (n noHooks) Decode(string, []byte) (engine.HookEvent, error) {
+	return engine.HookEvent{}, engine.ErrUnsupported{Engine: n.name, Capability: "hooks"}
 }
 
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a

@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
@@ -666,9 +666,9 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 // nothing" is precisely the shape this project's characteristic bug takes.
 func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
 	withFakeHome(t)
-	seed := agent.CredentialSeed{
+	seed := engine.CredentialSeed{
 		Subdir: "phantom",
-		Files:  []agent.SeedFile{{HostRelHome: "nope", DestName: "nope"}},
+		Files:  []engine.SeedFile{{HostRelHome: "nope", DestName: "nope"}},
 	}
 
 	dest := t.TempDir()

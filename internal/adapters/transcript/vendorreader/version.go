@@ -104,14 +104,20 @@ func (r VersionRange) Contains(version string) (bool, error) {
 type VersionedAdapter struct {
 	// Adapter is the parser itself. Its Convert contract is unchanged.
 	Adapter VendorAdapter
-	// Versions is the engine version span this adapter handles.
-	Versions VersionRange
-	// ValidatedVersion is the exact version inside Versions that ctxloom has
+	// Range is the engine version span this adapter handles.
+	Range VersionRange
+	// ValidatedVersion is the exact version inside Range that ctxloom has
 	// actually been run against — the value in .github/engine-versions.env.
-	// It is what turns Versions from an assertion into a citation, and what a
+	// It is what turns Range from an assertion into a citation, and what a
 	// refusal message can point at when a user asks why their version is not
 	// covered.
 	ValidatedVersion string
+}
+
+// Versions makes a VersionedAdapter an engine.TranscriptReader: the port
+// sees the span, the transcript adapter that selects readers sees the rest.
+func (a VersionedAdapter) Versions() (min, max string) {
+	return a.Range.MinInclusive, a.Range.MaxExclusive
 }
 
 // NoRecordedVersionError reports that the session carries no engine version at
@@ -212,11 +218,11 @@ func SelectVersionedAdapter(engine, recordedVersion, harp string, candidates []V
 
 	known := make([]VersionRange, 0, len(candidates))
 	for _, c := range candidates {
-		known = append(known, c.Versions)
+		known = append(known, c.Range)
 	}
 
 	for _, c := range candidates {
-		ok, err := c.Versions.Contains(recordedVersion)
+		ok, err := c.Range.Contains(recordedVersion)
 		if err != nil {
 			// The recorded value is not a version at all. Every candidate
 			// would fail identically, so report it once, here.

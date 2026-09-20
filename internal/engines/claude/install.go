@@ -1,4 +1,4 @@
-package claudeengine
+package claude
 
 // nodeFloorFragment is the prereq an npm-installed engine client
 // depends on: a node that can actually PARSE what npm just landed. It lives

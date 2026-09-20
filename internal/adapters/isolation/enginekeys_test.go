@@ -60,15 +60,15 @@ func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 	assert.Equal(t, []string{ctxloomCacheOverlayDir}, spec.overlayDirs, "an unmapped engine shadows only ctxloom's own cache dir")
 }
 
-// TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves covers the two
-// runtime-populated tables: a writer or a provisioning policy registered under
-// a name is reachable under exactly that name.
+// TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves covers the
+// accessor's name lookup: a writer or a credential seed declared under a
+// name is reachable under exactly that name.
 func TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	_, ok := provisioningPolicyDeclared(claude.EngineName)
-	assert.True(t, ok, "fixture: claude's provisioning policy is registered by TestMain")
+	_, ok := credentialSeedDeclared(claude.EngineName)
+	assert.True(t, ok, "fixture: claude's facts are installed by TestMain")
 	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
 		assert.Nil(t, instanceConfigWriterFor(spelling), "instanceConfigWriterFor(%q)", spelling)
-		_, ok := provisioningPolicyDeclared(spelling)
-		assert.False(t, ok, "provisioningPolicyDeclared(%q)", spelling)
+		_, ok := credentialSeedDeclared(spelling)
+		assert.False(t, ok, "credentialSeedDeclared(%q)", spelling)
 	}
 }

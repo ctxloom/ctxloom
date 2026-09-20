@@ -1,4 +1,4 @@
-package agent
+package engine
 
 import (
 	"testing"
@@ -7,47 +7,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func validHome() EngineHome {
-	return EngineHome{
-		Vars: []HomeVar{{EnvVar: "X_CONFIG_DIR", Subdir: "x"}},
+func validHome() HomeSpec {
+	return HomeSpec{
+		Vars: []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
 		Credentials: Provide(CredentialSeed{
 			Subdir:     "x",
 			EnvTrigger: "X_API_KEY",
 			LoginHint:  "x login",
 			Files:      []SeedFile{{HostRelHome: ".x/creds.json", DestName: "creds.json", Required: true}},
+			Accept:     []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryReplicated},
 		}),
 	}
 }
 
-func TestEngineHome_Validate_AcceptsACompleteDeclaration(t *testing.T) {
-	require.NoError(t, validHome().Validate())
+// TestHomeSpec_ZeroValue_IsTheNullObject: an engine that keeps no home
+// returns the zero spec, and it validates — nothing is relocated, nothing is
+// seeded, and no Declared slot has to be written for it.
+func TestHomeSpec_ZeroValue_IsTheNullObject(t *testing.T) {
+	var zero HomeSpec
+	require.NoError(t, zero.Validate())
+	assert.False(t, zero.Relocates())
+	_, seeds := zero.Credentials.Get()
+	assert.False(t, seeds)
 }
 
-func TestEngineHome_Validate_RefusesNoVars(t *testing.T) {
-	h := validHome()
-	h.Vars = nil
+// A seed without a var to land under is refused even on an otherwise-zero
+// spec: there is nowhere for it to go.
+func TestHomeSpec_Validate_RefusesASeedWithNoVar(t *testing.T) {
+	h := HomeSpec{Credentials: Provide(CredentialSeed{Subdir: "x"})}
 	assert.ErrorContains(t, h.Validate(), "no home var")
 }
 
-func TestEngineHome_Validate_RefusesEmptyVarFields(t *testing.T) {
+// A seed that names no delivery it accepts is refused HERE: the material and
+// the way it may reach the instance are one declaration.
+func TestHomeSpec_Validate_RefusesASeedAcceptingNothing(t *testing.T) {
+	h := validHome()
+	seed, _ := h.Credentials.Get()
+	seed.Accept = nil
+	h.Credentials = Provide(seed)
+	assert.ErrorContains(t, h.Validate(), "Accept is empty")
+}
+
+func TestHomeSpec_Validate_AcceptsACompleteDeclaration(t *testing.T) {
+	require.NoError(t, validHome().Validate())
+}
+
+
+func TestHomeSpec_Validate_RefusesEmptyVarFields(t *testing.T) {
 	h := validHome()
 	h.Vars[0].Subdir = ""
 	assert.ErrorContains(t, h.Validate(), "Subdir")
 	h = validHome()
-	h.Vars[0].EnvVar = ""
-	assert.ErrorContains(t, h.Validate(), "EnvVar")
+	h.Vars[0].Name = ""
+	assert.ErrorContains(t, h.Validate(), "Name")
 }
 
 // An undecided Credentials slot is the omission the type family exists to
 // refuse: an engine with a relocatable home MUST say whether its credentials
 // move with it.
-func TestEngineHome_Validate_RefusesUndecidedCredentials(t *testing.T) {
+func TestHomeSpec_Validate_RefusesUndecidedCredentials(t *testing.T) {
 	h := validHome()
 	h.Credentials = Declared[CredentialSeed]{}
 	assert.ErrorContains(t, h.Validate(), "Credentials")
 }
 
-func TestEngineHome_Validate_AcceptsAbsentCredentials(t *testing.T) {
+func TestHomeSpec_Validate_AcceptsAbsentCredentials(t *testing.T) {
 	h := validHome()
 	h.Credentials = Absent[CredentialSeed]("creds live in the OS keychain, which no env var relocates")
 	assert.NoError(t, h.Validate())
@@ -56,7 +80,7 @@ func TestEngineHome_Validate_AcceptsAbsentCredentials(t *testing.T) {
 // The seed's Subdir must be one the engine's own home var points at:
 // otherwise the seed lands where the engine never looks, and the run starts
 // logged out while reporting success.
-func TestEngineHome_Validate_RefusesSeedSubdirNoVarNames(t *testing.T) {
+func TestHomeSpec_Validate_RefusesSeedSubdirNoVarNames(t *testing.T) {
 	h := validHome()
 	seed, _ := h.Credentials.Get()
 	seed.Subdir = "elsewhere"
@@ -64,7 +88,7 @@ func TestEngineHome_Validate_RefusesSeedSubdirNoVarNames(t *testing.T) {
 	assert.ErrorContains(t, h.Validate(), "elsewhere")
 }
 
-func TestEngineHome_Validate_RefusesSeedWithoutRequiredFile(t *testing.T) {
+func TestHomeSpec_Validate_RefusesSeedWithoutRequiredFile(t *testing.T) {
 	h := validHome()
 	seed, _ := h.Credentials.Get()
 	seed.Files[0].Required = false
@@ -72,7 +96,7 @@ func TestEngineHome_Validate_RefusesSeedWithoutRequiredFile(t *testing.T) {
 	assert.ErrorContains(t, h.Validate(), "Required")
 }
 
-func TestEngineHome_Validate_RefusesSeedWithoutLoginHint(t *testing.T) {
+func TestHomeSpec_Validate_RefusesSeedWithoutLoginHint(t *testing.T) {
 	h := validHome()
 	seed, _ := h.Credentials.Get()
 	seed.LoginHint = ""
@@ -80,8 +104,8 @@ func TestEngineHome_Validate_RefusesSeedWithoutLoginHint(t *testing.T) {
 	assert.ErrorContains(t, h.Validate(), "LoginHint")
 }
 
-func validContainer() EngineContainer {
-	return EngineContainer{
+func validContainer() ContainerSpec {
+	return ContainerSpec{
 		Install:         []byte("RUN true\n"),
 		ValidateCommand: "x --version",
 		Auth: Provide(ContainerAuth{
@@ -95,17 +119,17 @@ func validContainer() EngineContainer {
 	}
 }
 
-func TestEngineContainer_Validate_AcceptsACompleteDeclaration(t *testing.T) {
+func TestContainerSpec_Validate_AcceptsACompleteDeclaration(t *testing.T) {
 	require.NoError(t, validContainer().Validate())
 }
 
-func TestEngineContainer_Validate_RefusesUndecidedAuth(t *testing.T) {
+func TestContainerSpec_Validate_RefusesUndecidedAuth(t *testing.T) {
 	c := validContainer()
 	c.Auth = Declared[ContainerAuth]{}
 	assert.ErrorContains(t, c.Validate(), "Auth")
 }
 
-func TestEngineContainer_Validate_RefusesInstallWithoutValidate(t *testing.T) {
+func TestContainerSpec_Validate_RefusesInstallWithoutValidate(t *testing.T) {
 	c := validContainer()
 	c.ValidateCommand = ""
 	assert.ErrorContains(t, c.Validate(), "ValidateCommand")

@@ -69,10 +69,14 @@ func TestDelivery_PrefaceItemsRideTheEndpoint_EveryOtherItemIsAFile(t *testing.T
 			// item was withheld by the delegation.
 			_, err = root.Context.DeliverContext(start, item.Root, engine.ContextInputs{Text: []byte(alwaysBody)}, fs)
 		case present.MCP:
-			servers := append([]wire.MCPServer{root.Dynamic.Endpoint(ep)}, items.MCP...)
+			// The endpoint entry rides under the dynamic approach's own name: the
+			// writer rebuilds an entry named for ctxloom's OWN stdio server from
+			// its own definition (agent.ResolveManagedMCPServers), which is the
+			// control-plane guard, not this channel.
+			servers := map[string]wire.MCPServer{root.Dynamic.Name(): root.Dynamic.Endpoint(ep), "probe": items.MCP[0]}
 			_, err = root.MCP.DeliverMCP(start, item.Root, engine.MCPInputs{Servers: servers}, fs)
 		case present.Hooks:
-			_, err = root.Hooks.DeliverHooks(start, item.Root, engine.HooksInputs{Hooks: items.Hooks}, fs)
+			_, err = root.Hooks.DeliverHooks(start, item.Root, engine.HooksInputs{Hooks: wire.UnifiedHooks{SessionStart: items.Hooks}}, fs)
 		case present.Commands:
 			_, err = root.Commands.DeliverCommands(start, item.Root, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "go", Body: []byte(commandBody), Enabled: true}}}, fs)
 		case present.Settings:

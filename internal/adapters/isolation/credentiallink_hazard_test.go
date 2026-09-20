@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 )
 
 // WHY THIS FILE EXISTS.
@@ -218,10 +217,10 @@ func TestCredentialSymlink_IsRefusedByAnONOFOLLOWReader(t *testing.T) {
 // engine which later SPLITS the two leaves makes this test fail and reopens
 // the option deliberately.
 func TestClaudeCredentialSharesItsLeafWithTheInstanceConfig(t *testing.T) {
-	desc := claudeengine.Hosting()
-
-	home, ok := desc.Home.Get()
-	require.True(t, ok, "claude declares an engine home")
+	kind, err := claude.Build()
+	require.NoError(t, err)
+	home := kind.Home()
+	require.True(t, home.Relocates(), "claude declares an engine home")
 
 	seed, ok := home.Credentials.Get()
 	require.True(t, ok, "claude declares a credential seed")

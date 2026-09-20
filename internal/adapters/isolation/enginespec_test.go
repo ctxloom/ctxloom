@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -73,10 +72,10 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 func registerVendorlessFixture(t *testing.T, name string, dist engine.Distribution) {
 	t.Helper()
 	stageEngineFacts(t, name, func(f *EngineFacts) {
-		f.Container = agent.Provide(agent.EngineContainer{
+		f.Container = engine.Provide(engine.ContainerSpec{
 			Install:            []byte("RUN command -v cat\n"),
 			ValidateCommand:    "cat --version",
-			Auth:               agent.Provide(agent.ContainerAuth{Vendorless: name + " authenticates against no vendor"}),
+			Auth:               engine.Provide(engine.ContainerAuth{Vendorless: name + " authenticates against no vendor"}),
 			OverlayDirs:        []string{".mock"},
 			TranscriptStoreRel: "",
 		})
@@ -105,7 +104,7 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 	// The hint is read only when resolveAuth answers !ok, which a vendorless
 	// resolver never does, so the ONE string the field can carry here is a
 	// sentinel that says so. The declaration side already forbids a real
-	// hint (agent.ContainerAuth.Validate: Vendorless excludes Hint); this
+	// hint (engine.ContainerAuth.Validate: Vendorless excludes Hint); this
 	// pins the spec side, so the error a broken invariant would print names
 	// the invariant rather than a vendor credential that does not exist.
 	assert.True(t, strings.HasPrefix(p.authHint, "unreachable:"), "authHint = %q", p.authHint)
@@ -129,7 +128,7 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 func TestEngineContainerSpecFor_DeclaredAbsentFailsClosed(t *testing.T) {
 	const name = "no-container-fixture"
 	stageEngineFacts(t, name, func(f *EngineFacts) {
-		f.Container = agent.Absent[agent.EngineContainer](name + " has no container story")
+		f.Container = engine.Absent[engine.ContainerSpec](name + " has no container story")
 		f.Distribution = engine.DistributionDefault
 	})
 
@@ -233,20 +232,20 @@ func TestContainerAuthEngines_MatchesTheTable(t *testing.T) {
 
 // renamingCredentialFixtureHostRel is the one host file both halves of
 // registerRenamingCredentialFixture's declaration name — the shared join key
-// (agent.SeedFile.HostRelHome / agent.CredentialFile.HostRelHome) a real
+// (engine.SeedFile.HostRelHome / engine.CredentialFile.HostRelHome) a real
 // engine also shares between its two independent declarations.
 const renamingCredentialFixtureHostRel = "fixture/creds.json"
 
 // renamingCredentialFixtureDestName is the leaf the fixture's credential seed
-// declares (agent.SeedFile.DestName) — DELIBERATELY not
+// declares (engine.SeedFile.DestName) — DELIBERATELY not
 // path.Base(renamingCredentialFixtureHostRel) ("creds.json"), because every
 // SHIPPED engine's two declarations happen to agree on that leaf and so
 // cannot exercise this divergence at all.
 const renamingCredentialFixtureDestName = "renamed-creds.json"
 
 // registerRenamingCredentialFixture registers an engine whose credential
-// SEED (the copy path, agent.CredentialSeed.Files) and whose container AUTH
-// (the mount path, agent.ContainerAuth.CredentialFiles) declare the SAME
+// SEED (the copy path, engine.CredentialSeed.Files) and whose container AUTH
+// (the mount path, engine.ContainerAuth.CredentialFiles) declare the SAME
 // host file via the shared HostRelHome, but where the seed renames it on
 // copy: DestName differs from ContainerRelHome's own leaf. This is the case
 // relocatedCredentialMounts must resolve by reading the declared DestName —
@@ -254,19 +253,20 @@ const renamingCredentialFixtureDestName = "renamed-creds.json"
 func registerRenamingCredentialFixture(t *testing.T, name string) {
 	t.Helper()
 	stageEngineFacts(t, name, func(f *EngineFacts) {
-		f.Home = agent.Provide(agent.EngineHome{Credentials: agent.Provide(agent.CredentialSeed{
+		f.Home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture-home"}}, Credentials: engine.Provide(engine.CredentialSeed{
 			Subdir:    "fixture-home",
 			LoginHint: name + " login",
-			Files: []agent.SeedFile{
+			Files: []engine.SeedFile{
 				{HostRelHome: renamingCredentialFixtureHostRel, DestName: renamingCredentialFixtureDestName, Required: true},
 			},
-		})})
-		f.Container = agent.Provide(agent.EngineContainer{
+			Accept: []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
+		})}
+		f.Container = engine.Provide(engine.ContainerSpec{
 			Install:         []byte("RUN command -v cat\n"),
 			ValidateCommand: "cat --version",
-			Auth: agent.Provide(agent.ContainerAuth{
+			Auth: engine.Provide(engine.ContainerAuth{
 				EnvTriggers: []string{"CTXLOOM_TEST_NEVER_SET_" + name},
-				CredentialFiles: []agent.CredentialFile{
+				CredentialFiles: []engine.CredentialFile{
 					{HostRelHome: renamingCredentialFixtureHostRel, ContainerRelHome: renamingCredentialFixtureHostRel},
 				},
 				Hint: name + " has no credential to authenticate with",

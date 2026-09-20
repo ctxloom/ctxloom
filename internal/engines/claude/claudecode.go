@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -27,10 +30,8 @@ type ClaudeConfig struct {
 	Args       []string `mapstructure:"args"`
 	// Thinking is the normalized reasoning/thinking-budget level
 	// (off|low|medium|high — agent.ThinkingLevel). Empty or unrecognized
-	// defaults to "medium". See chat.go's translation to claude's
-	// MAX_THINKING_TOKENS env var — the load-bearing fix for the bug where
-	// ctxloom never set that variable at all, so claude-code-acp never
-	// generated any thinking (0 thought chunks, verified live).
+	// defaults to "medium". Accepted and validated; no launch of this
+	// package carries it (see ClaudeCode.thinking).
 	Thinking string `mapstructure:"thinking"`
 }
 
@@ -42,17 +43,19 @@ func (ClaudeConfig) BackendType() string { return EngineName }
 // agent.LaunchBackend; ClaudeCode adds only the Claude-specific Configure/Execute.
 type ClaudeCode struct {
 	agent.LaunchBackend
+	// kind is the engine KIND this backend projects requests onto: every
+	// argv this backend runs is kind.Instance(session).Exec(presented).
+	kind engine.Engine
 	// gate tracks whether claude is currently showing a modal, so a
 	// coordinator wake is withheld rather than answering the prompt for the
 	// human. It satisfies agent.InputGate; see inputgate.go for the
 	// measurement it rests on. Kept by VALUE, so a ClaudeCode must not be
 	// copied once in use — nothing copies one today (it is always *ClaudeCode).
 	gate inputGate
-	// thinking is the resolved normalized reasoning level (Configure defaults
-	// it to agent.ThinkingMedium — the Go zero value happens to be
-	// ThinkingOff, so an unconfigured backend must NOT rely on the zero
-	// value; NewClaudeCode sets it explicitly). Chat translates it into
-	// claude's MAX_THINKING_TOKENS env var.
+	// thinking is the resolved normalized reasoning level from the label's
+	// config (Configure defaults it to agent.ThinkingMedium). NOTHING READS
+	// IT: no argv or env of this package carries it, so the knob is accepted
+	// and validated but has no effect on a launch.
 	thinking agent.ThinkingLevel
 	// openChatTransport, when set, replaces spawnChatTransport as Chat's
 	// process I/O seam (see chat_run.go) — the hook chat_run_test.go uses to
@@ -66,7 +69,11 @@ type ClaudeCode struct {
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
 func NewClaudeCode() *ClaudeCode {
-	b := &ClaudeCode{}
+	kind, err := Build()
+	if err != nil {
+		panic(err) // the Definition literal is constant; conformance holds it valid
+	}
+	b := &ClaudeCode{kind: kind}
 	b.BaseBackend = agent.NewBaseBackend(EngineName, "1.0.0")
 	b.BinaryPath = "claude"
 	// claude routes launch-time surface delivery through the surfaces × cells
@@ -110,6 +117,67 @@ func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
 	}
 }
 
+// session projects an execute request onto the engine-facing Session the
+// instance is bound to: the harp the run env carries, the label's binary
+// and args, the model, the mode and posture, the delivered MCP server names
+// (the plan grant), the prompt, the working directory Setup recorded and
+// the relocated home the run env names.
+func (b *ClaudeCode) session(req *agent.ExecuteRequest) engine.Session {
+	s := engine.Session{
+		Identity:   sessions.Identity{Harp: req.Env[sessionHarpEnv]},
+		Label:      engine.LabelConfig{Label: EngineName, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
+		Mode:       req.Mode,
+		Permission: req.Permissions,
+		MCPServers: mcpServerNames(b.Resolved()),
+		Prompt:     agent.GetPromptContent(req.Prompt),
+		WorkDir:    b.WorkDir(),
+	}
+	if home := req.Env[ConfigDirEnv]; home != "" {
+		s.Home = []engine.HomeBinding{{Var: ConfigDirEnv, Path: home}}
+	}
+	return s
+}
+
+// presented is what Setup delivered, as the presentations Exec reads: the
+// out-of-cwd flag each delivered surface announced with the path it wrote
+// (context, MCP, settings, in the resolved selection's order — argv order
+// is observable: a VARIADIC claude flag landing last before a positional
+// swallows it), then the minimal posture as an argv-only presentation when
+// Setup resolved LaunchFormMinimal. A surface whose Path() is "" wrote
+// nothing and presents nothing, so claude is never handed a flag naming a
+// file that was not written.
+func (b *ClaudeCode) presented() []present.Presentation {
+	var out []present.Presentation
+	if resolved := b.Resolved(); resolved != nil {
+		noRoots := present.New(present.OnHost(present.Paths{}))
+		for _, ra := range resolved.Approaches() {
+			p, ok := ra.Approach.(pathed)
+			if !ok || p.Path() == "" {
+				continue
+			}
+			announced := ra.Approach.Present(noRoots).Args
+			if len(announced) == 0 {
+				continue
+			}
+			out = append(out, present.Presentation{HostPath: p.Path(), EnginePath: p.Path(), Args: []string{announced[0], p.Path()}})
+		}
+	}
+	if minimal := b.MinimalArgs(); len(minimal) > 0 {
+		out = append(out, present.Presentation{Args: minimal})
+	}
+	return out
+}
+
+// exec is the request's Exec: the instance bound to the request's session,
+// over what Setup delivered.
+func (b *ClaudeCode) exec(req *agent.ExecuteRequest) (engine.Exec, error) {
+	inst, err := b.kind.Instance(b.session(req))
+	if err != nil {
+		return engine.Exec{}, err
+	}
+	return inst.Exec(b.presented())
+}
+
 // Execute runs the backend with the given request.
 func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
 	// Best-effort model identity. In minimal mode this is overwritten below with
@@ -135,7 +203,12 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 	// --output-format json was emitted, so asking the argv is asking the one
 	// thing that can answer; a flag read here would be a second decision site
 	// for a fact buildArgs already settled, free to disagree with it.
-	args := b.buildArgs(req)
+	ex, err := b.exec(req)
+	if err != nil {
+		return nil, err
+	}
+	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env })
+	args := ex.Args
 	if !req.DryRun && req.Mode == agent.ModeOneshot && wantsJSONEnvelope(args) {
 		b.TraceArgs(req.Verbosity, args, stderr)
 		env := b.ExecuteEnv(req)
@@ -401,87 +474,15 @@ func minimalModeArgs(model string) []string {
 	}
 }
 
-// buildArgs constructs the command-line arguments.
+// buildArgs is the request's argv: Instance.Exec's, and nothing composed
+// here (TestBuildArgs_IsInstanceExec pins the delegation; the launch golden
+// pins the bytes).
 func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
-	args := make([]string, len(b.Args))
-	copy(args, b.Args)
-
-	args = append(args, permissionArgs(req.Permissions, mcpServerNames(b.Resolved()))...)
-
-	// The model is resolved by the caller (the fast role's labeled config for
-	// compression, the primary role's for coding); the backend no longer
-	// substitutes a fast-model default. An empty model lets the CLI pick.
-	if req.Model != "" {
-		args = append(args, flagModel, req.Model)
+	ex, err := b.exec(req)
+	if err != nil {
+		panic(err) // the kind carries a context surface; Instance cannot refuse it
 	}
-
-	// Name the interactive session after ctxloom's harp so claude's prompt box,
-	// /resume picker, and terminal title match the session identity. Oneshot and
-	// minimal runs are throwaway (often --no-session-persistence), so they stay
-	// unnamed.
-	if req.Mode == agent.ModeInteractive {
-		args = append(args, sessionNameArgs(req.Env)...)
-	}
-
-	if req.Mode == agent.ModeOneshot {
-		args = append(args, flagPrint)
-	}
-
-	// The launch argv Setup RESOLVED for this run, emitted unconditionally.
-	// There is nothing to decide here: both halves are empty unless Setup put
-	// something in them, and the form that fills one never fills the other.
-	//
-	// flagArgs names the out-of-cwd files the surfaces recorded —
-	// --append-system-prompt-file for the framed context (in place of a
-	// SessionStart injection hook), --mcp-config for the managed MCP set,
-	// --settings for the managed hooks/statusline. --mcp-config is used WITHOUT
-	// --strict-mcp-config so claude LAYERS ctxloom's out-of-cwd servers on top
-	// of the user's project .mcp.json rather than replacing it — ctxloom stays
-	// out of the cwd while the user's own servers still load. (--settings
-	// likewise layers over the user's .claude/settings.json.) A surface's
-	// Path() is "" when nothing stands behind it — empty context/MCP/hooks, a
-	// context that fell back to the injection hook, an isolated cell whose
-	// surfaces are the well-known files in cwd, a failed write — and
-	// contributes no flag, so claude is never handed a flag naming a file that
-	// was not written.
-	//
-	// MinimalArgs is the engine's declared headless posture, non-nil only after
-	// a Setup on LaunchFormMinimal; that form resolves no surfaces, so
-	// flagArgs is empty whenever this is not.
-	args = append(args, flagArgs(b.Resolved())...)
-	args = append(args, b.MinimalArgs()...)
-
-	// Interactive delivers the initial prompt as an argv positional (it's short —
-	// a human typed it). Oneshot pipes the task on stdin instead (see promptStdin /
-	// Execute), so a large task (a diff to review, a session to compact) can't
-	// exceed the OS argv length limit — the E2BIG that broke `ctxloom weave`
-	// synthesis. buildArgs omits it here for oneshot; claude -p reads it from stdin.
-	//
-	// The prompt is preceded by an explicit "--" terminator. Several of the
-	// flags above are VARIADIC in claude's own parser (`claude --help` declares
-	// --disallowedTools <tools...>, --tools <tools...>, --mcp-config
-	// <configs...>), so whichever one lands last before the positional
-	// SWALLOWS the prompt as flag values. Live repro, claude 2.1.220:
-	//
-	//	claude -p --tools "" --disallowedTools "Bash,Edit" "Reply with exactly: PROMPTOK"
-	//	  -> Permission deny rule "Reply" matches no known tool  (x4)
-	//	     Error: Input must be provided...
-	//
-	// and the same prompt turned into a path with --mcp-config. The reachable
-	// argv is ordinary: PermissionPlan + interactive + no --model + no harp +
-	// an isolated cell (which skips the surface flags above) emits
-	// `--permission-mode plan --disallowedTools Bash,Edit,Write,NotebookEdit
-	// <prompt>`. Before the terminator, safety here was incidental — it held
-	// only while --model or --name happened to follow. "--" is emitted only
-	// when there IS a positional; a trailing bare "--" would be
-	// noise, and claude has no other positional to protect.
-	if req.Mode == agent.ModeInteractive {
-		if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {
-			args = append(args, "--", prompt)
-		}
-	}
-
-	return args
+	return ex.Args
 }
 
 // promptStdin returns the oneshot task as a stdin reader for claude -p, or nil

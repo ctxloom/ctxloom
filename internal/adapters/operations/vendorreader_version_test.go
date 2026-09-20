@@ -30,8 +30,8 @@ const stubEngineVersion = "2.1.225"
 // exercising conversion, not selection.
 func stubVersionedAdapter(a vendorreader.VendorAdapter) []vendorreader.VersionedAdapter {
 	return []vendorreader.VersionedAdapter{{
-		Adapter:  a,
-		Versions: vendorreader.VersionRange{MinInclusive: "0.0.1"},
+		Adapter: a,
+		Range:   vendorreader.VersionRange{MinInclusive: "0.0.1"},
 	}}
 }
 
@@ -44,8 +44,11 @@ func registerReaderFixture(t *testing.T, a vendorreader.VendorAdapter) string {
 	t.Helper()
 	name := "fixture-reader-" + strings.ToLower(strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()))
 	d := enginefixture.Hosting(name)
-	d.TranscriptReaders = agent.Provide(stubVersionedAdapter(a))
-	require.NoError(t, backends.Register(enginefixture.Registry(d), d))
+	var readers []engine.TranscriptReader
+	for _, va := range stubVersionedAdapter(a) {
+		readers = append(readers, va)
+	}
+	require.NoError(t, backends.Register(enginefixture.RegistryOf(enginefixture.Kind(name, mock.WithTranscripts(readers...))), d))
 	t.Cleanup(func() { backends.UnregisterForTesting(name) })
 	return name
 }

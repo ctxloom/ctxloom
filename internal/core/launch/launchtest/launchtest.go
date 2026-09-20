@@ -274,6 +274,13 @@ func (fixtureEngine) Instance(engine.Session) (engine.Instance, error) {
 }
 
 // Exports exports every item as-is: the fixture decodes no block.
+func (fixtureEngine) Home() engine.HomeSpec { return engine.HomeSpec{} }
+func (e fixtureEngine) Container() (engine.ContainerSpec, error) {
+	return engine.ContainerSpec{}, engine.ErrUnsupported{Engine: e.Name, Capability: "container"}
+}
+func (fixtureEngine) Transcripts() []engine.TranscriptReader { return nil }
+func (fixtureEngine) Hooks() engine.HookCodec                { return nil }
+
 func (fixtureEngine) Exports(items engine.Items) (engine.Exports, error) {
 	var out engine.Exports
 	for _, c := range items.Commands {

@@ -90,7 +90,7 @@ type vendorReaderEntry struct {
 // resurrecting the deleted reader's claude cwd→slug bug (ADR 0035 names it,
 // and this sidestep).
 func vendorReaderFor(engine string) (vendorReaderEntry, bool) {
-	adapters, ok := backends.TranscriptReadersFor(engine).Get()
+	adapters, ok := backends.TranscriptReadersFor(engine)
 	if !ok {
 		return vendorReaderEntry{}, false
 	}
@@ -100,8 +100,7 @@ func vendorReaderFor(engine string) (vendorReaderEntry, bool) {
 // VendorReaderEngineNames returns the registered backend names that declare
 // a vendor reader, sorted. Derived from the registry on every call, so a
 // newly registered engine that declares readers appears here without an
-// edit; an engine that declares them absent does not, and its reason is
-// readable through backends.TranscriptReadersFor.
+// edit; an engine whose Transcripts() is empty does not.
 func VendorReaderEngineNames() []string {
 	return backends.ListWhere(func(name string) bool {
 		_, ok := vendorReaderFor(name)

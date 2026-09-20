@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
@@ -196,9 +197,9 @@ func TestExec_LaunchParity_Golden(t *testing.T) {
 
 // TestChatArgs_Parity_Golden pins the STRUCTURED drive's argv — the
 // stream-json conversation the runner hosts — over posture × model × resume
-// × mcp-config, captured before the composition moved onto Instance.Exec.
-// The structured argv had no pin before this; the capture makes the move
-// reviewable.
+// × mcp-config. The golden was first captured from the separate chatArgs
+// composition; it now holds the Instance's Exec plus the driver's protocol:
+// the same flags, in Exec's order, since ONE place composes argv.
 func TestChatArgs_Parity_Golden(t *testing.T) {
 	b := NewClaudeCode()
 	var out strings.Builder
@@ -213,7 +214,11 @@ func TestChatArgs_Parity_Golden(t *testing.T) {
 					if mcp != "" {
 						req.MCPServers = []agent.ChatMCPServer{{Name: "probe"}}
 					}
-					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(b.chatArgs(req, mcp), " "))
+					req.MCPConfigPath = mcp
+					inst, ex, err := b.chatExec(req)
+					require.NoError(t, err)
+					argv := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
+					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(argv, " "))
 				}
 			}
 		}

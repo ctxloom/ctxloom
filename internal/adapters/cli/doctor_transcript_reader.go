@@ -89,7 +89,7 @@ func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe
 		}
 		lines = append(lines, fmt.Sprintf(
 			"%s %s: reader %T, validated for %s (checked against %s); ctxloom carries %s",
-			engine, version, selected.Adapter, selected.Versions.String(), selected.ValidatedVersion, carried))
+			engine, version, selected.Adapter, selected.Range.String(), selected.ValidatedVersion, carried))
 	}
 
 	if len(lines) == 0 {
@@ -114,7 +114,7 @@ func doctorReaderRanges(adapters []vendorreader.VersionedAdapter) string {
 	}
 	parts := make([]string, 0, len(adapters))
 	for _, a := range adapters {
-		parts = append(parts, a.Versions.String())
+		parts = append(parts, a.Range.String())
 	}
 	return strings.Join(parts, ", ")
 }

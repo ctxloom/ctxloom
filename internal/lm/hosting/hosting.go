@@ -1,9 +1,10 @@
-// Package hosting is the instance half of the engine port as it stands
-// until the runner lands: the record (Hosting) an engine package authors so
-// internal/lm/backends can RUN its kind — the backend constructor, the
-// writers, the export projections, the home and container stories, the
-// transcript readers. Everything DECLARATIVE lives on the kind
-// (engine.Definition); a Hosting is paired with its kind by name at
+// Package hosting is what internal/lm/backends still needs to RUN an engine
+// kind that the port does not yet carry: the backend constructor, the
+// typed config, the named-form table, the settings writer, the hook scope
+// guard, the version command and the capability reasons. Everything
+// DECLARATIVE lives on the kind (engine.Definition); the home, container
+// and transcript stories are the kind's own (Engine.Home, Engine.Container,
+// Engine.Transcripts). A Hosting is paired with its kind by name at
 // registration. Nothing here names an engine. The package dies with
 // lm/backends.
 package hosting
@@ -14,13 +15,12 @@ import (
 	"reflect"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
-	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // Hosting is one engine's hosting record. Every optional capability is an
-// agent.Declared slot, so absence is a stated reason rather than a nil,
+// engine.Declared slot, so absence is a stated reason rather than a nil,
 // and Validate refuses a slot nobody decided.
 type Hosting struct {
 	// Engine names the kind this record hosts: the registry key, and what
@@ -44,34 +44,14 @@ type Hosting struct {
 	Surfaces agent.Declaration
 
 	// SettingsWriter constructs the engine's settings writer.
-	SettingsWriter agent.Declared[func(agent.SettingsOptions) agent.SettingsWriter]
-	// InstanceConfig constructs the engine-owned generator of its own
-	// top-level config file inside a config home ctxloom provisioned.
-	InstanceConfig agent.Declared[func(agent.SettingsOptions) agent.InstanceConfigWriter]
+	SettingsWriter engine.Declared[func(agent.SettingsOptions) agent.SettingsWriter]
 	// HookGlobalScope is the project/global settings-path collision guard
 	// `manage hooks install` applies. Absent = audited, the global path never
 	// collapses onto the project path.
-	HookGlobalScope agent.Declared[HookGlobalScope]
+	HookGlobalScope engine.Declared[HookGlobalScope]
 	// VersionCommand is how to ask the engine's binary for its version.
 	// Absent = the engine cannot be asked (no binary).
-	VersionCommand agent.Declared[engineversion.Command]
-	// Home is how the engine's global config/credential home relocates per
-	// agent. Absent = the engine keeps no engine-global state to isolate.
-	Home agent.Declared[agent.EngineHome]
-	// Provisioning is what the engine will accept as the way its credential
-	// material reaches a per-session instance home, in preference order.
-	// Absent = the engine keeps no material that needs provisioning, with the
-	// reason. It is a DECLARATION only: nothing in the launch path reads it
-	// yet, and it is declared first so that when something does, no engine is
-	// silently given a mechanism nobody chose for it.
-	Provisioning agent.Declared[agent.ProvisioningPolicy]
-	// Container is how a containerized run of the engine is built and
-	// authenticated. Absent = no container story; a `runtime: container`
-	// binding is refused and a run fails closed.
-	Container agent.Declared[agent.EngineContainer]
-	// TranscriptReaders are the version-scoped adapters that read the
-	// engine's own transcript store back into a canonical transcript.
-	TranscriptReaders agent.Declared[[]vendorreader.VersionedAdapter]
+	VersionCommand engine.Declared[engineversion.Command]
 
 	// NoHooksReason declares the engine has NO hook mechanism at all. Empty =
 	// it carries hooks.
@@ -100,7 +80,7 @@ type HookGlobalScope struct {
 	Label string
 }
 
-// decided is the interface every agent.Declared instantiation satisfies; it
+// decided is the interface every engine.Declared instantiation satisfies; it
 // is how Validate finds the Declared slots without a list.
 type decided interface{ Decided() bool }
 
@@ -149,35 +129,11 @@ func (d Hosting) validateProvided() error {
 	if f, ok := d.SettingsWriter.Get(); ok && f == nil {
 		return errors.New("SettingsWriter is provided as nil")
 	}
-	if f, ok := d.InstanceConfig.Get(); ok && f == nil {
-		return errors.New("InstanceConfig is provided as nil")
-	}
 	if h, ok := d.HookGlobalScope.Get(); ok && (h.Paths == nil || h.Label == "") {
 		return errors.New("HookGlobalScope is provided without Paths or Label")
 	}
 	if c, ok := d.VersionCommand.Get(); ok && (c.Parse == nil || len(c.Args) == 0) {
 		return errors.New("VersionCommand is provided without Args or Parse")
-	}
-	if r, ok := d.TranscriptReaders.Get(); ok && len(r) == 0 {
-		return errors.New("TranscriptReaders is provided empty")
-	}
-	if h, ok := d.Home.Get(); ok {
-		if err := h.Validate(); err != nil {
-			return err
-		}
-		if len(h.Vars) != 1 {
-			return errors.New("Home.Vars must declare exactly one home var; the in-tree home derivation reads exactly one and no engine needs more yet — lift it when one does")
-		}
-	}
-	if p, ok := d.Provisioning.Get(); ok {
-		if err := p.Validate(); err != nil {
-			return err
-		}
-	}
-	if c, ok := d.Container.Get(); ok {
-		if err := c.Validate(); err != nil {
-			return err
-		}
 	}
 	return nil
 }

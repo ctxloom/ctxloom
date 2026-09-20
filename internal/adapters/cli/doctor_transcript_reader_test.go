@@ -57,7 +57,7 @@ func TestDoctorCheckTranscriptReaders_RightState_DetectedVersionSelectsCarriedRe
 	assert.Contains(t, check.Detail, "claude-code", "must name the engine")
 	assert.Contains(t, check.Detail, "2.1.225", "must report the DETECTED version, not a placeholder")
 	assert.Contains(t, check.Detail, "claude.Adapter", "must name the reader actually selected")
-	assert.Contains(t, check.Detail, declared.Versions.String(), "must report the range that reader declares")
+	assert.Contains(t, check.Detail, declared.Range.String(), "must report the range that reader declares")
 	assert.Contains(t, check.Detail, declared.ValidatedVersion, "must cite the version that range was validated at")
 	assert.NotContains(t, check.Detail, "REFUSE")
 }
@@ -75,7 +75,7 @@ func TestDoctorCheckTranscriptReaders_WrongState_DetectedVersionCarriesNoReader(
 
 	assert.Equal(t, doctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "claude-code 9.9.9", "must name the version that has no reader")
-	assert.Contains(t, check.Detail, declared.Versions.String(), "must show what ctxloom DOES carry — that gap is the diagnosis")
+	assert.Contains(t, check.Detail, declared.Range.String(), "must show what ctxloom DOES carry — that gap is the diagnosis")
 	assert.Contains(t, check.Detail, "REFUSE", "must say the transcript refuses rather than being read by an unvalidated reader")
 }
 
@@ -107,7 +107,7 @@ func TestDoctorCheckTranscriptReaders_RightState_UnprobedVersionIsInfoNotWarn(t 
 	assert.Equal(t, doctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "version not detected")
 	assert.Contains(t, check.Detail, "claude: binary not on PATH", "must carry the probe's own reason")
-	assert.Contains(t, check.Detail, declared.Versions.String(), "carried ranges are true whether or not the engine is installed")
+	assert.Contains(t, check.Detail, declared.Range.String(), "carried ranges are true whether or not the engine is installed")
 }
 
 // TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader proves
@@ -164,7 +164,7 @@ func TestDoctorCmd_TranscriptReaderCheckIsWiredIntoTheReport(t *testing.T) {
 
 	check := doctorCheckNamed(t, out, doctorTranscriptReaderMarker)
 	assert.Contains(t, check.Detail, "claude-code", "the check must name the configured engine")
-	assert.Contains(t, check.Detail, claudereader.VersionedAdapters[0].Versions.String(),
+	assert.Contains(t, check.Detail, claudereader.VersionedAdapters[0].Range.String(),
 		"the check must carry the range ctxloom actually carries a reader for")
 }
 

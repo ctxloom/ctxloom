@@ -522,3 +522,20 @@ func repoRootForHarness(t *testing.T) string {
 	}
 	return filepath.Dir(gomod)
 }
+
+func TestUnder_RootOrBelowIt_NeverASharedPrefix(t *testing.T) {
+	for _, c := range []struct {
+		path, root string
+		want       bool
+	}{
+		{"/h/x", "/h/x", true},
+		{"/h/x/claude", "/h/x", true},
+		{"/h/x/claude", "/h/x/", true},
+		{"/h/xy", "/h/x", false}, // a shared prefix is not containment
+		{"/h/x", "", false},      // no root contains anything
+	} {
+		if got := Under(c.path, c.root); got != c.want {
+			t.Errorf("Under(%q, %q) = %v, want %v", c.path, c.root, got, c.want)
+		}
+	}
+}

@@ -23,13 +23,15 @@ import (
 )
 
 // Build composes every shipped engine kind into a Registry: the mock kind
-// with its doubles, and claude.
+// with its doubles, and claude — each handed the readers of its own
+// transcript store here, at the root, because the readers are transcript
+// adapters an engine package must not import.
 func Build() (engine.Registry, error) {
-	c, err := claude.Build()
+	c, err := claude.Build(claude.WithTranscripts(claudeengine.Transcripts()...))
 	if err != nil {
 		return engine.Registry{}, err
 	}
-	return engine.NewRegistry(append(mock.Doubles(), c)...)
+	return engine.NewRegistry(append(mock.Doubles(mock.WithTranscripts(backends.MockTranscripts()...)), c)...)
 }
 
 var (

@@ -18,10 +18,10 @@ type Configurable interface {
 	Configure(cfg agent.BackendConfig)
 }
 
-// record pairs one engine KIND (its Definition and views, built by the
-// engine package's constructor) with the hosting record this package still
-// needs to run it. Everything declarative is read off the kind; the
-// hosting record is the instance half until the runner lands.
+// record pairs one engine KIND (its Definition, views, Home, Container and
+// Transcripts, built by the engine package's constructor) with the hosting
+// record this package still needs to run it. Everything the port carries
+// is read off the kind; the hosting record is the remainder.
 type record struct {
 	kind engine.Engine
 	host hosting.Hosting
@@ -92,15 +92,17 @@ func Register(reg engine.Registry, hostings ...hosting.Hosting) error {
 	for name, r := range batch {
 		records[string(name)] = r
 	}
-	// The cells adapter reads engine facts through ONE accessor over these
-	// records (isolation.Facts), installed here, where kinds and hosting
-	// records are paired; isolation resolves engines by NAME (CopyAmbient is
-	// handed a backend name) and cannot import the engine packages.
+	// The cells adapter reads engine facts through ONE accessor
+	// (isolation.Facts) over the engines' own declarations — Engine.Home,
+	// Engine.Container — installed here, where the registry is; isolation
+	// resolves engines by NAME (CopyAmbient is handed a backend name) and
+	// cannot import the engine packages.
 	isolation.UseFacts(recordFacts{})
 	return nil
 }
 
-// recordFacts is the isolation.Facts accessor over the paired records.
+// recordFacts is the isolation.Facts accessor over the records, read LIVE:
+// a record unregistered later is a fact forgotten.
 type recordFacts struct{}
 
 func (recordFacts) For(name string) (isolation.EngineFacts, bool) {
@@ -108,14 +110,7 @@ func (recordFacts) For(name string) (isolation.EngineFacts, bool) {
 	if !ok {
 		return isolation.EngineFacts{}, false
 	}
-	h := &r.host
-	return isolation.EngineFacts{
-		Home:           h.Home,
-		Provisioning:   h.Provisioning,
-		Container:      h.Container,
-		InstanceConfig: h.InstanceConfig,
-		Distribution:   r.kind.Root().Distribution,
-	}, true
+	return isolation.FactsOf(r.kind), true
 }
 
 func (recordFacts) Names() []string {

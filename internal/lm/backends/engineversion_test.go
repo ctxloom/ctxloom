@@ -55,14 +55,14 @@ func TestVersionParsers_RefuseAShapeItDoesNotOwn(t *testing.T) {
 // Every shippable engine whose vendor transcripts ctxloom READS must be
 // askable for its version — otherwise reader selection has nothing to select
 // on and every session under that engine refuses. Read off the registry:
-// an engine that provides TranscriptReaders and is not a test double must
+// an engine whose kind supplies Transcripts and is not a test double must
 // also provide VersionCommand, so a new engine cannot declare a reader
 // without one. (mock provides a degenerate reader and no binary; TestOnly is
 // what exempts it, not a name.)
 func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
 	checked := 0
 	for _, engine := range List() {
-		if _, reads := TranscriptReadersFor(engine).Get(); !reads || IsTestOnly(engine) {
+		if _, reads := TranscriptReadersFor(engine); !reads || IsTestOnly(engine) {
 			continue
 		}
 		checked++

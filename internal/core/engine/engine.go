@@ -12,10 +12,13 @@
 // decisioning (Delegate: preface items to the dynamic approach when one is
 // provided, everything else to the static approach types) live on Base,
 // written once here. Capabilities that may be absent are SLICES —
-// Instance.Drivers() — and empty means none; the caller that requires one
-// refuses loudly at its point of use with ErrUnsupported. Requiredness of a
-// surface (a nil Context on an engine that must carry a system prompt) is
-// refused at Instance(), loudly.
+// Instance.Drivers(), Transcripts() — and empty means none; the caller that
+// requires one refuses loudly at its point of use with ErrUnsupported.
+// Capabilities that are single-valued are a real implementation or
+// ErrUnsupported — Container(), Instance.Resume(key). Home() is a null
+// object: the zero HomeSpec relocates nothing and seeds nothing.
+// Requiredness of a surface (a nil Context on an engine that must carry a
+// system prompt) is refused at Instance(), loudly.
 //
 // Import discipline (the acyclicity property): engine imports present,
 // sessions and wire — all leaves — and NOTHING that imports engine. The
@@ -110,6 +113,21 @@ type Engine interface {
 	// A block the schema refuses is an error naming the engine and the
 	// item: the engine exports nothing on a guess.
 	Exports(items Items) (Exports, error)
+	// Home says how the engine's config/credential home relocates into the
+	// session home. The zero HomeSpec is the null object: nothing to relocate
+	// and nothing to seed.
+	Home() HomeSpec
+	// Container says how a containerized run is built and authenticated.
+	// Refuses with ErrUnsupported when the engine has no image: a container
+	// binding then fails at Resolve, never later.
+	Container() (ContainerSpec, error)
+	// Transcripts are the version-scoped readers of the engine's own store.
+	// Empty means none, and every consumer of transcripts keeps operating.
+	Transcripts() []TranscriptReader
+	// Hooks decodes the engine's native hook payloads. An engine that fires
+	// no hooks returns a codec whose Decode refuses with ErrUnsupported —
+	// unreachable, since no payload arrives.
+	Hooks() HookCodec
 }
 
 // Instance is one engine kind bound to one session.

@@ -1,8 +1,9 @@
 // Package enginefixture builds COMPLETE synthetic engines for tests: a
 // hosting record with every Declared slot decided absent and a stub backend
-// that runs nothing, paired with a mock KIND under the same name. A test
-// that needs one capability provides it on top. Test support only — never
-// linked into a binary (tests/arch gates the import).
+// that runs nothing, paired with a mock KIND under the same name (whose
+// Home is the null object and whose Container refuses unless the test asks
+// for one). A test that needs one capability provides it on top. Test
+// support only — never linked into a binary (tests/arch gates the import).
 package enginefixture
 
 import (
@@ -10,7 +11,6 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
-	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -50,17 +50,10 @@ func Hosting(name string) hosting.Hosting {
 		NewBackend: func(agent.Launcher) agent.Backend { return &stubBackend{name: name} },
 		NewConfig:  func() agent.BackendConfig { return &stubConfig{name: name} },
 		Surfaces:   agent.Declaration{},
-		SettingsWriter: agent.Absent[func(agent.SettingsOptions) agent.SettingsWriter](
+		SettingsWriter: engine.Absent[func(agent.SettingsOptions) agent.SettingsWriter](
 			name + " (fixture) writes no settings"),
-		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
-			name + " (fixture) generates no instance config"),
-		HookGlobalScope: agent.Absent[hosting.HookGlobalScope](name + " (fixture) has no global settings path"),
-		VersionCommand:  agent.Absent[engineversion.Command](name + " (fixture) has no binary to ask"),
-		Home:            agent.Absent[agent.EngineHome](name + " (fixture) keeps no global state"),
-		Provisioning: agent.Absent[agent.ProvisioningPolicy](
-			name + " (fixture) has no credential material to provision"),
-		Container:         agent.Absent[agent.EngineContainer](name + " (fixture) has no container story"),
-		TranscriptReaders: agent.Absent[[]vendorreader.VersionedAdapter](name + " (fixture) keeps no transcripts"),
+		HookGlobalScope: engine.Absent[hosting.HookGlobalScope](name + " (fixture) has no global settings path"),
+		VersionCommand:  engine.Absent[engineversion.Command](name + " (fixture) has no binary to ask"),
 	}
 }
 

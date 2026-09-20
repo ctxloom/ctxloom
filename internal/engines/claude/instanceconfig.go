@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // InstanceConfigFileName is claude's top-level config file, the one it reads
@@ -104,21 +105,15 @@ var projectTrustKeys = map[string]any{
 	"projectOnboardingSeenCount":    1,
 }
 
-// NewInstanceConfigWriter constructs claude's instance-config generator — the
-// engine-owned writer of `<CLAUDE_CONFIG_DIR>/.claude.json` for a config home
-// ctxloom provisioned. It is claude's half of the engine write-config
-// directive: isolation.CopyAmbient decides that claude contributes a generated
-// config at all, this decides what a single byte of it says.
-func NewInstanceConfigWriter(o agent.SettingsOptions) agent.InstanceConfigWriter {
-	return &claudeInstanceConfig{FS: o.FS}
-}
+// claudeInstanceConfig is claude's instance-config generator — the
+// engine-owned writer of `<CLAUDE_CONFIG_DIR>/.claude.json` for a session
+// home ctxloom provisioned, declared on Engine.Home. It is claude's half of
+// the engine write-config directive: isolation.CopyAmbient decides that
+// claude contributes a generated config at all, this decides what a single
+// byte of it says.
+type claudeInstanceConfig struct{}
 
-// claudeInstanceConfig implements agent.InstanceConfigWriter for claude-code.
-type claudeInstanceConfig struct {
-	FS afero.Fs
-}
-
-var _ agent.InstanceConfigWriter = (*claudeInstanceConfig)(nil)
+var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 
 // WriteInstanceConfig generates `<InstanceHome>/claude/.claude.json` from three
 // disjoint sources, in this order: the ambient allow-list copied out of the
@@ -153,12 +148,12 @@ var _ agent.InstanceConfigWriter = (*claudeInstanceConfig)(nil)
 // foreign content to distinguish from ctxloom's own and nothing for a ledger
 // to record beyond "this file exists" — see the CopyAmbient/InstanceConfigWriter
 // doc's ONE WAY invariant.
-func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigRequest) (agent.InstanceConfigReport, error) {
-	var rep agent.InstanceConfigReport
+func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, fs afero.Fs) (engine.InstanceConfigReport, error) {
+	var rep engine.InstanceConfigReport
 	if req.InstanceHome == "" {
 		return rep, fmt.Errorf("claude instance config: no instance home to generate %s in", InstanceConfigFileName)
 	}
-	fs := agent.GetFS(w.FS)
+	fs = agent.GetFS(fs)
 	dir := filepath.Join(req.InstanceHome, HomeLeaf)
 	dest := filepath.Join(dir, InstanceConfigFileName)
 
@@ -212,7 +207,7 @@ func (w *claudeInstanceConfig) WriteInstanceConfig(req agent.InstanceConfigReque
 // the user's file, ctxloom does not own it, and the instance is still perfectly
 // usable with the fallbacks — refusing to launch over it would trade a working
 // run for a fixable annoyance.
-func (w *claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, cfg map[string]any) []string {
+func (w claudeInstanceConfig) applyAmbient(fs afero.Fs, hostHome string, cfg map[string]any) []string {
 	var warnings []string
 	var host map[string]any
 

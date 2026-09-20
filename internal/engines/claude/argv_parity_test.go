@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -28,6 +31,17 @@ type argvLine struct {
 	key  string
 	mode agent.ExecutionMode
 	args []string
+	// env and cwd are the rest of what the launch execs: the merged child
+	// environment (ExecuteEnv) and the working directory Setup recorded.
+	env map[string]string
+	cwd string
+	// perm, servers, runEnv and presented are the launch's inputs as the
+	// port hands them to Instance.Exec: the posture, the delivered MCP
+	// server names, the run env and the surfaces' presentations.
+	perm      agent.PermissionMode
+	servers   []string
+	runEnv    map[string]string
+	presented []present.Presentation
 }
 
 // argvMatrix composes the argv for the fixed launch matrix: shared,
@@ -57,26 +71,52 @@ func argvMatrix(t *testing.T) []argvLine {
 		{"minimal", minimalBackend(t, "claude-sonnet-5"), nil},
 		{"bare", NewClaudeCode(), nil},
 	}
+	// normalise rewrites every temp root in s to its placeholder.
+	normalise := func(roots map[string]string, s string) string {
+		for ph, real := range roots {
+			s = strings.ReplaceAll(s, real, ph)
+		}
+		return s
+	}
 	var lines []argvLine
 	for _, l := range launches {
 		for _, mode := range []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot} {
 			for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits} {
 				for _, model := range []string{"", "claude-opus-5"} {
+					env := map[string]string{sessionHarpEnv: "perky-same-chevy"}
+					if home, ok := l.roots["<HOME>"]; ok {
+						env[ConfigDirEnv] = home // a relocated home rides the run env, as the launch sets it
+					}
 					req := &agent.ExecuteRequest{
 						Mode:        mode,
 						Permissions: perm,
 						Model:       model,
-						Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
+						Env:         env,
 						Prompt:      &agent.Fragment{Content: "reply with PROMPTOK"},
 					}
 					args := l.backend.buildArgs(req)
 					for i, a := range args {
-						for ph, real := range l.roots {
-							args[i] = strings.ReplaceAll(a, real, ph)
-							a = args[i]
+						args[i] = normalise(l.roots, a)
+					}
+					execEnv := map[string]string{}
+					for k, v := range l.backend.ExecuteEnv(req) {
+						execEnv[k] = normalise(l.roots, v)
+					}
+					presented := l.backend.presented()
+					for i := range presented {
+						for j := range presented[i].Args {
+							presented[i].Args[j] = normalise(l.roots, presented[i].Args[j])
 						}
 					}
-					lines = append(lines, argvLine{key: fmt.Sprintf("%s/%s/%s/model=%q", l.name, mode, perm, model), mode: mode, args: args})
+					runEnv := map[string]string{}
+					for k, v := range env {
+						runEnv[k] = normalise(l.roots, v)
+					}
+					lines = append(lines, argvLine{
+						key: fmt.Sprintf("%s/%s/%s/model=%q", l.name, mode, perm, model), mode: mode, args: args,
+						env: execEnv, cwd: normalise(l.roots, l.backend.WorkDir()),
+						perm: perm, servers: mcpServerNames(l.backend.Resolved()), runEnv: runEnv, presented: presented,
+					})
 				}
 			}
 		}
@@ -108,4 +148,80 @@ func TestBuildArgs_ArgvParity_Golden(t *testing.T) {
 	}
 	require.NoError(t, err)
 	require.Equal(t, string(want), out.String(), "claude's argv drifted from the captured golden")
+}
+
+// goldenCompare compares got against testdata/<name>; a missing golden is
+// captured and the run fails naming the capture (regenerate only for a
+// deliberate change, by deleting the golden).
+func goldenCompare(t *testing.T, name, got, drifted string) {
+	t.Helper()
+	dir, err := sourcedir.Dir()
+	require.NoError(t, err)
+	golden := filepath.Join(dir, "testdata", name)
+	want, err := os.ReadFile(golden)
+	if os.IsNotExist(err) {
+		require.NoError(t, os.WriteFile(golden, []byte(got), 0o644))
+		t.Fatalf("captured %s; re-run to compare against it", golden)
+	}
+	require.NoError(t, err)
+	require.Equal(t, string(want), got, drifted)
+}
+
+// envLine renders an env map deterministically: sorted k=v pairs.
+func envLine(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+env[k])
+	}
+	return strings.Join(parts, " ")
+}
+
+// TestExec_LaunchParity_Golden is the anti-drift pin for the engine INSTANCE
+// extraction: for the same 64-launch matrix, the argv, the merged child env
+// and the working directory a launch execs are byte-identical to
+// testdata/exec_parity.golden, captured before Instance.Exec existed. A
+// difference here is a STOP for that work, never something to re-capture
+// around.
+func TestExec_LaunchParity_Golden(t *testing.T) {
+	var out strings.Builder
+	for _, l := range argvMatrix(t) {
+		fmt.Fprintf(&out, "%s:\n  argv: %s\n  env: %s\n  cwd: %s\n", l.key, strings.Join(l.args, " "), envLine(l.env), l.cwd)
+	}
+	goldenCompare(t, "exec_parity.golden", out.String(), "claude's launch (argv/env/cwd) drifted from the captured golden")
+}
+
+// TestChatArgs_Parity_Golden pins the STRUCTURED drive's argv — the
+// stream-json conversation the runner hosts — over posture × model × resume
+// × mcp-config. The golden was first captured from the separate chatArgs
+// composition; it now holds the Instance's Exec plus the driver's protocol:
+// the same flags, in Exec's order, since ONE place composes argv.
+func TestChatArgs_Parity_Golden(t *testing.T) {
+	b := NewClaudeCode()
+	var out strings.Builder
+	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits} {
+		for _, model := range []string{"", "claude-opus-5"} {
+			for _, resume := range []string{"", "native-key-1"} {
+				for _, mcp := range []string{"", "<HOME>/.mcp.json"} {
+					req := agent.ChatRequest{
+						Model: model, Permissions: perm, ResumeSessionID: resume,
+						Env: map[string]string{sessionHarpEnv: "perky-same-chevy"},
+					}
+					if mcp != "" {
+						req.MCPServers = []agent.ChatMCPServer{{Name: "probe"}}
+					}
+					req.MCPConfigPath = mcp
+					inst, ex, err := b.chatExec(req)
+					require.NoError(t, err)
+					argv := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
+					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(argv, " "))
+				}
+			}
+		}
+	}
+	goldenCompare(t, "chat_parity.golden", out.String(), "claude's structured argv drifted from the captured golden")
 }

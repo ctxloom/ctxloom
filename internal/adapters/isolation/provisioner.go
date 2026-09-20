@@ -1,6 +1,6 @@
 package isolation
 
-import "github.com/ctxloom/ctxloom/internal/core/agent"
+import "github.com/ctxloom/ctxloom/internal/core/engine"
 
 // Instance-home MATERIAL provisioning.
 //
@@ -70,30 +70,30 @@ func (s Sharing) String() string {
 
 // Delivery is what the caller ACTUALLY GOT.
 //
-// It is an ALIAS of the engine-facing agent.MaterialDelivery, not a second enum: the
+// It is an ALIAS of the engine-facing engine.MaterialDelivery, not a second enum: the
 // value an engine DECLARES it will accept and the value a provisioner reports
 // having delivered are the same fact read from two ends, and two enums would
 // need a conversion whose job is to be the identity — the exact place a
 // mismatch hides. The vocabulary lives in internal/core/agent because an
 // engine package must be able to author its own facts without linking this
 // machinery; the machinery (Provisioner, Select, the candidates) lives here.
-type Delivery = agent.MaterialDelivery
+type Delivery = engine.MaterialDelivery
 
 const (
 	// DeliveryUnset is a Result nobody filled in.
-	DeliveryUnset = agent.MaterialDeliveryUnset
+	DeliveryUnset = engine.MaterialDeliveryUnset
 	// DeliveryMounted is shared BY IDENTITY: one inode, nothing to
 	// synchronise. Both discrete mount implementations report this — a caller
 	// cares that it got identity, not which kernel caller established it.
-	DeliveryMounted = agent.MaterialDeliveryMounted
+	DeliveryMounted = engine.MaterialDeliveryMounted
 	// DeliveryReplicated is shared BY REPLICATION: two files kept in step by a
 	// watcher, under a cross-process lock. Eventual, and with the rotation
 	// window this file's header describes.
-	DeliveryReplicated = agent.MaterialDeliveryReplicated
+	DeliveryReplicated = engine.MaterialDeliveryReplicated
 	// DeliveryAbsent is a declared absence: the engine keeps no material that
 	// needs provisioning at all, with a reason. Distinct from DeliveryUnset,
 	// which is nobody having said anything.
-	DeliveryAbsent = agent.MaterialDeliveryAbsent
+	DeliveryAbsent = engine.MaterialDeliveryAbsent
 )
 
 // Material is one thing that must appear inside an instance home.

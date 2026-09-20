@@ -3,11 +3,11 @@ package isolation
 import (
 	"context"
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"path"
 	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -59,7 +59,7 @@ type seedFile struct {
 
 // resolveSeedFiles resolves seed's declared files against hostHome, in copy
 // order.
-func resolveSeedFiles(seed agent.CredentialSeed, hostHome string) []seedFile {
+func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 	out := make([]seedFile, 0, len(seed.Files))
 	for _, f := range seed.Files {
 		out = append(out, seedFile{
@@ -107,22 +107,22 @@ const (
 // replicator's watchers). It is returned rather than closed here because the
 // replication has to outlive this call: it is what propagates the engine's
 // refreshes for as long as the engine runs.
-func hostCredentialSeed(engine string, seed agent.CredentialSeed, configHome string) (seedResult, Result, error) {
+func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome string) (seedResult, Result, error) {
 	if seed.EnvTrigger != "" && os.Getenv(seed.EnvTrigger) != "" {
 		return seedSkippedEnv, Result{}, nil
 	}
-	files, ok := hostSeedSources(engine, seed)
+	files, ok := hostSeedSources(name, seed)
 	if !ok {
 		return seedNoSource, Result{}, nil
 	}
 	destDir := filepath.Join(configHome, seed.Subdir)
-	if err := prepareSeedDir(engine, destDir); err != nil {
+	if err := prepareSeedDir(name, destDir); err != nil {
 		return seedNoSource, Result{}, err
 	}
-	if err := tightenSeedDestinations(engine, destDir, files); err != nil {
+	if err := tightenSeedDestinations(name, destDir, files); err != nil {
 		return seedNoSource, Result{}, err
 	}
-	return provisionSeedFiles(engine, seed, files, configHome)
+	return provisionSeedFiles(name, seed, files, configHome)
 }
 
 // provisionSeedFiles turns the resolved host files into declared Materials and
@@ -136,7 +136,7 @@ func hostCredentialSeed(engine string, seed agent.CredentialSeed, configHome str
 //
 // Placing nothing reports seedNoSource, never seedOK: a placement that
 // delivered zero bytes must not report success.
-func provisionSeedFiles(engine string, seed agent.CredentialSeed, files []seedFile, instanceHome string) (seedResult, Result, error) {
+func provisionSeedFiles(name string, seed engine.CredentialSeed, files []seedFile, instanceHome string) (seedResult, Result, error) {
 	materials := make([]Material, 0, len(files))
 	for _, f := range files {
 		if !fileExists(f.host) {
@@ -145,7 +145,7 @@ func provisionSeedFiles(engine string, seed agent.CredentialSeed, files []seedFi
 		materials = append(materials, Material{
 			Host: f.host,
 			// Slash form, and the DECLARED destination name rather than one
-			// re-derived from the host path: an engine that renames material
+			// re-derived from the host path: an name that renames material
 			// on placement must be served at the name it actually reads.
 			DestRel: path.Join(seed.Subdir, f.destName),
 			Sharing: SharingShared,
@@ -154,38 +154,23 @@ func provisionSeedFiles(engine string, seed agent.CredentialSeed, files []seedFi
 	if len(materials) == 0 {
 		return seedNoSource, Result{}, nil
 	}
-	prov, _, err := selectSeedProvisioner(engine)
+	prov, _, err := selectSeedProvisioner(name, seed)
 	if err != nil {
 		return seedNoSource, Result{}, err
 	}
 	res, err := prov.Provision(instanceHome, materials)
 	if err != nil {
-		return seedNoSource, Result{}, fmt.Errorf("provision %s credential material: %w", engine, err)
+		return seedNoSource, Result{}, fmt.Errorf("provision %s credential material: %w", name, err)
 	}
 	return seedOK, res, nil
 }
 
-// selectSeedProvisioner reads engine's DECLARED policy and constructs the
-// provisioner for it.
-//
-// The two ways this fails are told apart deliberately. An engine with material
-// to place and no entry here at all is a WIRING bug — a name nobody registered
-// — while an engine whose policy slot is declared ABSENT has stated it has
-// nothing to provision, which contradicts its own credential seed and is worth
-// saying in those words rather than failing later as "no candidates".
-func selectSeedProvisioner(engine string) (Provisioner, Delivery, error) {
-	declared, ok := provisioningPolicyDeclared(engine)
-	if !ok {
-		return nil, DeliveryUnset, fmt.Errorf(
-			"%s credential provisioning: backend %q has no declared provisioning policy (internal error)", engine, engine)
-	}
-	policy, ok := declared.Get()
-	if !ok {
-		return nil, DeliveryUnset, fmt.Errorf(
-			"%s credential provisioning: this engine declares credential material to place but declares no delivery it accepts (%s); one of the two declarations is wrong",
-			engine, declared.AbsentReason())
-	}
-	return Select(context.Background(), policy, SharingShared, seedProvisionOptions()...)
+// selectSeedProvisioner constructs the provisioner for the deliveries the
+// engine's seed declares it accepts. A seed with nothing it accepts cannot
+// be authored (engine.HomeSpec.Validate refuses it), so the only failure
+// here is Select's own: no declared candidate can serve the demand.
+func selectSeedProvisioner(name string, seed engine.CredentialSeed) (Provisioner, Delivery, error) {
+	return Select(context.Background(), seed.Accept, SharingShared, seedProvisionOptions()...)
 }
 
 // seedProvisionOptions are the facts this call site can state about the run.
@@ -237,7 +222,7 @@ func tightenSeedDestinations(engine, destDir string, files []seedFile) error {
 // REQUIRED file — never an error, because the caller must be free to proceed
 // (the preparation seam turns it into the actionable error
 // operations.ResolveInTreeAgentHome fails loud on).
-func hostSeedSources(engine string, seed agent.CredentialSeed) ([]seedFile, bool) {
+func hostSeedSources(name string, seed engine.CredentialSeed) ([]seedFile, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		// Still a degrade, never an abort (the caller must not be blocked by a
@@ -248,7 +233,7 @@ func hostSeedSources(engine string, seed agent.CredentialSeed) ([]seedFile, bool
 		// provisionCuratedHome gives the identical failure.
 		clidiag.Warn("ctxloom",
 			"%s credential seed: could not resolve the host HOME to copy credentials from (%v); this run is treated as having no host credentials to seed",
-			engine, err)
+			name, err)
 		return nil, false
 	}
 	files := resolveSeedFiles(seed, home)

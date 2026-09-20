@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Selecting a Provisioner.
@@ -31,18 +29,6 @@ import (
 // and that error names every candidate tried and why each was rejected —
 // "why did I end up on replication?" has to be answerable from the failure
 // itself, not by reading this file.
-
-// ProvisioningPolicy is what an ENGINE DECLARES it will accept, in preference
-// order, and it is an ALIAS of agent.ProvisioningPolicy for the reason stated
-// on Delivery in provisioner.go: the descriptor slot an engine writes and the
-// policy this file walks must be the same value, not two that agree.
-//
-// This names the instance, not the pattern. If and when the pattern is
-// extracted to cover SelectRuntime too, the concept is closer to ACCEPTANCE
-// than to policy — what a component will accept, in order, with substitution
-// forbidden — and it should be named for that invariant rather than for the
-// fallback it happens to permit.
-type ProvisioningPolicy = agent.ProvisioningPolicy
 
 // CandidateRejection records one candidate Select tried and could not use.
 type CandidateRejection struct {
@@ -218,7 +204,10 @@ func candidatesFor(d Delivery) []candidate {
 // are the two substitutions this whole design exists to forbid. When nothing
 // satisfies it, the answer is *SelectionRefusal naming every candidate tried,
 // never a near-miss.
-func Select(ctx context.Context, policy ProvisioningPolicy, want Sharing, opts ...ProvisionOption) (Provisioner, Delivery, error) {
+// accept is what the ENGINE DECLARED it will take, in preference order
+// (engine.CredentialSeed.Accept): the seed an engine writes and the order
+// this walks are the same value, not two that agree.
+func Select(ctx context.Context, accept []Delivery, want Sharing, opts ...ProvisionOption) (Provisioner, Delivery, error) {
 	cfg := &provisionConfig{
 		namespaceProbe:   defaultNamespaceProbe,
 		replicationProbe: defaultReplicationProbe,
@@ -227,7 +216,7 @@ func Select(ctx context.Context, policy ProvisioningPolicy, want Sharing, opts .
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	refusal := &SelectionRefusal{Want: want, Accept: policy.Accept}
+	refusal := &SelectionRefusal{Want: want, Accept: accept}
 	if want == SharingUnset {
 		// Not a candidate problem — nobody stated a demand, so there is no
 		// predicate to satisfy and every candidate would "pass" vacuously.
@@ -237,7 +226,7 @@ func Select(ctx context.Context, policy ProvisioningPolicy, want Sharing, opts .
 		})
 		return nil, DeliveryUnset, refusal
 	}
-	for _, d := range policy.Accept {
+	for _, d := range accept {
 		for _, c := range candidatesFor(d) {
 			p, err := c.construct(ctx, cfg)
 			if err != nil {

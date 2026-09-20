@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,9 +23,18 @@ func (nopWriteCloser) Close() error { return nil }
 // ClaudeCode must satisfy the optional StructuredChat capability.
 var _ agent.StructuredChat = (*ClaudeCode)(nil)
 
+// chatArgv is the argv Chat spawns for req: the Instance's Exec plus the
+// stream-json protocol.
+func chatArgv(t *testing.T, req agent.ChatRequest) []string {
+	t.Helper()
+	b := NewClaudeCode()
+	inst, ex, err := b.chatExec(req)
+	require.NoError(t, err)
+	return (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
+}
+
 func TestChatArgs_StreamJSONFlags(t *testing.T) {
-	b := &ClaudeCode{}
-	joined := strings.Join(b.chatArgs(agent.ChatRequest{Model: "sonnet", Permissions: agent.PermissionBypass}, ""), " ")
+	joined := strings.Join(chatArgv(t, agent.ChatRequest{Model: "sonnet", Permissions: agent.PermissionBypass}), " ")
 	assert.Contains(t, joined, flagPrint)
 	assert.Contains(t, joined, "--input-format stream-json")
 	assert.Contains(t, joined, "--output-format stream-json")
@@ -36,22 +46,20 @@ func TestChatArgs_StreamJSONFlags(t *testing.T) {
 // TestChatArgs_ResumeSessionID verifies --resume is emitted with the requested
 // session id, and omitted when ResumeSessionID is empty.
 func TestChatArgs_ResumeSessionID(t *testing.T) {
-	b := &ClaudeCode{}
-	args := b.chatArgs(agent.ChatRequest{ResumeSessionID: "sess-123"}, "")
+	args := chatArgv(t, agent.ChatRequest{ResumeSessionID: "sess-123"})
 	assert.True(t, argPair(args, "--resume", "sess-123"))
 
-	args = b.chatArgs(agent.ChatRequest{}, "")
+	args = chatArgv(t, agent.ChatRequest{})
 	assert.NotContains(t, args, "--resume")
 }
 
 // TestChatArgs_MCPConfigPath verifies --mcp-config is emitted with the path
 // the runner delivered, and omitted when there is none.
 func TestChatArgs_MCPConfigPath(t *testing.T) {
-	b := &ClaudeCode{}
-	args := b.chatArgs(agent.ChatRequest{}, "/tmp/scratch/.mcp.json")
+	args := chatArgv(t, agent.ChatRequest{MCPConfigPath: "/tmp/scratch/.mcp.json"})
 	assert.True(t, argPair(args, "--mcp-config", "/tmp/scratch/.mcp.json"))
 
-	args = b.chatArgs(agent.ChatRequest{}, "")
+	args = chatArgv(t, agent.ChatRequest{})
 	assert.NotContains(t, args, "--mcp-config")
 }
 
@@ -59,16 +67,14 @@ func TestChatArgs_MCPConfigPath(t *testing.T) {
 // after ctxloom's harp via --name, matching the interactive path, so it's findable
 // in the /resume picker.
 func TestChatArgs_NamesSessionFromHarp(t *testing.T) {
-	b := &ClaudeCode{}
-	args := b.chatArgs(agent.ChatRequest{Env: map[string]string{sessionHarpEnv: "fair-pushy-cable"}}, "")
+	args := chatArgv(t, agent.ChatRequest{Env: map[string]string{sessionHarpEnv: "fair-pushy-cable"}})
 	assert.True(t, argPair(args, "--name", "fair-pushy-cable"))
 }
 
 // TestChatArgs_NoHarpNoName verifies that without a harp in env no --name flag is
 // added.
 func TestChatArgs_NoHarpNoName(t *testing.T) {
-	b := &ClaudeCode{}
-	args := b.chatArgs(agent.ChatRequest{}, "")
+	args := chatArgv(t, agent.ChatRequest{})
 	assert.NotContains(t, args, "--name")
 }
 
@@ -82,7 +88,7 @@ func TestChat_PumpsMessagesAndStreamsEvents(t *testing.T) {
 			`{"type":"result","subtype":"success","usage":{"input_tokens":10},"modelUsage":{"m":{"contextWindow":1000,"outputTokens":3}},"total_cost_usd":0.01}` + "\n")
 	var stdin bytes.Buffer
 
-	b := &ClaudeCode{}
+	b := NewClaudeCode()
 	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
 	}
@@ -155,7 +161,8 @@ func TestChat_StampsEntriesWithInjectedClock(t *testing.T) {
 		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"hi"}]}}` + "\n")
 	var stdin bytes.Buffer
 
-	b := &ClaudeCode{now: func() time.Time { return fixed }}
+	b := NewClaudeCode()
+	b.now = func() time.Time { return fixed }
 	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
 	}
@@ -189,7 +196,7 @@ func TestChat_ContextCancel_Returns(t *testing.T) {
 	pr, pw := io.Pipe() // stdout that never produces until closed
 	var stdin bytes.Buffer
 
-	b := &ClaudeCode{}
+	b := NewClaudeCode()
 	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{
 			stdin:  nopWriteCloser{&stdin},
@@ -221,7 +228,7 @@ func TestChat_ContextCancel_Returns(t *testing.T) {
 // TestChat_TransportOpenError_Propagates: a spawn/open failure surfaces and out
 // is still closed.
 func TestChat_TransportOpenError_Propagates(t *testing.T) {
-	b := &ClaudeCode{}
+	b := NewClaudeCode()
 	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return nil, io.ErrClosedPipe
 	}
@@ -242,7 +249,7 @@ func TestChat_TransportOpenError_Propagates(t *testing.T) {
 // (no ACP session exists to place the non-spec call after) — Chat refuses
 // loudly instead of silently ignoring the field, and still closes out.
 func TestChat_ModelQuirk_Refused(t *testing.T) {
-	b := &ClaudeCode{}
+	b := NewClaudeCode()
 	opened := false
 	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		opened = true
@@ -267,7 +274,7 @@ func TestChat_ModelQuirk_Refused(t *testing.T) {
 // broker, so ForwardTerminal must be refused loudly rather than silently
 // never emitting a ChatEvent.Terminal.
 func TestChat_ForwardTerminal_Refused(t *testing.T) {
-	b := &ClaudeCode{}
+	b := NewClaudeCode()
 	opened := false
 	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		opened = true
@@ -293,7 +300,7 @@ func TestChat_ForwardTerminal_Refused(t *testing.T) {
 // its own; with none delivered no --mcp-config is emitted.
 func TestChat_NamesTheDeliveredMCPConfig(t *testing.T) {
 	var seen []string
-	b := &ClaudeCode{}
+	b := NewClaudeCode()
 	b.openChatTransport = func(_ context.Context, args []string, _ map[string]string, _ string) (*chatTransport, error) {
 		seen = args
 		return &chatTransport{stdin: nopWriteCloser{&bytes.Buffer{}}, stdout: strings.NewReader(""), close: func() error { return nil }}, nil

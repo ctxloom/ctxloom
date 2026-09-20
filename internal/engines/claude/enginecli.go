@@ -213,6 +213,8 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 		Flags: append(commonFlags(),
 			agent.CLIFlag{Name: flagPrint, Value: agent.ValueNone, Required: true,
 				Note: "oneshot only, and REQUIRED: `claude --print` IS the oneshot surface. A line without it is an interactive launch that reads the piped prompt as terminal input and hangs on the handshake, so the grammar rejects it rather than letting a stand-in report a green run for a launch that could not start"},
+			agent.CLIFlag{Name: flagResume, Value: agent.ValueString,
+				Note: "the native session key a resumed Instance continues (Instance.Resume); the structured driver's own protocol flags (--input-format, --verbose) are appended by the driver and are not Exec's"},
 		),
 		SetEnv: setEnv(),
 		Probes: probes(),

@@ -1,4 +1,4 @@
-package agent
+package engine
 
 import (
 	"testing"
@@ -30,58 +30,55 @@ func TestMaterialDelivery_UnknownValueRendersItsNumber(t *testing.T) {
 	assert.False(t, MaterialDelivery(9).Decided())
 }
 
-func TestProvisioningPolicy_AcceptsADeclaredOrder(t *testing.T) {
-	p := ProvisioningPolicy{Accept: []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryReplicated}}
-	require.NoError(t, p.Validate())
+func TestValidateAccept_AcceptsADeclaredOrder(t *testing.T) {
+	require.NoError(t, validateAccept([]MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryReplicated}))
 }
 
 // An empty Accept is the "nobody decided" state wearing a valid-looking
-// struct. It must be refused, and the refusal must name the alternative — an
-// engine with nothing to provision declares the SLOT absent.
-func TestProvisioningPolicy_RefusesEmptyAccept(t *testing.T) {
-	err := ProvisioningPolicy{}.Validate()
+// slice. It is refused: an engine with nothing to provision declares no seed.
+func TestValidateAccept_RefusesEmpty(t *testing.T) {
+	err := validateAccept(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Accept is empty")
-	assert.Contains(t, err.Error(), "absent")
 }
 
-func TestProvisioningPolicy_RefusesUnsetEntry(t *testing.T) {
-	err := ProvisioningPolicy{Accept: []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryUnset}}.Validate()
+func TestValidateAccept_RefusesUnsetEntry(t *testing.T) {
+	err := validateAccept([]MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryUnset})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Accept[1] is unset")
 }
 
-// Absence is not something to fall back TO: a policy naming it would read as
+// Absence is not something to fall back TO: an order naming it would read as
 // "if no mechanism works, proceed with no material", which is an engine that
 // starts logged out rather than a refusal.
-func TestProvisioningPolicy_RefusesAbsentAsAFallback(t *testing.T) {
-	err := ProvisioningPolicy{Accept: []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryAbsent}}.Validate()
+func TestValidateAccept_RefusesAbsentAsAFallback(t *testing.T) {
+	err := validateAccept([]MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryAbsent})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "absence is not something to fall back TO")
 }
 
 // A repeat is a second entry that can never be reached, so it is a typo for
 // some other delivery rather than a preference.
-func TestProvisioningPolicy_RefusesARepeatedDelivery(t *testing.T) {
-	err := ProvisioningPolicy{Accept: []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryMounted}}.Validate()
+func TestValidateAccept_RefusesARepeatedDelivery(t *testing.T) {
+	err := validateAccept([]MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryMounted})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "repeats mounted")
 }
 
 // The slot an engine writes has three states, and the undecided one is what
-// the registration gate reads. Absence carries a reason that reads back.
-func TestProvisioningPolicy_DeclaredSlotDistinguishesAbsentFromUndecided(t *testing.T) {
-	var undecided Declared[ProvisioningPolicy]
+// Validate refuses. Absence carries a reason that reads back.
+func TestDeclared_CredentialSeed_DistinguishesAbsentFromUndecided(t *testing.T) {
+	var undecided Declared[CredentialSeed]
 	assert.False(t, undecided.Decided())
 	assert.Empty(t, undecided.AbsentReason())
 
-	absent := Absent[ProvisioningPolicy]("fixture authenticates against nothing")
+	absent := Absent[CredentialSeed]("fixture authenticates against nothing")
 	assert.True(t, absent.Decided())
 	_, ok := absent.Get()
 	assert.False(t, ok)
 	assert.Equal(t, "fixture authenticates against nothing", absent.AbsentReason())
 
-	provided := Provide(ProvisioningPolicy{Accept: []MaterialDelivery{MaterialDeliveryMounted}})
+	provided := Provide(CredentialSeed{Accept: []MaterialDelivery{MaterialDeliveryMounted}})
 	got, ok := provided.Get()
 	require.True(t, ok)
 	assert.Equal(t, []MaterialDelivery{MaterialDeliveryMounted}, got.Accept)

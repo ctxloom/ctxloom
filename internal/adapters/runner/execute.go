@@ -31,9 +31,11 @@ import (
 
 // Deps are the runner's ports, composed once per process.
 type Deps struct {
-	// Engine is the ONE engine this runner hosts — what its RunnerHello
-	// advertised. A launch naming another is refused before delivery.
-	Engine engine.Name
+	// Kind is the ONE engine this runner hosts — what its RunnerHello
+	// advertised. A launch naming another is refused before delivery; the
+	// launch's session is bound to it (Instance) before delivery, so a
+	// session the engine cannot run is refused by the engine, by name.
+	Kind engine.Engine
 	// Inline and ClaimCheck are the same two transports the originator
 	// carried with; the carrier's shape names which redeems.
 	Inline     composite.Transport
@@ -92,6 +94,8 @@ var (
 	ErrWrongEngine = errors.New("runner: the launch names an engine this runner does not host")
 	// ErrNoDriver refuses to execute with nothing to drive the engine.
 	ErrNoDriver = errors.New("runner: no driver is composed")
+	// ErrNoKind refuses to execute with no engine composed.
+	ErrNoKind = errors.New("runner: no engine kind is composed")
 )
 
 // mcpConfigName is the file the runner delivers the composed server set as,
@@ -99,17 +103,30 @@ var (
 // registers the same servers a delivered MCP surface does.
 const mcpConfigName = ".mcp.json"
 
-// Execute is the RAW launch — the only tail. Redeem → Decode → refuse a
-// foreign engine → Configure → Serve (the session's endpoint, under the
-// launch's identity) → Deliver (the writers, the session's .mcp.json) →
-// Drive. There is no Execute that skips delivery and no way to hold a Launch
-// that Resolve did not make.
+// Execute is the RAW launch — the only tail. Refuse a foreign engine → bind
+// the session to the engine (Instance: requiredness is the engine's
+// refusal; a Structured launch needs a driver) → Redeem → Decode →
+// Configure → Serve (the session's endpoint, under the launch's identity)
+// → Deliver (the writers, the session's .mcp.json) → Drive. There is no
+// Execute that skips delivery and no way to hold a Launch that Resolve did
+// not make.
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if deps.Driver == nil {
 		return Outcome{}, ErrNoDriver
 	}
-	if l.Engine != deps.Engine {
-		return Outcome{}, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, deps.Engine, l.Engine)
+	if deps.Kind == nil {
+		return Outcome{}, ErrNoKind
+	}
+	hosted := deps.Kind.Root().Name
+	if l.Engine != hosted {
+		return Outcome{}, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)
+	}
+	inst, err := deps.Kind.Instance(l.Session())
+	if err != nil {
+		return Outcome{}, err
+	}
+	if l.Mode == engine.Structured && len(inst.Drivers()) == 0 {
+		return Outcome{}, engine.ErrUnsupported{Engine: hosted, Capability: "drive"}
 	}
 	pkg, err := composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
 	if err != nil {

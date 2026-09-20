@@ -380,7 +380,6 @@ var LayeringRules = []LayeringRule{
 			"internal/engines/claude -> internal/adapters/confpatch":                             "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the engine",
 			"internal/engines/claude -> internal/core/paths":                                     "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no paths",
 			"internal/lm/hosting -> internal/adapters/engineversion":                             "slice 11b: lm/hosting dies with lm/backends; the version command is the engine's own",
-			"internal/lm/hosting -> internal/adapters/transcript/vendorreader":                   "slice 11b: lm/hosting dies with lm/backends; the readers become engine.TranscriptReader values",
 			"internal/lm/backends -> internal/adapters/engineversion":                            "slice 11b: lm/backends is deleted whole",
 			"internal/lm/backends -> internal/adapters/isolation":                                "slice 11b: lm/backends is deleted whole",
 			"internal/lm/backends -> internal/adapters/remote":                                   "slice 11b: lm/backends is deleted whole",

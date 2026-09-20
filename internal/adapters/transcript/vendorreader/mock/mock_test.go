@@ -148,9 +148,9 @@ func TestVersionedAdapters_DeclaresACoveredValidatedVersion(t *testing.T) {
 
 	for _, a := range VersionedAdapters {
 		require.NotEmpty(t, a.ValidatedVersion)
-		assert.GreaterOrEqual(t, a.ValidatedVersion, a.Versions.MinInclusive,
+		assert.GreaterOrEqual(t, a.ValidatedVersion, a.Range.MinInclusive,
 			"the cited validated version must fall inside the declared range")
-		assert.Less(t, a.ValidatedVersion, a.Versions.MaxExclusive,
+		assert.Less(t, a.ValidatedVersion, a.Range.MaxExclusive,
 			"the cited validated version must fall inside the declared range")
 	}
 }

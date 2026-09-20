@@ -76,7 +76,7 @@ type liveAgent struct {
 	// otherwise-isolated run — the MAPPED half of the mapped-or-API-key
 	// policy (task erased-collar). Non-nil only for engines whose own
 	// config-home var relocates CREDENTIALS (the descriptor's
-	// agent.EngineHome.Credentials is Provided: claude's CLAUDE_CONFIG_DIR,
+	// engine.HomeSpec.Credentials is Provided: claude's CLAUDE_CONFIG_DIR,
 	// say). It NEVER
 	// writes, copies, moves
 	// or chmods a credential file: it only points at directories, and errors
@@ -383,7 +383,7 @@ func mapCredentialHome(engine, envVar, dir string, required ...string) ([]creden
 
 // mapClaudeCredentials points CLAUDE_CONFIG_DIR at the REAL ~/.claude.
 // claude's descriptor declares its home var relocates both config AND
-// credentials (agent.EngineHome.Credentials) and marks .credentials.json the
+// credentials (engine.HomeSpec.Credentials) and marks .credentials.json the
 // one REQUIRED source file, so that file's absence is
 // the loud failure here too.
 //

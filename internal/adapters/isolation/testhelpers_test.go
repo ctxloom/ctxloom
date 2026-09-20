@@ -9,10 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -60,24 +58,20 @@ func TestMain(m *testing.M) {
 	// from here is an import cycle. Calling the seam directly keeps the seed
 	// these tests exercise the one the engine authors on its descriptor,
 	// rather than a fixture that mirrors it and drifts.
-	claudeDesc := claudeengine.Hosting()
-	if _, ok := claudeDesc.Home.Get(); !ok {
-		panic("isolation tests: claude's descriptor declares no Home; the seed tests have nothing to exercise")
+	claudeKind, err := claude.Build()
+	if err != nil {
+		panic("isolation tests: " + err.Error())
 	}
-	// The whole record — its home (the seed), its provisioning policy (the
-	// declaration Select walks to decide how the credential reaches the
-	// instance; with it absent every seed would refuse, and with a fixture
-	// standing in the tests would exercise an acceptance order claude never
-	// declared), its container story with its shipping policy — through the
-	// one accessor.
+	if !claudeKind.Home().Relocates() {
+		panic("isolation tests: claude's kind declares no Home; the seed tests have nothing to exercise")
+	}
+	// The kind's own declarations — its home (the seed and the deliveries it
+	// accepts, which Select walks to decide how the credential reaches the
+	// instance; a fixture standing in would exercise an acceptance order
+	// claude never declared), its container story with its shipping policy
+	// — through the one accessor.
 	UseFacts(&overlayFacts{entries: map[string]EngineFacts{
-		claude.EngineName: {
-			Home:           claudeDesc.Home,
-			Provisioning:   claudeDesc.Provisioning,
-			Container:      claudeDesc.Container,
-			InstanceConfig: claudeDesc.InstanceConfig,
-			Distribution:   engine.DistributionDefault,
-		},
+		claude.EngineName: FactsOf(claudeKind),
 	}})
 	os.Exit(testsupport.SandboxedMain(m))
 }
@@ -133,7 +127,7 @@ func stageEngineFacts(t *testing.T, name string, mutate func(f *EngineFacts)) {
 
 // claudeAuth returns the container-auth plan claude declares, as TestMain
 // pushed it — what the auth tests hand resolveDeclaredAuth.
-func claudeAuth(t *testing.T) agent.ContainerAuth {
+func claudeAuth(t *testing.T) engine.ContainerAuth {
 	t.Helper()
 	r, ok := engineContainerDeclared(claude.EngineName)
 	require.True(t, ok, "fixture: claude's container declaration must be registered by TestMain")
@@ -146,7 +140,7 @@ func claudeAuth(t *testing.T) agent.ContainerAuth {
 
 // claudeSeed returns the seed claude declares, as TestMain pushed it — what
 // every seed test here hands hostCredentialSeed.
-func claudeSeed(t *testing.T) agent.CredentialSeed {
+func claudeSeed(t *testing.T) engine.CredentialSeed {
 	t.Helper()
 	seed, ok := credentialSeedFor(claude.EngineName)
 	require.True(t, ok, "fixture: claude's credential seed must be registered by TestMain")

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -56,9 +56,9 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 
 	bDone := make(chan error, 1)
 	go func() {
-		_, werr := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+		_, werr := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 			HostHome: t.TempDir(), InstanceHome: instance, WorkDir: workDir,
-		})
+		}, nil)
 		bDone <- werr
 	}()
 

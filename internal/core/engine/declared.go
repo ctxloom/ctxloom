@@ -1,4 +1,4 @@
-package agent
+package engine
 
 // Declared is an optional engine capability whose ABSENCE is a stated value,
 // not an omission. A slot of this type is in one of three states:
@@ -25,7 +25,7 @@ type Declared[T any] struct {
 // ErrAbsentWithoutReason is the panic value Absent raises for an empty
 // reason: an absence with nothing to report is the omission this type exists
 // to refuse, and it is refused at construction so it cannot exist at all.
-const ErrAbsentWithoutReason = "agent: Absent requires a reason; an unexplained absence is an omission"
+const ErrAbsentWithoutReason = "engine: Absent requires a reason; an unexplained absence is an omission"
 
 // Provide declares the capability present with value v. Presence is what the
 // author states, not a property of v — a nil func provided is present, and it

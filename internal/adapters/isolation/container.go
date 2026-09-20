@@ -33,7 +33,7 @@ const (
 	defaultContainerBinary = "/usr/local/bin/ctxloom"
 	// defaultContainerInstanceHome is the FIXED, well-known in-container root
 	// every RELOCATED engine home (engine_home: session) hangs under, at the
-	// leaf the engine declares (agent.HomeVar.Subdir): <root>/<leaf>. A
+	// leaf the engine declares (engine.HomeVar.Subdir): <root>/<leaf>. A
 	// container cell runs exactly one engine on a filesystem ctxloom owns, so
 	// there is nothing to negotiate about where the home lives, and nothing
 	// to compute from $HOME — the mount is what matters. Overridable per

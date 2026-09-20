@@ -19,7 +19,7 @@ func (namedAdapter) Convert(context.Context, transcript.Recorder, string) error 
 func claudeLine() []VersionedAdapter {
 	return []VersionedAdapter{{
 		Adapter:          namedAdapter{"claude-2x"},
-		Versions:         VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
+		Range:            VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
 		ValidatedVersion: "2.1.214",
 	}}
 }
@@ -39,7 +39,7 @@ func TestSelectAdapter_VersionAheadOfThePinButInsideTheRange(t *testing.T) {
 func TestSelectAdapter_VersionBehindThePinButInsideTheRange(t *testing.T) {
 	codex := []VersionedAdapter{{
 		Adapter:          namedAdapter{"codex-0.144"},
-		Versions:         VersionRange{MinInclusive: "0.144.0", MaxExclusive: "0.145.0"},
+		Range:            VersionRange{MinInclusive: "0.144.0", MaxExclusive: "0.145.0"},
 		ValidatedVersion: "0.144.6",
 	}}
 	got, err := SelectAdapter("claude-code", "0.144.4", "harp", codex)
@@ -133,8 +133,8 @@ func TestSelectAdapter_NoCandidatesRefuses(t *testing.T) {
 // some derived score would hide the mistake instead of leaving it visible.
 func TestSelectAdapter_FirstMatchWinsInDeclarationOrder(t *testing.T) {
 	overlapping := []VersionedAdapter{
-		{Adapter: namedAdapter{"first"}, Versions: VersionRange{MinInclusive: "1.0.0", MaxExclusive: "3.0.0"}},
-		{Adapter: namedAdapter{"second"}, Versions: VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"}},
+		{Adapter: namedAdapter{"first"}, Range: VersionRange{MinInclusive: "1.0.0", MaxExclusive: "3.0.0"}},
+		{Adapter: namedAdapter{"second"}, Range: VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"}},
 	}
 	got, err := SelectAdapter("x", "2.5.0", "", overlapping)
 	require.NoError(t, err)

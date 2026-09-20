@@ -6,7 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
@@ -19,16 +20,17 @@ import (
 func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 	const name = "fixture-authfix"
 	d := enginefixture.Hosting(name)
-	d.Home = agent.Provide(agent.EngineHome{
-		Vars: []agent.HomeVar{{EnvVar: "FIXTURE_HOME", Subdir: "fixture"}},
-		Credentials: agent.Provide(agent.CredentialSeed{
+	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
+		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}},
+		Credentials: engine.Provide(engine.CredentialSeed{
 			Subdir:     "fixture",
 			EnvTrigger: "FIXTURE_KEY",
 			LoginHint:  "fixture login",
-			Files:      []agent.SeedFile{{HostRelHome: ".fixture/creds", DestName: "creds", Required: true}},
+			Files:      []engine.SeedFile{{HostRelHome: ".fixture/creds", DestName: "creds", Required: true}},
+			Accept:     []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
 		}),
-	})
-	require.NoError(t, backends.Register(enginefixture.Registry(d), d))
+	}))
+	require.NoError(t, backends.Register(enginefixture.RegistryOf(kind), d))
 	t.Cleanup(func() { backends.UnregisterForTesting(name) })
 
 	hint := engineAuthFixHint(name)

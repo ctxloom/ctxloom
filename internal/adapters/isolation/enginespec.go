@@ -5,12 +5,11 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // engineContainerSpec is this package's working form of ONE engine's
-// container declaration (agent.EngineContainer) — the backend-keyed knobs of
+// container declaration (engine.ContainerSpec) — the backend-keyed knobs of
 // the container policies (Container and the worktree-in-container
 // composition), which are otherwise engine-agnostic:
 //
@@ -36,7 +35,7 @@ import (
 //     engineInstall's OWN embedded validate step instead.
 //   - resolveAuth: how the in-container engine authenticates (scoped env
 //     passthrough and/or credential mounts into the fresh HOME), built from
-//     the engine's declared agent.ContainerAuth by resolveDeclaredAuth. Takes
+//     the engine's declared engine.ContainerAuth by resolveDeclaredAuth. Takes
 //     the run's host-side scratch dir too, a seam-signature remnant no
 //     resolver writes under today.
 //   - authHint: the degrade diagnostic when resolveAuth finds nothing — names
@@ -161,7 +160,7 @@ func engineContainerSpecFor(backend string) engineContainerSpec {
 // name, threaded through so relocatedCredentialMounts can read the SAME
 // engine's credential-seed declaration (credentialSeedFor) rather than
 // re-deriving a leaf name credentialSeed.Files already states.
-func specFromDeclaration(engine string, c agent.EngineContainer) engineContainerSpec {
+func specFromDeclaration(name string, c engine.ContainerSpec) engineContainerSpec {
 	spec := engineContainerSpec{
 		image:              defaultContainerImage,
 		engineInstall:      c.Install,
@@ -180,12 +179,12 @@ func specFromDeclaration(engine string, c agent.EngineContainer) engineContainer
 	}
 	spec.authHint = a.Hint
 	if a.Vendorless != "" {
-		spec.authHint = "unreachable: a vendorless engine's auth never fails to resolve (" + a.Vendorless + ")"
+		spec.authHint = "unreachable: a vendorless name's auth never fails to resolve (" + a.Vendorless + ")"
 	}
 	if len(a.CredentialFiles) > 0 {
 		files := a.CredentialFiles
 		spec.relocatedCredentialMounts = func(engineHome string) ([]Mount, bool) {
-			return relocatedCredentialMounts(engine, files, engineHome)
+			return relocatedCredentialMounts(name, files, engineHome)
 		}
 	}
 	return spec
@@ -197,7 +196,7 @@ func specFromDeclaration(engine string, c agent.EngineContainer) engineContainer
 // bind mount of a missing file would create a directory in its place, which
 // is worse than the seeded copy alone.
 //
-// The seeded copy's leaf is whatever the engine's agent.CredentialSeed
+// The seeded copy's leaf is whatever the engine's engine.CredentialSeed
 // declares as SeedFile.DestName (credentialSeedFor, matched on the shared
 // HostRelHome) — never re-derived from ContainerRelHome. ContainerRelHome
 // describes the file's place in the container's UNRELOCATED $HOME layout
@@ -211,7 +210,7 @@ func specFromDeclaration(engine string, c agent.EngineContainer) engineContainer
 // preserves today's coincidental-match behavior for that corner rather than
 // refusing to mount at all — a provisioner redesign, not this fix, owns
 // deciding whether that corner should exist.
-func relocatedCredentialMounts(engine string, files []agent.CredentialFile, engineHome string) ([]Mount, bool) {
+func relocatedCredentialMounts(name string, files []engine.CredentialFile, engineHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
@@ -222,7 +221,7 @@ func relocatedCredentialMounts(engine string, files []agent.CredentialFile, engi
 		if !fileExists(host) {
 			return nil, false
 		}
-		leaf, ok := seededLeafFor(engine, f.HostRelHome)
+		leaf, ok := seededLeafFor(name, f.HostRelHome)
 		if !ok {
 			leaf = path.Base(f.ContainerRelHome)
 		}
@@ -236,7 +235,7 @@ func relocatedCredentialMounts(engine string, files []agent.CredentialFile, engi
 }
 
 // seededLeafFor reads the leaf name engine's credential seed declares for the
-// host file at hostRelHome (agent.SeedFile.DestName, matched by the
+// host file at hostRelHome (engine.SeedFile.DestName, matched by the
 // HostRelHome the two declarations share) — the destination the file was
 // ACTUALLY copied to under the relocated home, as opposed to any assumption
 // drawn from the container-auth declaration alone. ok=false when engine has

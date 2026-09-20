@@ -218,7 +218,7 @@ func isoBinaryNames(engine string) ([]string, error) {
 
 // isoAPIKeyEnvVar is the env var whose presence bypasses credential seeding
 // for engine — read off the engine's own declaration
-// (agent.CredentialSeed.EnvTrigger), not re-typed here.
+// (engine.CredentialSeed.EnvTrigger), not re-typed here.
 func isoAPIKeyEnvVar(engine string) (string, error) {
 	seed, ok := backends.CredentialSeedFor(engine).Get()
 	if !ok || seed.EnvTrigger == "" {
@@ -229,7 +229,7 @@ func isoAPIKeyEnvVar(engine string) (string, error) {
 
 // isoCredHostPath is engine's REQUIRED host credential file's path, relative
 // to HOME — the file whose absence is the seed's fail-loud case — read off
-// the engine's own declaration (agent.CredentialSeed.Files).
+// the engine's own declaration (engine.CredentialSeed.Files).
 func isoCredHostPath(engine string) (string, error) {
 	seed, ok := backends.CredentialSeedFor(engine).Get()
 	if !ok {

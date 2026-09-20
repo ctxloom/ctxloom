@@ -30,6 +30,7 @@ package present
 import (
 	"path"
 	"path/filepath"
+	"strings"
 )
 
 // Root is one directory named on two sides: Host is where its bytes live —
@@ -307,3 +308,14 @@ func (r Rooted) AnnounceFlag(flag string) Rooted {
 // Build completes the composition. TOTAL — reaching Rooted is itself the
 // proof that a root exists; nothing further is required.
 func (r Rooted) Build() Presentation { return r.p }
+
+// Under reports whether path lies under root: equal to it, or root followed
+// by a path separator. A prefix that merely shares characters with the root
+// ("/home/x" under "/home/xy") is not under it.
+func Under(path, root string) bool {
+	if root == "" {
+		return false
+	}
+	root = strings.TrimSuffix(root, "/")
+	return path == root || strings.HasPrefix(path, root+"/")
+}

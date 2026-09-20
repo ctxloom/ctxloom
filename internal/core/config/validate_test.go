@@ -20,6 +20,12 @@ type stubKind struct{ engine.Base }
 
 func (stubKind) Instance(engine.Session) (engine.Instance, error) { return nil, nil }
 func (stubKind) Exports(engine.Items) (engine.Exports, error)     { return engine.Exports{}, nil }
+func (stubKind) Home() engine.HomeSpec                            { return engine.HomeSpec{} }
+func (s stubKind) Container() (engine.ContainerSpec, error) {
+	return engine.ContainerSpec{}, engine.ErrUnsupported{Engine: s.Name, Capability: "container"}
+}
+func (stubKind) Transcripts() []engine.TranscriptReader { return nil }
+func (stubKind) Hooks() engine.HookCodec                { return nil }
 
 // registryOf composes stub kinds; the first named ships by default.
 func registryOf(names ...engine.Name) engine.Registry {

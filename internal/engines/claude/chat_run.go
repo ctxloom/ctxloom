@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // This file implements the StructuredChat capability for claude-code over its
@@ -92,12 +96,23 @@ func (b *ClaudeCode) Chat(parentCtx context.Context, req agent.ChatRequest, in <
 	defer cancel()
 
 	// The MCP config is the .mcp.json the runner delivered under the session
-	// home (ChatRequest.MCPConfigPath) — Chat writes nothing of its own.
+	// home (ChatRequest.MCPConfigPath) — Chat writes nothing of its own. The
+	// argv is the Instance's Exec plus the stream-json protocol; the env is
+	// the request's with the Exec's engine-native variables laid over it.
+	inst, ex, err := b.chatExec(req)
+	if err != nil {
+		return err
+	}
+	env := maps.Clone(req.Env)
+	if env == nil {
+		env = map[string]string{}
+	}
+	maps.Copy(env, ex.Env)
 	open := b.openChatTransport
 	if open == nil {
 		open = b.spawnChatTransport
 	}
-	tr, err := open(ctx, b.chatArgs(req, req.MCPConfigPath), req.Env, req.WorkDir)
+	tr, err := open(ctx, (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{}), env, ex.WorkDir)
 	if err != nil {
 		return err
 	}
@@ -215,38 +230,48 @@ const (
 	flagResume      = "--resume"
 )
 
-// chatArgs builds the stream-json command line: base args + the print/streaming
-// flags, plus model, permissions, resume, and MCP config when requested.
-// mcpConfigPath is "" when req.MCPServers is empty (no --mcp-config emitted).
-func (b *ClaudeCode) chatArgs(req agent.ChatRequest, mcpConfigPath string) []string {
-	args := make([]string, len(b.Args))
-	copy(args, b.Args)
-	args = append(args, flagPrint,
-		flagInputFormat, "stream-json",
-		flagOutputFormat, "stream-json",
-		flagVerbose,
-	)
-	if req.Model != "" {
-		args = append(args, flagModel, req.Model)
-	}
-	// The attached servers' names, for the plan-posture grant. Inline rather
-	// than a named helper: it had one caller and the extracted form was an
-	// exact duplicate of four existing pluck-the-name loops.
-	mcpNames := make([]string, 0, len(req.MCPServers))
+// chatExec projects a structured-chat request onto the engine-facing
+// Session and composes its Exec through the Instance: the harp the run env
+// carries, the label's binary and args, the model and posture, the attached
+// servers' names (the plan grant), the working directory and the relocated
+// home; the .mcp.json the runner delivered is the one presentation; the
+// native key to continue is Resume's. The stream-json protocol is the
+// driver's, appended by streamJSONDriver.argv.
+func (b *ClaudeCode) chatExec(req agent.ChatRequest) (*instance, engine.Exec, error) {
+	names := make([]string, 0, len(req.MCPServers))
 	for _, s := range req.MCPServers {
-		mcpNames = append(mcpNames, s.Name)
+		names = append(names, s.Name)
 	}
-	args = append(args, permissionArgs(req.Permissions, mcpNames)...)
+	s := engine.Session{
+		Identity:   sessions.Identity{Harp: req.Env[sessionHarpEnv]},
+		Label:      engine.LabelConfig{Label: EngineName, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
+		Mode:       engine.Structured,
+		Permission: req.Permissions,
+		MCPServers: names,
+		WorkDir:    req.WorkDir,
+	}
+	if home := req.Env[ConfigDirEnv]; home != "" {
+		s.Home = []engine.HomeBinding{{Var: ConfigDirEnv, Path: home}}
+	}
+	i, err := b.kind.Instance(s)
+	if err != nil {
+		return nil, engine.Exec{}, err
+	}
+	inst := i.(*instance)
 	if req.ResumeSessionID != "" {
-		args = append(args, flagResume, req.ResumeSessionID)
+		if err := inst.Resume(req.ResumeSessionID); err != nil {
+			return nil, engine.Exec{}, err
+		}
 	}
-	if mcpConfigPath != "" {
-		args = append(args, flagMCPConfig, mcpConfigPath)
+	var presented []present.Presentation
+	if req.MCPConfigPath != "" {
+		presented = append(presented, present.Presentation{HostPath: req.MCPConfigPath, EnginePath: req.MCPConfigPath, Args: []string{flagMCPConfig, req.MCPConfigPath}})
 	}
-	// Name the structured-chat session after ctxloom's harp, matching the
-	// interactive path, so it's findable in the /resume picker.
-	args = append(args, sessionNameArgs(req.Env)...)
-	return args
+	ex, err := inst.Exec(presented)
+	if err != nil {
+		return nil, engine.Exec{}, err
+	}
+	return inst, ex, nil
 }
 
 // spawnChatTransport launches the real `claude` process with piped stdio (NOT a

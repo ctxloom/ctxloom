@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -263,11 +263,11 @@ func TestRegister_BatchIsAllOrNothing(t *testing.T) {
 // composition root's message says what to fix.
 func TestRegister_UndeclaredSlotIsRefusedByName(t *testing.T) {
 	d := enginefixture.Hosting("u057-undeclared")
-	d.Home = agent.Declared[agent.EngineHome]{}
+	d.VersionCommand = engine.Declared[engineversion.Command]{}
 	err := registerFixtures(d)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "u057-undeclared")
-	assert.Contains(t, err.Error(), "Home")
+	assert.Contains(t, err.Error(), "VersionCommand")
 	assert.False(t, Exists("u057-undeclared"))
 }
 
@@ -304,9 +304,9 @@ func TestRegister_PairsEveryHostingWithItsKind(t *testing.T) {
 func TestRegistry_DeclarativeFactsAreTheKinds(t *testing.T) {
 	const name = "u6b-facts"
 	t.Cleanup(func() { UnregisterForTesting(name) })
-	kind := enginefixture.Kind(name, mock.WithDistribution(engine.DistributionOptIn), func(d *engine.Definition) {
-		d.Permissions.ReadOnlyPlan = true
-		d.ModelAliases = map[string]string{"fast": "fixture-fast-1"}
+	kind := enginefixture.Kind(name, mock.WithDistribution(engine.DistributionOptIn), func(m *mock.Mock) {
+		m.Permissions.ReadOnlyPlan = true
+		m.ModelAliases = map[string]string{"fast": "fixture-fast-1"}
 	})
 	require.NoError(t, Register(enginefixture.RegistryOf(kind), enginefixture.Hosting(name)))
 

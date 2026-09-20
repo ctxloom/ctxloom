@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
-	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 type fixtureConfig struct{}
@@ -24,16 +24,10 @@ func validHosting() Hosting {
 		NewBackend: func(agent.Launcher) agent.Backend { return nil },
 		NewConfig:  func() agent.BackendConfig { return &fixtureConfig{} },
 		Surfaces:   agent.Declaration{},
-		SettingsWriter: agent.Absent[func(agent.SettingsOptions) agent.SettingsWriter](
+		SettingsWriter: engine.Absent[func(agent.SettingsOptions) agent.SettingsWriter](
 			"fixture writes no settings"),
-		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
-			"fixture generates no instance config"),
-		HookGlobalScope:   agent.Absent[HookGlobalScope]("fixture's global path never collapses onto its project path"),
-		VersionCommand:    agent.Absent[engineversion.Command]("fixture has no binary to ask"),
-		Home:              agent.Absent[agent.EngineHome]("fixture keeps no global state"),
-		Container:         agent.Absent[agent.EngineContainer]("fixture has no container story"),
-		TranscriptReaders: agent.Absent[[]vendorreader.VersionedAdapter]("fixture keeps no transcripts"),
-		Provisioning:      agent.Absent[agent.ProvisioningPolicy]("fixture has no material to provision"),
+		HookGlobalScope: engine.Absent[HookGlobalScope]("fixture's global path never collapses onto its project path"),
+		VersionCommand:  engine.Absent[engineversion.Command]("fixture has no binary to ask"),
 	}
 }
 
@@ -64,7 +58,7 @@ func TestValidate_EveryDeclaredSlotIsGated(t *testing.T) {
 	}
 	// The count is asserted so the loop cannot pass vacuously if the
 	// interface match ever stops finding the slots.
-	assert.GreaterOrEqual(t, gated, 8, "expected every optional capability to be a Declared slot")
+	assert.GreaterOrEqual(t, gated, 3, "expected every optional capability to be a Declared slot")
 }
 
 func TestValidate_RefusesAnUnnamedEngine(t *testing.T) {
@@ -89,43 +83,18 @@ func TestValidate_RefusesMissingConstructors(t *testing.T) {
 // (presence is what the author said); Validate is where it is caught.
 func TestValidate_RefusesProvidedNilFunc(t *testing.T) {
 	d := validHosting()
-	d.SettingsWriter = agent.Provide[func(agent.SettingsOptions) agent.SettingsWriter](nil)
+	d.SettingsWriter = engine.Provide[func(agent.SettingsOptions) agent.SettingsWriter](nil)
 	assert.ErrorContains(t, d.Validate(), "SettingsWriter")
-	d = validHosting()
-	d.InstanceConfig = agent.Provide[func(agent.SettingsOptions) agent.InstanceConfigWriter](nil)
-	assert.ErrorContains(t, d.Validate(), "InstanceConfig")
 }
 
 func TestValidate_RefusesIncompleteProvidedVersionCommand(t *testing.T) {
 	d := validHosting()
-	d.VersionCommand = agent.Provide(engineversion.Command{Args: []string{"--version"}})
+	d.VersionCommand = engine.Provide(engineversion.Command{Args: []string{"--version"}})
 	assert.ErrorContains(t, d.Validate(), "VersionCommand")
 }
 
 func TestValidate_RefusesIncompleteProvidedHookGlobalScope(t *testing.T) {
 	d := validHosting()
-	d.HookGlobalScope = agent.Provide(HookGlobalScope{Label: "x"})
+	d.HookGlobalScope = engine.Provide(HookGlobalScope{Label: "x"})
 	assert.ErrorContains(t, d.Validate(), "HookGlobalScope")
-}
-
-// Home and Container carry their own Validate; Hosting.Validate must run
-// it, or an engine could register a home whose seed lands nowhere.
-func TestValidate_RunsHomeAndContainerValidation(t *testing.T) {
-	d := validHosting()
-	d.Home = agent.Provide(agent.EngineHome{})
-	assert.ErrorContains(t, d.Validate(), "EngineHome")
-	d = validHosting()
-	d.Container = agent.Provide(agent.EngineContainer{})
-	assert.ErrorContains(t, d.Validate(), "EngineContainer")
-}
-
-// InTreeAgentHome derivation reads Vars[0]; a second var has no consumer
-// yet, so it is refused rather than silently half-applied.
-func TestValidate_RefusesMultiVarHomeUntilAConsumerExists(t *testing.T) {
-	d := validHosting()
-	d.Home = agent.Provide(agent.EngineHome{
-		Vars:        []agent.HomeVar{{EnvVar: "A", Subdir: "a"}, {EnvVar: "B", Subdir: "b"}},
-		Credentials: agent.Absent[agent.CredentialSeed]("elsewhere"),
-	})
-	assert.ErrorContains(t, d.Validate(), "one home var")
 }

@@ -24,6 +24,11 @@ type Session struct {
 	WorkDir    string        // the cell's working directory
 	Home       []HomeBinding // each home var the engine declares, resolved to its path under the session home
 	MCP        sessions.Endpoint
+	// MCPServers are the NAMES of the servers the session's MCP file
+	// registers (the endpoint's own entry included), for an engine whose
+	// permission posture grants by server. Names, never the entries: the
+	// entries are already a presentation.
+	MCPServers []string
 	Prompt     string
 	Resume     sessions.ResumeRef
 	Env        map[string]string // engine PASSTHROUGH additions only; never ctxloom's own vars

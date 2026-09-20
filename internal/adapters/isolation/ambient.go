@@ -2,13 +2,13 @@ package isolation
 
 import (
 	"fmt"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/gofrs/flock"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/lockwait"
@@ -218,11 +218,11 @@ func CopyAmbient(req AmbientRequest) (AmbientCopyReport, error) {
 // held. A declared-absent seed skips the copy half entirely — the engine
 // said it has nothing seedable — and still runs the engine's own
 // instance-config generation.
-func copyAmbientLocked(engine string, declared agent.Declared[agent.CredentialSeed], req AmbientRequest) (AmbientCopyReport, error) {
+func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSeed], req AmbientRequest) (AmbientCopyReport, error) {
 	var rep AmbientCopyReport
 
 	if seed, ok := declared.Get(); ok {
-		result, provisioned, err := hostCredentialSeed(engine, seed, req.InstanceHome)
+		result, provisioned, err := hostCredentialSeed(name, seed, req.InstanceHome)
 		if err != nil {
 			return rep, err
 		}
@@ -243,7 +243,7 @@ func copyAmbientLocked(engine string, declared agent.Declared[agent.CredentialSe
 		}
 	}
 
-	writer := instanceConfigWriterFor(engine)
+	writer := instanceConfigWriterFor(name)
 	if writer == nil {
 		return rep, nil
 	}
@@ -251,15 +251,15 @@ func copyAmbientLocked(engine string, declared agent.Declared[agent.CredentialSe
 	if err != nil {
 		hostHome = ""
 	}
-	engineRep, err := writer.WriteInstanceConfig(agent.InstanceConfigRequest{
+	engineRep, err := writer.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome:     hostHome,
 		InstanceHome: req.InstanceHome,
 		WorkDir:      req.WorkDir,
-	})
+	}, nil)
 	rep.Generated = engineRep.Wrote
 	rep.Warnings = engineRep.Warnings
 	for _, w := range rep.Warnings {
-		clidiag.Warn("ctxloom", "%s instance config: %s", engine, w)
+		clidiag.Warn("ctxloom", "%s instance config: %s", name, w)
 	}
 	if err != nil {
 		return rep, err
@@ -271,7 +271,7 @@ func copyAmbientLocked(engine string, declared agent.Declared[agent.CredentialSe
 // the host and how many OPTIONAL ones were absent, after a successful seed.
 // Recomputed from the same declaration the seed used rather than threaded
 // back out of it, so the counting cannot claim a copy the seed did not make.
-func ambientCopyCounts(seed agent.CredentialSeed) (copied, missingOptional int) {
+func ambientCopyCounts(seed engine.CredentialSeed) (copied, missingOptional int) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return 0, 0
@@ -294,7 +294,7 @@ func ambientCopyCounts(seed agent.CredentialSeed) (copied, missingOptional int) 
 // CALLER's strictness finding, never by the code that surfaces this string, and
 // an error naming an escape hatch that does not exist sends the user round a
 // loop that cannot terminate.
-func noAmbientSourceReason(seed agent.CredentialSeed) string {
+func noAmbientSourceReason(seed engine.CredentialSeed) string {
 	return fmt.Sprintf(
 		"no %s and no host ~/%s credentials found to authenticate this run — run `%s` or set %s",
 		seed.EnvTrigger, primaryAmbientHostRel(seed), seed.LoginHint, seed.EnvTrigger)
@@ -302,9 +302,9 @@ func noAmbientSourceReason(seed agent.CredentialSeed) string {
 
 // primaryAmbientHostRel is the slash-separated, home-relative path of seed's
 // REQUIRED credential file — the one whose absence is the fail-loud case — for
-// use in a message. agent.EngineHome.Validate refuses a seed with no required
+// use in a message. engine.HomeSpec.Validate refuses a seed with no required
 // file, so the fallback to the first entry is for an unvalidated value only.
-func primaryAmbientHostRel(seed agent.CredentialSeed) string {
+func primaryAmbientHostRel(seed engine.CredentialSeed) string {
 	for _, f := range seed.Files {
 		if f.Required {
 			return f.HostRelHome

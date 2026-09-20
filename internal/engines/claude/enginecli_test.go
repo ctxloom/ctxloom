@@ -28,16 +28,30 @@ type argvCase struct {
 	// minimal selects the BACKEND this case runs against: one whose Setup
 	// resolved the minimal launch posture, or one that delivered surfaces.
 	minimal bool
+	// resume, when set, is the native key the Instance continues: the
+	// --resume arm of the structured surface.
+	resume string
 }
 
 // argvFor builds this case's argv against the backend its form calls for.
-// delivered is the surface-delivering backend the matrix shares.
+// delivered is the surface-delivering backend the matrix shares. A resumed
+// case binds the Instance, resumes it and reads Exec — the same composition
+// buildArgs projects a request onto.
 func (c argvCase) argvFor(t *testing.T, delivered *ClaudeCode) []string {
 	t.Helper()
+	b := delivered
 	if c.minimal {
-		return minimalBackend(t, matrixModel).buildArgs(c.req)
+		b = minimalBackend(t, matrixModel)
 	}
-	return delivered.buildArgs(c.req)
+	if c.resume == "" {
+		return b.buildArgs(c.req)
+	}
+	inst, err := b.kind.Instance(b.session(c.req))
+	require.NoError(t, err)
+	require.NoError(t, inst.Resume(c.resume))
+	ex, err := inst.Exec(b.presented())
+	require.NoError(t, err)
+	return ex.Args
 }
 
 // buildArgsMatrix enumerates EVERY argv shape the driver can produce —
@@ -82,19 +96,25 @@ func buildArgsMatrix() []argvCase {
 		for _, mode := range modes {
 			for _, minimal := range []bool{false, true} {
 				for _, cell := range cells {
-					out = append(out, argvCase{
-						label:   fmt.Sprintf("%s/%s/minimal=%v/%s", perm.name, mode.name, minimal, cell.name),
-						surface: mode.surface,
-						minimal: minimal,
-						req: &agent.ExecuteRequest{
-							Mode:        mode.m,
-							Permissions: perm.p,
-							CellKind:    cell.k,
-							Model:       matrixModel,
-							Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
-							Prompt:      &agent.Fragment{Content: "do the thing"},
-						},
-					})
+					for _, resume := range []string{"", "native-key"} {
+						if resume != "" && mode.m != agent.ModeOneshot {
+							continue // an interactive launch is never resumed by native key
+						}
+						out = append(out, argvCase{
+							label:   fmt.Sprintf("%s/%s/minimal=%v/%s/resume=%q", perm.name, mode.name, minimal, cell.name, resume),
+							surface: mode.surface,
+							minimal: minimal,
+							resume:  resume,
+							req: &agent.ExecuteRequest{
+								Mode:        mode.m,
+								Permissions: perm.p,
+								CellKind:    cell.k,
+								Model:       matrixModel,
+								Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
+								Prompt:      &agent.Fragment{Content: "do the thing"},
+							},
+						})
+					}
 				}
 			}
 		}

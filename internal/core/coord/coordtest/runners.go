@@ -29,7 +29,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -69,6 +68,10 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 	if !ok {
 		return nil, fmt.Errorf("coordtest: backend %q is not a StructuredChat, so no runner can host it", backend)
 	}
+	kind, ok := backends.Kind(backend)
+	if !ok {
+		return nil, fmt.Errorf("coordtest: no engine kind %q is composed", backend)
+	}
 	engine := &Engine{inner: chat}
 	rctx, cancel := context.WithCancel(r.ctx)
 	host := coord.NewEngineHost(rctx, r.Reporter, engine, backend, runnerEnv[coord.EnvRunID])
@@ -76,7 +79,7 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 	// package opened for real; delivery is a no-op (the fake spawner's cell
 	// is not a directory), and the host drives the recorded chat.
 	host.BindRunner(runner.Host{Deps: runner.Deps{
-		Engine:     enginepkg.Name(backend),
+		Kind:       kind,
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
 		Static:     noDelivery{},

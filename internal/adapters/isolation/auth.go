@@ -1,11 +1,10 @@
 package isolation
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"os"
 	"path"
 	"path/filepath"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // containerAuthMode names HOW a container run authenticates the engine, for
@@ -41,7 +40,7 @@ func (m containerAuthMode) String() string {
 // containerAuth is the resolved plan for authenticating the engine INSIDE a
 // container: the scoped env vars to inject (env passthrough) and/or the
 // credential mounts to bind into the fresh HOME (subscription OAuth). Each engine
-// DECLARES its own plan (agent.ContainerAuth); resolveDeclaredAuth turns it
+// DECLARES its own plan (engine.ContainerAuth); resolveDeclaredAuth turns it
 // into this.
 //
 // The plan is DEPTH-BLIND, and that is a ruling (full credential parity at
@@ -117,7 +116,7 @@ func noContainerAuth(_ string, _ string) (containerAuth, bool) {
 }
 
 // resolveDeclaredAuth builds the auth plan a containerized run of an engine
-// gets from the engine's OWN declaration (agent.ContainerAuth), whose fresh
+// gets from the engine's OWN declaration (engine.ContainerAuth), whose fresh
 // HOME is containerHome. It PREFERS env passthrough (any declared trigger set
 // in the host env) and otherwise falls back to BIND-MOUNTING the declared
 // host credential files into the container HOME. It returns ok=false only
@@ -128,9 +127,9 @@ func noContainerAuth(_ string, _ string) (containerAuth, bool) {
 //
 // A VENDORLESS declaration (a double that authenticates against nothing)
 // resolves unconditionally to the empty plan: a POSITIVE fact the engine
-// states about itself and agent.ContainerAuth.Validate holds exclusive of
+// states about itself and engine.ContainerAuth.Validate holds exclusive of
 // every other field — never the shape a real engine's plan may take.
-func resolveDeclaredAuth(a agent.ContainerAuth, containerHome string) (containerAuth, bool) {
+func resolveDeclaredAuth(a engine.ContainerAuth, containerHome string) (containerAuth, bool) {
 	if a.Vendorless != "" {
 		return containerAuth{mode: authNone}, true
 	}
@@ -194,13 +193,13 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // engine's home var points at (e.g. what CLAUDE_CONFIG_DIR resolves to), so
 // joining the same full ContainerRelHome there would double the subdir; it
 // must join only the file's leaf — and that leaf has its OWN source of
-// truth (agent.SeedFile.DestName, the name the seeded copy actually landed
+// truth (engine.SeedFile.DestName, the name the seeded copy actually landed
 // under), which need not equal ContainerRelHome's leaf if the engine renames
 // on seed. One shared helper parameterized on "which root" would hide that
 // the roots aren't just different strings but different semantics — the
 // unrelocated case needs no seed at all, and consulting one would be reading
 // a declaration that has no bearing on the answer.
-func credentialFileMounts(files []agent.CredentialFile, containerHome string) ([]Mount, bool) {
+func credentialFileMounts(files []engine.CredentialFile, containerHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false

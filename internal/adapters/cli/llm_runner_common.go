@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -127,8 +126,12 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *coord.Engine
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
 	}
+	kind, ok := backends.Kind(backendName)
+	if !ok {
+		return runner.Deps{}, fmt.Errorf("runner: no engine kind %q is composed", backendName)
+	}
 	deps := runner.Deps{
-		Engine:     engine.Name(backendName),
+		Kind:       kind,
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(ctxHome, paths.SessionsDir)}},
 		Static:     backend,

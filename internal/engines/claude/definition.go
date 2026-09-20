@@ -34,13 +34,27 @@ import (
 // definition says so through the approach type, and DeliverHooks is real.
 
 // Claude is the engine KIND: the engine root embedded, engine-specific logic
-// as methods. Built once by Build; immutable.
-type Claude struct{ engine.Base }
+// as methods. Built once by Build; immutable. transcripts are the readers
+// of claude's own store the composition root handed in: a transcript
+// adapter's values, never this package's import.
+type Claude struct {
+	engine.Base
+	transcripts []engine.TranscriptReader
+}
+
+// Option adjusts the kind before Validate.
+type Option func(*Claude)
+
+// WithTranscripts hands the kind the readers of its own transcript store.
+func WithTranscripts(readers ...engine.TranscriptReader) Option {
+	return func(c *Claude) { c.transcripts = append(c.transcripts, readers...) }
+}
 
 // Build is THE CONSTRUCTOR: the one place claude's declaration is assembled
 // and the one place an incoherent one is refused, by engine.Base.Validate.
-// The shape is the plain constructor: the literal, then Validate once.
-func Build() (engine.Engine, error) {
+// The shape is the plain constructor: the literal, options, then Validate
+// once.
+func Build(opts ...Option) (engine.Engine, error) {
 	home := []present.RootKind{present.RootSessionHome}
 	shared := []present.RootKind{present.RootSessionHome, present.RootProjectRoot}
 	project := []present.RootKind{present.RootProjectRoot}
@@ -73,19 +87,17 @@ func Build() (engine.Engine, error) {
 		ModelAliases: map[string]string{},
 		ExportSchema: ExportSchema,
 	}
-	b := engine.Base{Definition: d}
-	if err := b.Validate(); err != nil {
+	c := Claude{Base: engine.Base{Definition: d}}
+	for _, o := range opts {
+		o(&c)
+	}
+	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	return Claude{Base: b}, nil
-}
-
-// Instance is the instance half of the port, which lm/backends still
-// serves for claude (Setup/Execute); it lands here in slice 11b. Until then
-// binding a session to this kind is refused loudly rather than returning an
-// instance that cannot exec.
-func (c Claude) Instance(engine.Session) (engine.Instance, error) {
-	return nil, engine.ErrUnsupported{Engine: c.Name, Capability: "instance"}
+	if err := c.Home().Validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 var _ engine.Engine = Claude{}

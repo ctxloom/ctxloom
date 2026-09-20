@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // realisticHostClaudeJSON stands in for a live user's ~/.claude.json. On a real
@@ -72,9 +72,9 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 	instance := t.TempDir()
 	workDir := t.TempDir()
 
-	rep, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: workDir,
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Len(t, rep.Wrote, 1)
 	assert.Empty(t, rep.Warnings, "a complete host file is not schema drift")
@@ -112,9 +112,9 @@ func TestWriteInstanceConfig_HardensBypassAndAutoUpdate(t *testing.T) {
 	host := writeHostConfig(t, realisticHostClaudeJSON)
 	instance := t.TempDir()
 
-	_, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	cfg := readInstanceConfig(t, instance)
@@ -137,9 +137,9 @@ func TestWriteInstanceConfig_TrustIsGeneratedForTheWorkDir(t *testing.T) {
 	instance := t.TempDir()
 	workDir := t.TempDir()
 
-	_, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: workDir,
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	cfg := readInstanceConfig(t, instance)
@@ -168,9 +168,9 @@ func TestWriteInstanceConfig_WarnsWhenTheHostDropsAnExpectedKey(t *testing.T) {
 	host := writeHostConfig(t, `{"lastOnboardingVersion": "2.1.228"}`)
 	instance := t.TempDir()
 
-	rep, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.Len(t, rep.Warnings, 1, "exactly the one absent expected key warns, got %v", rep.Warnings)
 	assert.Contains(t, rep.Warnings[0], "hasCompletedOnboarding")
@@ -189,9 +189,9 @@ func TestWriteInstanceConfig_AbsentHostFileStillProducesAUsableInstance(t *testi
 	instance := t.TempDir()
 	workDir := t.TempDir()
 
-	rep, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: t.TempDir(), InstanceHome: instance, WorkDir: workDir,
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, rep.Warnings)
 
@@ -214,9 +214,9 @@ func TestWriteInstanceConfig_NeverWritesTheHostHome(t *testing.T) {
 	before, err := os.ReadFile(hostFile)
 	require.NoError(t, err)
 
-	_, err = NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	_, err = claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: host, InstanceHome: t.TempDir(), WorkDir: t.TempDir(),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	after, err := os.ReadFile(hostFile)
@@ -244,9 +244,9 @@ func TestWriteInstanceConfig_PropagatesTheLockedClosuresError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(dest), 0o700))
 	require.NoError(t, os.WriteFile(dest, []byte(`{not valid json`), 0o600))
 
-	_, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: t.TempDir(), InstanceHome: instance, WorkDir: t.TempDir(),
-	})
+	}, nil)
 	require.Error(t, err, "an unparseable pre-existing instance file must fail loud, not be silently replaced")
 	assert.Contains(t, err.Error(), "cannot read")
 }
@@ -256,9 +256,9 @@ func TestWriteInstanceConfig_PropagatesTheLockedClosuresError(t *testing.T) {
 // world-readable.
 func TestWriteInstanceConfig_OwnerOnly(t *testing.T) {
 	instance := t.TempDir()
-	_, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: writeHostConfig(t, realisticHostClaudeJSON), InstanceHome: instance, WorkDir: t.TempDir(),
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	info, err := os.Stat(filepath.Join(instance, HomeLeaf, InstanceConfigFileName))
@@ -275,10 +275,10 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 	host := writeHostConfig(t, realisticHostClaudeJSON)
 	instance := t.TempDir()
 	workDir := t.TempDir()
-	w := NewInstanceConfigWriter(agent.SettingsOptions{})
-	req := agent.InstanceConfigRequest{HostHome: host, InstanceHome: instance, WorkDir: workDir}
+	w := claudeInstanceConfig{}
+	req := engine.InstanceConfigRequest{HostHome: host, InstanceHome: instance, WorkDir: workDir}
 
-	_, err := w.WriteInstanceConfig(req)
+	_, err := w.WriteInstanceConfig(req, nil)
 	require.NoError(t, err)
 
 	// Stand in for whatever claude accumulated during the first run.
@@ -290,7 +290,7 @@ func TestWriteInstanceConfig_SecondRunPreservesWhatClaudeWrote(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	_, err = w.WriteInstanceConfig(req)
+	_, err = w.WriteInstanceConfig(req, nil)
 	require.NoError(t, err)
 
 	after := readInstanceConfig(t, instance)
@@ -309,9 +309,9 @@ func TestWriteInstanceConfig_ReportsAPrecedenceFileShadowingIt(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(instance, HomeLeaf), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(instance, HomeLeaf, precedenceConfigFileName), []byte(`{}`), 0o600))
 
-	rep, err := NewInstanceConfigWriter(agent.SettingsOptions{}).WriteInstanceConfig(agent.InstanceConfigRequest{
+	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
 		HostHome: writeHostConfig(t, realisticHostClaudeJSON), InstanceHome: instance, WorkDir: t.TempDir(),
-	})
+	}, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, rep.Warnings)
 	assert.True(t, strings.Contains(strings.Join(rep.Warnings, "\n"), precedenceConfigFileName),

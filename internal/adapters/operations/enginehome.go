@@ -154,7 +154,7 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // (in.ContainerHome) rewrites only the ENGINE side of the root — on the host
 // the engine is told the host path; in a container it is told
 // <ContainerHome>/<leaf>, the leaf being the one the engine DECLARES
-// (agent.HomeVar.Subdir, via the backend spec) rather than anything
+// (engine.HomeVar.Subdir, via the backend spec) rather than anything
 // re-derived from the host path, and the Mount that makes that true rides
 // the resolution for the caller to hand the workspace
 // (isolation.MountEngineHome). The workspace axis does not touch the home at

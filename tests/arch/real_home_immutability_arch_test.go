@@ -195,7 +195,6 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	for _, backend := range []string{"claude-code"} {
 		res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
 			Backend:  backend,
-			WorkDir:  workDir,
 			Cwd:      workDir,
 			Harp:     harp,
 			HomeMode: agents.HomeModeSession,
@@ -284,24 +283,29 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	}
 }
 
-// TestArch_InstanceHomesLiveInsideTheProjectStateTier is the other side of the
-// same coin: wherever ctxloom DOES write an engine home, it is inside the
-// project's gitignored state tier — never anywhere near the user's real home,
-// and never in the cache tier a `deps pull` could clobber.
-func TestArch_InstanceHomesLiveInsideTheProjectStateTier(t *testing.T) {
-	const workDir = "/proj"
+// TestArch_InstanceHomesLiveInsideTheSessionsStore is the other side of the
+// same coin: wherever ctxloom DOES write an engine home, it is the session's
+// own member under the home-rooted sessions store (paths.HarpSessionHome) —
+// never the user's real engine home, never the project tree, and never the
+// cache tier a `deps pull` could clobber.
+func TestArch_InstanceHomesLiveInsideTheSessionsStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	const harp = "ugly-icy-squid"
-	stateTier := filepath.Join(workDir, paths.AppDirName, "state") + string(filepath.Separator)
+	store := filepath.Join(home, paths.AppDirName, paths.SessionsDir, harp) + string(filepath.Separator)
 
-	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
+	root, err := paths.HarpSessionHome(harp)
 	if err != nil {
-		t.Fatalf("paths.SessionHomePath: %v", err)
+		t.Fatalf("paths.HarpSessionHome: %v", err)
 	}
 	for name, dir := range map[string]string{
 		"claude-code": filepath.Join(root, claude.HomeLeaf),
 	} {
-		if !strings.HasPrefix(dir, stateTier) {
-			t.Errorf("%s's instance %q is not inside the project state tier %q", name, dir, stateTier)
+		if !strings.HasPrefix(dir, store) {
+			t.Errorf("%s's instance %q is not inside the session's own dir %q", name, dir, store)
+		}
+		if strings.HasPrefix(dir, filepath.Join(home, ".claude")) {
+			t.Errorf("%s's instance %q sits inside the user's real engine home", name, dir)
 		}
 		if strings.Contains(dir, filepath.Join(".ctxloom", "cache")) {
 			t.Errorf("%s's instance %q sits in the cache tier, which a rebuild may wipe and reconstruct", name, dir)

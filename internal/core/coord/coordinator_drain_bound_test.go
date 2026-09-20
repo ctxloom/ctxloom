@@ -2,7 +2,6 @@ package coord
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,8 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -339,7 +336,7 @@ func (s *lockingSpawner) MarkSessionEnded(harp string) {
 // the PARK half of the policy: a child parked on a human is not a process
 // wait. The drain settles without it, lists it, leaves its run and its turn
 // open, and — well after the drain bound has elapsed — its session lock is
-// still held, so the instance sweep that reclaims dead sessions skips it.
+// still held, so a reaper that honours the lock cannot read it as dead.
 func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T) {
 	resetStrictness(t)
 	testsupport.Isolate(t)
@@ -357,13 +354,6 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 	require.Equal(t, StateParked, rosterState(c, harp), "precondition: the child is parked")
 	require.Equal(t, sessionlock.Alive, sessionlock.Inspect(harp).Verdict, "precondition: the spawner holds the lock")
 
-	// The instance the sweep would reclaim if it read the child as dead.
-	projectDir := t.TempDir()
-	appPath := filepath.Join(projectDir, paths.AppDirName)
-	instance, err := paths.SessionStatePath(appPath, harp)
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Join(instance, paths.SessionHomeDirName), 0o700))
-
 	started := time.Now()
 	out := awaitDrain(t, c.BeginDrain())
 	assert.Less(t, time.Since(started), c.drainBound, "a park is not waited on: the drain settles without spending the bound")
@@ -377,13 +367,7 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 	assert.NotContains(t, sp.endedSessions(), harp, "its session was not ended")
 	probe := sessionlock.Inspect(harp)
 	assert.Equal(t, sessionlock.Alive, probe.Verdict, "its session lock is still held: %s", probe.Reason)
-	assert.False(t, probe.Verdict.MayReclaim())
-
-	res, err := operations.ReapOrphanedSessionHomes(appPath)
-	require.NoError(t, err)
-	assert.Equal(t, 0, res.Reaped, "the instance sweep must not reclaim a parked child")
-	assert.Equal(t, 1, res.Skipped)
-	assert.DirExists(t, instance)
+	assert.False(t, probe.Verdict.MayReclaim(), "a parked child's instance is not reclaimable")
 
 	// Once the human answers, the park lifts and the drain policy applies:
 	// the child ends at its boundary rather than taking another turn.

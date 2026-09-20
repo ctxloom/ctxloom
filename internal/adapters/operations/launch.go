@@ -302,7 +302,6 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	env := isolation.WorkspaceEnv(ws)
 	home := BindAgentHome(ws, InTreeAgentHome{
 		Backend:  backend,
-		WorkDir:  req.ProjectRoot,
 		Cwd:      ws.Dir(),
 		Harp:     harp,
 		HomeMode: homeMode,

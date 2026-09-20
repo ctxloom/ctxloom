@@ -319,8 +319,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # controlled home instead of hers. A ctxloom agent that opts in this way is
   # not entitled to her memory, plugins, personal MCP registrations, global
   # agents or steering, and must not write its session state into them, so it is
-  # given a PER-SESSION config-home INSTANCE under
-  # `.ctxloom/state/<harp>/home/<leaf>` instead — created at session start,
+  # given a PER-SESSION config-home INSTANCE under her ctxloom home
+  # (`~/.ctxloom/sessions/<harp>/home/<leaf>`) instead — created at session start,
   # copied into one way from her real home, and disposable.
   #
   # THE DECLARATION IS LOAD-BEARING, and it did not used to be: naming an agent

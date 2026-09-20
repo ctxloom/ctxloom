@@ -47,7 +47,7 @@ func fakeHostHome(t *testing.T, creds string) string {
 // these assertions cannot drift from the resolution the production path uses.
 func mustClaudeInstance(t *testing.T, workDir, harp string) string {
 	t.Helper()
-	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
+	root, err := paths.HarpSessionHome(harp)
 	require.NoError(t, err)
 	return filepath.Join(root, claude.HomeLeaf)
 }
@@ -86,7 +86,6 @@ func resolveHome(t *testing.T, in InTreeAgentHome) AgentHomeResolution {
 func projectHome(workDir, harp string) InTreeAgentHome {
 	return InTreeAgentHome{
 		Backend:  "claude-code",
-		WorkDir:  workDir,
 		Cwd:      workDir,
 		Harp:     harp,
 		HomeMode: agents.HomeModeSession,
@@ -305,24 +304,26 @@ func TestResolveInTreeAgentHome_ApiKeyAuthenticatesAFreshControlledHome(t *testi
 }
 
 // The instance's SHAPE, spelled out once so a change to the layout cannot pass
-// by agreeing with itself: state tier (not cache — it holds copied credentials
-// nothing rebuilds), keyed by harp, one `home` root, one leaf per engine.
+// by agreeing with itself: the session's own directory under the ctxloom home
+// (not the project tree, not cache — it holds copied credentials nothing
+// rebuilds), keyed by harp, one `home` root, one leaf per engine.
 //
 // MUTATION TARGET m2: drop the harp from the env contribution (key the instance
 // by project again) and this goes red on the missing harp component.
 func TestResolveInTreeAgentHome_ContributesTheSessionInstanceShape(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	hostHome := fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
 	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 
-	instance := filepath.Join(workDir, ".ctxloom", "state", harpA, "home")
+	instance := filepath.Join(hostHome, ".ctxloom", "sessions", harpA, "home")
 	home := res.Env[claude.ConfigDirEnv]
 	assert.Equal(t, filepath.Join(instance, "claude"), home)
 	assert.Contains(t, home, string(filepath.Separator)+harpA+string(filepath.Separator),
 		"the instance is keyed by SESSION, not by project")
+	assert.NotContains(t, home, workDir, "the project tree holds no session state")
 	assert.NotContains(t, home, filepath.Join(".ctxloom", "cache"))
 	assert.NotContains(t, home, filepath.Join("state", "engines"),
 		"the retired durable per-project engine home must not regrow")

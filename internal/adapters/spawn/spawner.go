@@ -363,7 +363,6 @@ func (s *spawner) Adopt(_ context.Context, rec coord.RunRecord) (func() error, e
 	}
 	res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
 		Backend:  rec.Engine,
-		WorkDir:  s.projectDir,
 		Cwd:      rec.WorkDir,
 		Harp:     rec.Harp,
 		HomeMode: agents.HomeModeSession,

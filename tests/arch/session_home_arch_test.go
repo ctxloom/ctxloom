@@ -29,16 +29,16 @@ const (
 )
 
 // TestArch_LayoutHasNoHarpKeyedRows pins the deliberate ABSENCE of a Layout row
-// for state/<harp>. (The name carries the TestArch_ prefix because that is what
-// `just test-arch` selects with -run; paths' own
+// for any per-session path. (The name carries the TestArch_ prefix because that
+// is what `just test-arch` selects with -run; paths' own
 // TestLayout_HasNoHarpKeyedRows is the same claim inside the package, where it
 // rides the default suite.)
 //
 // Layout() enumerates paths whose absence doctor REPORTS
-// (doctorCheckLocalTierState), and a per-session directory's absence is the
-// normal case — it is created at instance time and reaped at session end — so a
+// (doctorCheckLocalTierState); a session's members (paths.HarpMembers) live
+// under the home-rooted sessions store and are created at instance time, so a
 // row would report a loss that is not one. A row also cannot name a harp that
-// does not exist yet.
+// does not exist yet, and state/ holds only fixed project-local residents.
 //
 // Written as "no row is per-session, and no row is the retired durable engine
 // home under any spelling" rather than as an equality against today's table, so
@@ -75,19 +75,18 @@ func TestArch_LayoutHasNoHarpKeyedRows(t *testing.T) {
 // traversing one, returning no path at all, so there is no expression a
 // harpless caller could even write.
 //
-// The roster is every function that resolves an instance: the two shared
-// joins. An engine contributes only a leaf (its HomeVar.Subdir), never a
+// The roster is every function that resolves an instance: the session dir
+// and the home member under it. An engine contributes only a leaf (its HomeVar.Subdir), never a
 // resolver of its own, so there is no per-engine row to add.
 func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
-	const workDir = "/proj"
-	app := filepath.Join(workDir, paths.AppDirName)
+	t.Setenv("HOME", t.TempDir())
 
 	resolvers := []struct {
 		name string
 		fn   func(harp string) (string, error)
 	}{
-		{"paths.SessionStatePath", func(h string) (string, error) { return paths.SessionStatePath(app, h) }},
-		{"paths.SessionHomePath", func(h string) (string, error) { return paths.SessionHomePath(app, h) }},
+		{"paths.HarpDir", paths.HarpDir},
+		{"paths.HarpSessionHome", paths.HarpSessionHome},
 	}
 
 	for _, r := range resolvers {
@@ -144,8 +143,8 @@ func pairwiseDistinctViolations(dirs map[string]string) []string {
 func TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture(t *testing.T) {
 	t.Run("distinct synthetic leaves report nothing", func(t *testing.T) {
 		dirs := map[string]string{
-			"synthetic-engine-a": "/proj/.ctxloom/state/harp/home/synthetic-a",
-			"synthetic-engine-b": "/proj/.ctxloom/state/harp/home/synthetic-b",
+			"synthetic-engine-a": "/h/.ctxloom/sessions/harp/home/synthetic-a",
+			"synthetic-engine-b": "/h/.ctxloom/sessions/harp/home/synthetic-b",
 		}
 		if violations := pairwiseDistinctViolations(dirs); len(violations) != 0 {
 			t.Errorf("distinct synthetic leaves flagged as colliding: %v", violations)
@@ -153,7 +152,7 @@ func TestArch_EngineInstanceLeavesPairwiseDistinct_SyntheticFixture(t *testing.T
 	})
 
 	t.Run("colliding synthetic leaves are caught", func(t *testing.T) {
-		const collided = "/proj/.ctxloom/state/harp/home/synthetic-shared"
+		const collided = "/h/.ctxloom/sessions/harp/home/synthetic-shared"
 		dirs := map[string]string{
 			"synthetic-engine-a": collided,
 			"synthetic-engine-b": collided,

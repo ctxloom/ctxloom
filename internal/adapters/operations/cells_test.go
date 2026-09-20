@@ -215,7 +215,7 @@ func initIsolationTestRepo(t *testing.T) string {
 
 func claudeInstanceDir(t *testing.T, workDir, harp string) string {
 	t.Helper()
-	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
+	root, err := paths.HarpSessionHome(harp)
 	require.NoError(t, err)
 	return filepath.Join(root, claude.HomeLeaf)
 }

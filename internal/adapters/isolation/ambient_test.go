@@ -204,11 +204,10 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	rec := &recordingInstanceConfig{hold: 60 * time.Millisecond}
 	withInstanceConfigWriter(t, "claude-code", rec)
 
-	// An instance home INSIDE a .ctxloom tree, which is what
-	// paths.ProjectPathFor keys on — the real in-tree shape,
-	// <project>/.ctxloom/state/<harp>/home.
+	// The real instance shape: the session's home member under the ctxloom
+	// home, which is what the lock is keyed on.
 	project := t.TempDir()
-	instance, err := paths.SessionHomePath(filepath.Join(project, paths.AppDirName), "ugly-icy-squid")
+	instance, err := paths.HarpSessionHome("ugly-icy-squid")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup

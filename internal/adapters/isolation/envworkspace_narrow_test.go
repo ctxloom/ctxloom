@@ -33,7 +33,7 @@ func TestWorktreeWorkspace_EnvCarriesNoEngineHomeVar(t *testing.T) {
 	// Idempotent: a second registration of the same descriptors is a no-op.
 	engines.MustRegister()
 
-	spec, ok := backends.InTreeAgentHomeFor("claude-code", t.TempDir(), "ugly-icy-squid")
+	spec, ok := backends.InTreeAgentHomeFor("claude-code", "ugly-icy-squid")
 	require.True(t, ok, "claude-code declares a relocatable home; without one there is nothing to assert against")
 	require.NotEmpty(t, spec.EnvVar)
 

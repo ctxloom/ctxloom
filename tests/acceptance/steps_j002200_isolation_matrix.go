@@ -270,30 +270,31 @@ func isoInstanceLeaf(engine string) (string, error) {
 	}
 }
 
-// isoInstanceHomes globs every config-home instance that exists for engine in
-// projectDir. The HARP is not knowable to a test from the outside — ctxloom
-// mints it per run — so the glob is how an outside observer names a
-// per-session path at all. Its CARDINALITY is the assertion: exactly one for a
-// single opted-in run, zero when nothing opted in.
-func isoInstanceHomes(projectDir, engine string) ([]string, error) {
+// isoInstanceHomes globs every config-home instance that exists for engine
+// under the sessions store of homeDir (Alice's fake ~). The HARP is not
+// knowable to a test from the outside — ctxloom mints it per run — so the
+// glob is how an outside observer names a per-session path at all. Its
+// CARDINALITY is the assertion: exactly one for a single opted-in run, zero
+// when nothing opted in.
+func isoInstanceHomes(homeDir, engine string) ([]string, error) {
 	leaf, err := isoInstanceLeaf(engine)
 	if err != nil {
 		return nil, err
 	}
-	return filepath.Glob(filepath.Join(projectDir, ".ctxloom", "state", "*", "home", leaf))
+	return filepath.Glob(filepath.Join(homeDir, ".ctxloom", "sessions", "*", "home", leaf))
 }
 
 // isoInstanceHomeShape checks that val really is a per-session instance path
-// for engine under projectDir, and returns the harp it is keyed by. The shape
-// is checked component by component rather than against a precomputed string
-// because the harp is the one part a test cannot predict — and it is exactly
-// the part that must be there.
-func isoInstanceHomeShape(projectDir, engine, val string) (harp string, err error) {
+// for engine under homeDir's sessions store, and returns the harp it is keyed
+// by. The shape is checked component by component rather than against a
+// precomputed string because the harp is the one part a test cannot predict —
+// and it is exactly the part that must be there.
+func isoInstanceHomeShape(homeDir, engine, val string) (harp string, err error) {
 	leaf, err := isoInstanceLeaf(engine)
 	if err != nil {
 		return "", err
 	}
-	prefix := filepath.Join(projectDir, ".ctxloom", "state") + string(filepath.Separator)
+	prefix := filepath.Join(homeDir, ".ctxloom", "sessions") + string(filepath.Separator)
 	suffix := string(filepath.Separator) + filepath.Join("home", leaf)
 	if !strings.HasPrefix(val, prefix) || !strings.HasSuffix(val, suffix) {
 		return "", fmt.Errorf("%q is not a per-session config-home instance: want %s<harp>%s", val, prefix, suffix)
@@ -802,7 +803,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// (the durable per-project home the per-session model retired).
 	//
 	// The expectation is built component by component here rather than derived
-	// from the production resolution (paths.SessionHomePath plus
+	// from the production resolution (paths.HarpSessionHome plus
 	// claude.HomeLeaf): an assertion that computes its expectation with the
 	// same function the production code used cannot fail when that function
 	// is wrong.
@@ -828,7 +829,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if !ok || val == "" {
 			return fmt.Errorf("spy %s process's env carries no %s at all — an in-tree AGENT run that declared engine_home: session must be handed a ctxloom-controlled config home; full env dump:\n%s", engine, varName, body)
 		}
-		harp, err := isoInstanceHomeShape(w.env.ProjectDir, engine, val)
+		harp, err := isoInstanceHomeShape(w.env.HomeDir, engine, val)
 		if err != nil {
 			return fmt.Errorf("%s: %w; full env dump:\n%s", varName, err, body)
 		}
@@ -925,21 +926,21 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// S8's teardown, pinned at the acceptance layer for the first time. An
-	// instance holds a COPY of the user's live credential inside the project
-	// tree, so reaping it is a security requirement, not hygiene — and until
-	// this step existed, nothing outside internal/adapters/operations proved the
-	// removal actually happened at the end of a real run.
+	// The session-end teardown, pinned at the acceptance layer. An instance
+	// holds a COPY of the user's live credential, so reaping it is a security
+	// requirement, not hygiene — and until this step existed, nothing outside
+	// internal/adapters/operations proved the removal actually happened at the
+	// end of a real run.
 	ctx.Step(`^the "([^"]*)" config-home instance is gone once the session ends$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		homes, err := isoInstanceHomes(w.env.ProjectDir, engine)
+		homes, err := isoInstanceHomes(w.env.HomeDir, engine)
 		if err != nil {
 			return err
 		}
 		if len(homes) != 0 {
-			return fmt.Errorf("the %q config-home instance(s) %v survived the run — an un-reaped instance leaves copied credential bytes on disk inside the project tree", engine, homes)
+			return fmt.Errorf("the %q config-home instance(s) %v survived the run — an un-reaped instance leaves copied credential bytes on disk", engine, homes)
 		}
-		w.docStepMaterialized = fmt.Sprintf("no %q instance remains under %s after the session ended (it is rebuilt fresh next session)", engine, filepath.Join(w.env.ProjectDir, ".ctxloom", "state"))
+		w.docStepMaterialized = fmt.Sprintf("no %q instance remains under %s after the session ended (it is rebuilt fresh next session)", engine, filepath.Join(w.env.HomeDir, ".ctxloom", "sessions"))
 		return nil
 	})
 
@@ -950,12 +951,12 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// exists anywhere.
 	ctx.Step(`^no ctxloom-controlled config home exists for "([^"]*)" in the project$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		homes, err := isoInstanceHomes(w.env.ProjectDir, engine)
+		homes, err := isoInstanceHomes(w.env.HomeDir, engine)
 		if err != nil {
 			return err
 		}
 		if len(homes) != 0 {
-			return fmt.Errorf("ctxloom-controlled config home(s) exist at %v — a run that did not declare engine_home: session must keep its real engine home, not be relocated into the project", homes)
+			return fmt.Errorf("ctxloom-controlled config home(s) exist at %v — a run that did not declare engine_home: session must keep its real engine home, not be relocated into a session instance", homes)
 		}
 		// The retired durable per-project location too: an implementation that
 		// regrew it would leave this glob empty and still be wrong.
@@ -963,7 +964,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if _, statErr := os.Stat(retired); statErr == nil {
 			return fmt.Errorf("the retired durable per-project engine home regrew at %s", retired)
 		}
-		w.docStepMaterialized = fmt.Sprintf("no config-home instance for %q under %s (the run keeps its real engine home)", engine, filepath.Join(w.env.ProjectDir, ".ctxloom", "state"))
+		w.docStepMaterialized = fmt.Sprintf("no config-home instance for %q under %s (the run keeps its real engine home)", engine, filepath.Join(w.env.HomeDir, ".ctxloom", "sessions"))
 		return nil
 	})
 

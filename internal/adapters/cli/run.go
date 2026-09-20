@@ -856,12 +856,10 @@ func (st *runState) emitDryRun() error {
 		})
 	}
 	payload := dryRunJSON{
-		Agent: runAgent,
-		// The DECLARED axis, not the resolved one: an unset --workspace is
-		// reported unset. Filling in the default here would invent an
-		// isolation guarantee nobody asked for (TestRun_Agent_DryRun).
-		Workspace: runWorkspace,
-		Runtime:   string(l.Axes.Runtime),
+		Agent:     runAgent,
+		Workspace: string(l.Declared.Workspace),
+		Runtime:   string(l.Declared.Runtime),
+		Resolved:  axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
 		LLM:       l.Label.Label,
 		Backend:   string(l.Engine),
 		Profiles:  orEmpty(l.Package.Profiles),

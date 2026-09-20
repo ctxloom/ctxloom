@@ -52,8 +52,9 @@ const (
 	RuntimeRootful RuntimeAxis = "container-rootful"
 )
 
-// Axes is a fully-defaulted isolation request. The two axes are declared at
-// DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
+// Axes is an isolation request: fully defaulted as Launch.Axes, as declared
+// (empty where nothing asked) as Launch.Declared. The two axes are declared
+// at DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
 // (`runtime:` on the binding — a cost/environment call, like engine), while
 // the workspace axis is an ORCHESTRATION trait (the invocation decides —
 // run/acp `--workspace`, an agent_run spawn's workspace field, the project

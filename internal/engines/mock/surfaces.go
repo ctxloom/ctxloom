@@ -83,7 +83,10 @@ func (a *contextFile) DeliverContext(start present.Start, root present.RootKind,
 		return present.Delivered{}, err
 	}
 	p := r.AnnounceFlag(contextFlag).Build()
-	if err := iox.AppendSection(fs, p.HostPath, in.Text, 0o644); err != nil {
+	// A context file the mock creates is owner-only: the engine reads it
+	// itself and nothing else needs to. One that already stood keeps its
+	// mode.
+	if err := iox.AppendSection(fs, p.HostPath, in.Text, 0o600); err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil

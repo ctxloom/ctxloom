@@ -177,7 +177,8 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 // appendContextFile writes the context after the file's current bytes: the
 // user's CLAUDE.md is theirs, and the record owns what was appended.
 func appendContextFile(p present.Presentation, text []byte, fs afero.Fs) (present.Delivered, error) {
-	if err := iox.AppendSection(fs, p.HostPath, text, 0o644); err != nil {
+	// A CLAUDE.md ctxloom creates is owner-only; a user's keeps its mode.
+	if err := iox.AppendSection(fs, p.HostPath, text, 0o600); err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil

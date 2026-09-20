@@ -205,7 +205,8 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		return nil, err
 	}
 	host.BindHome(home)
-	enc, err := composite.Encode(composite.Package{Context: composite.Context{Text: "FRAG-ONE"}})
+	// The worker composes no context: the tap renders the turn's own words.
+	enc, err := composite.Encode(composite.Package{})
 	if err != nil {
 		cancel()
 		return nil, err

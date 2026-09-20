@@ -65,13 +65,9 @@ var ErrChatMCPConfigTransportUnsupported = errors.New("mcp config: unsupported M
 // need the document without writing a file (a test, an in-memory diff) get
 // it directly; WriteChatMCPConfigFile below is the write half.
 //
-// Each server's own Env map is preserved VERBATIM. This is load-bearing, not
-// cosmetic: the coordinator stamps CTXLOOM_MCP_SOCKET onto the "ctxloom"
-// entry's own Env (injectMCPSocketEnv, internal/core/coord/enginehost.go)
-// precisely because ambient env inheritance proved unreliable in production —
-// dropping per-server Env here would silently break a delegated child's
-// ability to report back to its parent even though the process itself
-// started fine.
+// Each server's own Env map is preserved VERBATIM: a server's Env is the
+// composed configuration's, and a table that dropped it would hand the
+// engine a server that starts and cannot reach what it was configured for.
 func MarshalChatMCPConfig(servers []ChatMCPServer) ([]byte, error) {
 	doc := ChatMCPConfigDoc{MCPServers: make(map[string]ChatMCPConfigEntry, len(servers))}
 	for _, s := range servers {

@@ -187,10 +187,10 @@ func newProdSpawner(app *operations.App, projectDir string, starter StarterFunc)
 // The bar for admitting one is a per-backend recon showing that delta is
 // empty. What makes it empty generally: the runner-side standup
 // (internal/adapters/cli's standUpRunner), the isolation starter
-// (`ctxloom llm host <backend> --label ...`) and the HarnessSpec codec never
-// name a backend at all, and a delegated child's context rides the FIRST
-// TURN (runChildViaStartRun's JoinLeadBlocks into StartRun.input) rather than
-// through any backend-specific config file a Setup step would have to write.
+// (`ctxloom llm host <backend> --label ...`) and the launch codec
+// (coordgrpc.EncodeLaunch) never name a backend at all, and the runner
+// delivers the package through the engine's own Setup (runner.Execute), the
+// same writers every host launch goes through.
 //
 // TODO(slice 11b): these three tables are the last name-keyed capability
 // declarations in core. They read Instance.Resume(key) — real or refused —
@@ -420,8 +420,8 @@ type EngineSpawn struct {
 	// Wire is the same launch as StartRun carries it, projected once by the
 	// codec beside the process it is issued to.
 	Wire *agentcoordpb.Launch
-	// MCPServers is the composed managed set for the child session —
-	// HarnessSpec.config["mcp_servers"].
+	// MCPServers is the composed managed set for the child session, the
+	// names the enqueue journal records.
 	MCPServers []agent.ChatMCPServer
 	// Kill tears the engine process and its cell down (idempotent).
 	Kill func()

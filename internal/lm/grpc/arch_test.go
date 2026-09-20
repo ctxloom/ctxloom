@@ -85,6 +85,12 @@ var parityExclusions = map[string]string{
 	// plugin-side context hash). The field is tagged `mapstructure:"-"
 	// yaml:"-" json:"-"` precisely so it never serializes anywhere.
 	"wire.Hook.ContextHash": "in-process only (yaml/json/mapstructure `-`); the plugin derives its own context-injection hook",
+	// Runner-local by construction: the runner delivers .mcp.json under the
+	// session home on the machine the engine runs on and names its path in
+	// the request it drives in-process (adapters/runner). The plugin wire's
+	// Chat crossing carries the servers themselves (MCPServers); a host path
+	// on it would name a file the plugin's side may not have.
+	"agent.ChatRequest.MCPConfigPath": "runner-local: the delivered .mcp.json's path on the runner's own filesystem, never sent host→plugin",
 }
 
 // parityMaxDepth bounds the reflective walk. Nothing in this package's wire

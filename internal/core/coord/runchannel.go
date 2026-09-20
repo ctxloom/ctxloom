@@ -35,7 +35,7 @@ const (
 	// CustomHarnessSession reports the harness-NATIVE session id the moment
 	// the engine host learns it (the ACP Session event) — the coordinator
 	// journals it (run.harness fact) as the resume handle, so a child killed
-	// mid-run can respawn with HarnessSpec.resume_session_id. Value:
+	// mid-run can respawn with Launch.Resume.NativeKey. Value:
 	// {"session_id": "..."}.
 	CustomHarnessSession = "ctxloom/harness_session"
 	// CustomTurnStarted / CustomTurnIdle are the engine host's turn-state
@@ -355,7 +355,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		}
 		if sid == "" {
 			// The harness-native session id is the run's ONLY resume handle: a
-			// child killed mid-run respawns through HarnessSpec.resume_session_id,
+			// child killed mid-run respawns through Launch.Resume.NativeKey,
 			// and the one-shot turn loop refuses to tear an engine down without
 			// one (oneShotReady). recordHarnessSession drops an empty id, so
 			// losing it here used to leave no trace at all — the run simply

@@ -125,9 +125,11 @@ func (r *Records) Apply(_ context.Context, targetFS afero.Fs, target string, wri
 		}
 		wr := writerRecord{Entries: slices.Clone(entries), AppliedAt: time.Now().UTC(), Existed: restoredExists}
 		switch {
-		case structured:
+		case structured && (restoredExists || len(confpatch.EmptyDocument(format)) > 0):
 			// A created file's reversal is diffed against the format's empty
 			// document, so a reapply still takes the old entries out first.
+			// A format with no empty document to diff from (YAML) leaves a
+			// created file owned whole, like an opaque one.
 			base := restored
 			if !restoredExists || len(bytes.TrimSpace(base)) == 0 {
 				base = confpatch.EmptyDocument(format)
@@ -198,12 +200,18 @@ func restore(binding hew.Binding, target string, before []byte, existed bool, pr
 		return before, existed, nil
 	}
 	if structured {
+		if prev.Reversal == "" {
+			// Nothing was diffed: a contribution identical to what stood
+			// there, or a created file in a format with no empty document
+			// (owned whole).
+			if !prev.Existed {
+				return nil, false, nil
+			}
+			return before, true, nil
+		}
 		// The reversed document STANDS even when this writer created the
 		// file: another writer's entries may be in it, and a created file
 		// with no writer left is the record's Created flag to remove.
-		if prev.Reversal == "" {
-			return before, true, nil
-		}
 		restored, err := confpatch.ApplyPatchText(binding, before, []byte(prev.Reversal), target)
 		if err != nil {
 			return nil, false, fmt.Errorf("fsstatic: %s has drifted since it was last written, so the previous contribution could not be reversed; refusing to write rather than clobber the change: %w", target, err)

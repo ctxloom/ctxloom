@@ -165,3 +165,25 @@ func TestRecords_DriftIsRefused_NotClobbered(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), "edited by hand")
 }
+
+// TestRecords_ACreatedYAMLFileIsOwnedWhole: a format with no empty document
+// to diff from (YAML) leaves a created file owned whole — a reapply
+// rewrites it from scratch and it leaves with its writer.
+func TestRecords_ACreatedYAMLFileIsOwnedWhole(t *testing.T) {
+	rec, fs, dir := records(t)
+	target := filepath.Join(dir, "state.yaml")
+	ctx := context.Background()
+	whole := func(text string) delivery.Build {
+		return func([]byte) ([]byte, []string, error) { return []byte(text), []string{"state.yaml"}, nil }
+	}
+	_, err := rec.Apply(ctx, fs, target, delivery.ProjectWriter, whole("a: 1\n"))
+	require.NoError(t, err)
+	_, err = rec.Apply(ctx, fs, target, delivery.ProjectWriter, whole("b: 2\n"))
+	require.NoError(t, err)
+	body, err := afero.ReadFile(fs, target)
+	require.NoError(t, err)
+	require.Equal(t, "b: 2\n", string(body))
+	_, err = rec.Apply(ctx, fs, target, delivery.ProjectWriter, empty)
+	require.NoError(t, err)
+	require.NoFileExists(t, target)
+}

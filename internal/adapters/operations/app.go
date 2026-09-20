@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // App is the process's composition: the ONE config.Owner, opened on first
@@ -27,8 +28,12 @@ type App struct {
 	// its findings render as and whether --degraded waives the ordinary
 	// ones. A value: two Apps in one process may differ.
 	Strictness strictness.Mode
+	// Reporter is the sink the composition root chose; every component this
+	// App composes reports through it.
+	Reporter report.Sink
 
 	src    config.Sources
+	open   ConfigOpener
 	once   sync.Once
 	mu     sync.Mutex
 	opened bool
@@ -72,8 +77,13 @@ func ComposeSources(c Compose) (config.Sources, error) {
 // NewApp holds src as the process's sources; the owner opens on the first
 // Owner/Snapshot/Config call, so a command that never reads configuration
 // never reads the files either.
-func NewApp(src config.Sources, noCompanions bool, mode strictness.Mode) *App {
-	return &App{NoCompanions: noCompanions, Strictness: mode, src: src}
+// ConfigOpener opens the process's one config owner. The composition root
+// (cmd/*) supplies it, so config.Open is called only there — the
+// one-mint-one-owner rule.
+type ConfigOpener func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error)
+
+func NewApp(src config.Sources, noCompanions bool, mode strictness.Mode, open ConfigOpener, rep report.Sink) *App {
+	return &App{NoCompanions: noCompanions, Strictness: mode, Reporter: rep, src: src, open: open}
 }
 
 // OpenedApp wraps an owner a test already opened.
@@ -103,7 +113,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		a.owner, a.err = config.Open(ctx, a.src, config.WithEngines(backends.Engines()), config.WithReporter(a.Strictness.Sink()))
+		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(backends.Engines()), config.WithReporter(a.Reporter))
 	})
 	return a.owner, a.err
 }

@@ -1038,7 +1038,7 @@ func recordCoordinatorStartupFinding(cerr error) {
 }
 
 func (st *runState) hostCoordinator() func() {
-	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(App(), st.workDir, st.activeHarp, st.launch.Axes.Runtime)
+	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp, st.launch.Axes.Runtime)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
 		return func() {}

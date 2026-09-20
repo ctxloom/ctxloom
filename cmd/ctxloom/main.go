@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 func main() {
@@ -50,7 +51,8 @@ func main() {
 	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1), dispatch, flush,
 	// exit — in that order, and with the exit as the LAST thing this process
 	// does. See runCLI for why the flush cannot be a defer.
-	os.Exit(runCLI(loggerConstructor(envSwitchOn("CTXLOOM_VERBOSE", os.Stderr)), cli.Run, os.Stderr))
+	comp := compose(strictness.Sink("ctxloom"))
+	os.Exit(runCLI(loggerConstructor(envSwitchOn("CTXLOOM_VERBOSE", os.Stderr)), func() int { return cli.Run(comp) }, os.Stderr))
 }
 
 // runCLI installs the process-wide logger, dispatches, then flushes the

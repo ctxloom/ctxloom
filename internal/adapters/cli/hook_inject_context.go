@@ -264,7 +264,7 @@ func selectChunk(content string, part, total int) (chunk string, outPart, outTot
 	if total < 1 {
 		return content, 1, 1
 	}
-	chunks := agent.ChunkContext(report.To(App().Strictness.Sink()), content)
+	chunks := agent.ChunkContext(report.To(App().Reporter), content)
 	if part >= 1 && part <= len(chunks) {
 		return chunks[part-1], part, total
 	}

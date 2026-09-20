@@ -211,10 +211,10 @@ type pinnedCall struct {
 // session identity is minted by the sessions.Store's AssignHarp through the
 // harp allocator, so both are pinned; their sanctioned callers are the
 // store itself, operations (StartRun's home) and the harp CLI, which mints
-// names, not sessions. config.Open is opened by operations.App (the one
-// owner) until cmd/* composes the process in slice 7; configload.Load is
-// the test-only read and has no sanctioned production caller. coord.New is
-// already the one constructor.
+// names, not sessions. config.Open and coord.New are called only inside the
+// composition root's closures (cmd/ctxloom's compose — cli.Composition);
+// configload.Load is the test-only read and has no sanctioned production
+// caller.
 var pinnedCalls = []pinnedCall{
 	{
 		what: "mints a session identity (AssignHarp / harp.Generate*)",
@@ -235,7 +235,7 @@ var pinnedCalls = []pinnedCall{
 	{
 		what:      "opens the config (config.Open — one owner per process)",
 		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Open") },
-		permitted: []string{"cmd", "internal/adapters/operations"},
+		permitted: []string{"cmd"},
 	},
 	{
 		what:      "reads the config outside the owner (configload.Load is for tests only)",
@@ -251,12 +251,9 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// asking the store
 	"internal/adapters/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 2 introduces sessions.Mint; coord.Coordinator.AgentRun calls it and the MCP server stops minting",
 
-	// the coordinator is constructed by the MCP server, not the composition root
-	"internal/adapters/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
-
 	// the test-only read opens a throwaway owner; its own pin (the
 	// configload.Load entry in pinnedCalls) keeps it out of production
-	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through operations.App",
+	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through the root's ConfigOpener (cmd/ctxloom compose)",
 
 	// the launch fixture plays the CALLER of launch.Resolve — the one that
 	// mints and hands the identity in — against an in-memory store

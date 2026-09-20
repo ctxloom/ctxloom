@@ -940,9 +940,18 @@ func (c *Coordinator) Identify(token string) (Identity, bool) {
 	return id, ok
 }
 
-// Roster lists the coordinator's children — the single state behind BOTH
-// transports (MCP and the surviving bus roster verb).
-func (c *Coordinator) Roster() []RosterEntry {
+// Owner is the identity of the session this coordinator drains for
+// (Options.OwnerHarp): the caller the owner's own process speaks as.
+func (c *Coordinator) Owner() Identity { return Identity{Harp: c.ownerHarp} }
+
+// Roster lists the coordinator's children — the single state behind every
+// transport. Only the coordinating session (the owner) sees its children: a
+// child caller is answered with nothing, the same refusal the wire gives it
+// (a child holds no lineage below itself here).
+func (c *Coordinator) Roster(caller Identity) []RosterEntry {
+	if caller.IsChild() {
+		return nil
+	}
 	var out []RosterEntry
 	c.runs.View(func() { out = c.rosterF.snapshot() })
 	return out

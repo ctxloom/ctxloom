@@ -318,7 +318,7 @@ func TestAgentStopHandler_OmittedHarpIsTheBulkForm(t *testing.T) {
 	// bound (agent_recv's max wait), which this package cannot shrink — the
 	// bound itself is pinned in coord's own tests.
 	require.Eventually(t, func() bool {
-		for _, e := range c.Roster() {
+		for _, e := range c.Roster(c.Owner()) {
 			if e.Harp == runOut.Harp && e.State == coord.StateIdle {
 				return true
 			}
@@ -338,7 +338,7 @@ func TestAgentStopHandler_OmittedHarpIsTheBulkForm(t *testing.T) {
 	assert.Equal(t, runOut.Harp, stopOut.Children[0].Harp)
 	assert.NotEmpty(t, stopOut.Children[0].Outcome)
 	assert.Contains(t, stopOut.Children[0].Detail, "batch done")
-	for _, e := range c.Roster() {
+	for _, e := range c.Roster(c.Owner()) {
 		assert.Equal(t, coord.StateEnded, e.State, "roster afterwards shows none live: %+v", e)
 	}
 }

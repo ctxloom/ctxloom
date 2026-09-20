@@ -89,7 +89,7 @@ func awaitCutoverChildIdle(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt
 	t.Helper()
 	out, home := awaitCutoverChild(t, c, sp, prompt)
 	require.Eventually(t, func() bool {
-		for _, e := range c.Roster() {
+		for _, e := range c.Roster(ownerIdentity()) {
 			if e.Harp == out.Harp {
 				return e.State == StateIdle
 			}

@@ -315,7 +315,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	// operations.WatchSessionFeed's discovery to resolve it — wait for the
 	// StartRun handshake to complete rather than racing it.
 	waitForLiveTap(t, "the child to appear live on the coordinator's own roster", func() bool {
-		for _, e := range c.Roster() {
+		for _, e := range c.Roster(c.Owner()) {
 			if e.Harp == out.Harp {
 				return true
 			}
@@ -355,7 +355,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	waitForLiveTap(t, "the feed to resolve live (not the store fallback)", func() bool {
 		return strings.Contains(tty.String(), "· live")
 	})
-	waitForLiveTap(t, fmt.Sprintf("the child's real assistant entry to render as an overlay item (roster: %v)", c.Roster()), func() bool {
+	waitForLiveTap(t, fmt.Sprintf("the child's real assistant entry to render as an overlay item (roster: %v)", c.Roster(c.Owner())), func() bool {
 		return strings.Contains(tty.String(), "asst  < live words for hello from the coordinator")
 	})
 

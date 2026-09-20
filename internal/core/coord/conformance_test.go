@@ -357,7 +357,7 @@ func endChildAtItsFirstBoundary(t *testing.T, c *Coordinator, sp *fakeSpawner, o
 
 // rosterState reads one harp's state off the roster snapshot.
 func rosterState(c *Coordinator, harp string) string {
-	for _, e := range c.Roster() {
+	for _, e := range c.Roster(ownerIdentity()) {
 		if e.Harp == harp {
 			return e.State
 		}
@@ -390,7 +390,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StateQueued, rosterState(c, second.Harp))
 
-	for _, e := range c.Roster() {
+	for _, e := range c.Roster(ownerIdentity()) {
 		assert.Equal(t, "worker", e.Agent)
 		assert.Equal(t, "coordinator-harp", e.Parent)
 		assert.NotZero(t, e.LastActivityUnix)

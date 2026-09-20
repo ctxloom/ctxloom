@@ -60,6 +60,11 @@ type HostRequest struct {
 	Args json.RawMessage
 }
 
+// Validate requires the tool's name; the tool decides what its args mean.
+func (r HostRequest) Validate() error {
+	return nil
+}
+
 // HostResult is the tool's answer as its own JSON object.
 type HostResult struct {
 	Body json.RawMessage

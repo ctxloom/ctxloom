@@ -441,7 +441,7 @@ func TestRunChannel_StopRunOmittedRunId_SweepsTheCallersChildren(t *testing.T) {
 		assert.Equal(t, StateEnded, rosterState(c, out.Harp))
 		assert.Equal(t, CauseStopped, currentRunCause(c, out.Harp))
 	}
-	for _, e := range c.Roster() {
+	for _, e := range c.Roster(ownerIdentity()) {
 		assert.Equal(t, StateEnded, e.State, "roster afterwards shows none live: %+v", e)
 	}
 }

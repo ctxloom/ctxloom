@@ -86,7 +86,7 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 		assert.NotEmpty(t, sc.Detail)
 	}
 
-	for _, e := range c.Roster() {
+	for _, e := range c.Roster(ownerIdentity()) {
 		assert.Equal(t, StateEnded, e.State, "roster afterwards shows none live: %+v", e)
 	}
 	for _, harp := range []string{running, idle} {

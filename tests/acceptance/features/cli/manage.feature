@@ -555,3 +555,37 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".claude/settings.json" does not exist
       And the file ".mcp.json" does not exist
       And the file ".ctxloom/config.yaml" exists
+
+    # THE GATE FOR THE DELIVERY LAYER: uninstall is the empty plan over the
+    # ownership record, so nothing of the harness is left behind; a run
+    # afterwards delivers into its own session (the runner's static delivery
+    # under the session writer) and the project stays as the uninstall left
+    # it. Asserted on the files the install wrote, each one absent after the
+    # run — a run that delivered into the project would put them back.
+    #
+    # @wip, measured: the uninstall half holds (every file is gone before the
+    # run), and a DELEGATED run holds (runner.Execute delivers under the
+    # session writer — its identical-file-set probe). The HOST `ctxloom run`
+    # still rides the plugin run-start into the legacy mock backend's Setup,
+    # which writes MOCK_CONTEXT.md into the project on every run; that arm
+    # moves onto the runner tail in slice 13 (30-decided-architecture.md
+    # Part 4.1). UNTAG WHEN: the host arm delivers through delivery.Static.
+    @wip
+    Scenario: After an uninstall, a run delivers into its session and the project stays clean
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the mock LLM responds "MOCK-REPLY"
+      When Alice wires the mock in, takes it back out, and runs:
+        """
+        ctxloom manage install --engine mock
+        ctxloom manage uninstall
+        ctxloom run --one-shot --profile dev unicorn-prompt
+        """
+      Then the command succeeds
+      And the output contains "MOCK-REPLY"
+      And the file "MOCK_CONTEXT.md" does not exist
+      And the file ".mock/mcp.json" does not exist
+      And the file ".mock/commands/discover.md" does not exist
+      And the file ".ctxloom/config.yaml" exists

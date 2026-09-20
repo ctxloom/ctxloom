@@ -73,4 +73,17 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	owned, err = rec.Targets(delivery.ProjectWriter)
 	require.NoError(t, err)
 	require.Empty(t, owned)
+
+	// Then a RUN: a session's delivery into a cell over the same project
+	// (its session home beside it, no root selected) lands under the session
+	// home and leaves the project as the uninstall left it.
+	home := t.TempDir()
+	cell := present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}, Scratch: present.Root{Host: home, Engine: home}}
+	sessionPlan, err := delivery.Route(items, eng.Root(), delivery.Preference{}, cell)
+	require.NoError(t, err)
+	session := delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: rec, Writer: delivery.SessionWriter("h")}
+	_, err = static.Deliver(context.Background(), delivery.Loadout{Plan: sessionPlan, Package: pkg, Exports: exports}, eng.Root().Surfaces(), session)
+	require.NoError(t, err)
+	require.Equal(t, []string{"README.md"}, deliverytest.RelativeFiles(fs, project), "the run delivered into its session, not the project")
+	require.NotEmpty(t, deliverytest.RelativeFiles(fs, home))
 }

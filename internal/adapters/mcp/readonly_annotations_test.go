@@ -41,13 +41,12 @@ func TestReadOnlyAnnotationsPresent(t *testing.T) {
 // Each name is asserted PRESENT before it is asserted unannotated. Without
 // that first half the check is absence-satisfies-absence: a name this server
 // does not register would sail through, reporting a guard over a tool the
-// fixture never had. That is not hypothetical here — agent_report and
-// agent_fetch_artifact are registered on the COORDINATOR surface, not this
-// one, so naming them here would prove exactly nothing while reading as the
-// strongest line in the test.
+// fixture never had. That is not hypothetical here — every coordination
+// tool (agent_run, agent_report, agent_fetch_artifact, …) is registered on
+// the RUNNER's surface, not this one, so naming one here would prove exactly
+// nothing while reading as the strongest line in the test.
 func TestReadOnlyAnnotationsExcludeMutatingTools(t *testing.T) {
 	mutating := []string{
-		"agent_run", "agent_send", "agent_stop", "agent_recv",
 		"compact_session", "recover_session", "load_session", "evaluate_triggers",
 	}
 	all := allToolNames(t)

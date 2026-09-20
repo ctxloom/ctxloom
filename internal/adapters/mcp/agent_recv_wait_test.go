@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 
@@ -56,14 +55,4 @@ func TestAgentRecvWait_GeneratedSchemaDescribesTheRealBounds(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &schema))
 	assert.Equal(t, mcpschema.RecvWaitDoc, schema.Properties["wait"].Description,
 		"the advertised wait description must be the one declared alongside the bounds it quotes")
-}
-
-// TestAgentRecvWait_StdioSchemaDescribesTheSameBounds: the stdio surface's
-// description rides a struct tag, which Go requires to be a literal — so it
-// cannot reference the constant and is pinned here instead.
-func TestAgentRecvWait_StdioSchemaDescribesTheSameBounds(t *testing.T) {
-	field, ok := reflect.TypeOf(agentRecvInput{}).FieldByName("Wait")
-	require.True(t, ok)
-	assert.Equal(t, mcpschema.RecvWaitDoc, field.Tag.Get("jsonschema"),
-		"the stdio surface must advertise the same wait contract as the runner surface; update the tag to match mcpschema.RecvWaitDoc")
 }

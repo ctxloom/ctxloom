@@ -93,7 +93,11 @@ func TestDocComments_NameOnlyConstructorsThatExist(t *testing.T) {
 		}
 	}
 
-	require.NotEmpty(t, refs, "found no constructor references at all — the scanner is broken, not the package")
+	// The scanner is proven on a known sample rather than on the package's
+	// current comments: a package whose comments happen to name no
+	// constructor is a legitimate state, not a broken scanner.
+	require.Len(t, lowerCamelConstructorRef.FindAllString("built by newThing, never newOtherThing", -1), 2,
+		"the constructor-reference scanner is broken")
 
 	var dangling []string
 	for _, r := range refs {

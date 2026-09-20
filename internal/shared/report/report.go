@@ -121,6 +121,20 @@ func (f SinkFunc) Report(x Finding) { f(x) }
 // Discard drops every finding.
 var Discard Sink = SinkFunc(func(Finding) {})
 
+// Advisory forwards every finding to s as advice: the text still renders,
+// but nothing is fatal. For a composition whose result nothing acts on — a
+// preview — a fault that would refuse a launch is something to show, not a
+// reason to stop showing it.
+func Advisory(s Sink) Sink {
+	if s == nil {
+		return Discard
+	}
+	return SinkFunc(func(f Finding) {
+		f.Kind, f.Remedy, f.NonDegradable = "", "", false
+		s.Report(f)
+	})
+}
+
 // Findings is the value a synchronous function accumulates and returns. Its
 // pointer is a Sink, so a function that takes a Sink can be handed one.
 type Findings []Finding

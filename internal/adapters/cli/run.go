@@ -829,7 +829,7 @@ func (st *runState) emitDryRun() error {
 	}
 	deps.Sessions = sessions.NewMemStore()
 	deps.Cells = dryCells{}
-	deps.Assembler = dryAssembler{deps.Assembler}
+	deps.Assembler = operations.PreviewAssembler()
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return st.refused(err)
@@ -900,20 +900,6 @@ func (st *runState) emitDryRun() error {
 		fmt.Printf("Would write to: %s/[hash].md\n", filepath.Join(st.workDir, agent.SCMContextSubdir))
 		return nil
 	})
-}
-
-// dryAssembler is the --dry-run assembler: the real context composition
-// (what the preview shows) over a surfaces port that composes NOTHING. A
-// preview delivers no surfaces, so none are composed for it — and a bundle
-// the profile names that does not resolve stays the warning the context
-// assembly already gave it, rather than becoming the fatal "its MCP servers
-// and hooks are not applied" finding a real launch records over the same
-// profile. The preview must render the setup a user is diagnosing, not
-// refuse it.
-type dryAssembler struct{ launch.Assembler }
-
-func (dryAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
-	return nil, nil
 }
 
 // dryCells is the --dry-run cell: the project root on the host and the

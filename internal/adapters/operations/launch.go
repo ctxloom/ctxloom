@@ -134,6 +134,9 @@ func hostFacts() (launch.HostFacts, error) {
 // exposure one.
 type assembler struct {
 	pipe *bundles.Pipeline
+	// preview composes the same package for a --dry-run and delivers no
+	// surfaces from it; the package's findings are advisory (PackageRequest.Preview).
+	preview bool
 	// pkg is the package Assemble assembled, for Surfaces; profiles is the
 	// profile set it was assembled for.
 	pkg      *composite.Package
@@ -141,7 +144,7 @@ type assembler struct {
 }
 
 func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
-	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, Pipeline: a.pipe}
+	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, Pipeline: a.pipe, Preview: a.preview}
 	pkg, err := AssemblePackage(ctx, snap.Config, req)
 	if err != nil {
 		return launch.Assembled{}, fmt.Errorf("assemble context: %w", err)
@@ -154,6 +157,12 @@ func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel lau
 	return launch.Assembled{Context: res.Context, Profiles: res.Profiles, Fragments: res.FragmentsLoaded, ProfileLLM: res.ProfileLLM}, nil
 }
 
+// PreviewAssembler is the --dry-run assembler: the real context composition
+// (what the preview shows), its composition findings advisory, over a
+// surfaces port that delivers nothing. The preview must render the setup a
+// user is diagnosing, not refuse it.
+func PreviewAssembler() launch.Assembler { return &assembler{preview: true} }
+
 // LabelEnv is the labeled entry's own request-borne environment.
 func (*assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
 	return MockControlFor(snap.Config, label)
@@ -165,6 +174,11 @@ func (*assembler) LabelEnv(snap *config.Snapshot, label string) map[string]strin
 // validated against the engine and rides on the payload. A withheld
 // executable is reported, content-free, never silently.
 func (a *assembler) Surfaces(ctx context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (launch.Surfaces, error) {
+	if a.preview {
+		// A preview delivers no surfaces, so none are projected for it; the
+		// context it shows is still the one assembly a run would deliver.
+		return nil, nil
+	}
 	pkg := a.pkg
 	if pkg == nil || !slices.Equal(a.profiles, profiles) {
 		assembled, err := AssemblePackage(ctx, snap.Config, PackageRequest{Profiles: profiles, WorkDir: projectRoot, Pipeline: a.pipe})

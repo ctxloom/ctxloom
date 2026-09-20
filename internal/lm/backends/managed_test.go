@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -119,6 +120,9 @@ func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
 		"loopy": "parents:\n  - loopy\n",
 	})
 
+	// The profile set resolves through the Config's reporter; render it the
+	// way a composition root would, so the warning reaches the sink under test.
+	cfg.SetReporter(strictness.Sink("ctxloom"))
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()

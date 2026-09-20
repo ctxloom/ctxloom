@@ -20,17 +20,17 @@ import (
 // behind, so it must say so or its mail is never pushed at all. The two arms are
 // complements, not a list — every runner advertises how it can be reached.
 func TestRunnerCapabilities_EnginePresenceDecidesTheAdvertisement(t *testing.T) {
-	assert.Equal(t, []string{CapPeerMessaging, CapTerminalDelivery}, RunnerCapabilities(false))
-	assert.Equal(t, []string{CapPeerMessaging}, RunnerCapabilities(true))
+	assert.Equal(t, []string{CapTerminalDelivery}, RunnerCapabilities(false))
+	assert.Empty(t, RunnerCapabilities(true))
 	assert.NotContains(t, RunnerCapabilities(true), CapTerminalDelivery,
 		"a runner that hosts an engine is driven structurally; its turn boundary owns delivery")
 }
 
-// TestHomeHelloCapabilities_DefaultsToPeerMessagingOnly: HomeConfig.Capabilities
-// left unset keeps the advertisement it has always had, so the Hello of a runner
-// nobody has taught about capabilities does not silently become empty.
-func TestHomeHelloCapabilities_DefaultsToPeerMessagingOnly(t *testing.T) {
-	assert.Equal(t, []string{CapPeerMessaging}, (&Home{}).helloCapabilities())
+// TestHomeHelloCapabilities_IsTheConfiguredAdvertisement: HomeConfig.Capabilities
+// is what the Hello carries — empty advertises nothing, since the mailbox
+// surface every runner has is not a capability.
+func TestHomeHelloCapabilities_IsTheConfiguredAdvertisement(t *testing.T) {
+	assert.Empty(t, (&Home{}).helloCapabilities())
 	h := &Home{cfg: HomeConfig{Capabilities: RunnerCapabilities(true)}}
 	assert.Equal(t, RunnerCapabilities(true), h.helloCapabilities())
 }
@@ -53,7 +53,7 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 	h, err := NewHome(ctx, HomeConfig{
 		Reporter: termSink(),
 		URL:      url, Token: token, Harness: "test", Version: "test",
-		Capabilities: RunnerCapabilities(true),
+		Capabilities: RunnerCapabilities(false), // the one advertisement that carries a string today
 		Harp:         "child-harp-1",
 	})
 	require.NoError(t, err)
@@ -68,9 +68,9 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 	c.mu.Lock()
 	caps := c.chans[ownerHarp].caps
 	c.mu.Unlock()
-	for _, want := range RunnerCapabilities(true) {
+	for _, want := range RunnerCapabilities(false) {
 		assert.True(t, caps[want], "capability %q must be captured from the Hello", want)
 	}
-	assert.Len(t, caps, len(RunnerCapabilities(true)), "nothing beyond the advertisement is recorded")
+	assert.Len(t, caps, len(RunnerCapabilities(false)), "nothing beyond the advertisement is recorded")
 
 }

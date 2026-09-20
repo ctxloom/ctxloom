@@ -200,7 +200,6 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			// doc — nobody should build a client that trusts this as
 			// confirmation.
 			CommittedSeq: hello.GetResumeFromSeq(),
-			Capabilities: []string{CapPeerMessaging},
 		},
 	}}); err != nil {
 		return err

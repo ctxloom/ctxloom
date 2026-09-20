@@ -59,13 +59,8 @@ type fakeSpawner struct {
 	engineWorkDir string
 	engineEnv     map[string]string
 	// engineCaps is the Hello advertisement StartEngine's in-process Home
-	// makes. It defaults to EMPTY — i.e. peer_messaging only — deliberately,
-	// so every test written before plane 2's control verbs keeps exercising
-	// the §5.6 MAILBOX route it was written against, which is what proves
-	// Inject's fallback survives as a strict superset. A test that wants the
-	// plane-2 path says so by setting this to RunnerCapabilities(true), the
-	// advertisement a production migrated child actually makes
-	// (llm_runner_common.go).
+	// makes; empty is what an engine-hosting runner advertises
+	// (RunnerCapabilities(true)).
 	engineCaps []string
 	// spoolSweepInterval is handed to every in-process Home this fake builds
 	// (HomeConfig.SpoolSweepInterval). A cutover test that has to prove the

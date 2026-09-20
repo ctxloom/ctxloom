@@ -610,17 +610,12 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 				time.Sleep(100 * time.Millisecond)
 			}
 			w.docStepMaterialized = fmt.Sprintf("interactions.jsonl — run_channel advertisements:\n  %s", strings.Join(caps, "\n  "))
-			// Every attached runner advertises the mailbox surface. What tells an
-			// engine-hosting child from the session owner is the ABSENCE of
-			// terminal_delivery: the owner advertises it because nothing on its
-			// side pulls mail at a turn boundary; a child hosting an engine does,
-			// so it must not. (The five control kinds an earlier shape advertised
-			// are gone with the plane that executed them; the spool is the carrier.)
-			for _, adv := range caps {
-				if !strings.Contains(adv, coord.CapPeerMessaging) {
-					return fmt.Errorf("an attached runner advertised %q, without the mailbox surface every runner has", adv)
-				}
-			}
+			// What tells an engine-hosting child from the session owner is the
+			// ABSENCE of terminal_delivery: the owner advertises it because
+			// nothing on its side pulls mail at a turn boundary; a child hosting
+			// an engine does, so it must not. (The mailbox surface every runner
+			// has is not advertised: mail rides the spool, and the string that
+			// once named it is retired.)
 			for _, adv := range caps {
 				if !strings.Contains(adv, coord.CapTerminalDelivery) {
 					return nil // an engine-hosting child: pulls its own mail, advertises no terminal delivery

@@ -193,3 +193,27 @@ func TestReplicationProvision_BootstrapLeavesAnIdenticalInstanceUntouched(t *tes
 	require.NoError(t, os.WriteFile(hostFile, []byte("token-2"), 0o600))
 	eventuallyReads(t, instFile, "token-2")
 }
+
+// The "already identical" skip must not become a way past the placement's
+// symlink refusal: a symlinked instance path is refused at the open even
+// when what it points at happens to hold the host's bytes, because the
+// engine refuses a symlinked credential at its own open and a placement
+// that reported success over one would have started it logged out.
+func TestReplicationProvision_BootstrapRefusesASymlinkedInstanceEvenWhenIdentical(t *testing.T) {
+	testsupport.Isolate(t)
+	hostDir, home := t.TempDir(), t.TempDir()
+	hostFile := filepath.Join(hostDir, "creds.json")
+	require.NoError(t, os.WriteFile(hostFile, []byte("token-1"), 0o600))
+	instFile := filepath.Join(home, ".claude", "creds.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(instFile), 0o700))
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.json")
+	require.NoError(t, os.WriteFile(elsewhere, []byte("token-1"), 0o600))
+	require.NoError(t, os.Symlink(elsewhere, instFile))
+
+	p := &replicationProvisioner{}
+	res, err := p.Provision(home, []Material{{Host: hostFile, DestRel: ".claude/creds.json", Sharing: SharingShared}})
+	if err == nil {
+		_ = res.Close()
+	}
+	require.Error(t, err, "a symlinked instance credential must be refused, identical bytes or not")
+}

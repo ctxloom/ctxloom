@@ -273,6 +273,12 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	return h, nil
 }
 
+// ErrIdentityUnbound refuses a send from a runner whose identity is not yet
+// bound: it does not know whose spool it writes. In production the engine
+// that would send is started by the drive that binds, so this is a
+// protocol slip, not a state a healthy runner passes through.
+var ErrIdentityUnbound = errors.New("coord: this runner's identity is not bound yet; it cannot send")
+
 // BindIdentity binds this run's identity ONCE — the harp its spool is named
 // by, the depth its turn report is gated on — from the Launch the
 // coordinator's StartRun carried (the engine host binds as it drives). A

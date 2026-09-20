@@ -43,9 +43,12 @@ func ownerHome(t *testing.T, c *Coordinator) *Home {
 }
 
 // childHome returns the Home of the spawned child's OWN runner — the one the
-// fake spawner stood up for that run. A run has exactly one runner: dialing a
-// second Home with the same credential would supersede the first, and the
-// coordinator would refuse the StartRun it was about to issue.
+// fake spawner stood up for that run — once its identity is BOUND (the
+// StartRun frame's drive binds it; before that the runner does not know
+// whose spool it writes, and a send would be refused). A run has exactly
+// one runner: dialing a second Home with the same credential would
+// supersede the first, and the coordinator would refuse the StartRun it was
+// about to issue.
 func childHome(t *testing.T, c *Coordinator, runID string) *Home {
 	t.Helper()
 	sp := c.spawner.(*fakeSpawner)
@@ -56,11 +59,11 @@ func childHome(t *testing.T, c *Coordinator, runID string) *Home {
 		for _, home := range sp.engineHomes {
 			if home.cfg.RunID == runID {
 				h = home
-				return true
+				return home.Harp() != ""
 			}
 		}
 		return false
-	}, conformanceWait, 10*time.Millisecond, "the child's runner never came up")
+	}, conformanceWait, 10*time.Millisecond, "the child's runner never came up with its identity bound")
 	return h
 }
 

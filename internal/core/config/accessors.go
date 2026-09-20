@@ -189,7 +189,14 @@ func (c *Config) GetDelegationDepth() int {
 // configured duration, else DefaultDelegationIdleTimeout. Load refused any
 // value that does not parse, so the parse here cannot fail.
 func (c *Config) GetDelegationIdleTimeout() time.Duration {
-	return 0
+	if c.delegation.IdleTimeout == "" {
+		return DefaultDelegationIdleTimeout
+	}
+	d, err := time.ParseDuration(c.delegation.IdleTimeout)
+	if err != nil || d <= 0 {
+		return DefaultDelegationIdleTimeout
+	}
+	return d
 }
 
 // GetDefaultAgent returns the name of the always-bound default agent (may be

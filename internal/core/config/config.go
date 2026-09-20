@@ -445,7 +445,28 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&doc); err != nil {
 		return err
 	}
+	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
+		return err
+	}
 	c.fromDoc(doc)
+	return nil
+}
+
+// validateIdleTimeout refuses a delegation.idle_timeout that is not a
+// positive Go duration. Refused at load rather than defaulted: a typo that
+// silently became fifteen minutes would reap runners at a cadence nobody
+// configured, with every signal green.
+func validateIdleTimeout(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %q: %v", ErrInvalidIdleTimeout, raw, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("%w: %q", ErrInvalidIdleTimeout, raw)
+	}
 	return nil
 }
 

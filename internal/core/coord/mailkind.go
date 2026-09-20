@@ -97,10 +97,9 @@ var ErrSenderMailKind = errors.New("agent_send: unusable message kind")
 // sender-allowed vocabulary, which every refusal enumerates so the sender can
 // correct itself without guessing.
 //
-// This is the string-level form of the closed vocabulary, applied at the
-// peerSend chokepoint AFTER the approval/ask-reply correlation check; the typed
-// guard (agentcoordpb.ValidateMessageKind) refuses the same set at ingress, and
-// both draw their membership from the one enum.
+// This is the closed vocabulary's one guard, run by SendRequest.Validate —
+// whichever transport the send arrived on — after the ask-reply correlation
+// check; membership is drawn from the one enum.
 func SenderMailKind(kind string) error {
 	for _, ok := range senderMailKinds {
 		if kind == ok {
@@ -148,8 +147,8 @@ func MailKinds() []string {
 
 // KindUnset is the mailbox kind of a Message whose Kind field was never set —
 // the Go zero value, not something any producer in this build now mints on
-// purpose. It is refused at every sender ingress (SenderMailKind,
-// ValidateMessageKind) and is no longer emitted by any coordinator-internal
+// purpose. It is refused at the sender's Validate (SenderMailKind) and is no
+// longer emitted by any coordinator-internal
 // path either; it remains a declared member of the closed vocabulary only so
 // the spool round-trip and knownMailKind have a defined mapping for it rather
 // than an undefined one.

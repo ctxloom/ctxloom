@@ -1038,37 +1038,19 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if send == nil {
 		return nil, false
 	}
-	to := send.GetToAgentId()
-	if role := send.GetToRole(); role != "" {
-		if to != "" {
-			return spoolSendErr(codes.InvalidArgument, "agent_send: set exactly one of to_agent_id / to_role, not both"), true
-		}
-		to = role
+	sr, err := sendRequestFromWire(send)
+	if err != nil {
+		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
-	if to == "" {
-		return spoolSendErr(codes.InvalidArgument, `agent_send: a recipient is required — to_agent_id (a child harp) or to_role: "parent"`), true
-	}
-	if send.GetText() == "" {
-		return spoolSendErr(codes.InvalidArgument, "agent_send: text is required"), true
-	}
-	if send.GetInReplyTo() == "" {
-		if err := agentcoordpb.ValidateMessageKind(send.GetKind()); err != nil {
-			return spoolSendErr(codes.InvalidArgument, err.Error()), true
-		}
-	}
-	kind := agentcoordpb.LegacyKindName(send.GetKind())
-	var structured json.RawMessage
-	if s := send.GetStructured(); s != nil {
-		raw, err := protojson.Marshal(s)
-		if err != nil {
-			return spoolSendErr(codes.InvalidArgument,
-				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", err)), true
-		}
-		structured = raw
+	// THE validation site — the same Validate the coordinator's Send verb
+	// runs, so a send refused here is refused for the reason the wire would
+	// have given, and a handler never re-checks a field.
+	if err := sr.Validate(); err != nil {
+		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
 	ref, err := h.writeOutbound(Message{
-		From: h.Harp(), To: to, Kind: kind,
-		Body: send.GetText(), Structured: structured, InReplyTo: send.GetInReplyTo(),
+		From: h.Harp(), To: sr.To, Kind: sr.Kind,
+		Body: sr.Body, Structured: sr.Structured, InReplyTo: sr.InReplyTo,
 	})
 	if err != nil {
 		h.spoolDeliveryCount.failed.Add(1)
@@ -1092,6 +1074,41 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 			Delivery:  agentcoordpb.PeerSendResult_DELIVERY_QUEUED,
 		}},
 	}, true
+}
+
+// sendRequestFromWire decodes the wire's PeerSendRequest into the verb's
+// request: exactly one of to_agent_id / to_role names the recipient, the
+// kind enum becomes its name, and the structured companion its JSON. Only
+// the DECODE refuses here (a frame that cannot mean a request); what the
+// request may say is Validate's.
+func sendRequestFromWire(send *agentcoordpb.PeerSendRequest) (SendRequest, error) {
+	to := send.GetToAgentId()
+	if role := send.GetToRole(); role != "" {
+		if to != "" {
+			return SendRequest{}, fmt.Errorf("%w: agent_send: set exactly one of to_agent_id / to_role, not both", ErrInvalidRequest)
+		}
+		to = role
+	}
+	sr := SendRequest{To: to, Body: send.GetText(), InReplyTo: send.GetInReplyTo()}
+	if k := send.GetKind(); k != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
+		// proto3 enums are OPEN on the wire: a number this build does not
+		// declare survives Unmarshal as itself, and it must be refused BY
+		// NUMBER here — never mapped to "" and then answered as "kind is
+		// required", which would hide which value was wrong.
+		sr.Kind = agentcoordpb.LegacyKindName(k)
+		if sr.Kind == "" {
+			return SendRequest{}, fmt.Errorf("%w: agent_send: kind %d is not a message kind this build knows; use one of: %s",
+				ErrInvalidRequest, int32(k), strings.Join(senderMailKinds, " | "))
+		}
+	}
+	if st := send.GetStructured(); st != nil {
+		raw, err := protojson.Marshal(st)
+		if err != nil {
+			return SendRequest{}, fmt.Errorf("%w: agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", ErrInvalidRequest, err)
+		}
+		sr.Structured = raw
+	}
+	return sr, nil
 }
 
 func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {

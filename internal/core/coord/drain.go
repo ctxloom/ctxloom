@@ -422,6 +422,13 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 	if reason == "" {
 		return nil, ErrStopReasonRequired
 	}
+	return c.stopChildren(ctx, caller, reason)
+}
+
+// stopChildren is StopChildren's body once the reason is settled — Stop's
+// bulk arm reaches it through StopRequest.Validate, which owns the same
+// refusal for that shape.
+func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason string) ([]StoppedChild, error) {
 	tracked := c.drainTracked(func(r *RunRecord) bool { return r.ParentHarp == caller.Harp })
 	for _, ch := range tracked {
 		c.markStopped(ch.harp)

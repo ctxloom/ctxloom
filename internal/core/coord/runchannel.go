@@ -62,6 +62,9 @@ type HostRequest struct {
 
 // Validate requires the tool's name; the tool decides what its args mean.
 func (r HostRequest) Validate() error {
+	if strings.TrimSpace(r.Tool) == "" {
+		return fmt.Errorf("%w: host: tool is required", ErrInvalidRequest)
+	}
 	return nil
 }
 
@@ -725,84 +728,29 @@ func spawnInputString(in *structpb.Struct, key string) (string, error) {
 	return sv.StringValue, nil
 }
 
-// serveSpawnAgent is agent_run: role = the configured agent name,
-// input.prompt = the briefing, input.workspace (GAP 2, optional) = a
-// per-call workspace-axis override — "none"|"worktree", and
-// input.dirty_tree_handler (optional) = a per-call override for what a
-// worktree spawn does when the parent tree is dirty —
-// "commit"|"copy"|"stale"|"fail" — riding the same free-form input Struct as
-// prompt. Absent falls back to the project's cfg.Workspace /
-// cfg.GetDirtyTreeHandler() defaults.
-//
-// THIS IS THE EDGE for the per-call vocabularies: the Struct is free-form
-// (its generated schema carries the enums for a model to read, but nothing on
-// the wire enforces them), and the caller filling it is a MODEL. So the value
-// is converted here, through its owning package's parser, and only the typed
-// value travels inward. An unrecognized spelling is refused with
-// InvalidArgument at the verb the caller invoked, naming the legal values —
-// never carried inward to be interpreted by a frame that answers a typo with
-// a default. dirty_tree_handler's default member auto-commits the user's
-// working tree, so a typo that fell through to it would write to the
-// repository past both the caller's and the project's explicit choice.
-// input.dirty_tree_handler deliberately carries NO acknowledgement for the
-// "commit" handler's mutation — that is a per-checkout, human-only
-// acknowledgement (dirty_tree_commit_ack — see
-// config.DirtyTreeCommitAcknowledged) this free-form per-call field can
-// never set: it is not even a config key, precisely so no channel an agent
-// can reach can grant it.
+// serveSpawnAgent is agent_run on the wire: the frame decodes into a
+// SpawnRequest (role = the agent, input.prompt = the briefing, and the
+// optional per-call axis overrides input.workspace / input.dirty_tree_handler
+// riding the same free-form Struct), and the Spawn verb validates it — the
+// one site. This handler only DECODES: a Struct value of the wrong JSON kind
+// is the transport's refusal, since the verb never sees a Struct.
 func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAgentRequest) *agentcoordpb.CoordinatorResponse {
-	role := req.GetRole()
-	prompt := ""
-	rawWorkspace := ""
-	rawDirtyTreeHandler := ""
+	sr := SpawnRequest{Agent: req.GetRole()}
 	if in := req.GetInput(); in != nil {
-		if v, ok := in.GetFields()["prompt"]; ok {
-			prompt = v.GetStringValue()
-		}
-		var err error
-		if rawWorkspace, err = spawnInputString(in, "workspace"); err != nil {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
-		}
-		if rawDirtyTreeHandler, err = spawnInputString(in, "dirty_tree_handler"); err != nil {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
+		for key, dst := range map[string]*string{"prompt": &sr.Prompt, "workspace": &sr.Workspace, "dirty_tree_handler": &sr.DirtyTree} {
+			v, err := spawnInputString(in, key)
+			if err != nil {
+				return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
+			}
+			*dst = v
 		}
 	}
-	// Both per-call vocabularies are converted at this edge. The workspace
-	// axis is checked here rather than only where the child's axes are
-	// resolved because THAT happens on the launch goroutine, after this verb
-	// has already answered "spawned": a typo would otherwise be reported as a
-	// child that died, to a caller who could no longer see which argument was
-	// wrong.
-	workspace, werr := launch.ParseWorkspaceAxis(rawWorkspace)
-	if werr != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: "+werr.Error())}
-	}
-	dirtyTreeHandler, derr := launch.ParseDirtyTreeHandler(rawDirtyTreeHandler)
-	if derr != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: "+derr.Error())}
-	}
-	if role == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: role is required (a configured agent name; see `ctxloom agent list`)")}
-	}
-	if prompt == "" {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: input.prompt is required (the child's briefing/first turn)")}
-	}
-	out, err := c.AgentRun(c.baseCtx, caller, role, prompt, workspace, dirtyTreeHandler)
+	out, err := c.Spawn(c.baseCtx, caller, sr)
 	if err != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}
-	runtime := out.Runtime
-	if runtime == "" {
-		runtime = "host"
-	}
-	// The launch runs on its own goroutine, so "spawned" was historically a
-	// claim, not an observation: a child whose launch had ALREADY failed by
-	// the time this answer was composed still reported as spawned.
-	// Read the run's terminal state before answering — a settled failure is
-	// reported as a failure, and everything else keeps the exact wording that
-	// shipped.
 	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(spawnDisposition(out, runtime, c.settledFailureCause(out.RunID))),
+		Status: okStatus(out.Disposition),
 		Kind: &agentcoordpb.CoordinatorResponse_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentResult{
 			ChildRunId:   out.RunID,
 			ChildAgentId: out.Harp,
@@ -865,57 +813,37 @@ func (c *Coordinator) serveListRuns(caller Identity, req *agentcoordpb.ListRunsR
 	}
 }
 
-// serveStopRun is agent_stop (D1), in its two shapes. With a run_id it is
-// ownership-checked against the REQUESTER's lineage — only the run's parent
-// may stop it. With NO run_id it is the bulk sweep: every live child of the
-// requester's session, under the drain bound, each named in the result with
-// its outcome; a reason is required so an accidental omission stops nothing.
+// serveStopRun is agent_stop on the wire, in its two shapes. With a run_id
+// the target is resolved to its harp and ownership-checked against the
+// REQUESTER's lineage — only the run's parent may stop it. With NO run_id it
+// is the bulk sweep, whose reason the Stop verb requires.
 func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req *agentcoordpb.StopRun) *agentcoordpb.CoordinatorResponse {
-	runID := req.GetRunId()
-	if runID == "" {
-		return c.serveStopChildren(ctx, caller, req.GetReason())
-	}
-	var rec *RunRecord
-	c.runs.View(func() {
-		if r := c.runsF.run(runID); r != nil {
-			cp := *r
-			rec = &cp
+	sr := StopRequest{Reason: req.GetReason()}
+	if runID := req.GetRunId(); runID != "" {
+		var rec *RunRecord
+		c.runs.View(func() {
+			if r := c.runsF.run(runID); r != nil {
+				cp := *r
+				rec = &cp
+			}
+		})
+		if rec == nil || rec.ParentHarp != caller.Harp {
+			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
 		}
-	})
-	if rec == nil || rec.ParentHarp != caller.Harp {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
+		sr.Harp = rec.Harp
 	}
-	// This is the path a coordinator-capable CHILD uses to stop its own
-	// grandchild, not just the host-side verb — the shared stopRun cancels
-	// the launch here too.
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(c.stopRun(caller, rec, req.GetReason())),
-		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}},
-	}
-}
-
-// serveStopChildren is agent_stop's bulk shape on plane 2: StopChildren
-// projected onto StopRunResult.children.
-func (c *Coordinator) serveStopChildren(ctx context.Context, caller Identity, reason string) *agentcoordpb.CoordinatorResponse {
-	stopped, err := c.StopChildren(ctx, caller, reason)
-	if errors.Is(err, ErrStopReasonRequired) {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, fmt.Sprintf("%v — give run_id to stop one child, or reason to stop them all", err))}
-	}
+	out, err := c.Stop(ctx, caller, sr)
 	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unavailable, fmt.Sprintf("agent_stop: %v", err))}
+		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}
 	result := &agentcoordpb.StopRunResult{}
-	for _, sc := range stopped {
+	for _, sc := range out.Children {
 		result.Children = append(result.Children, &agentcoordpb.StopRunResult_Child{
 			Harp: sc.Harp, RunId: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail,
 		})
 	}
-	msg := fmt.Sprintf("stopped %d child(ren) of this session; their execution slots are freed (a later agent_send resumes any of them as a fresh run)", len(stopped))
-	if len(stopped) == 0 {
-		msg = "no live children to stop"
-	}
 	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(msg),
+		Status: okStatus(out.Disposition),
 		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: result},
 	}
 }
@@ -967,7 +895,7 @@ func statusFromErr(err error) *rpcstatus.Status {
 		code = codes.PermissionDenied
 	case errors.Is(err, ErrRecvTimeout):
 		code = codes.DeadlineExceeded
-	case errors.Is(err, ErrSenderMailKind):
+	case errors.Is(err, ErrSenderMailKind), errors.Is(err, ErrInvalidRequest):
 		code = codes.InvalidArgument
 	case errors.Is(err, ErrDraining):
 		code = codes.Unavailable

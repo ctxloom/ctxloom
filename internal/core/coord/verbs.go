@@ -65,6 +65,18 @@ type SpawnRequest struct {
 // to the repository past both the caller's and the project's explicit
 // choice.
 func (r SpawnRequest) Validate() error {
+	if err := requireNonEmpty("agent_run", "agent", r.Agent); err != nil {
+		return err
+	}
+	if err := requireNonEmpty("agent_run", "prompt", r.Prompt); err != nil {
+		return err
+	}
+	if _, err := launch.ParseWorkspaceAxis(r.Workspace); err != nil {
+		return fmt.Errorf("%w: agent_run: workspace: %v", ErrInvalidRequest, err)
+	}
+	if _, err := launch.ParseDirtyTreeHandler(r.DirtyTree); err != nil {
+		return fmt.Errorf("%w: agent_run: dirty_tree_handler: %v", ErrInvalidRequest, err)
+	}
 	return nil
 }
 
@@ -99,6 +111,20 @@ type SendRequest struct {
 // a sender may set — unless the send answers an ask (InReplyTo), whose kind
 // the reply's authority supplies.
 func (r SendRequest) Validate() error {
+	if err := requireNonEmpty("agent_send", "to", r.To); err != nil {
+		return err
+	}
+	if strings.TrimSpace(r.Body) == "" && len(r.Structured) == 0 {
+		return fmt.Errorf("%w: agent_send: body is required (a structured companion alone is payload too)", ErrInvalidRequest)
+	}
+	if len(r.Body) > MaxSendBodyBytes {
+		return fmt.Errorf("%w (got %d)", ErrBodyTooLarge, len(r.Body))
+	}
+	if r.InReplyTo == "" {
+		if err := SenderMailKind(r.Kind); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+		}
+	}
 	return nil
 }
 
@@ -119,6 +145,9 @@ type StopRequest struct {
 
 // Validate refuses the bulk shape with no reason.
 func (r StopRequest) Validate() error {
+	if r.Harp == "" && strings.TrimSpace(r.Reason) == "" {
+		return fmt.Errorf("%w: %w", ErrInvalidRequest, ErrStopReasonRequired)
+	}
 	return nil
 }
 
@@ -137,7 +166,10 @@ type ReportRequest struct {
 
 // Validate requires a scope and a body.
 func (r ReportRequest) Validate() error {
-	return nil
+	if err := requireNonEmpty("agent_report", "scope", r.Scope); err != nil {
+		return err
+	}
+	return requireNonEmpty("agent_report", "body", r.Body)
 }
 
 // FetchRequest is agent_fetch_artifact: an artifact one of the caller's
@@ -149,7 +181,10 @@ type FetchRequest struct {
 
 // Validate requires both halves of the address.
 func (r FetchRequest) Validate() error {
-	return nil
+	if err := requireNonEmpty("agent_fetch_artifact", "harp", r.Harp); err != nil {
+		return err
+	}
+	return requireNonEmpty("agent_fetch_artifact", "artifact_id", r.ArtifactID)
 }
 
 // Artifact is a fetched artifact's manifest and bytes.
@@ -183,6 +218,22 @@ type ControlRequest struct {
 // Validate requires a known verb, a target, and a body for the verbs that
 // carry one.
 func (r ControlRequest) Validate() error {
+	known := false
+	for _, v := range controlVerbs {
+		if v == r.Verb {
+			known = true
+		}
+	}
+	if !known {
+		return fmt.Errorf("%w: control: unknown verb %q (one of: %s)", ErrInvalidRequest, r.Verb, strings.Join(controlVerbs, " | "))
+	}
+	if err := requireNonEmpty(r.Verb, "harp", r.Harp); err != nil {
+		return err
+	}
+	switch r.Verb {
+	case ControlVerbSteer, ControlVerbQuestion, ControlVerbSummarize:
+		return requireNonEmpty(r.Verb, "body", r.Body)
+	}
 	return nil
 }
 

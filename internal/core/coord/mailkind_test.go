@@ -79,7 +79,7 @@ func TestAgentSend_RefusesUnsetKind(t *testing.T) {
 		"an unset kind is an ingress rejection, not a silent default")
 	msg := resp.GetStatus().GetMessage()
 	assert.Contains(t, msg, "required")
-	for _, want := range []string{"MESSAGE_KIND_MESSAGE", "MESSAGE_KIND_RESULT", "MESSAGE_KIND_ERROR", "MESSAGE_KIND_QUESTION"} {
+	for _, want := range senderMailKinds {
 		assert.Contains(t, msg, want, "the refusal must name the four legal values")
 	}
 	assert.Nil(t, resp.GetPeerSend(), "nothing was written")
@@ -123,8 +123,8 @@ func TestAgentSend_RefusesSpoofedApprovalRequest(t *testing.T) {
 	require.Equal(t, int32(codes.InvalidArgument), resp.GetStatus().GetCode(),
 		"a spoofed coordinator-reserved kind is an ingress rejection, not an internal error")
 	msg := resp.GetStatus().GetMessage()
-	assert.Contains(t, msg, "coordinator's own", "the refusal must say the kind is the coordinator's own to mint")
-	assert.Contains(t, msg, "MESSAGE_KIND_RESULT", "the refusal names the accepted vocabulary")
+	assert.Contains(t, msg, "reserved for the coordinator", "the refusal must say the kind is the coordinator's own to mint")
+	assert.Contains(t, msg, KindResult, "the refusal names the accepted vocabulary")
 	assert.Nil(t, resp.GetPeerSend(), "nothing was written")
 }
 
@@ -189,7 +189,7 @@ func TestAgentSend_RefusesReservedTypedKind(t *testing.T) {
 	})
 	require.Equal(t, int32(codes.InvalidArgument), resp.GetStatus().GetCode(),
 		"a coordinator-reserved kind on the typed field is an ingress rejection, not a silent no-op")
-	assert.Contains(t, resp.GetStatus().GetMessage(), "coordinator's own",
+	assert.Contains(t, resp.GetStatus().GetMessage(), "reserved for the coordinator",
 		"the refusal must say the kind is the coordinator's own to mint")
 	assert.Nil(t, resp.GetPeerSend(), "nothing was written")
 }

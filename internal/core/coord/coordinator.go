@@ -14,7 +14,6 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
@@ -366,7 +365,7 @@ type Coordinator struct {
 	admissionClosed atomic.Bool
 	// drainBound is how long BeginDrain waits on a child's PROCESS before
 	// forcing it — resolved at construction (tunables.drainBound) from
-	// agent_recv's own maximum wait, mcpschema.RecvWaitMax, which is the one
+	// agent_recv's own maximum wait, RecvWaitMax, which is the one
 	// declaration of that number. A field so a test can shrink it; no
 	// Options field, because the bound is the policy, not a knob.
 	drainBound time.Duration
@@ -574,7 +573,7 @@ func resolveTunables(opts Options) tunables {
 	// child) is not bounded at all. The drain bound is therefore agent_recv's
 	// maximum, read by name — never a second number that could drift from
 	// it.
-	t.drainBound = mcpschema.RecvWaitMax
+	t.drainBound = RecvWaitMax
 	return t
 }
 

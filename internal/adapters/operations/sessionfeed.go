@@ -12,7 +12,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -24,7 +24,7 @@ import (
 // This file is the per-harp observation-feed resolver (agent-io plan §3): ONE
 // feed per harp, one vocabulary (WatchEvent/SessionEntry), two sources behind
 // it. The LIVE TAP — a coordinator currently holding the child's run, reached
-// over its D1 ConsumerService (internal/agentcoord/discover finds candidate
+// over its D1 ConsumerService (internal/adapters/coordgrpc/discover finds candidate
 // coordinators; this package cannot import internal/core/coord
 // directly — that package imports operations, so the reverse import would
 // cycle) — is preferred; the STORE TAIL (the S0 locators: WatchSession by

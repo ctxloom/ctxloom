@@ -116,7 +116,7 @@ func (f *gapFakeConsumer) push(t *testing.T, ev *agentcoordpb.AgentEvent) {
 const feedWait = 5 * time.Second
 
 // startGapFakeCoordinator serves f over a real loopback gRPC listener and
-// writes the endpoint.json operations' internal/agentcoord/discover looks
+// writes the endpoint.json operations' internal/adapters/coordgrpc/discover looks
 // for (mirrors sessionfeed_test.go's startFakeCoordinator, re-derived here:
 // that helper is unexported to package operations).
 func startGapFakeCoordinator(t *testing.T, home, projectKey string, f *gapFakeConsumer) {

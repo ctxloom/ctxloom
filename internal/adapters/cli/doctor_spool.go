@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
@@ -308,7 +308,7 @@ const doctorSpoolCountersMarker = "DOCTOR-CHECK-SPOOL-COUNTERS-w3"
 // the only place the counters exist — no journal fact records a failed
 // delivery or a rejected doorbell, so once the process exits its tallies are
 // gone. The read is ConsumerService.SpoolStats over the loopback endpoint
-// each coordinator records in endpoint.json (internal/agentcoord/discover),
+// each coordinator records in endpoint.json (internal/adapters/coordgrpc/discover),
 // presenting the read-only consumer credential the same file carries.
 //
 // Distinguishable outcomes, worded differently on purpose (a success line

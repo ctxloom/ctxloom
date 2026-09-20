@@ -16,7 +16,7 @@ import (
 // Every wait the coordinator holds on a child is one of exactly two things:
 //
 //   - a wait on a PROCESS, which is BOUNDED at c.drainBound (agent_recv's own
-//     maximum wait, mcpschema.RecvWaitMax — the one declaration of that
+//     maximum wait, RecvWaitMax — the one declaration of that
 //     number). Exit is REQUESTED at drain start and FORCED at the bound;
 //   - a wait on a HUMAN — a child parked in agent_recv or on a permission
 //     decision (StateParked) — which is a PARK, not a wait: unbounded, never

@@ -17,7 +17,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 

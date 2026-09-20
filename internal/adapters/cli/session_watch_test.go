@@ -448,7 +448,7 @@ func (f *fakeConsumerServer) push(t *testing.T, ev *agentcoordpb.AgentEvent) {
 }
 
 // startFakeCoordinator serves f over a real loopback gRPC listener and
-// writes the endpoint.json internal/agentcoord/discover globs for — the D2
+// writes the endpoint.json internal/adapters/coordgrpc/discover globs for — the D2
 // discovery mechanism that replaced the retired agent-bus.sock convention.
 func startFakeCoordinator(t *testing.T, home string, f *fakeConsumerServer) {
 	t.Helper()
@@ -543,7 +543,7 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 
 	// "ctxloom/turn_idle" mirrors coord.CustomTurnIdle / operations'
 	// customEventTurnIdle — a literal duplicate, documented on all three
-	// sides (see internal/agentcoord/discover's file header for why this
+	// sides (see internal/adapters/coordgrpc/discover's file header for why this
 	// package cannot import coord).
 	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "ctxloom/turn_idle"}}})
 	require.Eventually(t, func() bool {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 )
 
 // QueryCoordinatorSpoolStats asks ONE live coordinator for its spool counters

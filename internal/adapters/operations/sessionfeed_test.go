@@ -20,7 +20,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -560,7 +560,7 @@ func TestWatchConsumerFeed_EmptyHostNeverWrapsNilErr(t *testing.T) {
 
 // TestWatchFeed_DiscoveryAcrossMultipleCoordinators: with two candidate
 // coordinators on disk, the resolver tries each (most-recently-active
-// first, internal/agentcoord/discover's policy) until one holds the harp.
+// first, internal/adapters/coordgrpc/discover's policy) until one holds the harp.
 func TestWatchFeed_DiscoveryAcrossMultipleCoordinators(t *testing.T) {
 	home := testsupport.Isolate(t)
 	harp := seedFeedHarp(t, home, false)

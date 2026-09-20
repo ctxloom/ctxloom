@@ -31,6 +31,13 @@ type Verbs interface {
 	Host(ctx context.Context, caller Identity, req HostRequest) (HostResult, error)
 }
 
+// RecvWaitMax caps one Recv's park. A parked child holds a coordination
+// open; past this a child is expected to give up and finish, and a
+// coordinator to decide whether to receive again. The shutdown drain's bound
+// is this same number (there is no second one): a child that would have
+// been told to give up by now is not waited on past it.
+const RecvWaitMax = 10 * time.Minute
+
 // ErrInvalidRequest is the class every Validate refusal wraps: the request
 // is malformed at the verb, before any state is read or written.
 var ErrInvalidRequest = errors.New("invalid request")

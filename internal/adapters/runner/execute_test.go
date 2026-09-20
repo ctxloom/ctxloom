@@ -10,16 +10,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -28,16 +31,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	lmgrpc "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet is the
-// slice's gate: a host `run --agent x` and an `agent_run x` over the SAME
-// binding deliver the same set of files (relative to their roots, byte for
-// byte). The host arm delivers through the plugin protocol's run-start
-// projection into the engine's Setup; the delegated arm delivers through
-// runner.Execute over the launch that rode the wire. Both resolve through
-// launch.Resolve; only WHO asks (depth, mode, workspace) differs.
+// gate: a host `run --agent x` and an `agent_run x` over the SAME binding
+// deliver the same set of files (relative to their roots, byte for byte).
+// The host arm delivers the local launcher's Loadout (Launch.Loadout over
+// the opened package) through the static writer into its own cell; the
+// delegated arm delivers through runner.Execute over the launch that rode
+// the wire. Both resolve through launch.Resolve; only WHO asks (depth,
+// mode, workspace) differs.
 func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T) {
 	env := newDeliveryEnv(t)
 
@@ -53,28 +56,27 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	require.NoError(t, err)
 	require.NotEqual(t, host.Cell.Workspace, child.Cell.Workspace, "the child runs in its own worktree cell")
 
-	// The host arm, exactly as `ctxloom run` delivers today: the opened
-	// package projected onto the plugin run-start, decoded into Setup.
+	// The host arm: the local launcher opens the package and delivers the
+	// Launch's Loadout through the static writer into its own cell.
 	opened, err := operations.OpenLaunch(context.Background(), env.deps, host)
 	require.NoError(t, err)
-	hostEngine := backends.NewMock()
-	req := coordgrpc.EncodeRunStart(host, opened.Package, opened.Managed, 0)
-	require.NoError(t, lmgrpc.SetupFromRunStart(context.Background(), hostEngine, req, req.GetOptions().GetEnv()))
+	static, rec := staticWriter(t), records(t)
+	_, err = static.Deliver(context.Background(), opened.Loadout, mock.New().Root().Surfaces(), host.Target(rec))
+	require.NoError(t, err)
 
 	// The delegated arm: the launch crosses the wire and the runner delivers.
-	childEngine := backends.NewMock()
 	drive := &recordingDriver{}
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind:   mock.New(),
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: childEngine, Surfaces: operations.ResolveAgentSurfaces, Driver: drive,
+		Static: static, Records: rec, Driver: drive,
 	}, wire)
 	require.NoError(t, err)
 
-	hostSet := treeOf(t, host.Cell.Workspace)
-	childSet := treeOf(t, child.Cell.Workspace)
+	hostSet := cellTree(t, host)
+	childSet := cellTree(t, child)
 	require.NotEmpty(t, hostSet, "the host arm delivered nothing — the fixture carries no surfaces")
 	require.Equal(t, hostSet, childSet, "a host launch and a delegated launch over one binding deliver one file set")
 	t.Logf("delivered (both arms):\n%s", strings.Join(keys(hostSet), "\n"))
@@ -90,7 +92,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	require.True(t, strings.HasPrefix(turn.Prompt, opened.Package.Context.Text), "the composed context leads the first turn")
 	require.True(t, strings.HasSuffix(turn.Prompt, "go"), "the prompt is the first turn")
 	require.FileExists(t, turn.Chat.MCPConfigPath)
-	require.True(t, strings.HasPrefix(turn.Chat.MCPConfigPath, child.Cell.Paths.Paths().Scratch.Host), ".mcp.json lands under the session's own root, never the project tree")
+	require.True(t, strings.HasPrefix(turn.Chat.MCPConfigPath, child.Cell.Paths.Paths().Scratch.Host), "the MCP file lands under the session's own root, never the project tree")
 	body, err := os.ReadFile(turn.Chat.MCPConfigPath)
 	require.NoError(t, err)
 	require.Contains(t, string(body), `"ctxloom"`, "the composed servers are what .mcp.json names")
@@ -112,7 +114,7 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Surfaces: operations.ResolveAgentSurfaces, Driver: drive,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.NoError(t, err)
 	require.Equal(t, "again", drive.turns[0].Prompt)
@@ -132,11 +134,11 @@ func TestExecute_RefusesALaunchForAnotherEngine(t *testing.T) {
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind: mock.NewNamed("other"), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Driver: drive,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, runner.ErrWrongEngine)
 	require.Empty(t, drive.turns)
-	require.Empty(t, treeOf(t, l.Cell.Workspace), "nothing was delivered")
+	require.Empty(t, cellTree(t, l), "nothing was delivered")
 }
 
 // TestExecute_BindsTheInstanceBeforeDelivery: the runner asks the engine
@@ -154,14 +156,14 @@ func TestExecute_BindsTheInstanceBeforeDelivery(t *testing.T) {
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind: mock.New(mock.Without(present.Context)), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Driver: drive,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	var unsupported engine.ErrUnsupported
 	require.ErrorAs(t, err, &unsupported)
 	require.Equal(t, "context", unsupported.Capability)
 	require.Equal(t, engine.Name("mock"), unsupported.Engine)
 	require.Empty(t, drive.turns)
-	require.Empty(t, treeOf(t, l.Cell.Workspace), "nothing was delivered")
+	require.Empty(t, cellTree(t, l), "nothing was delivered")
 }
 
 // TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive: a Structured
@@ -177,7 +179,7 @@ func TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive(t *testing.T) {
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind: driverless{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Driver: drive,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	var unsupported engine.ErrUnsupported
 	require.ErrorAs(t, err, &unsupported)
@@ -215,7 +217,7 @@ func TestExecute_ATamperedClaimIsRefusedBeforeDelivery(t *testing.T) {
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Driver: drive,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, composite.ErrDigestMismatch)
 	require.ErrorContains(t, err, l.Package.Claim.Location)
@@ -336,9 +338,40 @@ func (d *recordingDriver) Drive(_ context.Context, t coord.Turn) error {
 	return nil
 }
 
+// staticWriter is the ONE static writer over the real filesystem, and
+// records an empty ownership record for one test.
+func staticWriter(t *testing.T) *fsstatic.Static {
+	t.Helper()
+	return fsstatic.New(afero.NewOsFs())
+}
+
+func records(t *testing.T) delivery.Ownership {
+	t.Helper()
+	rec, err := confpatch.NewRecords(afero.NewOsFs(), filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	return rec
+}
+
+// cellTree is every file a delivery left in a launch's cell — under its
+// session root and its workspace — keyed by its path relative to that root,
+// with the digest of its bytes; what two arms are compared by. The one
+// per-session value a delivered file legitimately carries, the session's
+// own minted endpoint (URL and bearer), is normalized before digesting.
+func cellTree(t *testing.T, l launch.Launch) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	normalize := strings.NewReplacer(l.MCP.URL, "<endpoint>", l.MCP.Credential, "<bearer>")
+	for prefix, root := range map[string]string{"session": l.Cell.Paths.Paths().Scratch.Host, "workspace": l.Cell.Workspace} {
+		for rel, digest := range treeOf(t, root, normalize) {
+			out[prefix+"/"+rel] = digest
+		}
+	}
+	return out
+}
+
 // treeOf is every regular file under root, keyed by its path relative to
-// root, with the digest of its bytes.
-func treeOf(t *testing.T, root string) map[string]string {
+// root, with the digest of its normalized bytes.
+func treeOf(t *testing.T, root string, normalize *strings.Replacer) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -356,7 +389,7 @@ func treeOf(t *testing.T, root string) map[string]string {
 		if rerr != nil {
 			return rerr
 		}
-		out[filepath.ToSlash(rel)] = fmt.Sprintf("%x", sha256.Sum256(b))
+		out[filepath.ToSlash(rel)] = fmt.Sprintf("%x", sha256.Sum256([]byte(normalize.Replace(string(b)))))
 		return nil
 	})
 	require.NoError(t, err)
@@ -370,5 +403,3 @@ func keys(m map[string]string) []string {
 	}
 	return out
 }
-
-var _ agent.Backend = (*backends.Mock)(nil)

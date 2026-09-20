@@ -5,32 +5,30 @@
 //
 // Execute is the ONE tail every launch ends in — a delegated child's and an
 // owner run's alike — so a host `run --agent X` and an `agent_run X` deliver
-// the same file set by construction: both projections feed the same writers
-// with the same package. The session's MCP endpoint is BOUND here, at the
-// address the Launch carries (runner/mcp is the Dynamic port), and the
-// engine's .mcp.json names it as URL + bearer. Until the static writers land
-// (Part 4.1, slice 12) the writers are the engine's own Setup, and until the
-// engine host moves beside this package (14a) the drive is
-// coord.EngineHost's, reached through the Driver port.
+// the same file set by construction: both build the Launch's Loadout and
+// hand it to the ONE static writer (delivery.Static) under the session's
+// writer tag. The session's MCP endpoint is BOUND here, at the address the
+// Launch carries (runner/mcp is the Dynamic port), and the engine's MCP
+// file names it as URL + bearer through the same delivery. Until the engine
+// host moves beside this package (14a) the drive is coord.EngineHost's,
+// reached through the Driver port.
 package runner
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
-
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
 // Deps are the runner's ports, composed once per process.
@@ -44,17 +42,15 @@ type Deps struct {
 	// carried with; the carrier's shape names which redeems.
 	Inline     composite.Transport
 	ClaimCheck composite.Transport
-	// Static delivers the package's surfaces into the cell: today the hosted
-	// engine's own Setup.
-	Static Static
+	// Static is the ONE static writer: it delivers the plan's items through
+	// the hosted engine's typed approaches under the session's writer tag.
+	Static delivery.Static
+	// Records is the ownership record the delivery writes under.
+	Records delivery.Ownership
 	// Dynamic BINDS the session's MCP endpoint — the one the Launch carries
 	// — before the engine is driven, and returns its closer. nil serves
 	// nothing.
 	Dynamic delivery.Dynamic
-	// Surfaces validates the binding's delivery preference (as written on
-	// the package) against the hosted engine's declaration; nil accepts the
-	// engine's default delivery.
-	Surfaces agent.SurfaceResolver
 	// Reporter receives the diagnostics delivering the launch raises; the
 	// runner's composition chooses the sink. Nil discards.
 	Reporter report.Sink
@@ -66,12 +62,6 @@ type Deps struct {
 	Driver Driver
 }
 
-// Static is the static-delivery port as today's writers expose it: the
-// engine backend's Setup over the managed payload.
-type Static interface {
-	Setup(ctx context.Context, req *agent.SetupRequest) error
-}
-
 // Driver is the engine-drive port: coord.EngineHost implements it.
 type Driver interface {
 	Drive(ctx context.Context, t coord.Turn) error
@@ -79,12 +69,12 @@ type Driver interface {
 
 // Outcome is what Execute reports once the engine is driven.
 type Outcome struct {
-	// Delivered is the package as delivered: what the writers were given.
-	Delivered *agent.ManagedConfig
+	// Delivered is what the static writer reported.
+	Delivered delivery.Delivered
 	// Close tears the served surface down (nil when none was served).
 	Close func()
-	// MCPConfig is the .mcp.json under the session home the engine's argv
-	// names ("" when the package registers no server).
+	// MCPConfig is the engine's MCP file as delivered ("" when the plan
+	// carries no MCP item).
 	MCPConfig string
 }
 
@@ -96,26 +86,26 @@ var (
 	ErrNoDriver = errors.New("runner: no driver is composed")
 	// ErrNoKind refuses to execute with no engine composed.
 	ErrNoKind = errors.New("runner: no engine kind is composed")
+	// ErrNoStatic refuses to execute with no static writer composed.
+	ErrNoStatic = errors.New("runner: no static writer is composed")
 )
-
-// mcpConfigName is the file the runner delivers the composed server set as,
-// under the session home: the engine's argv names it, so a structured turn
-// registers the same servers a delivered MCP surface does.
-const mcpConfigName = ".mcp.json"
 
 // Execute is the RAW launch — the only tail. Refuse a foreign engine → bind
 // the session to the engine (Instance: requiredness is the engine's
 // refusal; a Structured launch needs a driver) → Redeem → Decode →
 // Configure → Serve (the session's endpoint, under the launch's identity)
-// → Deliver (the writers, the session's .mcp.json) → Drive. There is no
-// Execute that skips delivery and no way to hold a Launch that Resolve did
-// not make.
+// → Deliver (Static.Deliver over the Launch's Loadout, under the session's
+// writer) → Drive. There is no Execute that skips delivery and no way to
+// hold a Launch that Resolve did not make.
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if deps.Driver == nil {
 		return Outcome{}, ErrNoDriver
 	}
 	if deps.Kind == nil {
 		return Outcome{}, ErrNoKind
+	}
+	if deps.Static == nil {
+		return Outcome{}, ErrNoStatic
 	}
 	hosted := deps.Kind.Root().Name
 	if l.Engine != hosted {
@@ -137,38 +127,25 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 			return Outcome{}, fmt.Errorf("runner: configure %s from label %q: %w", l.Engine, l.Label.Label, err)
 		}
 	}
+	lo := l.Loadout(pkg)
 	var closeServed func()
 	if deps.Dynamic != nil {
-		lo := delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Workspace}
 		served, err := deps.Dynamic.Serve(ctx, lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 		if err != nil {
 			return Outcome{}, fmt.Errorf("runner: serve the session's endpoint: %w", err)
 		}
 		closeServed = func() { _ = served.Close() }
 	}
-	managed := agent.ManagedConfigFor(agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}, l.Exports)
-	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)
-	env := l.EngineEnv()
-	if err := deps.Static.Setup(ctx, &agent.SetupRequest{
-		Reporter:  deps.Reporter,
-		WorkDir:   l.Cell.Workspace,
-		Fragments: contextFragments(pkg),
-		Env:       env,
-		Managed:   managed,
-		CellKind:  coordgrpc.CellKindOf(l.Cell),
-		Form:      agent.LaunchFormDeliver,
-		Model:     l.Label.Model,
-	}); err != nil {
+	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root().Surfaces(), l.Target(deps.Records))
+	if err != nil {
+		if closeServed != nil {
+			closeServed()
+		}
 		return Outcome{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
+	env := l.EngineEnv()
 	servers := bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP)
-	mcpConfig := ""
-	if len(servers) > 0 {
-		mcpConfig = filepath.Join(sessionHome(l), mcpConfigName)
-		if err := agent.WriteChatMCPConfigFile(mcpConfig, servers); err != nil {
-			return Outcome{}, fmt.Errorf("runner: deliver %s: %w", mcpConfig, err)
-		}
-	}
+	mcpConfig := mcpFileOf(delivered)
 	turn := coord.Turn{
 		Launch: l,
 		Chat: agent.ChatRequest{
@@ -194,7 +171,18 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		}
 		return Outcome{}, err
 	}
-	return Outcome{Delivered: managed, MCPConfig: mcpConfig, Close: closeServed}, nil
+	return Outcome{Delivered: delivered, MCPConfig: mcpConfig, Close: closeServed}, nil
+}
+
+// mcpFileOf is the host path the MCP kind's presentation names, "" when the
+// plan delivered none: what the drive's chat request points the engine at.
+func mcpFileOf(d delivery.Delivered) string {
+	for i, k := range d.Wrote {
+		if k == present.MCP && i < len(d.Presented) {
+			return d.Presented[i].HostPath
+		}
+	}
+	return ""
 }
 
 // bindEndpoint points ctxloom's own server entry at the session's bound
@@ -221,15 +209,6 @@ func bindEndpoint(servers []agent.ChatMCPServer, ep sessions.Endpoint) []agent.C
 	return servers
 }
 
-// contextFragments is the assembled context as the writers take it: one
-// lead fragment, none when the package composed no context.
-func contextFragments(pkg composite.Package) []*agent.Fragment {
-	if pkg.Context.Text == "" {
-		return nil
-	}
-	return []*agent.Fragment{{Content: pkg.Context.Text}}
-}
-
 // firstTurn is the first turn's lead: the composed context ahead of the
 // prompt on a fresh spawn; the prompt alone when the engine resumes its own
 // recorded session by native key.
@@ -238,14 +217,4 @@ func firstTurn(pkg composite.Package, l launch.Launch) string {
 		return l.Prompt
 	}
 	return textblocks.Join(pkg.Context.Text, l.Prompt)
-}
-
-// sessionHome is where the session's own files land: the engine home the
-// cell bound when the binding asked for one, else the session dir.
-func sessionHome(l launch.Launch) string {
-	paths := l.Cell.Paths.Paths()
-	if paths.EngineHome.Host != "" {
-		return paths.EngineHome.Host
-	}
-	return paths.Scratch.Host
 }

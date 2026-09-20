@@ -192,6 +192,19 @@ func Open(ctx context.Context, deps Deps, l Launch) (composite.Package, error) {
 	return composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
 }
 
+// Loadout is what a delivery of this launch consumes, over the decoded
+// package: the ONE builder, so the runner and the local launcher deliver
+// the same value.
+func (l Launch) Loadout(pkg composite.Package) delivery.Loadout {
+	return delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Workspace}
+}
+
+// Target is where this launch's static items land: the cell's advised
+// roots, under the session's own writer tag, recorded in records.
+func (l Launch) Target(records delivery.Ownership) delivery.Target {
+	return delivery.Target{Root: present.New(l.Cell.Paths), Ownership: records, Writer: delivery.SessionWriter(l.Identity.Harp)}
+}
+
 // EngineEnv is the environment the engine process is started with: the
 // cell's own env, the caller's passthrough over it, and the identity
 // carriers the hooks read (sessions.HookEnv) over both. Every arm that

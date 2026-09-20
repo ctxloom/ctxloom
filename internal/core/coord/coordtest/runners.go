@@ -29,6 +29,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -134,7 +136,9 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 // directory, so nothing lands; what the tests observe is the drive.
 type noDelivery struct{}
 
-func (noDelivery) Setup(context.Context, *agent.SetupRequest) error { return nil }
+func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Surfaces, delivery.Target) (delivery.Delivered, error) {
+	return delivery.Delivered{}, nil
+}
 
 // Close kills every runner spawned so far.
 func (r *Runners) Close() {

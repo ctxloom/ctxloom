@@ -2,12 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -127,11 +129,10 @@ func standUpHostedRunner(cmd *cobra.Command, standup *runnerStandup, backend age
 
 // runnerDepsFor composes the runner's ports for the one engine this process
 // hosts: the two package transports (the claim store rooted at this
-// process's sessions root — the mounted one inside a container), the
-// engine's own Setup as the static writer, the runner MCP standup as the
-// dynamic half, the binding-preference validator, the engine's configure
-// seam over the label body the Launch carries, and the engine host as the
-// driver.
+// process's sessions root — the mounted one inside a container), the ONE
+// static writer over the home-rooted ownership record, the runner MCP
+// standup as the dynamic half, the engine's configure seam over the label
+// body the Launch carries, and the engine host as the driver.
 func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
@@ -141,13 +142,17 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *coord.Engine
 	if !ok {
 		return runner.Deps{}, fmt.Errorf("runner: no engine kind %q is composed", backendName)
 	}
+	records, err := operations.OwnershipRecords()
+	if err != nil {
+		return runner.Deps{}, err
+	}
 	deps := runner.Deps{
 		Kind:       kind,
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(ctxHome, paths.SessionsDir)}},
-		Static:     backend,
+		Static:     fsstatic.New(afero.NewOsFs()),
+		Records:    records,
 		Dynamic:    dynamic,
-		Surfaces:   operations.ResolveAgentSurfaces,
 		Driver:     host,
 	}
 	if c, ok := backend.(backends.Configurable); ok {

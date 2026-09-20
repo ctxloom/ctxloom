@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -48,12 +47,11 @@ type ownedRunSession struct {
 // objecting. A keyed literal makes each value say what it is.
 type ownedRunLaunch struct {
 	// Launch is the owner's resolved launch; the coordinator's owned run is
-	// enqueued from it. Policy/Workspace are its cell's transport handle,
-	// Req its wire projection with what only this invocation adds.
+	// enqueued from it and the runner delivers it. Policy/Workspace are its
+	// cell's transport handle.
 	Launch     launch.Launch
 	Policy     isolation.Policy
 	Workspace  isolation.Workspace
-	Req        *pb.RunStart
 	Verbosity  int
 	MCPServers []agent.ChatMCPServer
 	RunnerEnv  map[string]string
@@ -71,8 +69,6 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	if c == nil {
 		return nil, nil, fmt.Errorf("container oneshot run needs the hosted session coordinator, which failed to stand up")
 	}
-	stampHostTerminalEnv(spec.Req)
-
 	var handle *isolation.RunnerHandle
 	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), string, error) {
 		h, err := spec.Policy.StartRunner(sctx, string(spec.Launch.Engine), spec.Launch.Label.Label, spec.Verbosity, spec.Workspace, spawnEnv)

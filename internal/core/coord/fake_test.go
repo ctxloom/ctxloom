@@ -309,7 +309,6 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	return &EngineSpawn{
 		Launch:     l,
 		Wire:       coordgrpc.EncodeLaunch(l),
-		MCPServers: plan.MCPServers,
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,
 	}, nil

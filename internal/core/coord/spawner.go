@@ -420,9 +420,6 @@ type EngineSpawn struct {
 	// Wire is the same launch as StartRun carries it, projected once by the
 	// codec beside the process it is issued to.
 	Wire *agentcoordpb.Launch
-	// MCPServers is the composed managed set for the child session, the
-	// names the enqueue journal records.
-	MCPServers []agent.ChatMCPServer
 	// Kill tears the engine process and its cell down (idempotent).
 	Kill func()
 	// StderrTail reads the runner's bounded stderr tail without reaping —
@@ -476,7 +473,6 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	return &EngineSpawn{
 		Launch:     l,
 		Wire:       proc.Wire,
-		MCPServers: plan.MCPServers,
 		Kill:       proc.Kill,
 		StderrTail: proc.StderrTail,
 		Wait:       proc.Wait,

@@ -1179,7 +1179,6 @@ func (st *runState) startTransport() error {
 			Launch:     st.launch,
 			Policy:     st.policy,
 			Workspace:  st.ws,
-			Req:        st.req,
 			Verbosity:  runVerbosity,
 			MCPServers: st.managed.ChatMCPServers(),
 			RunnerEnv:  st.runnerSpawnEnv,

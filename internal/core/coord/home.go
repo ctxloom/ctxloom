@@ -1088,6 +1088,12 @@ func (h *Home) reissueUnacked() {
 // closeFn synchronously for exactly this reason), and closes the out/
 // writer LAST so nothing lands after the join.
 func (h *Home) Crash() {
+	// Torn down means nothing here can take a turn: the sweep and the
+	// consume-rename refuse from this point (a consume mkdirs its target,
+	// and a late one would recreate a spool under a root the run is done
+	// with). Marked BEFORE the join, so a caller the join gives up on still
+	// sees it.
+	h.exited.Store(true)
 	h.tracked.seal()
 	h.cancel()
 	_ = h.conn.Close()
@@ -1110,6 +1116,7 @@ func (h *Home) Crash() {
 // returning, mirroring crash().
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
+	h.exited.Store(true) // see Crash: nothing here takes a turn past this point
 	h.tracked.seal()
 	h.mu.Lock()
 	link := h.link

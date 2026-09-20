@@ -334,6 +334,10 @@ func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.E
 	var releaseOnce sync.Once
 	kill := func() {
 		cancel()
+		// The runner's own teardown order: the engine host is joined before
+		// the Home crashes, so no turn goroutine of the host reaches the
+		// Home's spool after the Home is gone.
+		host.Close()
 		home.Crash()
 		releaseOnce.Do(func() { close(released) })
 	}

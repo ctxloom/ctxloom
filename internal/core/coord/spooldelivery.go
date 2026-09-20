@@ -990,6 +990,12 @@ func (h *Home) takeSpoolRef(id string) (spool.Ref, bool) {
 // the engine accepted / after the next Recv) is a property of the CALLER, and
 // it is the property that keeps at-least-once true.
 func (h *Home) ackMailConsumed(ids []string) {
+	if h.exited.Load() {
+		// The run is over (Crash / Close / the engine's exit): the file is
+		// the next incarnation's to consume, and a rename now would create
+		// a directory under a root this run is done with.
+		return
+	}
 	for _, id := range ids {
 		ref, ok := h.takeSpoolRef(id)
 		if !ok {
@@ -1048,6 +1054,9 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	send := req.GetPeerSend()
 	if send == nil {
 		return nil, false
+	}
+	if h.Harp() == "" {
+		return spoolSendErr(codes.FailedPrecondition, "agent_send: "+ErrIdentityUnbound.Error()), true
 	}
 	sr, err := sendRequestFromWire(send)
 	if err != nil {

@@ -2,7 +2,6 @@ package coord
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,10 +35,7 @@ func TestHome_ConsumeAfterCrashTouchesNoSpool(t *testing.T) {
 	h.sweepSpoolIn()
 
 	assert.Len(t, spoolEntries(t, harp, spool.DirIn), 1, "a crashed Home consumes nothing")
-	consumed, err := spool.DirPath(spool.NewHomeMapper(), harp, spool.DirIn)
-	require.NoError(t, err)
-	_, statErr := os.Stat(consumed + "/consumed")
-	assert.True(t, os.IsNotExist(statErr), "a crashed Home creates no directory")
+	assert.Empty(t, spoolEntries(t, harp, spool.DirInConsumed), "nothing is moved into consumed/ by a crashed Home")
 }
 
 // TestHome_SendBeforeBindIsRefused: a runner cannot send before it knows who

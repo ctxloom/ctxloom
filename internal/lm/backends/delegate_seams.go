@@ -101,9 +101,9 @@ type InTreeAgentHomeSpec struct {
 	// EnvVar is the engine's home-relocation variable (CLAUDE_CONFIG_DIR,
 	// CODEX_HOME).
 	EnvVar string
-	// Dir is THIS SESSION's instance home, resolved through the owning engine
-	// package's own paths.SessionHomePath-derived helper — the engine package
-	// owns its own leaf, so no two engines can collide under one session root.
+	// Dir is THIS SESSION's instance home: paths.HarpSessionHome with the
+	// engine's own leaf appended — the engine owns its leaf, so no two
+	// engines can collide under one session root.
 	Dir string
 	// Subdir is the engine's DECLARED leaf (engine.HomeVar.Subdir) — Dir's last
 	// element, stated rather than re-derived, so a run that presents the home
@@ -128,8 +128,8 @@ type InTreeAgentHomeSpec struct {
 }
 
 // InTreeAgentHomeFor resolves the named backend's controlled config-home
-// INSTANCE for (workDir, harp), or ok=false when that backend has none — or
-// when the harp cannot name one. It is the polymorphic seam
+// INSTANCE for harp, or ok=false when that backend has none — or when the
+// harp cannot name one. It is the polymorphic seam
 // operations.ResolveInTreeAgentHome reads instead of branching on engine
 // identity (ADR-0026) — the same shape ResolveModelFor and
 // CheckHookTargetScope above have, and for the same reason.
@@ -150,7 +150,7 @@ type InTreeAgentHomeSpec struct {
 // pointing at it, prepared by THE ambient copy-in (isolation.CopyAmbient).
 // An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
-func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) {
+func InTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
 	kind, exists := Kind(name)
 	if !exists {
 		return InTreeAgentHomeSpec{}, false
@@ -159,10 +159,10 @@ func InTreeAgentHomeFor(name, workDir, harp string) (InTreeAgentHomeSpec, bool) 
 	if !home.Relocates() || harp == "" {
 		return InTreeAgentHomeSpec{}, false
 	}
-	// The error is harp validation (paths.SessionHomePath): an instance
+	// The error is harp validation (paths.HarpSessionHome): an instance
 	// cannot be named without a valid session, which is what keeps a durable
 	// project-wide home from regrowing.
-	root, err := paths.SessionHomePath(filepath.Join(workDir, paths.AppDirName), harp)
+	root, err := paths.HarpSessionHome(harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
 		return InTreeAgentHomeSpec{}, false

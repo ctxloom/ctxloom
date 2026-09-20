@@ -209,12 +209,6 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// doc.
 	operations.SweepOrphanedContainers(ctx, os.Stderr)
 
-	// Startup reaper, second half: the per-session engine-home instances a
-	// crashed run leaves in THIS project's tree, each holding a copied
-	// credential — see operations.SweepOrphanedSessionHomes. Same fault-tolerance, same
-	// silence when there is nothing to do.
-	operations.SweepOrphanedSessionHomes(os.Stderr)
-
 	// Startup reaper, third half: authored session files (above all the
 	// *.plan.md this server's own instructions ask for) left at a harp
 	// directory's undurable top level, moved into persist/ where a

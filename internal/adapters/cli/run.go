@@ -773,14 +773,6 @@ func (st *runState) runStartupTasks() {
 		operations.SweepOrphanedContainers(st.ctx, os.Stderr)
 	}
 
-	// Startup reaper, second half: sweep any per-session ENGINE-HOME instance
-	// left behind by a crashed/killed prior run in this project. Each one holds
-	// a credential copied out of the user's real host home, so this is a
-	// security sweep, not hygiene — see operations.SweepOrphanedSessionHomes.
-	if !runDryRun {
-		operations.SweepOrphanedSessionHomes(os.Stderr)
-	}
-
 	// Startup reaper, third half: relocate authored session files still
 	// sitting at a harp directory's undurable top level into persist/, the
 	// only part of the harp dir a containerized run can write through to the

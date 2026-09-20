@@ -22,11 +22,15 @@ import (
 
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
 // local and so must never ride a distributable tree: the resolved-artifact
-// cache, per-project session state, the project-id marker (ADR 0025 — private
-// identity), and the third .ctxloom tier (paths.StateDir) — local-only
-// checkout state nothing rebuilds (e.g. the dirty-tree-commit acknowledgement,
-// paths.DirtyTreeCommitAckPath, and the lock sidecars under state/locks): a
-// clone must never arrive pre-carrying somebody else's answer. Everything else
+// cache, the project-id marker (ADR 0025 — private identity), and the third
+// .ctxloom tier (paths.StateDir) — local-only checkout state nothing rebuilds
+// (e.g. the dirty-tree-commit acknowledgement, paths.DirtyTreeCommitAckPath,
+// and the lock sidecars under state/locks): a clone must never arrive
+// pre-carrying somebody else's answer. Session state lives under the ctxloom
+// home (paths.HarpMembers), never in the project; the `.ctxloom/sessions/`
+// and `.ctxloom/state/` rules also keep what an earlier ctxloom wrote there
+// (a per-session engine-home instance holding a copied credential) out of
+// git in a checkout it never cleaned. Everything else
 // under .ctxloom/ (config.yaml, remotes.yaml, lock.yaml, allowed_signers,
 // approvals/, content/) is committed by omission — it's content, config, or
 // trust state the project depends on.

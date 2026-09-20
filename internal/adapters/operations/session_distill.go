@@ -121,9 +121,20 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	// when the compaction is done.
 	distiller := NewLazyOneShot(cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
 	defer distiller.End()
+	// The compactor no longer builds its own source: resolve it here (unless a
+	// transcript was preloaded by path, which short-circuits it) and inject.
+	var source memory.Source
+	if preloaded == nil {
+		src, serr := distillSource(backendName, entry.ProjectDir)
+		if serr != nil {
+			return nil, fmt.Errorf("resolve transcript source for backend %q: %w", backendName, serr)
+		}
+		source = src
+	}
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
 		Run:              distiller.Turn,
 		Backend:          backendName,
+		Source:           source,
 		EssenceMaxChars:  cfg.GetEssenceMaxChars(),
 		SessionID:        sessionID,
 		PreloadedSession: preloaded,
@@ -144,6 +155,39 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		return nil, fmt.Errorf("distillation failed: %w", err)
 	}
 	return result, nil
+}
+
+// distillSource builds the transcript source the compactor reads for a
+// distill: ctxloom's own canonical capture (transcript.CanonicalHistory via
+// the canonical-fallback source), with the legacy per-engine scraper behind
+// it only for a backend that still declares one — none of the shipped engines
+// do. It is the resolution the compactor used to do inline before slice 14a
+// moved source-building to the caller, minus the read-side content policy
+// (a distill reads the raw transcript, the same bytes it always did). A
+// session-index open failure degrades to the legacy-only reader, or errors
+// when there is no legacy leg to fall back to.
+// DistillSource resolves the transcript source a compactor reads for a
+// distill, for callers that build a memory.CompactionConfig directly (the MCP
+// memory tools). It is distillSource behind an exported name so those callers
+// need not know how a canonical source is assembled.
+func DistillSource(backend, workDir string) (memory.Source, error) {
+	return distillSource(backend, workDir)
+}
+
+func distillSource(backend, workDir string) (memory.Source, error) {
+	var legacy pb.SessionSource
+	if backends.NoLegacyHistoryReason(backend) == "" {
+		legacy = pb.NewSessionReader(backend, 0)
+	}
+	store, err := sessions.Open(strictness.Sink("ctxloom"))
+	switch {
+	case err == nil:
+		return pb.NewCanonicalFallbackSource(legacy, workDir, store), nil
+	case legacy != nil:
+		return legacy, nil
+	default:
+		return nil, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backend, err)
+	}
 }
 
 // ResolveSessionSource resolves the backend (defaulting when empty) and a

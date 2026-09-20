@@ -22,7 +22,7 @@
 //     per-agent-worktree exclude set) and TransientArtifactPatterns/
 //     WorktreeArtifactPatterns' pinned LEGACY .codex/* entries (the
 //     pre-relocation project-root home, superseded by the per-session
-//     instance (paths.SessionHomePath) but kept forever for a checkout that never
+//     instance (paths.HarpSessionHome) but kept forever for a checkout that never
 //     re-opens — see that file's own "THE .codex ENTRIES ARE NOW LEGACY"
 //     comment).
 //

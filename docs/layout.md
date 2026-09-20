@@ -6,12 +6,13 @@ clone gets, and what you may delete.
 ## Why you want to read this
 
 While an agent session is running, a **copy of your engine credential** can be
-sitting inside your project tree, at `.ctxloom/state/<harp>/home/…`. It is
-gitignored, it is deleted when the session ends, and an architectural gate
-(`TestArch_SeededCredentialsAreGitignored`) asserts by name that `git` will not
-see it. But that safety is a property of a few ignore lines, and one careless
-edit to `.gitignore` — or one `git add -f` — turns it into a commit you cannot
-take back.
+sitting in the session's own directory under your home, at
+`~/.ctxloom/sessions/<harp>/home/…` — outside every project tree, so no
+`.gitignore` stands between it and a commit, and it is deleted when the
+session ends. Earlier ctxloom kept that instance inside the project at
+`.ctxloom/state/<harp>/home/…`; the ignore rules for that tier stay, and an
+architectural gate (`TestArch_SeededCredentialsAreGitignored`) asserts by
+name that `git` will not see what such a checkout still carries.
 
 That is the sharp end. The everyday end is simpler and comes up more often:
 
@@ -33,7 +34,6 @@ they are gitignored, which two of the three are (`paths.Tier`).
 | `content/` | **committed** | your authored work | nothing — restore it from git, or re-author it |
 | `cache/` | gitignored | nothing durable | re-running one named command (below) |
 | `state/` | gitignored | answers and reviews you gave *on this machine* | re-answering / re-reviewing |
-| `state/<harp>/` | gitignored | **nothing** | it is rebuilt at the start of the next session |
 
 `paths.Layout()` is the machine-readable form of that table: every path
 ctxloom's own writers produce, each classified once. `ctxloom doctor` walks it
@@ -121,7 +121,7 @@ what actually exists is worth telling you about.
 
 | Path | What it is | Losing it costs |
 |---|---|---|
-| `~/.ctxloom/sessions/` | this machine's distilled record of every ctxloom session, across every project (`paths.HomeSessionsDir`) | the session history; nothing rebuilds it |
+| `~/.ctxloom/sessions/` | every ctxloom session on this machine, across every project (`paths.HomeSessionsDir`): one directory per session whose members — sidecar, essence, `home/` instance, `persist/`, `ephemeral/`, `segments/` — are the rows of `paths.HarpMembers` | the session history; nothing rebuilds it (the `home/` instance and `ephemeral/` are rebuilt or regenerated) |
 | `~/.ctxloom/approvals/` | your personal countersignature store (`paths.HomeApprovalsPath`) | update review degrades from a diff to a full-content dump for approvals only this store held; committed approval signatures still verify |
 | `~/.ctxloom/allowed_signers` | every signing key you personally trusted (`paths.HomeAllowedSignersPath`, `ctxloom signer trust`) | each key must be re-trusted by hand |
 | `~/.ctxloom/distrusted_signers` | every embedded signing key you personally distrusted (`paths.HomeDistrustedSignersPath`, `ctxloom signer untrust`) | each suppression must be re-recorded by hand |
@@ -150,10 +150,11 @@ assertion could only say where ctxloom *meant* to write.
 
 An agent whose binding declares `engine_home: session` does not run against your
 real home. It gets a throwaway **per-session instance** at
-`.ctxloom/state/<harp>/home/<engine-leaf>` (`paths.SessionHomePath`; each engine appends its own
-leaf, distinct by construction so one instance root hosts every engine a
-session runs) — on every isolation cell: a host cell tells the engine that
-path, a container cell mounts it and tells the engine the mount target. No
+`~/.ctxloom/sessions/<harp>/home/<engine-leaf>` — the session's own `home`
+member (`paths.HarpSessionHome`; each engine appends its own leaf, distinct by
+construction so one instance root hosts every engine a session runs) — on
+every isolation cell: a host cell tells the engine that path, a container cell
+mounts it and tells the engine the mount target. No
 binding, an undeclared `engine_home`, or an explicit `engine_home: host` all
 mean the engine uses the home its runtime gives it **directly** — your real
 home on the host, a fresh `$HOME` in a container — with no instance and no
@@ -191,13 +192,14 @@ deliberately:
 
 **Instances are removed, and that is a security requirement, not hygiene** —
 each one holds a copied credential. `EndSession` removes a session's instance at
-graceful shutdown (`operations.removeSessionInstance`), and a startup sweep
-collects the ungraceful ones (`operations.ReapOrphanedSessionHomes`), skipping
-any harp the session index still reports as live.
+graceful shutdown (`operations.removeSessionInstance`); an instance a crashed
+session leaves behind is an ephemeral member of its session directory
+(`paths.HarpMembers`) and goes with the session's own reaping.
 
-Because an instance is rebuilt from scratch every session, `state/<harp>/` gets
-no `paths.Layout()` row at all: its absence is the normal case, not a loss worth
-reporting (`TestArch_LayoutHasNoHarpKeyedRows`).
+Because an instance is rebuilt from scratch every session, no per-session path
+gets a `paths.Layout()` row of its own: its absence is the normal case, not a
+loss worth reporting (`TestArch_LayoutHasNoHarpKeyedRows`); the sessions store
+row below covers the tree.
 
 For the per-axis table (container / worktree / in-tree, per engine) and the
 env-var mechanics, see

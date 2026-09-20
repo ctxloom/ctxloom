@@ -374,13 +374,13 @@ An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
 git's, fish's and every other XDG-aware tool's config for the child too, so its
 in-tree home stays uncontrolled.
 
-The instance root resolves through one helper, `paths.SessionHomePath`, and each
-engine appends its OWN leaf through its own package (`claude.SessionConfigDir`).
-The leaves are distinct by construction, so one session root hosts every engine
-that session runs. The **state** tier is deliberate: an instance holds copied credentials, so
-it is gitignored *and* unrebuildable — see [the `.ctxloom` layout
-page](../../layout.md) for the three trees, the wipe costs and the gitignore
-contract that keeps that credential out of git.
+The instance root resolves through one helper, `paths.HarpSessionHome` — the
+session's own `home/` member under `~/.ctxloom/sessions/<harp>/` — and each
+engine appends its OWN leaf (its `HomeVar.Subdir`). The leaves are distinct by
+construction, so one session root hosts every engine that session runs. The
+location is deliberate: an instance holds copied credentials, and under the
+ctxloom home it sits outside every project tree, where no `.gitignore` has to
+keep it out of a commit — see [the `.ctxloom` layout page](../../layout.md).
 
 **Instances are per SESSION, not per project.** Two concurrent sessions in one
 checkout get two homes — isolation the in-tree axis did not have while the home

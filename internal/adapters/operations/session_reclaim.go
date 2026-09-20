@@ -155,9 +155,9 @@ type SessionReclaimResult struct {
 // accumulates. The lock (internal/shared/sessionlock) is free once the owner
 // is gone however it went, and Verdict.MayReclaim is true for Dead ALONE:
 // held, missing, on an untrusted filesystem, or unreadable all REFUSE.
-// "Cannot determine" is never permission. It is the same predicate the
-// engine-home reaper (ReapOrphanedSessionHomes) decides by, on purpose: two
-// sweeps over one session must not disagree about whether it is running.
+// "Cannot determine" is never permission. Every sweep over a session decides
+// by this one predicate, on purpose: two sweeps must not disagree about
+// whether it is running.
 //
 // THE LOCK IS HELD ACROSS THE REMOVAL. Acquire keeps it until the deferred
 // release, so a session resuming under the same harp mid-sweep blocks in

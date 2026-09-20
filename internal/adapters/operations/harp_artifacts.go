@@ -242,10 +242,9 @@ func migrateOneHarp(harpDir string, names []string, result *HarpArtifactMigratio
 	}
 }
 
-// SweepHarpArtifacts is the startup entry point for MigrateHarpArtifacts, the
-// sibling of SweepOrphanedSessionHomes and wired into the same two entry
-// points (`ctxloom run` and `ctxloom mcp`) for the same reason: the sweep must
-// run however the session was started.
+// SweepHarpArtifacts is the startup entry point for MigrateHarpArtifacts,
+// wired into both entry points (`ctxloom run` and `ctxloom mcp`) because the
+// sweep must run however the session was started.
 //
 // It exists because repointing mcp.sessionInstructions at persist/ only fixes
 // the sessions that start AFTER it; every harp already on disk keeps its

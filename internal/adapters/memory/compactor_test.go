@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -223,7 +221,6 @@ func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 			OutputDir: tmpDir,
 			HarpName:  "compactor-under-test",
 		},
-		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
 	result, err := c.runDistill(context.Background(), sessionDistillPrompt, "Original session content")
@@ -245,7 +242,6 @@ func TestCompactor_RunDistill_ClientError(t *testing.T) {
 		config: CompactionConfig{
 			Run: runnerOver(mockClient),
 		},
-		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
 	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
@@ -266,7 +262,6 @@ func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
 		config: CompactionConfig{
 			Run: runnerOver(mockClient),
 		},
-		clientFactory: pb.MockClientFactory(mockClient),
 	}
 
 	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
@@ -285,8 +280,7 @@ func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
 	}
 
 	c := &Compactor{
-		config:        CompactionConfig{Run: runnerOver(mockClient)},
-		clientFactory: pb.MockClientFactory(mockClient),
+		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 
 	_, err := c.runDistill(context.Background(), sessionDistillPrompt, "content")
@@ -333,7 +327,7 @@ func (m *mockBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer,
 }
 func (m *mockBackend) Cleanup(context.Context) error { return nil }
 
-// mockSessionHistory implements backends.SessionHistory for testing.
+// mockSessionHistory implements agent.SessionHistory for testing.
 type mockSessionHistory struct {
 	currentSession *agent.Session
 	sessions       map[string]*agent.Session
@@ -376,7 +370,7 @@ func TestNewCompactor_WithBackendOverride(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, compactor)
-	assert.NotNil(t, compactor.source, "BackendOverride history must be adapted to a SessionSource")
+	assert.NotNil(t, compactor.source, "BackendOverride history must be adapted to a Source")
 }
 
 func TestNewCompactor_SetsDefaults(t *testing.T) {
@@ -387,8 +381,10 @@ func TestNewCompactor_SetsDefaults(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "claude-code", compactor.config.Backend)
-	assert.NotNil(t, compactor.clientFactory)
+	// The compactor no longer defaults an engine (the caller resolves the
+	// source and names the backend); the one default it still applies is the
+	// essence character budget.
+	assert.Equal(t, agent.DefaultEssenceChars, compactor.config.EssenceMaxChars)
 }
 
 func TestCompact_NoHistorySupport(t *testing.T) {
@@ -401,7 +397,7 @@ func TestCompact_NoHistorySupport(t *testing.T) {
 
 	_, err = compactor.Compact(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support session history")
+	assert.Contains(t, err.Error(), "no transcript source")
 }
 
 func TestCompact_NoSession(t *testing.T) {
@@ -448,7 +444,6 @@ func TestCompact_EmptySession(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -498,7 +493,6 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "compactor-under-test",
@@ -551,7 +545,6 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -597,7 +590,6 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -635,7 +627,6 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       outDir,
 		HarpName:        "compactor-under-test",
@@ -675,7 +666,6 @@ func TestCompact_WithMockClient(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "compactor-under-test",
@@ -729,7 +719,6 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "compactor-under-test",
@@ -781,7 +770,6 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "compactor-under-test",
@@ -832,7 +820,6 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 	})
@@ -883,7 +870,6 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "fail-harp",
@@ -973,7 +959,6 @@ func TestCompact_BySessionID(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       tmpDir,
 		HarpName:        "compactor-under-test",
@@ -1029,7 +1014,6 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		Backend:         "claude-code",
@@ -1067,7 +1051,6 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -1115,7 +1098,6 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		Backend:         "claude-code",
@@ -1153,7 +1135,6 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -1290,49 +1271,6 @@ func TestDeriveSummary(t *testing.T) {
 	}
 }
 
-// TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason pins the error a
-// user actually sees when the canonical session index cannot be opened on a
-// retired-scraper backend. Those backends (claude-code, the default, among
-// them) have no legacy scraper leg, so the canonical layer is the only
-// transcript source; when its index fails to open there is nothing to read.
-// That used to surface as "backend %q does not support session history" — a
-// true statement about a different problem, pointing at a remedy (switch
-// backends) that cannot fix an unwritable index.
-func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
-	home := testsupport.Isolate(t)
-
-	// Make sessions.Open(nil) fail: it MkdirAll's the index's parent, so a plain
-	// file where that directory belongs is enough.
-	sessionsPath := filepath.Join(home, ".ctxloom", "sessions")
-	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
-	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
-
-	// The fixture must be hostile from the code-under-test's vantage point
-	// before anything is asserted about behaviour: a temp HOME that the
-	// compactor does not actually consult would make this test green for the
-	// wrong reason.
-	_, openErr := sessions.Open(nil)
-	require.Error(t, openErr, "fixture is not hostile: sessions.Open still succeeds")
-
-	backend := "claude-code"
-	require.NotEmpty(t, backends.NoLegacyHistoryReason(backend),
-		"fixture assumes a backend with no legacy scraper leg")
-
-	c, err := NewCompactor(CompactionConfig{Backend: backend})
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err = c.Compact(ctx)
-	require.Error(t, err)
-	require.NotErrorIs(t, err, context.DeadlineExceeded)
-
-	assert.Contains(t, err.Error(), "session index",
-		"the failure that actually happened must be the one reported")
-	assert.NotContains(t, err.Error(), "does not support session history",
-		"reporting an unsupported backend sends the user after the wrong remedy")
-}
-
 // TestCompact_EntriesThatRenderToNothing_ShortCircuit covers the state
 // isEmptySession's entry count cannot see: entries are present, but the text
 // handed to distillation is empty. A session whose only main-thread entries
@@ -1371,7 +1309,6 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -1398,7 +1335,6 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	}
 	inclusive, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(includeClient),
 		Run:             runnerOver(includeClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -1500,8 +1436,7 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 	}
 
 	c := &Compactor{
-		config:        CompactionConfig{Run: runnerOver(mockClient)},
-		clientFactory: pb.MockClientFactory(mockClient),
+		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 	out, err := c.runDistill(context.Background(), "instructions", "transcript")
 	require.NoError(t, err)
@@ -1553,7 +1488,6 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       outputDir,
 		HarpName:        "compactor-under-test",
@@ -1585,8 +1519,7 @@ func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
 		},
 	}
 	c := &Compactor{
-		config:        CompactionConfig{Run: runnerOver(mockClient)},
-		clientFactory: pb.MockClientFactory(mockClient),
+		config: CompactionConfig{Run: runnerOver(mockClient)},
 	}
 
 	_, err := c.runDistill(context.Background(), "SYSTEM PROMPT", "the transcript")

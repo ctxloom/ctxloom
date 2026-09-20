@@ -93,8 +93,8 @@ func AmbientEngineNames() []string { return CredentialSeedEngineNames() }
 type AmbientRequest struct {
 	// Engine is the REGISTERED backend name ("claude-code", ...).
 	Engine string
-	// InstanceHome is the config-home ROOT to copy into — a per-session in-tree
-	// instance (paths.SessionHomePath) or a per-agent worktree config home.
+	// InstanceHome is the config-home ROOT to copy into — a per-session
+	// instance (paths.HarpSessionHome) or a per-agent worktree config home.
 	// Each engine's own leaf is appended under it.
 	InstanceHome string
 	// WorkDir is the absolute project directory the run works in, passed
@@ -325,13 +325,15 @@ const (
 	lockDirMode  = 0o755
 )
 
-// lockInstanceHome takes the project lock for instanceHome and returns the
-// release. A home that cannot be keyed to a lock location (one outside any
-// .ctxloom tree), or an acquisition failure, returns a no-op release rather
-// than failing the run — see CopyAmbient's doc for why that case has no
-// second writer.
+// lockInstanceHome takes the lock for instanceHome and returns the release.
+// The instance is a member of the home-rooted session dir (paths.HarpSessionHome),
+// so its sidecar goes to the home locks store (paths.HomePathFor) — the
+// session dir itself holds only paths.HarpMembers. A home that cannot be
+// keyed to a lock location, or an acquisition failure, returns a no-op
+// release rather than failing the run — see CopyAmbient's doc for why that
+// case has no second writer.
 func lockInstanceHome(instanceHome string) func() {
-	lockPath, err := paths.ProjectPathFor(instanceHome)
+	lockPath, err := paths.HomePathFor(instanceHome)
 	if err != nil {
 		return func() {}
 	}

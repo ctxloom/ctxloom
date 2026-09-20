@@ -72,9 +72,13 @@ func safePathSegment(s string) bool {
 //	    root holds only this run's transcript. Location under the harp dir is
 //	    what makes the transcript harp-addressable when the SessionStart bind
 //	    hook never fires (sessions.LocateTranscript).
-//	~/.ctxloom/sessions/<harp>/persist → the same path relative to the
-//	    CONTAINER home, so in-container hooks/MCP writing session-scoped
-//	    artifacts land them on the host.
+//	~/.ctxloom/sessions/<harp>/<dir>, for each dir paths.MountedLocations
+//	    names → the same path relative to the CONTAINER home. The table
+//	    (paths.HarpMembers) decides what a container reaches: the spool row
+//	    is Mounted, so persist/ rides here and container mail with it, and
+//	    everything else under persist/ (the claim store, the canonical
+//	    transcript, in-container artifact writes) lands on the host through
+//	    the same mount.
 //	~/.ctxloom/tasks/<project-id>.jsonl (and its .lock sidecar) → the same
 //	    path under the container home, so an in-container taskloom's
 //	    task_add/deferral reports reach the one host log every session of THIS
@@ -135,7 +139,7 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 	case !safePathSegment(c.state.Harp):
 		return nil, fmt.Errorf("container session-state mounts: session harp %q is not a safe path segment", c.state.Harp)
 	default:
-		persist, err := paths.HarpPersistDir(c.state.Harp)
+		layout, err := sessions.HomeLayout()
 		if err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
@@ -143,7 +147,7 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 		if err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
-		// Creates persist/ too; the bind SOURCE must exist before `run`.
+		// The bind SOURCE must exist before `run`.
 		if err := os.MkdirAll(store, 0o755); err != nil {
 			return nil, fmt.Errorf("container session-state mounts: %w", err)
 		}
@@ -157,11 +161,17 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 				false,
 			))
 		}
-		mounts = append(mounts, c.runtime.Expose(
-			persist,
-			filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, paths.PersistDirName),
-			false,
-		))
+		for _, dir := range paths.MountedLocations() {
+			host := filepath.Join(layout.Dir(c.state.Harp), dir)
+			if err := os.MkdirAll(host, 0o755); err != nil {
+				return nil, fmt.Errorf("container session-state mounts: %w", err)
+			}
+			mounts = append(mounts, c.runtime.Expose(
+				host,
+				filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, c.state.Harp, dir),
+				false,
+			))
+		}
 	}
 	if c.state.ProjectID == "" {
 		// Without a pinned project id the in-container taskloom would MINT a

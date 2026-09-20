@@ -25,9 +25,9 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
   [projectroot.md](./projectroot.md).
 - Creating, reading or writing anything at these paths — every caller.
 - Validating that an `appPath` is real: this package accepts and blesses empty input
-  (see invariant 6). A **harp** is the deliberate exception — `HarpDir`,
-  `SessionStatePath` and `SessionHomePath` validate it, because it becomes a single
-  path component and is user-renameable.
+  (see invariant 6). A **harp** is the deliberate exception — `HarpDir` and every
+  helper riding it (`HarpSessionHome` among them) validate it, because it becomes a
+  single path component and is user-renameable.
 
 ## The two roots
 
@@ -44,10 +44,12 @@ flowchart TD
     HSD --> SIP["SessionIndexPath<br/>index.yaml"]
     HSD --> HD["HarpDir(harp)"]
     HD --> HEP["HarpEssencePath<br/>essence.md"]
+    HD --> HSH["HarpSessionHome<br/>home/ (the engine config-home instance)"]
     HD --> HED["HarpEphemeralDir<br/>ephemeral/"]
     HD --> HPD["HarpPersistDir<br/>persist/"]
     HPD --> HTSD["HarpTranscriptStoreDir<br/>persist/transcripts/"]
     HPD --> HCTP["HarpCanonicalTranscriptPath<br/>persist/transcript.jsonl"]
+    HPD --> HSPL["persist/spool (SpoolDirName)<br/>the HarpMembers row marked Mounted"]
 
     AP["appPath (caller-supplied)"] --> CP["ConfigPath config.yaml"]
     AP --> RP["RemotesPath remotes.yaml"]
@@ -74,8 +76,6 @@ flowchart TD
     SP --> TOP["TrustObjectsPath<br/>state/trust/objects"]
     SP --> LKD["LocksPath<br/>state/locks/"]
     SP --> DTA["DirtyTreeCommitAckPath<br/>state/dirty_tree_commit_ack.yaml"]
-    SP --> SSP["SessionStatePath(harp)<br/>state/&lt;harp&gt;"]
-    SSP --> SHP["SessionHomePath(harp)<br/>state/&lt;harp&gt;/home"]
 
     subgraph committed["COMMITTED · authored"]
       LP
@@ -137,6 +137,7 @@ this package.
 | `SessionIndexPath` | `+ index.yaml` | 1 |
 | `HarpDir` | `+ <harp>` — **validates the harp** | 9 |
 | `HarpEssencePath` | `<harp>/essence.md` | 4 |
+| `HarpSessionHome` | `<harp>/home` — the per-session engine config-home instance; **validates the harp**, returns an error | 2 |
 | `HarpEphemeralDir` | `<harp>/ephemeral` — regenerable state, incl. per-agent worktree scratch | 4 |
 | `HarpPersistDir` | `<harp>/persist` — must survive teardown | 2 |
 | `HarpTranscriptStoreDir` | `persist/transcripts` — container bind target | 2 |
@@ -172,8 +173,6 @@ this package.
 | `LegacyTrustObjectsPath` | `<appPath>/cache/trust/objects` — the retired location, read only by the one-time migration | 1 |
 | `LocksPath` | `<appPath>/state/locks` — advisory lock sidecars; the protected-path→lock-name mapping is `ProjectPathFor` (lockpath.go) | 1 |
 | `DirtyTreeCommitAckPath` | `<appPath>/state/dirty_tree_commit_ack.yaml` | 2 |
-| `SessionStatePath` | `<appPath>/state/<harp>` — **validates the harp**, returns an error | 1 |
-| `SessionHomePath` | `<appPath>/state/<harp>/home` — the per-session engine config-home instance; returns an error | 4 |
 | `DefaultRemotesPath` | `RemotesPath(AppDirName)` | 1 |
 
 ### Classification
@@ -232,13 +231,18 @@ whole derivation here removed the need for that copy entirely.
    `ApprovalsPath`. `internal/adapters/operations`' countersign-record builder reads their union.
 6. **Every function accepts an empty `appPath` and returns a plausible, wrong path.**
    `ConfigPath("")` is the cwd-relative `"config.yaml"`; `CachePath("")` is `"cache"`. The
-   harp-keyed functions are the exception: `HarpDir`, `SessionStatePath` and
-   `SessionHomePath` reject an empty or traversing harp rather than falling back to a
-   shared path.
-7. **A per-session instance gets no `Layout` row.** `Layout` enumerates paths whose ABSENCE
-   doctor reports, and `state/<harp>` is created at session start and removed at session
-   end, so its absence is the normal case. `TestArch_LayoutHasNoHarpKeyedRows` (and its
-   in-package twin `TestLayout_HasNoHarpKeyedRows`) keep that true.
+   harp-keyed functions are the exception: `HarpDir` and everything riding it reject an
+   empty or traversing harp rather than falling back to a shared path.
+7. **A per-session path gets no `Layout` row.** `Layout` enumerates paths whose ABSENCE
+   doctor reports; a session's members are created at session start and reaped with the
+   session, so their absence is the normal case, and the home-rooted sessions store row
+   covers the tree. `TestArch_LayoutHasNoHarpKeyedRows` (and its in-package twin
+   `TestLayout_HasNoHarpKeyedRows`) keep that true. **The members themselves are a
+   table**: `HarpMembers` classifies every member of a session dir (tier, location,
+   lifetime, and whether a container must reach it); `ClassifyMember` is the one
+   predicate over it, `IdentityMember` the row that makes a directory a session, and
+   `MountedLocations` what the isolation adapter mounts. `sessions.Layout` derives every
+   session-dir path from it.
 8. **No writes.** Nothing in this package creates a directory or a file.
 
 ## Boundaries

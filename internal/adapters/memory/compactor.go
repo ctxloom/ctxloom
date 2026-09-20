@@ -17,8 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
@@ -77,14 +75,20 @@ type CompactionConfig struct {
 	// Run drives one turn of the distiller session the caller resolved; every
 	// distillation call this compactor makes goes through it. Required for
 	// any compaction that distils.
-	Run             Runner
-	Backend         string           // Backend name to read session from (e.g., "claude-code")
-	SessionID       string           // Session to compact (empty = most recent)
-	WorkDir         string           // Working directory for the session
-	OutputDir       string           // TEST SEAM ONLY: redirects per-rotation essences somewhere a test can read. No production caller sets it; empty files them under the harp's own segments dir (rotationEssencePath).
-	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
-	ClientFactory   pb.ClientFactory // Factory for the session READER's client (default: pb.DefaultClientFactory())
-	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
+	Run       Runner
+	Backend   string // Backend name to read session from (e.g., "claude-code")
+	SessionID string // Session to compact (empty = most recent)
+	WorkDir   string // Working directory for the session
+	OutputDir string // TEST SEAM ONLY: redirects per-rotation essences somewhere a test can read. No production caller sets it; empty files them under the harp's own segments dir (rotationEssencePath).
+	HarpName  string // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
+	// Source is the transcript store the compactor reads. The CALLER resolves
+	// it — the canonical-capture source in production (transcript.CanonicalHistory
+	// behind operations' resolver), a fake in a test — so this package never
+	// opens the session index to build a reader and never names an engine to
+	// pick one. Nil is legal only alongside PreloadedSession (or the
+	// BackendOverride test seam); a nil source with neither is "no history".
+	Source          Source
+	BackendOverride agent.Backend // Optional: inject an in-process SessionHistory directly for testing (bypasses Source)
 	// Progress receives human-readable distillation progress. It belongs to
 	// the CALLER because only the caller knows whether it has anywhere safe to
 	// put it: a CLI owns its terminal, while the coordinator's host-relay
@@ -158,20 +162,24 @@ type CompactionResult struct {
 
 // Compactor handles session log compaction.
 type Compactor struct {
-	config        CompactionConfig
-	source        pb.SessionSource
-	plans         func(context.Context, string) ([]agent.PlanFile, error)
-	clientFactory pb.ClientFactory
-	// sourceErr records why source is nil, when the reason is a failure rather
-	// than an unsupported backend. Without it every nil source reads as "this
-	// backend has no session history", which for the retired-scraper backends
-	// -- the default one included -- is both wrong and unactionable.
-	sourceErr error
+	config CompactionConfig
+	source Source
 }
 
-// memoryHistorySource adapts an in-process SessionHistory to pb.SessionSource.
-// It backs the BackendOverride test seam (unit-testing compaction logic against
-// a fake transcript store); production reads go over gRPC via pb.SessionReader.
+// Source is the transcript store the compactor reads: resolve a session id (or
+// the current one) to its entries. The caller injects it — production hands in
+// the canonical-capture source, a test a fake — so the compactor never opens
+// the session index to build a reader and never names an engine. It is a
+// subset of the readers the sessions/transcript layer exposes; anything with
+// these two methods satisfies it.
+type Source interface {
+	GetSession(ctx context.Context, id string) (*agent.Session, error)
+	CurrentSession(ctx context.Context) (*agent.Session, error)
+}
+
+// memoryHistorySource adapts an in-process SessionHistory to Source. It backs
+// the BackendOverride test seam (unit-testing compaction logic against a fake
+// transcript store); production injects Source directly.
 type memoryHistorySource struct {
 	history agent.SessionHistory
 	workDir string
@@ -187,19 +195,30 @@ func (s memoryHistorySource) CurrentSession(_ context.Context) (*agent.Session, 
 	return s.history.GetCurrentSession(s.workDir)
 }
 
-// NewCompactor creates a new compactor with the given config.
+// NewCompactor creates a new compactor with the given config. The transcript
+// SOURCE is the caller's to resolve and inject (CompactionConfig.Source); this
+// constructor only adapts the BackendOverride test seam when no Source was
+// given, so the compactor itself opens no session index and picks no engine.
 func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	applyCompactionDefaults(&config)
 	clampCompactionBounds(&config)
-	source, plans, sourceErr := resolveTranscriptSource(config)
+	return &Compactor{config: config, source: resolveSource(config)}, nil
+}
 
-	return &Compactor{
-		config:        config,
-		source:        source,
-		plans:         plans,
-		clientFactory: config.ClientFactory,
-		sourceErr:     sourceErr,
-	}, nil
+// resolveSource picks the transcript source: the injected one, else the
+// BackendOverride test seam's in-process history, else nil (which
+// loadSessionToCompact reports as "no history" unless a PreloadedSession
+// short-circuits it).
+func resolveSource(config CompactionConfig) Source {
+	if config.Source != nil {
+		return config.Source
+	}
+	if config.BackendOverride != nil {
+		if h := config.BackendOverride.History(); h != nil {
+			return memoryHistorySource{history: h, workDir: config.WorkDir}
+		}
+	}
+	return nil
 }
 
 // applyCompactionDefaults fills the fields a zero value leaves unusable. These
@@ -208,12 +227,6 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 func applyCompactionDefaults(config *CompactionConfig) {
 	if config.EssenceMaxChars <= 0 {
 		config.EssenceMaxChars = agent.DefaultEssenceChars
-	}
-	if config.Backend == "" {
-		config.Backend = "claude-code"
-	}
-	if config.ClientFactory == nil {
-		config.ClientFactory = pb.DefaultClientFactory()
 	}
 }
 
@@ -229,66 +242,6 @@ func clampCompactionBounds(config *CompactionConfig) {
 			"essence_max_chars %d exceeds the %d-char ceiling a distilled essence may reach; using %d",
 			config.EssenceMaxChars, MaxEssenceChars, MaxEssenceChars)
 		config.EssenceMaxChars = MaxEssenceChars
-	}
-}
-
-// resolveTranscriptSource picks where the transcript and the plan files are
-// read from. Production reads go over gRPC via the agent server
-// (pb.SessionReader) so the same path serves a remote agent and ctxloom never
-// parses backend files in-process. Tests inject a backend whose in-process
-// SessionHistory is adapted to the same SessionSource contract.
-//
-// A nil source is not an error here: loadSessionToCompact reports "no history".
-// The returned error carries the one case where the reason matters downstream.
-func resolveTranscriptSource(config CompactionConfig) (pb.SessionSource, func(context.Context, string) ([]agent.PlanFile, error), error) {
-	if config.BackendOverride != nil {
-		var source pb.SessionSource
-		if h := config.BackendOverride.History(); h != nil {
-			source = memoryHistorySource{history: h, workDir: config.WorkDir}
-		}
-		// h == nil leaves source nil → loadSessionToCompact reports "no history".
-		// Tests read plan files directly from the (isolated) session dir.
-		plans := func(_ context.Context, harp string) ([]agent.PlanFile, error) {
-			return pb.ReadPlanFiles(harp), nil
-		}
-		return source, plans, nil
-	}
-
-	reader := pb.NewSessionReaderWithFactory(config.Backend, 0, config.ClientFactory)
-	// GetPlans reads *.plan.md straight from the harp's ctxloom session dir
-	// (internal/lm/grpc/plans.go) — it never touches Backend.History(), so it
-	// works identically whether or not config.Backend still has a legacy
-	// scraper reader.
-	plans := reader.GetPlans
-	// S4: prefer ctxloom's own captured transcript over the
-	// legacy per-engine scraper reader now behind it. A session-index open
-	// failure (rare — an unreadable ~/.ctxloom/sessions root)
-	// degrades to the legacy-only reader rather than failing compaction
-	// outright; distillation must never block on the canonical layer.
-	//
-	// S5: config.Backend may declare its legacy scraper retired
-	// (backends.NoLegacyHistoryReason). Such a backend's plugin-side
-	// History() is nil, so `reader` used as the legacy leg would only ever
-	// error; pass nil instead so CanonicalFallbackSource serves
-	// canonical-only and never makes that doomed round trip.
-	var legacy pb.SessionSource
-	if backends.NoLegacyHistoryReason(config.Backend) == "" {
-		legacy = reader
-	}
-	store, sErr := sessions.Open(strictness.Sink("ctxloom"))
-	switch {
-	case sErr == nil:
-		return pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store), plans, nil
-	case legacy != nil:
-		return legacy, plans, nil
-	default:
-		// A retired-scraper backend has no legacy leg, so the canonical
-		// layer is the ONLY transcript source and its index failing to open
-		// is the whole reason there is nothing to read. Carry that reason:
-		// the alternative is telling the user their backend does not support
-		// session history, which is a different problem with a different
-		// remedy and is not what happened.
-		return nil, plans, fmt.Errorf("session index unavailable: %w", sErr)
 	}
 }
 
@@ -310,15 +263,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// the next staleness check sees live > stamped and correctly re-distills.
 	sourceEntries := transcriptEntryCount(harpName)
 
-	// Plans are the session's own .plan.md documents, read from its ctxloom
-	// session directory and served by the agent server — not mined from the
-	// transcript. They bypass the LLM compression pass and are re-attached
-	// verbatim. Best-effort: a retrieval failure warns and omits them.
-	planFiles, err := c.plans(ctx, harpName)
-	if err != nil {
-		c.warnf("plan retrieval failed, omitting plan blocks: %v", err)
-	}
-	app := appendices{Plans: planFilesToBlocks(planFiles)}
+	// Plans are the session's own .plan.md documents, read straight from its
+	// ctxloom session directory — not mined from the transcript, not fetched
+	// over a plugin. They bypass the LLM compression pass and are re-attached
+	// verbatim. Best-effort: an unreadable file warns and is omitted.
+	app := appendices{Plans: planFilesToBlocks(readSessionPlans(harpName))}
 
 	// Convert entries to text for chunking. Plans live in separate files now, so
 	// there are no in-transcript plan blocks to placeholder out.
@@ -547,15 +496,16 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 // it's a valid session for Compact to short-circuit to a dump via
 // isEmptySession, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
-	if c.source == nil {
-		if c.sourceErr != nil {
-			return nil, c.sourceErr
-		}
-		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
-	}
-
+	// PreloadedSession short-circuits before the source is even consulted:
+	// the container-harp path loads the transcript by its mounted path itself
+	// (the bind hook never reached the host index to leave a session id), so
+	// there is nothing for a Source to resolve.
 	if c.config.PreloadedSession != nil {
 		return c.config.PreloadedSession, nil
+	}
+
+	if c.source == nil {
+		return nil, fmt.Errorf("no transcript source: nothing to compact (the caller resolves CompactionConfig.Source, or supplies a PreloadedSession)")
 	}
 
 	explicitSessionID := c.config.SessionID != ""

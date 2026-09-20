@@ -13,20 +13,19 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
-// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth and
-// EnvRunOneShot UNCONDITIONALLY — unlike the reach-back trio
-// (EnvCoordURL/EnvCoordCred/EnvRunID), which is omitted whole when url == ""
-// (a degraded launch), both must always be present: leafness must not depend
-// on reach-back being available.
-func TestRunnerEnv_StampsDepth(t *testing.T) {
-	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true)
-	assert.Equal(t, "3", withURL[EnvRunDepth])
-	assert.Equal(t, "true", withURL[EnvRunOneShot])
+// TestRunnerEnv_CarriesTheReachBackTrioOnly: a hosted run's runner process
+// env carries the reach-back trio (EnvCoordURL/EnvCoordCred/EnvRunID) and
+// NOTHING of the run's identity — the harp, the depth, the one-shot fact
+// arrive ONCE, typed, on the Launch that rides StartRun, so no reader can
+// take them from the environment. A degraded launch (url == "") omits the
+// trio whole and carries nothing at all.
+func TestRunnerEnv_CarriesTheReachBackTrioOnly(t *testing.T) {
+	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp")
+	assert.ElementsMatch(t, []string{EnvCoordURL, EnvCoordCred, EnvRunID}, envKeys(withURL))
+	assert.Equal(t, "run-1", withURL[EnvRunID])
 
-	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false)
-	assert.Equal(t, "0", degraded[EnvRunDepth], "depth is stamped even on a degraded (no reach-back) launch")
-	assert.Equal(t, "false", degraded[EnvRunOneShot], "oneshot is stamped even on a degraded (no reach-back) launch")
-	assert.NotContains(t, degraded, EnvCoordURL, "the trio is still omitted whole on a degraded launch")
+	degraded := runnerEnv("harp-1", "run-1", "tok", "")
+	assert.Empty(t, degraded, "the trio is omitted whole on a degraded launch, and nothing else is stamped")
 }
 
 // TestEnqueueRun_DepthIncrementsFromCallerDepth pins the depth ARITHMETIC

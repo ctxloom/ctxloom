@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/afero"
@@ -147,7 +148,14 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	fs := getFS(req.FS)
 	// The target is ours to create: materialize's whole point is standing up a
 	// fresh native surface, so a nonexistent --target dir is expected input,
-	// not an error.
+	// not an error. It is delivered to by its absolute path: the ownership
+	// record keys every file by path, and a relative one records nothing
+	// anyone could find again.
+	target, err := filepath.Abs(req.Target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve target dir %s: %w", req.Target, err)
+	}
+	req.Target = target
 	if err := fs.MkdirAll(req.Target, 0o755); err != nil {
 		return nil, fmt.Errorf("create target dir %s: %w", req.Target, err)
 	}

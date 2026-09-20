@@ -86,25 +86,26 @@ Feature: One shared profile, reaching every engine in its own native format
   # loss.
   #
   # THE CLAIM IS NARROWING-IS-DECLARED, which is why the last step matters most:
-  # a user must be told where the three missing surfaces DO come from, or the
-  # report reads as this engine silently losing them. The subject is
-  # mock-launch, whose surfaces skip at materialize time while its descriptor
-  # declares launchOnlySettingsReason — both halves, because skipping without
-  # declaring is a silent no-op and declaring without skipping reports a
-  # surface as absent while its file sits in the tree.
+  # a user must be told which surfaces did not land, or the report reads as
+  # this engine silently losing them. The subject is mock-launch, whose
+  # declaration carries a context surface and no other: the plan routes the
+  # rest to nothing as accepted losses, and the report names each with the
+  # reason — the engine declares no approach for it. Both halves, because
+  # skipping without reporting is a silent no-op and reporting without
+  # skipping names a surface as absent while its file sits in the tree.
   #
   # The first four steps must NOT be read as "passes because nothing exists".
-  # mock-launch keeps its command and skill exports precisely so the inputs
-  # genuinely carry something to deliver; a double that asked for nothing would
+  # The team profile genuinely carries a hook, a server and a command, so the
+  # inputs have something to deliver; a profile that asked for nothing would
   # satisfy the absence steps without the question ever being posed.
-  Scenario: A home-keyed engine materializes its native context, and declares the three surfaces it delivers at launch instead
+  Scenario: A home-keyed engine materializes its native context, and reports the surfaces it does not carry
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     When Alice materializes the team profile for mock-launch
     Then the materialized mock-launch context carries the shared fragment's marker, in its own native shape
     And no mock-launch surface anywhere in the materialized tree carries the shared hook's command
     And no mock-launch surface anywhere in the materialized tree carries the shared MCP server's command
     And no mock-launch surface anywhere in the materialized tree carries the shared command's body
-    And the materialize report says mock-launch delivers those surfaces per-session at launch
+    And the materialize report names each surface mock-launch does not carry, with a reason
 
   # Regression coverage for taskloom lanky-plop (P0 data loss): materializing a
   # profile for an engine with a native context file must never destroy a team's hand-authored

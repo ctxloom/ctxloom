@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -175,23 +174,10 @@ func (a *contextApproach) DeliverContext(start present.Start, root present.RootK
 	return delivered(s, start, h), nil
 }
 
-// appendContextFile writes the context after the file's current bytes (a
-// blank line between), creating the file when there is none.
+// appendContextFile writes the context after the file's current bytes: the
+// user's CLAUDE.md is theirs, and the record owns what was appended.
 func appendContextFile(p present.Presentation, text []byte, fs afero.Fs) (present.Delivered, error) {
-	current, err := afero.ReadFile(fs, p.HostPath)
-	if err != nil && !os.IsNotExist(err) {
-		return present.Delivered{}, err
-	}
-	body := bytes.TrimRight(current, "\n")
-	if len(body) > 0 {
-		body = append(body, '\n', '\n')
-	}
-	body = append(body, bytes.TrimRight(text, "\n")...)
-	body = append(body, '\n')
-	if err := fs.MkdirAll(filepath.Dir(p.HostPath), 0o755); err != nil {
-		return present.Delivered{}, err
-	}
-	if err := iox.WriteFileAtomicFs(fs, p.HostPath, body, 0o644); err != nil {
+	if err := iox.AppendSection(fs, p.HostPath, text, 0o644); err != nil {
 		return present.Delivered{}, err
 	}
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil

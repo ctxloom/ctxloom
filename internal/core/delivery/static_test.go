@@ -227,6 +227,7 @@ func TestTarget_Validate_RefusesAnUnrootableTarget(t *testing.T) {
 	require.ErrorIs(t, delivery.Target{Root: present.New(present.OnHost(present.Paths{})), Ownership: rec, Writer: delivery.ProjectWriter}.Validate(), delivery.ErrNoRoot, "no root")
 	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("/p"), Writer: delivery.ProjectWriter}.Validate(), delivery.ErrNoRoot, "no record")
 	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec}.Validate(), delivery.ErrNoRoot, "no writer")
+	require.ErrorIs(t, delivery.Target{Root: present.ProjectOnHost("out"), Ownership: rec, Writer: delivery.ProjectWriter}.Validate(), delivery.ErrNoRoot, "a relative root records nothing anyone can find")
 }
 
 // TestInputsFor_ProjectsThePackageOnce: every kind's inputs come from the

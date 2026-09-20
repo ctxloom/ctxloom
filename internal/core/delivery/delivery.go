@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/afero"
 
@@ -267,11 +268,18 @@ type Target struct {
 }
 
 // Validate refuses the zero value: a target needs a root with a session
-// home or a project root, an ownership record, and a writer.
+// home or a project root, an ownership record, and a writer. A root is an
+// ABSOLUTE host path: the record keys a file by its path, so a relative
+// root would record nothing anyone could find again.
 func (t Target) Validate() error {
 	p := t.Root.Paths()
 	if (p.Scratch.Host == "" && p.EngineHome.Host == "" && p.ProjectRoot.Host == "") || t.Ownership == nil || t.Writer == "" {
 		return ErrNoRoot
+	}
+	for _, root := range []string{p.Scratch.Host, p.EngineHome.Host, p.ProjectRoot.Host} {
+		if root != "" && !filepath.IsAbs(root) {
+			return fmt.Errorf("%w: root %q is not absolute", ErrNoRoot, root)
+		}
 	}
 	return nil
 }

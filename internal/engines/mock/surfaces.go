@@ -72,8 +72,9 @@ func writeFile(fs afero.Fs, p present.Presentation, bytes []byte, mode os.FileMo
 	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
 }
 
-// contextFile writes the assembled context verbatim to MOCK_CONTEXT.md and
-// announces it on --context.
+// contextFile appends the assembled context to MOCK_CONTEXT.md — after
+// whatever a human already wrote there, which stays theirs — and announces
+// the file on --context.
 type contextFile struct{ surface }
 
 func (a *contextFile) DeliverContext(start present.Start, root present.RootKind, in engine.ContextInputs, fs afero.Fs) (present.Delivered, error) {
@@ -81,7 +82,11 @@ func (a *contextFile) DeliverContext(start present.Start, root present.RootKind,
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return writeFile(fs, r.AnnounceFlag(contextFlag).Build(), in.Text, 0o644)
+	p := r.AnnounceFlag(contextFlag).Build()
+	if err := iox.AppendSection(fs, p.HostPath, in.Text, 0o644); err != nil {
+		return present.Delivered{}, err
+	}
+	return present.Delivered{Presented: p, Wrote: []string{p.HostPath}, Undo: func(fs afero.Fs) error { return fs.Remove(p.HostPath) }}, nil
 }
 
 // mcpFile writes the server set as {"mcpServers": {...}}.

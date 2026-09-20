@@ -168,8 +168,8 @@ type SignBundleResult struct {
 	BundleName string `json:"bundle_name"`
 	BundlePath string `json:"bundle_path"`
 	// SigPath is where the signature landed: the bundle's .sigs/ STORE
-	// DIRECTORY (a tree's signature filename is derived from the signature's
-	// own bytes, so there is no single stable path to name).
+	// DIRECTORY, which holds one entry per (signing key, namespace) — a
+	// re-sign by the same key replaces its entry there.
 	SigPath string `json:"sig_path"`
 	// Tree reports that a DIRECTORY-form bundle was signed as a tree — manifest
 	// plus a signature filed against it — rather than as one file's bytes. The

@@ -183,7 +183,7 @@ func SignBundle(ctx context.Context, w content.Writer, b content.Bundle, signer 
 	if err != nil {
 		return fmt.Errorf("attest: signing manifest of %q: %w", b.ID(), err)
 	}
-	return w.PutBundleSignature(ctx, b.ID(), publishNS, sig)
+	return w.PutBundleSignature(ctx, b.ID(), publishNS, signer.PublicKey(), sig)
 }
 
 // SignItem signs one form of one item under NamespacePublish — the exception,
@@ -207,7 +207,7 @@ func SignItem(ctx context.Context, w content.Writer, it content.Item, f signing.
 	if err != nil {
 		return fmt.Errorf("attest: signing %s form %q: %w", it.Ref().Key(), f, err)
 	}
-	return w.PutSignature(ctx, it.Ref(), f, publishNS, sig)
+	return w.PutSignature(ctx, it.Ref(), f, publishNS, signer.PublicKey(), sig)
 }
 
 // VerifyBundle resolves a bundle's manifest attestation, checks the tree

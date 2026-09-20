@@ -7,6 +7,8 @@ package content_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"path"
 	"slices"
@@ -14,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
@@ -225,7 +228,15 @@ func TestRegistryExtension_ThirdPartyKindWorksThroughPublicAPI(t *testing.T) {
 	if err := store.Put(ctx, newRef, signing.FormRaw, Widget{Name: "flange", Spec: "teeth: 3\n", Owner: "me"}); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	if err := store.PutSignature(ctx, newRef, signing.FormRaw, content.Namespace(signing.NamespacePublish), []byte("sig")); err != nil {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	key, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("NewPublicKey: %v", err)
+	}
+	if err := store.PutSignature(ctx, newRef, signing.FormRaw, content.Namespace(signing.NamespacePublish), key, []byte("sig")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	newItem, err := bundle.Item(ctx, newRef)

@@ -278,7 +278,7 @@ func TestForm_RawAndDistilledAreIndependent(t *testing.T) {
 	}
 
 	// Sign only the raw form; the distilled form must see nothing.
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), []byte("sig-over-raw")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), testKey(t), []byte("sig-over-raw")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	rawSigs, err := raw.Signatures(ctx)

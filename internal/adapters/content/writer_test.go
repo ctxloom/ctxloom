@@ -213,7 +213,7 @@ func TestWriter_DeleteDoesNotRemoveSignatures(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespaceReject), []byte("rejection")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespaceReject), testKey(t), []byte("rejection")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	before, err := afero.ReadDir(store.fsys, fixtureRoot+"/code-quality/.sigs")
@@ -259,19 +259,24 @@ func TestWriter_PutSignatureRoundTrip(t *testing.T) {
 		t.Fatalf("unsigned item reported %d signatures", len(sigs))
 	}
 
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, []byte("pub-a")); err != nil {
+	alice, bob := testKey(t), testKey(t)
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, alice, []byte("pub-a")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
-	// Writing the same signature twice is idempotent: the filename derives from
-	// the signature's own bytes.
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, []byte("pub-a")); err != nil {
+	// A second write by the same key in the same namespace REPLACES the
+	// first: the entry is filed under the signing key, so a re-sign — same
+	// bytes or new ones — is one entry, never a stale one beside a live one.
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, alice, []byte("pub-a")); err != nil {
 		t.Fatalf("PutSignature (repeat): %v", err)
 	}
-	// A second, different publisher signature over the same content coexists.
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, []byte("pub-b")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, alice, []byte("pub-a2")); err != nil {
+		t.Fatalf("PutSignature (re-sign): %v", err)
+	}
+	// A second, different publisher's signature over the same content coexists.
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, publish, bob, []byte("pub-b")); err != nil {
 		t.Fatalf("PutSignature (second signer): %v", err)
 	}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, approve, []byte("approval")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, approve, alice, []byte("approval")); err != nil {
 		t.Fatalf("PutSignature (approve): %v", err)
 	}
 
@@ -285,6 +290,11 @@ func TestWriter_PutSignatureRoundTrip(t *testing.T) {
 	pub := sigs.ForNamespace(publish)
 	if len(pub) != 2 {
 		t.Errorf("ForNamespace(publish) = %d signatures, want 2", len(pub))
+	}
+	for _, b := range pub {
+		if string(b) == "pub-a" {
+			t.Errorf("ForNamespace(publish) still carries the bytes alice's re-sign replaced: %q", pub)
+		}
 	}
 	app := sigs.ForNamespace(approve)
 	if len(app) != 1 || string(app[0]) != "approval" {
@@ -306,7 +316,7 @@ func TestWriter_PutSignatureIsContentKeyed(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), []byte("sig")); err != nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), testKey(t), []byte("sig")); err != nil {
 		t.Fatalf("PutSignature: %v", err)
 	}
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/hooks/pre_tool/guard.yaml", "matcher: Bash\ntype: command\ncommand: rm -rf /\n")
@@ -409,11 +419,11 @@ func TestWriter_PutSignatureRefusesUnsafeNamespace(t *testing.T) {
 	store := fixtureStore(t)
 	ref := trust.Ref{Bundle: "code-quality", Kind: trust.KindMCP, Name: "postgres"}
 	for _, ns := range []Namespace{"", "../escape", "with/slash", "*"} {
-		if err := store.PutSignature(ctx, ref, signing.FormRaw, ns, []byte("sig")); !errors.Is(err, ErrBadPath) {
+		if err := store.PutSignature(ctx, ref, signing.FormRaw, ns, testKey(t), []byte("sig")); !errors.Is(err, ErrBadPath) {
 			t.Errorf("namespace %q: err = %v, want ErrBadPath", ns, err)
 		}
 	}
-	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), nil); err == nil {
+	if err := store.PutSignature(ctx, ref, signing.FormRaw, Namespace(signing.NamespacePublish), testKey(t), nil); err == nil {
 		t.Error("an empty signature was accepted")
 	}
 }

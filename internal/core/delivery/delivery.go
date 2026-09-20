@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -203,3 +205,88 @@ var (
 	// ErrNoAllowedOrigins refuses a ServePolicy with no Origin allowlist.
 	ErrNoAllowedOrigins = errors.New("delivery: the endpoint's serve policy names no allowed origin")
 )
+
+// ErrNoRoot refuses a Target that names no root, no ownership record or no
+// writer: nothing is ever written under "".
+var ErrNoRoot = errors.New("delivery: a target needs a session home or a project root, an ownership record and a writer")
+
+// Inputs is every kind's typed inputs, built ONCE from the loadout by
+// InputsFor: the one projector of package items into engine inputs. The
+// static adapter hands each kind's field to that kind's Deliver.
+type Inputs struct {
+	Context  engine.ContextInputs
+	MCP      engine.MCPInputs
+	Settings engine.SettingsInputs
+	Hooks    engine.HooksInputs
+	Commands engine.CommandsInputs
+	Skills   engine.SkillsInputs
+}
+
+// InputsFor builds every kind's inputs from the decoded package and the
+// engine's exports the loadout carries.
+func InputsFor(lo Loadout) (Inputs, error) { return Inputs{}, nil }
+
+// Writer tags every ownership entry: a session's harp or the project's
+// at-rest materialize. One record per TARGET regardless of writer;
+// reconcile-to-empty removes only THIS writer's entries.
+type Writer string
+
+// SessionWriter is the writer tag of one session's delivery.
+func SessionWriter(harp string) Writer { return Writer("session:" + harp) }
+
+// ProjectWriter is the writer tag of a human materialize into the project
+// root.
+const ProjectWriter Writer = "project"
+
+// Target is where a plan lands and who owns what it writes.
+type Target struct {
+	Root      present.Start
+	Ownership Ownership
+	Writer    Writer
+}
+
+// Validate refuses the zero value: a target needs a root with a session
+// home or a project root, an ownership record, and a writer.
+func (t Target) Validate() error { return nil }
+
+// Static delivers the static items under the target's roots with ONE
+// ownership record per target file. The same implementation serves a
+// session (root = session home, writer = the harp) and a human materialize
+// (root = project root, writer = project); they differ only in the Target.
+// A Plan with no Static items is UNINSTALL for that writer: the record says
+// what to remove and nothing else is touched. Deliver validates the Target
+// (ErrNoRoot) and re-checks each item's planned root against the target it
+// was handed (Unrootable), never substituting another.
+type Static interface {
+	Deliver(ctx context.Context, lo Loadout, surfaces engine.Surfaces, target Target) (Delivered, error)
+}
+
+// Delivered is what one static delivery reports: the presentations the
+// engine's Exec composes from, the kinds that landed, and the undo that
+// reconciles this writer's entries to empty.
+type Delivered struct {
+	Presented []present.Presentation
+	Wrote     []present.Kind
+	Undo      func(ctx context.Context) error
+}
+
+// Ownership is the ONE ownership mechanism: a record per target file naming
+// the entries each writer owns in it. Apply records under the writer;
+// Owned reads one writer's entries; Targets lists the files a writer owns
+// entries in, which is what delivering the EMPTY plan walks. confpatch
+// implements it.
+type Ownership interface {
+	Apply(ctx context.Context, fs afero.Fs, target string, writer Writer, build Build) (Result, error)
+	Owned(target string, writer Writer) ([]string, error)
+	Targets(writer Writer) ([]string, error)
+}
+
+// Build is one writer's contribution to a target file: given the file as it
+// stands with this writer's PREVIOUS contribution reversed, the bytes the
+// file should hold and the entries the writer now owns in it. A nil desired
+// is reconcile-to-empty: the writer contributes nothing, and a file nobody
+// owns anything in that ctxloom created is removed.
+type Build func(current []byte) (desired []byte, entries []string, err error)
+
+// Result reports what one Apply did.
+type Result struct{ Changed bool }

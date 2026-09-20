@@ -52,7 +52,6 @@ func TestHomeSpec_Validate_AcceptsACompleteDeclaration(t *testing.T) {
 	require.NoError(t, validHome().Validate())
 }
 
-
 func TestHomeSpec_Validate_RefusesEmptyVarFields(t *testing.T) {
 	h := validHome()
 	h.Vars[0].Subdir = ""

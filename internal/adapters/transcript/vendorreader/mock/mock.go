@@ -59,7 +59,7 @@ const vendorName = config.BackendMock
 // the real engines only.
 var VersionedAdapters = []vendorreader.VersionedAdapter{{
 	Adapter:          Adapter{},
-	Range:         vendorreader.VersionRange{MinInclusive: "1.0.0", MaxExclusive: "2.0.0"},
+	Range:            vendorreader.VersionRange{MinInclusive: "1.0.0", MaxExclusive: "2.0.0"},
 	ValidatedVersion: "1.0.0",
 }}
 

@@ -42,6 +42,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -594,7 +595,7 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
 	fake := enginefixture.Hosting(fakeBackend)
-	fake.HookGlobalScope = agent.Provide(hosting.HookGlobalScope{
+	fake.HookGlobalScope = engine.Provide(hosting.HookGlobalScope{
 		Paths: func(workDir string) (string, string, error) {
 			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
 		},

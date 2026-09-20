@@ -159,7 +159,7 @@ type Agent struct {
 // there is no binding through which such a run could opt in.
 //
 // Deliberately NOT named EngineHome: that name is the resolved PATH (the
-// present package's Root, agent.EngineHome and its kin). This is the policy
+// present package's Root, engine.HomeSpec and its kin). This is the policy
 // that SELECTS that root, not the root.
 type HomeMode string
 

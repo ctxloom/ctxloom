@@ -46,7 +46,7 @@
 //   - the credential seed's Subdir chooses the LEAF NAME isolation seeds
 //     into inside a controlled home. It is the engine's own naming (claude
 //     declares claude.HomeLeaf, "claude", no dot) and need not match the
-//     engine's ConfigDirName; agent.EngineHome.Validate already holds it
+//     engine's ConfigDirName; engine.HomeSpec.Validate already holds it
 //     equal to a home var's Subdir, so it is not re-gated here.
 //   - the shared ".ctxloom/cache" overlay entry isolation appends for every
 //     engine is ctxloom's own cache path, not a fact about any engine's file

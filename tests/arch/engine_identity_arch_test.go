@@ -63,7 +63,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
@@ -165,10 +164,19 @@ type derivedRoster struct {
 	absence func(name string) string
 }
 
-// declaredAbsence adapts a registry accessor returning agent.Declared[T]
+// declaredAbsence adapts a registry accessor returning engine.Declared[T]
 // into the reason-only reader derivedRoster wants.
-func declaredAbsence[T any](get func(string) agent.Declared[T]) func(string) string {
+func declaredAbsence[T any](get func(string) engine.Declared[T]) func(string) string {
 	return func(name string) string { return get(name).AbsentReason() }
+}
+
+// transcriptAbsence explains a registered backend outside the vendor-reader
+// roster: its kind supplies no readers (an empty slice, the port's absence).
+func transcriptAbsence(name string) string {
+	if _, ok := backends.TranscriptReadersFor(name); ok {
+		return ""
+	}
+	return name + " supplies no transcript readers (Engine.Transcripts is empty)"
 }
 
 // TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend is the reverse of
@@ -187,19 +195,19 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 
 	rosters := []derivedRoster{
 		{
-			source:  "internal/adapters/operations.VendorReaderEngineNames (engine.Descriptor.TranscriptReaders)",
+			source:  "internal/adapters/operations.VendorReaderEngineNames (Engine.Transcripts)",
 			members: operations.VendorReaderEngineNames(),
-			absence: declaredAbsence(backends.TranscriptReadersFor),
+			absence: transcriptAbsence,
 		},
 		{
-			source:  "internal/adapters/isolation.AmbientSet (pushed engine.Descriptor.Home.Credentials)",
+			source:  "internal/adapters/isolation.AmbientSet (Engine.Home().Credentials)",
 			members: seededEngines(),
 			absence: declaredAbsence(backends.CredentialSeedFor),
 		},
 		{
-			source:  "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container + Distribution)",
+			source:  "internal/adapters/isolation.ComposableEngines (Engine.Container + Distribution)",
 			members: isolation.ComposableEngines(),
-			absence: containerAbsence(func(c agent.EngineContainer, dist engine.Distribution) string {
+			absence: containerAbsence(func(c engine.ContainerSpec, dist engine.Distribution) string {
 				switch {
 				case c.Install == nil:
 					return "declares no container installer"
@@ -210,9 +218,9 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			}),
 		},
 		{
-			source:  "internal/adapters/isolation.ContainerAuthEngines (pushed engine.Descriptor.Container + Distribution)",
+			source:  "internal/adapters/isolation.ContainerAuthEngines (Engine.Container + Distribution)",
 			members: isolation.ContainerAuthEngines(),
-			absence: containerAbsence(func(c agent.EngineContainer, dist engine.Distribution) string {
+			absence: containerAbsence(func(c engine.ContainerSpec, dist engine.Distribution) string {
 				switch {
 				case c.Auth.AbsentReason() != "":
 					return c.Auth.AbsentReason()
@@ -242,17 +250,17 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 }
 
 // containerAbsence explains why a registered backend is outside a
-// container roster: its Container is declared absent (that reason), or the
+// container roster: its kind refuses Container (that refusal), or the
 // roster's own filter — capability or policy — excludes it, per why.
-func containerAbsence(why func(agent.EngineContainer, engine.Distribution) string) func(string) string {
+func containerAbsence(why func(engine.ContainerSpec, engine.Distribution) string) func(string) string {
 	return func(name string) string {
-		declared := backends.ContainerFor(name)
-		if reason := declared.AbsentReason(); reason != "" {
-			return reason
-		}
-		c, ok := declared.Get()
+		kind, ok := backends.Kind(name)
 		if !ok {
 			return ""
+		}
+		c, err := kind.Container()
+		if err != nil {
+			return err.Error()
 		}
 		return why(c, backends.DistributionFor(name))
 	}

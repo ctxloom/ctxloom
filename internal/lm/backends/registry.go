@@ -97,8 +97,28 @@ func Register(reg engine.Registry, hostings ...hosting.Hosting) error {
 	// Engine.Container — installed here, where the registry is; isolation
 	// resolves engines by NAME (CopyAmbient is handed a backend name) and
 	// cannot import the engine packages.
-	isolation.UseFacts(isolation.RegistryFacts{Registry: Engines()})
+	isolation.UseFacts(recordFacts{})
 	return nil
+}
+
+// recordFacts is the isolation.Facts accessor over the records, read LIVE:
+// a record unregistered later is a fact forgotten.
+type recordFacts struct{}
+
+func (recordFacts) For(name string) (isolation.EngineFacts, bool) {
+	r, ok := records[name]
+	if !ok {
+		return isolation.EngineFacts{}, false
+	}
+	return isolation.FactsOf(r.kind), true
+}
+
+func (recordFacts) Names() []string {
+	names := make([]string, 0, len(records))
+	for name := range records {
+		names = append(names, name)
+	}
+	return names
 }
 
 // Engines is the engine.Registry of every kind registered here: for a

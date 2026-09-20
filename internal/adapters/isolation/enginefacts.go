@@ -43,28 +43,6 @@ type Facts interface {
 	Names() []string
 }
 
-// RegistryFacts is the Facts accessor over a composed engine.Registry: every
-// fact is read off the engine value the registry holds.
-type RegistryFacts struct{ Registry engine.Registry }
-
-// For reads the named engine's facts off the registry's engine value.
-func (r RegistryFacts) For(name string) (EngineFacts, bool) {
-	eng, ok := r.Registry.Lookup(engine.Name(name))
-	if !ok {
-		return EngineFacts{}, false
-	}
-	return FactsOf(eng), true
-}
-
-// Names lists every engine the registry holds.
-func (r RegistryFacts) Names() []string {
-	var out []string
-	for _, n := range r.Registry.Names(nil) {
-		out = append(out, string(n))
-	}
-	return out
-}
-
 var (
 	factsMu sync.RWMutex
 	facts   Facts

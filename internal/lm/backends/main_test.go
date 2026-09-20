@@ -22,15 +22,15 @@ import (
 //
 // It composes the shipped engines into this package's registry directly
 // (this package cannot import the composition root, internal/engines,
-// which imports it): the same kinds and hosting records, registered once
-// per test binary.
+// which imports it): the same kinds — with the transcript readers the root
+// hands each — and hosting records, registered once per test binary.
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
-		c, err := claude.Build()
+		c, err := claude.Build(claude.WithTranscripts(claudeengine.Transcripts()...))
 		if err != nil {
 			panic(err)
 		}
-		reg, err := engine.NewRegistry(append(mock.Doubles(), c)...)
+		reg, err := engine.NewRegistry(append(mock.Doubles(mock.WithTranscripts(MockTranscripts()...)), c)...)
 		if err != nil {
 			panic(err)
 		}

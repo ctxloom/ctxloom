@@ -2,11 +2,24 @@ package backends
 
 import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
+	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
+
+// MockTranscripts are the mock's degenerate readers as engine.TranscriptReader
+// values, handed to mock.Doubles by the composition root: a single-entry
+// reader registry cannot fail, and mock is what proves the selection has no
+// branch to take wrongly.
+func MockTranscripts() []engine.TranscriptReader {
+	out := make([]engine.TranscriptReader, 0, len(mockreader.VersionedAdapters))
+	for _, a := range mockreader.VersionedAdapters {
+		out = append(out, a)
+	}
+	return out
+}
 
 // MockHostings returns the mock engine and its three doubles. mock is the
 // COMPLETE engine with no real model behind it — every capability provided,

@@ -15,7 +15,6 @@ package engines
 import (
 	"sync"
 
-	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
@@ -32,18 +31,7 @@ func Build() (engine.Registry, error) {
 	if err != nil {
 		return engine.Registry{}, err
 	}
-	return engine.NewRegistry(append(mock.Doubles(mock.WithTranscripts(mockTranscripts()...)), c)...)
-}
-
-// mockTranscripts are the mock's degenerate readers as engine.TranscriptReader
-// values: a single-entry reader registry cannot fail, and mock is what proves
-// the selection has no branch to take wrongly.
-func mockTranscripts() []engine.TranscriptReader {
-	out := make([]engine.TranscriptReader, 0, len(mockreader.VersionedAdapters))
-	for _, a := range mockreader.VersionedAdapters {
-		out = append(out, a)
-	}
-	return out
+	return engine.NewRegistry(append(mock.Doubles(mock.WithTranscripts(backends.MockTranscripts()...)), c)...)
 }
 
 var (

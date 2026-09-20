@@ -6,87 +6,49 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/hosting"
-	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-// composed is every descriptor the composition root installs — the shipped
-// engine and the test doubles together. The doubles are NOT excluded: tests
-// run the same provisioning path, so a double that declared nothing would be
-// an undeclared hole in exactly the place this gate exists to close.
-func composed() []hosting.Hosting {
-	return append(MockHostings(), claudeengine.Hosting())
-}
-
 // TestProvisioning_EveryComposedEngineDeclares is the settling assertion:
-// every engine states what it accepts, or states that it has nothing to
-// provision AND WHY. There is no third state that reaches registration.
+// every composed engine — the shipped one and the test doubles together,
+// because tests run the same provisioning path — states, on its own Home,
+// either the credential material it seeds WITH the deliveries it accepts
+// (engine.CredentialSeed.Accept, which HomeSpec.Validate refuses empty), or
+// that nothing seeds it. There is no third state: "material to place but no
+// delivery it accepts" cannot be authored.
 func TestProvisioning_EveryComposedEngineDeclares(t *testing.T) {
-	descs := composed()
-	require.NotEmpty(t, descs)
-	for _, d := range descs {
-		t.Run(string(d.Engine), func(t *testing.T) {
-			require.True(t, d.Provisioning.Decided(),
-				"%s declared no provisioning policy; Provide one or declare it Absent with the reason", string(d.Engine))
-			if policy, ok := d.Provisioning.Get(); ok {
-				assert.NoError(t, policy.Validate())
+	names := Engines().Names(nil)
+	require.NotEmpty(t, names)
+	for _, name := range names {
+		t.Run(string(name), func(t *testing.T) {
+			kind, ok := Kind(string(name))
+			require.True(t, ok)
+			home := kind.Home()
+			require.NoError(t, home.Validate())
+			if seed, ok := home.Credentials.Get(); ok {
+				assert.NotEmpty(t, seed.Accept, "%s seeds material but accepts no delivery", name)
 				return
 			}
-			// A declared absence whose reason is empty is the omission the
-			// Declared type exists to refuse; assert the reason READS BACK,
-			// because that clause is what a report shows a user asking where
-			// their credential went.
-			assert.NotEmpty(t, d.Provisioning.AbsentReason(),
-				"%s declares absence with no reason", string(d.Engine))
+			_, seeded := CredentialSeedFor(string(name)).Get()
+			assert.False(t, seeded)
 		})
 	}
 }
 
-// Every test double declares ABSENCE, not an empty policy: they authenticate
-// against nothing, and "has nothing to provision, because X" must stay
-// distinguishable from "nobody filled this in".
-func TestProvisioning_TestDoublesDeclareAbsenceWithAReason(t *testing.T) {
-	for _, d := range MockHostings() {
-		t.Run(string(d.Engine), func(t *testing.T) {
-			require.True(t, d.Provisioning.Decided())
-			_, provided := d.Provisioning.Get()
-			assert.False(t, provided, "%s has no credential material, so it declares absence rather than a policy", string(d.Engine))
-			assert.Contains(t, d.Provisioning.AbsentReason(), string(d.Engine),
-				"the reason must name the engine it is about")
-			assert.Contains(t, d.Provisioning.AbsentReason(), "authenticates against nothing")
+// Every test double keeps no home at all: it authenticates against nothing,
+// so its Home is the null object and nothing is provisioned for it.
+func TestProvisioning_TestDoublesKeepNoHome(t *testing.T) {
+	for _, h := range MockHostings() {
+		t.Run(string(h.Engine), func(t *testing.T) {
+			kind, ok := Kind(string(h.Engine))
+			require.True(t, ok)
+			assert.False(t, kind.Home().Relocates(), "%s keeps no engine-global state", h.Engine)
+			d := CredentialSeedFor(string(h.Engine))
+			_, seeded := d.Get()
+			assert.False(t, seeded)
+			assert.Contains(t, d.AbsentReason(), string(h.Engine), "the reason names the engine it is about")
 		})
 	}
 }
 
-// THE GATE. A descriptor complete in every other respect but silent about
-// provisioning must not register, and the refusal must name the engine and
-// the slot so the composition root's message says what to fix.
-func TestRegister_UndeclaredProvisioningIsRefusedByName(t *testing.T) {
-	d := enginefixture.Hosting("u057-no-provisioning")
-	d.Provisioning = agent.Declared[agent.ProvisioningPolicy]{}
-
-	err := registerFixtures(d)
-
-	require.Error(t, err, "an undeclared provisioning policy must not register")
-	assert.Contains(t, err.Error(), "u057-no-provisioning")
-	assert.Contains(t, err.Error(), "Provisioning is undeclared")
-	assert.Contains(t, err.Error(), "Provide it or declare it Absent with the reason")
-	assert.False(t, Exists("u057-no-provisioning"), "a refused descriptor must not be installed")
-}
-
-// An engine that DID fill the slot in but with an empty policy is refused
-// too, at registration rather than at launch: an empty Accept is the
-// undecided state wearing a struct that looks filled in.
-func TestRegister_EmptyAcceptIsRefused(t *testing.T) {
-	d := enginefixture.Hosting("u057-empty-accept")
-	d.Provisioning = agent.Provide(agent.ProvisioningPolicy{})
-
-	err := registerFixtures(d)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "u057-empty-accept")
-	assert.Contains(t, err.Error(), "Accept is empty")
-	assert.False(t, Exists("u057-empty-accept"))
-}
+var _ = engine.Name("")

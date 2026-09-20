@@ -19,7 +19,7 @@ func (namedAdapter) Convert(context.Context, transcript.Recorder, string) error 
 func claudeLine() []VersionedAdapter {
 	return []VersionedAdapter{{
 		Adapter:          namedAdapter{"claude-2x"},
-		Range:         VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
+		Range:            VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
 		ValidatedVersion: "2.1.214",
 	}}
 }
@@ -39,7 +39,7 @@ func TestSelectAdapter_VersionAheadOfThePinButInsideTheRange(t *testing.T) {
 func TestSelectAdapter_VersionBehindThePinButInsideTheRange(t *testing.T) {
 	codex := []VersionedAdapter{{
 		Adapter:          namedAdapter{"codex-0.144"},
-		Range:         VersionRange{MinInclusive: "0.144.0", MaxExclusive: "0.145.0"},
+		Range:            VersionRange{MinInclusive: "0.144.0", MaxExclusive: "0.145.0"},
 		ValidatedVersion: "0.144.6",
 	}}
 	got, err := SelectAdapter("claude-code", "0.144.4", "harp", codex)

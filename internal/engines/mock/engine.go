@@ -41,6 +41,7 @@ const (
 type Mock struct {
 	engine.Base
 	noSkillExport bool
+	home          engine.HomeSpec
 	container     *engine.ContainerSpec
 	transcripts   []engine.TranscriptReader
 }
@@ -70,6 +71,17 @@ func WithContainer() Option {
 			TranscriptStoreRel: "",
 		}
 	}
+}
+
+// WithContainerSpec gives the kind the container story a test declares.
+func WithContainerSpec(c engine.ContainerSpec) Option {
+	return func(m *Mock) { m.container = &c }
+}
+
+// WithHome gives the kind a relocatable home: the fixture a test of the
+// home-seeding path declares. The shipped mock keeps none.
+func WithHome(h engine.HomeSpec) Option {
+	return func(m *Mock) { m.home = h }
 }
 
 // WithTranscripts hands the kind the readers of its (degenerate) transcript
@@ -223,13 +235,17 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 			return nil, err
 		}
 	}
+	if err := m.home.Validate(); err != nil {
+		return nil, err
+	}
 	return m, nil
 }
 
 // Home: mock keeps NO engine-global config or credential state — a bare
 // echo compiled into ctxloom that never spawns a grandchild and never
-// touches disk — so the null object: nothing relocates, nothing seeds.
-func (m Mock) Home() engine.HomeSpec { return engine.HomeSpec{} }
+// touches disk — so the null object, unless a test declared one
+// (WithHome): nothing relocates, nothing seeds.
+func (m Mock) Home() engine.HomeSpec { return m.home }
 
 // Container is the image WithContainer gave the kind, or the refusal: the
 // bare conformance double has none.

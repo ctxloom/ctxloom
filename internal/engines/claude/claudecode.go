@@ -351,18 +351,6 @@ func maxOutputModel(m map[string]claudeModelUsage) string {
 // drift.
 const sessionHarpEnv = agent.SessionHarpEnv
 
-// sessionNameArgs returns the `--name <harp>` flag pair that labels the launched
-// claude session with ctxloom's harp name, or nil when no harp is set. claude's
-// /rename slash command is interactive-only and cannot be injected
-// programmatically or as an initial prompt, so --name is the only launch-time way to
-// set the session's display name (prompt box, /resume picker, terminal title).
-func sessionNameArgs(env map[string]string) []string {
-	if harp := env[sessionHarpEnv]; harp != "" {
-		return []string{flagName, harp}
-	}
-	return nil
-}
-
 // permissionArgs maps the generalized permission posture onto claude's flags.
 // bypass is the blanket skip; acceptEdits/plan use --permission-mode; default
 // leaves the engine's normal prompting and adds nothing.

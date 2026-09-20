@@ -63,7 +63,7 @@ var _ vendorreader.VendorAdapter = Adapter{}
 // (hosting.Hosting.TranscriptReaders), not a computation.
 var VersionedAdapters = []vendorreader.VersionedAdapter{{
 	Adapter:          Adapter{},
-	Range:         vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
+	Range:            vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
 	ValidatedVersion: "2.1.214",
 }}
 

@@ -7,7 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
@@ -19,16 +20,17 @@ import (
 func TestRegister_PushesTheCredentialSeedDeclarationToIsolation(t *testing.T) {
 	const name = "fixture-seeded"
 	d := enginefixture.Hosting(name)
-	d.Home = agent.Provide(agent.EngineHome{
-		Vars: []agent.HomeVar{{EnvVar: "FIXTURE_HOME", Subdir: "fixture-home"}},
-		Credentials: agent.Provide(agent.CredentialSeed{
+	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
+		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture-home"}},
+		Credentials: engine.Provide(engine.CredentialSeed{
 			Subdir:     "fixture-home",
 			EnvTrigger: "FIXTURE_KEY",
 			LoginHint:  "fixture login",
-			Files:      []agent.SeedFile{{HostRelHome: ".fixture/creds.json", DestName: "creds.json", Required: true}},
+			Files:      []engine.SeedFile{{HostRelHome: ".fixture/creds.json", DestName: "creds.json", Required: true}},
+			Accept:     []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
 		}),
-	})
-	require.NoError(t, registerFixtures(d))
+	}))
+	require.NoError(t, Register(enginefixture.RegistryOf(kind), d))
 	t.Cleanup(func() { UnregisterForTesting(name) })
 
 	assert.Equal(t, []isolation.AmbientFile{

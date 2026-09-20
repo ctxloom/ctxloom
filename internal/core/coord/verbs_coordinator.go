@@ -33,6 +33,11 @@ func (c *Coordinator) Spawn(ctx context.Context, caller Identity, req SpawnReque
 	return SpawnResult{
 		Harp:        out.Harp,
 		RunID:       out.RunID,
+		Engine:      out.Engine,
+		Profiles:    out.Profiles,
+		Runtime:     runtime,
+		Queued:      out.Queued,
+		Degraded:    out.Degraded,
 		Disposition: spawnDisposition(out, runtime, c.settledFailureCause(out.RunID)),
 	}, nil
 }

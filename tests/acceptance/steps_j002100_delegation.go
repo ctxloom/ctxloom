@@ -605,7 +605,7 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 					if err != nil {
 						return err
 					}
-					return errors.New("no run_channel interaction carried a capabilities detail within 30s — did any runner dial home?")
+					return errors.New("no run_channel attach was journaled within 30s — did any runner dial home?")
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
@@ -660,7 +660,10 @@ func j002100AttachedCapabilities(w *World) ([]string, error) {
 			if json.Unmarshal(jl.Data, &in) != nil || in.Kind != "run_channel" {
 				continue
 			}
-			if adv := in.Detail["capabilities"]; adv != "" {
+			// Every attach is recorded with its advertisement, EMPTY included:
+			// an engine-hosting child advertises nothing (its turn boundary
+			// owns delivery), and that absence is the fact the step reads.
+			if adv, ok := in.Detail["capabilities"]; ok {
 				out = append(out, adv)
 			}
 		}

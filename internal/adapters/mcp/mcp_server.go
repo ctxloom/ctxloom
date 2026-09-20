@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/harp"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 
@@ -35,7 +35,10 @@ type ctxServer struct {
 	// server's life. The owner arm's server (ServeRunnerMCP) is handed its
 	// generation and holds no app.
 	app *operations.App
-	cfg *config.Config
+	// build constructs the coordinator a bare `ctxloom mcp` stands up on its
+	// first agent_run — the composition root's constructor, handed in.
+	build CoordinatorConstructor
+	cfg   *config.Config
 	// dryRun suppresses the startup apply's single write. Starting this
 	// server normally REWRITES the project's managed settings — that is what
 	// ctxloom does — so this is the way to ask what a start would change
@@ -44,6 +47,11 @@ type ctxServer struct {
 	// self is the caller identity every identity-consuming tool uses: from
 	// the credential on the coordinator's HTTP surface, from env on stdio.
 	self coord.Identity
+	// agents is the coordinator-backed delegation state behind the agent_*
+	// tools; nil until first use on a bare stdio server (lazy standup in
+	// delegation()), pre-bound on identity servers.
+	agents   *agentDelegation
+	agentsMu sync.Mutex
 	// distill collapses concurrent distillations of the SAME session into one
 	// run. It is SHARED across ctxServer instances (the coordinator builds a
 	// fresh one per relayed call), so it is injected, never owned here. Nil
@@ -56,26 +64,6 @@ type ctxServer struct {
 	// was otherwise unreachable without a live LLM, and a mutation swapping that
 	// key survived the entire package unnoticed.
 	compactorFactory func(memory.CompactionConfig) (*memory.Compactor, error)
-}
-
-// selfIdentityFromEnv is the stdio server's ambient identity: the serving
-// session's harp (CTXLOOM_SESSION_HARP, which `ctxloom run` exports into the
-// engine's env), always depth 0. A serving process with no ambient session
-// — `manage install` registers this server as a bare `ctxloom mcp` with no
-// env — mints a per-process harp rather than running as an unaddressable
-// one; it is deliberately NOT persisted, since a durable identity for a
-// session ctxloom did not launch would be a stronger claim than the
-// evidence supports.
-func selfIdentityFromEnv(projectDir string) coord.Identity {
-	sessionHarp := os.Getenv("CTXLOOM_SESSION_HARP")
-	if sessionHarp == "" {
-		sessionHarp = harp.GenerateName()
-	}
-	return coord.Identity{
-		Harp:    sessionHarp,
-		Depth:   0,
-		Project: projectDir,
-	}
 }
 
 // ServeStdio is the whole body of `ctxloom mcp serve`: forward-mode
@@ -102,7 +90,7 @@ func (s *ctxServer) strictness() strictness.Mode {
 	return s.app.Strictness
 }
 
-func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func() error, dryRun bool) error {
+func ServeStdio(ctx context.Context, app *operations.App, build CoordinatorConstructor, cwd string, gate func() error, dryRun bool) error {
 	// FORWARD MODE: when the engine-inherited env names the plugin-hosted
 	// owner arm's runner socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the runner
@@ -115,7 +103,7 @@ func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func(
 		}
 	}
 
-	s := &ctxServer{app: app, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
+	s := &ctxServer{app: app, build: build, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is
@@ -310,5 +298,6 @@ func (s *ctxServer) registerTools(server *mcp.Server) {
 	s.registerContextTools(server)
 	s.registerContextStatusTool(server)
 	s.registerMemoryTools(server)
+	s.registerAgentTools(server)
 	s.registerTriggerTools(server)
 }

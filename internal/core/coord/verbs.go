@@ -94,10 +94,18 @@ func (r SpawnRequest) axes() (launch.WorkspaceAxis, launch.DirtyTreeHandler) {
 	return w, d
 }
 
-// SpawnResult names the child: its harp and this incarnation's run id.
+// SpawnResult names the child — its harp and this incarnation's run id —
+// and how it was launched: the engine and profiles it resolved to, the
+// runtime axis, whether it queued behind the execution cap, and the
+// degraded findings the resolve accepted. Disposition is the prose form.
 type SpawnResult struct {
 	Harp        string
 	RunID       string
+	Engine      string
+	Profiles    []string
+	Runtime     launch.RuntimeAxis
+	Queued      bool
+	Degraded    []string
 	Disposition string
 }
 

@@ -374,10 +374,11 @@ func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
 // agent_stop's BULK form.
 // ---------------------------------------------------------------------------
 
-// ErrStopReasonRequired refuses a bulk stop with no reason: omitting run_id
+// ErrStopReasonRequired refuses a bulk stop with no reason: naming no child
 // stops EVERY live child of the calling session, and an accidental omission
-// must not do that silently.
-var ErrStopReasonRequired = errors.New("agent_stop: reason is required when run_id is omitted (omitting run_id stops EVERY live child of this session; say why)")
+// must not do that silently. Shared by StopRequest.Validate and StopChildren
+// (one wording, whichever entry the stop arrived by).
+var ErrStopReasonRequired = errors.New("agent_stop: reason is required when no child (harp / run_id) is named: that form stops EVERY live child of this session; say why")
 
 // A StoppedChild's Outcome: the child ended without a turn being cut short
 // (between turns, at its turn boundary, before it started, or while parked),

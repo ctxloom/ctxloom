@@ -28,7 +28,10 @@ import (
 // managed surfaces, hooks on — whose turns are frames on the same launch
 // with a different prompt. End releases the cell and ends the session.
 type OneShot struct {
-	Launch    launch.Launch
+	Launch launch.Launch
+	// opened is the launch's package as this process reads it, opened once:
+	// every turn delivers the same package.
+	opened    Opened
 	store     sessions.Store
 	verbosity int
 	// Factory overrides the transport (test seam): a non-nil factory drives
@@ -47,7 +50,15 @@ func StartOneShot(ctx context.Context, deps launch.Deps, seed sessions.Seed, src
 	if err != nil {
 		return nil, err
 	}
-	return &OneShot{Launch: l, store: deps.Sessions, verbosity: verbosity}, nil
+	opened, err := OpenLaunch(ctx, ForSession(deps, l.Identity.Harp), l)
+	if err != nil {
+		_ = launch.Discard(ctx, l)
+		if eerr := EndSessionIn(deps.Sessions, l.Identity.Harp, time.Now()); eerr != nil {
+			clidiag.Warn("ctxloom", "session %s: end after a refused launch: %v", l.Identity.Harp, eerr)
+		}
+		return nil, err
+	}
+	return &OneShot{Launch: l, opened: opened, store: deps.Sessions, verbosity: verbosity}, nil
 }
 
 // Turn drives one turn: the launch encoded with this turn's prompt, the
@@ -68,7 +79,7 @@ func (o *OneShot) TurnWithModel(ctx context.Context, prompt string) (answer, mod
 	}
 	l := o.Launch
 	l.Prompt = prompt
-	req := coordgrpc.EncodeLaunch(l, o.verbosity)
+	req := coordgrpc.EncodeRunStart(l, o.opened.Package, o.opened.Managed, o.verbosity)
 
 	factory := o.Factory
 	if factory == nil {

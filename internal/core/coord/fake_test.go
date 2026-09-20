@@ -293,12 +293,12 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 		Permission: perm,
 		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
 		Cell:       launch.Cell{Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
-		Package:    launch.Package{Context: "FRAG-ONE"},
 		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
 	}
 	plan.Launch = l
 	return &EngineSpawn{
 		Launch:     l,
+		Context:    "FRAG-ONE",
 		MCPServers: plan.MCPServers,
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,

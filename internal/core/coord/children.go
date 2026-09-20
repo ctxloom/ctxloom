@@ -828,7 +828,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	// resume with a native key NOTHING (the engine continues its own recorded
 	// session); on a resume without one the context plus the rendered
 	// history, re-primed.
-	contextText := l.Package.Context
+	contextText := engine.Context
 	switch {
 	case start.Resumed && start.ResumeKey != "":
 		contextText = ""

@@ -331,7 +331,11 @@ type runState struct {
 	// the axes, the cell, the package, the plan, the endpoint. Every field
 	// below it is a projection the transport and drive arms read; nothing
 	// is re-derived from flags or config once it exists.
-	launch      launch.Launch
+	launch launch.Launch
+	// opened is the launch's package as this process reads it (the local
+	// launcher's half of the carrier codec) and the managed payload the
+	// plugin arm hands its writers.
+	opened      operations.Opened
 	label       string
 	backendName string
 	labelModel  string
@@ -543,14 +547,19 @@ func (st *runState) resolveLaunch() error {
 	if err != nil {
 		return err
 	}
-	st.bindLaunch(l)
+	opened, err := operations.OpenLaunch(st.ctx, operations.ForSession(deps, l.Identity.Harp), l)
+	if err != nil {
+		return err
+	}
+	st.bindLaunch(l, opened)
 	return nil
 }
 
 // bindLaunch projects the resolved launch onto the fields the transport and
 // drive arms read. Decided once, here; nothing downstream re-derives.
-func (st *runState) bindLaunch(l launch.Launch) {
+func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 	st.launch = l
+	st.opened = opened
 	st.activeHarp = l.Identity.Harp
 	st.label = l.Label.Label
 	st.backendName = string(l.Engine)
@@ -560,9 +569,7 @@ func (st *runState) bindLaunch(l launch.Launch) {
 		st.mode = pb.ExecutionMode_ONESHOT
 	}
 	st.permMode = l.Permission
-	if managed, ok := l.Package.Managed.(*agent.ManagedConfig); ok {
-		st.managed = managed
-	}
+	st.managed = opened.Managed
 	if cell, ok := operations.TransportOf(l.Cell); ok {
 		st.policy, st.ws = cell.Policy, cell.Workspace
 	}
@@ -586,7 +593,7 @@ func (st *runState) boundAgent() string {
 // transcript as a trailing fragment, the startup findings, the host
 // terminal's description.
 func (st *runState) buildRunRequest() {
-	st.req = coordgrpc.EncodeLaunch(st.launch, runVerbosity)
+	st.req = coordgrpc.EncodeRunStart(st.launch, st.opened.Package, st.opened.Managed, runVerbosity)
 	// --session (full resume — no --distill): the resumed harp's full
 	// recorded transcript trails the assembled context as its own fragment.
 	// --distill takes the essence path instead (resumeEnv).
@@ -605,8 +612,6 @@ func (st *runState) buildRunRequest() {
 // gated call, and (under -v) when the engine's declared host-bypass
 // stopgap is what decided it.
 func (st *runState) warnPosture() {
-	facts := st.launch.Package.Managed
-	_ = facts
 	if runPermissions != "" {
 		if requested, ok := agent.ParsePermissionMode(runPermissions); ok && requested != st.permMode {
 			clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", requested, st.backendName, st.permMode)
@@ -830,6 +835,7 @@ func (st *runState) emitDryRun() error {
 	deps.Sessions = sessions.NewMemStore()
 	deps.Cells = dryCells{}
 	deps.Assembler = operations.PreviewAssembler()
+	deps.ClaimCheck = operations.PreviewClaims()
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
 	if err != nil {
 		return st.refused(err)
@@ -837,9 +843,13 @@ func (st *runState) emitDryRun() error {
 	if err := st.gateStartup(); err != nil {
 		return err
 	}
+	pkg, err := launch.Open(st.ctx, deps, l)
+	if err != nil {
+		return err
+	}
 	// The preview shows what the request would carry: a --session full
 	// resume trails the assembled context exactly as buildRunRequest sends it.
-	context := l.Package.Context
+	context := pkg.Context.Text
 	if runResumeSession != "" && !runResumeDistill {
 		context = resumeFullContext(context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
 			return operations.RecordedSessionEntries(st.ctx, h)
@@ -854,8 +864,8 @@ func (st *runState) emitDryRun() error {
 		Runtime:   string(l.Axes.Runtime),
 		LLM:       l.Label.Label,
 		Backend:   string(l.Engine),
-		Profiles:  orEmpty(l.Package.Profiles),
-		Fragments: orEmpty(l.Package.Fragments),
+		Profiles:  orEmpty(pkg.Selection.Profiles),
+		Fragments: orEmpty(pkg.Loaded),
 		Context:   context,
 		Tokens:    tokens.Estimate(context),
 		Prompt:    st.prompt,
@@ -868,16 +878,16 @@ func (st *runState) emitDryRun() error {
 		fmt.Println("=== LLM ===")
 		fmt.Printf("%s (%s)\n", l.Label.Label, l.Engine)
 		fmt.Println("\n=== Profiles ===")
-		if len(l.Package.Profiles) > 0 {
-			for _, p := range l.Package.Profiles {
+		if len(pkg.Selection.Profiles) > 0 {
+			for _, p := range pkg.Selection.Profiles {
 				fmt.Printf("  %s\n", p)
 			}
 		} else {
 			fmt.Println("(no profiles)")
 		}
 		fmt.Println("\n=== Fragments Loaded ===")
-		if len(l.Package.Fragments) > 0 {
-			for _, f := range l.Package.Fragments {
+		if len(pkg.Loaded) > 0 {
+			for _, f := range pkg.Loaded {
 				fmt.Printf("  %s\n", f)
 			}
 		} else {
@@ -960,9 +970,9 @@ func (st *runState) openSessionBanner() func() {
 		Harp:      st.activeHarp,
 		Backend:   st.backendName,
 		Label:     st.label,
-		Profiles:  st.launch.Package.Profiles,
-		Fragments: st.launch.Package.Fragments,
-		Tokens:    tokens.Estimate(st.launch.Package.Context),
+		Profiles:  st.opened.Package.Selection.Profiles,
+		Fragments: st.opened.Package.Loaded,
+		Tokens:    tokens.Estimate(st.opened.Package.Context.Text),
 		Previous:  previous,
 	})
 
@@ -1167,6 +1177,7 @@ func (st *runState) startTransport() error {
 		// in-container listener.
 		handle, sess, oerr := startContainerOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
 			Launch:     st.launch,
+			Context:    st.opened.Package.Context.Text,
 			Policy:     st.policy,
 			Workspace:  st.ws,
 			Req:        st.req,

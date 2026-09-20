@@ -49,7 +49,10 @@ type ownedRunLaunch struct {
 	// Launch is the owner's resolved launch; the coordinator's owned run is
 	// enqueued from it. Policy/Workspace are its cell's transport handle,
 	// Req its wire projection with what only this invocation adds.
-	Launch     launch.Launch
+	Launch launch.Launch
+	// Context is the launch's assembled context as this process opened it,
+	// the first turn's lead.
+	Context    string
 	Policy     isolation.Policy
 	Workspace  isolation.Workspace
 	Req        *pb.RunStart
@@ -116,7 +119,7 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	// not for its whole lifetime.
 	_, events, cancel, narrow := c.WatchRuns(nil)
 
-	lead := operations.JoinLeadBlocks(spec.Launch.Package.Context, spec.Launch.Prompt)
+	lead := operations.JoinLeadBlocks(spec.Context, spec.Launch.Prompt)
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
 		Launch:     spec.Launch,
 		MCPServers: spec.MCPServers,

@@ -682,14 +682,14 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 // on this terminal, exactly as `ctxloom run`'s interactive path). Errors are
 // returned to the caller, which reports them through strictness and refuses
 // by default rather than swallowing them.
-func launchEngineWithPrompt(ctx context.Context, l launch.Launch) error {
+func launchEngineWithPrompt(ctx context.Context, l launch.Launch, opened operations.Opened) error {
 	client, err := pb.NewSelfInvokingClientForLabel(string(l.Engine), l.Label.Label, 0)
 	if err != nil {
 		return fmt.Errorf("failed to launch %s: %w", l.Engine, err)
 	}
 	defer client.Kill()
 
-	req := coordgrpc.EncodeLaunch(l, 0)
+	req := coordgrpc.EncodeRunStart(l, opened.Package, opened.Managed, 0)
 
 	// The discovery session is interactive, so the frontend must own the
 	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize
@@ -805,7 +805,11 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 		}
 	}()
 
-	if launchErr := launchEngineWithPromptFn(cmd.Context(), l); launchErr != nil {
+	opened, err := operations.OpenLaunch(cmd.Context(), operations.ForSession(deps, l.Identity.Harp), l)
+	if err != nil {
+		return reportSetupLaunchFailure(err)
+	}
+	if launchErr := launchEngineWithPromptFn(cmd.Context(), l, opened); launchErr != nil {
 		return reportSetupLaunchFailure(launchErr)
 	}
 

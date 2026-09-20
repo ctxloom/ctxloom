@@ -410,6 +410,9 @@ var startEngine = operations.StartEngine
 type EngineSpawn struct {
 	// Launch is the resolved launch the runner was started for.
 	Launch launch.Launch
+	// Context is the launch's assembled context, opened in-process by the
+	// spawner for the first turn's lead.
+	Context string
 	// MCPServers is the composed managed set for the child session —
 	// HarnessSpec.config["mcp_servers"].
 	MCPServers []agent.ChatMCPServer
@@ -449,8 +452,14 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	if start.Resumed {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}}
 	}
+	deps = operations.ForSession(deps, start.Identity.Harp)
 	l, err := launch.Resolve(ctx, deps, src)
 	if err != nil {
+		return nil, err
+	}
+	pkg, err := launch.Open(ctx, deps, l)
+	if err != nil {
+		_ = launch.Discard(ctx, l)
 		return nil, err
 	}
 	var starter isolation.EngineStarter
@@ -464,6 +473,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	plan.Launch = l
 	return &EngineSpawn{
 		Launch:     l,
+		Context:    pkg.Context.Text,
 		MCPServers: plan.MCPServers,
 		Kill:       proc.Kill,
 		StderrTail: proc.StderrTail,

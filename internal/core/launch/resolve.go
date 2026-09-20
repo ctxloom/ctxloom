@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -22,9 +23,10 @@ import (
 // mismatch and — for a container binding — an engine whose container
 // story refuses (the cells adapter's refusals pass through untouched).
 // Order: Select → Assemble → the engine and its mode → the axes → the
-// permission floored ONCE → the surfaces → Cells.Prepare (the roots) →
-// Route (over those roots) → the endpoint once per harp (bound on the
-// session record) → the Launch. Discard tears the cell down.
+// permission floored ONCE → Cells.Prepare (the roots) → Exports → Route
+// (over those roots) → the endpoint once per harp (bound on the session
+// record) → the catalog index → Encode → carry by size → the Launch.
+// Discard tears the cell down.
 func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if src.Identity.Harp == "" {
 		return Launch{}, ErrNoIdentity
@@ -43,17 +45,20 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	// assembled, so no default can be composed in its place. Naming a
 	// profile set and delivering none of it is never what the caller asked
 	// for: a set that assembled to nothing is a failed assembly, refused.
-	var asm Assembled
+	var pkg composite.Package
 	if len(sel.profiles) > 0 || len(sel.fragments) > 0 || len(sel.tags) > 0 {
-		if asm, err = deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags}); err != nil {
+		if pkg, err = deps.Assembler.Assemble(ctx, deps.Snapshot, Selection{Profiles: sel.profiles, Fragments: sel.fragments, Tags: sel.tags, WorkDir: src.WorkDir}); err != nil {
 			return Launch{}, err
 		}
-		if strings.TrimSpace(asm.Context) == "" {
+		if strings.TrimSpace(pkg.Context.Text) == "" {
 			return Launch{}, fmt.Errorf("%w: profile set %v (check the profiles' fragments and bundles resolve, or drop the profile to run context-free)", ErrContextEmpty, sel.profiles)
 		}
 	}
+	// The binding's delivery preference rides the package as written, so
+	// the runner validates it against the engine it hosts.
+	pkg.Selection.Preference = sel.surfaces
 
-	label := firstNonEmpty(src.Label, sel.llm, asm.ProfileLLM, cfg.PrimaryLabel())
+	label := firstNonEmpty(src.Label, sel.llm, pkg.Selection.LLM, cfg.PrimaryLabel())
 	eng, labelCfg, labelPerm, err := selectEngine(deps, cfg, label)
 	if err != nil {
 		return Launch{}, err
@@ -74,10 +79,6 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, err
 	}
 	perm, err := floorPermission(src, sel, labelPerm, cfg, def.Permissions)
-	if err != nil {
-		return Launch{}, err
-	}
-	managed, err := deps.Assembler.Surfaces(ctx, deps.Snapshot, def.Name, src.WorkDir, asm.Profiles, sel.surfaces)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -107,8 +108,12 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	pkg := Package{Context: asm.Context, Managed: managed, Profiles: asm.Profiles, Fragments: asm.Fragments}
-	plan, err := delivery.Route(itemsOf(pkg), def, preference(def), cell.Paths.Paths())
+	exports, err := eng.Exports(pkg.EngineItems(def.Name))
+	if err != nil {
+		_ = Discard(ctx, Launch{Cell: cell})
+		return Launch{}, fmt.Errorf("%s exports: %w", def.Name, err)
+	}
+	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, preference(def), cell.Paths.Paths())
 	if err != nil {
 		_ = Discard(ctx, Launch{Cell: cell})
 		return Launch{}, err
@@ -122,6 +127,21 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		_ = Discard(ctx, Launch{Cell: cell})
 		return Launch{}, err
 	}
+	index, err := deps.Assembler.Index(ctx, deps.Snapshot)
+	if err != nil {
+		_ = Discard(ctx, Launch{Cell: cell})
+		return Launch{}, err
+	}
+	enc, err := composite.Encode(pkg)
+	if err != nil {
+		_ = Discard(ctx, Launch{Cell: cell})
+		return Launch{}, err
+	}
+	carrier, err := carry(ctx, deps, enc)
+	if err != nil {
+		_ = Discard(ctx, Launch{Cell: cell})
+		return Launch{}, err
+	}
 	return Launch{
 		Identity:   src.Identity,
 		Engine:     def.Name,
@@ -131,8 +151,10 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		Axes:       axes,
 		Cell:       cell,
 		Home:       cell.Home,
-		Package:    pkg,
+		Package:    carrier,
+		Exports:    exports,
 		Plan:       plan,
+		Index:      index,
 		MCP:        ep,
 		Prompt:     src.Prompt,
 		Resume:     resume,
@@ -237,7 +259,7 @@ func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, e
 		known := slices.Sorted(maps.Keys(cfg.GetLMConfig().Configs))
 		return nil, engine.LabelConfig{}, "", fmt.Errorf("%w: %q (configured labels: %s; engines: %v)", ErrNoEngine, label, strings.Join(known, ", "), deps.Engines.Names(nil))
 	}
-	return eng, engine.LabelConfig{Label: label, Model: model}, entry.Permissions, nil
+	return eng, engine.LabelConfig{Label: label, Model: model, Body: entry.Body}, entry.Permissions, nil
 }
 
 // resolveAxes settles the two isolation axes: the workspace is a SESSION
@@ -348,18 +370,29 @@ func ImageConfigFor(cfg *config.Config, eng engine.Name) ImageConfig {
 	}
 }
 
-// itemsOf is the engine-facing projection of today's package: the context
-// as one unconditional fragment, plus the managed payload's own projection.
-// The engine's Delegate decides over it; nothing here decides.
-func itemsOf(pkg Package) engine.Items {
-	var items engine.Items
-	if pkg.Managed != nil {
-		items = pkg.Managed.Items()
-	}
-	if pkg.Context != "" {
-		items.Fragments = append([]engine.FragmentItem{{Ref: "context", Body: []byte(pkg.Context)}}, items.Fragments...)
+// itemsOf is the engine-facing projection of the package: the assembled
+// context as one unconditional fragment ahead of the package's own
+// projection. The engine's Delegate decides over it; nothing here decides.
+func itemsOf(pkg composite.Package, name engine.Name) engine.Items {
+	items := pkg.EngineItems(name)
+	if pkg.Context.Text != "" {
+		items.Fragments = append([]engine.FragmentItem{{Ref: "context", Body: []byte(pkg.Context.Text)}}, items.Fragments...)
 	}
 	return items
+}
+
+// carry is the size conditional: measure, then Inline at or under InlineMax,
+// ClaimCheck above it. The consumer never learns which answered. A launch
+// whose package needs a claim check its caller did not compose is refused,
+// never carried inline past the ceiling the frame is bounded by.
+func carry(ctx context.Context, deps Deps, enc composite.Encoded) (composite.Carrier, error) {
+	if len(enc.Bytes) <= deps.InlineMax {
+		return deps.Inline.Carry(ctx, enc)
+	}
+	if deps.ClaimCheck == nil {
+		return composite.Carrier{}, fmt.Errorf("%w: %d bytes over %d", ErrNoClaimCheck, len(enc.Bytes), deps.InlineMax)
+	}
+	return deps.ClaimCheck.Carry(ctx, enc)
 }
 
 // preference is the binding's delivery preference as Route reads it. No

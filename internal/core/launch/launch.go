@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -23,28 +24,39 @@ type HostFacts struct {
 
 // Deps are the ports Resolve needs; every one built once at the composition
 // root. The catalog and the trust gate come from the ONE Snapshot the
-// operation captured. Resolve reads no file and no env.
+// operation captured. Resolve reads no file and no env. Inline and ClaimCheck
+// are the two package transports; InlineMax is the size at which Resolve
+// switches from one to the other.
 type Deps struct {
 	Snapshot *config.Snapshot
 	Engines  engine.Registry
-	// Assembler composes the package. It is a PORT here because the core
-	// package assembler (composite.Assemble, with its Encode and the two
-	// carrier transports) is not born yet; operations implements it over
-	// today's profile assembly and managed-surface composition. When
-	// composite.Package lands this port and Package retire for it.
+	// Assembler composes the ONE package a launch delivers (composite.Assemble
+	// behind it). It is a port because the inputs Assemble takes — the
+	// builtin injections, the config-level hooks and servers, the trust
+	// gate's process stage — are resolved by the application service that
+	// owns the generation; Resolve reads the Package and nothing else.
 	Assembler Assembler
 	Cells     Cells
 	Endpoints EndpointMinter
 	Sessions  sessions.Store
-	Host      HostFacts
+	// ClaimCheck is rooted at THIS launch's session dir by the caller (the
+	// store is per session by construction), so it is set after the identity
+	// is minted; Inline and InlineMax are process-wide.
+	Inline     composite.Transport
+	ClaimCheck composite.Transport
+	InlineMax  int
+	Host       HostFacts
 }
 
-// Assembler is the package-assembly port: the profile set to its composed
-// context, then the managed surfaces for the engine the label resolved to.
-// Two calls because the label depends on what the profiles declared.
+// Assembler is the package-assembly port: the profile set and the explicit
+// arm to the one composite.Package every consumer of this launch reads.
 type Assembler interface {
-	Assemble(ctx context.Context, snap *config.Snapshot, sel Selection) (Assembled, error)
-	Surfaces(ctx context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (Surfaces, error)
+	Assemble(ctx context.Context, snap *config.Snapshot, sel Selection) (composite.Package, error)
+	// Index is the catalog the package was assembled from — refs, kinds and
+	// descriptions, not bytes — so the runner serves search_library and the
+	// ctxloom:// resources with no config owner. The catalog is the
+	// generation's, resolved by the service that owns it.
+	Index(ctx context.Context, snap *config.Snapshot) (composite.Index, error)
 	// LabelEnv is the label's request-borne environment: the engine
 	// passthrough the labeled entry's own config carries (the mock's
 	// test-control map; every real engine's environment is ambient and
@@ -53,39 +65,13 @@ type Assembler interface {
 }
 
 // Selection is what Assemble composes: the profile set, plus the explicit
-// arm's named fragments and tag matches.
+// arm's named fragments and tag matches, and the project root the managed
+// hooks are composed for.
 type Selection struct {
 	Profiles  []string
 	Fragments []string
 	Tags      []string
-}
-
-// Assembled is what a profile set composed to.
-type Assembled struct {
-	Context    string
-	Profiles   []string
-	Fragments  []string
-	ProfileLLM string // the label the profiles declared, if any
-}
-
-// Package is the assembled package as it is carried today: the context
-// text and the managed surfaces (MCP servers, hooks, commands, skills,
-// settings). It stands where composite.Carrier will: encoded and carried by
-// size once the composite package exists.
-type Package struct {
-	Context   string
-	Managed   Surfaces
-	Profiles  []string
-	Fragments []string
-}
-
-// Surfaces is the managed-surface payload as today's wire carries it. The
-// launch only CARRIES it — from the assembler to the wire codec — and never
-// reads it beyond its engine-facing projection, so it is opaque here: its
-// type lives with the legacy engine contract this package must not depend
-// on. The codec asserts it back to that type; composite.Package retires it.
-type Surfaces interface {
-	Items() engine.Items
+	WorkDir   string
 }
 
 // EndpointMinter mints the session's MCP endpoint: loopback URL and bearer.
@@ -164,9 +150,10 @@ type Launch struct {
 	Axes       Axes
 	Cell       Cell
 	Home       []engine.HomeBinding
-	Package    Package
+	Package    composite.Carrier // encoded then carried (inline or claim); both consumers redeem then Decode
 	Exports    engine.Exports
 	Plan       delivery.Plan
+	Index      composite.Index
 	MCP        sessions.Endpoint // minted per harp in Resolve; the runner BINDS it
 	Prompt     string
 	Resume     sessions.ResumeRef
@@ -182,7 +169,15 @@ var (
 	ErrNoEngine             = errors.New("launch: the label names no composed engine")
 	ErrPermissionUnhonoured = errors.New("launch: the declared permission posture cannot be honoured")
 	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
+	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
 )
+
+// Open is the in-process consumer of the carrier — the local launcher's
+// half of the codec the runner shares: redeem by the carrier's shape with
+// the same two transports Resolve carried with, then decode.
+func Open(ctx context.Context, deps Deps, l Launch) (composite.Package, error) {
+	return composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
+}
 
 // Session is the ONLY constructor of the engine-facing projection.
 func (l Launch) Session() engine.Session {

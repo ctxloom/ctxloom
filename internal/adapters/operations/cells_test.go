@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -62,7 +63,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	assert.NotContains(t, cell.Env, claude.ConfigDirEnv, "the config home is not the workspace's to carry")
 
 	// The cell's env is delivered onto the wire beneath the identity carriers.
-	wire := coordgrpc.EncodeLaunch(launch.Launch{Identity: req.Identity, Cell: cell}, 0).GetOptions().GetEnv()
+	wire := coordgrpc.EncodeRunStart(launch.Launch{Identity: req.Identity, Cell: cell}, composite.Package{}, nil, 0).GetOptions().GetEnv()
 	assert.Equal(t, "test-harp", wire[sessions.EnvHarp], "the session identity survives the merge")
 	assert.Equal(t, cell.Env["TMPDIR"], wire["TMPDIR"], "the isolation-resolved workspace env reaches the wire RunOptions.Env")
 }

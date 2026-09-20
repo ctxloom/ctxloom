@@ -163,6 +163,17 @@ func ItemKinds() []ItemKind {
 	return []ItemKind{KindFragment, KindPrompt, KindMCP, KindHook, KindSkill}
 }
 
+// ParseItemKind is the one entry from a runtime string into the closed
+// core: a spelling that names none of ItemKinds is refused.
+func ParseItemKind(s string) (ItemKind, bool) {
+	for _, k := range ItemKinds() {
+		if string(k) == s {
+			return k, true
+		}
+	}
+	return "", false
+}
+
 // Dir returns the selector directory segment for the kind, matching the ref
 // grammar: "<bundle>#fragments/<name>", "<bundle>#prompts/<name>",
 // "<bundle>#mcp/<name>", "<bundle>#hooks/<event>/<index>",

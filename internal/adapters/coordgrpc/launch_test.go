@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -14,11 +15,12 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// TestEncodeLaunch_PopulatesEveryFieldTheLiteralsPopulated: the six run-start
-// literals this codec replaces populated, between them, exactly these fields
-// of today's message; a Launch encodes to all of them from its own typed
-// values and nothing is re-derived.
-func TestEncodeLaunch_PopulatesEveryFieldTheLiteralsPopulated(t *testing.T) {
+// TestEncodeRunStart_PopulatesEveryFieldTheLiteralsPopulated: the six
+// run-start literals this projection replaced populated, between them,
+// exactly these fields of the plugin protocol's message; a Launch and its
+// opened package encode to all of them from their own typed values and
+// nothing is re-derived.
+func TestEncodeRunStart_PopulatesEveryFieldTheLiteralsPopulated(t *testing.T) {
 	managed := &agent.ManagedConfig{ManageStatusline: true, DenyTools: []string{"Task"}}
 	l := launch.Launch{
 		Identity:   sessions.Identity{Harp: "harp-1", Project: "proj-1"},
@@ -31,12 +33,12 @@ func TestEncodeLaunch_PopulatesEveryFieldTheLiteralsPopulated(t *testing.T) {
 			Workspace: "/proj/.worktrees/harp-1",
 			Env:       map[string]string{"WS_VAR": "ws"},
 		},
-		Package: launch.Package{Context: "the assembled context", Managed: managed},
-		MCP:     sessions.Endpoint{URL: "http://127.0.0.1:41234/mcp", Credential: "bearer"},
-		Prompt:  "do the thing",
-		Env:     map[string]string{"USER_VAR": "u"},
+		MCP:    sessions.Endpoint{URL: "http://127.0.0.1:41234/mcp", Credential: "bearer"},
+		Prompt: "do the thing",
+		Env:    map[string]string{"USER_VAR": "u"},
 	}
-	req := coordgrpc.EncodeLaunch(l, 2)
+	pkg := composite.Package{Context: composite.Context{Text: "the assembled context"}}
+	req := coordgrpc.EncodeRunStart(l, pkg, managed, 2)
 
 	require.Len(t, req.Fragments, 1, "the assembled context rides as the one lead fragment")
 	require.Equal(t, "the assembled context", req.Fragments[0].Content)
@@ -60,13 +62,14 @@ func TestEncodeLaunch_PopulatesEveryFieldTheLiteralsPopulated(t *testing.T) {
 	require.Equal(t, "u", env["USER_VAR"], "the caller's passthrough rides")
 }
 
-// TestEncodeLaunch_CellKind_FollowsTheCell: the wire's cell kind is a
-// projection of the cell, decided nowhere else.
-func TestEncodeLaunch_CellKind_FollowsTheCell(t *testing.T) {
+// TestCellKindOf_FollowsTheCell: the writers' cell kind is a projection of
+// the cell, decided nowhere else.
+func TestCellKindOf_FollowsTheCell(t *testing.T) {
 	shared := launch.Launch{Cell: launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/proj"}}), Workspace: "/proj"}}
-	require.Equal(t, pb.CellKindToProto(agent.CellKindShared), coordgrpc.EncodeLaunch(shared, 0).GetOptions().GetCellKind())
+	require.Equal(t, agent.CellKindShared, coordgrpc.CellKindOf(shared.Cell))
+	require.Equal(t, pb.CellKindToProto(agent.CellKindShared), coordgrpc.EncodeRunStart(shared, composite.Package{}, nil, 0).GetOptions().GetCellKind())
 
 	boxed := shared
 	boxed.Cell.Container = &launch.ContainerCell{Runtime: launch.RuntimeRootless}
-	require.Equal(t, pb.CellKindToProto(agent.CellKindProcessIsolated), coordgrpc.EncodeLaunch(boxed, 0).GetOptions().GetCellKind())
+	require.Equal(t, agent.CellKindProcessIsolated, coordgrpc.CellKindOf(boxed.Cell))
 }

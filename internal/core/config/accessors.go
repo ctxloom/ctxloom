@@ -25,6 +25,7 @@ package config
 import (
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -182,6 +183,13 @@ func (c *Config) GetDelegationDepth() int {
 		return c.delegation.Depth
 	}
 	return DefaultDelegationDepth
+}
+
+// GetDelegationIdleTimeout returns the RESOLVED delegation.idle_timeout: the
+// configured duration, else DefaultDelegationIdleTimeout. Load refused any
+// value that does not parse, so the parse here cannot fail.
+func (c *Config) GetDelegationIdleTimeout() time.Duration {
+	return 0
 }
 
 // GetDefaultAgent returns the name of the always-bound default agent (may be

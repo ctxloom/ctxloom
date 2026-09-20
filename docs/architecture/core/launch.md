@@ -29,7 +29,7 @@ flowchart LR
   SPAWN["coord prodSpawner.StartEngine: Source{Identity: child, Agent, Workspace, DirtyTree, Resume}"]:::src
   START["operations.StartRun: MintIdentity → Resolve"]:::core
   RES["launch.Resolve — the one constructor"]:::core
-  ASM["Deps.Assembler (operations.assembler over AssembleContext + AssembleManagedConfig)"]:::port
+  ASM["Deps.Assembler (operations.assembler: AssemblePackage → composite.Assemble once; Surfaces off the same Package)"]:::port
   CELLS["Deps.Cells (operations.Cells over isolation.Prepare, the dirty-tree decision, the engine home)"]:::port
   EPM["Deps.Endpoints (a loopback port + bearer)"]:::port
   STORE["Deps.Sessions (BindEngine, BindMCP, Find)"]:::port
@@ -72,13 +72,17 @@ either case to `engine.PermissionFloor`. Nothing downstream re-decides it.
 
 ## What diverges from Part 1.5, and why
 
-- **`Deps.Assembler` is a port; `Package` is opaque.** `composite.Assemble`,
-  `Encode` and the two carrier transports are slice 5's. Until they land the
-  package is `Package{Context, Managed, Profiles, Fragments}` where `Managed`
-  is a `launch.Surfaces` — the managed-surface payload as today's wire
-  carries it, read here only through its engine-facing projection
-  (`Items()`), asserted back to its type by the codec. `Launch.Exports` is
-  declared and zero until `Engine.Exports` (11b).
+- **`Deps.Assembler` is still a port; `Package` is still opaque on the
+  wire.** `composite.Assemble` is the one assembly behind it (slice 6:
+  `operations.assembler.Assemble` calls `AssemblePackage` once and
+  `Surfaces` projects the engine's managed surfaces off that same
+  `composite.Package` through `Engine.Exports`), but `Encode` and the two
+  carrier transports are slice 8's, so what rides the Launch is still
+  `Package{Context, Managed, Profiles, Fragments}` where `Managed` is a
+  `launch.Surfaces` — the managed-surface payload as today's wire carries
+  it, read here only through its engine-facing projection (`Items()`),
+  asserted back to its type by the codec. `Launch.Exports` is declared and
+  zero until the runner reads it (11b).
 - **`Preference.AcceptLoss` is total until slice 12.** The Definition's typed
   approaches are not yet what delivers (the hosting record's writers are), so
   a kind the Definition does not carry still lands; refusing on it would

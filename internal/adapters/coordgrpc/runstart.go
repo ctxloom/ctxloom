@@ -1,13 +1,10 @@
 package coordgrpc
 
 import (
-	"maps"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	lmgrpc "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
@@ -18,16 +15,11 @@ import (
 // managed surfaces the caller built from the package and the launch's
 // exports, and the options — the CELL's workspace as the engine's cwd, the
 // floored permission, the mode, the model, the cell kind projected from the
-// cell, and the env: the identity carriers stamped from the identity, the
-// cell's own env beneath the caller's passthrough. Every launch owns a harp
+// cell, and the engine env (Launch.EngineEnv). Every launch owns a harp
 // and delivers its own surfaces, so the form is always Deliver. verbosity
 // is the invoking surface's diagnostic level; it is not a launch fact.
 func EncodeRunStart(l launch.Launch, pkg composite.Package, managed *agent.ManagedConfig, verbosity int) *lmgrpc.RunStart {
-	env := map[string]string{}
-	maps.Copy(env, l.Cell.Env)
-	maps.Copy(env, l.Env)
-	maps.Copy(env, sessions.HookEnv(l.Identity))
-
+	env := l.EngineEnv()
 	req := &lmgrpc.RunStart{
 		Options: &lmgrpc.RunOptions{
 			WorkDir:        l.Cell.Workspace,

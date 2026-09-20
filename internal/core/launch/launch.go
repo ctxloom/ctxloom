@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -177,6 +178,18 @@ var (
 // the same two transports Resolve carried with, then decode.
 func Open(ctx context.Context, deps Deps, l Launch) (composite.Package, error) {
 	return composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
+}
+
+// EngineEnv is the environment the engine process is started with: the
+// cell's own env, the caller's passthrough over it, and the identity
+// carriers the hooks read (sessions.HookEnv) over both. Every arm that
+// starts the engine reads it here, so no arm merges its own.
+func (l Launch) EngineEnv() map[string]string {
+	env := map[string]string{}
+	maps.Copy(env, l.Cell.Env)
+	maps.Copy(env, l.Env)
+	maps.Copy(env, sessions.HookEnv(l.Identity))
+	return env
 }
 
 // Session is the ONLY constructor of the engine-facing projection.

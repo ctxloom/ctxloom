@@ -16,7 +16,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
@@ -25,7 +24,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -119,7 +117,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 			managed.Surfaces = surfaces
 		}
 	}
-	env := engineEnv(l)
+	env := l.EngineEnv()
 	if err := deps.Static.Setup(ctx, &agent.SetupRequest{
 		WorkDir:   l.Cell.Workspace,
 		Fragments: contextFragments(pkg),
@@ -162,16 +160,6 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		return Outcome{}, err
 	}
 	return Outcome{Delivered: managed, MCPConfig: mcpConfig}, nil
-}
-
-// engineEnv is the engine's environment: the cell's own env, the caller's
-// passthrough over it, and the identity carriers the hooks read.
-func engineEnv(l launch.Launch) map[string]string {
-	env := map[string]string{}
-	maps.Copy(env, l.Cell.Env)
-	maps.Copy(env, l.Env)
-	maps.Copy(env, sessions.HookEnv(l.Identity))
-	return env
 }
 
 // contextFragments is the assembled context as the writers take it: one

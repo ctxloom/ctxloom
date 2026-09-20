@@ -63,17 +63,23 @@ func (f *fakeSources) sources() Sources {
 	return Sources{
 		Roster: func(context.Context) ([]RosterRow, error) { return f.rows, nil },
 		Watch: func(_ context.Context, harp string) (*Feed, error) {
+			// Watch and Cancel run on bubbletea's command goroutines, so every
+			// write to the fake's maps is under its lock, like watched.
+			ch := make(chan operations.SessionFeedEvent, 16)
 			f.mu.Lock()
 			f.watched = append(f.watched, harp)
-			f.mu.Unlock()
-			ch := make(chan operations.SessionFeedEvent, 16)
 			f.events[harp] = ch
+			f.mu.Unlock()
 			errs := make(chan error, 1)
 			return &Feed{
 				Source: "live",
 				Events: ch,
 				Errs:   errs,
-				Cancel: func() { f.cancelled[harp]++ },
+				Cancel: func() {
+					f.mu.Lock()
+					f.cancelled[harp]++
+					f.mu.Unlock()
+				},
 			}, nil
 		},
 		Now: func() time.Time { return time.Date(2026, 7, 7, 10, 15, 0, 0, time.UTC) },

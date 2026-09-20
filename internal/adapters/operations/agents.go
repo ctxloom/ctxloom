@@ -122,7 +122,11 @@ type SetAgentRequest struct {
 	// validated against the engine this write RESULTS IN — the requested one if
 	// the same call sets it, otherwise the one already recorded — so a pair is
 	// refused by the command that typed it rather than by a later session.
-	Surfaces    map[string]string `json:"surfaces,omitempty"`
+	Surfaces map[string]string `json:"surfaces,omitempty"`
+	// Roots sets the binding's root selection per surface kind (kind ->
+	// root), validated the same way against the engine this write results
+	// in.
+	Roots       map[string]string `json:"roots,omitempty"`
 	Permissions *string           `json:"permissions,omitempty"`
 	// Driving sets the per-turn execution axis (conversational|oneshot);
 	// empty = conversational (the default, see agents.Agent.Driving). Unlike
@@ -245,6 +249,21 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 				"since which approaches exist is the engine's answer, not ctxloom's", name)
 		}
 		if _, err := ResolveAgentSurfaces(engine, req.Surfaces); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
+	}
+	if len(req.Roots) > 0 {
+		engine := ""
+		if req.LLM != nil {
+			engine = *req.LLM
+		} else if existing, ok := cfg.Agent(name); ok {
+			engine = existing.LLM
+		}
+		if engine == "" {
+			return fmt.Errorf("agent %q: a root selection needs a known engine — set --llm in the same command, "+
+				"since which roots an approach offers is the engine's answer, not ctxloom's", name)
+		}
+		if _, err := ResolveAgentRoots(engine, req.Roots); err != nil {
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
@@ -417,6 +436,13 @@ func SetAgent(ctx context.Context, app *App, cfg *config.Config, req SetAgentReq
 				entry.Surfaces = nil
 			} else {
 				entry.Surfaces = maps.Clone(req.Surfaces)
+			}
+		}
+		if req.Roots != nil {
+			if len(req.Roots) == 0 {
+				entry.Roots = nil
+			} else {
+				entry.Roots = maps.Clone(req.Roots)
 			}
 		}
 		entry.Runtime = orKeep(req.Runtime, entry.Runtime)

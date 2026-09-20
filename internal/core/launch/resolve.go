@@ -113,7 +113,12 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		_ = Discard(ctx, Launch{Cell: cell})
 		return Launch{}, fmt.Errorf("%s exports: %w", def.Name, err)
 	}
-	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, preference(def), cell.Paths.Paths())
+	pref, err := preference(def, sel.roots)
+	if err != nil {
+		_ = Discard(ctx, Launch{Cell: cell})
+		return Launch{}, err
+	}
+	plan, err := delivery.Route(itemsOf(pkg, def.Name), def, pref, cell.Paths.Paths())
 	if err != nil {
 		_ = Discard(ctx, Launch{Cell: cell})
 		return Launch{}, err
@@ -175,6 +180,7 @@ type selection struct {
 	permissions string
 	homeMode    HomeMode
 	surfaces    map[string]string
+	roots       map[string]string
 }
 
 // selectSource is Select: an agent binding by name (refused by name when
@@ -219,6 +225,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		permissions: binding.Permissions,
 		homeMode:    home,
 		surfaces:    maps.Clone(binding.Surfaces),
+		roots:       maps.Clone(binding.Roots),
 	}, nil
 }
 
@@ -407,20 +414,31 @@ func carry(ctx context.Context, deps Deps, enc composite.Encoded) (composite.Car
 	return deps.ClaimCheck.Carry(ctx, enc)
 }
 
-// preference is the binding's delivery preference as Route reads it. No
-// binding records a root selection yet. Every kind's loss is accepted
-// because the Definition's typed approaches are not yet what delivers —
-// today's writers deliver from the hosting record, so a kind the Definition
-// does not carry still lands; refusing on it would refuse launches that
-// deliver. The static writers over this plan retire this acceptance.
-func preference(def engine.Base) delivery.Preference {
-	accept := map[present.Kind]bool{}
+// preference is the binding's delivery preference as Route reads it: the
+// root the binding selects per kind (validated when the binding was
+// written; a label that no longer parses is refused here by name), and the
+// losses it accepts. No binding records a loss acceptance yet, so every
+// kind the Definition does not carry is accepted: a run that delivers the
+// rest is better than none until a binding can say otherwise.
+func preference(def engine.Base, roots map[string]string) (delivery.Preference, error) {
+	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{}, AcceptLoss: map[present.Kind]bool{}}
+	for name, label := range roots {
+		k, ok := present.ParseKind(name)
+		if !ok {
+			return delivery.Preference{}, fmt.Errorf("%w: the binding selects a root for %q, which is not a surface kind", ErrBindingRoots, name)
+		}
+		r, ok := present.ParseRootKind(label)
+		if !ok {
+			return delivery.Preference{}, fmt.Errorf("%w: the binding selects root %q for %s, which is not a root", ErrBindingRoots, label, name)
+		}
+		pref.Root[k] = r
+	}
 	for _, k := range []present.Kind{present.Context, present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills} {
 		if !def.Carries(k) {
-			accept[k] = true
+			pref.AcceptLoss[k] = true
 		}
 	}
-	return delivery.Preference{AcceptLoss: accept}
+	return pref, nil
 }
 
 // endpoint mints the session's MCP endpoint once per harp. A resume of the

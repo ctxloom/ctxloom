@@ -71,6 +71,41 @@ const (
 	RootWorkDir
 )
 
+// String renders the root kind as the label a binding selects it by.
+func (r RootKind) String() string {
+	switch r {
+	case RootSessionHome:
+		return "session-home"
+	case RootProjectRoot:
+		return "project-root"
+	case RootWorkDir:
+		return "work-dir"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseRootKind reads a root kind from its label; false for any other.
+func ParseRootKind(label string) (RootKind, bool) {
+	for _, r := range []RootKind{RootSessionHome, RootProjectRoot, RootWorkDir} {
+		if r.String() == label {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// ParseKind reads a surface kind from its label (Kind.String); false for
+// any other.
+func ParseKind(label string) (Kind, bool) {
+	for _, k := range []Kind{Context, MCP, Settings, Hooks, Commands, Skills} {
+		if k.String() == label {
+			return k, true
+		}
+	}
+	return 0, false
+}
+
 // Channel is HOW the engine is told about a delivered surface: a file it
 // opens, an argv flag, or an environment variable.
 type Channel int

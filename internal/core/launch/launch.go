@@ -183,6 +183,7 @@ var (
 	ErrPermissionUnhonoured = errors.New("launch: the declared permission posture cannot be honoured")
 	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
 	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
+	ErrBindingRoots         = errors.New("launch: the binding's root selection does not parse")
 )
 
 // Open is the in-process consumer of the carrier — the local launcher's

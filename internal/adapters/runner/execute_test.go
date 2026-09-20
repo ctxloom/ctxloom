@@ -403,3 +403,43 @@ func keys(m map[string]string) []string {
 	}
 	return out
 }
+
+// TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot: a binding
+// that selects the project root for its MCP surface has that file delivered
+// into its workspace — the shared root as a SELECTION the plan carries and
+// the writer honours — while everything else stays under the session home.
+func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T) {
+	env := newDeliveryEnv(t)
+	shared := agents.Agent{Name: "shared", Profiles: []string{"base"}, Permissions: "bypass", Roots: map[string]string{"mcp": "project-root"}}
+	env.deps.Snapshot.Config = config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"primary": {Type: string(backends.NewMock().Name())}},
+			Defaults: config.RoleDefaults{Primary: "primary"},
+		},
+		Agents:       map[string]agents.Agent{"shared": shared},
+		DefaultAgent: "shared",
+	})
+	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: env.mint(t, 1, "run-shared"),
+		Agent:    "shared", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
+	})
+	require.NoError(t, err)
+	var mcpRoot present.RootKind
+	for _, it := range l.Plan.Static {
+		if it.Kind == present.MCP {
+			mcpRoot = it.Root
+		}
+	}
+	require.Equal(t, present.RootProjectRoot, mcpRoot, "the plan carries the binding's selection")
+
+	drive := &recordingDriver{}
+	_, err = runner.Execute(context.Background(), runner.Deps{
+		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
+	}, l)
+	require.NoError(t, err)
+	tree := cellTree(t, l)
+	require.Contains(t, tree, "workspace/.mock/mcp.json", "the MCP file landed at the shared root")
+	require.Contains(t, tree, "session/MOCK_CONTEXT.md", "the rest stayed under the session home")
+	require.NotContains(t, tree, "session/.mock/mcp.json")
+}

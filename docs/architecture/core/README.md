@@ -78,10 +78,11 @@ flowchart TD
     ET -->|deny| HELD["withheld ledger<br/>warnWithheld trust_gate.go:301"]
     ET -->|allow| ASM["AssembleContext<br/>profiles + fragments + tags<br/>-> substituted, ordered text<br/>operations/context.go:112"]
 
-    ASM --> DELIVER{"delivery"}
-    DELIVER --> APPLY["ApplyHooks -> native engine surfaces<br/>hooks.go:54"]
-    DELIVER --> RUN["runResolvedAgent -> engine process<br/>oneshot.go:315"]
-    DELIVER --> MAT["MaterializeProfile -> --target dir<br/>profile_materialize.go:57"]
+    ASM --> DELIVER{"delivery.Route -> Plan<br/>(see delivery.md)"}
+    DELIVER --> STATIC["delivery.Static.Deliver<br/>fsstatic over the engine's typed approaches<br/>ONE ownership record per target file, writer-tagged"]
+    STATIC --> RUN["a run: the runner tail, under the session writer<br/>runner.Execute"]
+    STATIC --> MAT["at rest: materialize / manage install, under the project writer<br/>operations.DeliverProject; uninstall = the empty plan"]
+    DELIVER --> DYN["delivery.Dynamic.Serve<br/>the runner's MCP endpoint"]
 
     REVIEW["ctxloom review<br/>PendingReview review.go:111"] -.->|"human approves/rejects"| RECS
     ET -.->|"pending items"| REVIEW

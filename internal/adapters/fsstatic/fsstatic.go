@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // Static is the writer over one filesystem.
@@ -80,6 +82,16 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, surfaces engi
 			info, err := layer.Stat(path)
 			if err != nil {
 				return delivery.Delivered{}, err
+			}
+			if !underARoot(paths, path) {
+				// An approach's OWN state outside the target (claude's MCP
+				// approach keeps a hew record under the home): written
+				// through as the approach wrote it, never a delivered file
+				// the record owns.
+				if err := writeThrough(s.fs, path, bytes, info.Mode().Perm()); err != nil {
+					return delivery.Delivered{}, fmt.Errorf("fsstatic: write %s: %w", path, err)
+				}
+				continue
 			}
 			entry := relativeTo(paths, path)
 			if _, err := target.Ownership.Apply(ctx, s.fs, path, target.Writer, func([]byte) ([]byte, []string, error) {
@@ -169,6 +181,15 @@ func writtenFiles(layer afero.Fs) []string {
 	})
 	sort.Strings(out)
 	return out
+}
+
+// writeThrough lands a file the approach wrote outside the target's roots
+// on the real filesystem, bytes and mode as written.
+func writeThrough(fs afero.Fs, path string, bytes []byte, mode os.FileMode) error {
+	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return iox.WriteFileAtomicFs(fs, path, bytes, mode)
 }
 
 // rootsOf are the target's resolved roots, in the order a written file is

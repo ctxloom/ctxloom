@@ -52,6 +52,9 @@ type Home struct {
 	unacked      []*agentcoordpb.AgentEvent
 	acked        uint64
 	ackCh        chan struct{} // closed + replaced on every ack advance
+	// redial is closed and replaced by Redial: the kick a loop in its backoff
+	// wakes on (redialWake). Guarded by mu.
+	redial chan struct{}
 	// requests is the one bidiSession scaffold's correlation for the
 	// requests this Home issues over RunChannel (its send queue is unused:
 	// the stream reconnects, so frames are written directly under sendMu).
@@ -249,6 +252,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		cancel:      cancel,
 		conn:        conn,
 		ackCh:       make(chan struct{}),
+		redial:      make(chan struct{}),
 		requests:    newBidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse](cancel, 0),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
@@ -332,6 +336,25 @@ func (h *Home) waitTracked() {
 	h.tracked.wait(homeCloseJoinBudget, "runner home close", "")
 }
 
+// Redial asks both channel loops to redial NOW rather than at the end of
+// their backoff: the caller knows the endpoint is back (a coordinator
+// restarted on the recorded endpoint; a rebind), and the runner's
+// re-adoption should not cost it the backoff.
+func (h *Home) Redial() {
+	h.mu.Lock()
+	close(h.redial)
+	h.redial = make(chan struct{})
+	h.mu.Unlock()
+}
+
+// redialWake is the pending kick: a channel closed and replaced by Redial,
+// which a loop in its backoff selects on beside the timer.
+func (h *Home) redialWake() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.redial
+}
+
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
 // heartbeats + best-effort RunExited at Close).
 func (h *Home) runnerChannelLoop() {
@@ -341,6 +364,8 @@ func (h *Home) runnerChannelLoop() {
 			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			select {
 			case <-time.After(homeRedialBackoff):
+				continue
+			case <-h.redialWake():
 				continue
 			case <-h.ctx.Done():
 				return
@@ -357,6 +382,7 @@ func (h *Home) runnerChannelLoop() {
 			h.releaseLink(link)
 			select {
 			case <-time.After(homeRedialBackoff):
+			case <-h.redialWake():
 			case <-h.ctx.Done():
 				return
 			}
@@ -380,6 +406,7 @@ func (h *Home) runChannelLoop() {
 		}
 		select {
 		case <-time.After(homeRedialBackoff):
+		case <-h.redialWake():
 		case <-h.ctx.Done():
 			return
 		}

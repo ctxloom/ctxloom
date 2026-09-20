@@ -72,7 +72,11 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	crashCoordinator(first)
 
 	second := newTestCoordinatorOver(t, stateDir, sp)
-	// The runner's Hello lands on the re-bound endpoint and names the run.
+	// The endpoint is back: the runner is told to redial NOW rather than at
+	// the end of its backoff (a dial that landed before Serve costs another
+	// homeRedialBackoff, and two of them outrun the window under load). The
+	// Hello then lands on the re-bound endpoint and names the run.
+	sp.engineHome(0).Redial()
 	require.Eventually(t, func() bool { return second.runnerConnected(out.RunID) }, conformanceWait, 10*time.Millisecond,
 		"the live runner must re-Hello the restarted coordinator")
 	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp), "a run whose runner re-Hello'd is re-adopted, not orphaned")

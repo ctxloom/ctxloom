@@ -62,8 +62,10 @@ const (
 	DirInWithdrawn Dir = "in/withdrawn"
 )
 
-// SpoolDirName is the spool root's name under the session persist dir.
-const SpoolDirName = "spool"
+// SpoolDirName is the spool root's name under the session persist dir — the
+// table row paths.HarpMembers marks Mounted, so container mail rides the
+// session-state mount.
+const SpoolDirName = paths.SpoolDirName
 
 // tmpDirName is the write-staging directory, a SIBLING of in/ and out/ under
 // the spool root. Same filesystem as every target dir, so the publish rename

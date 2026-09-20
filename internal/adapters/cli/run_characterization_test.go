@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -298,18 +299,21 @@ func TestRunCharacterization_DryRunJSONPayload(t *testing.T) {
 	assert.Positive(t, got.Tokens, "the token estimate is computed over the assembled context")
 	assert.Contains(t, got.Fragments, "ctxloom+local:demo#fragments/testing")
 
-	// Not an --agent run: no agent is named. The runtime the run would use
-	// is reported; the workspace axis is reported as DECLARED — no
-	// --workspace was given, so it stays unset rather than showing the
-	// default (TestRun_Agent_DryRun pins why: a preview that fills it in
-	// invents an isolation guarantee nobody asked for).
+	// Not an --agent run: no agent is named. The axes are reported twice
+	// (ruled 2026-09-19: declared and resolved axes as separate fields): as
+	// DECLARED — nothing asked for a workspace or a runtime, so both stay
+	// unset rather than showing a default as a guarantee somebody asked for
+	// (TestRun_Agent_DryRun) — and as RESOLVED, what the run would land on.
 	assert.NotContains(t, res.out, `"agent"`)
 	assert.Empty(t, got.Workspace)
-	assert.Equal(t, "host", got.Runtime)
+	assert.Empty(t, got.Runtime)
+	assert.Equal(t, "none", got.Resolved.Workspace)
+	assert.Equal(t, "host", got.Resolved.Runtime)
 }
 
-// --workspace is a SESSION trait resolved before the dry-run payload is built,
-// so the preview reports the axis this run would actually use.
+// --workspace is a SESSION trait resolved before the dry-run payload is built:
+// the preview reports it as declared and, resolved, as the axis this run
+// would actually use.
 func TestRunCharacterization_DryRunJSONCarriesTheWorkspaceAxis(t *testing.T) {
 	runCLIFixture(t)
 
@@ -319,6 +323,8 @@ func TestRunCharacterization_DryRunJSONCarriesTheWorkspaceAxis(t *testing.T) {
 	var got dryRunJSON
 	require.NoError(t, json.Unmarshal([]byte(res.out), &got))
 	assert.Equal(t, "worktree", got.Workspace)
+	assert.Equal(t, "worktree", got.Resolved.Workspace)
+	assert.Equal(t, "host", got.Resolved.Runtime, "the runtime nothing declared resolves to the host")
 }
 
 // The text renderer's section order and its three empty-state strings. This is
@@ -464,22 +470,33 @@ func TestRunCharacterization_NonGitRootWarnsButProceeds(t *testing.T) {
 	assert.Contains(t, res.stderr, "not in a git repository")
 }
 
-// A profile that references a bundle which does not resolve is a warning on
-// a --dry-run, never an abort: the preview composes the context (skipping
-// the unresolved bundle, warned) and delivers NOTHING, so the surfaces that
-// bundle would have shipped — the MCP servers and hooks whose absence is the
-// fatal finding on a real launch — are not composed for it either. A dry run
-// that aborted here would refuse to preview exactly the setup a user is
-// trying to diagnose (features/fault_tolerance.feature, "warns and
-// continues").
-func TestRunCharacterization_DryRunWarnsPastAMissingBundle(t *testing.T) {
+// A --dry-run composes the SAME package a run would, and its composition
+// findings keep their severity (ruled 2026-09-19: the preview refuses like a
+// run). A profile naming a bundle that does not load is
+// reportBundleRefLoadFailure's fatal finding, so the preview is refused
+// exactly as the run would be: exit 3, the finding listed, nothing rendered
+// past the gate. --degraded previews past it, warning, as it would launch
+// past it.
+func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 	dir := runCLIFixture(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "profiles", "broken.yaml"),
 		[]byte("description: references a missing bundle\nbundles:\n  - does-not-exist\n"), 0o644))
 	resetApp()
 
 	res := runCLI(t, "run", "--dry-run", "--format", "text", "--profile", "broken", "hello")
-	require.NoError(t, res.err, "a missing bundle warns; it does not abort the preview: %s", res.all())
+	require.Error(t, res.err, "a bundle that does not load refuses the preview as it refuses the run: %s", res.all())
+	var exitErr *ExitError
+	require.ErrorAs(t, res.err, &exitErr, "the refusal carries the fatal-findings exit status")
+	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
+	assert.Contains(t, res.all(), `failed to load bundle "does-not-exist"`, "the finding is listed")
+	assert.NotContains(t, res.all(), "=== LLM ===", "nothing is rendered past the gate")
+
+	// The finding renders once per process; the second invocation must
+	// render it again to be read.
+	clidiag.ResetWarnOnce()
+	resetApp()
+	res = runCLI(t, "--degraded", "run", "--dry-run", "--format", "text", "--profile", "broken", "hello")
+	require.NoError(t, res.err, "--degraded previews past the finding as it would launch past it: %s", res.all())
 	assert.Contains(t, res.all(), "warning")
 	assert.Contains(t, res.all(), "does-not-exist")
 	assert.Contains(t, res.all(), "=== LLM ===", "the preview is rendered")

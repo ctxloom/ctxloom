@@ -291,11 +291,15 @@ bundles:
 	// prose did: the axes are pinned by equality rather than by a substring
 	// that "runtime: container-rootless-something" would also satisfy.
 	var got struct {
-		Agent     string   `json:"agent"`
-		Workspace string   `json:"workspace"`
-		Runtime   string   `json:"runtime"`
-		Profiles  []string `json:"profiles"`
-		Context   string   `json:"context"`
+		Agent     string `json:"agent"`
+		Workspace string `json:"workspace"`
+		Runtime   string `json:"runtime"`
+		Resolved  struct {
+			Workspace string `json:"workspace"`
+			Runtime   string `json:"runtime"`
+		} `json:"resolved"`
+		Profiles []string `json:"profiles"`
+		Context  string   `json:"context"`
 	}
 	out := env.LastStdout()
 	require.NoError(t, json.Unmarshal([]byte(out), &got),
@@ -303,11 +307,15 @@ bundles:
 
 	assert.Equal(t, "dev", got.Agent, "the preview names the binding it resolved")
 	assert.Equal(t, "container-rootless", got.Runtime, "the agent's declared runtime axis surfaces")
-	// The two axes are independent and only the DECLARED one is reported: the
-	// invocation set no --workspace, so that field stays empty in the same
-	// payload that carries a runtime. A preview that filled it in would be
-	// inventing an isolation guarantee nobody asked for.
+	// The two axes are independent, and the DECLARED pair is kept apart from
+	// the RESOLVED pair (ruled 2026-09-19: declared and resolved axes as
+	// separate fields): the invocation set no --workspace, so that field
+	// stays empty in the same payload that carries a runtime — a preview
+	// that filled it in would be inventing an isolation guarantee nobody
+	// asked for — while `resolved` says what the run would land on.
 	assert.Empty(t, got.Workspace, "an unset session workspace is reported as unset, not defaulted:\n"+out)
+	assert.Equal(t, "none", got.Resolved.Workspace, "the unset workspace resolves to the shared checkout:\n"+out)
+	assert.Equal(t, "container-rootless", got.Resolved.Runtime, "the declared runtime is the one the run lands on:\n"+out)
 	assert.Equal(t, []string{"agent-profile"}, got.Profiles, "the agent's profile set scopes the preview")
 	assert.Contains(t, got.Context, "Agent-composed content", "the agent's composed profile context is previewed")
 }

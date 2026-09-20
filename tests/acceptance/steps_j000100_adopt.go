@@ -73,9 +73,18 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 			return nil
 		})
 
+	// Uninstall is the empty plan over the ownership record: a settings.json
+	// ctxloom CREATED in this project leaves with it, and an ABSENT file is
+	// the stronger form of "nothing left behind". A file that still stands
+	// is one Alice authored, and then it must carry none of ctxloom's
+	// entries.
 	ctx.Step(`^nothing ctxloom wired into her assistant is left behind$`,
 		func(c context.Context) error {
-			body, err := worldFrom(c).env.ReadFile(".claude/settings.json")
+			w := worldFrom(c)
+			if !w.env.FileExists(".claude/settings.json") {
+				return nil
+			}
+			body, err := w.env.ReadFile(".claude/settings.json")
 			if err != nil {
 				return err
 			}

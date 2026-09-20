@@ -72,6 +72,17 @@ const containerInstanceRoot = "/ctxloom-test/home"
 
 // projectHome is the input every case starts from: an agent binding that
 // declared engine_home: session, on the host (no runtime advice).
+// resolveHome is ResolveInTreeAgentHome with the resolution's Release bound
+// to the test's end, the way Cells.Prepare binds it to the run's: a home that
+// seeded a credential left its replicator running, and a test that dropped
+// it would leak that watcher into the test process.
+func resolveHome(t *testing.T, in InTreeAgentHome) AgentHomeResolution {
+	t.Helper()
+	res := ResolveInTreeAgentHome(in)
+	t.Cleanup(func() { _ = res.Release() })
+	return res
+}
+
 func projectHome(workDir, harp string) InTreeAgentHome {
 	return InTreeAgentHome{
 		Backend:  "claude-code",
@@ -115,7 +126,7 @@ func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) 
 
 	in := projectHome(workDir, harpA)
 	in.ContainerHome = containerInstanceRoot
-	res := ResolveInTreeAgentHome(in)
+	res := resolveHome(t, in)
 	requireResolutionInvariant(t, res)
 
 	// The leaf is the ENGINE's declared HomeVar.Subdir (claude.HomeLeaf), taken
@@ -141,7 +152,7 @@ func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 	workDir := t.TempDir()
 	want := mustClaudeInstance(t, workDir, harpA)
 
-	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 	assert.Equal(t, present.Root{Host: want, Engine: want}, res.Root)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
@@ -164,7 +175,7 @@ func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 
 	want := mustClaudeInstance(t, workDir, harpA)
@@ -197,7 +208,7 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 	before, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
 	require.NoError(t, err)
 
-	ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	resolveHome(t, projectHome(workDir, harpA))
 
 	after, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
 	require.NoError(t, err)
@@ -231,7 +242,7 @@ func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testin
 	for name, ch := range cases {
 		in := projectHome(workDir, harpA)
 		in.HomeMode = ch
-		res := ResolveInTreeAgentHome(in)
+		res := resolveHome(t, in)
 		requireResolutionInvariant(t, res)
 		assert.Empty(t, res.Env, "%s: must be handed no config-home override", name)
 		assert.Contains(t, res.Absent, "engine_home", "%s: the reason names the policy that declined", name)
@@ -250,7 +261,7 @@ func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 
 	in := projectHome(t.TempDir(), harpA)
 	in.Backend = "mock"
-	res := ResolveInTreeAgentHome(in)
+	res := resolveHome(t, in)
 	requireResolutionInvariant(t, res)
 	assert.Contains(t, res.Absent, "mock", "the reason names the engine")
 }
@@ -266,7 +277,7 @@ func TestResolveInTreeAgentHome_NothingToSeedFailsLoudAndIsAbsent(t *testing.T) 
 	fakeHostHome(t, "") // no ~/.claude at all, no API key
 	workDir := t.TempDir()
 
-	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 	assert.Contains(t, res.Absent, "ANTHROPIC_API_KEY")
 
@@ -286,7 +297,7 @@ func TestResolveInTreeAgentHome_ApiKeyAuthenticatesAFreshControlledHome(t *testi
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	workDir := t.TempDir()
 
-	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, res.Env)
 	assert.DirExists(t, mustClaudeInstance(t, workDir, harpA), "the home must exist even when nothing was copied into it")
@@ -304,7 +315,7 @@ func TestResolveInTreeAgentHome_ContributesTheSessionInstanceShape(t *testing.T)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	res := ResolveInTreeAgentHome(projectHome(workDir, harpA))
+	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 
 	instance := filepath.Join(workDir, ".ctxloom", "state", harpA, "home")
@@ -328,8 +339,8 @@ func TestResolveInTreeAgentHome_TwoSessionsGetTwoInstances(t *testing.T) {
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	a := ResolveInTreeAgentHome(projectHome(workDir, harpA))
-	b := ResolveInTreeAgentHome(projectHome(workDir, harpB))
+	a := resolveHome(t, projectHome(workDir, harpA))
+	b := resolveHome(t, projectHome(workDir, harpB))
 	require.NotEmpty(t, a.Env)
 	require.NotEmpty(t, b.Env)
 	assert.NotEqual(t, a.Env[claude.ConfigDirEnv], b.Env[claude.ConfigDirEnv], "two sessions must not share one home")
@@ -348,7 +359,7 @@ func TestResolveInTreeAgentHome_EmptyHarpIsAbsentAndCreatesNothing(t *testing.T)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
-	res := ResolveInTreeAgentHome(projectHome(workDir, ""))
+	res := resolveHome(t, projectHome(workDir, ""))
 	requireResolutionInvariant(t, res)
 	assert.Contains(t, res.Absent, "session", "the reason names the missing session")
 	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
@@ -366,7 +377,7 @@ func TestResolveInTreeAgentHome_TrustNamesTheRunCwdNotTheProjectRoot(t *testing.
 
 	in := projectHome(workDir, harpA)
 	in.Cwd = checkout
-	res := ResolveInTreeAgentHome(in)
+	res := resolveHome(t, in)
 	requireResolutionInvariant(t, res)
 
 	cfg, err := os.ReadFile(filepath.Join(res.Root.Host, ".claude.json"))

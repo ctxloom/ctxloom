@@ -157,11 +157,14 @@ type AmbientCopyReport struct {
 // Close stops whatever the provisioning left running — a replicator's
 // watchers and their goroutines. Safe on a zero report and safe to call twice.
 //
-// A caller that wants the credential to keep propagating for the life of the
-// run must NOT call it: closing stops the replication, after which the
-// engine's refreshes stay inside the instance and the host's token goes stale.
-// It exists for callers with a bounded scope (a test, a probe) and for the day
-// a run gains an explicit teardown to hang it on.
+// It is the RUN's to call, at the run's end, and nothing else's: the
+// replication is what carries a host token refresh into the instance (the
+// old token is revoked the moment the host rotates it) and the engine's own
+// refresh back out to the host. Closed early, a live engine is left on a
+// dead token; never closed, every launch leaks a watcher pair into the
+// process that prepared it. The seam that prepares a controlled home hands
+// this back as the preparation's release (backends.InTreeAgentHomeSpec
+// .Prepare), and the cell folds it into its Cleanup.
 func (r AmbientCopyReport) Close() error { return r.provisioned.Close() }
 
 // CopyAmbient performs THE ambient copy-in — the one one-way transfer from the
@@ -181,9 +184,14 @@ func (r AmbientCopyReport) Close() error { return r.provisioned.Close() }
 //     vendor's format happens inside that vendor's package; this function only
 //     decides WHICH files and classes cross.
 //
-// ONE WAY. The real host home is READ and never written; tests/arch's
-// real-home byte-identity gate is what proves it, because a path assertion can
-// only say where ctxloom MEANT to write.
+// ONE WAY, as a preparation. The real host home is READ and never written
+// by this call; tests/arch's real-home byte-identity gate is what proves it,
+// because a path assertion can only say where ctxloom MEANT to write. What
+// the call leaves RUNNING is a different matter: the credential replication
+// it returns on the report keeps host and instance on one rotating token in
+// BOTH directions, so an engine's refresh inside the instance does land on
+// the host — on the engine's behalf, byte for byte, to the one file the
+// engine would have written itself had it run on the host home.
 //
 // The whole operation is serialized under the project lock keyed to
 // req.InstanceHome, so two runs sharing ONE session instance (a coordinator and

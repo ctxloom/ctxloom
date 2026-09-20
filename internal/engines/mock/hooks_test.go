@@ -93,4 +93,3 @@ func TestMock_HooksCodec_RefusesAPayloadItDidNotWrite(t *testing.T) {
 	_, err := mock.New().Hooks().Decode("pre_tool", []byte("not json"))
 	require.Error(t, err)
 }
-

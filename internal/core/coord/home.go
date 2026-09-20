@@ -52,7 +52,10 @@ type Home struct {
 	unacked      []*agentcoordpb.AgentEvent
 	acked        uint64
 	ackCh        chan struct{} // closed + replaced on every ack advance
-	pending      map[string]*homeReq
+	// requests is the one bidiSession scaffold's correlation for the
+	// requests this Home issues over RunChannel (its send queue is unused:
+	// the stream reconnects, so frames are written directly under sendMu).
+	requests bidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse]
 
 	buffer   []*agentcoordpb.PeerMessage
 	consumed map[string]bool
@@ -182,11 +185,6 @@ type HomeConfig struct {
 	Reporter report.Sink
 }
 
-type homeReq struct {
-	req *agentcoordpb.AgentRequest
-	ch  chan *agentcoordpb.CoordinatorResponse
-}
-
 type homePark struct {
 	ch   chan []*agentcoordpb.PeerMessage // nil payload = preempted
 	done bool
@@ -251,7 +249,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		cancel:      cancel,
 		conn:        conn,
 		ackCh:       make(chan struct{}),
-		pending:     make(map[string]*homeReq),
+		requests:    newBidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse](cancel, 0),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
 		acking:      make(map[string]bool),
@@ -419,10 +417,6 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	h.stream = stream
 	h.everAttached = true
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
-	reqs := make([]*agentcoordpb.AgentRequest, 0, len(h.pending))
-	for _, hr := range h.pending {
-		reqs = append(reqs, hr.req)
-	}
 	parked := h.parked
 	h.mu.Unlock()
 	// The reissue batch holds sendMu so no fresh emit can interleave a
@@ -430,7 +424,7 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	for _, ev := range events {
 		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
-	for _, r := range reqs {
+	for _, r := range h.requests.outstanding() {
 		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
 	}
 	h.sendMu.Unlock()
@@ -509,13 +503,7 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 	case *agentcoordpb.CoordinatorFrame_Ack:
 		h.advanceAck(kind.Ack.GetCommittedSeq())
 	case *agentcoordpb.CoordinatorFrame_Response:
-		h.mu.Lock()
-		hr := h.pending[kind.Response.GetRequestId()]
-		delete(h.pending, kind.Response.GetRequestId())
-		h.mu.Unlock()
-		if hr != nil {
-			hr.ch <- kind.Response
-		}
+		h.requests.resolve(kind.Response.GetRequestId(), kind.Response)
 	case *agentcoordpb.CoordinatorFrame_Notice:
 		if sc := kind.Notice.GetSpoolChanged(); sc != nil {
 			h.handleSpoolChanged(sc)
@@ -817,10 +805,10 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	if resp, handled := h.sendPeerViaSpool(req); handled {
 		return resp, nil
 	}
-	hr := &homeReq{req: req, ch: make(chan *agentcoordpb.CoordinatorResponse, 1)}
-	h.mu.Lock()
-	h.pending[req.GetRequestId()] = hr
-	h.mu.Unlock()
+	ch, ok := h.requests.register(req.GetRequestId(), req)
+	if !ok {
+		return nil, ErrCoordinatorUnreachable
+	}
 	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: req}})
 
 	if _, has := ctx.Deadline(); !has {
@@ -830,12 +818,10 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	}
 	started := time.Now()
 	select {
-	case resp := <-hr.ch:
+	case resp := <-ch:
 		return resp, nil
 	case <-ctx.Done():
-		h.mu.Lock()
-		delete(h.pending, req.GetRequestId())
-		h.mu.Unlock()
+		h.requests.withdraw(req.GetRequestId())
 		return nil, h.requestFailure(ctx, time.Since(started))
 	case <-h.ctx.Done():
 		return nil, ErrCoordinatorUnreachable

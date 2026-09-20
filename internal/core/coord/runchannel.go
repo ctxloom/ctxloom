@@ -116,13 +116,14 @@ func (c *Coordinator) Host(ctx context.Context, caller Identity, req HostRequest
 
 // runChan is one live RunChannel: the coordinator side of a runner's
 // plane-1/2/3 stream for a single run (or the owning session itself — a
-// depth-0 credential attaches with an empty run_id). All mutable fields are
-// guarded by Coordinator.mu; frames go out through the single writer pump.
+// depth-0 credential attaches with an empty run_id), on the one bidiSession
+// scaffold (this side issues no requests over it: the runner's requests
+// arrive and are answered inline). All mutable fields are guarded by
+// Coordinator.mu; frames go out through the scaffold's single writer pump.
 type runChan struct {
-	role   string // the harp this channel serves (child harp, or owner harp)
-	id     Identity
-	send   chan *agentcoordpb.CoordinatorFrame
-	cancel context.CancelFunc
+	bidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame]
+	role string // the harp this channel serves (child harp, or owner harp)
+	id   Identity
 
 	// caps is this run's Hello advertisement (coordination.proto's
 	// Hello.capabilities), captured at serve. It is per-CHANNEL because it is
@@ -211,12 +212,11 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 		caps[cap] = true
 	}
 	ch := &runChan{
-		role:      id.Harp,
-		id:        id,
-		send:      make(chan *agentcoordpb.CoordinatorFrame, 64),
-		cancel:    cancel,
-		completed: make(chan struct{}),
-		caps:      caps,
+		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](cancel, 64),
+		role:        id.Harp,
+		id:          id,
+		completed:   make(chan struct{}),
+		caps:        caps,
 	}
 	c.mu.Lock()
 	if prev := c.chans[id.Harp]; prev != nil {
@@ -248,19 +248,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	// underlying gRPC transport down (streamCtx derives from the STREAM's
 	// context, not c.baseCtx, so only the server actually cutting the
 	// transport unblocks a still-live channel — see Coordinator.Close's doc).
-	c.goTracked(func() {
-		for {
-			select {
-			case frame := <-ch.send:
-				if err := stream.Send(frame); err != nil {
-					cancel()
-					return
-				}
-			case <-streamCtx.Done():
-				return
-			}
-		}
-	})
+	c.goTracked(func() { ch.pump(streamCtx, stream.Send) })
 
 	recvErr := make(chan error, 1)
 	c.goTracked(func() {

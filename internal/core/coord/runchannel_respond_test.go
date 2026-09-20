@@ -25,7 +25,7 @@ func TestRespond_FullPumpDoesNotStallTheCaller(t *testing.T) {
 
 	// Unbuffered and never read: the pump is as saturated as it gets.
 	ch := &runChan{role: "child-slow", id: Identity{Harp: "child-slow", RunID: "run-slow"},
-		send: make(chan *agentcoordpb.CoordinatorFrame), completed: make(chan struct{})}
+		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 0), completed: make(chan struct{})}
 
 	start := time.Now()
 	c.respond(ch, &agentcoordpb.CoordinatorResponse{Status: okStatus("")})
@@ -42,10 +42,11 @@ func TestRespond_ResponseIsDeliveredOnceTheFullPumpDrains(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	send := make(chan *agentcoordpb.CoordinatorFrame, 1)
-	send <- &agentcoordpb.CoordinatorFrame{} // occupy the only slot
 	ch := &runChan{role: "child-drain", id: Identity{Harp: "child-drain", RunID: "run-drain"},
-		send: send, completed: make(chan struct{})}
+		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 1),
+		completed:   make(chan struct{})}
+	send := ch.send
+	send <- &agentcoordpb.CoordinatorFrame{} // occupy the only slot
 
 	c.respond(ch, &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "the payload")})
 
@@ -69,7 +70,7 @@ func TestHandleAgentRequest_CachedRedeliveryDoesNotStallOnAFullPump(t *testing.T
 
 	role := "child-reissue"
 	ch := &runChan{role: role, id: Identity{Harp: role, RunID: "run-reissue"},
-		send: make(chan *agentcoordpb.CoordinatorFrame), completed: make(chan struct{})}
+		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 0), completed: make(chan struct{})}
 	c.mu.Lock()
 	c.chans[role] = ch
 	c.reqTrack = map[reqKey]*inflightReq{

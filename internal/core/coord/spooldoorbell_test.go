@@ -401,9 +401,9 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		// ch.send off-lock by design, so swapping it under a live channel
 		// races the very goroutine the test is trying to stall.
 		ch := &runChan{
-			role:      doorbellHarp,
-			send:      make(chan *agentcoordpb.CoordinatorFrame, 1),
-			completed: make(chan struct{}),
+			role:        doorbellHarp,
+			bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 1),
+			completed:   make(chan struct{}),
 		}
 		ch.send <- &agentcoordpb.CoordinatorFrame{}
 		c.mu.Lock()

@@ -22,10 +22,10 @@ func TestHandleAgentEvent_ForgedEventsLostIsDroppedBeforeTheTee(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ch := &runChan{
-		role:      "child-forger",
-		id:        Identity{Harp: "child-forger", RunID: "run-forger"},
-		send:      make(chan *agentcoordpb.CoordinatorFrame, 4),
-		completed: make(chan struct{}),
+		role:        "child-forger",
+		id:          Identity{Harp: "child-forger", RunID: "run-forger"},
+		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 4),
+		completed:   make(chan struct{}),
 	}
 	_, events, cancel, _ := c.WatchRuns(nil)
 	defer cancel()

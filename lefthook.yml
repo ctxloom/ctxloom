@@ -83,6 +83,18 @@ pre-commit:
           ./bin/archlint ./...
         ARCHLINT_CHECK_ALLOWLISTS=0 ./bin/archlint ./...
 
+    lint-pins:
+      # Pin-direction gate: no pinned version in the INDEX may be older than
+      # the same pin at HEAD. The buildpins/enginepins tests prove the pin
+      # files agree with their consumers; a downgrade copied faithfully
+      # everywhere passes all of them, so direction is checked here, at the
+      # one moment the index is what will be committed. A deliberate downgrade
+      # names its pin in CTXLOOM_ALLOW_PIN_DOWNGRADE and the gate echoes that
+      # override into this output for the reviewer. Pure shell over `git show`
+      # — no go build, matching archlint's rule that a slow hook is one people
+      # learn to bypass.
+      run: just lint-pins
+
     loadout-signatures:
       # Companion loadouts are signed content: each cmd/<tool>/loadout.yaml has
       # a detached loadout.yaml.sig covering its exact bytes, and a loadout

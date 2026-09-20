@@ -248,3 +248,13 @@ _filter_coverage INPUT OUTPUT:
         fi
     fi
     cp "{{INPUT}}" "{{OUTPUT}}"
+
+# ===== Pin direction =====
+
+# Refuse a staged pin that goes BACKWARDS from HEAD. The buildpins/enginepins
+# tests prove the pin files agree with their consumers; only this gate can see
+# the direction of an edit. Pure shell over `git show`, so it costs ~40ms and
+# runs on every commit (lefthook.yml). A deliberate downgrade names its pin in
+# CTXLOOM_ALLOW_PIN_DOWNGRADE, which the gate echoes for the commit's reviewer.
+lint-pins:
+    ./scripts/lint-pins

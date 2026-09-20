@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -126,4 +128,118 @@ func TestConformance_SessionCarriesNoCredentialNoPackageNoAxes(t *testing.T) {
 		_, has := typ.FieldByName(forbidden)
 		require.False(t, has, "engine.Session must not carry %s", forbidden)
 	}
+}
+
+// TestEngine_Claude_Conforms: the second implementer, both halves of
+// delivery provided.
+func TestEngine_Claude_Conforms(t *testing.T) {
+	eng, err := claude.Build()
+	require.NoError(t, err)
+	conformance.Run(t, eng)
+}
+
+// TestConformance_ExecParsesAgainstOwnGrammar_ForEveryMode is the anti-drift
+// property, written once here and never restated per engine.
+func TestConformance_ExecParsesAgainstOwnGrammar_ForEveryMode(t *testing.T) {
+	eng := mock.New()
+	def := eng.Root()
+	for _, mode := range def.Modes {
+		s := conformance.SessionFor(t, eng, mode)
+		inst, err := eng.Instance(s)
+		require.NoError(t, err)
+		ex, err := inst.Exec(conformance.PresentAll(t, eng, s))
+		require.NoError(t, err)
+		cli, ok := engine.CLIFor(def.CLI, mode)
+		require.True(t, ok, "engine declares Mode %v but no CLI grammar for it", mode)
+		_, err = cli.ParseArgv(ex.Args)
+		require.NoError(t, err, "Exec emitted an argv the engine's own grammar refuses")
+	}
+}
+
+// TestConformance_StructuredMode_IffADriverExists: Structured ∈ Modes exactly
+// when the Instance has at least one driver. Resolve refuses a Structured
+// Source by Modes; this keeps the declaration honest.
+func TestConformance_StructuredMode_IffADriverExists(t *testing.T) {
+	eng := mock.New()
+	inst, err := eng.Instance(conformance.SessionFor(t, eng, engine.Structured))
+	require.NoError(t, err)
+	structured := false
+	for _, m := range eng.Root().Modes {
+		structured = structured || m == engine.Structured
+	}
+	require.Equal(t, structured, len(inst.Drivers()) > 0)
+}
+
+// TestConformance_AbsentCapabilities_AreEmptyOrRefuseLoudly: every method
+// exists on every engine; a slice capability that is absent is empty; a
+// single-valued one the operation depends on refuses with ErrUnsupported
+// naming the engine and the capability; Resume is real or refuses.
+func TestConformance_AbsentCapabilities_AreEmptyOrRefuseLoudly(t *testing.T) {
+	eng := mock.New()
+	_, err := eng.Container()
+	var unsupported engine.ErrUnsupported
+	require.True(t, errors.As(err, &unsupported), "mock has no image: Container must refuse, not return a zero spec")
+	require.Equal(t, eng.Root().Name, unsupported.Engine)
+	require.Equal(t, "container", unsupported.Capability)
+	require.Empty(t, eng.Transcripts(), "no readers is an empty slice, not an error and not a flag")
+	require.NotNil(t, eng.Hooks())
+	inst, err := eng.Instance(conformance.SessionFor(t, eng, engine.Structured))
+	require.NoError(t, err)
+	require.NoError(t, inst.Resume("k1"), "mock resumes by key")
+	ex, err := inst.Exec(nil)
+	require.NoError(t, err)
+	require.Contains(t, ex.Args, "k1", "the next Exec continues the resumed session")
+}
+
+// TestConformance_HomeVars_RootUnderTheSessionHome: a home var the engine
+// declares must point at the session home the engine was HANDED. The
+// compiled present.Paths names that root EngineHome (the plan's SessionHome).
+func TestConformance_HomeVars_RootUnderTheSessionHome(t *testing.T) {
+	eng := mock.New()
+	home := eng.Home()
+	if len(home.Vars) == 0 {
+		t.Skip("engine relocates no home")
+	}
+	s := conformance.SessionFor(t, eng, engine.Interactive)
+	inst, err := eng.Instance(s)
+	require.NoError(t, err)
+	ex, err := inst.Exec(conformance.PresentAll(t, eng, s))
+	require.NoError(t, err)
+	for _, v := range home.Vars {
+		require.Contains(t, ex.Env, v.Name)
+		require.True(t, present.Under(ex.Env[v.Name], s.Roots.EngineHome.Engine),
+			"home var %s = %q is not under the session home the engine was handed", v.Name, ex.Env[v.Name])
+	}
+}
+
+// TestConformance_UncarriedKind_IsRefusedByRoute_NotDeclared: for a kind
+// whose typed field is nil, Route over a package needing that kind refuses
+// with ErrUncarried naming the engine and the kind. No declaration says
+// "cannot carry"; the nil field does.
+func TestConformance_UncarriedKind_IsRefusedByRoute_NotDeclared(t *testing.T) {
+	eng := mock.New(mock.Without(present.Skills))
+	pkg := compositetest.Fixture(t, compositetest.WithSkill("greet"))
+	_, err := conformance.RouteFor(t, pkg, eng)
+	var uncarried delivery.ErrUncarried
+	require.True(t, errors.As(err, &uncarried))
+	require.Equal(t, eng.Root().Name, uncarried.Engine)
+	require.Equal(t, present.Skills, uncarried.Kind)
+}
+
+// TestConformance_NoCorePackageNamesAnEngine is the polymorphism proof:
+// the same kind registered under TWO names routes the same package to
+// identical plans.
+func TestConformance_NoCorePackageNamesAnEngine(t *testing.T) {
+	reg, err := engine.NewRegistry(mock.New(), mock.NewNamed("mock-b"))
+	require.NoError(t, err)
+	pkg := conformance.PackageFixture(t)
+	var plans []string
+	for _, name := range reg.Names(nil) {
+		e, _ := reg.Lookup(name)
+		plan, err := conformance.RouteFor(t, pkg, e)
+		require.NoError(t, err)
+		plans = append(plans, conformance.Canonical(plan))
+	}
+	require.Len(t, plans, 2)
+	require.Equal(t, plans[0], plans[1], "two engines with identical definitions must receive identical plans")
 }

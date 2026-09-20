@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -33,6 +34,13 @@ type argvLine struct {
 	// environment (ExecuteEnv) and the working directory Setup recorded.
 	env map[string]string
 	cwd string
+	// perm, servers, runEnv and presented are the launch's inputs as the
+	// port hands them to Instance.Exec: the posture, the delivered MCP
+	// server names, the run env and the surfaces' presentations.
+	perm      agent.PermissionMode
+	servers   []string
+	runEnv    map[string]string
+	presented []present.Presentation
 }
 
 // argvMatrix composes the argv for the fixed launch matrix: shared,
@@ -93,9 +101,20 @@ func argvMatrix(t *testing.T) []argvLine {
 					for k, v := range l.backend.ExecuteEnv(req) {
 						execEnv[k] = normalise(l.roots, v)
 					}
+					presented := l.backend.presented()
+					for i := range presented {
+						for j := range presented[i].Args {
+							presented[i].Args[j] = normalise(l.roots, presented[i].Args[j])
+						}
+					}
+					runEnv := map[string]string{}
+					for k, v := range env {
+						runEnv[k] = normalise(l.roots, v)
+					}
 					lines = append(lines, argvLine{
 						key: fmt.Sprintf("%s/%s/%s/model=%q", l.name, mode, perm, model), mode: mode, args: args,
 						env: execEnv, cwd: normalise(l.roots, l.backend.WorkDir()),
+						perm: perm, servers: mcpServerNames(l.backend.Resolved()), runEnv: runEnv, presented: presented,
 					})
 				}
 			}

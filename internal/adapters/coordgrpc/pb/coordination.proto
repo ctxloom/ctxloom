@@ -321,6 +321,7 @@ message RunnerResponse {
     DrainResult drain = 13;
     PauseRunResult pause_run = 14;
     ResumeRunResult resume_run = 15;
+    TurnResult turn = 16;
     google.protobuf.Struct custom = 90;
   }
 }
@@ -385,6 +386,10 @@ message Identity {
   int32 depth = 3;
   bool one_shot = 4;
   string project = 5;
+  // The coordinator's leaf verdict at mint (sessions.Identity.Leaf): the
+  // runner withholds the coordinator-only tools by it, holding no config to
+  // read the depth cap from.
+  bool leaf = 6;
 }
 
 // LabelConfig is engine.LabelConfig: one llm.configs label resolved. body is
@@ -604,6 +609,13 @@ message ResumeRef {
 message Turn {
   string prompt = 1;
   string resume = 2;
+}
+
+// TurnResult answers a Turn: the turn's final text and the native key the
+// NEXT turn resumes by (engine.TurnResult).
+message TurnResult {
+  string native_key = 1;
+  string answer = 2;
 }
 
 message HarnessSpec {

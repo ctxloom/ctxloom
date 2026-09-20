@@ -166,11 +166,11 @@ func DecodeLaunch(w *pb.Launch) (launch.Launch, error) {
 }
 
 func encodeIdentity(id sessions.Identity) *pb.Identity {
-	return &pb.Identity{Harp: id.Harp, RunId: id.RunID, Depth: int32(id.Depth), OneShot: id.OneShot, Project: id.Project}
+	return &pb.Identity{Harp: id.Harp, RunId: id.RunID, Depth: int32(id.Depth), OneShot: id.OneShot, Project: id.Project, Leaf: id.Leaf}
 }
 
 func decodeIdentity(w *pb.Identity) sessions.Identity {
-	return sessions.Identity{Harp: w.GetHarp(), RunID: w.GetRunId(), Depth: int(w.GetDepth()), OneShot: w.GetOneShot(), Project: w.GetProject()}
+	return sessions.Identity{Harp: w.GetHarp(), RunID: w.GetRunId(), Depth: int(w.GetDepth()), OneShot: w.GetOneShot(), Project: w.GetProject(), Leaf: w.GetLeaf()}
 }
 
 func encodeLabel(l engine.LabelConfig) *pb.LabelConfig {

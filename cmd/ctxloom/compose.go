@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -34,10 +36,16 @@ func compose(sink report.Sink) cli.Composition {
 			})
 			return owner, err
 		},
-		NewCoordinator: func(opts coord.Options) (*coord.Coordinator, error) {
+		NewCoordinator: func(app *operations.App, opts coord.Options) (*coord.Coordinator, error) {
 			c, err := (*coord.Coordinator)(nil), errSecondCoordinator
 			coordinators.Do(func() {
 				opts.Reporter = sink
+				// The production launch seam: the spawn adapter over the one
+				// App, starting real runners. A caller that injected its own
+				// (a test double) keeps it.
+				if opts.Spawner == nil {
+					opts.Spawner = spawn.New(sink, app, opts.ProjectDir, nil)
+				}
 				c, err = coord.New(opts)
 			})
 			return c, err

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/shared/docsgen"
 )
 
@@ -88,11 +89,11 @@ func TestRun_ReportsAGeneratorFailure(t *testing.T) {
 }
 
 // TestRun_ReportsAnAssemblyFailureInsteadOfPanicking pins a fix already
-// landed: ctxloomProduct calls mcp.NewDocMCPServer, which used to PANIC on two
+// landed: ctxloomProduct calls runnermcp.NewDocServer, which used to PANIC on two
 // internal failure paths, so a bug in the runner MCP assembly surfaced as a
 // panic from a function whose signature promised no failure. Commit 2e9df890
 // "release the docgen Home and return its failures" gave
-// NewDocMCPServer an error return and threaded it through ctxloomProduct.
+// NewDocServer an error return and threaded it through ctxloomProduct.
 //
 // What that fix did not ship is any check that the entrypoint DOES something
 // with the error it now receives. An assembly failure cannot be provoked from
@@ -238,7 +239,7 @@ func TestMCPIntro_StandaloneSurfaceClaimsAreTrue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enumerate the standalone `ctxloom mcp serve` surface: %v", err)
 	}
-	documented, err := mcp.ListDocMCPToolContracts(ctx)
+	documented, err := runnermcp.ListDocToolContracts(ctx)
 	if err != nil {
 		t.Fatalf("enumerate the documented runner surface: %v", err)
 	}
@@ -247,8 +248,8 @@ func TestMCPIntro_StandaloneSurfaceClaimsAreTrue(t *testing.T) {
 			len(standalone), len(documented))
 	}
 
-	byName := func(cs []mcp.DocMCPToolContract) map[string]mcp.DocMCPToolContract {
-		m := make(map[string]mcp.DocMCPToolContract, len(cs))
+	byName := func(cs []runnermcp.ToolContract) map[string]runnermcp.ToolContract {
+		m := make(map[string]runnermcp.ToolContract, len(cs))
 		for _, c := range cs {
 			m[c.Name] = c
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -34,10 +35,10 @@ var controlTools = []string{
 // infers it has children to control, the stall the gate exists to prevent.
 // The coordinator-capable runner serves every one of them.
 func TestRunnerServer_LeafIsRefusedEachControlTool(t *testing.T) {
-	leaf, err := newRunnerMCPServer(testConfig(), "leaf-harp", testHome(t), true, "")
+	leaf, err := newTestServer("leaf-harp", testHome(t), true, "")
 	require.NoError(t, err)
 	leafTools := listServerTools(t, leaf)
-	coordinator, err := newRunnerMCPServer(testConfig(), "coord-harp", testHome(t), false, "")
+	coordinator, err := newTestServer("coord-harp", testHome(t), false, "")
 	require.NoError(t, err)
 	coordTools := listServerTools(t, coordinator)
 
@@ -86,7 +87,7 @@ func TestRunnerServer_ControlToolsReachTheCoordinatorVerb(t *testing.T) {
 	c, err := coord.New(coord.Options{
 		ProjectDir: cwd,
 		StateDir:   t.TempDir(),
-		App:        fixtureApp(t, testConfig()),
+		Spawner:    spawn.New(nil, fixtureApp(t, testConfig()), cwd, nil),
 		OwnerHarp:  "owner-harp",
 	})
 	require.NoError(t, err)
@@ -100,7 +101,7 @@ func TestRunnerServer_ControlToolsReachTheCoordinatorVerb(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })
 
-	server, err := newRunnerMCPServer(testConfig(), "owner-harp", home, false, "")
+	server, err := newTestServer("owner-harp", home, false, "")
 	require.NoError(t, err)
 	ctx := context.Background()
 	ct, st := mcp.NewInMemoryTransports()

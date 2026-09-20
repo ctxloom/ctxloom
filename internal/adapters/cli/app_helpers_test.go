@@ -31,7 +31,7 @@ func testComposition() Composition {
 	return Composition{
 		Reporter:       strictness.Sink("ctxloom"),
 		OpenConfig:     config.Open,
-		NewCoordinator: coord.New,
+		NewCoordinator: func(_ *operations.App, opts coord.Options) (*coord.Coordinator, error) { return coord.New(opts) },
 	}
 }
 

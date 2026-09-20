@@ -6,10 +6,12 @@
 // Execute is the ONE tail every launch ends in — a delegated child's and an
 // owner run's alike — so a host `run --agent X` and an `agent_run X` deliver
 // the same file set by construction: both projections feed the same writers
-// with the same package. Until the static writers land (Part 4.1, slice 12)
-// the writers are the engine's own Setup, and until the engine host moves
-// beside this package (14a) the drive is coord.EngineHost's, reached through
-// the Driver port.
+// with the same package. The session's MCP endpoint is BOUND here, at the
+// address the Launch carries (runner/mcp is the Dynamic port), and the
+// engine's .mcp.json names it as URL + bearer. Until the static writers land
+// (Part 4.1, slice 12) the writers are the engine's own Setup, and until the
+// engine host moves beside this package (14a) the drive is
+// coord.EngineHost's, reached through the Driver port.
 package runner
 
 import (
@@ -22,8 +24,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -43,10 +47,10 @@ type Deps struct {
 	// Static delivers the package's surfaces into the cell: today the hosted
 	// engine's own Setup.
 	Static Static
-	// Dynamic stands up the session's served surface — today the runner's
-	// MCP endpoint, keyed by the launch's identity — before the engine is
-	// driven, and returns its closer. nil serves nothing.
-	Dynamic Dynamic
+	// Dynamic BINDS the session's MCP endpoint — the one the Launch carries
+	// — before the engine is driven, and returns its closer. nil serves
+	// nothing.
+	Dynamic delivery.Dynamic
 	// Surfaces validates the binding's delivery preference (as written on
 	// the package) against the hosted engine's declaration; nil accepts the
 	// engine's default delivery.
@@ -67,10 +71,6 @@ type Deps struct {
 type Static interface {
 	Setup(ctx context.Context, req *agent.SetupRequest) error
 }
-
-// Dynamic is the served-surface port: stand the session's endpoint up for
-// the launch, return its closer.
-type Dynamic func(ctx context.Context, l launch.Launch) (close func(), err error)
 
 // Driver is the engine-drive port: coord.EngineHost implements it.
 type Driver interface {
@@ -139,11 +139,12 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	}
 	var closeServed func()
 	if deps.Dynamic != nil {
-		c, err := deps.Dynamic(ctx, l)
+		lo := delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Workspace}
+		served, err := deps.Dynamic.Serve(ctx, lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 		if err != nil {
 			return Outcome{}, fmt.Errorf("runner: serve the session's endpoint: %w", err)
 		}
-		closeServed = c
+		closeServed = func() { _ = served.Close() }
 	}
 	managed := agent.ManagedConfigFor(agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}, l.Exports)
 	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)
@@ -160,7 +161,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	}); err != nil {
 		return Outcome{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
-	servers := agent.ComposeChatMCPServers(pkg.MCP, nil)
+	servers := bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP)
 	mcpConfig := ""
 	if len(servers) > 0 {
 		mcpConfig = filepath.Join(sessionHome(l), mcpConfigName)
@@ -194,6 +195,30 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		return Outcome{}, err
 	}
 	return Outcome{Delivered: managed, MCPConfig: mcpConfig, Close: closeServed}, nil
+}
+
+// bindEndpoint points ctxloom's own server entry at the session's bound
+// endpoint: the URL the runner serves on and the bearer every request must
+// carry, in place of the stdio command the package declares. The engine then
+// dials the runner directly; no shim process is spawned. A set with no
+// ctxloom entry (the builtin server withheld) is returned unchanged — that
+// child has no reach-back, which its spawn already warned about.
+func bindEndpoint(servers []agent.ChatMCPServer, ep sessions.Endpoint) []agent.ChatMCPServer {
+	if ep.URL == "" {
+		return servers
+	}
+	for i, srv := range servers {
+		if srv.Name != agent.MCPServerName {
+			continue
+		}
+		servers[i] = agent.ChatMCPServer{
+			Name:      agent.MCPServerName,
+			Transport: agent.MCPTransportHTTP,
+			URL:       ep.URL,
+			Headers:   map[string]string{"Authorization": "Bearer " + ep.Credential},
+		}
+	}
+	return servers
 }
 
 // contextFragments is the assembled context as the writers take it: one

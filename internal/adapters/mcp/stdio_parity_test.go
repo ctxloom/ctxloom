@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// Routing-table completeness (B1.6 deliverable 3): every tool either surface
-// serves is classified, and the runner surface serves every classified tool
-// — an unclassified tool is a registration-time error, never a silent
-// fallthrough.
+// The stdio server against the session endpoint's surface: the two must
+// describe the tools they share identically, and the stdio server must
+// advertise every tool the routing table makes it responsible for.
 
 func testConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
@@ -51,65 +51,20 @@ func listServerTools(t *testing.T, server *mcp.Server) map[string]*mcp.Tool {
 	}
 }
 
-// testHome builds a Home against a dead loopback endpoint — registration
-// needs the value, not a live coordinator.
-func testHome(t *testing.T) *coord.Home {
+// runnerSurface is the session endpoint's surface over this package's
+// config-backed local half, as the owner arm serves it.
+func runnerSurface(t *testing.T) *mcp.Server {
 	t.Helper()
-	h, err := coord.NewHome(context.Background(), coord.HomeConfig{
-		URL:     "http://127.0.0.1:1/mcp",
-		Token:   "t",
-		RunID:   "run-x",
-		Harness: "mock",
-		Version: "test",
-		Harp:    "run-x-harp",
-	})
+	server, err := runnermcp.NewServer(report.To(nil), testHome(t), "test-harp", "/work", false, configSurface{s: &ctxServer{cfg: testConfig()}})
 	require.NoError(t, err)
-	t.Cleanup(func() { h.Close(0, "") })
-	return h
-}
-
-// TestRunnerServer_ServesExactlyTheClassifiedSurface: the runner's tool set
-// IS the routing table — nothing unclassified, nothing missing.
-func TestRunnerServer_ServesExactlyTheClassifiedSurface(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
-	require.NoError(t, err)
-	tools := listServerTools(t, server)
-
-	routes := mcpschema.Routes()
-	for name := range tools {
-		_, ok := routes[name]
-		assert.True(t, ok, "runner serves unclassified tool %q — classify it in mcpschema.Routes", name)
-	}
-	for name := range routes {
-		_, ok := tools[name]
-		assert.True(t, ok, "classified tool %q is not served by the runner surface", name)
-	}
-}
-
-// TestRunnerServer_CoordinationToolsCarryGeneratedSchemas: the generated
-// (proto-canonical) schemas are what the runner advertises.
-func TestRunnerServer_CoordinationToolsCarryGeneratedSchemas(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
-	require.NoError(t, err)
-	tools := listServerTools(t, server)
-
-	specs, err := mcpschema.Tools()
-	require.NoError(t, err)
-	for _, spec := range specs {
-		tool, ok := tools[spec.Name]
-		require.True(t, ok, "generated tool %s missing", spec.Name)
-		assert.Equal(t, spec.Description, tool.Description, "%s description is the generated one", spec.Name)
-		require.NotNil(t, tool.InputSchema, "%s input schema advertised", spec.Name)
-	}
+	return server
 }
 
 // TestRunnerServer_HostRelayDescriptionsMatchStdio pins the description
 // parity between the runner's host-relay registrations and the stdio
 // server's typed ones — the two surfaces must not drift.
 func TestRunnerServer_HostRelayDescriptionsMatchStdio(t *testing.T) {
-	runner, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
-	require.NoError(t, err)
-	runnerTools := listServerTools(t, runner)
+	runnerTools := listServerTools(t, runnerSurface(t))
 
 	s := &ctxServer{cfg: testConfig()}
 	stdio := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
@@ -155,16 +110,6 @@ func TestStdioServer_AdvertisesEveryLocallyServedTool(t *testing.T) {
 	// Named explicitly: this is the tool whose advertisement regressed.
 	_, ok := tools["evaluate_triggers"]
 	assert.True(t, ok, "evaluate_triggers must appear in the stdio server's advertised tools")
-}
-
-// TestRunnerServer_AdvertisesEvaluateTriggers pins the same advertisement on
-// the runner surface (where a real harness actually reaches it).
-func TestRunnerServer_AdvertisesEvaluateTriggers(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
-	require.NoError(t, err)
-	tools := listServerTools(t, server)
-	_, ok := tools["evaluate_triggers"]
-	assert.True(t, ok, "evaluate_triggers must appear in the runner server's advertised tools")
 }
 
 // TestStdioServer_EveryToolClassified: the legacy stdio surface (bare-mcp

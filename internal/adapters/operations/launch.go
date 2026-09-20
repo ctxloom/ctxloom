@@ -78,7 +78,9 @@ func MintIdentity(store sessions.Store, seed sessions.Seed) (sessions.Identity, 
 	if herr := sessionlock.Hold(entry.HarpName); herr != nil {
 		clidiag.Warn("ctxloom", "session %s: cannot hold its liveness lock, so its data will never be reaped as crashed: %v", entry.HarpName, herr)
 	}
-	return sessions.Identity{Harp: entry.HarpName, Depth: seed.Depth, OneShot: seed.OneShot, Project: seed.ProjectID}, nil
+	// The originator's own run is depth 0 and never at the cap: its leafness
+	// is its one-shot-ness alone. A child's is the coordinator's verdict.
+	return sessions.Identity{Harp: entry.HarpName, Depth: seed.Depth, OneShot: seed.OneShot, Leaf: seed.OneShot, Project: seed.ProjectID}, nil
 }
 
 // LaunchDeps composes the resolver's ports over this process's published

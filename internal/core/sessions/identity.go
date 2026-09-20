@@ -25,6 +25,11 @@ type Identity struct {
 	// boundary, so it cannot hold a coordination relationship across turns.
 	// A one-shot run is a leaf regardless of Depth.
 	OneShot bool `json:"one_shot,omitempty"`
+	// Leaf is the coordinator's verdict of IsLeaf at mint — a one-shot run,
+	// or one at the delegation-depth cap — stamped so the runner, which
+	// holds no config to read the cap from, withholds the coordinator-only
+	// tools by the same rule the coordinator refuses agent_run by.
+	Leaf bool `json:"leaf,omitempty"`
 	// Project is the project id the coordinator serves (worktree-redirected).
 	Project string `json:"project,omitempty"`
 	// Consumer marks a read-only watch credential: it authenticates the

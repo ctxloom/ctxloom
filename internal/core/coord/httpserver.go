@@ -98,6 +98,9 @@ func (c *Coordinator) Serve() error {
 	s.httpSrv = &http.Server{Handler: s.handler, Protocols: protocols}
 
 	ep := s.loadEndpoint()
+	// The recorded wide port is what ensureWide prefers, so a container runner
+	// that redials after a restart lands on the address it was handed.
+	s.widePort = ep.WidePort
 	// D1: mint the consumer-class watch credential fresh for this process
 	// and persist it into endpoint.json ALONGSIDE the ports it's saved
 	// with — the file is a viewer's one discovery point for both. Minted
@@ -118,6 +121,15 @@ func (c *Coordinator) Serve() error {
 	s.saveEndpoint()
 
 	c.srv.Store(s)
+	// A previous incarnation opened the wide listener for a container run;
+	// a container runner from before the restart redials that recorded
+	// address, so it is re-bound NOW — not on the next container spawn, which
+	// may never come — or the run it holds can only end as runner loss.
+	if ep.WidePort > 0 {
+		if _, err := s.ensureWide(); err != nil {
+			c.rep.Warnf("coord: re-open the container-reachable listener recorded at port %d: %v (a container runner from before the restart cannot be re-adopted)", ep.WidePort, err)
+		}
+	}
 	return nil
 }
 

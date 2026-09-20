@@ -16,8 +16,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -58,10 +56,6 @@ const (
 
 // Options configures a Coordinator.
 type Options struct {
-	// App is the process's composition — the one config.Owner the production
-	// spawner captures a generation from per spawn (tests inject Spawner
-	// instead).
-	App *operations.App
 	// ProjectDir is the project working directory the coordinator serves.
 	ProjectDir string
 	// ProjectKey is the stable project identity keying the durable state
@@ -69,7 +63,8 @@ type Options struct {
 	ProjectKey string
 	// StateDir overrides the state dir entirely (tests).
 	StateDir string
-	// Spawner overrides the launch seam (tests). Nil = production.
+	// Spawner is the launch seam: adapters/spawn in production, composed at
+	// cmd/*; a fake in tests. Required.
 	Spawner Spawner
 	// Host is the application service every host-relayed tool is dispatched
 	// to (Verbs.Host), under the caller's identity. Nil refuses every relayed
@@ -81,15 +76,6 @@ type Options struct {
 	// discards. Long-lived goroutines report to the Reporter they were
 	// constructed with, never to a process-wide channel.
 	Reporter report.Sink
-	// Starter is the production spawner's RUNNER-PROCESS test seam: for each
-	// spawn it is handed the backend and the per-spawn runner env (the
-	// reach-back trio, harp, depth — exactly what a real runner process
-	// reads from its environment) and returns the isolation.EngineStarter
-	// that "launches" it. Nil = production, where isolation binds the real
-	// starter. It exists so an in-process runner double (coordtest) can be
-	// handed to the PRODUCTION spawner, and it is the ONLY route by which
-	// the mock backend is admitted for delegated children (prodSpawner.Resolve).
-	Starter StarterFunc
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
@@ -121,6 +107,11 @@ type Options struct {
 	// this, independent of EndedRunTail. <= 0 keeps the package default
 	// (defaultEndedRunMaxAge).
 	EndedRunMaxAge time.Duration
+	// IdleTimeout is delegation.idle_timeout: the idle reaper ends a run
+	// whose runner has had no turn for this long. <= 0 keeps the package
+	// default (defaultIdleTimeout). Production sources it from coordinator
+	// config (config.Config.GetDelegationIdleTimeout).
+	IdleTimeout time.Duration
 	// RunnerAwaitTimeout overrides how long issueStartRun waits for a
 	// just-spawned runner to dial home before declaring the launch attempt
 	// failed (children.go's dial-home barrier, awaitRunner). <= 0 keeps the
@@ -207,6 +198,8 @@ type Coordinator struct {
 	// runnerAwaitTimeout is issueStartRun's dial-home budget — see
 	// Options.RunnerAwaitTimeout / defaultRunnerAwaitTimeout (children.go).
 	runnerAwaitTimeout time.Duration
+	// idleTimeout is the idle reaper's bound — see Options.IdleTimeout.
+	idleTimeout time.Duration
 	// maxLaunchAttempts / launchBackoffBase / launchBackoffMax are the
 	// launch-retry budget (launchgate.go) resolved ONCE here at
 	// construction — the built-in defaultMaxLaunchAttempts/
@@ -267,14 +260,18 @@ type Coordinator struct {
 	spoolSeenMu sync.Mutex
 	spoolSeen   map[string]map[string]bool
 
-	mu          sync.Mutex
-	attach      map[string]*childRt // runID → runtime attachment
-	byHarp      map[string]*childRt // harp → current attachment
-	polls       map[string]*parkedPoll
-	delivered   map[string][]string       // role → delivered-but-unacked ids
-	runners     map[string]*runnerSession // credHash → connected runner
-	runnerReady map[string]chan struct{}  // credHash → closed on Hello registration (awaitRunner)
-	chans       map[string]*runChan       // role harp → live RunChannel
+	mu        sync.Mutex
+	attach    map[string]*childRt // runID → runtime attachment
+	byHarp    map[string]*childRt // harp → current attachment
+	polls     map[string]*parkedPoll
+	delivered map[string][]string       // role → delivered-but-unacked ids
+	runners   map[string]*runnerSession // credHash → connected runner
+	// graceExpire fires the runner-loss grace windows adopt armed for the
+	// runs it found live at startup, ahead of their clock — the test seam
+	// expireRunnerGrace drains; each closure is idempotent with its timer.
+	graceExpire []func()
+	runnerReady map[string]chan struct{} // credHash → closed on Hello registration (awaitRunner)
+	chans       map[string]*runChan      // role harp → live RunChannel
 	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
 	// reconnect, keyed by (role, request_id). It replaces the per-connection
 	// runChan.reqCache/inflight (reset to empty on every dial): a request the
@@ -430,6 +427,7 @@ func New(opts Options) (*Coordinator, error) {
 		endedRunTail:       t.endedRunTail,
 		endedRunMaxAge:     t.endedRunMaxAge,
 		runnerAwaitTimeout: t.runnerAwaitTimeout,
+		idleTimeout:        t.idleTimeout,
 		maxLaunchAttempts:  t.maxLaunchAttempts,
 		launchBackoffBase:  t.launchBackoffBase,
 		launchBackoffMax:   t.launchBackoffMax,
@@ -452,10 +450,7 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
-		if opts.App == nil {
-			return nil, c.abortNew(errors.New("coord: Options.App is required without an injected Spawner"))
-		}
-		c.spawner = newProdSpawner(c.rep, opts.App, opts.ProjectDir, opts.Starter)
+		return nil, c.abortNew(errors.New("coord: Options.Spawner is required (adapters/spawn, composed at cmd/*)"))
 	}
 	if err := c.openJournals(); err != nil {
 		return nil, c.abortNew(err)
@@ -469,6 +464,7 @@ func New(opts Options) (*Coordinator, error) {
 	// runs.
 	c.startSpoolReactor()
 	c.goTracked(c.runnerWatchdog)
+	c.goTracked(c.idleReaper)
 	// The PROGRESS watchdog (liveness.go), alongside the runner-liveness one
 	// above. They answer different questions and neither subsumes the other:
 	// runnerWatchdog catches a runtime that DIED (heartbeat silence) and acts
@@ -505,6 +501,7 @@ type tunables struct {
 	endedRunTail       int
 	endedRunMaxAge     time.Duration
 	runnerAwaitTimeout time.Duration
+	idleTimeout        time.Duration
 	maxLaunchAttempts  int
 	launchBackoffBase  time.Duration
 	launchBackoffMax   time.Duration
@@ -520,6 +517,7 @@ func resolveTunables(opts Options) tunables {
 		endedRunTail:       opts.EndedRunTail,
 		endedRunMaxAge:     opts.EndedRunMaxAge,
 		runnerAwaitTimeout: opts.RunnerAwaitTimeout,
+		idleTimeout:        opts.IdleTimeout,
 	}
 	if t.now == nil {
 		t.now = time.Now
@@ -538,6 +536,9 @@ func resolveTunables(opts Options) tunables {
 	}
 	if t.runnerAwaitTimeout <= 0 {
 		t.runnerAwaitTimeout = defaultRunnerAwaitTimeout
+	}
+	if t.idleTimeout <= 0 {
+		t.idleTimeout = defaultIdleTimeout
 	}
 	// The launch-retry budget has no Options field (deliberately — it is an
 	// operator/env tunable, not a per-call test seam): resolved once, here,
@@ -651,18 +652,17 @@ func (c *Coordinator) waitTracked() {
 	c.tracked.wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
 }
 
-// adopt reconciles state read from disk with the fresh process (acceptance
-// (4)): queued mail is preserved as-is (drainable); non-ended HOST runs died
-// with the previous process and are terminated (orphaned); non-ended
-// CONTAINER runs may still be alive — their credentials stay valid so their
-// RunnerChannels can re-Hello against the re-bound endpoint, and a grace
-// timer terminates any that never dial back (runner loss). Live-child
-// engine-stream continuity is Wave C.
+// adopt reconciles state read from disk with the fresh process: queued mail
+// is preserved as-is (drainable); every non-ended run gets ONE runner-loss
+// grace window in which its runner — a container's foreground process, or a
+// host runner that is its own session leader — may dial back naming the run
+// (RunnerHello.active_run_ids), whereupon readopt gives it its attachment
+// and its cell owner back; a run whose runner never returns ends as runner
+// loss. Live-child engine-stream continuity is Wave C.
 func (c *Coordinator) adopt() {
 	type pending struct {
-		runID     string
-		credHash  string
-		container bool
+		runID    string
+		credHash string
 	}
 	var stale []pending
 	c.runs.View(func() {
@@ -670,33 +670,33 @@ func (c *Coordinator) adopt() {
 			if r.Ended {
 				continue
 			}
-			// EITHER ownership mode gets the runner-loss grace below: what
-			// earns it is that the run's engine outlives the coordinator
-			// process, which is true of a container regardless of who owns
-			// its daemon.
-			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: launch.IsContainerRuntimeAxis(r.Runtime)})
+			stale = append(stale, pending{runID: id, credHash: r.CredHash})
 		}
 	})
 	for _, p := range stale {
-		if !p.container {
-			c.terminateRun(p.runID, CauseOrphaned, "coordinator relaunched; the child's engine died with the previous process")
-			continue
-		}
-		// Container run: its runner may still be alive. Give it one
-		// runner-loss window to re-Hello; terminate as runner loss if it
-		// never does.
 		runID, credHash := p.runID, p.credHash
+		fired := make(chan struct{})
+		var once sync.Once
+		fire := func() {
+			once.Do(func() {
+				close(fired)
+				c.mu.Lock()
+				_, connected := c.runners[credHash]
+				c.mu.Unlock()
+				if !connected {
+					c.terminateRun(runID, CauseRunnerLoss, "no runner re-Hello after coordinator relaunch")
+				}
+			})
+		}
+		c.mu.Lock()
+		c.graceExpire = append(c.graceExpire, fire)
+		c.mu.Unlock()
 		c.goTracked(func() {
 			select {
 			case <-time.After(runnerLossTimeout):
+				fire()
+			case <-fired:
 			case <-c.baseCtx.Done():
-				return
-			}
-			c.mu.Lock()
-			_, connected := c.runners[credHash]
-			c.mu.Unlock()
-			if !connected {
-				c.terminateRun(runID, CauseRunnerLoss, "no runner re-Hello after coordinator relaunch")
 			}
 		})
 	}

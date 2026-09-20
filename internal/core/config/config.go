@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
@@ -444,7 +445,28 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&doc); err != nil {
 		return err
 	}
+	if err := validateIdleTimeout(doc.Delegation.IdleTimeout); err != nil {
+		return err
+	}
 	c.fromDoc(doc)
+	return nil
+}
+
+// validateIdleTimeout refuses a delegation.idle_timeout that is not a
+// positive Go duration. Refused at load rather than defaulted: a typo that
+// silently became fifteen minutes would reap runners at a cadence nobody
+// configured, with every signal green.
+func validateIdleTimeout(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %q: %v", ErrInvalidIdleTimeout, raw, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("%w: %q", ErrInvalidIdleTimeout, raw)
+	}
 	return nil
 }
 
@@ -585,7 +607,22 @@ type DelegationConfig struct {
 	// which can leave an agent holding an inbox plus a child roster waiting
 	// on children it never spawned.
 	Depth int `yaml:"depth,omitempty"`
+	// IdleTimeout is how long a delegated child's runner may sit with no
+	// turn before the coordinator's idle reaper ends its run (the harp stays
+	// resumable: the next mail starts a new incarnation of the same
+	// session). A Go duration ("15m", "2h"); empty means the built-in default
+	// (DefaultDelegationIdleTimeout). Refused at load when unparsable or not
+	// positive — never silently replaced by the default.
+	IdleTimeout string `yaml:"idle_timeout,omitempty"`
 }
+
+// DefaultDelegationIdleTimeout is the built-in default for
+// delegation.idle_timeout.
+const DefaultDelegationIdleTimeout = 15 * time.Minute
+
+// ErrInvalidIdleTimeout is the load-time refusal of a delegation.idle_timeout
+// that is not a positive Go duration.
+var ErrInvalidIdleTimeout = errors.New("config: delegation.idle_timeout must be a positive duration such as \"15m\"")
 
 // DefaultDelegationDepth is the built-in default for delegation.depth (flat
 // fan-out: the session owner may spawn subagents, a subagent may not spawn

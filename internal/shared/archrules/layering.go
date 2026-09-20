@@ -163,15 +163,11 @@ var LayeringRules = []LayeringRule{
 			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
 
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
-			// profiles). envswitch is listed there without a slice.
+			// profiles).
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":        "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
 			"internal/core/coord -> internal/agentcoord/discover":          "slice 10: discover moves to adapters/coordgrpc",
 			"internal/core/coord -> internal/adapters/coordgrpc/mcpschema": "slice 10: mcpschema moves to adapters/coordgrpc",
-			"internal/core/coord -> internal/adapters/agents":              "slice 8: harnessspec/SpawnPlan become core/launch types",
-			"internal/core/coord -> internal/adapters/isolation":           "slice 8: the isolation axes become core/launch value types",
-			"internal/core/coord -> internal/adapters/operations":          "slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp",
 			"internal/core/coord -> internal/adapters/transcript":          "slice 14a: the engine-host files move to adapters/runner",
-			"internal/core/coord -> internal/shared/envswitch":             "Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env",
 
 			// coord/coordtest is the in-process runner double compiled into no binary;
 			// Part 1.0 does not mention it. It stands up the real runner half, so it
@@ -254,8 +250,9 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                                       "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 13: the stdio server dies with the plugin arm; until then it classifies its tools by the same routing table",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (Part 1.1's proto-only-in-adapters)",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/mcpschema":                         "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
 
 			// edges the prefix form surfaced (packages unit A's explicit
 			// lists did not name); each MEASURED, with the slice that
@@ -276,7 +273,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/isolation -> internal/adapters/git":                      "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; Part 1.1 does not place gitignore — no slice names this edge",
-			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "slice 9: runner/mcp serves delivery.Dynamic (measured; Part 1.1 does not place contextmetrics)",
+			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "slice 13: the stdio server dies with the plugin arm; its context_status handler reads contextmetrics until then (measured; Part 1.1 does not place contextmetrics)",
 			"internal/adapters/operations -> internal/adapters/agents":                  "slice 4: the adapters/configload split (measured; Part 1.1 does not place agents)",
 			"internal/adapters/operations -> internal/adapters/content":                 "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
@@ -300,7 +297,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/engines":                   "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
 			"internal/adapters/cli -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
 			"internal/adapters/cli -> internal/adapters/isolation":               "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
-			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
+			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 13: the stdio server and the plugin-hosted owner arm die with the plugin protocol; the session endpoint already lives in runner/mcp",
 			"internal/adapters/cli -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":                  "slice 15: operations.ReviewWalk/ResolveLocalSigner take the orchestration out of the CLI",
 			"internal/adapters/cli -> internal/adapters/signing":                 "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
@@ -335,13 +332,30 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
 			"internal/adapters/operations -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
 
+			// adapters/spawn — the production coord.Spawner, composed at cmd/*. It
+			// SELECTS over the App's generations, RESOLVES through the launch trunk
+			// and STARTS runners through isolation; Part 1.1 gives it launch.Deps
+			// and a Runtimes port instead, both handed in at cmd/*.
+			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
+			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
+			"internal/adapters/spawn -> internal/adapters/agents":     "measured: agents.DrivingMode/ValidateDriving on the binding; leaves when config's own agents edge does",
+			"internal/adapters/spawn -> internal/adapters/coordgrpc":  "slice 10: RunnerTransport.StartRun takes the launch.Launch and the coordgrpc adapter encodes it; spawn stops projecting the wire form itself",
+
+			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
+			// contract and the shared DTOs it advertises live in operations
+			// beside the application services that answer them.
+			"internal/adapters/runner/mcp -> internal/adapters/operations": "slice 13: the host-tool contract becomes a coord.Verbs projection in mcpschema; the stdio server's DTOs die with it",
+			// the stdio server and the plugin-hosted owner arm reach the endpoint's
+			// surface for the one server they still build (ServeRunnerMCP)
+			"internal/adapters/mcp -> internal/adapters/runner/mcp": "slice 13: the owner arm's socket endpoint and the stdio server die with the plugin protocol",
+			"internal/adapters/cli -> internal/adapters/runner/mcp": "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
+
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
 			"internal/lm/grpc -> internal/adapters/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
-			"internal/adapters/mcp -> internal/lm/backends":           "slice 9: runner/mcp serves delivery.Dynamic; it holds no backend",
-			"internal/adapters/mcp -> internal/adapters/isolation":    "slice 9: runner/mcp serves delivery.Dynamic; the cell is resolved before it exists",
+			"internal/adapters/mcp -> internal/lm/backends":           "slice 13: the stdio server dies with the plugin arm; its session tools resolve the backend until then",
 			"internal/adapters/mcp -> internal/adapters/memory":       "slice 14a: memory off the plugin; the compactor is an operation",
-			"internal/adapters/mcp -> internal/adapters/operations":   "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which operations implements",
+			"internal/adapters/mcp -> internal/adapters/operations":   "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
 			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
 
 			// isolation, memory, and the leaf adapters
@@ -403,7 +417,7 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/adapters/coordgrpc/pb"},
 		Allowed: map[string]string{
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                 "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",

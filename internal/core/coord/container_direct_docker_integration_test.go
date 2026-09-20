@@ -33,6 +33,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -53,6 +54,7 @@ type directBusSpawner struct {
 	mu         sync.Mutex
 	containers []string
 	cleanups   []func()
+	cells      map[string]preparedContainerCell
 }
 
 func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, error) {
@@ -85,11 +87,12 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 	return entry.HarpName, nil
 }
 
-// StartEngine is the whole point: build the REAL Container policy, prepare its
-// workspace, and launch the runner via isolation.StarterForWorkspace →
-// Container.StartRunner (docker-direct `ctxloom llm host mock`). The session
-// harp on env drives the session-state mounts (transcript survival).
-func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+// ResolveLaunch prepares the REAL Container policy's workspace for the child
+// and resolves its launch over it; Start launches the runner via
+// isolation.StarterForWorkspace → Container.StartRunner (docker-direct
+// `ctxloom llm host mock`). The session harp on env drives the session-state
+// mounts (transcript survival).
+func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
 	rt := isolation.ProbeRuntime("docker")
 	// Container auth keys on the ENGINE, resolved PER CALL from the plan
@@ -99,26 +102,51 @@ func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, sta
 	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
-		return nil, err
+		return Resolved{}, err
 	}
-	starter := isolation.StarterForWorkspace(pol, ws, plan.Backend, plan.Label, 0, runnerEnv)
+	s.mu.Lock()
+	if s.cells == nil {
+		s.cells = map[string]preparedContainerCell{}
+	}
+	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
+	s.mu.Unlock()
+	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l.Cell.Env = env
+	plan.Launch = l
+	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+}
+
+func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
+	s.mu.Lock()
+	cell := s.cells[l.Identity.Harp]
+	s.mu.Unlock()
+	starter := isolation.StarterForWorkspace(cell.pol, cell.ws, cell.backend, cell.label, 0, runnerEnv)
 	handle, err := starter(ctx)
 	if err != nil {
-		_ = ws.Cleanup()
+		_ = cell.ws.Cleanup()
 		return nil, err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
-		_ = ws.Cleanup()
+		_ = cell.ws.Cleanup()
 	})
 	s.mu.Lock()
 	s.containers = append(s.containers, handle.Name)
 	s.cleanups = append(s.cleanups, kill)
 	s.mu.Unlock()
-	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
-	l.Cell.Env = env
-	plan.Launch = l
-	return &EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: kill}, nil
+	return &EngineSpawn{Kill: kill}, nil
+}
+
+func (s *directBusSpawner) Adopt(context.Context, RunRecord) (func() error, error) { return nil, nil }
+
+// preparedContainerCell is what ResolveLaunch prepared for one harp and
+// Start launches into.
+type preparedContainerCell struct {
+	pol     isolation.Policy
+	ws      isolation.Workspace
+	backend string
+	label   string
 }
 
 func (s *directBusSpawner) ResumeHistory(context.Context, string) string        { return "" }

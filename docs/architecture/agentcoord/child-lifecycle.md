@@ -15,14 +15,15 @@ path, which now has no registered backend at all.
 
 ```mermaid
 flowchart TD
-  AR["AgentRun<br/>children.go"] --> RES["Spawner.Resolve → SpawnPlan<br/>spawner.go"]
+  AR["AgentRun<br/>children.go"] --> RES["Spawner.Resolve → SpawnPlan<br/>adapters/spawn/spawner.go"]
   RES --> ASSIGN["AssignSession → harp"]
   ASSIGN --> URL["spawnReachURL<br/>children.go"]
   URL --> EQ["enqueueRun — mint run_id + token,<br/>journal factRunEnqueued<br/>children.go"]
   EQ --> RT[("childRt<br/>children.go")]
   EQ --> RC["runChild"]
   RC -->|slot| TS[("Coordinator.slots<br/>semaphore.Weighted + FIFO waiters")]
-  RC -->|"ViaStartRun && url != ''"| VSR["runChildViaStartRun"] --> ISR["issueStartRun"]
+  RC -->|"ViaStartRun && url != ''"| VSR["runChildViaStartRun<br/>ResolveLaunch → Start (spawn.StartRunner)"] --> ISR["issueStartRun"]
+  ISR -->|"StartRun refused codes.Unavailable<br/>(delivery.ErrEndpointUnavailable)"| REBIND["ResolveLaunch(Rebind) → issueStartRun<br/>ONCE, same runner"]
   RC -->|legacy / degraded| LA["spawner.Launch → attachLaunch"] --> DC["driveChild"]
 
   RCH[["RunChannel recv loop<br/>runchannel.go"]] --> OTS["onTurnStarted"]
@@ -34,7 +35,10 @@ flowchart TD
   OTB --> BTR
   BTR --> MAIL[("queueMail → parent mailbox")]
   BTR --> POR["publishOneshotResult"]
-  OTI -->|oneShotReady| TERM
+  OTI --> IDLE["idle + slot yield<br/>(a one-shot runner PARKED its engine; the runner stays)"]
+  IDLE -.->|"idleSince ≥ IdleTimeout"| REAPER["reapIdleRuns<br/>lifetime.go"] -->|CauseIdleReaped| TERM
+  MAILIN[("mail / Coordinator.Turn frame")] -->|"to the SAME runner"| RCH
+  HELLO[["RunnerHello active_run_ids<br/>grpcserver.go"]] -->|"a run this process did not start"| READOPT["readopt → Spawner.Adopt<br/>lifetime.go"] --> RT
   DC --> EC["endChild"] --> TERM["terminateRun<br/>EXACTLY ONCE"]
   FC["failChild"] --> TERM
   TERM --> REAP["reapEndedRuns"]
@@ -73,7 +77,8 @@ name.
 | `runChildViaStartRun` / `issueStartRun` | `children.go` | settle the first turn's lead (`SpawnStart.Prompt`: the prompt, the rendered history ahead of it on a keyless resume), resolve and start the runner, await dial-home, send `StartRun{run_id, launch}`, audit, drain queued mail, mark attached; the runner leads with the package's context |
 | `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go` | the legacy event loop and its turn boundary — **FROZEN** per the spool-cutover RETIRE-FIRST ruling: never ported to the spool substrate, closed to new backends (`spawner.go`'s `checkLegacyChatFreeze`; frozen residue `legacyChatBackends` = mock alone, plus the degraded no-reach-back spawn) |
 | `bridgeTurnResult` | `children.go` | swaps out the turn accumulator and queues the child's answer to the parent as kind `result` |
-| `oneShotReady` / `onTurnIdle` | `children.go` | the three-condition one-shot gate, then either a `CauseOneShotBoundary` teardown or idle + slot yield + mail push |
+| `onTurnIdle` | `children.go` | idle + slot yield + mail push, and `idleSince` stamped for the reaper. A one-shot child's ENGINE process ended at this boundary on the runner (`EngineHost.parkAtBoundary`); the runner itself stays, parked, its endpoint bound |
+| `Turn` / `reapIdleRuns` / `readopt` | `lifetime.go` | the one-shot turn injection to a LIVE runner (`RunnerTransport.Turn`); the idle reaper (`Options.IdleTimeout`, `CauseIdleReaped`); re-adoption of a runner that outlived the previous coordinator, with its cell ownership re-acquired through `Spawner.Adopt` |
 | `terminateRun` | `children.go` | the exactly-once terminal: claim the fact, then slot release, credential revocation, poll+channel sever, parent notice, session-ended stamp, relaunch check, reap |
 | `failChild` | `children.go` | warn, count the failure, terminate, mark attached |
 | `resumeChild` | `children.go` | backoff, re-check the stop flag, resolve, enqueue as a **fresh run**, relaunch |
@@ -131,31 +136,24 @@ consequences.
 | `CauseStopped` | explicit `agent_stop`; also clears the harp's session-accept cache |
 | `CauseRunnerExit` | the runner process reported `RunExited`, or the watchdog synthesized loss |
 | `CauseLaunchFailed` | the launch never attached; the only cause that announces budget exhaustion |
-| `CauseOneShotBoundary` | routine per-turn teardown under one-shot driving; skips the terminal-tail drain |
+| `CauseIdleReaped` | the idle reaper's terminal: no turn for `delegation.idle_timeout`; no parent notice, the harp stays resumable |
 
 ## One-shot driving
 
-Under `ResumeModeOneShot` the engine is torn down at every turn boundary and resumed by
-key on the next message, so **a new run_id per turn** under a stable harp.
-`resolveResumeMode` (`spawner.go`) gates this on driving × backend capability and
-**fails loud rather than downgrading** — the model the rest of the package should copy.
-
-Two consequences a reader must hold:
-
-- Between turns a healthy one-shot child's *current* run is `Ended` with cause
-  `CauseOneShotBoundary`.
-- Report sequence numbers restart at 1 on each run — see
-  [artifacts.md](artifacts.md).
+Under `ResumeModeOneShot` the ENGINE process ends at every turn boundary and the
+next turn is driven as a fresh engine process resumed by native key — inside a
+RUNNER that stays for the whole session (`EngineHost.parkAtBoundary`,
+`EngineHost.unpark`). One run_id per runner incarnation, not per turn: the run
+is `Idle` between turns, its endpoint bound, and mail (or a `Coordinator.Turn`
+frame) lands on the same runner. `resolveResumeMode` (`adapters/spawn`) gates
+the mode on driving × backend capability and **fails loud rather than
+downgrading**. What ends a parked runner is the idle reaper (`reapIdleRuns`,
+`delegation.idle_timeout`), `agent_stop`, a FINAL report, or the runner's own
+exit; the next mail after a reap starts a new incarnation through the resume
+arm, reusing the bound endpoint.
 
 ## Divergences
 
-- **`agent_stop` on a one-shot child between turns reports a refusal.** `AgentStop`
-  calls `cancelLaunch(harp)` first (`coordinator.go`) — so the stop *has* taken
-  effect and no relaunch will occur — and then, because `rec.Ended` is true, returns
-  `"child %s had already ended (%s); any pending relaunch is cancelled"`
-  (`coordinator.go`). To a coordinating agent that reads as "your stop did
-  nothing". Resume assigns a fresh run_id, so the harp's *current* run at the moment of
-  the stop is the boundary terminal, not a live run.
 - **Plane-2 `agent_stop` does not cancel the launch at all.** `serveStopRun`
   (`runchannel.go`) calls `terminateRun` directly; `cancelLaunch` has exactly two
   call sites repo-wide, its definition and `coordinator.go`. So a coordinator-capable
@@ -165,10 +163,6 @@ Two consequences a reader must hold:
   ("today: none in production, only test doubles"). `viaStartRunBackends` is
   the registered production backend, and no registered backend implements
   `Chat` at all, so the statement now holds.
-- **`ResumeMode`'s doc contradicts the code.** `spawner.go` says one-shot is
-  "not yet executed", persistent is "today's only behavior", and one-shot is
-  "(v0.8, Slice 4)"; `Resolve` (`spawner.go`) returns `ResumeModeOneShot` for
-  the wired backends today.
 - **`RunOutcome`'s `Queued` is re-read after the driver goroutine is dispatched**
   (`children.go`), so it can report a stale answer even though the field's
   comment claims the pre-publication `tryAcquire` makes it truthful at return.

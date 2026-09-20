@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 )
 
@@ -52,32 +54,27 @@ func listServerResources(t *testing.T, server *mcp.Server) map[string]*mcp.Resou
 // registration reordering could have dropped the whole resource surface with
 // every tool assertion still green.
 func TestRunnerServer_RegistersTheCellLocalResourceSurface(t *testing.T) {
-	server, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
+	server, err := newTestServer("test-harp", testHome(t), false, "")
 	require.NoError(t, err)
 
 	got := listServerResources(t, server)
 	for _, uri := range []string{
 		resourceHelpURI,
-		resourceSessionsRecentURI,
 		resourceFragmentsURI,
-		resourceProfilesURI,
-		resourcePromptsURI,
+		resourceCommandsURI,
 		resourceSkillsURI,
-		resourceRemotesURI,
-		resourceMCPServersURI,
-		resourceSessionsURI,
 	} {
 		assert.Contains(t, got, uri, "the runner must serve %s", uri)
 	}
 }
 
-// TestRunnerServer_DocgenPathAssemblesTheSameTools: NewDocMCPServer builds the
-// surface with a nil config and an empty harp, and the generated reference page
-// is what a reader is told the runner serves. The two must not diverge.
+// TestRunnerServer_DocgenPathAssemblesTheSameTools: NewDocServer builds the
+// surface over an empty loadout and an empty harp, and the generated reference
+// page is what a reader is told the runner serves. The two must not diverge.
 func TestRunnerServer_DocgenPathAssemblesTheSameTools(t *testing.T) {
-	live, err := newRunnerMCPServer(testConfig(), "test-harp", testHome(t), false, "")
+	live, err := newTestServer("test-harp", testHome(t), false, "")
 	require.NoError(t, err)
-	docs, err := newRunnerMCPServer(nil, "", testHome(t), false, "")
+	docs, err := newTestServer("", testHome(t), false, "")
 	require.NoError(t, err)
 
 	liveNames := make([]string, 0)
@@ -125,12 +122,12 @@ func TestClaimRoutes_RejectsAMisclassifiedTool(t *testing.T) {
 func TestGeneratedToolHandler_RefusesAnUnclassifiedRoute(t *testing.T) {
 	home := testHome(t)
 
-	h, err := generatedToolHandler(home, "harp", t.TempDir(), mcpschema.RouteCellLocal, "agent_run", false)
+	h, err := generatedToolHandler(report.To(nil), home, "harp", t.TempDir(), mcpschema.RouteCellLocal, "agent_run", false)
 	assert.Nil(t, h)
 	require.Error(t, err, "cell-local is not a generated-tool route")
 	assert.Contains(t, err.Error(), "agent_run")
 
-	h, err = generatedToolHandler(home, "harp", t.TempDir(), mcpschema.RouteCoordination, "agent_run", false)
+	h, err = generatedToolHandler(report.To(nil), home, "harp", t.TempDir(), mcpschema.RouteCoordination, "agent_run", false)
 	require.NoError(t, err)
 	assert.NotNil(t, h)
 }

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -49,4 +50,15 @@ func TestReapDeadRunnerSockets(t *testing.T) {
 	// removing things it spared the first time.
 	require.Equal(t, 0, reapDeadRunnerSockets(dir), "a second sweep must remove nothing")
 	require.FileExists(t, live)
+}
+
+// deadProcessPID returns the pid of a process that has just exited and been
+// reaped — a pid the liveness probe reports Dead.
+func deadProcessPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	require.NoError(t, cmd.Start())
+	pid := cmd.Process.Pid
+	require.NoError(t, cmd.Wait())
+	return pid
 }

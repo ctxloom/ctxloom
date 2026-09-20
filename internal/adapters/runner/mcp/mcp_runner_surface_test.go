@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
@@ -23,7 +25,7 @@ import (
 // deciding where a tool's arguments go.
 func TestRegisterGeneratedTools_UnclassifiedToolIsAStartupError(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
-	err := registerGeneratedTools(server, testHome(t), "test-harp", t.TempDir(), false,
+	err := registerGeneratedTools(report.To(nil), server, testHome(t), "test-harp", t.TempDir(), false,
 		map[string]mcpschema.Route{}, map[string]bool{})
 	require.Error(t, err, "an unclassified generated tool must fail runner startup")
 	assert.Contains(t, err.Error(), "mcpschema.Routes", "the error points at the table to fix")
@@ -33,7 +35,7 @@ func TestRegisterGeneratedTools_UnclassifiedToolIsAStartupError(t *testing.T) {
 // surface it serves — an unclassified tool is not excused by being withheld.
 func TestRegisterGeneratedTools_UnclassifiedIsAnErrorForALeafToo(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
-	err := registerGeneratedTools(server, testHome(t), "test-harp", t.TempDir(), true,
+	err := registerGeneratedTools(report.To(nil), server, testHome(t), "test-harp", t.TempDir(), true,
 		map[string]mcpschema.Route{}, map[string]bool{})
 	require.Error(t, err, "a leaf runner must fail on an unclassified tool as well")
 }
@@ -42,7 +44,7 @@ func TestRegisterGeneratedTools_UnclassifiedIsAnErrorForALeafToo(t *testing.T) {
 func TestRegisterGeneratedTools_ClassifiedSurfaceRegisters(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	registered := map[string]bool{}
-	require.NoError(t, registerGeneratedTools(server, testHome(t), "test-harp", t.TempDir(), false,
+	require.NoError(t, registerGeneratedTools(report.To(nil), server, testHome(t), "test-harp", t.TempDir(), false,
 		mcpschema.Routes(), registered))
 
 	specs, err := mcpschema.Tools()

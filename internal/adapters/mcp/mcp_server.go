@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,27 +16,24 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
-	"github.com/ctxloom/ctxloom/resources"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler. The
 // stdio server builds one per process, its identity read from the ambient env
-// (selfIdentityFromEnv). The runner-terminated surface builds one per runner
-// inside newRunnerMCPServer, its identity being that runner's own harp and
-// cell work dir — so a cell-local tool sees the CELL's identity, never the
-// serving process's env.
+// (selfIdentityFromEnv). The plugin-hosted owner arm's socket endpoint
+// (ServeRunnerMCP) builds one per runner as the config-backed local half of
+// runnermcp.NewServer, its identity being that runner's own harp and cwd — so
+// a cell-local tool sees the CELL's identity, never the serving process's env.
 type ctxServer struct {
 	// app is the process's composition; cfg is the generation this server
 	// serves — the one published after startup's sync, held for the
-	// server's life. A runner-terminated server (newRunnerMCPServer) is
-	// handed its generation and holds no app.
+	// server's life. The owner arm's server (ServeRunnerMCP) is handed its
+	// generation and holds no app.
 	app *operations.App
 	// build constructs the coordinator a bare `ctxloom mcp` stands up on its
 	// first agent_run — the composition root's constructor, handed in.
@@ -71,80 +66,6 @@ type ctxServer struct {
 	compactorFactory func(memory.CompactionConfig) (*memory.Compactor, error)
 }
 
-// mcpServerInstructions tells the client what this reduced MCP surface is for.
-// ctxloom keeps only the agent's runtime context tools here; all management is
-// CLI-driven (see cmd/hook_inject_context.go's onload preamble for the same
-// guidance injected at session start).
-var mcpServerInstructions = resources.MustGetPromptText("mcp-server-instructions")
-
-// premiseCatalogInstruction tells an MCP client that conditional guidance exists
-// and where to ask for it.
-//
-// The catalog itself is PULLED, never pushed — docs/architecture/core/premise-selection.md
-// holds that ruling. What is pushed here is the POINTER, which is the one part a
-// client cannot discover on its own: an agent that does not know the catalog
-// exists never asks, and the fragments it would have selected are never learned
-// to exist.
-//
-// The selection wording comes from operations.PremiseSelectionInstruction rather
-// than a copy. Its three properties were fixed by measurement, and the apparatus
-// that measured them was deliberately removed — so a copy that drifts cannot be
-// re-derived back to the original. One source, or the measured one loses.
-func premiseCatalogInstruction() string {
-	var b strings.Builder
-	b.WriteString("\n\n")
-	b.WriteString(operations.PremiseSelectionInstruction())
-	b.WriteString("\nThe catalog is the `")
-	b.WriteString(resourceFragmentsURI)
-	b.WriteString("` resource: every conditional fragment,\n")
-	b.WriteString("each with its premise and the qualified ref to quote back. Read it when you\n")
-	b.WriteString("are ABOUT TO ACT, not once at session start — a premise turns on what you\n")
-	b.WriteString("are about to do, so the answer only means something at the moment you have\n")
-	b.WriteString("something to match against.\n")
-	return b.String()
-}
-
-// sessionInstructions renders the server instructions for one caller
-// identity (the stdio server's env harp, or a coordinator credential's).
-func sessionInstructions(harp string) string {
-	instructions := mcpServerInstructions + premiseCatalogInstruction()
-	if harp == "" {
-		return instructions
-	}
-	// Tell the LLM its own session name so it can self-reference
-	// ("save this as the swift-amber-falcon plan") and so plan-
-	// stamping correlates the right harp.
-	sessionLine := fmt.Sprintf("\n\nYour session is named `%s`. Refer to it by this name when discussing it with the user.", harp)
-	// Resume provenance is a property of THIS serving process's session
-	// only, so the env read stays gated on the ambient harp matching.
-	if resumed := os.Getenv("CTXLOOM_RESUMED_FROM"); resumed != "" && harp == os.Getenv(sessions.EnvHarp) {
-		parts := os.Getenv("CTXLOOM_RESUMED_PARTS")
-		if parts == "" {
-			parts = "session,tasks"
-		}
-		sessionLine += fmt.Sprintf(" Resumed from `%s` (restored: %s).", resumed, parts)
-	}
-	// Point the LLM at this session's plan directory. Implementation and
-	// strategy plans belong here (not in an ad-hoc .plan/ dir) so they travel
-	// with the session and can be recovered on resume. A session may produce
-	// several plans, so each is a separately named file with a .plan.md
-	// suffix.
-	//
-	// The path is paths.HarpPlansDir — the harp's persist/ subdirectory — and
-	// NOT the harp top level. Only persist/ is bind-mounted into a
-	// containerized run (isolation.Container.sessionStateMounts), so an agent
-	// that follows this instruction from inside a container and writes at the
-	// top level writes into container-ephemeral overlay space and loses the
-	// plan on exit: a successful write, a real file, and zero bytes left
-	// behind afterwards. This sentence IS the population source for that
-	// failure — every session is told where to put its plans right here — so
-	// it is the one place the location has to be right.
-	if planDir, perr := paths.HarpPlansDir(harp); perr == nil {
-		sessionLine += fmt.Sprintf(" Store implementation/strategy plans as markdown files in this session's plan directory `%s`, each named `<descriptive-name>%s` (e.g. `%s`). That directory is the one that survives a containerized run — plans written elsewhere under the session directory do not. A session may have multiple plans — use distinct names and reference plans by their path.", planDir, paths.PlanFileExt, filepath.Join(planDir, "v1-removal"+paths.PlanFileExt))
-	}
-	return instructions + sessionLine
-}
-
 // ServeStdio is the whole body of `ctxloom mcp serve`: forward-mode
 // detection, local startup, and the stdio SDK server. The cobra command in
 // internal/adapters/cli is wiring onto this and nothing more — it owns only the
@@ -170,38 +91,16 @@ func (s *ctxServer) strictness() strictness.Mode {
 }
 
 func ServeStdio(ctx context.Context, app *operations.App, build CoordinatorConstructor, cwd string, gate func() error, dryRun bool) error {
-	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
-	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
-	// proxy onto it. No local startup (config, sync, hooks) runs — the
-	// runner process owns the surface and the coordinator credential; this
-	// process holds neither. (The B1 forward-to-coordinator HTTP mode is
-	// DELETED: CTXLOOM_COORD_URL/CRED are consumed only by the runner now.)
+	// FORWARD MODE: when the engine-inherited env names the plugin-hosted
+	// owner arm's runner socket, this whole server is a stdio↔HTTP-over-unix
+	// proxy onto it. No local startup (config, sync, hooks) runs — the runner
+	// process owns the surface and the coordinator credential; this process
+	// holds neither. A refusal (identity/stamp mismatch, already printed)
+	// falls through to local startup.
 	if sock := os.Getenv(coord.EnvMCPSocket); sock != "" {
-		trigger := forwardTrigger{Kind: triggerEnvVar, Name: coord.EnvMCPSocket}
-		if outcome, ferr := runMCPForward(ctx, trigger, sock); outcome == forwardOutcomeServed {
+		if outcome, ferr := runMCPForward(ctx, forwardTrigger{Name: coord.EnvMCPSocket}, sock); outcome == forwardOutcomeServed {
 			return ferr
 		}
-		// forwardOutcomeRefused: identity/stamp verification refused this
-		// target (graceful-egomaniac unit 2) and already printed why — fall
-		// through to local startup below instead of returning.
-	} else if sock, markerPath, derr := probeWellKnownRunner(cwd); derr != nil {
-		// HOST-CONTROLLED DISCOVERY (fix/host-controlled-mcp-discovery): the
-		// env var above rides a VENDOR-CONTROLLED channel (ACP
-		// mcpServers.env) that at least one real adapter drops (codex-acp:
-		// honors name/command/args, discards env). Probe the well-known
-		// marker a runner publishes UNCONDITIONALLY before ever considering
-		// local mode — additive to the env fast path above, never a
-		// replacement of it. See mcp_discovery.go for exactly how this
-		// tells "should have a runner, fail loud" apart from "legitimately
-		// standalone, local is correct" apart from "foreign marker, not
-		// mine" (graceful-egomaniac unit 3).
-		return derr
-	} else if sock != "" {
-		trigger := forwardTrigger{Kind: triggerMarker, Name: markerPath}
-		if outcome, ferr := runMCPForward(ctx, trigger, sock); outcome == forwardOutcomeServed {
-			return ferr
-		}
-		// forwardOutcomeRefused: same fall-through as the env-var trigger.
 	}
 
 	s := &ctxServer{app: app, build: build, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
@@ -227,7 +126,7 @@ func ServeStdio(ctx context.Context, app *operations.App, build CoordinatorConst
 		}
 	}
 
-	opts := &mcp.ServerOptions{Instructions: sessionInstructions(s.self.Harp)}
+	opts := &mcp.ServerOptions{Instructions: operations.SessionInstructions(s.self.Harp)}
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Version: version.Version,

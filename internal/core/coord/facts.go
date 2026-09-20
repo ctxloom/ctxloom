@@ -32,6 +32,11 @@ const (
 	// name cannot be known at enqueue, only after spawn. Never posted for a
 	// host-runtime run.
 	factRunContainer = "run.container"
+	// factRunCell binds a run to the cell its launch resolved — the workspace
+	// the engine runs in and the engine it was resolved for — once the launch
+	// exists. A coordinator that restarts and re-adopts the run re-binds the
+	// run's engine home from this; the cell is not known at enqueue.
+	factRunCell = "run.cell"
 	// factRunResumable records the run engine's LIVE resume capability (ACP's
 	// initialize-time loadSession bit, surfaced via ChatSessionInfo.Resumable)
 	// — the one-shot resume gate's live half (one-shot-resume plan, Slice 4 /
@@ -69,15 +74,13 @@ const (
 	// relaunch: their engine died with the previous process. Queued mail is
 	// preserved; a later send/inject resumes the harp as a fresh run.
 	CauseOrphaned = "orphaned-by-restart"
-	// CauseOneShotBoundary is a driving:oneshot child's turn-boundary teardown
-	// (one-shot-resume plan, Slice 4): the turn completed cleanly, so the
-	// engine process is torn down and the harp left RESUMABLE — the next
-	// mailbox delivery resumes it by native session key (session/load), a
-	// fresh turn. It is a NON-error, EXPECTED terminal that repeats every turn,
-	// so unlike every other cause it queues NO "exited" notice to the parent
-	// (the turn's result was already bridged) and — like every cause except
-	// CauseStopped — it must NOT clear the harp's ACCEPT_FOR_SESSION grants.
-	CauseOneShotBoundary = "oneshot-boundary"
+	// CauseIdleReaped is the idle reaper's terminal: the run's runner had no
+	// turn for delegation.idle_timeout and was ended to free its slot, its
+	// process (a container, on that axis) and its bound endpoint. It is an
+	// EXPECTED, non-error terminal that leaves the harp RESUMABLE — the next mail starts a new incarnation through the
+	// resume arm, reusing the bound endpoint — queues NO "exited" notice to
+	// the parent, and must NOT clear the harp's ACCEPT_FOR_SESSION grants.
+	CauseIdleReaped = "idle-reaped"
 	// CauseDrained is a child ended by the coordinator's DRAIN at a point
 	// where no work was cut short: at its own turn boundary (the exit the
 	// drain REQUESTED, honoured), between turns, or before it ever started.
@@ -99,10 +102,9 @@ const (
 	// It ends the RUN, not the SESSION. Like every cause except CauseStopped
 	// it leaves the harp RESUMABLE — leftover mail resumes it (terminateRun's
 	// own tail) and a later agent_send resumes it as a fresh run by native
-	// session key, exactly as after a one-shot boundary. Unlike
-	// CauseOneShotBoundary it DOES queue the parent's "exited" notice: this
-	// fires once per agent, not once per turn, and the notice is the parent's
-	// signal that the report it just received was the last word.
+	// session key. Unlike the idle reaper's terminal it DOES queue the
+	// parent's "exited" notice: the notice is the parent's signal that the
+	// report it just received was the last word.
 	CauseFinalReported = "final-reported"
 )
 
@@ -173,6 +175,14 @@ type runHarness struct {
 type runContainer struct {
 	RunID         string `json:"run_id"`
 	ContainerName string `json:"container_name"`
+}
+
+// runCell is factRunCell's payload.
+type runCell struct {
+	RunID    string `json:"run_id"`
+	WorkDir  string `json:"work_dir"`
+	Engine   string `json:"engine"`
+	HomeMode string `json:"home_mode,omitempty"`
 }
 
 // runResumable is factRunResumable's payload.

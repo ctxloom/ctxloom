@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,11 +12,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -38,46 +38,49 @@ type runnerStandup struct {
 }
 
 // standUpRunner performs the runner standup shared by `llm serve` and `llm
-// host`: consume + scrub the coordinator reach-back trio,
-// load + apply the backend config, stand up the EngineHost for a delegated
-// StructuredChat run, dial home, stand up the runner-local MCP socket, and
-// BindHome — everything llm_serve.go's body did EXCEPT the transport tail
-// (plugin.Serve vs a lifecycle block, which each caller owns). It returns the
-// standup on success, or a FATAL error (a hosted run whose MCP endpoint failed
-// — never launch its engine with no reach-back) after closing home itself.
+// host`: consume + scrub the coordinator reach-back trio, then one of three
+// arms. A HOSTED run (the trio names a run id) reads NO config: everything
+// it needs rides the Launch — the label body the engine is configured from,
+// the package it delivers, the MCP endpoint it binds (runner/mcp) — so it
+// stands up the EngineHost, dials home and binds the runner tail. The
+// plugin-hosted OWNER arm (`llm serve` under the interactive host run, no
+// run id) still loads config and serves the socket endpoint its stdio shim
+// forwards to; it dies with the plugin arm. With no reach-back at all there is
+// nothing to dial or host. It returns the standup on success, or a FATAL error
+// after closing home itself.
 //
-// label is the config label whose LLM entry configures the backend, passed by
-// whichever command owns the standup — each has its own --label flag, and a
-// parameter is what keeps the three from sharing one mutable package global.
+// label is the config label whose LLM entry configures the backend on the
+// owner arm, passed by whichever command owns the standup — each has its own
+// --label flag, and a parameter is what keeps the three from sharing one
+// mutable package global.
 func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label string) (*runnerStandup, error) {
 	reach, rerr := consumeCoordinatorReachBack(backendName, os.Getenv, os.Unsetenv)
 	if rerr != nil {
 		return nil, rerr
 	}
 	homeCfg := reach.home
+	standup := &runnerStandup{}
+
+	if homeCfg.URL == "" || homeCfg.Token == "" {
+		// No reach-back: nothing to dial or host (an unconfigured/top-level
+		// serve, or a `llm host` launched without a coordinator).
+		if _, cfgErr := loadAndConfigureBackend(backend, backendName, label); cfgErr != nil {
+			return nil, cfgErr
+		}
+		return standup, nil
+	}
+
+	if homeCfg.RunID != "" {
+		return standUpHostedRunner(cmd, standup, backend, backendName, homeCfg)
+	}
 
 	cfg, cfgErr := loadAndConfigureBackend(backend, backendName, label)
 	if cfgErr != nil {
 		return nil, cfgErr
 	}
-
-	standup := &runnerStandup{}
-	if homeCfg.URL == "" || homeCfg.Token == "" {
-		// No reach-back: nothing to dial or host (an unconfigured/top-level
-		// serve, or a `llm host` launched without a coordinator).
-		return standup, nil
-	}
-
-	if homeCfg.RunID != "" {
-		if sc, ok := backend.(agent.StructuredChat); ok {
-			standup.engineHost = coord.NewEngineHost(cmd.Context(), App().Reporter, sc, backendName, homeCfg.RunID)
-			homeCfg.Engine = standup.engineHost.Handle
-		}
-	}
-	// The Hello advertisement, resolved BEFORE NewHome dials: the control kinds
-	// ride only when this runner actually hosts an engine that could execute
-	// them, so an engineless runner advertises the mailbox surface alone.
-	homeCfg.Capabilities = coord.RunnerCapabilities(standup.engineHost != nil)
+	// The Hello advertisement: an engineless runner advertises the mailbox
+	// surface alone.
+	homeCfg.Capabilities = coord.RunnerCapabilities(false)
 	homeCfg.Reporter = App().Reporter
 	h, herr := coord.NewHome(cmd.Context(), homeCfg)
 	if herr != nil {
@@ -85,26 +88,34 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 		return standup, nil
 	}
 	standup.home = h
+	// The plugin-hosted owner arm: no Launch will arrive, so its MCP
+	// endpoint stands up now, keyed by the harp its env carried.
+	if err := attachRunnerMCP(standup, cfg, h, reach.harp); err != nil {
+		h.Close(1, "")
+		return nil, err
+	}
+	return standup, nil
+}
 
-	if standup.engineHost == nil {
-		// The plugin-hosted owner arm: no Launch will arrive, so its MCP
-		// endpoint stands up now, keyed by the harp its env carried.
-		if err := attachRunnerMCP(standup, cfg, h, reach.harp, false, ""); err != nil {
-			h.Close(1, "")
-			return nil, err
-		}
+// standUpHostedRunner is the hosted-run arm: the engine host for the ONE run
+// this runner was spawned for, the dial-home, and the runner tail whose
+// Dynamic port binds the Launch's endpoint. No config is read.
+func standUpHostedRunner(cmd *cobra.Command, standup *runnerStandup, backend agent.Backend, backendName string, homeCfg coord.HomeConfig) (*runnerStandup, error) {
+	sc, ok := backend.(agent.StructuredChat)
+	if !ok {
+		return nil, fmt.Errorf("runner: backend %q cannot host run %s: it drives no structured chat", backendName, homeCfg.RunID)
+	}
+	standup.engineHost = coord.NewEngineHost(cmd.Context(), App().Reporter, sc, backendName, homeCfg.RunID)
+	homeCfg.Engine = standup.engineHost.Handle
+	homeCfg.Capabilities = coord.RunnerCapabilities(true)
+	homeCfg.Reporter = App().Reporter
+	h, herr := coord.NewHome(cmd.Context(), homeCfg)
+	if herr != nil {
+		clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
 		return standup, nil
 	}
-	// A hosted run: identity arrives on the Launch, so the runner's MCP
-	// endpoint (keyed by the harp, gated by the depth) stands up at payload
-	// arrival, inside runner.Execute, strictly before the engine is driven.
-	runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost, func(ctx context.Context, l launch.Launch) (func(), error) {
-		leaf := l.Identity.IsLeaf(cfg.GetDelegationDepth())
-		if err := attachRunnerMCP(standup, cfg, h, l.Identity.Harp, leaf, l.Cell.Workspace); err != nil {
-			return nil, err
-		}
-		return standup.endpointClose, nil
-	})
+	standup.home = h
+	runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost, runnermcp.Endpoint{Home: h, Reporter: App().Reporter})
 	if derr != nil {
 		h.Close(1, "")
 		return nil, derr
@@ -121,7 +132,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 // dynamic half, the binding-preference validator, the engine's configure
 // seam over the label body the Launch carries, and the engine host as the
 // driver.
-func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic runner.Dynamic) (runner.Deps, error) {
+func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
@@ -175,43 +186,30 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 	return cfg, nil
 }
 
-// attachRunnerMCP stands up the runner-local MCP endpoint for harp and
-// publishes its socket into this process's environment, recording the
-// endpoint's closer on standup. leaf withholds the coordinator-only tools
-// (a one-shot run, or one at the delegation-depth cap); cellWorkDir keys the
-// discovery marker by the directory the engine runs in ("" = this process's
-// cwd). It returns a non-nil error ONLY when the runner must refuse to launch
-// its engine: this runner hosts a delegated run (engineHost != nil) and has no
-// reach-back for it. The caller owns closing home on that error.
-//
-// The two refusal conditions are the same condition reached two ways, which is
-// why they answer identically: the child's shim keys entirely off
-// CTXLOOM_MCP_SOCKET, so an endpoint that failed to come up, an endpoint that
-// could not be published, and a config too broken to build one from all leave the
-// engine reaching a rogue local coordinator nobody reads. Without a hosted run
-// there is nothing to refuse for and the shim's own local fallback is correct, so
-// it degrades with a warning.
-func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *coord.Home, harp string, leaf bool, cellWorkDir string) error {
-	endpoint, merr := mcp.ServeRunnerMCP(cfg, harp, h, leaf, cellWorkDir)
+// attachRunnerMCP stands up the plugin-hosted owner arm's socket endpoint for
+// harp and publishes its socket into this process's environment, recording
+// the endpoint's closer on standup. The owner's stdio shim (`ctxloom mcp
+// serve`, launched by the interactive engine) forwards to it by
+// CTXLOOM_MCP_SOCKET; the arm dies with the plugin protocol. Without a hosted
+// run there is nothing to refuse for and the shim's own local fallback is
+// correct, so a failed endpoint degrades with a warning.
+func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *coord.Home, harp string) error {
+	endpoint, merr := mcp.ServeRunnerMCP(App().Reporter, cfg, harp, h)
 	if merr == nil {
-		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
-		// (every engine spawn path builds the harness env over os.Environ), so a
-		// failed export leaves the endpoint standing and unaddressable — the same
-		// end state as no endpoint at all, and treated as the same failure.
+		// The shim reads CTXLOOM_MCP_SOCKET from THIS process's env (every
+		// engine spawn path builds the harness env over os.Environ), so a
+		// failed export leaves the endpoint standing and unaddressable — the
+		// same end state as no endpoint at all, and treated as the same failure.
 		if merr = exportRunnerMCPSocket(os.Setenv, endpoint.SocketPath); merr != nil {
 			endpoint.Close()
 		}
 	}
-	switch {
-	case merr == nil:
-		standup.endpointClose = endpoint.Close
-		return nil
-	case standup.engineHost != nil:
-		return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", h.RunID(), merr)
-	default:
+	if merr != nil {
 		clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
 		return nil
 	}
+	standup.endpointClose = endpoint.Close
+	return nil
 }
 
 // coordinatorReachBack is the per-spawn coordinator credential set a runner
@@ -233,7 +231,6 @@ var coordinatorEnvKeys = []string{
 	coord.EnvCoordURL,
 	coord.EnvCoordCred,
 	coord.EnvRunID,
-	coord.EnvCellWorkDir,
 }
 
 // consumeCoordinatorReachBack reads the coordinator reach-back out of the

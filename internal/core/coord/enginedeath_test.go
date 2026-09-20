@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // engineDeathTail is the distinctive diagnostic a dying engine adapter writes
@@ -205,10 +205,9 @@ func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
 	}
 }
 
-func (s *deadRunnerSpawner) StartEngine(_ context.Context, plan *SpawnPlan, start SpawnStart, _ map[string]string) (*EngineSpawn, error) {
+func (s *deadRunnerSpawner) Start(_ context.Context, _ launch.Launch, _ sessions.Endpoint) (*EngineSpawn, error) {
 	return &EngineSpawn{
-		Launch: ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "test-model", "/work", agent.PermissionBypass),
-		Kill:   func() {},
+		Kill: func() {},
 		Wait: func() error {
 			select {
 			case s.waited <- struct{}{}:

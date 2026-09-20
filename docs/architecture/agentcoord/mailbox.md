@@ -44,7 +44,7 @@ flowchart TD
 | Unacknowledged deliveries are re-delivered after a coordinator relaunch, because delivery is **not** recorded durably — only in the runtime ledger `c.delivered` | `coordinator.go`, `mailbox.go` |
 | A message is invisible to `undeliveredLocked`/`pendingCount` while its id sits in the runtime ledger | `mailbox.go` |
 | The ledger is cleared by `unreserve` only: on ack, on abandon, and on channel sever | `mailbox.go`, `runchannel.go` |
-| `agent_recv` wait is bounded (`defaultRecvWait` 60s, `maxRecvWait` 10m, silently clamped) | `mcp/mcp_tools_agents.go`, `mcp/mcp_runner.go` |
+| `agent_recv` wait is bounded (`defaultRecvWait` 60s, `maxRecvWait` 10m, silently clamped) | `mcp/mcp_tools_agents.go`, `runner/mcp/server.go` |
 
 ## Addressing contract
 

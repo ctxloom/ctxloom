@@ -52,7 +52,7 @@ func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- c.issueStartRun(ctx, rt, credHash, wire, "the first turn", "test-model", "") }()
+	go func() { done <- c.issueStartRun(ctx, rt, credHash, wire, "the first turn", "test-model", "", false) }()
 
 	// Past the dial-home wait: the StartRun frame is on the runner's send
 	// queue, so the coordinator is parked on the RESPONSE — which is the

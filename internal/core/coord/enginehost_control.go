@@ -10,6 +10,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
 // The engine host's TURN QUEUE (what asked for each locally-originated turn,
@@ -30,6 +31,10 @@ type turnTag struct {
 	// its outstanding asks an answer answers. Empty for a turn nothing
 	// delivered started — the briefing, or an engine continuing on its own.
 	mail string
+	// done, when non-nil, receives this turn's result at its boundary — a
+	// Turn frame's caller is waiting on it. Buffered by its maker so the
+	// adapt loop never blocks on a caller that went away.
+	done chan engine.TurnResult
 }
 
 // enqueueTurn is the ONE funnel onto eh.in for every locally-originated turn —
@@ -47,14 +52,27 @@ type turnTag struct {
 // own ctx, so the lock is released when the run dies.
 func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string) error {
 	eh.mu.Lock()
+	started := eh.in != nil && eh.runCtx != nil
+	parked := eh.parked
+	eh.mu.Unlock()
+	if !started {
+		return errors.New("engine host: no run has started, so there is no turn stream to enqueue onto")
+	}
+	if parked {
+		// A parked one-shot host has no engine process: this turn starts
+		// the next one, resumed by key, and everything below reads THAT
+		// process's stream and context. Under enqueueMu so exactly one
+		// process starts per boundary however many turns arrive at once.
+		eh.enqueueMu.Lock()
+		eh.unpark()
+		eh.enqueueMu.Unlock()
+	}
+	eh.mu.Lock()
 	in := eh.in
 	rec := eh.rec
 	runCtx := eh.runCtx
 	briefed := eh.briefed
 	eh.mu.Unlock()
-	if in == nil || runCtx == nil {
-		return errors.New("engine host: no run has started, so there is no turn stream to enqueue onto")
-	}
 	select {
 	case <-briefed:
 	case <-ctx.Done():
@@ -197,4 +215,34 @@ func (eh *EngineHost) checkRunID(runID, what string) *agentcoordpb.RunnerRespons
 	}
 	return &agentcoordpb.RunnerResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf(
 		"%s named run %s, but this runner hosts run %s (A9 correlation)", what, runID, eh.runID))}
+}
+
+// turnFrame answers RunnerRequest.Turn — the coordinator's one-shot turn
+// injection to THIS live runner: one engine turn (a fresh engine process
+// when the host is parked, resumed by the frame's key or the one the host
+// learned), answered with the turn's final text and the key the next turn
+// resumes by. It blocks until the turn's boundary.
+func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerResponse {
+	eh.mu.Lock()
+	started := eh.started
+	if t.GetResume() != "" && eh.parked {
+		eh.nativeKey = t.GetResume()
+	}
+	eh.mu.Unlock()
+	if !started {
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.FailedPrecondition, "turn: no run is driven on this runner yet")}
+	}
+	if t.GetPrompt() == "" {
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.InvalidArgument, "turn: a turn needs a prompt")}
+	}
+	done := make(chan engine.TurnResult, 1)
+	if err := eh.enqueueTurn(eh.baseCtx, turnTag{done: done}, t.GetPrompt()); err != nil {
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Unavailable, "turn: "+err.Error())}
+	}
+	select {
+	case res := <-done:
+		return &agentcoordpb.RunnerResponse{Status: okStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
+	case <-eh.baseCtx.Done():
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Canceled, "turn: the runner is shutting down")}
+	}
 }

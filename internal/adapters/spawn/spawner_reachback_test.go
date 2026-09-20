@@ -1,4 +1,4 @@
-package coord
+package spawn
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 	// dirProfiles writes .ctxloom/profiles/<name>.yaml alongside the config.
 	// A DIRECTORY profile is what ResolveBundleMCPServers reads exclude_mcp
 	// from, so that is where a project states "withhold this server".
-	newSpawner := func(t *testing.T, body string, dirProfiles map[string]string) *prodSpawner {
+	newSpawner := func(t *testing.T, body string, dirProfiles map[string]string) *spawner {
 		t.Helper()
 		resetStrictness(t)
 		t.Setenv("HOME", t.TempDir())
@@ -42,7 +42,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"), []byte(doc), 0o644))
 			}
 		}
-		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+		return newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	hasCtxloom := func(servers []agent.ChatMCPServer) bool {

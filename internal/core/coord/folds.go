@@ -69,6 +69,13 @@ type RunRecord struct {
 	// enqueue. Only meaningful while the run is live: the container is
 	// force-removed on teardown (isolation.AttachedContainer.Close).
 	ContainerName string
+	// WorkDir, Engine and HomeMode are the run's resolved cell (factRunCell):
+	// the workspace the engine runs in, the engine, and the binding's
+	// engine-home policy — what a restarted coordinator re-binds the run's
+	// engine home from when it re-adopts the run.
+	WorkDir  string
+	Engine   string
+	HomeMode string
 }
 
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the
@@ -109,6 +116,8 @@ func (f *runsFold) apply(fact Fact) {
 		applyDecoded(fact, f.applyHarness)
 	case factRunContainer:
 		applyDecoded(fact, f.applyContainer)
+	case factRunCell:
+		applyDecoded(fact, f.applyCell)
 	case factRunResumable:
 		applyDecoded(fact, f.applyResumable)
 	case factRunReaped:
@@ -186,6 +195,12 @@ func (f *runsFold) applyHarness(p runHarness, _ time.Time) {
 func (f *runsFold) applyContainer(p runContainer, _ time.Time) {
 	if r := f.runs[p.RunID]; r != nil {
 		r.ContainerName = p.ContainerName
+	}
+}
+
+func (f *runsFold) applyCell(p runCell, _ time.Time) {
+	if r := f.runs[p.RunID]; r != nil {
+		r.WorkDir, r.Engine, r.HomeMode = p.WorkDir, p.Engine, p.HomeMode
 	}
 }
 

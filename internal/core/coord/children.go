@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/codes"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -12,7 +14,6 @@ import (
 	"go.uber.org/zap"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -161,6 +162,9 @@ type childRt struct {
 	// turns) is identical to a child.
 	ownerRun bool
 	close    func()
+	// idleSince is when this run's runner last went idle (a turn boundary);
+	// zero while a turn is in flight. The idle reaper reads it.
+	idleSince time.Time
 	// workDir is the isolation-resolved workspace this run's engine was
 	// started in (EngineSpawn.WorkDir). It exists for the liveness watchdog:
 	// the worktree's newest mtime is the only activity clock that is not
@@ -466,6 +470,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		return nil, "", err
 	}
 	won := true
+	var mcpServerNames []string
+	for _, srv := range plan.MCPServers {
+		mcpServerNames = append(mcpServerNames, srv.Name)
+	}
+	slices.Sort(mcpServerNames)
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		if resume {
 			cur := c.runsF.currentRun(harp)
@@ -495,9 +504,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Prompt:     prompt,
 			Resume:     resume,
 			Permission: plan.Permission,
-			// Names only: an operator auditing a live delegation sees WHAT a
-			// child can reach, and command/args/env never enter the journal.
-			MCPServers: operations.MCPServerNames(plan.MCPServers),
+			// Names only, sorted: an operator auditing a live delegation sees
+			// WHAT a child can reach; command, args and env — any of which can
+			// carry a credential — never enter the journal, and the journaled
+			// value is stable across runs.
+			MCPServers: mcpServerNames,
 		})}, nil
 	}); err != nil {
 		return nil, "", err
@@ -799,16 +810,23 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
 	start.Identity = Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot, Project: c.projectDir}
+	start.Identity.Leaf = start.Identity.IsLeaf(c.depthCap)
 	start.Prompt = prompt
 	if start.Resumed && start.ResumeKey == "" {
 		start.Prompt = textblocks.Join(c.spawner.ResumeHistory(ctx, rt.harp), prompt)
 	}
-	engine, err := c.spawner.StartEngine(ctx, rt.plan, start, runnerEnv(rt.harp, rt.runID, token, url))
+	resolved, err := c.spawner.ResolveLaunch(ctx, rt.plan, start)
 	if err != nil {
 		c.failChild(rt, err)
 		return
 	}
-	l := engine.Launch
+	engine, err := c.spawner.Start(ctx, resolved.Launch, sessions.Endpoint{URL: url, Credential: token})
+	if err != nil {
+		c.failChild(rt, err)
+		return
+	}
+	l := resolved.Launch
+	c.recordCell(rt.runID, l)
 	c.mu.Lock()
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
@@ -816,8 +834,31 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	rt.workDir = l.Cell.Workspace
 	c.mu.Unlock()
 
-	_ = c.issueStartRun(ctx, rt, hashToken(token), engine.Wire, l.Prompt, l.Label.Model, start.ResumeKey)
+	err = c.issueStartRun(ctx, rt, hashToken(token), resolved.Wire, l.Prompt, l.Label.Model, start.ResumeKey, true)
+	if !errors.Is(err, errEndpointUnavailable) {
+		return
+	}
+	// THE REBIND: the runner is up and dialed home but could not bind the
+	// session's recorded endpoint — another process took the port between
+	// two incarnations. Re-resolve with a rebind (a new address is minted and
+	// bound on the session record; the static plan is re-delivered, which a
+	// resume does anyway) and re-issue StartRun to the SAME runner. Once: a
+	// runner that cannot bind a freshly minted address has a problem no
+	// second mint fixes.
+	start.Rebind = true
+	rebound, rerr := c.spawner.ResolveLaunch(ctx, rt.plan, start)
+	if rerr != nil {
+		c.failChild(rt, fmt.Errorf("rebind the session endpoint: %w", rerr))
+		return
+	}
+	c.audit("endpoint_rebind", rt.harp, map[string]string{"run_id": rt.runID})
+	_ = c.issueStartRun(ctx, rt, hashToken(token), rebound.Wire, rebound.Launch.Prompt, rebound.Launch.Label.Model, start.ResumeKey, false)
 }
+
+// errEndpointUnavailable is issueStartRun's report that the runner refused
+// the launch because its recorded endpoint could not be bound — returned
+// WITHOUT failing the child when the caller may still rebind.
+var errEndpointUnavailable = errors.New("coord: the runner could not bind the session's recorded endpoint")
 
 // issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this
 // out of runChildViaStartRun so the owner-owned run, StartOwnedRun, reuses the
@@ -864,7 +905,7 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 		rt.agentName, rt.harp)
 }
 
-func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, wire *agentcoordpb.Launch, first, model, resumeSessionID string) error {
+func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, wire *agentcoordpb.Launch, first, model, resumeSessionID string, mayRebind bool) error {
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
 	// closes) against DEATH (the runner process exiting). Without the second
@@ -914,6 +955,12 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 		return err
 	}
 	if code := resp.GetStatus().GetCode(); code != 0 {
+		if mayRebind && code == int32(codes.Unavailable) {
+			// The runner could not bind the recorded endpoint: the caller
+			// answers with ONE rebind on this same runner, so the child is
+			// not failed here.
+			return fmt.Errorf("%w: %s", errEndpointUnavailable, resp.GetStatus().GetMessage())
+		}
 		err = fmt.Errorf("StartRun refused: %s", resp.GetStatus().GetMessage())
 		c.failChild(rt, err)
 		return err
@@ -985,6 +1032,24 @@ func runnerExitReason(exited <-chan error) (string, bool) {
 		return "runner process exited cleanly (status 0) without ever dialing home", true
 	default:
 		return "", false
+	}
+}
+
+// recordCell journals the run's resolved cell — the workspace, the engine and
+// the binding's engine-home policy — so a coordinator that re-adopts the run
+// after a restart can re-bind its engine home without the Launch.
+func (c *Coordinator) recordCell(runID string, l launch.Launch) {
+	homeMode := ""
+	if len(l.Home) > 0 {
+		homeMode = "session"
+	}
+	if err := c.runs.Exec(func() ([]Fact, error) {
+		if c.runsF.run(runID) == nil {
+			return nil, nil
+		}
+		return []Fact{factAt(factRunCell, c.now(), runCell{RunID: runID, WorkDir: l.Cell.Workspace, Engine: string(l.Engine), HomeMode: homeMode})}, nil
+	}); err != nil {
+		c.rep.Warnf("coordinator: record run cell: %v", err)
 	}
 }
 
@@ -1064,6 +1129,9 @@ func (c *Coordinator) resumeKeyFor(harp string) (sessionID string, ok bool) {
 func (c *Coordinator) onTurnStarted(role string) {
 	c.mu.Lock()
 	rt := c.byHarp[role]
+	if rt != nil {
+		rt.idleSince = time.Time{}
+	}
 	c.mu.Unlock()
 	if rt == nil || c.runEnded(rt.runID) {
 		// A frame that was already in flight when the channel was severed is
@@ -1128,33 +1196,6 @@ func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent
 	c.mu.Unlock()
 }
 
-// oneShotReady reports whether rt's NEXT turn boundary must end the engine
-// process and resume-by-key rather than park it warm (one-shot-resume plan,
-// Slice 4). All three conditions are required — any missing one falls back to
-// the persistent warm-engine model (no regression, no stranding):
-//   - the resolved agent asked for it (SpawnPlan.ResumeMode == ResumeModeOneShot,
-//     the STATIC per-engine gate from Slice 2);
-//   - the LIVE engine advertised a resume-by-key capability this run
-//     (RunRecord.Resumable — the loadSession live-confirm from piece 1); a
-//     statically-capable engine whose adapter did not actually advertise it
-//     would fail loud at session/load AFTER we tore it down — the exact
-//     stranding this gate prevents;
-//   - a native session key was actually captured (HarnessSessionID) — without
-//     one the resume would silently degrade to a lossy transcript replay,
-//     which is not one-shot at all.
-func (c *Coordinator) oneShotReady(rt *childRt) bool {
-	if rt == nil || rt.plan == nil || rt.plan.ResumeMode != ResumeModeOneShot {
-		return false
-	}
-	ready := false
-	c.runs.View(func() {
-		if r := c.runsF.run(rt.runID); r != nil {
-			ready = r.Resumable && r.HarnessSessionID != ""
-		}
-	})
-	return ready
-}
-
 // onTurnIdle folds the turn-boundary: state idle, slot yielded, and any mail
 // that queued mid-turn pushes now (§6a "queued mid-turn → deliver at the
 // next boundary" — the runner-side driver also queues internally; this push
@@ -1176,17 +1217,14 @@ func (c *Coordinator) onTurnIdle(role string) {
 		c.drainAtBoundary(rt, p)
 		return
 	}
-	// ONE-SHOT (Slice 4): a driving:oneshot child that is live-confirmed
-	// resumable tears its engine down at the clean turn boundary instead of
-	// parking it warm. terminateRun (exactly-once) releases the slot, kills
-	// the engine, and — because CauseOneShotBoundary != CauseStopped — leaves
-	// the harp resumable: pending mail resumes it immediately (terminateRun's
-	// own tail), an empty mailbox waits for the next agent_send (driveQueued's
-	// StateEnded → resumeChild), either way by native session key.
-	if c.oneShotReady(rt) {
-		c.terminateRun(rt.runID, CauseOneShotBoundary, "")
-		return
-	}
+	// A one-shot child's ENGINE process ended at this boundary, on the runner
+	// — the runner itself stays, parked, its endpoint bound; the run is idle
+	// like any other and the next mail (or a Turn frame) starts a fresh
+	// engine process resumed by key. The idle reaper is what ends a runner
+	// nobody writes to.
+	c.mu.Lock()
+	rt.idleSince = c.now()
+	c.mu.Unlock()
 	c.setState(rt, StateIdle)
 	c.releaseSlot(rt)
 }
@@ -1477,13 +1515,11 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	c.severChan(rec.Harp)
 
 	// The synthesized terminal notice: the parent ALWAYS learns of a child
-	// death. Kind distinguishes a launch failure (error) from
-	// a lifecycle end (exited). A one-shot turn boundary is the exception —
-	// it is a NON-death, EXPECTED terminal that fires every single turn, so
-	// notifying the parent would spam its inbox with an "exited" per turn;
-	// the turn's actual result was already reported by the runner (before
-	// this terminate), and the harp is about to resume, so no notice is due.
-	if rec.ParentHarp != "" && cause != CauseOneShotBoundary {
+	// death. Kind distinguishes a launch failure (error) from a lifecycle
+	// end (exited). The idle reaper is the exception — it is a NON-death,
+	// EXPECTED terminal: the child's every turn was already reported, and
+	// the next mail resumes the harp, so no notice is due.
+	if rec.ParentHarp != "" && cause != CauseIdleReaped {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
 		if cause == CauseLaunchFailed {
 			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)

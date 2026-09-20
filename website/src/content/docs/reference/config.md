@@ -97,6 +97,7 @@ The project-wide agent-delegation settings. Grouped because each governs delegat
 |-------|------|-------------|
 | `concurrency` | integer | Maximum number of delegated child turns executing at once; each is a live engine process. A child waiting on a message yields its slot. This bounds resource load only — raise it for more parallelism, lower it on a small machine. Unset uses the built-in default. |
 | `depth` | integer | Maximum nesting depth of delegated agents. The session owner is depth 0, its subagents depth 1, theirs depth 2. A run at the cap cannot delegate and is not given the coordination tools (agent_run, roster, agent_stop, agent_fetch_artifact). Raising this above 1 gives those tools to non-root agents, which can leave an agent waiting on children it never spawned. Unset uses the built-in default. |
+| `idle_timeout` | string | How long a delegated child's runner may sit with no turn before the coordinator ends its run to free its slot, its process (a container, on that axis) and its bound endpoint. The session stays resumable: the next message starts a new incarnation of the same session. A Go duration such as "15m" or "2h"; a value that does not parse or is not positive is refused at load. Unset uses the built-in default of fifteen minutes. |
 
 ### editor
 

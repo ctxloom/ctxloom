@@ -11,8 +11,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -199,7 +199,7 @@ type agentBusMessage struct {
 type agentRecvResult struct {
 	Messages []agentBusMessage `json:"messages"`
 	// Disposition is set only on a successful receive with nothing to
-	// deliver, naming why (see recvOutcome): the call yielded to a newer
+	// deliver, naming why (see runnermcp.RecvOutcome): the call yielded to a newer
 	// receive, or a coordinator's wait elapsed quietly.
 	Disposition string `json:"disposition,omitempty"`
 }
@@ -251,7 +251,7 @@ func agentRunInputSchema() *jsonschema.Schema {
 		panic(fmt.Sprintf("agent_run: input schema: %v", err))
 	}
 	constrainToVocabulary(schema, "dirty_tree_handler", launch.DirtyTreeHandlerNames())
-	constrainToVocabulary(schema, "workspace", isolation.WorkspaceNames())
+	constrainToVocabulary(schema, "workspace", launch.WorkspaceNames())
 	return schema
 }
 
@@ -389,9 +389,9 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 	wait := mcpschema.ClampRecvWait(in.Wait)
 	msgs, err := d.c.AgentRecv(ctx, d.self, wait)
 	if err != nil {
-		// Role, not transport, picks the verdict shape; recvOutcome holds
+		// Role, not transport, picks the verdict shape; runnermcp.RecvOutcome holds
 		// the leaf/coordinator asymmetry and the reason it must stay.
-		disposition, failure := recvOutcome(err, wait, d.self.IsChild())
+		disposition, failure := runnermcp.RecvOutcome(err, wait, d.self.IsChild())
 		if failure != nil {
 			return nil, nil, failure
 		}

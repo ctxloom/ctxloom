@@ -1,4 +1,4 @@
-package mcp
+package operations
 
 import (
 	"path/filepath"
@@ -34,7 +34,7 @@ func TestSessionInstructions_PlanDirIsTheDurableOne(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, harpDir, planDir, "the plan dir must not be the harp top level")
 
-	got := sessionInstructions(harp)
+	got := SessionInstructions(harp)
 
 	assert.Contains(t, got, "`"+planDir+"`",
 		"the instruction must name the harp's persist dir — the only part of the harp dir a container writes through to the host")
@@ -52,7 +52,7 @@ func TestSessionInstructions_PlanDirIsTheDurableOne(t *testing.T) {
 // session owns.
 func TestSessionInstructions_NoHarpAddsNoPlanDir(t *testing.T) {
 	testsupport.Isolate(t)
-	got := sessionInstructions("")
+	got := SessionInstructions("")
 	// Still an EQUALITY, not a Contains: that is what catches a session-specific
 	// addition leaking into the identity-less arm. The premise catalog is named
 	// explicitly because it is session-INDEPENDENT — every caller gets it, harp

@@ -228,6 +228,14 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 		return err
 	}
 
+	// A runner that names a run this process did not start is one that
+	// outlived the previous coordinator: re-adopt it rather than let its
+	// grace window end it — BEFORE it is registered as connected, so a
+	// caller that sees the runner connected sees the run owned.
+	for _, runID := range hello.GetActiveRunIds() {
+		c.readopt(runID)
+	}
+
 	streamCtx, cancel := context.WithCancel(stream.Context())
 	rs := newRunnerSession(credHash, id.RunID, c.now(), cancel)
 	c.mu.Lock()

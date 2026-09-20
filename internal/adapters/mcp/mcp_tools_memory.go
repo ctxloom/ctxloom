@@ -40,38 +40,6 @@ func reductionPct(in, out int) string {
 	return fmt.Sprintf("%.0f%%", 100*(1-float64(out)/float64(in)))
 }
 
-// Memory-tool input types. All session-targeting tools accept an optional
-// session_id and an optional backend override. The defaults come from cfg
-// (cfg.GetDefaultLLM() for backend, current session for ID).
-
-type compactSessionInput struct {
-	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to compact (defaults to current session)"`
-	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation (defaults to config or claude-3-haiku)"`
-	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
-}
-
-type loadSessionInput struct {
-	SessionID string `json:"session_id,omitempty" jsonschema:"Backend-native session ID (UUID). Either session_id or harp_name is required."`
-	HarpName  string `json:"harp_name,omitempty" jsonschema:"Harp-named session reference (e.g. \"swift-amber-falcon\") naming a directory under ~/.ctxloom/sessions. Resolved to a session_id via that session's record; if both are passed, harp_name wins."`
-	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
-	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
-}
-
-type recoverSessionInput struct {
-	SessionID string `json:"session_id,omitempty" jsonschema:"Session ID to recover. If not provided, resolves this session's own transcript by harp identity."`
-	Backend   string `json:"backend,omitempty" jsonschema:"Backend to read session from (defaults to the configured default LLM)"`
-	Model     string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
-}
-
-type getPreviousSessionInput struct {
-	Model string `json:"model,omitempty" jsonschema:"LLM model to use for distillation if needed"`
-}
-
-type listSessionsInput struct {
-	AllProjects    bool `json:"all_projects,omitempty" jsonschema:"List sessions from every project instead of only the current working directory's project (mirrors session list --all)"`
-	DistillMissing bool `json:"distill_missing,omitempty" jsonschema:"Distill sessions whose essence is missing or stale before listing, so every row carries a title. Runs the compactor out of band; canonical-transcript sessions distill, legacy-only sessions are skipped."`
-}
-
 // Result types. Each handler returns a different shape, so they each have
 // a dedicated struct rather than sharing a generic "memory response" type.
 
@@ -123,21 +91,12 @@ type loadSessionResult struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
-// Session-memory tool descriptions. Constants because the RUNNER surface
-// registers the same tools as host relays (mcp_runner.go) and must advertise
-// byte-identical text.
 const (
-	compactSessionDesc = "Distil a session's PERSISTED transcript into a summary on disk, for a LATER session to pick up. Reads the stored log in a separate process; it does NOT touch your live conversation and frees no context in it. Do NOT call this because you are running low on context — for that, use your harness's native compaction. This exists precisely so that a context-starved agent never has to write its own summary: it runs out of band, against the full transcript, with a fresh budget. Normally you do not call it at all — it runs on shutdown, at startup for historical sessions, and on recovery after a /clear. Call it explicitly only to force an essence before ending a session."
-	listSessionsDesc   = "List harp-named sessions with their title, backend, last-activity time, and whether they're distilled — the menu you pick a harp from to hand to load_session. Defaults to the current working directory's project; set all_projects to span every project. Set distill_missing to compact title-less or stale sessions first so every row shows a title."
-	loadSessionDesc    = "Distill and load context from a session. Accepts either session_id (backend UUID) or harp_name (human-readable). For names, see ctxloom://sessions/recent."
 	// recoverNothingToRecoverMsg is reported when no transcript can honestly be
 	// this working directory provably belongs to another harp. Recover promises
 	// the CURRENT session; handing back a foreign one silently is the failure
 	// this refusal exists to prevent, so it names the remedy that ends it.
 	recoverNothingToRecoverMsg = "Nothing to recover for this session (%s): its transcript lineage holds no session other than the current one, whose content is already in context. Pass session_id, or use load_session with harp_name, to target another session deliberately."
-
-	recoverSessionDesc     = "Recover context from the current session after /clear. Resolves this session's own transcript by harp identity, falling back to the most recent transcript in this working directory only when that transcript cannot be attributed to a different session, and distills it (no session id needed; pass one to target a specific session)."
-	getPreviousSessionDesc = "Distill and load an EARLIER session's content — the most recent session BEFORE the active one for this working directory, resolved via the session registry (cross-agent aware; falls back to the second-most-recent transcript). For inspecting a prior session. NOT the post-/clear path: /clear keeps the SAME session alive, so to recover context wiped by /clear use recover_session instead."
 )
 
 // This and the sibling registerXTools functions share a duplicate shape by

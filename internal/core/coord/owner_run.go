@@ -190,7 +190,9 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// live roster without any cleanup call at this call site.
 	wire := proto.Clone(spec.Wire).(*agentcoordpb.Launch)
 	wire.Prompt = prompt
-	if err := c.issueStartRun(ctx, rt, hashToken(token), wire, prompt, l.Label.Model, ""); err != nil {
+	// No rebind arm: an owner run is container-only, and a container's
+	// loopback address is private to its netns — nothing can have taken it.
+	if err := c.issueStartRun(ctx, rt, hashToken(token), wire, prompt, l.Label.Model, "", false); err != nil {
 		return nil, err
 	}
 

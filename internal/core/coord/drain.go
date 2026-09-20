@@ -467,29 +467,6 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 // FINAL's completion contract, honoured.
 // ---------------------------------------------------------------------------
 
-// endsItselfAtBoundary reports whether r's next turn boundary ALREADY tears
-// its engine down with no drain involved — the one-shot teardown. It is
-// oneShotReady's three conditions read off the run record instead of the
-// runtime attachment, which is what endOnFinalReport has in hand.
-//
-// A one-shot child that files FINAL must not be armed for a drain: onTurnIdle
-// checks the drain's exit request BEFORE the one-shot branch, so arming one
-// would repaint an expected, per-turn, notice-suppressed CauseOneShotBoundary
-// terminal as a CauseFinalReported one and queue the parent an "exited" it is
-// documented never to receive. The run ends either way; only the terminal
-// vocabulary would change, for no gain — the leak cannot happen to a child
-// that already ends every turn.
-//
-// The live half (Resumable / HarnessSessionID) may not be journaled yet at the
-// instant FINAL is filed even though it will be by the boundary. That race
-// costs one extra exited notice and never a leak, which is the right way round:
-// a statically-one-shot child whose engine never live-confirmed falls back to
-// the warm-engine model and MUST be drained like any other, or it leaks exactly
-// as before.
-func endsItselfAtBoundary(r *RunRecord) bool {
-	return r.OneShot && r.Resumable && r.HarnessSessionID != ""
-}
-
 // endOnFinalReport ends harp's current run because it filed a SCOPE_FINAL
 // report — the missing connection between the completion contract and the
 // teardown that already exists behind it.
@@ -520,9 +497,8 @@ func endsItselfAtBoundary(r *RunRecord) bool {
 // notifyParentOfFinalReport runs first), or a parent could receive EXITED
 // before the report that explains it.
 //
-// Returns nil when there is nothing to end — no live run, a run that already
-// ends itself at its boundary, a parentless or owner-owned top-level run, or a
-// coordinator already draining. Otherwise the drain handle, so a caller (a
+// Returns nil when there is nothing to end — no live run, a parentless or
+// owner-owned top-level run, or a coordinator already draining. Otherwise the drain handle, so a caller (a
 // test) can wait for it to settle; production fires and forgets, because
 // startDrain runs the drain on its own goroutine and the terminal is
 // exactly-once however many times FINAL is filed.
@@ -544,8 +520,6 @@ func (c *Coordinator) endOnFinalReport(harp string) *Drain {
 		// delegating parent whose contract this FINAL completes, and ending it
 		// would tear down the session the human is sitting in front of.
 		case r.ParentHarp == "" || r.ParentHarp == r.Harp:
-			return false
-		case endsItselfAtBoundary(r):
 			return false
 		}
 		return true

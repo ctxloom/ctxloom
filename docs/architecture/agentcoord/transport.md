@@ -158,12 +158,13 @@ in slice 9.
 | --- | --- |
 | `engineHome` (interface) | the slice of `*Home` the host consumes: event emission, turn-sink registration, exit reporting, plane-2 request |
 | `EngineHost` | hosts exactly one delegated run's engine; `MaxConcurrentRuns = 1` |
-| `NewEngineHost` / `BindHome` / `Handle` | construct; idempotently bind and unblock `Handle`; dispatch `StartRun` / `Kill` / `Stop` with typed gRPC codes |
-| `startRun` | validate → decode spec → open the transcript recorder → launch the backend → adapt → register the turn sink → dispatch the briefing |
-| `adapt` | native event stream → plane-1 `AgentEvent`s → `RunCompleted` → `RunExited` |
+| `NewEngineHost` / `BindHome` / `Handle` | construct; idempotently bind and unblock `Handle`; dispatch `StartRun` / `Turn` / `Kill` / `Stop` with typed gRPC codes |
+| `startRun` / `Drive` | validate → the bound runner executes the launch (redeem, decode, bind the endpoint, deliver) → `Drive`: open the transcript recorder ONCE for the run → `startEngine` → register the turn sink → dispatch the briefing |
+| `startEngine` / `parkAtBoundary` / `unpark` | one ENGINE process per one-shot turn inside a runner that stays: the boundary ends the process and parks the host; the next turn (mail or a `Turn` frame) starts a fresh process resumed by key |
+| `turnFrame` | `RunnerRequest.Turn` → one engine turn, answered with `TurnResult{native_key, answer}` at its boundary |
+| `adapt` | native event stream → plane-1 `AgentEvent`s; at a one-shot boundary it parks (no terminal); otherwise → `RunCompleted` → `RunExited` |
 | `frameCoordinatorMessage` | `PeerMessage` → engine turn text |
 | `resolveApproval` | see [approvals.md](approvals.md) |
-| `injectMCPSocketEnv` | stamps `CTXLOOM_MCP_SOCKET` into the forwarder entry's own env |
 | `usageFromMeta` / `usdToMicros` / `nonNegU64` | `TurnMeta` → `Usage`, with round-half-even micro-USD and NaN/Inf/negative guards |
 
 `EngineHost` calls `eh.backend.Chat(ctx, dec.Chat, in, out)` **in-process**

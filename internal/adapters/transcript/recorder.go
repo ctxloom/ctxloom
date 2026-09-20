@@ -466,6 +466,11 @@ func RecordUserText(rec Recorder, text string) {
 // AND every event has been taken from out. A consumer that abandons out
 // leaves it parked forever, and via TeeAndClose that also leaves the
 // Recorder's file handle open. There is no cancellation seam here today.
+// Tee is tee without the cleanup: the caller owns the Recorder's lifetime,
+// which is how one recorder outlives the several engine processes a
+// parked-and-resumed session drives through it.
+func Tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent { return tee(rec, events) }
+
 func tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 	out := make(chan agent.ChatEvent)
 	go func() {

@@ -80,7 +80,7 @@ flowchart TD
 | `Form` | `internal/adapters/signing/payload.go:101` | `raw` \| `distilled` \| `exec`, or `""` for a ref-reject. Mirrors `bundles.ContentForm` by convention only. |
 | `CountersignHeader` | `internal/adapters/signing/payload.go:115` | The closed field set bound into a countersignature's preimage: `Assertion`, `Kind`, `Ref`, `Form`. |
 | `LoadoutEnvelope` | `internal/adapters/signing/loadout.go:23` | Companion `loadout --format json` output: `Contract` (identity-matched), `Bundle` (base64 of the exact YAML), `Signature` (armored, optional), `Signer` (**advisory only, never trusted**). |
-| `TrustRoot` (interface) | `internal/adapters/signing/publisher.go:74` | One method — `TrustedForNamespace` — returning `allowedsigners.Decision`. Declared at the consumer so the namespace check is a mandatory argument, not a forgettable step. |
+| `trust.TrustRoot` (port, consumed) | `internal/core/trust/ports.go` | The one policy question every verifier here takes as a mandatory argument — `TrustedForNamespace`, returning `trust.SignerDecision`. Declared at the core leaf; `allowedsigners.Store` implements it. |
 | `ErrSignatureTampered` | `internal/adapters/signing/publisher.go:41` | The one publisher outcome that is never benign; matched with `errors.Is` at `internal/core/config/config.go:1953`. |
 
 ## Key functions

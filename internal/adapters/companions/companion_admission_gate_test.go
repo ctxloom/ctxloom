@@ -17,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,7 +43,7 @@ type consentFixture struct {
 	elsewhere string
 	warnLog   *bytes.Buffer
 	signer    ssh.Signer
-	root      signing.TrustRoot
+	root      trust.TrustRoot
 }
 
 // sign vouches for the bytes at path with this fixture's key, which its trust
@@ -304,7 +305,7 @@ func TestProbeCompanionLoadouts_RefusedCompanionBecomesAnUnconsentedCandidate(t 
 // tightly on purpose — a root that trusted the namespace broadly would admit
 // binaries a test never vouched for, and the refusals below would stop meaning
 // anything.
-func fixtureTrustRoot(t *testing.T, signer ssh.Signer) signing.TrustRoot {
+func fixtureTrustRoot(t *testing.T, signer ssh.Signer) trust.TrustRoot {
 	t.Helper()
 	line := fmt.Sprintf("fixture@testenv.invalid namespaces=%q %s %s\n",
 		signing.NamespaceCompanion,

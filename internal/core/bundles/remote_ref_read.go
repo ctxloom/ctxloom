@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // ReadRemoteRef reads the WHOLE bundle a canonical remote ref names at a pinned
@@ -60,7 +60,7 @@ import (
 // shape and is not readable; the publisher republishes it as a tree.
 var ErrDocumentFormUnreadable = errors.New("bundles: the document form is not readable")
 
-func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha string, treeFetch remote.TreeFetchFunc, root signing.TrustRoot) (*Bundle, error) {
+func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha string, treeFetch remote.TreeFetchFunc, root trust.TrustRoot) (*Bundle, error) {
 	c, err := remote.FetchRef(ctx, factory, auth, ref, sha, treeFetch)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 // Whole-bundle attestation is the only check worth making here. A bundle.yaml
 // content_hash is an INDEX and never an authority, so verifying the manifest
 // alone would assert nothing about the item bytes this read newly exposes.
-func verifyRemoteTree(ctx context.Context, tree content.Bundle, root signing.TrustRoot, treeRoot, sha string) error {
+func verifyRemoteTree(ctx context.Context, tree content.Bundle, root trust.TrustRoot, treeRoot, sha string) error {
 	// A nil trust root can decide nothing, so it must refuse BY NAME rather
 	// than be handed to attest. Today it would survive by accident — an
 	// unsigned tree is refused before resolvePublisher is ever reached — which

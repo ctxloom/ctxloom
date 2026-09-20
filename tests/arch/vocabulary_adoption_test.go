@@ -746,8 +746,8 @@ var vocabConversionAllowed = map[string]string{
 	"internal/adapters/operations/agents.go#SetAgent#internal/adapters/agents.DrivingMode":          "a user-set config value asserted into the driving-mode enum; internal/adapters/agents ships no parser for DrivingMode",
 	"internal/adapters/operations/agents.go#validateAgentAxes#internal/adapters/agents.DrivingMode": "same DrivingMode assertion inside the routine that is supposed to be VALIDATING the axes",
 
-	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/adapters/signing.Form":    "same signing.Form assertion from the review side",
-	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/core/bundles.ContentForm": "a stored string asserted into bundles.ContentForm; internal/core/bundles ships no parser for it",
+	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/adapters/signing.Form":  "same signing.Form assertion from the review side",
+	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/core/trust.ContentForm": "a stored string asserted into trust.ContentForm; internal/core/trust ships no parser for it",
 
 	"internal/taskloom/config/config.go#Config.ResolveMode#internal/shared/tasks/paths.Mode": "a config string asserted into paths.Mode; internal/shared/tasks/paths ships no parser for it",
 }

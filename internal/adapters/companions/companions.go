@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -95,7 +96,7 @@ func (s CompanionStatus) Executed() bool {
 // never block startup). Admission runs SEQUENTIALLY before the fan-out, so two
 // consent prompts can never interleave on one terminal. Output order is
 // preserved (sorted by bin) since each goroutine writes its own slot.
-func (p Prober) ProbeCompanions(root signing.TrustRoot) []CompanionStatus {
+func (p Prober) ProbeCompanions(root trust.TrustRoot) []CompanionStatus {
 	// Enforced at the exec boundary, not only at each caller: a report path
 	// that forgets the switch must still never exec a companion binary.
 	if p.Disabled {
@@ -301,7 +302,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
-func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root signing.TrustRoot) (bundles.CompanionProbe, error) {
+func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot) (bundles.CompanionProbe, error) {
 	// See ProbeCompanions' identical guard.
 	if p.Disabled {
 		return bundles.CompanionProbe{}, nil

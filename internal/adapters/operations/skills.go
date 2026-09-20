@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -693,10 +694,10 @@ type ImportSkillRequest struct {
 	// FS, when non-nil, is the afero filesystem read/written; nil defaults to
 	// the OS filesystem.
 	FS afero.Fs `json:"-"`
-	// Root resolves which keys are trusted to publish (signing.TrustRoot);
+	// Root resolves which keys are trusted to publish (trust.TrustRoot);
 	// nil uses cfg.TrustRoot() (embedded + user + project allowed_signers,
 	// unioned).
-	Root signing.TrustRoot `json:"-"`
+	Root trust.TrustRoot `json:"-"`
 }
 
 // ImportSkillResult reports the landed tree and the signature's verification

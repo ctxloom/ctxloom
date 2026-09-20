@@ -12,13 +12,14 @@
 // allowed_signers, verified over the bytes) — are exempt from review;
 // rejection beats even the first-party exemption.
 //
-// This package owns ONLY the addressing (Ref) and canonicalization
-// (CanonicalRepoURL) primitives — it holds no persisted state of its own. The
-// decision function lives in operations.EffectiveTrust, which resolves the
-// countersignature stores (operations.ReviewRecords, backed by
-// internal/adapters/signing/countersign) together with the verified publisher signer.
-// Nothing here fetches, hashes, or signs content — callers pass in the exact
-// bytes (see bundles.ContentPayload) and this package never touches them.
+// This package owns the addressing (Ref) and canonicalization
+// (CanonicalRepoURL) primitives and declares the three PORTS the decision is
+// made with (TrustRoot, ReviewRecords, RetractionRecords — see ports.go); it
+// holds no persisted state of its own. The decision cascade lives in
+// composite (composite.NewTrust over the three ports; the adapters under
+// internal/adapters/signing and the lockfile implement them). Nothing here
+// fetches, hashes, or signs content — callers pass in the exact bytes (see
+// bundles.ContentPayload) and this package never touches them.
 package trust
 
 import (

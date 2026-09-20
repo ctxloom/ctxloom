@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -320,7 +321,7 @@ func signDirBundle(t *testing.T) (cfg *config.Config, dir string) {
 }
 
 // signTrustRoot is a trust root that authorises this signer to publish.
-func signTrustRoot(signer ssh.Signer) signing.TrustRoot {
+func signTrustRoot(signer ssh.Signer) trust.TrustRoot {
 	return allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{"me@example.com"},
 		Namespaces: []string{signing.NamespacePublish},

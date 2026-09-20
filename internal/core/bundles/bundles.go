@@ -672,15 +672,15 @@ type SkillFileMeta struct {
 // are yaml:"-"); the seed sets Name to the "<bundle>#profiles/<name>" identity.
 type BundleProfile = profiles.Profile
 
-// ContentForm identifies which materialization of an item's content was hashed
-// or served: the raw authored bytes, or the distilled rewrite. Trust grants
-// (trust rework, TR0+) bind {effective-content-hash, form} together so a grant
-// blessing the raw form can never validate a distilled exposure, and vice-versa.
-type ContentForm string
+// ContentForm is trust.ContentForm: which materialization of an item's content
+// was hashed or served. It is declared at the trust leaf because the review
+// port (trust.ReviewRecords) binds {payload, form} together; this package
+// aliases it so every content-hash site here names the same type.
+type ContentForm = trust.ContentForm
 
 const (
-	FormRaw       ContentForm = "raw"
-	FormDistilled ContentForm = "distilled"
+	FormRaw       = trust.FormRaw
+	FormDistilled = trust.FormDistilled
 )
 
 // hashContent is the single sha256 helper every content-hash computation in this

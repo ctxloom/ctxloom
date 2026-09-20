@@ -13,10 +13,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -57,7 +57,7 @@ func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
 // with its own, so the user is told what actually went wrong. A tree that opens
 // but does not match what its publisher signed is the READER's answer, not this
 // function's: it is a fact about bytes, established where the bytes are read.
-func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root signing.TrustRoot, failures map[string]error) []bundles.Reader {
+func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root trust.TrustRoot, failures map[string]error) []bundles.Reader {
 	var trees []string
 	for canonical := range lock.Bundles {
 		trees = append(trees, canonical)
@@ -102,7 +102,7 @@ func treeBundleReaders(cfg *config.Config, lock *remote.Lockfile, root signing.T
 // repository path is absorbed by the root rather than smuggled into the id.
 // That parent is inside the worktree, because a sparse checkout lays the bundle
 // out at its repository path — see Reference.LocalTreePath.
-func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEntry, root signing.TrustRoot) (bundles.Reader, error) {
+func treeBundleReader(cfg *config.Config, canonical string, entry remote.LockEntry, root trust.TrustRoot) (bundles.Reader, error) {
 	if len(cfg.GetAppPaths()) == 0 {
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -108,7 +109,7 @@ func lookPathOnly(bins map[string]string) func(string) (string, error) {
 // executable at the fake path lookPath hands back.
 func admitEveryDiscoveredCompanion(t *testing.T) {
 	t.Helper()
-	restore := SetCompanionAdmissionForTesting(func(bins []string, _ signing.TrustRoot) []CompanionAdmission {
+	restore := SetCompanionAdmissionForTesting(func(bins []string, _ trust.TrustRoot) []CompanionAdmission {
 		out := make([]CompanionAdmission, 0, len(bins))
 		for _, bin := range bins {
 			path, err := lookPath(bin)
@@ -129,7 +130,7 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 // (which parses the bytes and establishes what their signature turned out to
 // be). Asserting on the pair is what keeps these tests about the behaviour a
 // user gets rather than about either half's internals.
-func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.Bundle {
+func companionBundles(t *testing.T, root trust.TrustRoot) map[string]*bundles.Bundle {
 	t.Helper()
 	probe, err := Prober{}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)

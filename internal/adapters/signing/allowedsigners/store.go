@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Store is a parsed, queryable allowed_signers file — or the union of
@@ -85,42 +87,19 @@ func (s *Store) ParseErrors() []*ParseError {
 	return out
 }
 
-// Decision is the result of a trust query against a Store.
-type Decision struct {
-	// Trusted is the answer to "is this key trusted for this namespace
-	// (as this identity, for TrustedAs)?"
-	Trusted bool
-	// Principal is the matched entry's first principal, suitable for use
-	// as ctxloom's "signer" identity (signature-envelope spec §4.3: the
-	// signer is resolved from allowed_signers, never trusted from the
-	// artifact's own advisory field). Empty when Trusted is false.
-	//
-	// An entry can list several principals (e.g. a shared team alias); by
-	// convention this reports the first one written in the file. If a
-	// deployment needs to know exactly which principal pattern matched an
-	// externally-claimed identity, use TrustedAs and inspect
-	// Decision.Entry.Principals directly with Entry.MatchesPrincipal.
-	Principal string
-	// Entry is a COPY of the matched entry, or nil when Trusted is false.
-	//
-	// A copy, not the entry itself: it used to be &s.entries[i], a writable
-	// pointer into the store's own backing array, so a caller holding a
-	// decision could set Namespaces to nil on it — "accepted for all
-	// namespaces" — and promote the entry to every namespace, including the
-	// reject namespace whose supremacy the design rests on.
-	Entry *Entry
-}
-
 // TrustedForNamespace reports whether key is authorized, by any entry in
 // the store, to make an assertion in namespace ns at time now — the
 // question this package exists to answer (signature-envelope spec §8,
 // steps 4/5: "signer's key is trusted for the <X> namespace"). It does
 // not consider any externally claimed identity; the returned
-// Decision.Principal is whichever entry's own principal matched the key.
+// SignerDecision.Principal is whichever entry's own principal matched the
+// key — the FIRST principal the entry lists, which is the identity ctxloom
+// reports as the signer (signature-envelope spec §4.3: resolved from
+// allowed_signers, never trusted from the artifact's own advisory field).
 //
 // now is supplied by the caller and is never read from the system clock
 // by this package — see Entry.ValidAt's doc for why that matters here.
-func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) Decision {
+func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) trust.SignerDecision {
 	return s.decide(principalCheck{}, key, ns, now)
 }
 
@@ -143,7 +122,7 @@ func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time)
 // package's answer to the question ssh-keygen -Y verify -I actually asks, and
 // because interop_test.go drives it against the real binary to keep this
 // package's principal matching honest.
-func (s *Store) TrustedAs(identity string, key ssh.PublicKey, ns string, now time.Time) Decision {
+func (s *Store) TrustedAs(identity string, key ssh.PublicKey, ns string, now time.Time) trust.SignerDecision {
 	return s.decide(principalCheck{required: true, identity: identity}, key, ns, now)
 }
 
@@ -163,19 +142,22 @@ type principalCheck struct {
 	identity string
 }
 
-func (s *Store) decide(check principalCheck, key ssh.PublicKey, ns string, now time.Time) Decision {
+// decide answers with the core-owned trust.SignerDecision and nothing more:
+// no handle on the matched entry rides out. A decision used to carry a
+// pointer into s.entries, and a caller could widen a grant through it
+// (Namespaces = nil is "every namespace"); the port's answer is a value.
+func (s *Store) decide(check principalCheck, key ssh.PublicKey, ns string, now time.Time) trust.SignerDecision {
 	if s == nil || key == nil {
-		return Decision{}
+		return trust.SignerDecision{}
 	}
 	for i := range s.entries {
 		e := &s.entries[i]
 		if !entryGrants(e, check, key, ns, now) {
 			continue
 		}
-		matched := e.clone()
-		return Decision{Trusted: true, Principal: firstPrincipal(e), Entry: &matched}
+		return trust.SignerDecision{Trusted: true, Principal: firstPrincipal(e)}
 	}
-	return Decision{}
+	return trust.SignerDecision{}
 }
 
 // entryGrants is the whole of one entry's trust test, in the order the
@@ -205,7 +187,7 @@ func entryGrants(e *Entry, check principalCheck, key ssh.PublicKey, ns string, n
 }
 
 // firstPrincipal is the identity a Decision reports for a matched entry — by
-// convention the first one written in the file. See Decision.Principal.
+// convention the first one written in the file. See SignerDecision.Principal.
 func firstPrincipal(e *Entry) string {
 	if len(e.Principals) == 0 {
 		return ""

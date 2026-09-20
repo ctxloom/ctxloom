@@ -13,17 +13,15 @@ package configload
 
 import (
 	"context"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"path/filepath"
-	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -256,7 +254,7 @@ func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.T
 		countersign.NewStore(paths.ApprovalsPath(baseDir), fs),
 		root, fault)
 	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs)))
-	return signerRoot{root}, records, retraction, nil
+	return root, records, retraction, nil
 }
 
 // appDirOf is the app directory cfg's generation was read over.
@@ -265,12 +263,4 @@ func appDirOf(cfg *config.Config) string {
 		return dirs[0]
 	}
 	return paths.AppDirName
-}
-
-// signerRoot presents the allowed_signers store as the core-owned port.
-type signerRoot struct{ store *allowedsigners.Store }
-
-func (r signerRoot) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) composite.SignerDecision {
-	d := r.store.TrustedForNamespace(key, ns, now)
-	return composite.SignerDecision{Trusted: d.Trusted, Principal: d.Principal}
 }

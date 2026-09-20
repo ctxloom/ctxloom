@@ -23,7 +23,7 @@ import (
 // CtxloomMCPArgs its args.
 const (
 	CtxloomBinary = "ctxloom"
-	MCPServerName = "ctxloom"
+	MCPServerName = wire.CtxloomServerName
 )
 
 // CtxloomMCPArgs is the arg list for the auto-registered MCP server: the

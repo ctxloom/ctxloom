@@ -129,7 +129,7 @@ func (s *Store) Last(target string) (Record, bool, error) {
 	if err != nil {
 		return newest, false, fmt.Errorf("confpatch: read %s: %w", s.dir, err)
 	}
-	prefix := recordPrefix(target)
+	prefix := RecordPrefix(target)
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
@@ -248,7 +248,7 @@ func (s *Store) write(target string, format hew.FormatID, tl hew.TransformList, 
 // must retain the history needs a retention policy and somewhere to put it,
 // which is a different piece of work from not leaking files.
 func (s *Store) pruneSuperseded(target, keep string) error {
-	prefix := recordPrefix(target)
+	prefix := RecordPrefix(target)
 	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
 		return err
@@ -280,7 +280,7 @@ func (s *Store) pruneSuperseded(target, keep string) error {
 // be applied to: the pointers have to name positions in the file as it stands
 // now, not as it stood before the write.
 func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before []byte) ([]hew.ResolvedOp, error) {
-	tl, err := hew.Invert(format, before, after, inversionOptions(target))
+	tl, err := hew.Invert(format, before, after, InversionOptions(target))
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: derive the inverse of the application to %s: %w", target, err)
 	}
@@ -332,15 +332,15 @@ func FreeRecordPath(fs afero.Fs, dir, target string, at time.Time) (string, erro
 // be made to collide by running them inside the same second, which is a race a
 // test cannot state.
 func RecordFilename(target string, at time.Time) string {
-	return recordPrefix(target) + at.UTC().Format(recordStampLayout) + recordFileSuffix
+	return RecordPrefix(target) + at.UTC().Format(recordStampLayout) + recordFileSuffix
 }
 
 // recordStampLayout is the timestamp part of a record's name.
 const recordStampLayout = "20060102T150405.000000000Z"
 
-// recordPrefix is the part of a record's filename that identifies its target:
+// RecordPrefix is the part of a record's filename that identifies its target:
 // what Last and pruneSuperseded match on, and what RecordFilename builds on.
-func recordPrefix(target string) string {
+func RecordPrefix(target string) string {
 	return paths.FlatName(target) + "__"
 }
 

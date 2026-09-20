@@ -72,8 +72,25 @@ func TestDeliverContext_WritesTheFramedPromptUnderTheSessionHome(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), "project rules")
 	require.Equal(t, flagAppendSystemFile, d.Presented.Args[0], "announced on the system-prompt flag")
-	_, err = def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{}, nil)
+	_, err = def.Context.DeliverContext(start, present.RootWorkDir, engine.ContextInputs{}, nil)
 	require.Error(t, err, "a root the approach does not offer is refused")
+}
+
+// TestDeliverContext_AtTheProjectRoot_AppendsToCLAUDEmd: the at-rest form
+// is the well-known file, the context appended after whatever the user
+// already wrote; the ownership record, not a marker, owns the write.
+func TestDeliverContext_AtTheProjectRoot_AppendsToCLAUDEmd(t *testing.T) {
+	def := claudeDef(t)
+	start, project, _ := hostStart(t)
+	path := filepath.Join(project, ContextFileName)
+	require.NoError(t, os.WriteFile(path, []byte("# theirs\n"), 0o644))
+	d, err := def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{path}, d.Wrote)
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "# theirs\n\nproject rules\n", string(body))
+	require.NotContains(t, string(body), "ctxloom:context", "no marker section")
 }
 
 func TestDeliverMCP_WritesTheServerSetUnderTheSelectedRoot(t *testing.T) {
@@ -92,11 +109,10 @@ func TestDeliverMCP_WritesTheServerSetUnderTheSelectedRoot(t *testing.T) {
 // TestDeliverHooks_RegistersTheHookInSettings is the ruling's proof for the
 // definition: Hooks is a surface of its own, and delivering it writes a real
 // hook registration into claude's native form — the hooks section of
-// settings.json — through the settings writer. Settings delivers its own
-// part (statusline, the deny list) into the same file. The two kinds fold
-// into ONE managed block of one file, which the writer re-manages on every
-// write: composing both into a single write is the delivery router's
-// (delivery.Route) when it plans claude's settings file, not this seam's.
+// settings.json. Settings delivers its own part (statusline, the deny
+// list) into the same file; each kind ADDS its entries and removes
+// nothing, and the ownership record that owns the file takes them back
+// out (deliverSettingsFile).
 func TestDeliverHooks_RegistersTheHookInSettings(t *testing.T) {
 	def := claudeDef(t)
 	start, project, _ := hostStart(t)

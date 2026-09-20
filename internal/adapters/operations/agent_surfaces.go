@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -49,6 +50,41 @@ func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.
 				name, approach, engine, supports)
 		}
 		out[kind] = approach
+	}
+	return out, nil
+}
+
+// ResolveAgentRoots validates a binding's root selection (kind -> root
+// label, as written) against the named engine's declared approaches: the
+// kind must be one the engine carries and the root one its approach for
+// that kind OFFERS. It returns the selection as delivery.Route reads it.
+func ResolveAgentRoots(engineName string, declared map[string]string) (map[present.Kind]present.RootKind, error) {
+	if len(declared) == 0 {
+		return nil, nil
+	}
+	kind, ok := backends.Kind(engineName)
+	if !ok {
+		return nil, fmt.Errorf("roots: no engine kind %q is composed", engineName)
+	}
+	surfaces := kind.Root().Surfaces()
+	out := make(map[present.Kind]present.RootKind, len(declared))
+	for name, label := range declared {
+		k, ok := present.ParseKind(strings.TrimSpace(name))
+		if !ok {
+			return nil, fmt.Errorf("roots %s=%s: %q is not a surface kind", name, label, name)
+		}
+		root, ok := present.ParseRootKind(strings.TrimSpace(label))
+		if !ok {
+			return nil, fmt.Errorf("roots %s=%s: %q is not a root (session-home, project-root, work-dir)", name, label, label)
+		}
+		a, carried := surfaces[k]
+		if !carried {
+			return nil, fmt.Errorf("roots %s=%s: %s declares no %s surface", name, label, engineName, k)
+		}
+		if !a.Traits().Offers(root) {
+			return nil, fmt.Errorf("roots %s=%s: %s's %s approach (%s) offers %v, not %s", name, label, engineName, k, a.Name(), a.Traits().Roots, root)
+		}
+		out[k] = root
 	}
 	return out, nil
 }

@@ -49,9 +49,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      | context_surface       | context_marker      |
         | claude-code | .claude/settings.json | hook inject-context |
 
+      # The marker is a heading from ctxloom's own shipped guidance: the
+      # mock's context file is the assembled context verbatim, owned whole
+      # by the ownership record — no marker section is written into it.
       Examples: engines without one — context is read from a materialized file
-        | engine      | context_surface                 | context_marker         |
-        | mock        | MOCK_CONTEXT.md                 | ctxloom:context:begin  |
+        | engine      | context_surface                 | context_marker                |
+        | mock        | MOCK_CONTEXT.md                 | Isolation: specify both axes  |
 
     # ONE CLAIM, MANY SHAPES. Every engine ctxloom drives gets the SAME
     # registration — ctxloom as an MCP server, launched by the ctxloom binary
@@ -210,6 +213,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # substring "ctxloom hook" (`ctxloom hook hud`), so a bare `contains`
     # check here is satisfied by the statusline whether or not any hook was
     # ever installed or removed.
+    #
+    # The project had no settings.json before the install: ctxloom CREATED
+    # it, so uninstall — the empty plan over the ownership record — removes
+    # the file with its last entries rather than leaving an empty husk. A
+    # settings.json the user wrote is restored to their bytes instead (the
+    # hand-written-numbers scenario below).
     Scenario: Hooks can be installed, inspected, and actually removed
       Given an initialized ctxloom project
       When Alice installs the hooks:
@@ -224,7 +233,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks uninstall
         """
       Then the command succeeds
-      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
+      And the file ".claude/settings.json" does not exist
 
     # Asserted on a hook CTXLOOM ITSELF installs, not on one a companion
     # contributes. `session-bind` ships in taskloom's loadout, so this counted
@@ -510,24 +519,22 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
   Rule: Uninstalling removes what ctxloom wired and keeps what the team authored
 
-    # BOTH halves are asserted on payload: the hook command is gone from
-    # settings.json, the MCP registration is gone from .mcp.json, and .ctxloom
-    # survives. A no-op uninstall that prints its success line goes red on the
-    # "does not contain" assertions; one that deletes .ctxloom goes red on the
-    # survival assertion. The success message alone distinguishes neither.
+    # BOTH halves are asserted on payload: the files ctxloom created in this
+    # empty project are gone, and .ctxloom survives. A no-op uninstall that
+    # prints its success line goes red on the "does not exist" assertions;
+    # one that deletes .ctxloom goes red on the survival assertion. The
+    # success message alone distinguishes neither.
     #
-    # The precondition and the removal check name the hook and the statusLine
-    # SEPARATELY, because `ctxloom hook` reaches only the statusLine — the
-    # context hook's command is `'<abs>/ctxloom' hook inject-context`, quoted
-    # between the two words. On its own that substring certifies neither half:
-    # it is satisfied as a precondition with no context hook ever written, and
-    # as a removal check by an uninstall that drops the statusline and leaves
-    # the hook behind.
+    # Uninstall is the EMPTY plan delivered against the project: the
+    # ownership record says what ctxloom put there and only that is taken
+    # back out. What the team authored is untouched — the hand-written
+    # settings scenario above pins that half on a file the user owns.
     #
+    # The precondition names the hook and the statusLine SEPARATELY, because
+    # `ctxloom hook` reaches only the statusLine — the context hook's command
+    # is `'<abs>/ctxloom' hook inject-context`, quoted between the two words.
     # The MCP claim PARSES the file rather than checking for the bare
-    # substring "ctxloom": .mcp.json containing that word somewhere is
-    # satisfied by almost anything, so both the precondition and the removal
-    # check name the actual mcpServers registration by its own key.
+    # substring "ctxloom".
     Scenario: Uninstall strips the harness but keeps the project's own content
       Given an empty project directory
       When Alice wires ctxloom in:
@@ -543,7 +550,42 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage uninstall
         """
       Then the command succeeds
-      And the file ".claude/settings.json" does not contain "hook inject-context"
-      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
-      And the file ".mcp.json" registers no MCP server named "ctxloom"
+      # ctxloom created both files in this empty project, so the empty plan
+      # removes them outright: nothing of the harness is left to strip.
+      And the file ".claude/settings.json" does not exist
+      And the file ".mcp.json" does not exist
+      And the file ".ctxloom/config.yaml" exists
+
+    # THE GATE FOR THE DELIVERY LAYER: uninstall is the empty plan over the
+    # ownership record, so nothing of the harness is left behind; a run
+    # afterwards delivers into its own session (the runner's static delivery
+    # under the session writer) and the project stays as the uninstall left
+    # it. Asserted on the files the install wrote, each one absent after the
+    # run — a run that delivered into the project would put them back.
+    #
+    # @wip, measured: the uninstall half holds (every file is gone before the
+    # run), and a DELEGATED run holds (runner.Execute delivers under the
+    # session writer — its identical-file-set probe). The HOST `ctxloom run`
+    # still rides the plugin run-start into the legacy mock backend's Setup,
+    # which writes MOCK_CONTEXT.md into the project on every run; that arm
+    # moves onto the runner tail in slice 13 (30-decided-architecture.md
+    # Part 4.1). UNTAG WHEN: the host arm delivers through delivery.Static.
+    @wip
+    Scenario: After an uninstall, a run delivers into its session and the project stays clean
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And the mock LLM responds "MOCK-REPLY"
+      When Alice wires the mock in, takes it back out, and runs:
+        """
+        ctxloom manage install --engine mock
+        ctxloom manage uninstall
+        ctxloom run --one-shot --profile dev unicorn-prompt
+        """
+      Then the command succeeds
+      And the output contains "MOCK-REPLY"
+      And the file "MOCK_CONTEXT.md" does not exist
+      And the file ".mock/mcp.json" does not exist
+      And the file ".mock/commands/discover.md" does not exist
       And the file ".ctxloom/config.yaml" exists

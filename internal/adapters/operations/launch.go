@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -122,17 +123,18 @@ func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, er
 }
 
 // Opened is a launch's package as the local launcher reads it: the decoded
-// package and the managed payload today's writers deliver from it, with the
-// binding's delivery preference validated against the engine.
+// package, the Loadout the static writer consumes (the same value the
+// runner builds: launch.Launch.Loadout), and the managed payload the
+// plugin arm's run-start still projects from it.
 type Opened struct {
 	Package composite.Package
+	Loadout delivery.Loadout
 	Managed *agent.ManagedConfig
 }
 
-// OpenLaunch is the in-process consumer of the carrier (launch.Open) plus
-// the projection the plugin arm still hands its writers: the same package
-// and the same payload the runner builds for a delegated launch, so the two
-// deliver one set.
+// OpenLaunch is the in-process consumer of the carrier (launch.Open): the
+// same package and the same Loadout the runner builds for a delegated
+// launch, so the two deliver one set.
 func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened, error) {
 	pkg, err := launch.Open(ctx, deps, l)
 	if err != nil {
@@ -140,7 +142,7 @@ func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened,
 	}
 	managed := agent.ManagedConfigFor(ManagedSurfacesOf(pkg), l.Exports)
 	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
-	return Opened{Package: pkg, Managed: managed}, nil
+	return Opened{Package: pkg, Loadout: l.Loadout(pkg), Managed: managed}, nil
 }
 
 // ForSession roots the claim check at the minted session: the package store

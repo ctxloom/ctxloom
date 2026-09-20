@@ -75,6 +75,15 @@ type Agent struct {
 	// agent asking for it should learn so from the command that set it rather
 	// than from a session that behaves unexpectedly later.
 	Surfaces map[string]string `yaml:"surfaces,omitempty"`
+	// Roots is this binding's ROOT selection per surface kind
+	// (delivery.Preference.Root): under which of the roots the engine's
+	// approach for that kind offers its items land — "session-home",
+	// "project-root" (the shared root, selected here and never fallen back
+	// to) or "work-dir". Empty takes each approach's default. Validated
+	// against the engine's declared approaches when WRITTEN
+	// (operations.ResolveAgentRoots), so a run never sees a root the
+	// approach does not offer.
+	Roots map[string]string `yaml:"roots,omitempty"`
 	// Profiles compose into one assembled context.
 	Profiles []string `yaml:"profiles,omitempty"`
 	// Runtime is the agent's RUNTIME axis (host | container): where this

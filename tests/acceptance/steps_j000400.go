@@ -51,39 +51,6 @@ type j000400State struct {
 	handAuthoredBytes string
 }
 
-// j000400 managed-section markers, written out as literals rather than imported
-// from internal/core/agent. They are a USER-VISIBLE contract — these exact
-// bytes land in a team's own CLAUDE.md/AGENTS.md — so the regression that
-// guards a team's hand-authored content must not be able to move in lockstep
-// with the production code it is guarding. If ctxloom ever changes its marker
-// text, this test going red is the correct outcome, not a maintenance chore.
-const (
-	j000400ManagedBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
-	j000400ManagedEnd   = "<!-- ctxloom:context:end -->"
-)
-
-// j000400StripManagedSection removes the ctxloom-managed section from body,
-// returning everything outside it — the region ctxloom promises to preserve
-// byte-for-byte. Implemented HERE rather than reusing
-// agent.StripManagedSection for the same independence reason as the markers
-// above: an assertion that shares its parsing with the code under test cannot
-// observe that code losing content.
-//
-// An unterminated begin marker drops through to EOF (the section is
-// ctxloom's to own), matching what the production writer does.
-func j000400StripManagedSection(body string) string {
-	begin := strings.Index(body, j000400ManagedBegin)
-	if begin < 0 {
-		return body
-	}
-	rest := body[begin+len(j000400ManagedBegin):]
-	end := strings.Index(rest, j000400ManagedEnd)
-	if end < 0 {
-		return body[:begin]
-	}
-	return body[:begin] + strings.TrimLeft(rest[end+len(j000400ManagedEnd):], "\n")
-}
-
 func j000400Of(w *World) *j000400State {
 	if w.j000400 == nil {
 		w.j000400 = &j000400State{}
@@ -203,17 +170,24 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 	// on the format actually resolved fixes all three call sites without
 	// threading a <flags> table through scenarios that were never about
 	// --format in the first place.
-	ctx.Step(`^the materialize report says (\S+) delivers those surfaces per-session at launch$`,
+	ctx.Step(`^the materialize report names each surface (\S+) does not carry, with a reason$`,
 		func(c context.Context, engine string) error {
 			w := worldFrom(c)
 			out := w.env.LastStdout()
 			w.docStepMaterialized = fmt.Sprintf("materialize report for %s:\n%s", engine, out)
+			// The engine's declaration is the whole reason a kind is absent
+			// (delivery.ErrUncarried carries no reason string): the report
+			// names the surface and says the engine declares no approach
+			// for it, so a reader can tell a declared absence from a bug.
+			want := []string{"mcp", "hooks", "commands"}
 			if !formatAskedFor(w).Structured() {
-				if !strings.Contains(out, "delivered per-session at launch") {
-					return fmt.Errorf("the %s materialize report never says where those surfaces DO come from, so a user reads it as %s simply losing them; report:\n%s", engine, engine, out)
-				}
 				if !strings.Contains(out, "NOT carried") {
 					return fmt.Errorf("the %s materialize report does not list the undelivered surfaces at all; report:\n%s", engine, out)
+				}
+				for _, surface := range want {
+					if !strings.Contains(out, surface) {
+						return fmt.Errorf("the %s materialize report does not name %s among the surfaces it did not carry; report:\n%s", engine, surface, out)
+					}
 				}
 				return nil
 			}
@@ -221,19 +195,29 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 			}
-			if len(losses) == 0 {
-				return fmt.Errorf("the %s materialize JSON report's not_carried array is empty, so nothing says where those surfaces DO come from; stdout:\n%s", engine, w.env.LastStdout())
-			}
+			named := map[string]bool{}
 			for _, loss := range losses {
-				reason, err := jsonAtPath(loss, "reason")
+				surface, err := jsonAtPath(loss, "surface")
 				if err != nil {
 					continue
 				}
-				if got, ok := jsonScalar(reason); ok && strings.Contains(got, "delivered per-session at launch") {
-					return nil
+				reason, err := jsonAtPath(loss, "reason")
+				if err != nil {
+					return fmt.Errorf("a not_carried entry states no reason; stdout:\n%s", w.env.LastStdout())
+				}
+				if got, ok := jsonScalar(reason); !ok || strings.TrimSpace(got) == "" {
+					return fmt.Errorf("a not_carried entry states an empty reason; stdout:\n%s", w.env.LastStdout())
+				}
+				if got, ok := jsonScalar(surface); ok {
+					named[got] = true
 				}
 			}
-			return fmt.Errorf("no entry in the %s materialize JSON report's not_carried array names \"delivered per-session at launch\"; stdout:\n%s", engine, w.env.LastStdout())
+			for _, surface := range want {
+				if !named[surface] {
+					return fmt.Errorf("the %s materialize JSON report's not_carried array does not name %q; stdout:\n%s", engine, surface, w.env.LastStdout())
+				}
+			}
+			return nil
 		})
 
 	// The other half of the same finding, and the one that is @wip: the loss
@@ -311,15 +295,19 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", rel, err)
 		}
-		if !strings.Contains(got, j000400ManagedBegin) {
-			return fmt.Errorf("%s carries no ctxloom managed section at all, so nothing was materialized alongside the hand-authored content; content:\n%s", rel, got)
+		// The context is APPENDED after the hand-authored bytes (a blank
+		// line between); the ownership record, not a marker section, owns
+		// what was appended. What Alice wrote is the file's prefix, byte
+		// for byte.
+		authored := strings.TrimRight(j000400.handAuthoredBytes, "\n")
+		if !strings.HasPrefix(got, authored) {
+			return fmt.Errorf("%s: what Alice hand-authored is NOT the file's byte-identical prefix after materialize.\n--- hand-authored (%d bytes) ---\n%q\n--- whole file after materialize ---\n%s",
+				rel, len(j000400.handAuthoredBytes), j000400.handAuthoredBytes, got)
 		}
-		outside := j000400StripManagedSection(got)
-		if outside != j000400.handAuthoredBytes {
-			return fmt.Errorf("%s: the region outside ctxloom's managed markers is NOT byte-identical to what Alice hand-authored.\n--- hand-authored (%d bytes) ---\n%q\n--- survived (%d bytes) ---\n%q\n--- whole file after materialize ---\n%s",
-				rel, len(j000400.handAuthoredBytes), j000400.handAuthoredBytes, len(outside), outside, got)
+		if strings.TrimSpace(strings.TrimPrefix(got, authored)) == "" {
+			return fmt.Errorf("%s carries nothing beyond the hand-authored content, so nothing was materialized alongside it; content:\n%s", rel, got)
 		}
-		w.docStepMaterialized = rel + " (hand-authored region, byte-identical after materialize):\n" + outside
+		w.docStepMaterialized = rel + " (hand-authored prefix, byte-identical after materialize):\n" + authored
 		return nil
 	})
 

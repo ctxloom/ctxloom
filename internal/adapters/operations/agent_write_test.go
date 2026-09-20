@@ -798,3 +798,51 @@ func TestSetAgent_RefusesAnEditThatClearsTheLastEngineBinding(t *testing.T) {
 	_, err = SetAgent(context.Background(), mgr, final, SetAgentRequest{Name: "dev", LLM: ptr(""), Profiles: ptr([]string{"default"})})
 	require.NoError(t, err, "an edit that leaves profiles bound is not engineless")
 }
+
+// TestSetAgent_PersistsARootSelectionTheApproachOffers: the binding's
+// delivery preference is a ROOT per kind (delivery.Preference.Root),
+// validated against the roots the engine's approach for that kind offers,
+// and written as the binding's roots.
+func TestSetAgent_PersistsARootSelectionTheApproachOffers(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name:  "writer",
+		LLM:   ptr("mock"),
+		Roots: map[string]string{"mcp": "project-root"},
+	})
+	require.NoError(t, err)
+
+	reloaded, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := reloaded.Agent("writer")
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"mcp": "project-root"}, sub.Roots)
+}
+
+// TestSetAgent_RefusesARootTheApproachDoesNotOffer: a root the engine's
+// approach does not offer for the kind is refused with the offered roots
+// named, and the refusal writes nothing.
+func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, fmt.Sprintf("version: %d\n", config.CurrentConfigVersion))
+
+	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name:  "scout",
+		LLM:   ptr("claude-code"),
+		Roots: map[string]string{"commands": "session-home"},
+	})
+	require.Error(t, err, "claude's commands approach offers the project root only")
+	assert.Contains(t, err.Error(), "project-root", "the refusal names what the approach offers")
+
+	_, err = SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
+		Name:  "scout",
+		LLM:   ptr("mock"),
+		Roots: map[string]string{"context": "nowhere"},
+	})
+	require.Error(t, err, "an unknown root name is refused")
+
+	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, rerr)
+	_, ok := reloaded.Agent("scout")
+	assert.False(t, ok, "a refused write must not half-apply a binding")
+}

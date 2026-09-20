@@ -83,12 +83,14 @@ either case to `engine.PermissionFloor`. Nothing downstream re-decides it.
   it, read here only through its engine-facing projection (`Items()`),
   asserted back to its type by the codec. `Launch.Exports` is declared and
   zero until the runner reads it (11b).
-- **`Preference.AcceptLoss` is total until slice 12.** The Definition's typed
-  approaches are not yet what delivers (the hosting record's writers are), so
-  a kind the Definition does not carry still lands; refusing on it would
-  refuse launches that deliver today. `delivery.Route` itself is spec-exact
-  and its refusals are pinned; the static writers over the plan retire the
-  acceptance.
+- **`Preference.Root` is the binding's; `AcceptLoss` is total until a binding
+  can record a loss.** Resolve reads the binding's root selection
+  (`agents.Agent.Roots`, validated when written by
+  `operations.ResolveAgentRoots`) into `delivery.Preference.Root`; a label
+  that no longer parses is refused by name (`ErrBindingRoots`). No binding
+  records a loss acceptance yet, so every kind the Definition does not
+  carry is accepted and listed in `Plan.Losses` — a run that delivers the
+  rest is better than none until a binding can say otherwise.
 - **The engine is recorded by Resolve, not by the mint.** Part 1.6's
   `Seed.Engine` assumes the mint knows the engine, but resolution decides it;
   `Store.BindEngine` records it once decided. The coordinator's mint records

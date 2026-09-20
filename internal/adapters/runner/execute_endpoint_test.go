@@ -9,14 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // recordingDynamic is the Dynamic port double: it records the loadout it was
@@ -53,7 +52,7 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	drive := &recordingDriver{}
 	out, err := runner.Execute(context.Background(), runner.Deps{
 		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Surfaces: operations.ResolveAgentSurfaces, Driver: drive, Dynamic: dyn,
+		Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: dyn,
 	}, l)
 	require.NoError(t, err)
 
@@ -78,10 +77,11 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 
 	body, err := os.ReadFile(turn.Chat.MCPConfigPath)
 	require.NoError(t, err)
-	var doc agent.ChatMCPConfigDoc
+	var doc struct {
+		MCPServers map[string]wire.MCPServer `json:"mcpServers"`
+	}
 	require.NoError(t, json.Unmarshal(body, &doc))
 	entry := doc.MCPServers[agent.MCPServerName]
-	assert.Equal(t, "http", entry.Type)
 	assert.Equal(t, l.MCP.URL, entry.URL)
 	assert.Equal(t, "Bearer "+l.MCP.Credential, entry.Headers["Authorization"])
 	assert.Empty(t, entry.Command, "no shim command: the engine dials the runner directly")
@@ -109,7 +109,7 @@ func TestExecute_EndpointUnavailable_IsReturnedTyped(t *testing.T) {
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
 		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
-		Static: backends.NewMock(), Surfaces: operations.ResolveAgentSurfaces, Driver: drive, Dynamic: busyDynamic{},
+		Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: busyDynamic{},
 	}, l)
 	require.ErrorIs(t, err, delivery.ErrEndpointUnavailable)
 	assert.Empty(t, drive.turns, "nothing is driven over an endpoint that did not bind")

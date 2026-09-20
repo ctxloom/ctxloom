@@ -485,21 +485,21 @@ Feature: profile — the composition that decides what an agent actually receive
       And the file "surface/.claude/commands/demo-example.md" contains "Example prompt content. Describe what this prompt does."
       And the file "surface/CLAUDE.md" does not contain "bundles:"
 
-    # The launch-only narrowing has to reach the PROSE, not only the JSON. A
+    # The uncarried surfaces have to reach the PROSE, not only the JSON. A
     # structured field no CLI prints is the same silence with extra steps: the
     # person who needs this line is reading a terminal, and the report is their
-    # only notice that four surfaces went somewhere else rather than nowhere.
+    # only notice that surfaces went nowhere.
     #
     # The JSON half is pinned by j000400's home-keyed scenario, which runs on
     # the format derived off a terminal. This is its TEXT twin, and both are
     # needed because the shared step branches on the format: one call site
     # leaves the other arm unexecuted and free to rot, which is exactly how the
     # claim came to be asserted against one rendering only.
-    Scenario: The launch-only narrowing is stated in the prose report, not only in the JSON
+    Scenario: The uncarried surfaces are stated in the prose report, not only in the JSON
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When I run "ctxloom profile materialize team --target out-launch-text --backend mock-launch --format text"
       Then the command succeeds
-      And the materialize report says mock-launch delivers those surfaces per-session at launch
+      And the materialize report names each surface mock-launch does not carry, with a reason
 
   Rule: Removal reports first and destroys only when told to
 

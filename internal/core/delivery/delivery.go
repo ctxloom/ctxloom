@@ -11,11 +11,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // Preference is the binding's delivery preference: per kind, the ROOT it
@@ -121,7 +125,7 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 				return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: selected,
 					Remedy: fmt.Sprintf("the binding selects root %v for kind %v but approach %s offers %v; select one of those on the binding", selected, kind, a.Name(), traits.Roots)}
 			}
-			if !has(roots, selected) {
+			if !HasRoot(roots, selected) {
 				return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: selected,
 					Remedy: fmt.Sprintf("the binding selects root %v for kind %v but this cell has no such root; select a root the cell provides", selected, kind)}
 			}
@@ -130,7 +134,7 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 			continue
 		}
 		for _, r := range traits.Roots {
-			if has(roots, r) {
+			if HasRoot(roots, r) {
 				item.Root = r
 				break
 			}
@@ -144,11 +148,12 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 	return plan, nil
 }
 
-// has reports whether the cell resolved the root a RootKind names: the
+// HasRoot reports whether the cell resolved the root a RootKind names: the
 // session home is the run's scratch root; the project root and the work
 // dir are the cell's project root (inside the cell the workspace IS the
-// project root).
-func has(roots present.Paths, r present.RootKind) bool {
+// project root). Route reads it to plan and the static adapter to re-check
+// a plan against the target it was handed.
+func HasRoot(roots present.Paths, r present.RootKind) bool {
 	switch r {
 	case present.RootSessionHome:
 		return roots.Scratch.Host != ""
@@ -203,3 +208,120 @@ var (
 	// ErrNoAllowedOrigins refuses a ServePolicy with no Origin allowlist.
 	ErrNoAllowedOrigins = errors.New("delivery: the endpoint's serve policy names no allowed origin")
 )
+
+// ErrNoRoot refuses a Target that names no root, no ownership record or no
+// writer: nothing is ever written under "".
+var ErrNoRoot = errors.New("delivery: a target needs a session home or a project root, an ownership record and a writer")
+
+// Inputs is every kind's typed inputs, built ONCE from the loadout by
+// InputsFor: the one projector of package items into engine inputs. The
+// static adapter hands each kind's field to that kind's Deliver.
+type Inputs struct {
+	Context  engine.ContextInputs
+	MCP      engine.MCPInputs
+	Settings engine.SettingsInputs
+	Hooks    engine.HooksInputs
+	Commands engine.CommandsInputs
+	Skills   engine.SkillsInputs
+}
+
+// InputsFor builds every kind's inputs from the decoded package and the
+// engine's exports the loadout carries.
+func InputsFor(lo Loadout) (Inputs, error) {
+	pkg := lo.Package
+	servers := make(map[string]wire.MCPServer, len(pkg.MCP))
+	for name, srv := range pkg.MCP {
+		servers[name] = srv
+	}
+	// The runner bound the session endpoint: ctxloom's own entry names it
+	// as URL + bearer in place of the stdio command the package declares.
+	if _, declared := servers[wire.CtxloomServerName]; declared && lo.MCP.URL != "" {
+		servers[wire.CtxloomServerName] = engine.BearerEntry(lo.MCP)
+	}
+	return Inputs{
+		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash},
+		MCP:      engine.MCPInputs{Servers: servers},
+		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, Exports: lo.Exports},
+		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, HookEvent: lo.Exports.HookEvent},
+		Commands: engine.CommandsInputs{Commands: lo.Exports.Commands},
+		Skills:   engine.SkillsInputs{Skills: lo.Exports.Skills},
+	}, nil
+}
+
+// Writer tags every ownership entry: a session's harp or the project's
+// at-rest materialize. One record per TARGET regardless of writer;
+// reconcile-to-empty removes only THIS writer's entries.
+type Writer string
+
+// SessionWriter is the writer tag of one session's delivery.
+func SessionWriter(harp string) Writer { return Writer("session:" + harp) }
+
+// ProjectWriter is the writer tag of a human materialize into the project
+// root.
+const ProjectWriter Writer = "project"
+
+// Target is where a plan lands and who owns what it writes.
+type Target struct {
+	Root      present.Start
+	Ownership Ownership
+	Writer    Writer
+}
+
+// Validate refuses the zero value: a target needs a root with a session
+// home or a project root, an ownership record, and a writer. A root is an
+// ABSOLUTE host path: the record keys a file by its path, so a relative
+// root would record nothing anyone could find again.
+func (t Target) Validate() error {
+	p := t.Root.Paths()
+	if (p.Scratch.Host == "" && p.EngineHome.Host == "" && p.ProjectRoot.Host == "") || t.Ownership == nil || t.Writer == "" {
+		return ErrNoRoot
+	}
+	for _, root := range []string{p.Scratch.Host, p.EngineHome.Host, p.ProjectRoot.Host} {
+		if root != "" && !filepath.IsAbs(root) {
+			return fmt.Errorf("%w: root %q is not absolute", ErrNoRoot, root)
+		}
+	}
+	return nil
+}
+
+// Static delivers the static items under the target's roots with ONE
+// ownership record per target file. The same implementation serves a
+// session (root = session home, writer = the harp) and a human materialize
+// (root = project root, writer = project); they differ only in the Target.
+// A Plan with no Static items is UNINSTALL for that writer: the record says
+// what to remove and nothing else is touched. Deliver validates the Target
+// (ErrNoRoot) and re-checks each item's planned root against the target it
+// was handed (Unrootable), never substituting another.
+type Static interface {
+	Deliver(ctx context.Context, lo Loadout, surfaces engine.Surfaces, target Target) (Delivered, error)
+}
+
+// Delivered is what one static delivery reports: the presentations the
+// engine's Exec composes from, the kinds that landed, and the undo that
+// reconciles this writer's entries to empty.
+type Delivered struct {
+	Presented []present.Presentation
+	Wrote     []present.Kind
+	Undo      func(ctx context.Context) error
+}
+
+// Ownership is the ONE ownership mechanism: a record per target file naming
+// the entries each writer owns in it. Apply records under the writer;
+// Owned reads one writer's entries; Targets lists the files a writer owns
+// entries in, which is what delivering the EMPTY plan walks. confpatch
+// implements it.
+type Ownership interface {
+	Apply(ctx context.Context, fs afero.Fs, target string, writer Writer, build Build) (Result, error)
+	Owned(target string, writer Writer) ([]string, error)
+	Targets(writer Writer) ([]string, error)
+}
+
+// Build is one writer's contribution to a target file: given the file as it
+// stands with this writer's PREVIOUS contribution reversed, the bytes the
+// file should hold and the entries the writer now owns in it. A nil desired
+// is reconcile-to-empty: the writer contributes nothing, and a file nobody
+// owns anything in that ctxloom created is removed.
+type Build func(current []byte) (desired []byte, entries []string, err error)
+
+// Result reports what one Apply did.
+type Result struct{ Changed bool }

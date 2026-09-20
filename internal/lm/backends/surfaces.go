@@ -167,7 +167,7 @@ func unsupportedHookKindLosses(d *hosting.Hosting, hooks wire.HooksConfig) []age
 	sort.Strings(kinds)
 	var losses []agent.SurfaceLoss
 	for _, kind := range kinds {
-		n := len(unifiedEventHooks(hooks.Unified, kind))
+		n := len(UnifiedEventHooks(hooks.Unified, kind))
 		if n == 0 {
 			continue
 		}
@@ -222,7 +222,7 @@ func stripUnsupportedHookKinds(name string, hooks *wire.HooksConfig) *wire.Hooks
 // both the unified events and the backend-native passthrough map.
 func carriesAnyHook(h wire.HooksConfig) bool {
 	for _, event := range HookEvents() {
-		if len(unifiedEventHooks(h.Unified, event)) > 0 {
+		if len(UnifiedEventHooks(h.Unified, event)) > 0 {
 			return true
 		}
 	}
@@ -242,7 +242,7 @@ func carriesAnyHook(h wire.HooksConfig) bool {
 func droppedHookDetail(name string, hooks wire.HooksConfig) string {
 	var parts []string
 	for _, event := range HookEvents() {
-		if n := len(unifiedEventHooks(hooks.Unified, event)); n > 0 {
+		if n := len(UnifiedEventHooks(hooks.Unified, event)); n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, event))
 		}
 	}

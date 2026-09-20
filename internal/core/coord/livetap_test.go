@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
@@ -175,7 +176,9 @@ func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, erro
 // test observes the drive.
 type noDelivery struct{}
 
-func (noDelivery) Setup(context.Context, *agent.SetupRequest) error { return nil }
+func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Surfaces, delivery.Target) (delivery.Delivered, error) {
+	return delivery.Delivered{}, nil
+}
 
 // ResolveLaunch resolves the worker's launch: it composes no context (the
 // tap renders the turn's own words).

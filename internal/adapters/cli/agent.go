@@ -291,6 +291,7 @@ var (
 	agentSetProfiles    []string
 	agentSetRuntime     string
 	agentSetSurfaces    []string
+	agentSetRoots       []string
 	agentSetPermissions string
 	agentSetEngineHome  string
 )
@@ -452,6 +453,16 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 			for k, a := range parsed {
 				req.Surfaces[k.String()] = a
 			}
+		}
+	}
+	if cmd.Flags().Changed("root") {
+		// Parsed as written; which roots the engine's approach offers is
+		// checked in SetAgent, the only place that knows which engine this
+		// write results in.
+		req.Roots = map[string]string{}
+		for _, p := range agentSetRoots {
+			k, v, _ := strings.Cut(p, "=")
+			req.Roots[strings.TrimSpace(k)] = strings.TrimSpace(v)
 		}
 	}
 	if cmd.Flags().Changed("permissions") {
@@ -666,6 +677,8 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container-rootless|container-rootful; empty = project default). `ctxloom llm list` reports which of these each engine can be given")
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
+	cmd.Flags().StringArrayVar(&agentSetRoots, "root", nil,
+		"Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	cmd.Flags().StringVar(&agentSetEngineHome, "engine-home", "",
 		"Engine-home axis: which home this agent's engine runs against — its credentials, memory, plugins and personal MCP registrations (host|session; empty = host, the default — a per-session home is opt-in)")

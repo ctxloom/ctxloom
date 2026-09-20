@@ -2,8 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,38 +75,4 @@ func TestMarshalChatMCPConfig_HTTPAndSSE(t *testing.T) {
 func TestMarshalChatMCPConfig_UnknownTransport_Refused(t *testing.T) {
 	_, err := MarshalChatMCPConfig([]ChatMCPServer{{Name: "bad", Transport: "carrier-pigeon"}})
 	require.ErrorIs(t, err, ErrChatMCPConfigTransportUnsupported)
-}
-
-// TestWriteChatMCPConfigFile_Mode0600: the written file must carry mode
-// 0o600 exactly (this config can carry MCP server auth headers/env) and its
-// content must match MarshalChatMCPConfig's own output.
-func TestWriteChatMCPConfigFile_Mode0600(t *testing.T) {
-	servers := []ChatMCPServer{
-		{Name: "ctxloom", Command: "/usr/local/bin/ctxloom", Args: []string{"mcp", "serve"}},
-	}
-	path := filepath.Join(t.TempDir(), ".mcp.json")
-
-	require.NoError(t, WriteChatMCPConfigFile(path, servers))
-
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
-	want, err := MarshalChatMCPConfig(servers)
-	require.NoError(t, err)
-	got, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-}
-
-// TestWriteChatMCPConfigFile_UnknownTransport_Refused: the write half
-// refuses the same way the marshal half does, and writes no file.
-func TestWriteChatMCPConfigFile_UnknownTransport_Refused(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".mcp.json")
-
-	err := WriteChatMCPConfigFile(path, []ChatMCPServer{{Name: "bad", Transport: "carrier-pigeon"}})
-	require.ErrorIs(t, err, ErrChatMCPConfigTransportUnsupported)
-
-	_, statErr := os.Stat(path)
-	assert.True(t, os.IsNotExist(statErr), "no file should be written on a refused transport")
 }

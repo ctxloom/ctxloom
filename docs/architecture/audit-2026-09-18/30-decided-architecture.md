@@ -106,7 +106,7 @@ Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` o
 | `lm/hosting` (what `lm/backends` still needs to run a kind that the port does not carry: the backend constructor, the typed config, the named-form table, the settings writer, the hook scope guard, the version command; dies with `lm/backends`) | `adapters/engineversion` | `adapters/engineversion`: the version command is the engine's own (the `adapters/transcript/vendorreader` edge is exhausted: slice 11b — the readers are `engine.TranscriptReader` values the composition root hands each kind, `Engine.Transcripts`) |
 | `core/trust`, `core/paths`, `core/wire`, `core/present`, `core/spool`, `shared/harp` | none | pure today |
 | `core/engine`, `core/composite`, `core/launch` | none | born pure in slice 2; zero allowlist from their first commit |
-| `core/delivery` | does not exist | born pure in slice 12; zero allowlist from its first commit |
+| `core/delivery` | born in 7 (Route, the Plan) and 9 (Loadout, Dynamic); the Static port, Target, Ownership and InputsFor landed 12 | pure: imports engine, present, composite, sessions, wire; zero allowlist |
 
 The rule as a row: `{name: "core-imports-only-core", from: "internal/core/", forbid: ["internal/adapters/", "internal/engines/", "internal/adapters/cli", "internal/adapters/operations", …every non-core, non-toolbox in-repo prefix], allowed: <the table above, one entry per edge with the slice number as the reason>}`. Because the rings are directories, `from` and `forbid` are path PREFIXES, which is what the rename buys: a new core package is covered the moment it exists, with no row to add; until the rename, `from` and `except` name today's core and toolbox packages one by one, and `forbid` is every in-repo root, so a package that is neither is forbidden by default. The generated proto is imported by `adapters/coordgrpc`, the runner's `mcp` and `cli/tui`, and (until slice 13) `cli` and `operations`; a sibling rule `proto-only-in-adapters` pins it. `afero.Fs` is permitted in `core/present`, `core/engine`, `core/delivery` and `core/sessions` as the filesystem port; `afero.NewOsFs`/`afero.OsFs` are referenced only under `adapters/fsstatic`, `adapters/fsstore`, `adapters/configload` and `cmd/*` (a symbol rule in the same test file).
 
@@ -197,7 +197,7 @@ Package table — what each ring member owns and what it must never know:
 | `adapters/isolation` | `launch.Cells` for worktree, docker, podman and host; credential seeding from `CellRequest.Host`; session-state mounts derived from the member table | engines by name |
 | `adapters/hostpty`, `adapters/attach` | spawn `ctxloom runner` with a pty; `docker run -it … ctxloom runner` as the container's foreground process | keepalive, exec-into, file handoff |
 | `adapters/operations` | the application services (one per use case: `StartRun`, `Materialize`, `Compact`, `EvaluateTriggers`, `Doctor`, …); implements `coord.HostApp`; holds the `config.Owner` | cobra |
-| `adapters/configload`, `adapters/fsstore`, `adapters/fsstatic`, `adapters/confpatch`, `adapters/remote`, `adapters/signing/*`, `adapters/attest`, `adapters/companions`, `adapters/transcript/*`, `adapters/memory` | `config.Sources`; `sessions.Store`/`Locks`; `delivery.Static`; `delivery.Ownership`; the pull-walk and lockfile (`RetractionRecords`); `TrustRoot`/`ReviewRecords`; `attest.VerifyBundle` (the one verifier); companion probing; the vendor readers and the canonical transcript; the compactor | each other |
+| `adapters/configload`, `adapters/fsstore`, `adapters/fsstatic`, `adapters/confpatch`, `adapters/remote`, `adapters/signing/*`, `adapters/attest`, `adapters/companions`, `adapters/transcript/*`, `adapters/memory` | `config.Sources`; `sessions.Store`/`Locks`; `delivery.Static` (`fsstatic.Static`) and `delivery.Ownership` (`fsstatic.Records`, landed 12 beside the writer rather than in confpatch: the lean companions link confpatch's hew patching and must not link the package model `delivery` carries — the record diffs its reversals through confpatch's exported helpers); the pull-walk and lockfile (`RetractionRecords`); `TrustRoot`/`ReviewRecords`; `attest.VerifyBundle` (the one verifier); companion probing; the vendor readers and the canonical transcript; the compactor | each other |
 | `adapters/cli`, `cli/tui`, `termui` | cobra commands over `operations`; the watch UI on the coordination proto and the transcript file; the pty master | the engine, the launch internals |
 | `engines/<name>` | one `engine.Engine` value per kind; `engines.Build()` returns the `Registry` | anything above `core/engine` |
 
@@ -1999,7 +1999,8 @@ type Delivered struct {
 }
 
 // Ownership is the ONE ownership mechanism: a record per target file naming
-// the entries each writer owns in it. confpatch implements it.
+// the entries each writer owns in it. fsstatic implements it (Records),
+// over confpatch's hew patching.
 type Ownership interface {
 	Apply(ctx context.Context, fs afero.Fs, target string, writer Writer, build Build) (Result, error)
 	Owned(target string, writer Writer) ([]string, error)
@@ -3114,8 +3115,8 @@ flowchart LR
     RES["launch.Resolve → Launch — permission floored HERE (depth 0 widens to bypass, a child is refused), home decided HERE, endpoint minted HERE (Store.BindMCP, Store.BindEngine) (landed 7)"]:::decide
     WIRE["coordgrpc.EncodeLaunch → the Launch message on StartRun; DecodeLaunch on the runner; WireFieldNames parity in tests/arch; MaxRecvMsgSize = DefaultInlineMax + 1 MiB (landed 8). The host's interactive arm still rides the plugin run-start through EncodeRunStart until 13"]:::carrier
     RED["runner.Execute: composite.Open — Redeem by the carrier's shape (a claim reads the mounted session dir) → Decode, the digest proved (landed 8)"]:::consume
-    LO["runner: the managed payload from the decoded Package + Launch.Exports (agent.ManagedConfigFor, landed 8); delivery.Loadout is 12's"]:::consume
-    DELIV["the engine's Setup over the cell's roots (landed 8: one payload for the host's plugin arm and the runner alike — the identical-file-set gate); delivery.Static replaces it in 12"]:::consume
+    LO["runner: delivery.Loadout = launch.Launch.Loadout(pkg) — the ONE builder the runner and the local launcher (operations.Opened.Loadout) share; delivery.InputsFor projects it into every kind's typed inputs once (landed 12)"]:::consume
+    DELIV["delivery.Static.Deliver(lo, kind.Root().Surfaces(), l.Target(records)) — fsstatic over the engine's typed approaches, reconcile-from-clean, ONE ownership record per target file writer-tagged (fsstatic.Records, home-rooted); materialize and manage install are the same call under the project writer, uninstall the empty plan (landed 12: the identical-file-set gate re-run through the layer; the host's interactive arm still rides the plugin run-start's Setup until 13)"]:::consume
     DYN["the runner MCP endpoint stands up at payload arrival under the Launch's identity, and .mcp.json lands under the session home (landed 8); Dynamic.Serve BINDING Launch.MCP is 9's"]:::consume
     INST["engine.Instance ← Kind.Instance(l.Session()) in runner.Execute (landed 11b: requiredness refused by the engine before delivery; a Structured launch needs a driver) · Instance.Exec is the ONE argv composer (claude's buildArgs and Chat project onto it; the 64-launch golden holds) · the drive is still EngineHost.Drive(coord.Turn) over agent.StructuredChat: the port's per-turn StructuredDriver carries no mid-turn control channel (permission answers, cancel, terminal) — a fork for 14a"]:::consume
     SNAP -->|PASSED Deps.Snapshot| RES
@@ -3212,7 +3213,7 @@ flowchart TB
   PL["delivery.Route → Plan (routes; losses)"]:::s
   ENC["Encode → Carrier (inline | claim in <harp>/persist/package/<digest>)"]:::s
   V3["VERIFY 3 (at rest, in the runner): Redeem → Decode checks the digest; skill files written from the decoded set; RequireDelivered asserts the bytes landed"]:::v
-  D["Static.Deliver under the session home (or the project root on materialize) — one ownership record, writer-tagged"]:::s
+  D["Static.Deliver under the session home (or the project root on materialize) — one ownership record, writer-tagged (landed 12: fsstatic.Static over the typed approaches; fsstatic.Records keeps a hew reversal for a structured file and the pre-image for an opaque one; a created file leaves with its last writer)"]:::s
   X["engine.Instance.Exec(presented) (landed 11b: claude's one argv composer — each presentation's argv channel in delivery order, the minimal posture as an argv-only presentation; Env holds only engine-native vars; the 64-launch golden pins argv/env/cwd) — hooks decoded by Engine.Hooks() on the way back"]:::s
   R --> V1 --> C --> RD
   L --> RD

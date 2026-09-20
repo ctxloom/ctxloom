@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -32,7 +31,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -88,8 +86,6 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		Version:      "coordtest",
 		Engine:       host.Handle,
 		Capabilities: coord.RunnerCapabilities(true),
-		Harp:         runnerEnv[sessions.EnvHarp],
-		Depth:        runDepth(runnerEnv),
 	})
 	if err != nil {
 		cancel()
@@ -227,16 +223,6 @@ func (e *Engine) Texts() []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]string(nil), e.texts...)
-}
-
-// runDepth reads the stamped depth the way the production runner does: an
-// unparseable stamp is depth 0.
-func runDepth(env map[string]string) int {
-	d, err := strconv.Atoi(env[coord.EnvRunDepth])
-	if err != nil {
-		return 0
-	}
-	return d
 }
 
 // AwaitTimeout bounds the Await* helpers.

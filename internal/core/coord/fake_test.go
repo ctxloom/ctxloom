@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -252,13 +251,10 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 		Version:      "test",
 		Engine:       host.Handle,
 		Capabilities: caps,
-		// Read out of the STAMPED runner env rather than handed in by the
-		// test, mirroring production's consumeCoordinatorReachBack
-		// (llm_runner_common.go) field for field. That makes every test using
-		// this fake a live check that the coordinator's per-spawn stamp
-		// actually reaches the runner.
-		Harp:               runnerEnv["CTXLOOM_SESSION_HARP"],
-		Depth:              fakeRunDepth(runnerEnv),
+		// The trio is read out of the STAMPED runner env rather than handed
+		// in by the test, mirroring production's consumeCoordinatorReachBack
+		// (llm_runner_common.go). The run's identity is NOT here: it arrives
+		// on the Launch, and the engine host binds it as it drives.
 		SpoolSweepInterval: sweepInterval,
 	})
 	if err != nil {
@@ -463,16 +459,6 @@ func (s *fakeSpawner) assignedSessions() []string {
 
 func (s *fakeSpawner) spawnCount() int {
 	return s.chatCount()
-}
-
-// fakeRunDepth reads the stamped EnvRunDepth the way production's
-// parseRunDepth does: anything unparseable is depth 0.
-func fakeRunDepth(env map[string]string) int {
-	d, err := strconv.Atoi(env[EnvRunDepth])
-	if err != nil {
-		return 0
-	}
-	return d
 }
 
 func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coordinator {

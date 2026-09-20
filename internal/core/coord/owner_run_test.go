@@ -46,8 +46,6 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 			Harness: backend,
 			Version: "test",
 			Engine:  host.Handle,
-			Harp:    spawnEnv["CTXLOOM_SESSION_HARP"],
-			Depth:   fakeRunDepth(spawnEnv),
 		})
 		if err != nil {
 			cancel()
@@ -133,14 +131,13 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	assert.Contains(t, got, "echo: hello owner run", "the engine's answer must reach the host over WatchRuns")
 }
 
-// TestStartOwnedRun_StampsOwnerAtDepthZero pins the regression this whole
-// depth-based leaf design exists to prevent: the container top-level owned
-// run's runner env carries EnvRunDepth "0" — the SAME depth the session
-// owner itself is — never owner.Depth+1. A wrong stamp here would make the
-// top-level session a LEAF at the built-in cap and silently strip
-// agent_run/roster/agent_stop/agent_fetch_artifact from a `ctxloom run
-// --structured`/`--print` session on runtime:container.
-func TestStartOwnedRun_StampsOwnerAtDepthZero(t *testing.T) {
+// TestStartOwnedRun_RunnerEnvIsTheTrioAlone pins that the container
+// top-level owned run's runner is started with the reach-back trio and
+// nothing of the run's identity: its depth — the SAME depth the session
+// owner itself is, never owner.Depth+1, which would make the top-level
+// session a LEAF at the built-in cap — rides the Launch (the journaled
+// enqueue fact, TestStartOwnedRun_ReusesTheOwnersIdentity), not the env.
+func TestStartOwnedRun_RunnerEnvIsTheTrioAlone(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -165,7 +162,7 @@ func TestStartOwnedRun_StampsOwnerAtDepthZero(t *testing.T) {
 	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello")
 	require.ErrorIs(t, err, errStopBeforeDial)
 	require.NotNil(t, gotEnv, "the starter must have been invoked with the runner env")
-	assert.Equal(t, "0", gotEnv[EnvRunDepth], "the owner-owned run must stamp depth 0, matching the session owner it IS")
+	assert.ElementsMatch(t, []string{EnvCoordURL, EnvCoordCred, EnvRunID}, envKeys(gotEnv), "the runner env is the reach-back trio; the run's identity rides the Launch")
 }
 
 // TestStartOwnedRun_OwnerHarpRoleNoCollision is the §5.B2 named collision

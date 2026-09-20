@@ -336,8 +336,8 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	// pointed at would read a sibling session's mail across the one boundary
 	// the per-session mount exists to draw.
 	switch {
-	case ref.Harp != h.cfg.Harp:
-		clidiag.Warn("ctxloom", "runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.cfg.Harp)
+	case ref.Harp != h.Harp():
+		clidiag.Warn("ctxloom", "runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.Harp())
 		h.spoolDoorbell.rejected.Add(1)
 		return
 	case ref.Dir == spool.DirInWithdrawn:

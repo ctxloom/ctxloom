@@ -27,9 +27,10 @@ import (
 // fakeEngineHome records everything the engine host emits, standing in for a
 // dialed Home.
 type fakeEngineHome struct {
-	mu      sync.Mutex
-	events  []*agentcoordpb.AgentEvent
-	customs []struct {
+	mu       sync.Mutex
+	identity Identity
+	events   []*agentcoordpb.AgentEvent
+	customs  []struct {
 		Name  string
 		Value map[string]any
 	}
@@ -72,6 +73,13 @@ func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentReque
 			Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, Note: "fakeEngineHome default",
 		}},
 	}, nil
+}
+
+// BindIdentity records the identity the host bound from the launch.
+func (f *fakeEngineHome) BindIdentity(id Identity) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identity = id
 }
 
 func (f *fakeEngineHome) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {

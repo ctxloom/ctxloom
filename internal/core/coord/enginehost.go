@@ -23,6 +23,9 @@ import (
 // engineHome is the slice of *Home the engine host consumes — an interface so
 // the adaptation logic tests hermetically without a dialed coordinator.
 type engineHome interface {
+	// BindIdentity binds the run's identity from the Launch, once, before
+	// anything is driven — the spool's harp, the turn report's depth.
+	BindIdentity(id Identity)
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
@@ -325,6 +328,10 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	}
 	eh.result = result
 	eh.mu.Unlock()
+
+	// Identity arrives ONCE, on the launch: the home learns which run it is
+	// here, before the first frame it emits.
+	home.BindIdentity(t.Launch.Identity)
 
 	// RunStarted first: the log is self-contained (the first turn and the
 	// launch's facts, including whether this attempt resumed a prior native

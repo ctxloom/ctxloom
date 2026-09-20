@@ -38,6 +38,10 @@ type Deps struct {
 	// Static delivers the package's surfaces into the cell: today the hosted
 	// engine's own Setup.
 	Static Static
+	// Dynamic stands up the session's served surface — today the runner's
+	// MCP endpoint, keyed by the launch's identity — before the engine is
+	// driven, and returns its closer. nil serves nothing.
+	Dynamic Dynamic
 	// Surfaces validates the binding's delivery preference (as written on
 	// the package) against the hosted engine's declaration; nil accepts the
 	// engine's default delivery.
@@ -56,6 +60,10 @@ type Static interface {
 	Setup(ctx context.Context, req *agent.SetupRequest) error
 }
 
+// Dynamic is the served-surface port: stand the session's endpoint up for
+// the launch, return its closer.
+type Dynamic func(ctx context.Context, l launch.Launch) (close func(), err error)
+
 // Driver is the engine-drive port: coord.EngineHost implements it.
 type Driver interface {
 	Drive(ctx context.Context, t coord.Turn) error
@@ -65,6 +73,8 @@ type Driver interface {
 type Outcome struct {
 	// Delivered is the package as delivered: what the writers were given.
 	Delivered *agent.ManagedConfig
+	// Close tears the served surface down (nil when none was served).
+	Close func()
 	// MCPConfig is the .mcp.json under the session home the engine's argv
 	// names ("" when the package registers no server).
 	MCPConfig string
@@ -84,9 +94,10 @@ var (
 const mcpConfigName = ".mcp.json"
 
 // Execute is the RAW launch — the only tail. Redeem → Decode → refuse a
-// foreign engine → Configure → Deliver (the writers, the session's
-// .mcp.json) → Drive. There is no Execute that skips delivery and no way to
-// hold a Launch that Resolve did not make.
+// foreign engine → Configure → Serve (the session's endpoint, under the
+// launch's identity) → Deliver (the writers, the session's .mcp.json) →
+// Drive. There is no Execute that skips delivery and no way to hold a Launch
+// that Resolve did not make.
 func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if deps.Driver == nil {
 		return Outcome{}, ErrNoDriver
@@ -102,6 +113,14 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		if err := deps.Configure(l.Label.Body); err != nil {
 			return Outcome{}, fmt.Errorf("runner: configure %s from label %q: %w", l.Engine, l.Label.Label, err)
 		}
+	}
+	var closeServed func()
+	if deps.Dynamic != nil {
+		c, err := deps.Dynamic(ctx, l)
+		if err != nil {
+			return Outcome{}, fmt.Errorf("runner: serve the session's endpoint: %w", err)
+		}
+		closeServed = c
 	}
 	managed := agent.ManagedConfigFor(agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}, l.Exports)
 	agent.PreferSurfaces(managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)
@@ -145,9 +164,12 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		Prompt: firstTurn(pkg, l),
 	}
 	if err := deps.Driver.Drive(ctx, turn); err != nil {
+		if closeServed != nil {
+			closeServed()
+		}
 		return Outcome{}, err
 	}
-	return Outcome{Delivered: managed, MCPConfig: mcpConfig}, nil
+	return Outcome{Delivered: managed, MCPConfig: mcpConfig, Close: closeServed}, nil
 }
 
 // contextFragments is the assembled context as the writers take it: one

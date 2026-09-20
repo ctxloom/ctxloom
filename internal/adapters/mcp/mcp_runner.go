@@ -48,8 +48,8 @@ import (
 //     container boundary);
 //   - cell-local content tools → served locally (the data was delivered
 //     into the cell; same binary, same handlers);
-//   - host-resident tools → CustomRequest{ctxloom/<tool>} relay to the
-//     coordinator-side handlers (4MiB watched there);
+//   - host-resident tools → typed HostRequest frames the coordinator's Host
+//     verb dispatches to its application service (4MiB watched there);
 //   - artifact-fetch tools (E1d) → served locally by calling
 //     ArtifactTransferService directly on the runner's own credentialed
 //     connection (coord.Home.DownloadArtifact) — schema-derived like the
@@ -78,16 +78,14 @@ type RunnerMCP struct {
 // degrades to env-only discovery, same fault tolerance as the socket bind
 // itself never blocking the runner.
 //
-// cellWorkDir is the runner's coord.EnvCellWorkDir reading (empty when
-// unset): the prepared workspace dir the harness's engine process actually
-// runs in, which can differ from THIS process's own os.Getwd() for a
-// workspace:worktree run (fix/host-discovery-anchor — the runner is spawned
-// with no cmd.Dir and inherits the coordinator's cwd, while the harness is
-// launched with cmd.Dir=the per-agent worktree). The marker key must agree
-// with the shim's cwd-derived key, so cellWorkDir wins over os.Getwd() when
-// present; falls back to os.Getwd() when empty (workspace:none/container, or
-// any caller that never threads it) — behaviour-identical to before this
-// var existed.
+// cellWorkDir is the prepared workspace dir the harness's engine process
+// actually runs in — the Launch's cell for a hosted run, the env-carried
+// stamp for the plugin-hosted owner — which can differ from THIS process's
+// own os.Getwd() for a workspace:worktree run (the runner is spawned with no
+// cmd.Dir and inherits the coordinator's cwd, while the harness is launched
+// with cmd.Dir=the per-agent worktree). The marker key must agree with the
+// shim's cwd-derived key, so cellWorkDir wins over os.Getwd() when present;
+// falls back to os.Getwd() when empty.
 func ServeRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*RunnerMCP, error) {
 	// cellWorkDir must reach the SAME place on both uses — the
 	// discovery marker key below AND the tool surface's own cell-path
@@ -538,10 +536,7 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 			}
 		}
 		resp, err := home.Request(ctx, &agentcoordpb.AgentRequest{
-			Kind: &agentcoordpb.AgentRequest_Custom{Custom: &agentcoordpb.CustomRequest{
-				Name:  coord.CustomToolPrefix + name,
-				Value: args,
-			}},
+			Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: name, Args: args}},
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", name, err)
@@ -549,7 +544,7 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 		if st := resp.GetStatus(); st.GetCode() != int32(codes.OK) {
 			return nil, nil, errors.New(st.GetMessage())
 		}
-		rawOut, err := protojson.Marshal(resp.GetCustom())
+		rawOut, err := protojson.Marshal(resp.GetHost().GetBody())
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: decode result: %w", name, err)
 		}

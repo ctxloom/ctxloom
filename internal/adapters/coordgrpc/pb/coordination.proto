@@ -933,9 +933,30 @@ message AgentRequest {
     // question, summarize, pause, resume — through the same coordinator verbs
     // the human drives from the viewer; answered by ControlRunResult.
     ControlRun control_run = 17;
-    // Open extension point, mirroring CustomEvent.
+    // A host-relayed tool (every tool that reads the sessions root or
+    // cross-session history), dispatched by the coordinator's Host verb to
+    // the application service it was composed with, under THIS caller's
+    // identity; answered by HostResult.
+    HostRequest host = 18;
+    // custom carried the host-relayed tools untyped (name "ctxloom/<tool>")
+    // before host above; nothing writes or reads it since the arch-migration
+    // row snowy-jujitsu (slice 8). It stays under the additive rule until
+    // slice 9 reserves it.
     CustomRequest custom = 90;
   }
+}
+
+// HostRequest is coord.HostRequest on the wire: the tool by name and its
+// arguments as the tool's own JSON object.
+message HostRequest {
+  string tool = 1;
+  google.protobuf.Struct args = 2;
+}
+
+// HostResult is coord.HostResult on the wire: the tool's answer as its own
+// JSON object.
+message HostResult {
+  google.protobuf.Struct body = 1;
 }
 
 message CoordinatorResponse {
@@ -956,6 +977,8 @@ message CoordinatorResponse {
     ListRunsResult list_runs = 14;
     StopRunResult stop_run = 16;  // answers AgentRequest.stop_run
     ControlRunResult control_run = 17;  // answers AgentRequest.control_run
+    HostResult host = 18;  // answers AgentRequest.host
+    // custom answered the untyped relay; see AgentRequest.custom.
     google.protobuf.Struct custom = 90;
   }
 }

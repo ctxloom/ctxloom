@@ -58,9 +58,6 @@ func TestSessionOwnerEnv_IsTheCoordinatorsOwnProducer(t *testing.T) {
 	// The keys the hand-built map used to lose, named explicitly so a failure
 	// says what went missing rather than only that two maps differ.
 	assert.Contains(t, env, "CTXLOOM_SESSION_HARP", "the harp is stamped by the producer — cli/run.go no longer patches it back in")
-	assert.Contains(t, env, coord.EnvRunDepth)
-	assert.Contains(t, env, coord.EnvRunOneShot)
 	assert.Equal(t, "owner-harp", env["CTXLOOM_SESSION_HARP"])
-	assert.Equal(t, "0", env[coord.EnvRunDepth], "the session owner is the root of the delegation tree")
 	assert.NotEmpty(t, env[coord.EnvCoordCred], "the minted owner credential still rides")
 }

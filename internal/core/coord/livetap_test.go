@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -197,8 +196,6 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		Harness: plan.Backend,
 		Version: "test",
 		Engine:  host.Handle,
-		Harp:    runnerEnv["CTXLOOM_SESSION_HARP"],
-		Depth:   liveTapDepth(runnerEnv),
 	})
 	if err != nil {
 		cancel()
@@ -358,13 +355,4 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("overlay did not quit")
 	}
-}
-
-// liveTapDepth reads the stamped EnvRunDepth; anything unparseable is 0.
-func liveTapDepth(env map[string]string) int {
-	d, err := strconv.Atoi(env[coord.EnvRunDepth])
-	if err != nil {
-		return 0
-	}
-	return d
 }

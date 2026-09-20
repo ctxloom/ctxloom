@@ -11,8 +11,6 @@ const (
 	EnvCoordCred   = sessions.EnvCoordCred
 	EnvRunID       = sessions.EnvRunID
 	EnvMCPSocket   = sessions.EnvMCPSocket
-	EnvRunDepth    = sessions.EnvRunDepth
-	EnvRunOneShot  = sessions.EnvRunOneShot
 	EnvCellWorkDir = sessions.EnvCellWorkDir
 )
 

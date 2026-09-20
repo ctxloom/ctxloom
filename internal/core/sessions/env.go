@@ -47,19 +47,11 @@ const (
 	// "tcp://host:port" — a host-loopback TCP bridge onto the same unix
 	// socket (the marker is mcpsocket.TCPPrefix).
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
-	// EnvRunDepth carries this run's DELEGATION DEPTH to its runner process:
-	// "0" for the session owner, "1" for its directly-spawned subagents, and
-	// so on. Stamped UNCONDITIONALLY (unlike the trio, which is omitted whole
-	// without reach-back): leafness must not depend on reach-back.
-	EnvRunDepth = "CTXLOOM_RUN_DEPTH"
-	// EnvRunOneShot carries whether THIS run's own resolved plan is one-shot
-	// ("true"/"false"; absent or unparseable reads as false), on the same
-	// unconditional terms as EnvRunDepth.
-	EnvRunOneShot = "CTXLOOM_RUN_ONESHOT"
 	// EnvCellWorkDir carries the prepared workspace directory (a worktree's
-	// per-agent checkout) to the runner process at spawn time, so the
-	// runner's MCP discovery marker is keyed by the SAME directory the
-	// shim's cwd derives from.
+	// per-agent checkout) to the plugin-hosted `llm serve` process at spawn
+	// time, so its MCP discovery marker is keyed by the SAME directory the
+	// shim's cwd derives from. The runner learns its cell from the Launch
+	// (Launch.Cell.Workspace); this carrier dies with the plugin arm.
 	EnvCellWorkDir = "CTXLOOM_CELL_WORKDIR"
 )
 

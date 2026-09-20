@@ -39,6 +39,9 @@ func NewHostedCoordinator(app *operations.App, projectDir, ownerHarp string) (*c
 		App:        app,
 		ProjectDir: projectDir,
 		ProjectKey: key,
+		// The host-relayed tools (Verbs.Host) terminate in THIS process, on a
+		// per-caller-identity ctxServer.
+		Host: NewHostApp(cfg),
 		// A configurable RESOURCE ceiling (concurrent live engine
 		// processes), not a correctness gate — see coord.agentConcurrencyCap's
 		// doc. <= 0 (unset project config) falls back to the built-in
@@ -53,10 +56,6 @@ func NewHostedCoordinator(app *operations.App, projectDir, ownerHarp string) (*c
 	if err != nil {
 		return nil, err
 	}
-	// Host-relay tool handlers (B1.6 three-way routing): host-resident
-	// tools relayed by runners as CustomRequest{ctxloom/<tool>} terminate
-	// in THIS process, on a per-caller-identity ctxServer.
-	c.SetCustomHandlers(coordCustomHandlers(cfg, c))
 	if err := c.Serve(); err != nil {
 		c.Close()
 		return nil, err
@@ -64,74 +63,105 @@ func NewHostedCoordinator(app *operations.App, projectDir, ownerHarp string) (*c
 	return c, nil
 }
 
-// coordCustomHandlers builds the coordinator-side handlers for the
-// host-resident tools (cross-session history, distillation — host session
-// dirs are not mounted into children). Each call runs on a ctxServer bound
-// to the CALLER's credential-derived identity, exactly like the stdio
-// handlers — never the host process's env.
-func coordCustomHandlers(cfg *config.Config, c *coord.Coordinator) map[string]coord.CustomHandler {
-	// One dedupe group ACROSS the per-call ctxServers: a distillation already
-	// in flight for a session is joined, not duplicated. Owned here because
-	// serverFor mints a fresh ctxServer per relayed call — a group hung off
-	// that would dedupe nothing.
-	distill := &singleflight.Group{}
-	serverFor := func(id coord.Identity) *ctxServer {
-		return &ctxServer{cfg: cfg, self: id, agents: &agentDelegation{self: id, c: c}, distill: distill}
-	}
-	return map[string]coord.CustomHandler{
-		coord.CustomToolPrefix + "compact_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in compactSessionInput) (any, error) {
-			_, out, err := s.handleCompactSession(ctx, nil, in)
-			return out, err
-		}),
-		coord.CustomToolPrefix + "load_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in loadSessionInput) (any, error) {
-			_, out, err := s.handleLoadSession(ctx, nil, in)
-			return out, err
-		}),
-		coord.CustomToolPrefix + "recover_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in recoverSessionInput) (any, error) {
-			_, out, err := s.handleRecoverSession(ctx, nil, in)
-			return out, err
-		}),
-		coord.CustomToolPrefix + "get_previous_session": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in getPreviousSessionInput) (any, error) {
-			_, out, err := s.handleGetPreviousSession(ctx, nil, in)
-			return out, err
-		}),
-		coord.CustomToolPrefix + "list_sessions": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in listSessionsInput) (any, error) {
-			_, out, err := s.handleListSessions(ctx, nil, in)
-			return out, err
-		}),
-		coord.CustomToolPrefix + "evaluate_triggers": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in evaluateTriggersInput) (any, error) {
-			_, out, err := s.handleEvaluateTriggers(ctx, nil, in)
-			return out, err
-		}),
-		coord.CustomToolPrefix + "context_status": relayHost(serverFor, func(ctx context.Context, s *ctxServer, in contextStatusInput) (any, error) {
-			_, out, err := s.handleContextStatus(ctx, nil, in)
-			return out, err
-		}),
-	}
+// HostApp is coord.HostApp over the host-resident tools (cross-session
+// history, distillation, triggers, context status — host session dirs are
+// not mounted into children). Each call runs on a ctxServer bound to the
+// CALLER's credential-derived identity, exactly like the stdio handlers —
+// never the host process's env.
+type HostApp struct {
+	cfg *config.Config
+	// distill is ONE dedupe group ACROSS the per-call ctxServers: a
+	// distillation already in flight for a session is joined, not
+	// duplicated. Owned here because Serve mints a fresh ctxServer per call —
+	// a group hung off that would dedupe nothing.
+	distill *singleflight.Group
+	tools   map[string]hostTool
 }
 
-// relayHost adapts one typed stdio handler onto the coordinator's relay
-// seam: decode the relayed args into the SAME input struct, run the handler
-// under the caller's identity, re-encode the result.
-func relayHost[In any](serverFor func(coord.Identity) *ctxServer, h func(context.Context, *ctxServer, In) (any, error)) coord.CustomHandler {
-	return func(ctx context.Context, caller coord.Identity, args json.RawMessage) (json.RawMessage, error) {
-		var in In
-		if len(args) > 0 {
-			if err := json.Unmarshal(args, &in); err != nil {
-				return nil, fmt.Errorf("decode arguments: %w", err)
-			}
-		}
-		out, err := h(ctx, serverFor(caller), in)
-		if err != nil {
-			return nil, err
-		}
-		raw, err := json.Marshal(out)
-		if err != nil {
-			return nil, fmt.Errorf("encode result: %w", err)
-		}
-		return raw, nil
-	}
+// hostTool serves one relayed tool: decode the args into the tool's own
+// input struct, run its handler under the caller's server, encode the result.
+type hostTool func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error)
+
+// NewHostApp composes the relayed tool set over cfg.
+func NewHostApp(cfg *config.Config) *HostApp {
+	return &HostApp{cfg: cfg, distill: &singleflight.Group{}, tools: map[string]hostTool{
+		"compact_session": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in compactSessionInput) (any, error) {
+				_, out, err := s.handleCompactSession(ctx, nil, in)
+				return out, err
+			})
+		}),
+		"load_session": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in loadSessionInput) (any, error) {
+				_, out, err := s.handleLoadSession(ctx, nil, in)
+				return out, err
+			})
+		}),
+		"recover_session": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in recoverSessionInput) (any, error) {
+				_, out, err := s.handleRecoverSession(ctx, nil, in)
+				return out, err
+			})
+		}),
+		"get_previous_session": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in getPreviousSessionInput) (any, error) {
+				_, out, err := s.handleGetPreviousSession(ctx, nil, in)
+				return out, err
+			})
+		}),
+		"list_sessions": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in listSessionsInput) (any, error) {
+				_, out, err := s.handleListSessions(ctx, nil, in)
+				return out, err
+			})
+		}),
+		"evaluate_triggers": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in evaluateTriggersInput) (any, error) {
+				_, out, err := s.handleEvaluateTriggers(ctx, nil, in)
+				return out, err
+			})
+		}),
+		"context_status": hostTool(func(ctx context.Context, s *ctxServer, args json.RawMessage) (any, error) {
+			return decodeThen(args, func(in contextStatusInput) (any, error) {
+				_, out, err := s.handleContextStatus(ctx, nil, in)
+				return out, err
+			})
+		}),
+	}}
 }
+
+// Serve implements coord.HostApp: the named tool under the caller's
+// identity; a name outside the relayed set is refused by name.
+func (a *HostApp) Serve(ctx context.Context, caller coord.Identity, req coord.HostRequest) (coord.HostResult, error) {
+	tool, ok := a.tools[req.Tool]
+	if !ok {
+		return coord.HostResult{}, fmt.Errorf("%w: %q", coord.ErrUnknownHostTool, req.Tool)
+	}
+	s := &ctxServer{cfg: a.cfg, self: caller, distill: a.distill}
+	out, err := tool(ctx, s, req.Args)
+	if err != nil {
+		return coord.HostResult{}, err
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return coord.HostResult{}, fmt.Errorf("%s: encode result: %w", req.Tool, err)
+	}
+	return coord.HostResult{Body: raw}, nil
+}
+
+// decodeThen decodes the relayed args into the tool's own input struct (an
+// absent object is the zero input) and runs the handler.
+func decodeThen[In any](args json.RawMessage, h func(In) (any, error)) (any, error) {
+	var in In
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &in); err != nil {
+			return nil, fmt.Errorf("decode arguments: %w", err)
+		}
+	}
+	return h(in)
+}
+
+var _ coord.HostApp = (*HostApp)(nil)
 
 // HostCoordinatorForSession is the run/acp hosting helper: coordinator up,
 // viewer socket bound under the owner harp, owner credential minted, and the

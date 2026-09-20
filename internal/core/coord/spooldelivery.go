@@ -839,7 +839,14 @@ func (h *Home) SpoolDeliveryStats() SpoolDeliveryStats { return h.spoolDeliveryC
 func (h *Home) startSpoolReactor() {
 	h.spoolIn = newSpoolReactor(
 		func(string) { h.sweepSpoolIn() },
-		func() []string { return []string{h.cfg.Harp} },
+		func() []string {
+			// No role until the identity is bound: an unbound run has no
+			// spool to reconcile.
+			if harp := h.Harp(); harp != "" {
+				return []string{harp}
+			}
+			return nil
+		},
 		h.cfg.SpoolSweepInterval,
 	)
 	// Same one-seam rule as the coordinator's, and it lands on SweepSpoolIn so
@@ -854,7 +861,9 @@ func (h *Home) startSpoolReactor() {
 // reattach, doorbell — so a new trigger cannot accidentally introduce a second
 // way of reading the same directory.
 func (h *Home) SweepSpoolIn() {
-	h.spoolIn.mark(h.cfg.Harp)
+	if harp := h.Harp(); harp != "" {
+		h.spoolIn.mark(harp)
+	}
 }
 
 // sweepSpoolIn delivers everything currently in this run's in/ spool, oldest
@@ -875,7 +884,7 @@ func (h *Home) sweepSpoolIn() {
 		return
 	}
 	mapper := spool.NewHomeMapper()
-	path, err := spool.DirPath(mapper, h.cfg.Harp, spool.DirIn)
+	path, err := spool.DirPath(mapper, h.Harp(), spool.DirIn)
 	if err != nil {
 		clidiag.Warn("ctxloom", "runner: cannot resolve this run's in/ spool: %v", err)
 		h.spoolDeliveryCount.failed.Add(1)
@@ -884,7 +893,7 @@ func (h *Home) sweepSpoolIn() {
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 		return // nothing has ever been written for this run
 	}
-	res, err := spool.Sweep(mapper, h.cfg.Harp, spool.DirIn)
+	res, err := spool.Sweep(mapper, h.Harp(), spool.DirIn)
 	if err != nil {
 		clidiag.Warn("ctxloom", "runner: sweeping this run's in/ spool: %v", err)
 		h.spoolDeliveryCount.failed.Add(1)
@@ -1051,7 +1060,7 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 		structured = raw
 	}
 	ref, err := h.writeOutbound(Message{
-		From: h.cfg.Harp, To: to, Kind: kind,
+		From: h.Harp(), To: to, Kind: kind,
 		Body: send.GetText(), Structured: structured, InReplyTo: send.GetInReplyTo(),
 	})
 	if err != nil {
@@ -1086,8 +1095,3 @@ func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse
 // (Options.OwnerHarp): every child->parent message is a file in the owner's
 // in/, and an owner nobody declared is a directory nobody reads.
 var ErrNeedsOwner = errors.New("coord: the coordinator needs the session owner's harp (Options.OwnerHarp): the owner's inbox is a spool and this process is its reader")
-
-// ErrRunNeedsHarp refuses a runner with no session harp (HomeConfig.Harp):
-// its spool is named by the harp, and a run with no spool can neither
-// receive coordinator mail nor send any.
-var ErrRunNeedsHarp = errors.New("coord: the runner needs this run's session harp (HomeConfig.Harp): its spool is named by it, and a run with no spool cannot receive or send")

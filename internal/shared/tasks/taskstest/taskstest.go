@@ -58,13 +58,6 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
 	"CTXLOOM_CELL_WORKDIR",
-	// coord.EnvRunDepth, read via os.Getenv(coord.EnvRunDepth) in
-	// internal/adapters/cli/llm_runner_common.go — same const-read shape as the
-	// quintet above. Found by a widened
-	// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads sweep, which
-	// now resolves identifier reads back to their declaring constant instead
-	// of requiring a literal "CTXLOOM_..." string.
-	"CTXLOOM_RUN_DEPTH",
 	// internal/adapters/isolation/traceprobe.go's probeTraceEnv const, read via
 	// os.Getenv(probeTraceEnv) — same shape, same discovery.
 	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -121,9 +120,9 @@ type childRt struct {
 	// moment they start. Journaled onto runEnqueued.ParentRunID: the
 	// coordinator's own record is the durable lineage.
 	parentRunID string
-	// depth is this run's own position in the delegation tree — the value
-	// stamped into its runner's env (EnvRunDepth) and journaled onto
-	// runEnqueued.Depth: 0 for the session owner's own run (StartOwnedRun,
+	// depth is this run's own position in the delegation tree — journaled
+	// onto runEnqueued.Depth and carried to its runner on the Launch's
+	// identity: 0 for the session owner's own run (StartOwnedRun,
 	// which reuses the owner's identity rather than spawning a child), and
 	// (spawning run's depth + 1) for every genuinely delegated child
 	// (AgentRun/resumeChild). Set once at enqueueRun, never mutated.
@@ -456,8 +455,8 @@ func callerLabel(caller Identity) string {
 // SAME run identity, not a new generation); StartOwnedRun passes the owner's
 // own depth unchanged (the owned run reuses the owner's identity — it IS the
 // owner on a different transport, not a child of it). This is the single
-// place runEnqueued.Depth and childRt.depth are set from, so the runner-side
-// env stamp (EnvRunDepth, via runnerEnv) and the server-side recursion guard
+// place runEnqueued.Depth and childRt.depth are set from, so the identity
+// the runner receives on its Launch and the server-side recursion guard
 // (AgentRun's caller.Depth, read back from this same fact via Identify) never
 // diverge.
 func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int) (*childRt, string, error) {
@@ -663,28 +662,25 @@ func waitAnyClosed(ctx context.Context, chs []chan struct{}) error {
 }
 
 // runnerEnv builds the per-spawn env stamped onto the RUNNER process (host:
-// cmd.Env on the `llm serve` subprocess; container: bare-name `-e` forms
-// with the values on the run-process env — never `-e KEY=VAL` argv, never
-// the process-global launcher env, which is racy across concurrent spawns).
-// The runner consumes the trio, unsets it, and exports only the MCP socket
-// path to the harness. url may be empty (degraded launch without
-// reach-back); the trio is then omitted whole and the harness's shim falls
-// back to its local mode. depth is this run's OWN delegation depth (childRt.
-// depth: 0 for the session owner's own run, spawner's depth + 1 for a
-// genuine child) and is stamped UNCONDITIONALLY via EnvRunDepth — unlike the
-// trio, leafness must not depend on reach-back being present. Replaces the
-// retired per-agent Coordinator flag/EnvAgentCoordinator: the runner
-// (internal/adapters/cli/standUpRunner/attachRunnerMCP) compares this depth against
-// the resolved delegation-depth cap to decide leaf-vs-not and gate the
-// coordinator-only MCP tools (mcp_runner.go). oneshot is this run's own
-// SpawnPlan.ResumeMode == ResumeModeOneShot, stamped via EnvRunOneShot on
-// the SAME unconditional terms as depth: a one-shot run is a leaf
-// regardless of depth (Identity.OneShot's doc).
-func runnerEnv(harp, runID, token, url string, depth int, oneshot bool) map[string]string {
-	env := map[string]string{
-		sessions.EnvHarp: harp,
-		EnvRunDepth:      strconv.Itoa(depth),
-		EnvRunOneShot:    strconv.FormatBool(oneshot),
+// cmd.Env on the runner subprocess; container: bare-name `-e` forms with the
+// values on the run-process env — never `-e KEY=VAL` argv, never the
+// process-global launcher env, which is racy across concurrent spawns): the
+// reach-back trio — the coordinator URL, the per-run credential and the run
+// id — and nothing else. The run's identity (its harp, its depth, whether it
+// is one-shot) arrives ONCE, typed, on the Launch that rides StartRun; no
+// reader takes it from the environment. The runner consumes the trio, unsets
+// it, and exports only the MCP socket path to the harness. url may be empty
+// (a degraded launch without reach-back); the trio is then omitted whole and
+// the harness's shim falls back to its local mode. harp is stamped for the
+// session owner's own plugin-hosted runner alone (OwnerRunnerEnv), which
+// receives no StartRun.
+func runnerEnv(harp, runID, token, url string) map[string]string {
+	env := map[string]string{}
+	if runID == "" && harp != "" {
+		// The plugin-hosted owner arm: no Launch ever reaches this runner,
+		// so its harp rides the process env until that arm is deleted
+		// (Part 4.1, slice 13).
+		env[sessions.EnvHarp] = harp
 	}
 	if url != "" {
 		for k, v := range sessions.EncodeReach(sessions.Endpoint{URL: url, Credential: token}, runID) {
@@ -719,7 +715,7 @@ func runnerEnv(harp, runID, token, url string, depth int, oneshot bool) map[stri
 // url may be empty on a degraded launch, on the same terms as any child
 // spawn — the trio is then omitted whole.
 func (c *Coordinator) OwnerRunnerEnv(harp, token, url string) map[string]string {
-	return runnerEnv(harp, "", token, url, 0, false)
+	return runnerEnv(harp, "", token, url)
 }
 
 // spawnReachURL resolves the coordinator URL a child on runtimeAxis can dial,
@@ -807,8 +803,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	if start.Resumed && start.ResumeKey == "" {
 		start.Prompt = operations.JoinLeadBlocks(c.spawner.ResumeHistory(ctx, rt.harp), prompt)
 	}
-	engine, err := c.spawner.StartEngine(ctx, rt.plan, start,
-		runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
+	engine, err := c.spawner.StartEngine(ctx, rt.plan, start, runnerEnv(rt.harp, rt.runID, token, url))
 	if err != nil {
 		c.failChild(rt, err)
 		return

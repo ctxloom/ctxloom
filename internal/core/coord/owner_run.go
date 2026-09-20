@@ -161,13 +161,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
 
-	// plan.ResumeMode is never set on the owned run's synthetic plan (zero
-	// value ResumeModePersistent), so this is always false today — written
-	// as the same expression every other runnerEnv call site uses, not a
-	// hardcoded false, so it stays correct if that ever changes. This is
-	// UNRELATED to rt.oneshot/spec.Oneshot above (the --print single-turn
-	// CLI axis) — see Identity.OneShot's doc for the distinction.
-	kill, containerName, err := start(ctx, runnerEnv(l.Identity.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
+	kill, containerName, err := start(ctx, runnerEnv(l.Identity.Harp, rt.runID, token, url))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the

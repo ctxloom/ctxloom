@@ -44,9 +44,6 @@ const (
 	// state (executing/idle) and the D4 slot accounting.
 	CustomTurnStarted = "ctxloom/turn_started"
 	CustomTurnIdle    = "ctxloom/turn_idle"
-	// CustomToolPrefix namespaces host-relay tool requests
-	// (CustomRequest{name: "ctxloom/<tool>"}).
-	CustomToolPrefix = "ctxloom/"
 )
 
 // Relay response size discipline (plan: 4MiB gRPC cap WATCHED): warn at
@@ -56,31 +53,59 @@ const (
 	relayCapBytes  = 4<<20 - 64<<10 // headroom under the 4MiB frame cap
 )
 
-// CustomHandler serves one host-relay tool on the coordinator side. args and
-// the result are the tool's JSON payloads; caller is the credential-derived
-// identity of the requesting run.
-type CustomHandler func(ctx context.Context, caller Identity, args json.RawMessage) (json.RawMessage, error)
-
-// SetCustomHandlers installs the host-relay tool handlers (host-resident
-// tools: cross-session history, distillation). Production calls it once at
-// hosting setup, before any runner connects.
-//
-// The map is written under c.mu and read the same way (customHandler): every
-// child's plane-2 dispatch runs on its OWN goroutine, so "installed before
-// anyone connects" is a call-ORDER convention and conventions do not make a
-// map access race-free. Guarding it costs one uncontended lock per relayed
-// tool call and removes a data race from the handler table entirely.
-func (c *Coordinator) SetCustomHandlers(handlers map[string]CustomHandler) {
-	c.mu.Lock()
-	c.custom = handlers
-	c.mu.Unlock()
+// HostRequest is a host-relayed tool call: the tool by name and its
+// arguments as the tool's own JSON object. The set is derived — every tool
+// that reads the sessions root or cross-session history — and the
+// application service refuses a name outside it (ErrUnknownHostTool).
+type HostRequest struct {
+	Tool string
+	Args json.RawMessage
 }
 
-// customHandler resolves one host-relay tool's handler, or nil.
-func (c *Coordinator) customHandler(name string) CustomHandler {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.custom[name]
+// HostResult is the tool's answer as its own JSON object.
+type HostResult struct {
+	Body json.RawMessage
+}
+
+// HostApp is the port the application services implement for the Host verb:
+// the coordinator is COMPOSED with it (Options.Host), so the relay handlers
+// have one home and coord never imports them.
+type HostApp interface {
+	Serve(ctx context.Context, caller Identity, req HostRequest) (HostResult, error)
+}
+
+var (
+	// ErrNoHostApp refuses every relayed tool on a coordinator composed
+	// without an application service.
+	ErrNoHostApp = errors.New("coord: no host application is composed for relayed tools")
+	// ErrUnknownHostTool is the application service's refusal of a tool
+	// outside the relayed set.
+	ErrUnknownHostTool = errors.New("coord: not a host-relayed tool")
+	// ErrHostAnswerTooLarge refuses an answer past the relay's frame cap.
+	ErrHostAnswerTooLarge = errors.New("coord: the relayed tool's answer is past the relay cap")
+)
+
+// Host is the verb: every host-relayed tool dispatched to the composed
+// application service under the CALLER's identity — the child's harp, the
+// caller's project — never the host process's. The relay's size discipline
+// is applied here: an answer past the frame cap is refused with the remedy
+// rather than failed by the transport.
+func (c *Coordinator) Host(ctx context.Context, caller Identity, req HostRequest) (HostResult, error) {
+	if c.host == nil {
+		return HostResult{}, ErrNoHostApp
+	}
+	res, err := c.host.Serve(ctx, caller, req)
+	if err != nil {
+		return HostResult{}, err
+	}
+	if len(res.Body) > relayCapBytes {
+		return HostResult{}, fmt.Errorf("%w: %s answered %d bytes, past the 4MiB relay cap — narrow the request (e.g. target a specific session) or run the tool on the host session", ErrHostAnswerTooLarge, req.Tool, len(res.Body))
+	}
+	if len(res.Body) > relayWarnBytes {
+		strictness.Record(strictness.ClassApply, "narrow the relayed tool's request before the 4MiB cap fails it",
+			"host-relay tool %s returned %d bytes (watch: >3MiB)", req.Tool, len(res.Body))
+	}
+	return res, nil
 }
 
 // runChan is one live RunChannel: the coordinator side of a runner's
@@ -665,8 +690,8 @@ func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.Agent
 	case *agentcoordpb.AgentRequest_ControlRun:
 		// Same ctx reasoning: each verb applies its own budget to baseCtx.
 		return c.serveControlRun(c.baseCtx, caller, kind.ControlRun)
-	case *agentcoordpb.AgentRequest_Custom:
-		return c.serveCustom(caller, kind.Custom)
+	case *agentcoordpb.AgentRequest_Host:
+		return c.serveHost(caller, kind.Host)
 	default:
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, "request kind not offered in this window")}
 	}
@@ -891,34 +916,29 @@ func (c *Coordinator) serveStopChildren(ctx context.Context, caller Identity, re
 
 // serveCustom relays a host-resident tool to its coordinator-side handler,
 // under the 4MiB response-size watch.
-func (c *Coordinator) serveCustom(caller Identity, req *agentcoordpb.CustomRequest) *agentcoordpb.CoordinatorResponse {
-	h := c.customHandler(req.GetName())
-	if h == nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, fmt.Sprintf("no host handler for %q", req.GetName()))}
-	}
-	args, err := protojson.Marshal(req.GetValue())
+// serveHost decodes the typed host frame, runs the Host verb and encodes
+// the answer; the frame's Struct halves are the tool's own JSON objects.
+func (c *Coordinator) serveHost(caller Identity, req *agentcoordpb.HostRequest) *agentcoordpb.CoordinatorResponse {
+	args, err := protojson.Marshal(req.GetArgs())
 	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, fmt.Sprintf("%s: decode args: %v", req.GetName(), err))}
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, fmt.Sprintf("%s: decode args: %v", req.GetTool(), err))}
 	}
-	out, err := h(c.baseCtx, caller, args)
-	if err != nil {
+	res, err := c.Host(c.baseCtx, caller, HostRequest{Tool: req.GetTool(), Args: args})
+	switch {
+	case errors.Is(err, ErrNoHostApp), errors.Is(err, ErrUnknownHostTool):
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, err.Error())}
+	case errors.Is(err, ErrHostAnswerTooLarge):
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.ResourceExhausted, err.Error())}
+	case err != nil:
 		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
 	}
-	if len(out) > relayCapBytes {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.ResourceExhausted,
-			fmt.Sprintf("%s: response is %d bytes, past the 4MiB relay cap — narrow the request (e.g. target a specific session) or run the tool on the host session", req.GetName(), len(out)))}
-	}
-	if len(out) > relayWarnBytes {
-		strictness.Record(strictness.ClassApply, "narrow the relayed tool's request before the 4MiB cap fails it",
-			"host-relay tool %s returned %d bytes (watch: >3MiB)", req.GetName(), len(out))
-	}
-	val := &structpb.Struct{}
-	if err := protojson.Unmarshal(out, val); err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Internal, fmt.Sprintf("%s: encode result: %v", req.GetName(), err))}
+	body := &structpb.Struct{}
+	if err := protojson.Unmarshal(res.Body, body); err != nil {
+		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Internal, fmt.Sprintf("%s: encode result: %v", req.GetTool(), err))}
 	}
 	return &agentcoordpb.CoordinatorResponse{
 		Status: okStatus(""),
-		Kind:   &agentcoordpb.CoordinatorResponse_Custom{Custom: val},
+		Kind:   &agentcoordpb.CoordinatorResponse_Host{Host: &agentcoordpb.HostResult{Body: body}},
 	}
 }
 

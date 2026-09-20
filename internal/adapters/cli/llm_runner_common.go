@@ -1,10 +1,10 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -71,11 +72,6 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	if homeCfg.RunID != "" {
 		if sc, ok := backend.(agent.StructuredChat); ok {
 			standup.engineHost = coord.NewEngineHost(cmd.Context(), sc, backendName, homeCfg.RunID)
-			runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost)
-			if derr != nil {
-				return nil, derr
-			}
-			standup.engineHost.BindRunner(runner.Host{Deps: runnerDeps})
 			homeCfg.Engine = standup.engineHost.Handle
 		}
 	}
@@ -90,27 +86,42 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	}
 	standup.home = h
 
-	if err := attachRunnerMCP(standup, cfg, reach, h); err != nil {
+	if standup.engineHost == nil {
+		// The plugin-hosted owner arm: no Launch will arrive, so its MCP
+		// endpoint stands up now, keyed by the harp its env carried.
+		if err := attachRunnerMCP(standup, cfg, h, reach.harp, false, ""); err != nil {
+			h.Close(1, "")
+			return nil, err
+		}
+		return standup, nil
+	}
+	// A hosted run: identity arrives on the Launch, so the runner's MCP
+	// endpoint (keyed by the harp, gated by the depth) stands up at payload
+	// arrival, inside runner.Execute, strictly before the engine is driven.
+	runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost, func(ctx context.Context, l launch.Launch) (func(), error) {
+		leaf := l.Identity.IsLeaf(cfg.GetDelegationDepth())
+		if err := attachRunnerMCP(standup, cfg, h, l.Identity.Harp, leaf, l.Cell.Workspace); err != nil {
+			return nil, err
+		}
+		return standup.endpointClose, nil
+	})
+	if derr != nil {
 		h.Close(1, "")
-		return nil, err
+		return nil, derr
 	}
-	// BIND LAST — strictly after the MCP socket exists and its env is exported:
-	// BindHome unblocks EngineHost.Handle, and StartRun is what
-	// spawns the child's engine; binding earlier races the coordinator's
-	// StartRun against socket bind + tool-schema generation.
-	if standup.engineHost != nil {
-		standup.engineHost.BindHome(h)
-	}
+	standup.engineHost.BindRunner(runner.Host{Deps: runnerDeps})
+	standup.engineHost.BindHome(h)
 	return standup, nil
 }
 
 // runnerDepsFor composes the runner's ports for the one engine this process
 // hosts: the two package transports (the claim store rooted at this
 // process's sessions root — the mounted one inside a container), the
-// engine's own Setup as the static writer, the binding-preference validator,
-// the engine's configure seam over the label body the Launch carries, and
-// the engine host as the driver.
-func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost) (runner.Deps, error) {
+// engine's own Setup as the static writer, the runner MCP standup as the
+// dynamic half, the binding-preference validator, the engine's configure
+// seam over the label body the Launch carries, and the engine host as the
+// driver.
+func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic runner.Dynamic) (runner.Deps, error) {
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
@@ -120,6 +131,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *coord.Engine
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(ctxHome, paths.SessionsDir)}},
 		Static:     backend,
+		Dynamic:    dynamic,
 		Surfaces:   operations.ResolveAgentSurfaces,
 		Driver:     host,
 	}
@@ -159,9 +171,12 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 	return cfg, nil
 }
 
-// attachRunnerMCP stands up the runner-local MCP endpoint and publishes its
-// socket into this process's environment, recording the endpoint's closer on
-// standup. It returns a non-nil error ONLY when the runner must refuse to launch
+// attachRunnerMCP stands up the runner-local MCP endpoint for harp and
+// publishes its socket into this process's environment, recording the
+// endpoint's closer on standup. leaf withholds the coordinator-only tools
+// (a one-shot run, or one at the delegation-depth cap); cellWorkDir keys the
+// discovery marker by the directory the engine runs in ("" = this process's
+// cwd). It returns a non-nil error ONLY when the runner must refuse to launch
 // its engine: this runner hosts a delegated run (engineHost != nil) and has no
 // reach-back for it. The caller owns closing home on that error.
 //
@@ -172,13 +187,8 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 // engine reaching a rogue local coordinator nobody reads. Without a hosted run
 // there is nothing to refuse for and the shim's own local fallback is correct, so
 // it degrades with a warning.
-func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, reach coordinatorReachBack, h *coord.Home) error {
-	// leaf is computed HERE, not in consumeCoordinatorReachBack: it needs the
-	// resolved delegation-depth cap, and cfg (the loaded project config) is
-	// not available yet at that earlier point — this is the first place
-	// both reach.depth/reach.oneshot and cfg exist together.
-	leaf := runnerIsLeaf(reach.depth, reach.oneshot, cfg)
-	endpoint, merr := mcp.ServeRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
+func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *coord.Home, harp string, leaf bool, cellWorkDir string) error {
+	endpoint, merr := mcp.ServeRunnerMCP(cfg, harp, h, leaf, cellWorkDir)
 	if merr == nil {
 		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
 		// (every engine spawn path builds the harness env over os.Environ), so a
@@ -193,7 +203,7 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, reach coordinat
 		standup.endpointClose = endpoint.Close
 		return nil
 	case standup.engineHost != nil:
-		return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", reach.home.RunID, merr)
+		return fmt.Errorf("runner MCP endpoint failed and this runner hosts delegated run %s — refusing to launch its engine with no reach-back: %w", h.RunID(), merr)
 	default:
 		clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
 		return nil
@@ -201,25 +211,15 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, reach coordinat
 }
 
 // coordinatorReachBack is the per-spawn coordinator credential set a runner
-// consumes from its own environment: the dial-home config, the session harp,
-// the prepared cell workspace dir, this run's DELEGATION DEPTH (0 for the
-// session owner, 1+ for a subagent), and whether this run is ONE-SHOT
-// (driving: oneshot — its engine tears down at every turn boundary, so it
-// can never hold a coordination relationship with a child). Neither rides
-// as a leaf bool — leafness is depth/oneshot compared against the resolved
-// delegation-depth cap (config.Config.GetDelegationDepth), computed in
-// attachRunnerMCP once cfg is loaded, never stamped as its own boolean
-// (that would reintroduce a second, driftable representation of the same
-// fact).
+// consumes from its own environment: the dial-home config (the reach-back
+// trio) and, for the plugin-hosted session owner alone, its harp. A hosted
+// run's identity — harp, depth, whether it is one-shot, the cell it runs in
+// — arrives ONCE on the Launch and is never read from the environment.
 type coordinatorReachBack struct {
-	home    coord.HomeConfig
-	harp    string
-	depth   int
-	oneshot bool
-	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
-	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
-	// where mcp.ServeRunnerMCP falls back to the runner's own os.Getwd().
-	cellWorkDir string
+	home coord.HomeConfig
+	// harp is the plugin-hosted owner's own harp (OwnerRunnerEnv stamps it;
+	// no Launch ever reaches that runner); empty for a hosted run.
+	harp string
 }
 
 // coordinatorEnvKeys is the reach-back set the per-spawn seam stamps onto a
@@ -229,39 +229,7 @@ var coordinatorEnvKeys = []string{
 	coord.EnvCoordURL,
 	coord.EnvCoordCred,
 	coord.EnvRunID,
-	coord.EnvRunDepth,
-	coord.EnvRunOneShot,
 	coord.EnvCellWorkDir,
-}
-
-// parseRunDepth reads EnvRunDepth: unset, empty, or unparseable ALL read as
-// depth 0 (the session owner) — never an error and never "unknown". Depth is
-// a general counter with no upper bound in its own arithmetic; only the
-// resolved cap (config.Config.GetDelegationDepth) says how deep is too deep.
-func parseRunDepth(raw string) int {
-	d, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0
-	}
-	return d
-}
-
-// runnerIsLeaf reports whether this run is a LEAF: either it is ONE-SHOT
-// (driving: oneshot — its effective spawn budget is zero, regardless of
-// depth: it cannot hold a coordination relationship with a child across its
-// own turn boundaries), or depth is at or beyond cfg's RESOLVED
-// delegation-depth cap (config.Config.GetDelegationDepth) — the same
-// comparison AgentRun's server-side "may this run spawn" guard makes
-// (children.go's `caller.OneShot` / `caller.Depth >= c.depthCap`),
-// evaluated independently here from the runner's own loaded config rather
-// than over the wire. Expressed as a direct OR rather than folding oneshot
-// into an "effective depth": the two are different KINDS of reason (one
-// structural-tree-position, one execution-model), and a reader should see
-// both named, not one disguised as the other via a synthetic depth value.
-// Raising delegation.depth in config re-enables deeper trees on both sides
-// at once, never just one; oneshot is never overridable by that same knob.
-func runnerIsLeaf(depth int, oneshot bool, cfg *config.Config) bool {
-	return oneshot || depth >= cfg.GetDelegationDepth()
 }
 
 // consumeCoordinatorReachBack reads the coordinator reach-back out of the
@@ -285,18 +253,13 @@ func consumeCoordinatorReachBack(backendName string, getenv func(string) string,
 			RunID:   getenv(coord.EnvRunID),
 			Harness: backendName,
 			Version: version.Version,
-			Harp:    getenv(sessions.EnvHarp),
-			Depth:   parseRunDepth(getenv(coord.EnvRunDepth)),
 		},
-		harp:        getenv(sessions.EnvHarp),
-		cellWorkDir: getenv(coord.EnvCellWorkDir),
-		depth:       parseRunDepth(getenv(coord.EnvRunDepth)),
-		// Any value other than exactly "true" (unset, empty, garbage) reads
-		// as false — the SAME fail-safe-to-not-oneshot posture parseRunDepth
-		// takes for depth (fail-safe here means "assume conversational", the
-		// less restrictive reading, since oneshot ADDS a refusal rather than
-		// removing one).
-		oneshot: getenv(coord.EnvRunOneShot) == "true",
+	}
+	if reach.home.RunID == "" {
+		// The plugin-hosted owner arm: the harp rides the env because no
+		// Launch will carry it.
+		reach.harp = getenv(sessions.EnvHarp)
+		reach.home.Harp = reach.harp
 	}
 
 	var unscrubbed []string

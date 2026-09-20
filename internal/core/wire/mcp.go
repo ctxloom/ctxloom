@@ -22,6 +22,11 @@ import (
 // (claude's `type`) derive it from the URL at write time
 // (agent.ChatMCPServerFromWire) and never persist it.
 //
+// CtxloomServerName is the key every engine's MCP file registers ctxloom's
+// own server under: the entry the session endpoint replaces when a runner
+// binds one.
+const CtxloomServerName = "ctxloom"
+
 // SECURITY NOTE: MCP servers execute arbitrary commands. Every server reaching
 // this type came from a bundle and was gated by the executable trust gate
 // (internal/core/config.extractMCPFromBundle) under its own item ref, so an

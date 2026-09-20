@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // Preference is the binding's delivery preference: per kind, the ROOT it
@@ -123,7 +124,7 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 				return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: selected,
 					Remedy: fmt.Sprintf("the binding selects root %v for kind %v but approach %s offers %v; select one of those on the binding", selected, kind, a.Name(), traits.Roots)}
 			}
-			if !has(roots, selected) {
+			if !HasRoot(roots, selected) {
 				return Plan{}, Unrootable{Kind: kind, Approach: a.Name(), Needs: selected,
 					Remedy: fmt.Sprintf("the binding selects root %v for kind %v but this cell has no such root; select a root the cell provides", selected, kind)}
 			}
@@ -132,7 +133,7 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 			continue
 		}
 		for _, r := range traits.Roots {
-			if has(roots, r) {
+			if HasRoot(roots, r) {
 				item.Root = r
 				break
 			}
@@ -146,11 +147,12 @@ func Route(items engine.Items, root engine.Base, pref Preference, roots present.
 	return plan, nil
 }
 
-// has reports whether the cell resolved the root a RootKind names: the
+// HasRoot reports whether the cell resolved the root a RootKind names: the
 // session home is the run's scratch root; the project root and the work
 // dir are the cell's project root (inside the cell the workspace IS the
-// project root).
-func has(roots present.Paths, r present.RootKind) bool {
+// project root). Route reads it to plan and the static adapter to re-check
+// a plan against the target it was handed.
+func HasRoot(roots present.Paths, r present.RootKind) bool {
 	switch r {
 	case present.RootSessionHome:
 		return roots.Scratch.Host != ""
@@ -224,7 +226,26 @@ type Inputs struct {
 
 // InputsFor builds every kind's inputs from the decoded package and the
 // engine's exports the loadout carries.
-func InputsFor(lo Loadout) (Inputs, error) { return Inputs{}, nil }
+func InputsFor(lo Loadout) (Inputs, error) {
+	pkg := lo.Package
+	servers := make(map[string]wire.MCPServer, len(pkg.MCP))
+	for name, srv := range pkg.MCP {
+		servers[name] = srv
+	}
+	// The runner bound the session endpoint: ctxloom's own entry names it
+	// as URL + bearer in place of the stdio command the package declares.
+	if _, declared := servers[wire.CtxloomServerName]; declared && lo.MCP.URL != "" {
+		servers[wire.CtxloomServerName] = engine.BearerEntry(lo.MCP)
+	}
+	return Inputs{
+		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash},
+		MCP:      engine.MCPInputs{Servers: servers},
+		Settings: engine.SettingsInputs{DenyTools: pkg.DenyTools, Statusline: pkg.Statusline, Exports: lo.Exports},
+		Hooks:    engine.HooksInputs{Hooks: pkg.Hooks.Unified, HookEvent: lo.Exports.HookEvent},
+		Commands: engine.CommandsInputs{Commands: lo.Exports.Commands},
+		Skills:   engine.SkillsInputs{Skills: lo.Exports.Skills},
+	}, nil
+}
 
 // Writer tags every ownership entry: a session's harp or the project's
 // at-rest materialize. One record per TARGET regardless of writer;
@@ -247,7 +268,13 @@ type Target struct {
 
 // Validate refuses the zero value: a target needs a root with a session
 // home or a project root, an ownership record, and a writer.
-func (t Target) Validate() error { return nil }
+func (t Target) Validate() error {
+	p := t.Root.Paths()
+	if (p.Scratch.Host == "" && p.EngineHome.Host == "" && p.ProjectRoot.Host == "") || t.Ownership == nil || t.Writer == "" {
+		return ErrNoRoot
+	}
+	return nil
+}
 
 // Static delivers the static items under the target's roots with ONE
 // ownership record per target file. The same implementation serves a

@@ -236,7 +236,7 @@ type Coordinator struct {
 	// and grpc.Server.Stop returns without joining it — so Close waits on
 	// this after the server is down, or a shutdown races its own last
 	// terminals against whatever removes the state dir next.
-	streams sync.WaitGroup
+	streams trackedGroup
 	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
 	// acked to the file it came from, so the consume-rename can find it at
 	// the acknowledgement moment (spoolowner.go). Guarded by mu.
@@ -295,6 +295,11 @@ type Coordinator struct {
 	// correct implementation from one that registers between the write and the
 	// hook, since both have registered by then. Nil in production.
 	onAskPublished func(askID string)
+	// afterMailWritten, when set, is called by the coordinator's mail courier
+	// once a message is on disk and rung, before the sender learns its
+	// disposition — the seam a test uses to make the recipient act on the
+	// file at exactly that moment. Nil in production.
+	afterMailWritten func(to string)
 	// spoolHandler is THE consumer for validated inbound spool doorbells
 	// (SetSpoolDoorbellHandler), registered by startSpoolReactor whenever
 	// delivery is on. Nil only when delivery is off, and then an arriving
@@ -802,7 +807,7 @@ func (c *Coordinator) Close() {
 		// The stream handlers' deferred terminals run AFTER Stop returns;
 		// join them before the writers close so a runner dropped by the
 		// shutdown still gets its terminal recorded, not raced.
-		waitBounded(c.rep, &c.streams, closeJoinBudget, "coordinator close: stream handlers")
+		waitBounded(c.rep, &c.streams.wg, closeJoinBudget, "coordinator close: stream handlers")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that

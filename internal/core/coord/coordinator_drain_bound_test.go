@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -282,6 +283,9 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	texts := sp.chat(1).recordedTexts()
 	assert.Len(t, texts, 1, "the leftover mail is one turn, not several")
 	assert.Contains(t, texts[0], leftover, "the relaunched run's first turn must carry the message that raced the death")
+	// The consume-rename is the runner's ACCEPTANCE of the turn, and it
+	// follows the engine seeing the text; the relaunch is judged on it.
+	awaitSpoolCount(t, harp, spool.DirInConsumed, 1, "after the relaunched run took the leftover mail")
 	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
 }

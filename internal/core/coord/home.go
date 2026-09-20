@@ -613,6 +613,13 @@ func (h *Home) SetTerminalNudge(fn func()) {
 // time, so a burst that coalesces into one nudge reports the count as it
 // stands when the frame is actually written, not the count when the first
 // message of the burst arrived.
+// RecvParked reports whether a receive is currently parked on this Home.
+func (h *Home) RecvParked() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.parked
+}
+
 func (h *Home) BufferedMailCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

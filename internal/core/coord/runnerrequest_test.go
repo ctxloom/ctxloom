@@ -17,16 +17,18 @@ import (
 // handler receives a RunnerRequest issued via Coordinator.requestRunner and
 // answers it, and the response's request_id round-trips even though
 // requestRunner mints it.
+//
+// The runner is the ONLY one on its credential. A spawned child brings its
+// own runner (the fake's Home) on the same credential, and "newest wins"
+// then decides — by whichever dialed last — which of the two the request
+// reaches; the loser's pending request is answered Unavailable. The plumbing
+// under test needs one session, so the credential is minted directly.
 func TestRequestRunner_RoundTrip(t *testing.T) {
 	resetStrictness(t)
-	gate := make(chan struct{})
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
-	c := newTestCoordinator(t, sp, nil)
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
+	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
-	env := waitForChildEnv(t, c, out.RunID)
+	credHash := hashToken(token)
 
 	received := make(chan *agentcoordpb.RunnerRequest, 1)
 	handler := func(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
@@ -39,26 +41,24 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 			}},
 		}
 	}
-	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", handler)
+	link, err := DialRunner(context.Background(), termSink(), c.LoopbackURL(), token, "", "mock", "test", handler)
 	require.NoError(t, err)
 	t.Cleanup(link.cancel)
 
-	credHash := hashToken(env[EnvCoordCred])
-	require.Eventually(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.runners[credHash] != nil
-	}, conformanceWait, 10*time.Millisecond, "the runner must be registered before requestRunner can find it")
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	// awaitRunner is the registration barrier the spawn path itself uses:
+	// the request is issued only once the hello has been taken.
+	_, err = c.awaitRunner(ctx, credHash)
+	require.NoError(t, err)
 
 	req := &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
-		RunId: out.RunID,
+		RunId: "run-under-test",
 		Harness: &agentcoordpb.HarnessSpec{
 			Harness: "mock",
 			Model:   "test-model",
 		},
 	}}}
-	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer cancel()
 	resp, err := c.requestRunner(ctx, credHash, req)
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.RequestId, "requestRunner mints a request_id when the caller left it blank")
@@ -66,7 +66,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	select {
 	case got := <-received:
 		assert.Equal(t, resp.RequestId, got.RequestId, "the runner sees the SAME request_id requestRunner minted")
-		assert.Equal(t, out.RunID, got.GetStartRun().GetRunId())
+		assert.Equal(t, "run-under-test", got.GetStartRun().GetRunId())
 	case <-time.After(conformanceWait):
 		t.Fatal("runner never received the RunnerRequest")
 	}

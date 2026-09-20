@@ -460,6 +460,9 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 		ring:    c.ringSpool,
 		onSent: func(to string, msg Message, ref spool.Ref) {
 			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
+			if c.afterMailWritten != nil {
+				c.afterMailWritten(to)
+			}
 		},
 		side: "coordinator",
 	}

@@ -151,6 +151,9 @@ type TerminalInjector struct {
 	// carried explicitly.
 	injectGen uint64
 	count     func() int
+	// parked reports whether a receive is parked on the Home: the engine is
+	// already collecting, so a reminder to do so is redundant.
+	parked func() bool
 }
 
 // NewTerminalInjector builds an injector for home and registers it as home's
@@ -171,6 +174,7 @@ func NewTerminalInjector(home *Home, gate agent.InputGate) *TerminalInjector {
 		ackWait:    terminalInjectAckWait,
 		ackTick:    terminalInjectAckTick,
 		count:      home.BufferedMailCount,
+		parked:     home.RecvParked,
 	}
 	home.SetTerminalNudge(ti.nudge)
 	return ti

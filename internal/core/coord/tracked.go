@@ -50,6 +50,13 @@ func (g *trackedGroup) dispatch(fn func()) {
 	}()
 }
 
+// enter takes a slot for a goroutine the owner did NOT dispatch — a stream
+// handler the gRPC server runs — so wait can join its deferred teardown.
+func (g *trackedGroup) enter() (done func(), ok bool) {
+	g.wg.Add(1)
+	return g.wg.Done, true
+}
+
 // seal stops tracking new dispatches. Called at the START of a teardown, before
 // wait, so nothing can Add into an in-progress Wait.
 func (g *trackedGroup) seal() {

@@ -217,27 +217,82 @@ func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
 	assert.Less(t, time.Since(start), 200*time.Millisecond, "the wait must not run past its own bound")
 }
 
-// TestTerminalInject_BurstOfMailCoalescesToOneInjection pins decision #4:
-// several arrivals in a tight burst must produce exactly one injection, not
-// one per message — mirroring mailbox.go's settleBurst for the analogous
-// "many arrivals, one wake" problem on the recv side.
+// latchGate is an InputGate a test opens when IT decides the engine is ready:
+// the seam that holds an injection cycle at a known point so the arrivals a
+// test cares about can land while the cycle is waiting, and nowhere else.
+type latchGate struct{ open atomic.Bool }
+
+func (*latchGate) Observe([]byte)          {}
+func (g *latchGate) AcceptingText() bool { return g.open.Load() }
+
+// awaitInjectCycleDone waits for the injector's armed cycle to have run to
+// completion — the point past which a stale second cycle could only be armed
+// by a NEW arrival.
+func awaitInjectCycleDone(t *testing.T, ti *TerminalInjector) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		ti.mu.Lock()
+		defer ti.mu.Unlock()
+		return !ti.waiting
+	}, time.Second, time.Millisecond, "the injection cycle never finished")
+}
+
+// TestTerminalInject_BurstOfMailCoalescesToOneInjection: several arrivals
+// while one cycle is waiting produce ONE frame, and that frame counts all of
+// them. There is no burst window to race: the cycle is HELD at the input gate
+// while the five arrivals land, and released only once they have — so the
+// coalescing is a property of "one cycle, one frame", not of how fast the
+// arrivals happened to come.
 func TestTerminalInject_BurstOfMailCoalescesToOneInjection(t *testing.T) {
 	h := newNoticeHome(t)
+	gate := &latchGate{}
 	var calls atomic.Int32
-	ti := &TerminalInjector{rep: termRep(), gate: openGate{}, quiet: 20 * time.Millisecond, tick: 2 * time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
-	ti.inject = func(string, string) { calls.Add(1) }
+	var frames []string
+	var mu sync.Mutex
+	ti := &TerminalInjector{rep: termRep(), gate: gate, quiet: time.Millisecond, tick: time.Millisecond, maxWait: 5 * time.Second, count: h.BufferedMailCount, parked: h.RecvParked}
+	ti.inject = func(frame, _ string) {
+		calls.Add(1)
+		mu.Lock()
+		frames = append(frames, frame)
+		mu.Unlock()
+	}
 	h.SetTerminalNudge(ti.nudge)
 
 	for i := 0; i < 5; i++ {
 		h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: fmt.Sprintf("m-burst-%d", i)})
 	}
+	require.Zero(t, calls.Load(), "the gate is closed: nothing may have been injected yet")
+	gate.open.Store(true)
+	awaitInjectCycleDone(t, ti)
 
-	require.Eventually(t, func() bool { return calls.Load() >= 1 }, time.Second, 5*time.Millisecond,
-		"expected at least one injection for the burst")
-	// Give a second cycle every chance to fire wrongly before asserting it didn't.
-	time.Sleep(150 * time.Millisecond)
-	assert.Equal(t, int32(1), calls.Load(), "five arrivals in one burst must coalesce into exactly one injection")
+	require.Equal(t, int32(1), calls.Load(), "five arrivals during one cycle must coalesce into exactly one injection")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, frames[0], (&agentcoordpb.MailPendingReminder{Count: 5}).XmlLike(), "the one frame reports every buffered message")
 	assert.Equal(t, 5, h.BufferedMailCount(), "coalescing the WAKE must not drop any of the buffered messages")
+}
+
+// TestTerminalInject_WithheldWhileAReceiveIsParked: a mail-pending reminder
+// tells the engine to call agent_recv. While a receive is already PARKED on
+// this session the engine is doing exactly that, so the reminder is redundant
+// — and the interleaving is forced: the cycle is held at the gate, the receive
+// parks meanwhile, and the released cycle must find the park and stand down.
+func TestTerminalInject_WithheldWhileAReceiveIsParked(t *testing.T) {
+	h := newNoticeHome(t)
+	gate := &latchGate{}
+	var calls atomic.Int32
+	ti := &TerminalInjector{rep: termRep(), gate: gate, quiet: time.Millisecond, tick: time.Millisecond, maxWait: 5 * time.Second, count: h.BufferedMailCount, parked: h.RecvParked}
+	ti.inject = func(string, string) { calls.Add(1) }
+	h.SetTerminalNudge(ti.nudge)
+
+	h.deliverNotice(&agentcoordpb.PeerMessage{MessageId: "m-before-park"})
+	h.mu.Lock()
+	h.parked = true // a receive parks while the cycle waits at the gate
+	h.mu.Unlock()
+	gate.open.Store(true)
+	awaitInjectCycleDone(t, ti)
+
+	assert.Zero(t, calls.Load(), "no reminder while a receive is parked: the engine is already collecting")
 }
 
 // TestTerminalInject_ReleaseStopsInjectingIntoTheEndedTurn pins the release

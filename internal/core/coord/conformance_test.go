@@ -304,18 +304,20 @@ func TestAgentRecv_TimeoutIsTypedFailure(t *testing.T) {
 	require.ErrorIs(t, err, ErrRecvTimeout)
 }
 
-// TestAgentSend_ResumesEndedChild pins §6a resume delivery.
+// TestAgentSend_ResumesEndedChild pins §6a resume delivery. The end is FORCED
+// (terminateRun, the transition itself, after the first turn boundary has
+// recorded the native key) rather than observed: a send that lands while the
+// terminal's own leftover-mail tail is still running is resumed by THAT tail,
+// and the send's disposition then describes the tail's fresh run instead of
+// the resume it caused. When terminateRun has returned, the terminal is whole.
 func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} })
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
-	// Drain the synthesized terminal notice so the resume assertion is clean.
-	_, _ = c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
+	endChildAtItsFirstBoundary(t, c, sp, out)
 
 	disp, err := c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "one more thing", nil, "")
 	require.NoError(t, err)
@@ -333,6 +335,24 @@ func TestAgentSend_ResumesEndedChild(t *testing.T) {
 	// first turn carries the mail's provenance frame and nothing else — never
 	// a rendered-transcript replay.
 	assert.NotContains(t, resumedFirst, "FRAG-ONE", "a native-key resume does not re-prime the composed context")
+}
+
+// endChildAtItsFirstBoundary waits for the child's first turn to have been
+// driven (so its native key is on record) and then ENDS its run through
+// terminateRun — the transition, called directly. On return the terminal is
+// complete: the state is journaled, the parent's exited notice is queued, the
+// leftover-mail tail has run and found nothing, and the exited notice has been
+// drained from the owner's inbox so the caller's own assertions start clean.
+func endChildAtItsFirstBoundary(t *testing.T, c *Coordinator, sp *fakeSpawner, out *RunOutcome) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		e := sp.chat(0)
+		return e != nil && len(e.recordedTexts()) == 1 && harnessSessionID(c, out.Harp) != ""
+	}, conformanceWait, 10*time.Millisecond, "the first turn never reached the engine with a native key on record")
+	c.terminateRun(out.RunID, CauseRunnerExit, "engine exited")
+	require.Equal(t, StateEnded, rosterState(c, out.Harp))
+	msgs := recvKind(t, c, KindExited, time.Second)
+	require.Len(t, msgs, 1, "the terminal notice is queued before terminateRun returns")
 }
 
 // rosterState reads one harp's state off the roster snapshot.
@@ -597,35 +617,19 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 }
 
 // TestInject_ResumesEndedChild pins the DeliveryResumed mode: injecting into
-// a child whose session already ended relaunches it (coordinator.go's
-// driveQueued StateEnded branch -> resumeChild), the injected text riding
-// the resumed session's first turn — the same resume mechanics
-// TestAgentSend_ResumesEndedChild pins for agent_send, now proven for the
-// user-injection seam.
+// a child whose session already ended relaunches it (driveQueued's StateEnded
+// branch -> resumeChild), the injected text riding the resumed session's
+// first turn — the same resume mechanics TestAgentSend_ResumesEndedChild pins
+// for agent_send, now proven for the user-injection seam. The end is forced
+// the same way, for the same reason.
 func TestInject_ResumesEndedChild(t *testing.T) {
 	resetStrictness(t)
-	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} })
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
-	// Drain the synthesized terminal notice (KindExited) so the mirror
-	// assertion below is clean. terminateRun journals the Ended state before
-	// it queues the exited notice (children.go:691), so the two Evenutallys
-	// above and below close a real — if narrow — window; retry-drain rather
-	// than a single fixed-timeout recv (a flat 20ms drain raced this and
-	// occasionally left the exited notice to arrive bundled with the mirror).
-	require.Eventually(t, func() bool {
-		msgs, _ := c.AgentRecv(context.Background(), ownerIdentity(), 20*time.Millisecond)
-		for _, m := range msgs {
-			if m.Kind == KindExited {
-				return true
-			}
-		}
-		return false
-	}, conformanceWait, 10*time.Millisecond, "the ended child's terminal notice never reached the parent")
+	endChildAtItsFirstBoundary(t, c, sp, out)
 
 	mode, err := c.Inject(out.Harp, "one more thing")
 	require.NoError(t, err)
@@ -640,20 +644,9 @@ func TestInject_ResumesEndedChild(t *testing.T) {
 	assert.Contains(t, resumedFirst, "one more thing", "the injected text is the resumed session's first turn")
 	assert.NotContains(t, resumedFirst, "FRAG-ONE", "a native-key resume does not re-prime the composed context")
 
-	// The resumed engine shares the spawner's endAfterTurns:1 script too (it
-	// completes its own one turn and exits), so a SECOND KindExited notice
-	// may land alongside the O3 mirror here — search for the mirror rather
-	// than asserting an exact count.
-	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), time.Second)
-	require.NoError(t, err)
-	var mirrors []Message
-	for _, m := range msgs {
-		if m.Kind == KindUserInjected {
-			mirrors = append(mirrors, m)
-		}
-	}
-	require.Len(t, mirrors, 1, "exactly one O3 mirror for this one injection")
-	assert.Equal(t, out.Harp, mirrors[0].From)
+	msgs := recvKind(t, c, KindUserInjected, time.Second)
+	require.Len(t, msgs, 1, "exactly one O3 mirror for this one injection")
+	assert.Equal(t, out.Harp, msgs[0].From)
 }
 
 // TestInject_CompletesParkedRecvWithUserSenderIdentity pins two invariants

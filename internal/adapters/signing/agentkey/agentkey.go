@@ -317,7 +317,7 @@ func (d *Discoverer) dialAgent() (agent.Agent, error) {
 	if d.DialAgent != nil {
 		return d.DialAgent()
 	}
-	return dialEnvAgent()
+	return nil, fmt.Errorf("SSH_AUTH_SOCK is not set — no ssh-agent to sign with")
 }
 
 // maxPublicKeyBytes bounds what will be read from a path named by a key value.
@@ -381,7 +381,7 @@ func NewDiscoverer(env Env) *Discoverer {
 	return &Discoverer{
 		Home:      env.Home,
 		GitConfig: execGitConfig,
-		DialAgent: dialEnvAgent,
+		DialAgent: dialAgentAt(env.AgentSocket),
 		ReadFile:  readPublicKeyFile,
 	}
 }
@@ -415,11 +415,18 @@ func execGitConfig(ctx context.Context, dir, key string) (string, bool, error) {
 	return value, value != "", nil
 }
 
-func dialEnvAgent() (agent.Agent, error) {
-	sock := os.Getenv("SSH_AUTH_SOCK")
-	if sock == "" {
-		return nil, fmt.Errorf("SSH_AUTH_SOCK is not set — no ssh-agent to sign with")
+// dialAgentAt dials the ssh-agent at sock — the composition's value for
+// SSH_AUTH_SOCK, which this adapter does not read for itself.
+func dialAgentAt(sock string) func() (agent.Agent, error) {
+	return func() (agent.Agent, error) {
+		if sock == "" {
+			return nil, fmt.Errorf("SSH_AUTH_SOCK is not set — no ssh-agent to sign with")
+		}
+		return dialAgentSocket(sock)
 	}
+}
+
+func dialAgentSocket(sock string) (agent.Agent, error) {
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
 		return nil, fmt.Errorf("connect to ssh-agent at %s: %w", sock, err)
@@ -732,9 +739,8 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 // tilde is returned untouched.
 func expandHome(home, path string) (string, error) {
 	if path == "~" || strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot expand %q: %w", path, err)
+		if home == "" {
+			return "", fmt.Errorf("cannot expand %q: no home directory is known to this process", path)
 		}
 		return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
 	}

@@ -54,12 +54,6 @@ const (
 	ReasonMechanismFailed = "mechanism-failed"
 )
 
-// credEnvName is the environment variable whose exposure motivates this
-// package. Spelled out rather than imported from the coordinator package that
-// owns it: this is a leaf, and a diagnostic string is not worth an import edge
-// pointing up the stack.
-const credEnvName = "CTXLOOM_COORD_CRED"
-
 // HardenAgainstSameUIDInspection makes this process's /proc entry unreadable
 // by same-uid peers. It affects THIS process only and, because the underlying
 // flag is reset on execve, is not inherited by children — every ctxloom
@@ -86,9 +80,12 @@ func HardenAgainstSameUIDInspection() (applied bool, reason string, err error) {
 // reported, because a bypass that prints nothing is indistinguishable from
 // hardening that silently failed. An unrecognized reason is silent rather than
 // guessed at; the outcomes that carry an exposure are enumerated here.
+// credKey names the credential variable whose exposure the diagnostic warns
+// about — core/sessions declares it; this leaf spells no CTXLOOM_* key of its
+// own.
 func Diagnostic(reason string, err error, credKey string) string {
 	exposure := fmt.Sprintf("/proc/%d/environ is readable by any process of this uid and may contain %s",
-		os.Getpid(), credEnvName)
+		os.Getpid(), credKey)
 	switch reason {
 	case ReasonBypassed:
 		return fmt.Sprintf("process inspection allowed (%s=1): %s", EnvAllowProcessInspection, exposure)

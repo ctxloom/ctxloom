@@ -24,6 +24,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Key is the only schema-version spelling ctxloom writes going forward.
@@ -75,10 +76,10 @@ func Declared(data []byte) (version int, ok bool) {
 	if !valid {
 		return 0, false
 	}
-	if upgrade.MapValue(root, Key) != nil {
+	if yamlx.MapValue(root, Key) != nil {
 		return upgrade.Version(root, Key)
 	}
-	if upgrade.MapValue(root, LegacyKey) != nil {
+	if yamlx.MapValue(root, LegacyKey) != nil {
 		return upgrade.Version(root, LegacyKey)
 	}
 	return 0, true
@@ -125,16 +126,16 @@ func (renameToSchemaVersion) Name() string { return "rename version to schema_ve
 // is left completely untouched and reported unchanged, because there is no
 // safe way to guess which of two present values is authoritative.
 func (renameToSchemaVersion) Apply(root *yaml.Node) (changed bool) {
-	legacy := upgrade.MapValue(root, LegacyKey)
+	legacy := yamlx.MapValue(root, LegacyKey)
 	if legacy == nil {
 		return false
 	}
-	if upgrade.MapValue(root, Key) != nil {
+	if yamlx.MapValue(root, Key) != nil {
 		// Both keys present. Not ours to resolve — leave the document alone.
 		return false
 	}
-	upgrade.MapDelete(root, LegacyKey)
-	upgrade.MapSet(root, Key, legacy)
+	yamlx.MapDelete(root, LegacyKey)
+	yamlx.MapSet(root, Key, legacy)
 	return true
 }
 

@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // renameUpgrade is a test-only Upgrader that renames one top-level key,
@@ -19,12 +21,12 @@ type renameUpgrade struct {
 func (r renameUpgrade) Name() string { return r.name }
 
 func (r renameUpgrade) Apply(root *yaml.Node) bool {
-	v := MapValue(root, r.from)
+	v := yamlx.MapValue(root, r.from)
 	if v == nil {
 		return false
 	}
-	MapDelete(root, r.from)
-	MapSet(root, r.to, v)
+	yamlx.MapDelete(root, r.from)
+	yamlx.MapSet(root, r.to, v)
 	return true
 }
 
@@ -242,13 +244,13 @@ func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
 	shapes := map[string]*yaml.Node{
 		"alias with no target": {Kind: yaml.AliasNode},
 		"unknown kind":         {Kind: yaml.Kind(99)},
-		"document inside map":  {Kind: yaml.DocumentNode, Content: []*yaml.Node{ScalarNode("x")}},
+		"document inside map":  {Kind: yaml.DocumentNode, Content: []*yaml.Node{yamlx.ScalarNode("x")}},
 	}
 	for name, bad := range shapes {
 		t.Run(name, func(t *testing.T) {
 			var doc yaml.Node
 			require.NoError(t, yaml.Unmarshal([]byte("a: 1\n"), &doc))
-			MapSet(doc.Content[0], "broken", bad)
+			yamlx.MapSet(doc.Content[0], "broken", bad)
 
 			var buf bytes.Buffer
 			enc := yaml.NewEncoder(&buf)
@@ -278,9 +280,9 @@ func TestPipeline_Run_EncodeFailure_IsReportedAsAlreadyCurrent(t *testing.T) {
 	// An upgrader that mutates the document and leaves behind a node the
 	// encoder refuses — the shape a future upgrader bug would take.
 	poison := nodeSurgery{name: "poison", fn: func(root *yaml.Node) bool {
-		MapSet(root, "renamed", ScalarNode("v"))
-		MapDelete(root, "legacy")
-		MapSet(root, "broken", &yaml.Node{Kind: yaml.AliasNode})
+		yamlx.MapSet(root, "renamed", yamlx.ScalarNode("v"))
+		yamlx.MapDelete(root, "legacy")
+		yamlx.MapSet(root, "broken", &yaml.Node{Kind: yaml.AliasNode})
 		return true
 	}}
 

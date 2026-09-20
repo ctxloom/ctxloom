@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // profileUpgrades is the canonical, ordered profile schema upgrade pipeline,
@@ -184,7 +185,7 @@ func (u bundleRefCanonicalizeUpgrade) Apply(root *yaml.Node) bool {
 // fn, replacing the value whenever fn reports a change. A missing or
 // non-sequence node is a no-op. Returns whether any entry changed.
 func mapScalarSeq(root *yaml.Node, key string, fn func(string) (string, bool)) (changed bool) {
-	seq := upgrade.MapValue(root, key)
+	seq := yamlx.MapValue(root, key)
 	if seq == nil || seq.Kind != yaml.SequenceNode {
 		return false
 	}

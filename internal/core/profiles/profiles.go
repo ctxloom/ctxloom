@@ -18,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // FragmentRef is a directory-profile fragment reference with optional priority —
@@ -242,7 +243,7 @@ func (p *Profile) UnmarshalYAML(node *yaml.Node) error {
 // package config needs the identical check and cannot be reached from here:
 // config imports profiles, never the other way round.
 func RefuseEmptyFragmentEntries(node *yaml.Node) error {
-	frags := upgrade.MapValue(node, "fragments")
+	frags := yamlx.MapValue(node, "fragments")
 	if frags == nil || frags.Kind != yaml.SequenceNode {
 		return nil
 	}

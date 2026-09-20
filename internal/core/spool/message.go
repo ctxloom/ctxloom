@@ -3,9 +3,11 @@ package spool
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -144,8 +146,8 @@ func Parse(data []byte) (*Message, error) {
 // decodeHead reads the known keys off the retained mapping.
 func (m *Message) decodeHead() error {
 	scalar := func(key string) (string, bool, error) {
-		node, ok := mappingGet(m.head, key)
-		if !ok || node.Tag == "!!null" {
+		node := yamlx.MapValue(m.head, key)
+		if node == nil || node.Tag == "!!null" {
 			return "", false, nil
 		}
 		var s string
@@ -173,12 +175,12 @@ func (m *Message) decodeHead() error {
 	if m.OriginID, _, err = scalar(keyOriginID); err != nil {
 		return err
 	}
-	if node, ok := mappingGet(m.head, keyV); ok {
+	if node := yamlx.MapValue(m.head, keyV); node != nil {
 		if err := node.Decode(&m.V); err != nil {
 			return fmt.Errorf("spool: frontmatter %q must be an integer: %w", keyV, err)
 		}
 	}
-	if node, ok := mappingGet(m.head, keyTTLSeconds); ok && node.Tag != "!!null" {
+	if node := yamlx.MapValue(m.head, keyTTLSeconds); node != nil && node.Tag != "!!null" {
 		if err := node.Decode(&m.TTLSeconds); err != nil {
 			return fmt.Errorf("spool: frontmatter %q must be an integer number of seconds: %w", keyTTLSeconds, err)
 		}
@@ -192,7 +194,7 @@ func (m *Message) decodeHead() error {
 		}
 		m.Created = stamp
 	}
-	if node, ok := mappingGet(m.head, keyStructured); ok && node.Tag != "!!null" {
+	if node := yamlx.MapValue(m.head, keyStructured); node != nil && node.Tag != "!!null" {
 		if err := node.Decode(&m.Structured); err != nil {
 			return fmt.Errorf("spool: frontmatter %q must be a mapping: %w", keyStructured, err)
 		}
@@ -219,14 +221,14 @@ func (m *Message) Encode() ([]byte, error) {
 	}
 	set := func(key string, value any, keep bool) error {
 		if !keep {
-			mappingDelete(head, key)
+			yamlx.MapDelete(head, key)
 			return nil
 		}
 		node := &yaml.Node{}
 		if err := node.Encode(value); err != nil {
 			return fmt.Errorf("spool: encoding frontmatter %q: %w", key, err)
 		}
-		mappingSet(head, key, node)
+		yamlx.MapSet(head, key, node)
 		return nil
 	}
 	created := ""
@@ -295,44 +297,6 @@ func documentMapping(doc *yaml.Node) *yaml.Node {
 	return node
 }
 
-// mappingGet returns the value node for key.
-func mappingGet(mapping *yaml.Node, key string) (*yaml.Node, bool) {
-	if mapping == nil {
-		return nil, false
-	}
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return mapping.Content[i+1], true
-		}
-	}
-	return nil, false
-}
-
-// mappingSet replaces key's value IN PLACE when it exists (preserving its
-// position and the key node's comments) and appends otherwise.
-func mappingSet(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = value
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		value,
-	)
-}
-
-// mappingDelete removes key and its value if present.
-func mappingDelete(mapping *yaml.Node, key string) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
-			return
-		}
-	}
-}
-
 // UnknownKeys reports the frontmatter keys this build does not know about, in
 // document order. It exists so a consumer can LOG what it is carrying blind
 // rather than discovering the skew only when something misbehaves.
@@ -342,15 +306,7 @@ func (m *Message) UnknownKeys() []string {
 	}
 	var out []string
 	for i := 0; i+1 < len(m.head.Content); i += 2 {
-		key := m.head.Content[i].Value
-		known := false
-		for _, k := range knownKeys {
-			if k == key {
-				known = true
-				break
-			}
-		}
-		if !known {
+		if key := m.head.Content[i].Value; !slices.Contains(knownKeys, key) {
 			out = append(out, key)
 		}
 	}

@@ -17,6 +17,7 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,8 +108,8 @@ func singleDocument(data []byte) (doc yaml.Node, ok bool) {
 
 // hasDuplicateKey reports whether any mapping in the subtree rooted at n names
 // the same key twice. Such a document is malformed — every struct/map decode in
-// the codebase refuses it — but a yaml.Node decode accepts it, and MapValue,
-// MapSet and MapDelete all act on the FIRST match. An upgrade run over it
+// the codebase refuses it — but a yaml.Node decode accepts it, and yamlx's
+// MapValue, MapSet and MapDelete all act on the FIRST match. An upgrade run over it
 // therefore rewrites one of the two entries and leaves the other under the
 // legacy key, producing a document that no longer has a duplicate and so parses
 // cleanly, carrying whichever value the helpers happened to reach. Refusing to
@@ -156,7 +157,7 @@ type Pending struct {
 // way out, which replaces the parse error the caller would have surfaced with a
 // clean load of rewritten bytes. Callers gate on ok and decline.
 func Version(root *yaml.Node, key string) (version int, ok bool) {
-	v := MapValue(root, key)
+	v := yamlx.MapValue(root, key)
 	if v == nil {
 		return 0, true
 	}
@@ -173,64 +174,9 @@ func Version(root *yaml.Node, key string) (version int, ok bool) {
 // SetVersion stamps a top-level integer schema version under key on the root
 // mapping node, replacing any existing value.
 func SetVersion(root *yaml.Node, key string, v int) {
-	node := ScalarNode(strconv.Itoa(v))
+	node := yamlx.ScalarNode(strconv.Itoa(v))
 	node.Tag = "!!int"
-	MapSet(root, key, node)
-}
-
-// reprise:ignore — shares the walk-the-Content-pairs idiom with
-// agentcoord/spool's mappingGet/mappingSet/mappingDelete. The duplication is
-// real and was weighed: neither package may import the other (spool is agent
-// coordination, upgrade is config-schema migration), so collapsing them needs a
-// third package for four small functions. Ruled 2026-08-20 not worth the
-// boundary. The forcing function is gone too — MapEntry, the dead member whose
-// deletion this group used to block, is deleted.
-//
-// MapValue returns the value node for key in a mapping node, or nil if absent.
-func MapValue(m *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
-}
-
-// MapSet replaces key's value, or appends the key/value pair if absent.
-func MapSet(m *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			m.Content[i+1] = value
-			return
-		}
-	}
-	m.Content = append(m.Content, ScalarNode(key), value)
-}
-
-// MapDelete removes key (and its value) from a mapping node.
-func MapDelete(m *yaml.Node, key string) {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			m.Content = append(m.Content[:i], m.Content[i+2:]...)
-			return
-		}
-	}
-}
-
-// EnsureMap returns parent[key] as a mapping node, creating one if absent or of
-// the wrong kind.
-func EnsureMap(parent *yaml.Node, key string) *yaml.Node {
-	if v := MapValue(parent, key); v != nil && v.Kind == yaml.MappingNode {
-		return v
-	}
-	m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	MapSet(parent, key, m)
-	return m
-}
-
-// ScalarNode builds a plain string scalar node.
-func ScalarNode(val string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val}
+	yamlx.MapSet(root, key, node)
 }
 
 // Reporter is how an upgrade step reports a LOSSY change — a user-set value it

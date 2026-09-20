@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -29,7 +28,7 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	project := t.TempDir()
 	theirs := filepath.Join(project, "README.md")
 	require.NoError(t, os.WriteFile(theirs, []byte("theirs"), 0o644))
-	rec, err := confpatch.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 
 	eng := mock.New()

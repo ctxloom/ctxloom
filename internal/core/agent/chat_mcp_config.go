@@ -4,15 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // ChatMCPConfigDoc is the on-disk shape a caller's --mcp-config-style file
 // takes: {"mcpServers": {name: entry}}. This is the wire format claude's
 // --mcp-config flag reads today; any future engine writer whose own MCP
-// registry file takes the same table shape can reuse MarshalChatMCPConfig /
-// WriteChatMCPConfigFile rather than re-deriving it (see chat_mcp_config_test.go
+// registry file takes the same table shape can reuse MarshalChatMCPConfig
+// rather than re-deriving it (see chat_mcp_config_test.go
 // for the exact byte shape each transport produces).
 type ChatMCPConfigDoc struct {
 	MCPServers map[string]ChatMCPConfigEntry `json:"mcpServers"`
@@ -63,7 +61,7 @@ var ErrChatMCPConfigTransportUnsupported = errors.New("mcp config: unsupported M
 // MarshalChatMCPConfig renders servers into the {"mcpServers": {...}} JSON
 // document bytes a --mcp-config-style file expects. No I/O — callers that
 // need the document without writing a file (a test, an in-memory diff) get
-// it directly; WriteChatMCPConfigFile below is the write half.
+// it directly.
 //
 // Each server's own Env map is preserved VERBATIM: a server's Env is the
 // composed configuration's, and a table that dropped it would hand the
@@ -78,17 +76,4 @@ func MarshalChatMCPConfig(servers []ChatMCPServer) ([]byte, error) {
 		doc.MCPServers[s.Name] = entry
 	}
 	return json.Marshal(doc)
-}
-
-// WriteChatMCPConfigFile marshals servers (MarshalChatMCPConfig) and writes
-// them to path at mode 0o600 via iox.WriteFileAtomic — unique temp + fsync +
-// exact-perm chmod + rename, rather than a raw file write, because this file
-// can carry MCP server auth headers/env and the 0o600 mode must land
-// exactly, not masked by umask.
-func WriteChatMCPConfigFile(path string, servers []ChatMCPServer) error {
-	data, err := MarshalChatMCPConfig(servers)
-	if err != nil {
-		return err
-	}
-	return iox.WriteFileAtomic(path, data, 0o600)
 }

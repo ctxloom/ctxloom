@@ -305,6 +305,13 @@
               "type": "string"
             }
           },
+          "roots": {
+            "type": "object",
+            "description": "Root selection for this binding: under which of the roots the engine's approach for a surface kind offers, that kind's items land. Keys are surface kinds (context, mcp, settings, hooks, commands, skills); values are roots (session-home, project-root, work-dir). Omitted takes each approach's default. project-root is the SHARED root: selected here, never fallen back to. Validated against the bound engine's declared approaches when written (ctxloom agent set --root kind=root) \u2014 a root the approach does not offer is refused, naming the ones it does.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "engine_home": {
             "type": "string",
             "description": "Engine-home axis for this agent: WHICH HOME its engine runs against. The third isolation axis, a peer of runtime (which isolates the PROCESS) and workspace (which isolates the FILES): this one isolates the engine's config AND identity \u2014 its credentials, memory, plugins, personal MCP registrations, global agents and steering, everything the engine keeps in its home directory. \"host\" (the default, also when omitted) keeps the home the runtime gives the engine: its real host home, or a container's own fresh $HOME. \"session\" points the engine at a ctxloom-controlled, PER-SESSION home under .ctxloom/state/<harp>/home/<engine leaf> \u2014 on the host the engine is told that path; in a container it is mounted and the engine is told the mount target. A declared value wins on every invocation path this binding resolves through \u2014 a bare run under default_agent, run --agent, a delegated child, a oneshot fan member alike; a run with NO agent binding at all (no --agent, no default_agent) has no engine_home to read and keeps the real host home. Validated when written \u2014 an unknown value is refused, naming the two valid ones.",

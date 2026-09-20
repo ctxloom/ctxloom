@@ -175,18 +175,4 @@ func init() {
 	// MarkFlagRequired, so it is checked in runProfileMaterialize instead.
 	profileMaterializeCmd.ValidArgsFunction = completeProfileNames
 
-	// Help is computed against THIS project's engines, not written down. The
-	// flag's vocabulary is ctxloom's own and varies per engine, so a static
-	// table would be both a second source and the wrong one for most readers.
-	defaultHelp := profileMaterializeCmd.HelpFunc()
-	profileMaterializeCmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		defaultHelp(c, args)
-		cfg, err := GetConfig()
-		if err != nil {
-			// No config is a normal state (help outside a project), not a
-			// failure worth interrupting help for.
-			return
-		}
-		fmt.Fprint(c.OutOrStdout(), surfaceHelpFor(configuredEngines(cfg)))
-	})
 }

@@ -134,38 +134,10 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		return nil, terr
 	}
 
-	// skipContext is true whenever this round must NOT touch a
-	// native-file backend's managed context surface at all — covering BOTH
-	// the legitimate "don't regenerate" request (req.RegenerateContext ==
-	// false, which deliberately means leave existing context alone) AND a
-	// genuine regeneration FAILURE (regenFailed). Neither case has fresh
-	// content to write, and unlike a genuinely-empty fragment set (handled
-	// inside regenerateContext itself, which still returns "" with
-	// regenFailed == false — a real, if unwelcome, current state worth
-	// reflecting), a failure or a no-op request must never be indistinguishable
-	// from "the context is now empty" at the write layer: WriteManagedContext
-	// (claude/codex) and writeSteering (kiro) both treat Context: "" as "clear
-	// this," which is exactly right for a real empty state and exactly wrong
-	// for "we don't know" or "we couldn't tell you." Applied below by
-	// omitting WithContext(...) from the surface selection entirely, which is
-	// a true skip (no write, nothing stripped) — see cells.go's Select doc
-	// ("opt-in selection... with NOTHING selected").
-	skipContext := !req.RegenerateContext || regenFailed
-
-	// The native-context backend (kiro) reads context from its own
-	// file, not the injection hook, so apply materializes it from the assembled
-	// context STRING — the same content regenerateContext hashed into the cache the
-	// hook backends (claude/codex) read, so the two paths agree. Assembled only when
-	// context was regenerated this round (contextHash != ""); otherwise "" would
-	// strip their managed native-context section, which skipContext now prevents
-	// whenever the emptiness is not a genuine, error-free current state.
-	//
-	var assembledContext string
-	if contextHash != "" {
-		if composed, aerr := installedContextFile(ctx, freshCfg); aerr == nil {
-			assembledContext = composed
-		}
-	}
+	// The context regenerated (or did not): a file-route engine gets the
+	// package's context either way — the file and the cache are composed
+	// from one package — and a hook-route engine gets the injection hook
+	// only when there is a hash for it to read.
 
 	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
 	// the project's STATIC managed config (the `manage hooks install` path)
@@ -182,15 +154,13 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	}
 
 	applied, retracted, applyErrors, err := applyHooksToBackends(ctx, hookApplyParams{
-		dryRun:           req.DryRun,
-		backendNames:     backendNames,
-		freshCfg:         freshCfg,
-		workDir:          workDir,
-		contextHash:      contextHash,
-		assembledContext: assembledContext,
-		skipContext:      skipContext,
-		pkg:              pkg,
-		fs:               fs,
+		dryRun:       req.DryRun,
+		backendNames: backendNames,
+		freshCfg:     freshCfg,
+		workDir:      workDir,
+		contextHash:  contextHash,
+		pkg:          pkg,
+		fs:           fs,
 	})
 	if err != nil {
 		return nil, err
@@ -510,15 +480,10 @@ func ConfiguredEngines(cfg *config.Config) []string {
 
 // hookApplyParams bundles the per-backend apply inputs (shared across the loop).
 type hookApplyParams struct {
-	backendNames     []string
-	freshCfg         *config.Config
-	workDir          string
-	contextHash      string
-	assembledContext string
-	// skipContext: true whenever this apply must not touch the
-	// context surface at all — see ApplyHooks' skipContext doc for the two
-	// cases this covers (no-op request, genuine regen failure).
-	skipContext bool
+	backendNames []string
+	freshCfg     *config.Config
+	workDir      string
+	contextHash  string
 	// pkg is the one package the surfaces are written from.
 	pkg composite.Package
 	fs  afero.Fs
@@ -599,26 +564,6 @@ func applyHooksToBackend(ctx context.Context, backendName string, p hookApplyPar
 		return nil, fmt.Errorf("failed to apply %s: %w", backendName, err)
 	}
 	return nil, nil
-}
-
-// installedContextFile composes what ApplyHooks writes into a native-file
-// context surface, for the configured default profiles — and what `manage
-// check` holds such a file against (intendedContextFiles). It states the zero
-// ContextConsumer, a LIVE session, and that is a statement about the launch
-// rather than a mode: the hooks and ctxloom's own MCP server installed beside
-// the file are ctxloom staying in the loop, so a session launched from this
-// project pulls a withheld premised fragment on demand, and the file carries
-// none of their bodies for ANY engine — the same withholding regenerateContext
-// applies for the engines that inject. It is deliberately NOT what `profile
-// materialize` composes for the same file (MaterializedFor): that surface is
-// written for a launch with no ctxloom behind it, and for an engine without a
-// skills surface the two writers legitimately produce different bytes.
-func installedContextFile(ctx context.Context, cfg *config.Config) (string, error) {
-	asm, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: cfg.DefaultAgentProfiles()})
-	if err != nil {
-		return "", err
-	}
-	return asm.Context, nil
 }
 
 // regenerateContext writes the SessionStart-injected context file for the

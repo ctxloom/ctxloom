@@ -1,4 +1,4 @@
-package confpatch
+package fsstatic
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func records(t *testing.T) (*Records, afero.Fs, string) {
@@ -56,7 +57,7 @@ func keysOf(t *testing.T, fs afero.Fs, path string) []string {
 func TestRecords_TwoWritersOneStructuredFile_EachRemovesOnlyItsOwnEntries(t *testing.T) {
 	rec, fs, dir := records(t)
 	target := filepath.Join(dir, "settings.json")
-	require.NoError(t, afero.WriteFile(fs, target, []byte("{\n  \"theirs\": \"kept\"\n}\n"), 0o644))
+	testsupport.WriteFileString(t, fs, target, "{\n  \"theirs\": \"kept\"\n}\n", 0o644)
 	ctx := context.Background()
 	session, project := delivery.SessionWriter("h"), delivery.ProjectWriter
 
@@ -136,7 +137,7 @@ func TestRecords_AnOpaqueFileIsOwnedWhole(t *testing.T) {
 	require.NoFileExists(t, created)
 
 	theirs := filepath.Join(dir, "THEIRS.md")
-	require.NoError(t, afero.WriteFile(fs, theirs, []byte("hand-written"), 0o644))
+	testsupport.WriteFileString(t, fs, theirs, "hand-written", 0o644)
 	_, err = rec.Apply(ctx, fs, theirs, delivery.ProjectWriter, whole("managed"))
 	require.NoError(t, err)
 	body, err := afero.ReadFile(fs, theirs)
@@ -157,7 +158,7 @@ func TestRecords_DriftIsRefused_NotClobbered(t *testing.T) {
 	ctx := context.Background()
 	_, err := rec.Apply(ctx, fs, target, delivery.ProjectWriter, addKey("mine", "1"))
 	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fs, target, []byte("{\n  \"mine\": \"edited by hand\"\n}\n"), 0o644))
+	testsupport.WriteFileString(t, fs, target, "{\n  \"mine\": \"edited by hand\"\n}\n", 0o644)
 	_, err = rec.Apply(ctx, fs, target, delivery.ProjectWriter, addKey("mine", "2"))
 	require.Error(t, err)
 	body, err := afero.ReadFile(fs, target)

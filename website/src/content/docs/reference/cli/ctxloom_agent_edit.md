@@ -66,6 +66,7 @@ ctxloom agent edit <name> [flags]
       --llm string                 llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string         Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
       --profiles strings           Comma-separated profile name(s)/ref(s) to compose
+      --root stringArray           Root selection for this agent: kind=root (repeatable; roots: session-home|project-root|work-dir). Validated against the roots the agent's engine offers for that kind; project-root is the shared root, selected here and never fallen back to.
       --runtime ctxloom llm list   Runtime axis: where this agent's engine executes (host|container-rootless|container-rootful; empty = project default). ctxloom llm list reports which of these each engine can be given
       --surface stringArray        Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.
 ```

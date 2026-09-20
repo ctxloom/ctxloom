@@ -216,12 +216,12 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 	}
 
 	err := sessions.WithFileLock(targetFS, target, func() error {
-		before, existed, err := readTarget(targetFS, target)
+		before, existed, err := ReadTarget(targetFS, target)
 		if err != nil {
 			return err
 		}
 		if !existed {
-			before = emptyDocument(format)
+			before = EmptyDocument(format)
 		}
 		res.Before = before
 
@@ -241,7 +241,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 			return err
 		}
 		if existed && found && len(prev.Reversal) > 0 {
-			restored, err = applyPatchText(binding, before, []byte(prev.Reversal), target)
+			restored, err = ApplyPatchText(binding, before, []byte(prev.Reversal), target)
 			if err != nil {
 				// The reversal not fitting means SOMEONE ELSE wrote the region
 				// ctxloom manages. Refusing is right when that someone is the
@@ -316,7 +316,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 		// as patch text, and write the record BEFORE the target: a record
 		// describing a write that then fails is recoverable noise, whereas a
 		// write with no record is exactly the ownership gap this closes.
-		reversal, err := renderReversal(format, restored, after, target)
+		reversal, err := RenderReversal(format, restored, after, target)
 		if err != nil {
 			return err
 		}
@@ -341,7 +341,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 		// it cannot express "make this file not exist" — so the round trip
 		// legitimately cannot hold there and is not evidence of anything.
 		if existed && !bytes.Equal(after, restored) {
-			roundTripped, rtErr := applyPatchText(binding, after, reversal, target)
+			roundTripped, rtErr := ApplyPatchText(binding, after, reversal, target)
 			if rtErr != nil {
 				return fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from, so ctxloom could not take its own entries back out later; refusing to write: %w", target, rtErr)
 			}
@@ -386,7 +386,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 		}
 		res.RecordPath = recordPath
 
-		if err := writeTarget(targetFS, target, after); err != nil {
+		if err := WriteTarget(targetFS, target, after); err != nil {
 			return err
 		}
 		return nil
@@ -397,7 +397,7 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 	return res, nil
 }
 
-// renderReversal diffs after back to restored and renders the result as .hew
+// RenderReversal diffs after back to restored and renders the result as .hew
 // patch text — the durable artifact the record keeps.
 //
 // The preamble is REQUIRED, not cosmetic: hew's parser refuses a document
@@ -408,8 +408,8 @@ func (s *Store) Apply(targetFS afero.Fs, target string, build Build, opts ...App
 // its own ParseSingle rejected was a trap. Rendering here and re-parsing in
 // applyPatchText is what proves the record's reversal is usable at the moment
 // it is written rather than years later when it is needed.
-func renderReversal(format hew.FormatID, before, after []byte, target string) ([]byte, error) {
-	tl, err := hew.Invert(format, before, after, inversionOptions(target))
+func RenderReversal(format hew.FormatID, before, after []byte, target string) ([]byte, error) {
+	tl, err := hew.Invert(format, before, after, InversionOptions(target))
 	if err != nil {
 		return nil, fmt.Errorf("confpatch: derive how to undo the write to %s: %w", target, err)
 	}
@@ -462,7 +462,7 @@ func renderReversal(format hew.FormatID, before, after []byte, target string) ([
 // does not: it narrows the ASSERTING channel because the file is the user's,
 // and wants every bit of non-asserting location it can get. Saying so is the
 // difference between that and inheriting the answer to a different question.
-func inversionOptions(target string) hew.DiffOptions {
+func InversionOptions(target string) hew.DiffOptions {
 	return hew.DiffOptions{
 		Target:      target,
 		Context:     hew.ContextNone,
@@ -470,10 +470,10 @@ func inversionOptions(target string) hew.DiffOptions {
 	}
 }
 
-// applyPatchText parses stored .hew text and applies it. Parsing at APPLY time,
+// ApplyPatchText parses stored .hew text and applies it. Parsing at APPLY time,
 // from the same bytes the record holds, is what makes the stored reversal a
 // real artifact rather than a description of one.
-func applyPatchText(b hew.Binding, src, patch []byte, target string) ([]byte, error) {
+func ApplyPatchText(b hew.Binding, src, patch []byte, target string) ([]byte, error) {
 	tl, err := hew.ParseSingle(patch)
 	if err != nil {
 		return nil, fmt.Errorf("parse the recorded reversal for %s: %w", target, err)
@@ -485,11 +485,11 @@ func applyPatchText(b hew.Binding, src, patch []byte, target string) ([]byte, er
 	return out, nil
 }
 
-// emptyDocument is a format's empty document, used as the pre-image when the
+// EmptyDocument is a format's empty document, used as the pre-image when the
 // target does not exist yet. Format-specific and deliberately not one shared
 // literal: "{}" is an empty JSON object, but in TOML it is a parse error —
 // an empty TOML document is zero bytes.
-func emptyDocument(format hew.FormatID) []byte {
+func EmptyDocument(format hew.FormatID) []byte {
 	switch format {
 	case hew.FormatJSON, hew.FormatJSONC:
 		return []byte("{}")
@@ -498,7 +498,7 @@ func emptyDocument(format hew.FormatID) []byte {
 	}
 }
 
-func readTarget(fs afero.Fs, target string) ([]byte, bool, error) {
+func ReadTarget(fs afero.Fs, target string) ([]byte, bool, error) {
 	exists, err := afero.Exists(fs, target)
 	if err != nil {
 		return nil, false, fmt.Errorf("confpatch: stat %s: %w", target, err)
@@ -513,7 +513,7 @@ func readTarget(fs afero.Fs, target string) ([]byte, bool, error) {
 	return data, true, nil
 }
 
-func writeTarget(fs afero.Fs, target string, out []byte) error {
+func WriteTarget(fs afero.Fs, target string, out []byte) error {
 	if dir := filepath.Dir(target); dir != "." {
 		if err := fs.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("confpatch: create directory for %s: %w", target, err)

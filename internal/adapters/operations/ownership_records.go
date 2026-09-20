@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
@@ -30,7 +29,7 @@ func OwnershipRecordsOn(fs afero.Fs) (delivery.Ownership, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ownership records: %w", err)
 	}
-	return confpatch.NewRecords(fs, dir)
+	return fsstatic.NewRecords(fs, dir)
 }
 
 // ProjectPlan routes items for an AT-REST delivery into a project root:

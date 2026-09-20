@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -347,7 +346,7 @@ func staticWriter(t *testing.T) *fsstatic.Static {
 
 func records(t *testing.T) delivery.Ownership {
 	t.Helper()
-	rec, err := confpatch.NewRecords(afero.NewOsFs(), filepath.Join(t.TempDir(), "records"))
+	rec, err := fsstatic.NewRecords(afero.NewOsFs(), filepath.Join(t.TempDir(), "records"))
 	require.NoError(t, err)
 	return rec
 }

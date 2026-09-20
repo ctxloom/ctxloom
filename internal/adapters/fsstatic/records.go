@@ -1,4 +1,4 @@
-package confpatch
+package fsstatic
 
 import (
 	"bytes"
@@ -18,6 +18,14 @@ import (
 	"github.com/spf13/afero"
 	yamlv3 "gopkg.in/yaml.v3"
 
+	// The formats a structured reversal is diffed in: registered HERE, by
+	// the record that needs them, so a file's reversal never depends on
+	// which engine happens to be linked into the binary.
+	_ "github.com/benjaminabbitt/hew/go/ext/json"
+	_ "github.com/benjaminabbitt/hew/go/ext/toml"
+	_ "github.com/benjaminabbitt/hew/go/ext/yaml"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/confpatch"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -29,13 +37,14 @@ import (
 // project file and each keeps its own tag; reconcile-to-empty removes only
 // the calling writer's.
 //
-// The reversal is DIFFED from the before and after images, as Store's is:
+// The reversal is DIFFED from the before and after images through
+// confpatch's hew machinery, as confpatch.Store's is:
 // for a format hew reads (JSON, YAML, TOML) it is a hew patch, so the user's
 // own entries in a shared file survive a writer's removal; for any other
 // file the writer's contribution is the whole file, and the record keeps
 // the bytes that stood there before it (none when ctxloom created it).
 //
-// Records are home-rooted, beside Store's, for the same reason: the target
+// Records are home-rooted, beside confpatch.Store's, for the same reason: the target
 // is FOREIGN, so ctxloom never leaves its own state beside it. That is what
 // replaced the ledger sidecar (.ctxloom-managed) every managed directory
 // used to carry.
@@ -50,10 +59,10 @@ var _ delivery.Ownership = (*Records)(nil)
 // first record written.
 func NewRecords(recordFS afero.Fs, dir string) (*Records, error) {
 	if recordFS == nil {
-		return nil, errors.New("confpatch: nil record filesystem")
+		return nil, errors.New("fsstatic: nil record filesystem")
 	}
 	if strings.TrimSpace(dir) == "" {
-		return nil, errors.New("confpatch: empty record directory")
+		return nil, errors.New("fsstatic: empty record directory")
 	}
 	return &Records{fs: recordFS, dir: dir}, nil
 }
@@ -81,7 +90,7 @@ type writerRecord struct {
 const ownershipSuffix = ".ownership.yaml"
 
 func (r *Records) path(target string) string {
-	return filepath.Join(r.dir, recordPrefix(target)+ownershipSuffix)
+	return filepath.Join(r.dir, confpatch.RecordPrefix(target)+ownershipSuffix)
 }
 
 // Apply reverses the writer's previous contribution to target, hands the
@@ -91,11 +100,11 @@ func (r *Records) path(target string) string {
 func (r *Records) Apply(_ context.Context, targetFS afero.Fs, target string, writer delivery.Writer, build delivery.Build) (delivery.Result, error) {
 	var res delivery.Result
 	if targetFS == nil || build == nil || strings.TrimSpace(target) == "" || writer == "" {
-		return res, errors.New("confpatch: Apply needs a target filesystem, a target, a writer and a build")
+		return res, errors.New("fsstatic: Apply needs a target filesystem, a target, a writer and a build")
 	}
 	binding, format, structured := bindingFor(target)
 	err := sessions.WithFileLock(targetFS, target, func() error {
-		before, existed, err := readTarget(targetFS, target)
+		before, existed, err := confpatch.ReadTarget(targetFS, target)
 		if err != nil {
 			return err
 		}
@@ -121,7 +130,7 @@ func (r *Records) Apply(_ context.Context, targetFS afero.Fs, target string, wri
 			// document, so a reapply still takes the old entries out first.
 			base := restored
 			if !restoredExists || len(bytes.TrimSpace(base)) == 0 {
-				base = emptyDocument(format)
+				base = confpatch.EmptyDocument(format)
 			}
 			reversal, err := provenReversal(binding, format, target, base, desired)
 			if err != nil {
@@ -145,7 +154,7 @@ func (r *Records) Apply(_ context.Context, targetFS afero.Fs, target string, wri
 			return nil
 		}
 		res.Changed = true
-		return writeTarget(targetFS, target, desired)
+		return confpatch.WriteTarget(targetFS, target, desired)
 	})
 	return res, err
 }
@@ -178,7 +187,7 @@ func (r *Records) reconcile(targetFS afero.Fs, target string, writer delivery.Wr
 		return nil
 	}
 	res.Changed = true
-	return writeTarget(targetFS, target, restored)
+	return confpatch.WriteTarget(targetFS, target, restored)
 }
 
 // restore takes the writer's previous contribution back out of before: the
@@ -195,9 +204,9 @@ func restore(binding hew.Binding, target string, before []byte, existed bool, pr
 		if prev.Reversal == "" {
 			return before, true, nil
 		}
-		restored, err := applyPatchText(binding, before, []byte(prev.Reversal), target)
+		restored, err := confpatch.ApplyPatchText(binding, before, []byte(prev.Reversal), target)
 		if err != nil {
-			return nil, false, fmt.Errorf("confpatch: %s has drifted since it was last written, so the previous contribution could not be reversed; refusing to write rather than clobber the change: %w", target, err)
+			return nil, false, fmt.Errorf("fsstatic: %s has drifted since it was last written, so the previous contribution could not be reversed; refusing to write rather than clobber the change: %w", target, err)
 		}
 		return restored, true, nil
 	}
@@ -215,16 +224,16 @@ func provenReversal(binding hew.Binding, format hew.FormatID, target string, bef
 	if bytes.Equal(before, after) {
 		return nil, nil
 	}
-	reversal, err := renderReversal(format, before, after, target)
+	reversal, err := confpatch.RenderReversal(format, before, after, target)
 	if err != nil {
 		return nil, err
 	}
-	roundTripped, err := applyPatchText(binding, after, reversal, target)
+	roundTripped, err := confpatch.ApplyPatchText(binding, after, reversal, target)
 	if err != nil {
-		return nil, fmt.Errorf("confpatch: the reversal computed for %s does not apply to the document it was derived from; refusing to write: %w", target, err)
+		return nil, fmt.Errorf("fsstatic: the reversal computed for %s does not apply to the document it was derived from; refusing to write: %w", target, err)
 	}
 	if !bytes.Equal(roundTripped, before) && !sameDocument(format, roundTripped, before, target) {
-		return nil, fmt.Errorf("confpatch: the reversal computed for %s applies but does not restore the document it was derived from; refusing to write an undo that does not undo", target)
+		return nil, fmt.Errorf("fsstatic: the reversal computed for %s applies but does not restore the document it was derived from; refusing to write an undo that does not undo", target)
 	}
 	return reversal, nil
 }
@@ -241,7 +250,7 @@ func sameDocument(format hew.FormatID, a, b []byte, target string) bool {
 		}
 		return reflect.DeepEqual(da, db)
 	}
-	residue, err := hew.Invert(format, a, b, inversionOptions(target))
+	residue, err := hew.Invert(format, a, b, confpatch.InversionOptions(target))
 	return err == nil && len(residue.Transform) == 0
 }
 
@@ -308,7 +317,7 @@ func (r *Records) read(path string) (ownershipRecord, error) {
 	}
 	var rec ownershipRecord
 	if err := yamlv3.Unmarshal(data, &rec); err != nil {
-		return ownershipRecord{}, fmt.Errorf("confpatch: read ownership record %s: %w", path, err)
+		return ownershipRecord{}, fmt.Errorf("fsstatic: read ownership record %s: %w", path, err)
 	}
 	return rec, nil
 }

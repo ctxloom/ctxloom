@@ -331,16 +331,13 @@ type configDoc struct {
 	SessionReapAge               string                  `yaml:"session_reap_age,omitempty"`
 }
 
-// toDoc copies c's persisted fields into a configDoc for marshaling.
-//
-// Like its twin ToFixture (fixture.go), it clones every map and slice rather
-// than aliasing c's own. The strongest reason is Draft: Owner.Update hands
-// the doc this builds to an arbitrary caller's fn as the package's documented
-// WRITE surface, and an fn that mutates a container in place must not be able
-// to reach back into the Config the draft was taken from. Cloning also keeps
-// the two conversions honest with each other — they are near-identical
-// 20-field copies, and one of them silently having weaker ownership than the
-// other is exactly how that class of bug happens.
+// toDoc copies c's persisted fields into a configDoc for marshaling, cloning
+// every map and slice rather than aliasing c's own. Owner.Update hands the
+// doc this builds to an arbitrary caller's fn as the package's documented
+// WRITE surface, and an fn that mutates a container in place must not be
+// able to reach back into the Config the draft was taken from
+// (TestToDoc_NeverAliasesConfigContainers). ToFixture takes its persisted
+// half from here, so this is the one place that ownership is decided.
 func (c *Config) toDoc() configDoc {
 	return configDoc{
 		Version:                      c.version,

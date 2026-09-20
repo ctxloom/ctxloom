@@ -28,7 +28,7 @@ import (
 type Records struct {
 	user    *Store
 	project *Store
-	root    signing.TrustRoot
+	root    trust.TrustRoot
 	// fault is the store-RESOLUTION error, held as an error rather than
 	// encoded into a value. It is set when the USER store's directory could
 	// not be resolved at all (homeApprovalsDir failed — an unresolvable
@@ -345,7 +345,7 @@ func refLevelAddress(ref trust.Ref) (string, bool) {
 // StateUnconfigured before a Store even exists to ask. A fault written down
 // as a value is a fault whose CAUSE is gone; Fault returns this first so the
 // error a human can act on is the one they are shown.
-func NewRecords(user, project *Store, root signing.TrustRoot, fault error) Records {
+func NewRecords(user, project *Store, root trust.TrustRoot, fault error) Records {
 	return Records{user: user, project: project, root: root, fault: fault}
 }
 

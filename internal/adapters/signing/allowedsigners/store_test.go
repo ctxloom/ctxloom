@@ -35,7 +35,6 @@ func TestStore_TrustedForNamespace_KeyTrustedInItsListedNamespace(t *testing.T) 
 	d := store.TrustedForNamespace(key, "publish.v1.ctxloom.dev", fixedNow())
 	assert.True(t, d.Trusted)
 	assert.Equal(t, "releases@ctxloom.dev", d.Principal)
-	require.NotNil(t, d.Entry)
 }
 
 func TestStore_TrustedForNamespace_UnknownKeyIsNotTrusted(t *testing.T) {
@@ -50,7 +49,6 @@ func TestStore_TrustedForNamespace_UnknownKeyIsNotTrusted(t *testing.T) {
 	d := store.TrustedForNamespace(unknownKey, "publish.v1.ctxloom.dev", fixedNow())
 	assert.False(t, d.Trusted)
 	assert.Empty(t, d.Principal)
-	assert.Nil(t, d.Entry)
 }
 
 func TestStore_TrustedAs_RequiresPrincipalMatch(t *testing.T) {
@@ -339,14 +337,11 @@ func TestStore_NilProvenance(t *testing.T) {
 // TestStore_HandsOutNoWritablePathIntoItsOwnEntries pins the Store as
 // immutable from the outside.
 //
-// Three routes used to lead straight back into s.entries and its inner
-// slices, and each is a way to WIDEN a grant after the store was built:
+// Two routes lead back into s.entries and its inner slices, and each is a
+// way to WIDEN a grant after the store was built (a third — a pointer to the
+// matched entry riding on the decision — no longer exists: the port's answer,
+// trust.SignerDecision, is a value with no handle on the store):
 //
-//   - Decision.Entry was literally &s.entries[i]. Setting .Namespaces = nil on
-//     it means "accepted for all namespaces" (see Entry.Namespaces), so a
-//     caller holding a decision for one namespace could promote the entry to
-//     every namespace — including reject, whose supremacy the whole design
-//     rests on.
 //   - Entries() copied the slice but not the slices INSIDE each Entry, so
 //     Entries()[0].Namespaces[0] = "*" rewrote the live trust root.
 //   - NewStore and Union took the caller's/other stores' inner slices by
@@ -363,18 +358,6 @@ func TestStore_HandsOutNoWritablePathIntoItsOwnEntries(t *testing.T) {
 			PublicKey:  key,
 		})
 	}
-
-	t.Run("through Decision.Entry", func(t *testing.T) {
-		store := newStore()
-		d := store.TrustedForNamespace(key, "publish.v1.ctxloom.dev", fixedNow())
-		require.True(t, d.Trusted)
-		require.NotNil(t, d.Entry)
-
-		d.Entry.Namespaces = nil // "accepted for all namespaces"
-
-		assert.False(t, store.TrustedForNamespace(key, "reject.v1.ctxloom.dev", fixedNow()).Trusted,
-			"a decision handed back a writable pointer into the store's entries")
-	})
 
 	t.Run("through Entries", func(t *testing.T) {
 		store := newStore()

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -84,7 +85,7 @@ func newCompanionAdmission(k CompanionKey, allow bool, reason CompanionAdmission
 // Decisions are made BEFORE any exec, which is what keeps a refused companion
 // from running: the probes' concurrency starts after admission, over the
 // admitted set only.
-func AdmitCompanions(bins []string, root signing.TrustRoot) []CompanionAdmission {
+func AdmitCompanions(bins []string, root trust.TrustRoot) []CompanionAdmission {
 	out := make([]CompanionAdmission, 0, len(bins))
 	for _, bin := range bins {
 		out = append(out, admitCompanion(bin, root))
@@ -101,7 +102,7 @@ var companionAdmission = AdmitCompanions
 // consult and returns a restore function. Companion of
 // SetCompanionLoadoutOutputForTesting: those seams fake the probe's OUTPUT,
 // this one fakes the decision to run it at all.
-func SetCompanionAdmissionForTesting(fn func(bins []string, root signing.TrustRoot) []CompanionAdmission) func() {
+func SetCompanionAdmissionForTesting(fn func(bins []string, root trust.TrustRoot) []CompanionAdmission) func() {
 	prev := companionAdmission
 	companionAdmission = fn
 	return func() { companionAdmission = prev }
@@ -118,7 +119,7 @@ func SetCompanionAdmissionForTesting(fn func(bins []string, root signing.TrustRo
 // consent gate as a side effect would let a future regression in that gate go
 // unnoticed by every test in the repo.
 func AdmitEveryDiscoveredCompanionForTesting() func() {
-	return SetCompanionAdmissionForTesting(func(bins []string, _ signing.TrustRoot) []CompanionAdmission {
+	return SetCompanionAdmissionForTesting(func(bins []string, _ trust.TrustRoot) []CompanionAdmission {
 		out := make([]CompanionAdmission, 0, len(bins))
 		for _, bin := range bins {
 			path, err := lookPath(bin)
@@ -145,7 +146,7 @@ func AdmitEveryDiscoveredCompanionForTesting() func() {
 // and are delegated to the store's Decide, which is where "recorded yes",
 // "recorded no", "nobody could be asked" and "the store is unreadable" are one
 // implementation for every consumer.
-func admitCompanion(bin string, root signing.TrustRoot) CompanionAdmission {
+func admitCompanion(bin string, root trust.TrustRoot) CompanionAdmission {
 	raw, err := lookPath(bin)
 	if err != nil {
 		// not installed — ordinary, not a warning

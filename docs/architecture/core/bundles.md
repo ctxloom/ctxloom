@@ -110,7 +110,7 @@ flowchart TD
 | `SkillManifest` / `SkillManifestEntry` | `skill.go:98` / `:87` | The canonical per-file list (`Path`, `SHA256`, `Mode` as an octal string) and its `sorted`/`Serialize`/`Hash` methods; `Serialize()` is the skill signature preimage |
 | `SkillLLMExports` / `SkillEngineExport` | `skill.go:29` / `:38` | Per-engine skill enablement, `Enabled *bool` with nil meaning enabled |
 | `ArchiveFormat` / `ExtractOptions` / `entryKind` | `skill_archive.go:36` / `:150` / `:172` | zip vs tar.gz vs unknown; the bomb-defense caps `MaxTotalBytes`/`MaxEntries` (zero means default, applied by `normalized`); and the per-entry file/dir/symlink/other classification |
-| `SkillSignatureVerifier` / `NoopSkillSignatureVerifier` / `PublisherSkillSignatureVerifier` | `skill_archive.go:642` / `:652` / `:674` | The install-time signature seam; an accept-everything implementation; and the real one, verifying a detached signature over `manifest.Serialize()` against a `signing.TrustRoot` |
+| `SkillSignatureVerifier` / `NoopSkillSignatureVerifier` / `PublisherSkillSignatureVerifier` | `skill_archive.go:642` / `:652` / `:674` | The install-time signature seam; an accept-everything implementation; and the real one, verifying a detached signature over `manifest.Serialize()` against a `trust.TrustRoot` |
 | `Source` / `Store` | `store.go:19` / `:28` | The read port (`Load`, `LoadFile`) embedded in the read+write port (`+ Save`, `Delete`) |
 | `fsStore` / `MemStore` | `store.go:38` / `:131` | The filesystem adapter, embedding `*Loader` so reads and writes share one `afero.Fs`; and an in-memory adapter with one call site (`store_test.go:44`) |
 | `commandsKeyUpgrade` | `upgrade.go:26` | The single bundle schema upgrader: legacy `prompts:` → `commands:` |

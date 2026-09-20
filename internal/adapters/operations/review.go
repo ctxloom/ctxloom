@@ -114,10 +114,10 @@ type PendingReviewRequest struct {
 	// Root overrides the allowed_signers trust root (test injection);
 	// production uses cfg.TrustRoot(). Every candidate countersignature must
 	// clear this namespace/role check before it counts.
-	Root     signing.TrustRoot `json:"-"`
-	Registry *remote.Registry  `json:"-"`
-	Loader   *bundles.Loader   `json:"-"`
-	FS       afero.Fs          `json:"-"`
+	Root     trust.TrustRoot  `json:"-"`
+	Registry *remote.Registry `json:"-"`
+	Loader   *bundles.Loader  `json:"-"`
+	FS       afero.Fs         `json:"-"`
 }
 
 // PendingReviewResult is the pending-review enumeration, grouped by bundle in

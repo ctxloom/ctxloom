@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // embeddedAllowedSigners is ctxloom's compiled-in trust root in the real
@@ -56,13 +57,24 @@ func EmbeddedSigners() *allowedsigners.Store {
 // more content is unsigned, and unsigned content is withheld until a human
 // reviews it (spec §10.5).
 //
-// "Never fails" is not "never lost anything", and the returned Store now says
-// which: a location that existed but could not be read rides on the union as a
-// failed Source (Store.LoadErrors), so a caller that must not present a
-// silently-shortened root has something to ask. Degrading toward fewer keys is
-// safe; degrading toward fewer keys INVISIBLY is how a revoked-looking signer
-// gets diagnosed as a publishing bug.
-func (c *Config) TrustRoot() *allowedsigners.Store {
+// "Never fails" is not "never lost anything": a location that existed but
+// could not be read is reported (report.KindTrust) as it is skipped, so a
+// silently-shortened root is never presented as the whole one. Degrading toward
+// fewer keys is safe; degrading toward fewer keys INVISIBLY is how a
+// revoked-looking signer gets diagnosed as a publishing bug.
+//
+// It returns the PORT (trust.TrustRoot), never the store: every consumer asks
+// the one policy question, and a concrete store in a signature is how a
+// caller comes to depend on a mutator or a listing the port does not promise.
+func (c *Config) TrustRoot() trust.TrustRoot {
+	return c.trustStore()
+}
+
+// trustStore is the union TrustRoot presents as the port, as the store — for
+// this package's own tests of what the union records (a location that could
+// not be read rides on it as a failed source). Nothing outside the package
+// gets the store: the port is the contract.
+func (c *Config) trustStore() *allowedsigners.Store {
 	fs := c.getFS()
 	stores := []*allowedsigners.Store{c.embeddedSignersTrusted()}
 	for _, path := range c.allowedSignersPaths() {

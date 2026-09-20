@@ -157,7 +157,7 @@ func resolveSignerOrUnsigned(cfg *config.Config, injected ssh.Signer, project bo
 //
 // An empty store trusts nothing, which is the fail-closed answer: "I could not
 // establish that this key may decide here" refuses, it never accepts.
-func reviewTrustRoot(cfg *config.Config, injected signing.TrustRoot) signing.TrustRoot {
+func reviewTrustRoot(cfg *config.Config, injected trust.TrustRoot) trust.TrustRoot {
 	if injected != nil {
 		return injected
 	}
@@ -192,7 +192,7 @@ func reviewTrustRoot(cfg *config.Config, injected signing.TrustRoot) signing.Tru
 // key, so there is no namespace question to ask, and its records are honoured
 // by their own path (HasUnsignedApprove / HasUnsignedRefReject) which consults
 // no trust root at all. Only the signing-key-present path is authorized here.
-func resolveDecisionSigner(cfg *config.Config, injected ssh.Signer, project bool, root signing.TrustRoot, assertion signing.Assertion) (signer ssh.Signer, unsigned bool, err error) {
+func resolveDecisionSigner(cfg *config.Config, injected ssh.Signer, project bool, root trust.TrustRoot, assertion signing.Assertion) (signer ssh.Signer, unsigned bool, err error) {
 	signer, unsigned, err = resolveSignerOrUnsigned(cfg, injected, project)
 	if err != nil || unsigned {
 		return signer, unsigned, err
@@ -216,7 +216,7 @@ var ErrReviewKeyUntrusted = errors.New("review key not trusted for this decision
 // Fail-closed in every arm: an assertion outside the closed vocabulary, a nil
 // root, and an untrusted key all refuse. There is no arm that grants except
 // an explicit TrustedForNamespace yes.
-func requireTrustedForAssertion(root signing.TrustRoot, key ssh.PublicKey, assertion signing.Assertion) error {
+func requireTrustedForAssertion(root trust.TrustRoot, key ssh.PublicKey, assertion signing.Assertion) error {
 	ns := signing.NamespaceForAssertion(assertion)
 	if ns == "" {
 		// Unreachable from the two production call sites (both pass a literal
@@ -270,7 +270,7 @@ type SetItemTrustRequest struct {
 	// production resolves it from cfg. See resolveDecisionSigner: a key not
 	// trusted for the approve namespace cannot record an approval anyone would
 	// honour, so it is refused rather than written.
-	Root signing.TrustRoot `json:"-"`
+	Root trust.TrustRoot `json:"-"`
 
 	Loader *bundles.Loader `json:"-"`
 	FS     afero.Fs        `json:"-"`
@@ -398,7 +398,7 @@ type SetBlacklistRequest struct {
 	// See SetItemTrustRequest.Root — a rejection recorded with a key untrusted
 	// for the REJECT namespace is the same silent no-op, one direction worse:
 	// the user is told content is blocked when it is not.
-	Root signing.TrustRoot `json:"-"`
+	Root trust.TrustRoot `json:"-"`
 
 	Loader *bundles.Loader `json:"-"`
 	FS     afero.Fs        `json:"-"`
@@ -739,19 +739,11 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 func trustOverRecords(cfg *config.Config, r composite.ReviewRecords, fs afero.Fs) composite.Trust {
 	root := reviewTrustRoot(cfg, nil)
 	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(getBaseDir(cfg), remote.WithLockfileFS(getFS(fs))))
-	tr, err := composite.NewTrust(rootPort{root}, r, retraction)
+	tr, err := composite.NewTrust(root, r, retraction)
 	if err != nil {
 		panic(err) // every port is supplied above
 	}
 	return tr
-}
-
-// rootPort presents a signing.TrustRoot as the core-owned port.
-type rootPort struct{ root signing.TrustRoot }
-
-func (r rootPort) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) composite.SignerDecision {
-	d := r.root.TrustedForNamespace(key, ns, now)
-	return composite.SignerDecision{Trusted: d.Trusted, Principal: d.Principal}
 }
 
 // ForRef stamps a fragment/prompt/mcp item addressed by its full list ref

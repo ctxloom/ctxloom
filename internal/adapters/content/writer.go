@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -172,7 +173,7 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 
 // PutSignature stores signature bytes against a form's content digest. It does
 // not verify anything: layer 0 knows only where signature bytes live.
-func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, sig []byte) error {
+func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, by ssh.PublicKey, sig []byte) error {
 	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
@@ -192,7 +193,7 @@ func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.F
 	if err != nil {
 		return err
 	}
-	return writeSignature(s.fsys, s.osPath(ref.Bundle), contentKey(digest), ns, sig)
+	return writeSignature(s.fsys, s.osPath(ref.Bundle), contentKey(digest), ns, by, sig)
 }
 
 // PutManifest writes a bundle's manifest.
@@ -274,7 +275,7 @@ func validateRootFileName(name string) error {
 //
 // It files them under the FIXED BundleSigKey rather than a content-derived one
 // — see BundleSigKey for why the bundle level diverges from content-keying.
-func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, sig []byte) error {
+func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, by ssh.PublicKey, sig []byte) error {
 	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
@@ -289,5 +290,5 @@ func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Name
 	if !ok {
 		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
 	}
-	return writeSignature(s.fsys, bundleDir, BundleSigKey, ns, sig)
+	return writeSignature(s.fsys, bundleDir, BundleSigKey, ns, by, sig)
 }

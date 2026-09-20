@@ -58,12 +58,16 @@ three states:
 
 One gate holder, `composite.Trust`, owns every exposure decision. It is built
 **per config generation** by `composite.NewTrust` over three ports the
-configuration's sources supply (`config.Sources.TrustPorts`): a
-`composite.TrustRoot` (which keys may publish — `allowedsigners`), the
-`composite.ReviewRecords` (what a human approved or rejected — the
-`countersign` stores) and the `composite.RetractionRecords` (what a publisher
-withdrew — `remote.LockfileRetraction`, the lockfile read once when the gate
-is built). The generation's `Snapshot.Trust` is the one gate every exposure
+configuration's sources supply (`config.Sources.TrustPorts`). The ports are
+declared at the core leaf, `internal/core/trust` (`trust.TrustRoot`,
+`trust.ReviewRecords`, `trust.RetractionRecords`, answering with
+`trust.SignerDecision`; `composite` aliases them), so the gate and every
+reader of a signature name one interface: a `trust.TrustRoot` (which keys may
+publish — `allowedsigners.Store` implements it, and `config.Config.TrustRoot`
+hands out the port, never the store), the `trust.ReviewRecords` (what a human
+approved or rejected — the `countersign` stores) and the
+`trust.RetractionRecords` (what a publisher withdrew —
+`remote.LockfileRetraction`, the lockfile read once when the gate is built). The generation's `Snapshot.Trust` is the one gate every exposure
 and executable surface decides with (`config.Config.ExecutableTrustGate`);
 there is no admit-everything default and no way to install a second gate on
 a generation. The one spelling of "ungated" is `composite.Ungated()`, opted
@@ -412,14 +416,26 @@ defaults, `~/.ctxloom/allowed_signers` (user), and `.ctxloom/allowed_signers`
 (committable project store). All are unioned; precedence lives in the decision
 function, never in the filesystem. **One signature per bundle.** A bundle's
 signature is its `SHA256SUMS` manifest, covering every file of the tree, and
-the `.sigs/SHA256SUMS.<principal>.sig` entry over it; a single-file bundle
-carries none and cannot be signed (`operations.ErrSingleFileBundleUnsignable`)
-— a signed bundle takes the tree form. Every reader verifies through the ONE
-verifier, `attest.VerifyBundle`, before any item is read. The detached
-sibling `bundle.yaml.sig` is retired: no reader parses it, and a bundle still
-carrying one is REFUSED, naming re-sign (`bundles.ErrSiblingSignatureRetired`),
-which `ctxloom bundle sign` performs by writing the manifest entry and
-removing the sibling.
+the `.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` entry over it; a single-file
+bundle carries none and cannot be signed
+(`operations.ErrSingleFileBundleUnsignable`) — a signed bundle takes the tree
+form. Every reader verifies through the ONE verifier, `attest.VerifyBundle`,
+before any item is read. The detached sibling `bundle.yaml.sig` is retired: no
+reader parses it, and a bundle still carrying one is REFUSED, naming re-sign
+(`bundles.ErrSiblingSignatureRetired`), which `ctxloom bundle sign` performs
+by writing the manifest entry and removing the sibling.
+
+**A re-sign replaces.** The `.sigs/` store files an entry per (signing key,
+namespace): the tag in the filename is the signing key's
+(`content.sigFileName`), so `attest.SignBundle` by the same key REPLACES that
+key's earlier entry — a stale signature over a manifest the tree no longer
+has does not linger beside the live one — while a second key adds a second
+entry (two maintainers signing one bundle). The tag is a FILING name only:
+no reader resolves who signed from a filename; the signer is resolved from
+the bytes and the trust root (`signing.VerifyPublisher`), and an entry filed
+before entries were keyed this way is read exactly as a current one is
+(`content.parseSigFileName` treats the tag as opaque; the live entry verifies
+and a stale neighbour cannot veto it — `attest.resolvePublisher`).
 
 The `namespaces="…"` option in `allowed_signers` **is** the role system: a key
 trusted only to publish cannot approve content, and vice versa. A signature by a
@@ -614,7 +630,7 @@ signature body, resolves pending — never allow.
 | `~/.ctxloom/approvals/` | The **personal countersignature store**. One armored `.sig` file per approve/reject countersignature (filename `<index-hash>.<assertion>.<key-tag>.sig`, an INDEX only — never trusted as authority) plus a display-only `index.yaml` sidecar (untrusted, never a decision input). Never committed. The default write target of `ctxloom review`. |
 | `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
-| `<bundle>/SHA256SUMS` + `<bundle>/.sigs/SHA256SUMS.<principal>.sig` | The bundle's ONE signature: the manifest over every file of the tree and the publisher's signature over the manifest, inside the tree, at the same pinned SHA. Verified by `attest.VerifyBundle` before any item is read; travels with the tree on push, move and export. No manifest = unsigned. |
+| `<bundle>/SHA256SUMS` + `<bundle>/.sigs/SHA256SUMS.<namespace>.<key-tag>.sig` | The bundle's ONE signature: the manifest over every file of the tree and the publisher's signature over the manifest, inside the tree, at the same pinned SHA — one entry per (signing key, namespace); a re-sign by the same key replaces its entry (`content.sigFileName`). Verified by `attest.VerifyBundle` before any item is read; travels with the tree on push, move and export. No manifest = unsigned. |
 | `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom companion list\|allow\|forget`. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |

@@ -54,7 +54,7 @@ type ForgetItemDecisionRequest struct {
 	// injection). It authorizes nothing here — this operation records no
 	// assertion — and is used only to answer "is this item still decided by
 	// the other store", which must be read exactly as the gate reads it.
-	Root signing.TrustRoot `json:"-"`
+	Root trust.TrustRoot `json:"-"`
 
 	Loader *bundles.Loader `json:"-"`
 	FS     afero.Fs        `json:"-"`

@@ -32,6 +32,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -367,7 +368,7 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 // Unexported — its only callers are the three wrappers below
 // (verified zero external/test callers of the exported spelling), which
 // are the intended API surface.
-func (s *Store) verified(header signing.CountersignHeader, payload []byte, root signing.TrustRoot, now time.Time) (principal string, ok bool) {
+func (s *Store) verified(header signing.CountersignHeader, payload []byte, root trust.TrustRoot, now time.Time) (principal string, ok bool) {
 	if s == nil {
 		return "", false
 	}
@@ -380,21 +381,21 @@ func (s *Store) verified(header signing.CountersignHeader, payload []byte, root 
 }
 
 // VerifiedApprove is the verified convenience wrapper for an approve query.
-func (s *Store) VerifiedApprove(ref string, form signing.AttestationForm, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
+func (s *Store) VerifiedApprove(ref string, form signing.AttestationForm, payload []byte, root trust.TrustRoot, now time.Time) (string, bool) {
 	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
 	return s.verified(h, payload, root, now)
 }
 
 // VerifiedContentReject is the verified convenience wrapper for a
 // content-reject query (ref omitted, matching WriteContentReject).
-func (s *Store) VerifiedContentReject(form signing.AttestationForm, payload []byte, root signing.TrustRoot, now time.Time) (string, bool) {
+func (s *Store) VerifiedContentReject(form signing.AttestationForm, payload []byte, root trust.TrustRoot, now time.Time) (string, bool) {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
 	return s.verified(h, payload, root, now)
 }
 
 // VerifiedRefReject is the verified convenience wrapper for a ref-reject
 // query (matching WriteRefReject: form none, payload empty).
-func (s *Store) VerifiedRefReject(ref string, root signing.TrustRoot, now time.Time) (string, bool) {
+func (s *Store) VerifiedRefReject(ref string, root trust.TrustRoot, now time.Time) (string, bool) {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
 	return s.verified(h, nil, root, now)
 }

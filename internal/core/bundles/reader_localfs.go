@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -460,4 +459,4 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	return NewRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
 }
 
-func (r *localFSReader) trustRoot() signing.TrustRoot { return r.cfg.root }
+func (r *localFSReader) trustRoot() trust.TrustRoot { return r.cfg.root }

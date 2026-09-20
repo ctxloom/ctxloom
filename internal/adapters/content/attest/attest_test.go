@@ -198,7 +198,7 @@ func TestVerifyItem_ApproveNamespaceSignatureIsNotAPublishAttestation(t *testing
 	require.NoError(t, err)
 	sig, err := signing.Sign(digest, signer, signing.NamespaceApprove)
 	require.NoError(t, err)
-	require.NoError(t, store.PutSignature(ctx, solid, signing.FormRaw, content.Namespace(signing.NamespaceApprove), sig))
+	require.NoError(t, store.PutSignature(ctx, solid, signing.FormRaw, content.Namespace(signing.NamespaceApprove), signer.PublicKey(), sig))
 
 	root := rootTrusting(allowedsigners.Entry{
 		Principals: []string{"both"},
@@ -261,7 +261,7 @@ func TestVerifyBundle_ACoveredButUnrecognisedFileStillRefusesTheBundle(t *testin
 	require.True(t, covered, "the manifest covers by PATH, so the typo is legitimately covered")
 	sig, err := signing.Sign(m.Bytes(), signer, signing.NamespacePublish)
 	require.NoError(t, err)
-	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), content.Namespace(signing.NamespacePublish), sig))
+	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), content.Namespace(signing.NamespacePublish), signer.PublicKey(), sig))
 
 	require.NoError(t, m.VerifyContents(ctx, b), "integrity alone is satisfied — which is the trap")
 
@@ -431,9 +431,9 @@ func TestVerifyBundle_CorruptSignatureBlobIsTampered(t *testing.T) {
 	assert.Equal(t, StatusTampered, v.Status)
 }
 
-// Signing twice with the same key is idempotent: the signature store keys on the
-// signature's own bytes, so a re-sign must not accumulate near-duplicates that a
-// later reader would have to arbitrate between.
+// Signing twice with the same key over an unchanged tree is idempotent: the
+// signature store files an entry under its signing key, so the second write
+// lands on the first. (A re-sign after an EDIT is resign_test.go's case.)
 func TestSignBundle_IsIdempotentForOneKey(t *testing.T) {
 	store, b, _ := fixture(t)
 	signer, pub := testSigner(t)

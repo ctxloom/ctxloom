@@ -53,6 +53,8 @@ import (
 	"errors"
 	"sort"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -175,8 +177,11 @@ type Writer interface {
 	// file would let you un-blacklist content by removing it.
 	Delete(ctx context.Context, ref trust.Ref) error
 	// PutSignature stores signature bytes against the given form's content
-	// under the given namespace. It performs no verification.
-	PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, sig []byte) error
+	// under the given namespace, filed under the key that made them: a
+	// second signature by the same key in the same namespace REPLACES the
+	// first. It performs no verification — the key is a filing name, and
+	// whether it actually made sig is layer 2's question.
+	PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, by ssh.PublicKey, sig []byte) error
 
 	// PutManifest writes a bundle's manifest, replacing any existing one. It
 	// takes a BundleID rather than a ref because a manifest belongs to the
@@ -198,10 +203,12 @@ type Writer interface {
 	PutRootFile(ctx context.Context, id BundleID, name string, data []byte) error
 
 	// PutBundleSignature stores signature bytes over the bundle's manifest
-	// under the given namespace. It performs no verification, and it does not
+	// under the given namespace, filed under the key that made them: a
+	// re-sign by the same key REPLACES its earlier entry, and a second key
+	// adds a second entry. It performs no verification, and it does not
 	// check that a manifest is present: layer 0 stores bytes, layer 2 decides
 	// what they mean.
-	PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, sig []byte) error
+	PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, by ssh.PublicKey, sig []byte) error
 }
 
 // ComponentMode is a component's declared, attested mode. It is ONE enum

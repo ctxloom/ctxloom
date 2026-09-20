@@ -183,7 +183,7 @@ func SignBundle(ctx context.Context, w content.Writer, b content.Bundle, signer 
 	if err != nil {
 		return fmt.Errorf("attest: signing manifest of %q: %w", b.ID(), err)
 	}
-	return w.PutBundleSignature(ctx, b.ID(), publishNS, sig)
+	return w.PutBundleSignature(ctx, b.ID(), publishNS, signer.PublicKey(), sig)
 }
 
 // SignItem signs one form of one item under NamespacePublish — the exception,
@@ -207,7 +207,7 @@ func SignItem(ctx context.Context, w content.Writer, it content.Item, f signing.
 	if err != nil {
 		return fmt.Errorf("attest: signing %s form %q: %w", it.Ref().Key(), f, err)
 	}
-	return w.PutSignature(ctx, it.Ref(), f, publishNS, sig)
+	return w.PutSignature(ctx, it.Ref(), f, publishNS, signer.PublicKey(), sig)
 }
 
 // VerifyBundle resolves a bundle's manifest attestation, checks the tree
@@ -216,7 +216,7 @@ func SignItem(ctx context.Context, w content.Writer, it content.Item, f signing.
 // An error return means the bundle could not be READ. An unattested or tampered
 // bundle is a verdict, not an error: refusing to produce a verdict for a
 // suspicious bundle would leave the caller with nothing to show a user.
-func VerifyBundle(ctx context.Context, b content.Bundle, root signing.TrustRoot, now time.Time) (BundleVerdict, error) {
+func VerifyBundle(ctx context.Context, b content.Bundle, root trust.TrustRoot, now time.Time) (BundleVerdict, error) {
 	out := BundleVerdict{Bundle: b.ID()}
 	m, mv, err := bundleAuthority(ctx, b, root, now)
 	if err != nil {
@@ -265,7 +265,7 @@ func VerifyBundle(ctx context.Context, b content.Bundle, root signing.TrustRoot,
 // all. Those are bundle-level facts and only VerifyBundle reports them. A caller
 // deciding whether to trust a whole tree must call VerifyBundle; VerifyItem is
 // for deciding about one item in a tree already accepted.
-func VerifyItem(ctx context.Context, b content.Bundle, ref trust.Ref, f signing.Form, root signing.TrustRoot, now time.Time) (Verdict, error) {
+func VerifyItem(ctx context.Context, b content.Bundle, ref trust.Ref, f signing.Form, root trust.TrustRoot, now time.Time) (Verdict, error) {
 	item, err := b.Item(ctx, ref)
 	if err != nil {
 		return Verdict{}, err
@@ -278,7 +278,7 @@ func VerifyItem(ctx context.Context, b content.Bundle, ref trust.Ref, f signing.
 }
 
 // bundleAuthority loads the manifest and resolves who, if anyone, signed it.
-func bundleAuthority(ctx context.Context, b content.Bundle, root signing.TrustRoot, now time.Time) (content.Manifest, Verdict, error) {
+func bundleAuthority(ctx context.Context, b content.Bundle, root trust.TrustRoot, now time.Time) (content.Manifest, Verdict, error) {
 	m, err := b.Manifest(ctx)
 	switch {
 	case errors.Is(err, content.ErrManifestMissing):
@@ -344,7 +344,7 @@ func (a attestation) tampered() bool { return a.principal == "" && a.tamper }
 // maintainers), so one that does not verify must not veto one that does — but a
 // tamper signal must still outrank silence, or an attacker could bury a
 // corrupted signature behind an absent one.
-func resolvePublisher(payload []byte, sigs content.SigSet, root signing.TrustRoot, now time.Time) attestation {
+func resolvePublisher(payload []byte, sigs content.SigSet, root trust.TrustRoot, now time.Time) attestation {
 	out := attestation{detail: "no signature by a key trusted to publish"}
 	for _, blob := range sigs.ForNamespace(publishNS) {
 		principal, err := signing.VerifyPublisher(payload, blob, root, now)
@@ -370,7 +370,7 @@ func resolvePublisher(payload []byte, sigs content.SigSet, root signing.TrustRoo
 }
 
 // verifyForm is the precedence rule, in one place.
-func verifyForm(ctx context.Context, item content.Item, f signing.Form, m content.Manifest, mv Verdict, root signing.TrustRoot, now time.Time) (Verdict, error) {
+func verifyForm(ctx context.Context, item content.Item, f signing.Form, m content.Manifest, mv Verdict, root trust.TrustRoot, now time.Time) (Verdict, error) {
 	form, err := item.Form(ctx, f)
 	if err != nil {
 		return Verdict{}, err

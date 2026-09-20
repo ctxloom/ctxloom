@@ -126,7 +126,7 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 	fs := denyOpenFs{Fs: base, deny: path}
 
 	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
-	root := cfg.TrustRoot()
+	root := cfg.trustStore()
 
 	failed := root.LoadErrors()
 	require.Len(t, failed, 1, "an unreadable allowed_signers location must survive as a failed source")
@@ -161,7 +161,7 @@ func TestTrustRoot_UnreadableStore_EscalatesViaStrictness(t *testing.T) {
 // fresh install reports a broken trust root.
 func TestTrustRoot_AbsentStore_IsNotALoadError(t *testing.T) {
 	cfg := &Config{appPaths: []string{".ctxloom"}, fs: afero.NewMemMapFs()}
-	assert.Empty(t, cfg.TrustRoot().LoadErrors())
+	assert.Empty(t, cfg.trustStore().LoadErrors())
 }
 
 // The MIRROR of TestTrustRoot_UnreadableStore_IsRecordedNotErased, on the
@@ -226,7 +226,7 @@ func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *t
 			[]byte("suppressed@example.com\n"), 0o644))
 
 		cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs, rep: ledgerReporter()}
-		assert.NotEmpty(t, cfg.TrustRoot().Entries(), "the injected allowed_signers must be read")
+		assert.NotEmpty(t, cfg.trustStore().Entries(), "the injected allowed_signers must be read")
 		assert.True(t, cfg.SuppressedEmbeddedPrincipals()["suppressed@example.com"],
 			"the injected distrusted_signers must be read")
 	})

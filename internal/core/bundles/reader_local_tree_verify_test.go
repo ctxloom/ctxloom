@@ -42,7 +42,7 @@ const verifyTreeName = "vault"
 // It returns the filesystem, the bundle directory, and a trust root that
 // trusts the signing key, so a caller can assert a TRUSTED verdict rather
 // than merely a well-formed one.
-func stageSignedTree(t *testing.T, root, fragBody string) (afero.Fs, string, signing.TrustRoot) {
+func stageSignedTree(t *testing.T, root, fragBody string) (afero.Fs, string, trust.TrustRoot) {
 	t.Helper()
 	fsys, dir := stageUnsignedTree(t, root, fragBody)
 	signer, pub := testSkillSigner(t)
@@ -109,7 +109,7 @@ func mutateAnItemFile(t *testing.T, fsys afero.Fs, dir string) string {
 
 // readTree reads the staged bundle through the PROJECT READER — the production
 // local read path — and returns its read.
-func readTree(t *testing.T, fsys afero.Fs, root string, trustRoot signing.TrustRoot) BundleRead {
+func readTree(t *testing.T, fsys afero.Fs, root string, trustRoot trust.TrustRoot) BundleRead {
 	t.Helper()
 	var opts []ReaderOption
 	if trustRoot != nil {
@@ -173,7 +173,7 @@ func TestLocalTree_ItemFileMutated_ContentIsStillDelivered(t *testing.T) {
 // verdict for it would flag every directory bundle authored before manifests
 // existed.
 func TestLocalTree_WithoutAManifest_KeepsItsEnvelopeFacts(t *testing.T) {
-	fsys, _, _ := func() (afero.Fs, string, signing.TrustRoot) {
+	fsys, _, _ := func() (afero.Fs, string, trust.TrustRoot) {
 		f, d := stageUnsignedTree(t, "/bundles", "FRAG-BODY-MARKER")
 		return f, d, nil
 	}()

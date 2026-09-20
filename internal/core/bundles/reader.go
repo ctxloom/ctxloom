@@ -443,7 +443,7 @@ type SignatureFacts struct {
 // "there is no signature here" and "there is a signature I cannot read" are
 // different facts, and reporting the second as the first is the downgrade
 // spec §10.2 forbids.
-func readSignatureFacts(payload, armoredSig []byte, root signing.TrustRoot) SignatureFacts {
+func readSignatureFacts(payload, armoredSig []byte, root trust.TrustRoot) SignatureFacts {
 	if len(armoredSig) == 0 {
 		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	}
@@ -502,7 +502,7 @@ type ReaderOption func(*readerConfig)
 
 // readerConfig is the shared configurable state of the reader implementations.
 type readerConfig struct {
-	root       signing.TrustRoot
+	root       trust.TrustRoot
 	installDir string
 	repoURL    string
 	revision   string
@@ -513,7 +513,7 @@ type readerConfig struct {
 // against (embedded + user + project allowed_signers). Without one, no key is
 // trusted and every signature reads as untrusted — the fail-toward-less-
 // exposure direction, and never a silent claim of trust.
-func WithTrustRoot(root signing.TrustRoot) ReaderOption {
+func WithTrustRoot(root trust.TrustRoot) ReaderOption {
 	return func(c *readerConfig) { c.root = root }
 }
 

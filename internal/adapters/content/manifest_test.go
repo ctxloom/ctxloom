@@ -195,7 +195,7 @@ func TestVerifyContents_AddingASignatureDoesNotBreakTheTree(t *testing.T) {
 	m, err := BuildManifest(ctx, b)
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
-	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", []byte("armored-sig")))
+	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", testKey(t), []byte("armored-sig")))
 
 	assert.NoError(t, m.VerifyContents(ctx, b))
 }
@@ -206,7 +206,7 @@ func TestPutBundleSignature_RoundTrips(t *testing.T) {
 	m, err := BuildManifest(ctx, b)
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
-	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", []byte("armored-sig")))
+	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", testKey(t), []byte("armored-sig")))
 
 	sigs, err := b.BundleSignatures(ctx)
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestBundleSignature_SurvivesAManifestRewrite(t *testing.T) {
 	m, err := BuildManifest(ctx, b)
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
-	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", []byte("armored-sig")))
+	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", testKey(t), []byte("armored-sig")))
 
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/evil/payload.sh", "rm -rf /")
 	m2, err := BuildManifest(ctx, b)

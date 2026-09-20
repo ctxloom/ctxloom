@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/hiddeco/sshsig"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // NamespaceForAssertion maps a countersignature Assertion to its domain
@@ -60,7 +62,7 @@ func NamespaceForAssertion(a Assertion) string {
 // third outcome here without moving that gate. Callers must never treat
 // "candidate file found at the expected index hash" as authority on its own
 // (spec §9.3, implementer trap #2) — finding a file only earns it a call here.
-func VerifyCountersignature(header CountersignHeader, payloadBytes, armored []byte, root TrustRoot, now time.Time) (principal string, ok bool) {
+func VerifyCountersignature(header CountersignHeader, payloadBytes, armored []byte, root trust.TrustRoot, now time.Time) (principal string, ok bool) {
 	if len(armored) == 0 || root == nil {
 		return "", false
 	}

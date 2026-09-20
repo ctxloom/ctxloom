@@ -47,7 +47,7 @@ func (g *contentGate) trust() composite.Trust {
 		if retraction == nil {
 			retraction = remote.NewLockfileRetraction(remote.NewLockfileManager(getBaseDir(g.cfg), remote.WithLockfileFS(getFS(g.fs))))
 		}
-		tr, err := composite.NewTrust(rootPort{reviewTrustRoot(g.cfg, nil)}, records, retraction)
+		tr, err := composite.NewTrust(reviewTrustRoot(g.cfg, nil), records, retraction)
 		if err != nil {
 			panic(err)
 		}

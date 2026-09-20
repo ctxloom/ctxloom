@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -892,7 +893,7 @@ type PublisherSkillSignatureVerifier struct {
 	// Root resolves which keys are trusted to publish. A nil Root trusts no
 	// key — fails closed, like every other TrustRoot consumer in this
 	// codebase.
-	Root signing.TrustRoot
+	Root trust.TrustRoot
 	// Now is a seam for tests to pin time; nil means time.Now.
 	Now func() time.Time
 }

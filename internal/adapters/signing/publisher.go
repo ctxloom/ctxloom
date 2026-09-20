@@ -8,7 +8,7 @@ import (
 	"github.com/hiddeco/sshsig"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // The three assertion namespaces (spec §1). A namespace is the domain
@@ -115,16 +115,6 @@ func SignatureKeyFingerprint(armoredSig []byte) (string, error) {
 	return ssh.FingerprintSHA256(sig.PublicKey), nil
 }
 
-// TrustRoot answers the only policy question publisher verification asks: is
-// this key trusted to make an assertion in this namespace, right now?
-// *allowedsigners.Store is the production implementation; tests inject a fake.
-// Taking the interface (rather than the concrete store) is what keeps the
-// namespace/role check — spec trap #3 — a mandatory input to verification
-// instead of an optional afterthought a caller can forget.
-type TrustRoot interface {
-	TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) allowedsigners.Decision
-}
-
 // VerifyPublisher resolves the verified publisher identity of bundleBytes from
 // its detached signature, and is the ONLY way a bundle acquires a signer. Its
 // three outcomes are the three cases of spec §10.1/§10.2, and they are
@@ -157,7 +147,7 @@ type TrustRoot interface {
 //
 // It is pure Go, offline, and in-process: no network, no ssh-keygen binary
 // (spec §11A.2), so it runs inside a minimal agent container that has neither.
-func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Time) (string, error) {
+func VerifyPublisher(bundleBytes, armoredSig []byte, root trust.TrustRoot, now time.Time) (string, error) {
 	return VerifyInNamespace(bundleBytes, armoredSig, root, NamespacePublish, now)
 }
 
@@ -172,7 +162,7 @@ func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Ti
 // caller's to decide: a bundle treats ("", nil) as "unsigned to you, go to
 // review", while companion admission treats the same answer as a refusal,
 // because executing unattributable code is not a reviewable state.
-func VerifyInNamespace(payload, armoredSig []byte, root TrustRoot, namespace string, now time.Time) (string, error) {
+func VerifyInNamespace(payload, armoredSig []byte, root trust.TrustRoot, namespace string, now time.Time) (string, error) {
 	// No .sig at the pinned SHA. Unsigned content is legal and ordinary
 	// (spec §10.1) — the review path handles it.
 	if len(armoredSig) == 0 {

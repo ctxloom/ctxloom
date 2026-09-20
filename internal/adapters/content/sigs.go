@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/afero"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -19,9 +20,7 @@ import (
 // SigDirName is the bundle-root directory holding stored signatures.
 //
 // It is exported because a caller that SIGNS a tree has to be able to say where
-// the signature landed (operations.SignBundleResult.SigPath): a tree signature's
-// filename derives from the signature's own bytes, so the store directory is the
-// only stable path there is to name.
+// the signature landed (operations.SignBundleResult.SigPath).
 //
 // Signatures are keyed by CONTENT HASH, not attached to a path. That follows
 // through on the property the preimage already has — it binds content bytes,
@@ -58,24 +57,41 @@ func contentKey(digest []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// sigFileName builds "<content-key>.<namespace>.<sig-tag>.sig".
+// sigFileName builds "<content-key>.<namespace>.<signer-tag>.sig".
 //
-// The trailing tag is derived from the signature's own bytes, so storing the
-// same signature twice is idempotent while two DIFFERENT signatures over the
-// same content under the same namespace — the mixed-provenance case, two
-// maintainers signing one item — cannot collide. Deriving it from the signature
-// rather than from the signer's key is deliberate: layer 0 must not parse a
-// signature blob, because parsing it is the first step of interpreting it, and
-// interpretation belongs to layer 2.
-func sigFileName(contentKey string, ns Namespace, sig []byte) string {
-	sum := sha256.Sum256(sig)
-	return contentKey + "." + string(ns) + "." + hex.EncodeToString(sum[:])[:16] + ".sig"
+// The trailing tag names the SIGNING KEY, so the store holds one entry per
+// (key, namespace) over a given content: a re-sign by the same key REPLACES
+// its earlier entry — a stale signature over a manifest the tree no longer
+// has does not linger beside the live one for a reader to arbitrate — while
+// two different keys over the same content (the mixed-provenance case, two
+// maintainers signing one item) keep two entries.
+//
+// The tag is derived from a key the CALLER hands in, never from the signature
+// blob: layer 0 does not parse a signature, because parsing it is the first
+// step of interpreting it, and interpretation belongs to layer 2. The tag is
+// the entry's filing identity and nothing more — no reader resolves who signed
+// from a filename; that is VerifyPublisher's job over the bytes and the trust
+// root. A caller that filed a signature under the wrong key has misfiled it,
+// not forged trust.
+func sigFileName(contentKey string, ns Namespace, by ssh.PublicKey) string {
+	return contentKey + "." + string(ns) + "." + signerTag(by) + ".sig"
+}
+
+// signerTag is a key's filing name: the hex SHA-256 of its wire form — the
+// same digest ssh's SHA256 fingerprint spells in base64, in the charset a
+// filename and parseSigFileName's last-dot split both accept.
+func signerTag(by ssh.PublicKey) string {
+	sum := sha256.Sum256(by.Marshal())
+	return hex.EncodeToString(sum[:])
 }
 
 // parseSigFileName recovers the namespace from a signature filename. The
-// signature tag never contains a dot, so the namespace is everything between the
+// signer tag never contains a dot, so the namespace is everything between the
 // content key and the final dot-separated field — which is why namespaces
-// containing dots (they all do) round-trip correctly.
+// containing dots (they all do) round-trip correctly. The tag itself is
+// opaque here: an entry filed before entries were keyed by signing key (its
+// tag was derived from the signature's bytes) parses and is read exactly as a
+// current one is.
 func parseSigFileName(contentKey, name string) (Namespace, bool) {
 	rest, ok := strings.CutPrefix(name, contentKey+".")
 	if !ok {
@@ -132,10 +148,15 @@ func readSignatures(tfs TreeFS, bundleDir, key string) (SigSet, error) {
 	return out, nil
 }
 
-// writeSignature stores signature bytes against a content key.
-func writeSignature(fsys afero.Fs, bundleDir, key string, ns Namespace, sig []byte) error {
+// writeSignature stores signature bytes against a content key, filed under
+// the signing key: a second write by the same key in the same namespace
+// replaces the first.
+func writeSignature(fsys afero.Fs, bundleDir, key string, ns Namespace, by ssh.PublicKey, sig []byte) error {
 	if err := validateNamespace(ns); err != nil {
 		return err
+	}
+	if by == nil {
+		return errors.New("content: refusing to store a signature with no signing key to file it under")
 	}
 	if len(sig) == 0 {
 		return errors.New("content: refusing to store an empty signature")
@@ -144,10 +165,10 @@ func writeSignature(fsys afero.Fs, bundleDir, key string, ns Namespace, sig []by
 	if err := fsys.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("content: creating signature store %q: %w", dir, err)
 	}
-	target := filepath.Join(dir, sigFileName(key, ns, sig))
-	// No AllowEmpty: an empty sig is already refused above, and the filename is
-	// content-addressed (derived from sig's own hash), so a re-write at the
-	// same path is always identical bytes.
+	target := filepath.Join(dir, sigFileName(key, ns, by))
+	// No AllowEmpty: an empty sig is already refused above. A re-write at the
+	// same path is the replace this store promises, made atomic so a reader
+	// never sees a torn entry.
 	if err := iox.WriteFileAtomicFs(fsys, target, sig, 0o644); err != nil {
 		return fmt.Errorf("content: writing signature %q: %w", target, err)
 	}

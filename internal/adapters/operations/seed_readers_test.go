@@ -145,7 +145,7 @@ func seedUntrustedSigned(t *testing.T, ref string, b *bundles.Bundle) (*bundles.
 // publish as principal, returning the SIGNER — a tree is signed over its own
 // manifest, by attest.SignBundle, once the tree exists, so there is no payload
 // to sign ahead of time.
-func seedSigner(t *testing.T, principal string) (ssh.Signer, signing.TrustRoot, ssh.PublicKey) {
+func seedSigner(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot, ssh.PublicKey) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func seedSigner(t *testing.T, principal string) (ssh.Signer, signing.TrustRoot, 
 }
 
 // seedSignerAs is seedSigner for the callers that do not need the public key.
-func seedSignerAs(t *testing.T, principal string) (ssh.Signer, signing.TrustRoot) {
+func seedSignerAs(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot) {
 	t.Helper()
 	signer, root, _ := seedSigner(t, principal)
 	return signer, root

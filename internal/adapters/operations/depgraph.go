@@ -9,10 +9,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
@@ -191,7 +191,7 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 // resolver, so the lock path (carry-forward) and the upgrade path (re-resolve)
 // share one traversal and differ only in how each ref's constraint resolves.
 // The third return is the unexpanded-parent set (see FlattenDependencies).
-func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, trustRoot signing.TrustRoot, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool)) ([]PinnedRef, []DependencyConflict, []string) {
+func flattenRootsWith(ctx context.Context, loader *profiles.Loader, factory remote.FetcherFactory, auth remote.AuthConfig, trustRoot trust.TrustRoot, roots []*profiles.Profile, resolve func(*remote.Reference) (string, string, remote.SelectorKind, bool)) ([]PinnedRef, []DependencyConflict, []string) {
 	w := &depWalker{
 		ctx:         ctx,
 		loader:      loader,
@@ -230,7 +230,7 @@ type depWalker struct {
 	// ReadTree is the same rule the local tree path applies, and this is the
 	// only thing that can answer it. A nil root trusts nothing, which fails
 	// closed rather than opening the walk up.
-	trustRoot signing.TrustRoot
+	trustRoot trust.TrustRoot
 
 	// resolveHash resolves a remote ref's version constraint to a concrete
 	// commit (and the tag it chose, if any). ok=false means unresolvable — the

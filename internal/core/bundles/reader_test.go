@@ -47,7 +47,7 @@ var readerTreeFragments = map[string]string{"keeper": "KEEPER-PAYLOAD"}
 // signFor signs data with a throwaway key, returning the armored signature and
 // a trust root that authorizes that key to publish as principal. Real crypto,
 // so "valid" and "trusted" are facts here rather than fixture conventions.
-func signFor(t *testing.T, data []byte, principal string) ([]byte, signing.TrustRoot, ssh.PublicKey) {
+func signFor(t *testing.T, data []byte, principal string) ([]byte, trust.TrustRoot, ssh.PublicKey) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func signFor(t *testing.T, data []byte, principal string) ([]byte, signing.Trust
 // than a detached signature because a tree is signed over its own manifest, by
 // attest.SignBundle, at staging time — there is no separate payload to sign
 // ahead of the tree existing.
-func treeSignerFor(t *testing.T, principal string) (ssh.Signer, signing.TrustRoot, ssh.PublicKey) {
+func treeSignerFor(t *testing.T, principal string) (ssh.Signer, trust.TrustRoot, ssh.PublicKey) {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)

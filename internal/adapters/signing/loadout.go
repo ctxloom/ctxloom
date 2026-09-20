@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // LoadoutContract is the ONLY companion-loadout envelope contract version
@@ -42,7 +44,7 @@ type LoadoutEnvelope struct {
 
 	// Signer is ADVISORY ONLY — a hint for error messages, never trusted. The
 	// verified identity NEVER comes from this field; it comes from resolving
-	// the signature's key against the caller's TrustRoot (implementer trap
+	// the signature's key against the caller's trust.TrustRoot (implementer trap
 	// #3: "Trusting the signer field in the envelope instead of
 	// allowed_signers"). An envelope naming a signer that is not in the trust
 	// root is unsigned content to the verifier, full stop.
@@ -100,7 +102,7 @@ func EncodeLoadoutEnvelope(bundleBytes []byte, armoredSig []byte, signer string)
 //     let corrupting the envelope silently downgrade or forge trust), and
 //     never crash: a hostile or buggy companion binary must not be able to
 //     take ctxloom down by printing garbage.
-func DecodeLoadoutEnvelope(raw []byte, root TrustRoot, now time.Time) (bundleBytes []byte, verifiedSigner string, err error) {
+func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (bundleBytes []byte, verifiedSigner string, err error) {
 	decoded, sig, _, err := ParseLoadoutEnvelope(raw)
 	if err != nil {
 		return nil, "", err

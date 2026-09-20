@@ -39,7 +39,7 @@ func treeTestSigner(t *testing.T) (ssh.Signer, ssh.PublicKey) {
 	return s, s.PublicKey()
 }
 
-func treeTrustRoot(principal string, pub ssh.PublicKey) signing.TrustRoot {
+func treeTrustRoot(principal string, pub ssh.PublicKey) trust.TrustRoot {
 	return allowedsigners.NewStore(allowedsigners.Entry{
 		Principals: []string{principal},
 		Namespaces: []string{signing.NamespacePublish},
@@ -89,7 +89,7 @@ func stageInstalledTree(t *testing.T) (*config.Config, *content.TreeStore, conte
 // readTreeBundle drives the reader the Config builds for one lockfile tree
 // entry, and returns both halves a caller cares about: the bundle document, and
 // the read that carries what its attestation turned out to be.
-func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical string, entry remote.LockEntry, root signing.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
+func readTreeBundle(t *testing.T, c *config.Config, ctx context.Context, canonical string, entry remote.LockEntry, root trust.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
 	t.Helper()
 	reader, err := treeBundleReader(c, canonical, entry, root)
 	if err != nil {

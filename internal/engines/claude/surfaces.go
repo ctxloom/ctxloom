@@ -8,6 +8,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // This file holds claude's runtime FORMS on the surface-delivery seam
@@ -419,7 +421,8 @@ func (s *settingsSurface) Path() string { return s.path }
 type commandsSurface struct {
 	commands              []agent.CommandExport
 	fs                    afero.Fs
-	selfContainedCommands bool // mirrors SurfaceInputs.SelfContainedCommands; see DeliverCommands
+	reporter              report.Sink // SurfaceInputs.Reporter, forwarded to the writer
+	selfContainedCommands bool        // mirrors SurfaceInputs.SelfContainedCommands; see DeliverCommands
 }
 
 // Present declares .claude/commands/. No flag: claude has no out-of-cwd
@@ -437,6 +440,7 @@ func (s *commandsSurface) Present(start present.Start) present.Presentation {
 func (s *commandsSurface) Deliver(start present.Start) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: start.Paths().ProjectRoot.Host}, s.fs)
 	d.selfContainedCommands = s.selfContainedCommands
+	d.reporter = s.reporter
 	return d.DeliverCommands(s.commands)
 }
 
@@ -452,7 +456,7 @@ func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
 func newSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 	fs = agent.GetFS(fs)
 	return agent.NewManagedSkillPackagesDelivery("claude/skills", relSkills, in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs))
+		return WriteSkillFiles(dir, skills, agent.WithCommandFS(fs), agent.WithReporter(in.Reporter))
 	})
 }
 

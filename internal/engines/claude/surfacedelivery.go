@@ -5,6 +5,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // fileTemplateDelivery is claude's file-template delivery strategy for the
@@ -31,6 +33,8 @@ type fileTemplateDelivery struct {
 	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
 	// everywhere else.
 	selfContainedCommands bool
+	// reporter is where WriteCommandFiles reports the commands it skips.
+	reporter report.Sink
 	// denyTools, when non-empty, is unioned into the settings surface's
 	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
 	// settingsSurface.Deliver/DeliverIsolated set this (from
@@ -90,7 +94,7 @@ func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (age
 func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	fs := d.fs
-	opts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
+	opts := []agent.CommandFileOption{agent.WithCommandFS(fs), agent.WithReporter(d.reporter)}
 	if !d.selfContainedCommands {
 		if home, err := GlobalCommandsDir(); err == nil && home != "" {
 			opts = append(opts, agent.WithHomeCommandsDir(home))

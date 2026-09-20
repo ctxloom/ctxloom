@@ -11,6 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // These cover the HOST side of the setup seam (config/profile/bundle resolution
@@ -38,7 +40,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
 
-	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
+	assembled := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil)
 
 	assert.Contains(t, sessionStartCommands(assembled.Wire().Unified), "profile-session-start",
 		"profile-shipped SessionStart hook must be in the assembled set")
@@ -48,7 +50,7 @@ func TestAssembleManagedHooks_IncludesProfileSessionStartHook(t *testing.T) {
 // two writers diverging across the new host/agent seam: the SessionStart set the
 // agent ends up with — host-assembled hooks (no context-injection) plus the
 // context-injection hook the agent appends itself — must equal the set
-// apply-hooks writes via AssembleManagedHooks(cfg, wd, hash). Divergence here is
+// apply-hooks writes via AssembleManagedHooks(report.Reporter{}, cfg, wd, hash). Divergence here is
 // what lets WriteSettings' remove-then-add reconcile drop a managed hook.
 func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 	newCfg := func() *config.Config {
@@ -65,13 +67,13 @@ func TestAssembleManagedHooks_MatchesSetupSeam(t *testing.T) {
 
 	// Setup payload path: host assembles WITHOUT context-injection, the agent
 	// appends it from the plugin-side hash (exactly what MergeManaged does).
-	setupCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, "", nil).Wire().Unified)
-	for _, h := range agent.NewContextInjectionHooks(hash, wd) {
+	setupCmds := sessionStartCommands(AssembleManagedHooks(report.Reporter{}, newCfg(), wd, "", nil).Wire().Unified)
+	for _, h := range agent.NewContextInjectionHooks(report.Reporter{}, hash, wd) {
 		setupCmds = append(setupCmds, h.Command)
 	}
 
 	// apply-hooks path: AssembleManagedHooks resolves the hash inline.
-	applyCmds := sessionStartCommands(AssembleManagedHooks(newCfg(), wd, hash, nil).Wire().Unified)
+	applyCmds := sessionStartCommands(AssembleManagedHooks(report.Reporter{}, newCfg(), wd, hash, nil).Wire().Unified)
 
 	assert.Equal(t, applyCmds, setupCmds,
 		"agent (host hooks + appended injection) and apply-hooks must produce an identical SessionStart set")
@@ -91,9 +93,9 @@ func TestAssembleManagedHooks_DoesNotMutateConfig(t *testing.T) {
 		"p": "hooks:\n  unified:\n    session_start:\n      - command: profile-session-start\n        type: command\n",
 	})
 
-	first := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
-	second := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
-	third := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
+	first := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "hash123", nil)
+	second := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "hash123", nil)
+	third := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "hash123", nil)
 
 	assert.Equal(t, len(first.Wire().Unified.SessionStart), len(second.Wire().Unified.SessionStart),
 		"repeated calls must not accumulate hooks via shared state")
@@ -111,7 +113,7 @@ func TestAssembleManagedHooks_WithInvalidProfile(t *testing.T) {
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"non-existent-profile"}}},
 	})
 
-	assembled := AssembleManagedHooks(cfg, "/tmp", "hash123", nil)
+	assembled := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "hash123", nil)
 	assert.NotEmpty(t, assembled.Wire().Unified.SessionStart, "context-injection hook should still be assembled")
 }
 
@@ -127,7 +129,7 @@ func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	AssembleManagedHooks(cfg, "/tmp", "", nil)
+	AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil)
 
 	assert.Contains(t, buf.String(), "inheritance",
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())

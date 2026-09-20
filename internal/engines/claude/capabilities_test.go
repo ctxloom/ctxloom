@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // newClaudeLifecycle constructs the lifecycle the claude backend wires in
@@ -79,7 +81,7 @@ func TestClaudeContext_Clear(t *testing.T) {
 func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
 	lifecycle := newClaudeLifecycle()
 
-	lifecycle.MergeManaged(&agent.ManagedConfig{
+	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{}},
 	}, "/tmp", "abc123hash")
 
@@ -99,7 +101,7 @@ func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
 	// Host-assembled SessionStart hooks (e.g. bundle `hook session-bind`) ride in
 	// via ManagedConfig.Hooks; the agent appends only the context-injection hook,
 	// and only when a hash is present.
-	lifecycle.MergeManaged(&agent.ManagedConfig{
+	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{
 			Unified: wire.UnifiedHooks{
 				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind"}},
@@ -125,7 +127,7 @@ func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
 func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
 	lifecycle := newClaudeLifecycle()
 
-	lifecycle.MergeManaged(&agent.ManagedConfig{
+	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{
 			Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "profile-hook"}}},
 			Plugins: map[string]wire.BackendHooks{},
@@ -168,7 +170,7 @@ func TestClaudeLifecycle_MergeManaged_Statusline(t *testing.T) {
 
 func TestClaudeLifecycle_MergeManaged_NilIsNoOp(t *testing.T) {
 	lifecycle := newClaudeLifecycle()
-	lifecycle.MergeManaged(nil, "/tmp", "hash123") // must not panic
+	lifecycle.MergeManaged(report.Reporter{}, nil, "/tmp", "hash123") // must not panic
 	assert.Nil(t, lifecycle.GetHooks(), "nil managed config must not initialize hook state")
 }
 
@@ -179,7 +181,7 @@ func TestClaudeLifecycle_GetMCP(t *testing.T) {
 	assert.Nil(t, lifecycle.GetBundleMCP())
 
 	// After merging a managed config carrying MCP servers.
-	lifecycle.MergeManaged(&agent.ManagedConfig{
+	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		BundleMCP: map[string]wire.MCPServer{"test-server": {Command: "test"}},
 	}, "/tmp", "")
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // This file generalizes WriteManagedCommandFiles's manifest/traversal/cleanup
@@ -194,7 +196,7 @@ func WriteManagedPackageFiles[T any](
 		// path-safety validation with nothing at stake — the guard above
 		// already ruled out the destructive version of that case). Nothing to
 		// swap in; just revert this surface's previously-tracked set.
-		return revertManagedSurface(fs, dir, surface, previous, led)
+		return revertManagedSurface(o.rep, fs, dir, surface, previous, led)
 	}
 
 	// PHASE 2 — render the complete new file set into a temp SIBLING of dir
@@ -275,7 +277,7 @@ func WriteManagedPackageFiles[T any](
 		// Every file was skipped by the home-dir dedup ("home wins") —
 		// legitimate, not a failure: nothing new to place, revert this
 		// surface's previous set exactly like the intentional-empty path.
-		return revertManagedSurface(fs, dir, surface, previous, led)
+		return revertManagedSurface(o.rep, fs, dir, surface, previous, led)
 	}
 
 	// PHASE 3 — swap. Each fully-rendered temp file moves into dir at its
@@ -382,7 +384,7 @@ func WriteManagedPackageFiles[T any](
 // enabled" / "everything deduped against home" path — sharing the removal
 // mechanics WriteManagedPackageFiles' phase 4 also uses, factored out so the
 // empty and non-empty branches don't duplicate the ledger-removal walk.
-func revertManagedSurface(fs afero.Fs, dir string, surface ledger.Surface, previous []string, led ledger.Ledger) error {
+func revertManagedSurface(rep report.Reporter, fs afero.Fs, dir string, surface ledger.Surface, previous []string, led ledger.Ledger) error {
 	var removedDirs []string
 	for _, name := range previous {
 		path, ok := SafeCommandRelPath(dir, name)

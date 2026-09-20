@@ -22,7 +22,7 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 	// Claude Code loads ~/.claude/commands alongside this project scope, so when
 	// the dispatch layer supplies that global dir, dedup project copies that are
 	// byte-identical to a global one (see agent.WriteManagedCommandFiles).
-	var mwOpts []agent.ManagedWriteOption
+	mwOpts := []agent.ManagedWriteOption{agent.WithWriteReporter(agent.ResolveReporter(opts...))}
 	if home := agent.ResolveHomeCommandsDir(opts...); home != "" {
 		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
 	}

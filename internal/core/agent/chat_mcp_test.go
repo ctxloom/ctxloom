@@ -157,7 +157,7 @@ func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 	l := NewBaseLifecycle("acp")
 	assert.Nil(t, l.ChatMCPServers(), "no managed payload merged → nothing to inject")
 
-	l.MergeManaged(&ManagedConfig{
+	l.MergeManaged(termRep(), &ManagedConfig{
 		BundleMCP: map[string]wire.MCPServer{
 			MCPServerName: ctxloomBundleServer(),
 			"taskloom":    {Command: "taskloom", Args: []string{"mcp"}},

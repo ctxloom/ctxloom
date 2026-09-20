@@ -29,6 +29,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // This file is the trunk every host-side launch enters: StartRun mints the
@@ -112,6 +114,7 @@ func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, er
 		Inline:    composite.Inline{Max: composite.DefaultInlineMax},
 		InlineMax: composite.DefaultInlineMax,
 		Host:      host,
+		Reporter:  mode.Sink(),
 	}, nil
 }
 
@@ -133,7 +136,7 @@ func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened,
 		return Opened{}, fmt.Errorf("open the launch's package: %w", err)
 	}
 	managed := agent.ManagedConfigFor(ManagedSurfacesOf(pkg), l.Exports)
-	agent.PreferSurfaces(managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
+	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
 	return Opened{Package: pkg, Managed: managed}, nil
 }
 

@@ -24,6 +24,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 	"github.com/ctxloom/ctxloom/resources"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler. The
@@ -265,7 +267,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
 	// resolve via PATH at fire time. Flag the one case that can't catch:
 	// a different ctxloom shadowing the running binary on PATH.
-	agent.WarnOnCtxloomPathSkew()
+	agent.WarnOnCtxloomPathSkew(report.To(strictness.Sink("ctxloom")))
 
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`. The wiring itself

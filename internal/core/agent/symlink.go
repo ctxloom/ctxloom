@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // cachedExecPath stores the resolved executable path (set once at startup).
@@ -72,7 +74,7 @@ func SetExecutablePathForTesting(path string) {
 // Fault-tolerant by contract: any resolution failure is silent (we
 // simply can't make a useful comparison), and a match is silent too.
 // It never returns an error and must never block startup.
-func WarnOnCtxloomPathSkew() {
+func WarnOnCtxloomPathSkew(rep report.Reporter) {
 	running, err := GetExecutablePath()
 	if err != nil {
 		return

@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+)
 
 // ContextChunkMaxChars bounds each SessionStart context chunk.
 //
@@ -28,7 +32,7 @@ const contextSectionSep = "\n\n---\n\n"
 // Because the context file is content-addressed (immutable), both sides see
 // identical input and therefore agree on the split — no write-time/run-time
 // drift.
-func ChunkContext(content string) []string {
+func ChunkContext(rep report.Reporter, content string) []string {
 	if content == "" {
 		return nil
 	}
@@ -51,7 +55,7 @@ func ChunkContext(content string) []string {
 		// buffer first (to preserve order) then line-split it on its own.
 		if len(sec) > ContextChunkMaxChars {
 			flush()
-			chunks = append(chunks, splitOversizedSection(sec)...)
+			chunks = append(chunks, splitOversizedSection(rep, sec)...)
 			continue
 		}
 
@@ -77,7 +81,7 @@ func ChunkContext(content string) []string {
 // limit, never breaking a line. A lone line longer than the limit is emitted
 // whole (we never cut mid-line) — the harness will persist that one over-cap
 // chunk, which is strictly better than corrupting the section's markdown.
-func splitOversizedSection(sec string) []string {
+func splitOversizedSection(rep report.Reporter, sec string) []string {
 	lines := strings.Split(sec, "\n")
 	var chunks []string
 	var cur strings.Builder

@@ -17,6 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // HookOutput is the JSON output format for AI tool SessionStart hooks,
@@ -262,7 +264,7 @@ func selectChunk(content string, part, total int) (chunk string, outPart, outTot
 	if total < 1 {
 		return content, 1, 1
 	}
-	chunks := agent.ChunkContext(content)
+	chunks := agent.ChunkContext(report.To(App().Strictness.Sink()), content)
 	if part >= 1 && part <= len(chunks) {
 		return chunks[part-1], part, total
 	}

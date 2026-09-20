@@ -23,6 +23,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // dirProfileCfg writes directory profiles (name → YAML body) under a fresh
@@ -66,7 +68,7 @@ const dirHookBody = "hooks:\n  unified:\n    pre_tool:\n      - command: keep-ho
 // withholds an un-granted one.
 func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
-	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
+	assembled := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil)
 	cmds := preToolCommandSet(assembled.Wire().Unified)
 	assert.Contains(t, cmds, "keep-hook", "directory profile inline hooks reach the managed set")
 	assert.Contains(t, cmds, "drop-hook")
@@ -74,7 +76,7 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg2 := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody})
 	keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
 	cfg2.BindTrustForTesting(hashTrust(keepHash))
-	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Wire().Unified)
+	gated := preToolCommandSet(AssembleManagedHooks(report.Reporter{}, cfg2, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
 }
@@ -103,7 +105,7 @@ func TestAssembleManagedHooks_DirProfileMergesWithAnotherDefault(t *testing.T) {
 	)
 	cfg.BindTrustForTesting(grant)
 
-	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
+	cmds := preToolCommandSet(AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, cmds, "other-hook", "the second default profile's granted hook is applied")
 	assert.Contains(t, cmds, "dir-hook", "the first default profile's granted hook is applied")
 }
@@ -118,7 +120,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 		"child": "parents:\n  - base\nhooks:\n  unified:\n    pre_tool:\n      - command: child-hook\n        type: command\n",
 	})
 
-	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
+	cmds := preToolCommandSet(AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, cmds, "base-hook", "a directory profile inherits its parent's inline hooks")
 	assert.Contains(t, cmds, "child-hook")
 }
@@ -132,7 +134,7 @@ func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	gated := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
+	gated := preToolCommandSet(AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil).Wire().Unified)
 	assert.NotContains(t, gated, "drop-hook", "the gate's deny decision is unchanged")
 	assert.Contains(t, buf.String(), "drop-hook",
 		"a denied hook must be warned by name, not silently dropped: got %q", buf.String())

@@ -11,6 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // HostFacts are the originator's host-side facts, decoded ONCE at the
@@ -47,6 +49,10 @@ type Deps struct {
 	ClaimCheck composite.Transport
 	InlineMax  int
 	Host       HostFacts
+	// Reporter receives the diagnostics opening a launch raises (the delivery
+	// preference the engine cannot honour, the packages a writer skips); the
+	// composition chooses the sink. Nil discards.
+	Reporter report.Sink
 }
 
 // Assembler is the package-assembly port: the profile set and the explicit

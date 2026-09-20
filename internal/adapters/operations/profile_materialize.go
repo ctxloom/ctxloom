@@ -209,7 +209,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// STATIC in the native file, so re-injecting it at launch would double it.
 	// Each write reconciles (managed entries overwritten, foreign ones
 	// preserved).
-	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).WireDeclared()
+	hooks := backends.AssembleManagedHooks(terminalReporter(), cfg, req.Target, "", req.Profiles).WireDeclared()
 	bundleMCP := pkg.MCP
 	exports, err := ExportsFor(pkg, backend)
 	if err != nil {

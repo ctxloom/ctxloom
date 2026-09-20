@@ -241,7 +241,7 @@ type commandsApproach struct{ traits }
 func (*commandsApproach) Name() string { return "commands-dir" }
 func (*commandsApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceCommands, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &commandsSurface{commands: in.Commands, fs: agent.GetFS(fs), selfContainedCommands: in.SelfContainedCommands}
+		return &commandsSurface{commands: in.Commands, fs: agent.GetFS(fs), reporter: in.Reporter, selfContainedCommands: in.SelfContainedCommands}
 	})
 }
 func (a *commandsApproach) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, fs afero.Fs) (present.Delivered, error) {

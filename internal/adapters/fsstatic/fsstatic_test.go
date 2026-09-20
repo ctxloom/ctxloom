@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/delivery/deliverytest"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -85,4 +86,30 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	require.NoError(t, err)
 	require.Equal(t, []string{"README.md"}, deliverytest.RelativeFiles(fs, project), "the run delivered into its session, not the project")
 	require.NotEmpty(t, deliverytest.RelativeFiles(fs, home))
+}
+
+// TestDeliver_KeepsTheModeAnApproachWrote: the record writes the bytes; the
+// mode is the approach's — a 0600 file lands 0600 under the root, a 0755
+// one 0755, through the overlay and the record alike.
+func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
+	fs := afero.NewOsFs()
+	project := t.TempDir()
+	rec, err := fsstatic.NewRecords(fs, filepath.Join(t.TempDir(), "records"))
+	require.NoError(t, err)
+	eng := mock.New()
+	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"), compositetest.WithSkill("greet"))
+	pkg.Skills[0].Value.Files = append(pkg.Skills[0].Value.Files, engine.SkillFile{Path: "scripts/run.sh", Bytes: []byte("#!/bin/sh\n"), Size: 10, Mode: 0o755})
+	items := pkg.EngineItems(eng.Root().Name)
+	exports, err := eng.Exports(items)
+	require.NoError(t, err)
+	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot, present.Skills: present.RootProjectRoot}}
+	plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
+	require.NoError(t, err)
+	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root().Surfaces(), delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+	require.NoError(t, err)
+	for rel, want := range map[string]os.FileMode{mock.ContextFileName: 0o600, ".mock/skills/greet/SKILL.md": 0o644, ".mock/skills/greet/scripts/run.sh": 0o755} {
+		info, err := os.Stat(filepath.Join(project, rel))
+		require.NoError(t, err, rel)
+		require.Equal(t, want, info.Mode().Perm(), rel)
+	}
 }

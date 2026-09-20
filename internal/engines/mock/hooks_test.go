@@ -93,3 +93,18 @@ func TestMock_HooksCodec_RefusesAPayloadItDidNotWrite(t *testing.T) {
 	_, err := mock.New().Hooks().Decode("pre_tool", []byte("not json"))
 	require.Error(t, err)
 }
+
+// TestMock_AContextFileItCreatesIsOwnerOnly: a managed context file the
+// mock creates is 0600 (the engine's own reading needs no wider mode);
+// one that already stood keeps its mode.
+func TestMock_AContextFileItCreatesIsOwnerOnly(t *testing.T) {
+	eng := mock.New()
+	project := t.TempDir()
+	start := present.ProjectOnHost(project)
+	fs := afero.NewOsFs()
+	d, err := eng.Root().Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("ctx")}, fs)
+	require.NoError(t, err)
+	info, err := os.Stat(d.Presented.HostPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}

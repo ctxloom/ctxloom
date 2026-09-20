@@ -5,9 +5,11 @@ process and mints the durability guarantee at the coordinator end. It owns: the 
 listener set and its endpoint file (`httpserver.go`), the gRPC server plus its
 consumer-denial auth interceptors and the runner-liveness watchdog (`grpcserver.go`),
 the per-run bidirectional stream and its plane-2 verb handlers (`runchannel.go`), the
-runner-side clients (`home.go`, `runnerlink.go`, `homeartifacts.go`), the one wire
-contract for what to launch (`harnessspec.go`), and the runner-side engine host that
-drives a backend's `StructuredChat` in-process (`enginehost.go`).
+runner-side clients (`home.go`, `runnerlink.go`, `homeartifacts.go`), the launch
+as ONE typed message on `StartRun` (`coordgrpc.EncodeLaunch`/`DecodeLaunch`,
+`internal/adapters/coordgrpc`), the runner tail that redeems, decodes and delivers
+it (`runner.Execute`, `internal/adapters/runner`), and the runner-side engine host
+that drives a backend's `StructuredChat` in-process (`enginehost.go`).
 
 ```mermaid
 flowchart TD
@@ -24,7 +26,7 @@ flowchart TD
     HCE["handleCustomEvent"]
     HAR["handleAgentRequest + reqTrack[reqKey]"]
     SAR["serveAgentRequest"]
-    VERBS["servePeerSend · serveSpawnAgent<br/>serveListRuns · serveStopRun<br/>serveApproval · serveCustom"]
+    VERBS["servePeerSend · serveSpawnAgent<br/>serveListRuns · serveStopRun<br/>serveApproval · serveHost → Coordinator.Host → HostApp"]
     ITEMS["bufferItem / flushItems<br/>items.go — group fsync on Ack"]
     SRV --> EP
     SRV --> GS --> CS
@@ -34,22 +36,24 @@ flowchart TD
     HAF --> HAR --> SAR --> VERBS
     WD --> RSESS
   end
-  subgraph runner["runner process (ctxloom llm serve)"]
-    HOME["Home<br/>4 planes + connection manager"]
+  subgraph runner["runner process (ctxloom llm host)"]
+    HOME["Home<br/>4 planes + connection manager<br/>identity bound ONCE from the Launch (BindIdentity)"]
     RL["RunnerLink<br/>hello · heartbeat · request dispatch"]
-    EH["EngineHost<br/>MaxConcurrentRuns = 1"]
+    EH["EngineHost<br/>MaxConcurrentRuns = 1<br/>startRun → Runner.Execute → Drive"]
+    RUN["runner.Host / runner.Execute<br/>DecodeLaunch → redeem (Inline | ClaimCheck) → Decode<br/>→ serve the runner MCP → Setup + .mcp.json → Drive"]
     TP["turnPump / turnQ / homePark"]
     HA["UploadArtifact / DownloadArtifact"]
     HOME --> TP
     HOME --> HA
     HOME --> EH
     RL --> EH
+    EH --> RUN --> EH
   end
-  HS["buildHarnessSpec ⇄ decodeHarnessSpec<br/>harnessspec.go — the ONE wire contract"]
-  RSESS -->|"RuntimeFrame StartRun"| RL
-  HOME -->|"AgentFrame Event/Request"| CS
+  CODEC["coordgrpc.EncodeLaunch ⇄ DecodeLaunch<br/>the ONE launch codec (WireFieldNames parity)"]
+  RSESS -->|"RuntimeFrame StartRun{run_id, launch}"| RL
+  HOME -->|"AgentFrame Event/Request (host = typed HostRequest)"| CS
   ITEMS -->|"Ack committed_seq"| HOME
-  CS -.->|"StartRun.harness"| HS -.-> EH
+  CS -.->|"StartRun.launch"| CODEC -.-> RUN
 ```
 
 ## Listeners and endpoint discovery
@@ -133,20 +137,20 @@ The `mu`/`wg`/`closing` + `goTracked`/`waitTracked` idiom is duplicated four tim
 across the family (`Coordinator`, `Home`, `EngineHost`, `RunnerLink`), each with its own
 budget constant, and the comment at `runnerlink.go` names all four.
 
-## HarnessSpec — the launch contract
+## The launch on the wire
 
 | Symbol | Contract |
 | --- | --- |
-| `HarnessSpecInput` | coordinator-side input: harness, model, workspace, extra args, env, MCP servers, session harp, permission, resume session id |
-| `buildHarnessSpec` | encodes it onto the wire `HarnessSpec` |
-| `decodeHarnessSpec` | the runner-side inverse, producing a ready `agent.ChatRequest` |
-| `DecodedHarnessSpec` | `Chat agent.ChatRequest` + `SessionHarp` (the one config-carried field `ChatRequest` has no home for) |
+| `coordgrpc.EncodeLaunch` / `DecodeLaunch` | the one codec: `launch.Launch` ⇄ the proto `Launch` on `StartRun.launch`; `WireFieldNames` reads the proto side live and `tests/arch`'s field-set parity pins the two ends |
+| `composite.Carrier` (`oneof inline \| claim` + digest) | the encoded package rides the frame under `composite.DefaultInlineMax`, as a claim on the session-dir store (`fsstore.PackageStore`, `<harp>/persist/package/<digest>`) above it; `MaxRecvMsgSize` bounds the frame explicitly |
+| `runner.Execute` | the ONE tail: redeem by the carrier's shape → `composite.Decode` (digest proved) → refuse a foreign engine → configure from `Launch.Label.Body` → serve the runner MCP under the Launch's identity → deliver through the engine's `Setup` and the session home's `.mcp.json` → `EngineHost.Drive` |
+| `coord.Runner` / `runner.Host` | the port the engine host executes a `StartRun` through; `runner.Host` decodes the frame's launch and calls `Execute` |
+| `coord.Turn` | what the runner asks the host to drive: the launch, the `agent.ChatRequest` built from it, the first turn's lead (the package's context ahead of the prompt; the prompt alone on a native-key resume) |
 
-Build and decode are co-located in one file precisely so the three magic config keys
-(`ctxloom.session_harp`, `env`, `mcp_servers`) stay in sync. The D3 headless-safety
-floor is checked at the **decode** end (`harnessspec.go`, `SafeHeadless()`), which
-is after the child process and credential have already been spawned;
-`buildHarnessSpec` does not check it.
+The posture the runner drives is the one the resolver floored (`launch.Resolve`);
+nothing on the runner re-decides it. The superseded `StartRun` fields (`harness`,
+`input`, `parent_run_id`, `role`) are written and read by nobody and are reserved
+in slice 9.
 
 ## EngineHost — hosting one engine in the runner
 
@@ -181,10 +185,6 @@ why `ChatRequest` fields that the `ChatStart` proto drops (`Runtime`,
 
 ## Divergences and real behaviour
 
-- **`HarnessSpec.extra_args` documents a runner-side allowlist that does not exist.**
-  The proto (`coordination.proto:323-325`) says "runner-validated against an allowlist —
-  the runner has direct CLI control and is the enforcement point"; `decodeHarnessSpec`
-  never touches the field and neither caller of `buildHarnessSpec` populates it.
 - **`HelloAck.committed_seq` echoes the agent's own claim.** `runchannel.go` sets
   `CommittedSeq: hello.GetResumeFromSeq()`, with an in-code note that there is no
   durable event log yet; `HelloAck.event_window` is unreferenced, so the documented
@@ -194,11 +194,6 @@ why `ChatRequest` fields that the `ChatStart` proto drops (`Runtime`,
 - **A failed items-journal `Exec` loses the facts and the next flush acks past them**
   (`items.go`), so `flushedSeq`/`ackThrough` certify durability for seqs that
   were never written.
-- **`decodeHarnessSpec` silently coerces malformed `mcp_servers` entries** into
-  `ChatMCPServer{}` with empty name and command (`harnessspec.go`), while
-  `permission_mode` gets fail-loud treatment. An empty `ctxloom.session_harp` likewise
-  disables transcript capture with no warning at the check itself
-  (`enginehost.go`).
 - **`ensureWide`'s comment claims it "never opens anything LAN-visible"**
   (`httpserver.go`); on Linux the fallback binds the host's primary outbound
   interface IP (`containerReachIPs` → `primaryOutboundIP`), which is LAN-visible. Every

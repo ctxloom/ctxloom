@@ -71,7 +71,7 @@ flowchart RL
   ENG["core/engine (born (slice 2): the vocabulary; the contract half arrives in 6b — today core/agent stands beside it)"]:::core
   BUN[core/bundles]:::core
   PROF[core/profiles]:::core
-  COMP["core/composite (Trust holder + the one cascade, landed 5; Select/Assemble/Package/EngineItems/IndexOf, landed 6; Encode/Decode and the carriers arrive in 8)"]:::core
+  COMP["core/composite (Trust holder + the one cascade, landed 5; Select/Assemble/Package/EngineItems/IndexOf, landed 6; Encode/Decode, Carrier, Transport with Inline and ClaimCheck{Store}, landed 8)"]:::core
   CFG[core/config]:::core
   DELIV["core/delivery (born 12)"]:::later
   LAUNCH["core/launch (born (slice 2): the axes and Source; Resolve arrives in 7)"]:::core
@@ -123,10 +123,10 @@ flowchart TB
     SESS["sessions"]:::core
     ENG["engine (port + contract) — the vocabulary (slice 2) and the DECLARATIVE half (6b): Definition · Base · Registry · the typed approaches · conformance; the instance half (Exec, Exports, Home, Container, Transcripts) arrives in 11b; today: agent, the delivery seam, beside it"]:::core
     BP["bundles · profiles"]:::core
-    COMP["composite — Trust holder + the one cascade (landed 5); Select, Assemble, the Package, EngineItems, IndexOf (landed 6); Encode/Decode and the carriers arrive in 8"]:::core
+    COMP["composite — Trust holder + the one cascade (landed 5); Select, Assemble, the Package, EngineItems, IndexOf (landed 6); Encode/Decode, Carrier/Claim, Transport with Inline and ClaimCheck{Store}, Redeem/Open (landed 8)"]:::core
     CFG["config"]:::core
     DELIV["delivery — born 12"]:::later
-    LAUNCH["launch — born (slice 2): the axes and Source; Resolve arrives in 7"]:::core
+    LAUNCH["launch — born (slice 2): the axes and Source; Resolve (landed 7); Launch.Package as the carrier, Exports and Index populated, the size conditional, Open for the local launcher (landed 8)"]:::core
     COORD["coord"]:::core
   end
   subgraph PORTS["PORTS declared in core"]
@@ -140,13 +140,13 @@ flowchart TB
     ENGS["claude (Build → Claude{Base}; claude/engine = its hosting record) · mock (New/Build → Mock{Base}; mock/runtime = the binary's runtime) · conformance (the settings-writer equity suite) · engines (Build → engine.Registry; Register pairs kinds with lm/hosting records)"]:::adapter
   end
   subgraph ADAPTERS["internal/adapters — import core; imported by no core package"]
-    RUNNER["runner (+ runner/mcp inside it) — born 8; today: mcp, the stdio server"]:::later
-    CGRPC["coordgrpc (codec, servers, client, reach address) — born 8–10; today: coordgrpc/pb (the generated proto) · coordgrpc/mcpschema"]:::later
+    RUNNER["runner — landed 8: Deps, Execute (redeem → decode → configure → serve → deliver → drive), Host over the frame's launch; the engine host it drives through stays in core/coord until 14a; runner/mcp is 9's (today: adapters/mcp, the stdio server)"]:::adapter
+    CGRPC["coordgrpc — landed 8: EncodeLaunch/DecodeLaunch, WireFieldNames, MaxRecvMsgSize, the Carrier codec, EncodeRunStart (the plugin arm's projection, until 13); the servers, client and reach address are 9–10's; coordgrpc/pb (the generated proto) · coordgrpc/mcpschema"]:::adapter
     CSPAWN["spawn (the only container exec) — born 8"]:::later
     ISO["isolation (Cells: worktree · docker · podman · host)"]:::adapter
     VPIO["vpio (today) → hostpty · attach at 13"]:::adapter
     SRC["remote · companions (+loadout, the companion-side command) · signing · content (+attest · convert · remotetree · archive) · configload (+layerscope) · transcript · memory · confpatch"]:::adapter
-    SRC2["fsstore · fsstatic — later; attest stays at content/attest (not hoisted in 5)"]:::later
+    SRC2["fsstore (landed 8: PackageStore, the session-dir claim store) · fsstatic — later; attest stays at content/attest (not hoisted in 5)"]:::later
     UNPLACED["landed under adapters by the rename map's judgment, retired or folded by later slices: agents · contextmetrics · engineversion · git · gitignore · projectroot · selfexec · tmuxhost · turnchange"]:::adapter
     OPS["operations (application services; implements coord.HostApp)"]:::adapter
     CLI["cli · cli/tui · termui"]:::adapter
@@ -2697,7 +2697,8 @@ type Verbs interface {
 	// Host dispatches a host-relayed tool (compact, load, recover, previous,
 	// list, triggers, status — every tool that reads the sessions root or
 	// cross-session history) to the application service the coordinator was
-	// composed with, under the CALLER's identity.
+	// composed with, under the CALLER's identity. Landed 8 as
+	// Coordinator.Host over HostApp (Options.Host).
 	Host(ctx context.Context, caller sessions.Identity, req HostRequest) (HostResult, error)
 }
 
@@ -2830,7 +2831,7 @@ type StartRunResult struct{ NativeKey string }
 ```
 
 
-**Host-relayed tools have one home.** The set (`compact_session`, `load_session`, `recover_session`, `get_previous_session`, `list_sessions`, `evaluate_triggers`, `context_status`) is derived as "every tool that reads the sessions root or cross-session history", not maintained as a list. Each is a `Verbs.Host` frame: the runner's MCP handler decodes the tool call into `HostRequest{Tool, Args}`, puts it on `RunChannel`, and the coordinator's `Verbs.Host` dispatches to the `HostApp` it was composed with — `operations.App`, holding the originator's `config.Owner` — under the CALLER's identity and against the caller's project. **Cell-local tools** (`assemble_context`, `search_content`, `search_library`) serve from `Loadout.Package` and `Loadout.Index` inside the runner, which holds no config owner. A distill launched from an MCP tool while the owner is mid-turn is `Verbs.Host{compact_session}` → `operations.Compact` → `launch.Resolve` against the `distiller` agent → `Spawner.Start`: a real session with its own harp, lock, home and endpoint, resolved against the coordinator's current snapshot, paying a session home, a bound endpoint and a session lock.
+**Host-relayed tools have one home.** The set (`compact_session`, `load_session`, `recover_session`, `get_previous_session`, `list_sessions`, `evaluate_triggers`, `context_status`) is derived as "every tool that reads the sessions root or cross-session history", not maintained as a list. Each is a `Verbs.Host` frame: the runner's MCP handler decodes the tool call into `HostRequest{Tool, Args}`, puts it on `RunChannel` (the typed `AgentRequest.host` arm, landed 8), and the coordinator's `Verbs.Host` (`Coordinator.Host`, landed 8) dispatches to the `HostApp` it was composed with (`Options.Host`) — `operations.App`, holding the originator's `config.Owner` — under the CALLER's identity and against the caller's project. Landed 8 with the port implemented in place by `mcp.HostApp` over today's handler bodies; moving those bodies under `operations` is the remaining step. **Cell-local tools** (`assemble_context`, `search_content`, `search_library`) serve from `Loadout.Package` and `Loadout.Index` inside the runner, which holds no config owner. A distill launched from an MCP tool while the owner is mid-turn is `Verbs.Host{compact_session}` → `operations.Compact` → `launch.Resolve` against the `distiller` agent → `Spawner.Start`: a real session with its own harp, lock, home and endpoint, resolved against the coordinator's current snapshot, paying a session home, a bound endpoint and a session lock.
 
 **Reach-back is explicit.** The runner dials `coord.RunnerLink` with the trio decoded once; the address is chosen by the originator per runtime axis through `ReachURL(axis)` — loopback for a host runner; the bridge/host-interface listener for a container runner, opened on demand, never `0.0.0.0`; the credential is minted per run and bound to the `Identity`. The delegation journeys stand up a real runner, so the reach-back scenarios in Part 4.1 prove reach-back THROUGH the runner, not through a shim that answered for it.
 
@@ -3075,11 +3076,11 @@ flowchart LR
     CRED["coord mints the run credential; binds Identity ↔ credential; Identify(token) returns the SAME value"]:::decide
     EPM["launch.Resolve → Deps.Endpoints.MintMCP ONCE per harp → Store.BindMCP"]:::decide
     SRC["launch.Source{Identity, …}"]:::consume
-    WIRE_ID["StartRun.launch.identity (typed) — the ONE carrier of Identity to the runner"]:::carrier
+    WIRE_ID["StartRun.launch.identity (typed) — the ONE carrier of Identity to the runner (landed 8: Home.BindIdentity from the Launch; the runner env is the trio alone)"]:::carrier
     ENV["EncodeReach → runner process env (URL, cred, run id) → DecodeReach ONCE in runner.Main"]:::carrier
     HOOKENV["HookEnv → engine env → hook subprocess → DecodeHookEnv ONCE"]:::carrier
     RID["runner: asserts launch.Identity == Identify(cred); passes Identity by value to Home, mcp.Serve, Recorder, Target.Writer"]:::consume
-    VERBS["coord.Verbs(caller Identity, …): depth guard, spool routing, Host under the caller"]:::consume
+    VERBS["coord.Verbs(caller Identity, …): depth guard, spool routing, Host under the caller (landed 8: Coordinator.Host → HostApp, the typed host frame)"]:::consume
     MINT -->|PASSED| SRC
     MINT -->|PASSED| CRED
     EPM -->|PASSED Launch.MCP| WIRE_ID
@@ -3088,27 +3089,27 @@ flowchart LR
     RID -->|CARRIED| HOOKENV
     CRED -->|PASSED per frame| VERBS
   end
-  subgraph RL["RESOLVED LAUNCH (landed 7: Resolve, the Cells port, Route, the endpoint; 5, 8, 9, 11b, 12 remain)"]
+  subgraph RL["RESOLVED LAUNCH (landed 7: Resolve, the Cells port, Route, the endpoint; landed 8: the carrier, the wire, the runner tail; 9, 11b, 12 remain)"]
     SNAP["config.Owner.Current() → *Snapshot{Config, Catalog(), Trust, Generation} — captured ONCE per operation; Reload after a pull, after a scaffold, once per spawn (landed 4)"]:::decide
-    PKG["Deps.Assembler.Assemble(snap, Selection) → Assembled; .Surfaces → Package{Context, Managed (opaque launch.Surfaces)} (the port landed 7; behind it ONE composite.Assemble per launch, landed 6 — operations.AssemblePackage → composite.Package, Surfaces projected off the same Package)"]:::decide
-    EXP["engine.Exports(pkg.EngineItems(name)) (landed 6 on the port: claude decodes its block against ExportSchema, mock exports everything; Surfaces reads it; Launch.Exports itself is declared and zero until the runner reads it, 11b)"]:::decide
+    PKG["Deps.Assembler.Assemble(snap, Selection) → composite.Package (the port landed 7; ONE composite.Assemble per launch behind it, landed 6; the managed-surface projection left the port in 8 — the runner builds it from the decoded Package)"]:::decide
+    EXP["engine.Exports(pkg.EngineItems(name)) (landed 6 on the port: claude decodes its block against ExportSchema, mock exports everything; Resolve populates Launch.Exports and the runner builds the managed payload from it, landed 8)"]:::decide
     CELL["launch.Cells.Prepare(CellRequest{Axes, Engine, Identity, ProjectRoot, SessionDir, DirtyTree, Image, Host, HomeMode, Env}) → Cell{Paths advised once, Env, Home, Container, Cleanup, Handle} (landed 7: operations.Cells over isolation.Prepare + the dirty tree + BindAgentHome)"]:::decide
     PLAN["delivery.Route(items, def, pref, cell roots) → Plan (routes) | ErrUncarried | Unrootable (landed 7 over engine.Items; AcceptLoss total until 12)"]:::decide
-    ENC["composite.Encode(pkg) → Encoded; Resolve measures → Inline.Carry | ClaimCheck.Carry → Carrier (5)"]:::decide
+    ENC["composite.Encode(pkg) → Encoded; Resolve measures → Inline.Carry | ClaimCheck.Carry (fsstore.PackageStore, &lt;harp&gt;/persist/package/&lt;digest&gt;) → Carrier (landed 8)"]:::decide
     RES["launch.Resolve → Launch — permission floored HERE (depth 0 widens to bypass, a child is refused), home decided HERE, endpoint minted HERE (Store.BindMCP, Store.BindEngine) (landed 7)"]:::decide
-    WIRE["coordgrpc.EncodeLaunch → today's RunStart (landed 7, field-set-tested); the Launch message + DecodeLaunch are 8's"]:::carrier
-    RED["runner: Inline.Redeem | ClaimCheck.Redeem (by the carrier's shape; a claim reads the mounted session dir) → Decode → Package (9)"]:::consume
-    LO["runner: Loadout{Plan, Package, Exports, MCP, Index} (9)"]:::consume
-    DELIV["Static.Deliver(lo, def.Surfaces(), Target{Cell.Paths, ownership, session:<harp>}) (12)"]:::consume
-    DYN["Dynamic.Serve(lo, ServePolicy) — BINDS Launch.MCP (9)"]:::consume
-    INST["engine.Instance(l.Session()) → Exec(presented) → runner execs (identity env stamped by the runner) (9)"]:::consume
+    WIRE["coordgrpc.EncodeLaunch → the Launch message on StartRun; DecodeLaunch on the runner; WireFieldNames parity in tests/arch; MaxRecvMsgSize = DefaultInlineMax + 1 MiB (landed 8). The host's interactive arm still rides the plugin run-start through EncodeRunStart until 13"]:::carrier
+    RED["runner.Execute: composite.Open — Redeem by the carrier's shape (a claim reads the mounted session dir) → Decode, the digest proved (landed 8)"]:::consume
+    LO["runner: the managed payload from the decoded Package + Launch.Exports (agent.ManagedConfigFor, landed 8); delivery.Loadout is 12's"]:::consume
+    DELIV["the engine's Setup over the cell's roots (landed 8: one payload for the host's plugin arm and the runner alike — the identical-file-set gate); delivery.Static replaces it in 12"]:::consume
+    DYN["the runner MCP endpoint stands up at payload arrival under the Launch's identity, and .mcp.json lands under the session home (landed 8); Dynamic.Serve BINDING Launch.MCP is 9's"]:::consume
+    INST["EngineHost.Drive(coord.Turn) — today's in-process StructuredChat drive, the context leading the first turn (landed 8); engine.Instance(l.Session()) → Exec is 9/11b"]:::consume
     SNAP -->|PASSED Deps.Snapshot| RES
     RES -->|PASSED| PKG --> EXP
     RES -->|PASSED| CELL --> PLAN
     EXP --> PLAN
     PKG --> ENC
     PKG & EXP & PLAN & CELL & ENC -->|PASSED fields| RES
-    RES -->|CARRIED| WIRE --> RED --> LO --> DELIV & DYN
+    RES -->|CARRIED| WIRE --> RED --> LO --> DYN --> DELIV
     DELIV -->|PASSED presentations| INST
   end
 ```
@@ -3141,29 +3142,29 @@ sequenceDiagram
   LR->>CELLS: Prepare(CellRequest{Axes{none,host}, Engine, Identity, ProjectRoot, SessionDir, HomeMode, Host}) → Cell (OnHost advice; the transport handle) (landed 7: operations.Cells)
   LR->>LR: Select → Assemble (composite.Assemble once, behind the port; landed 6) → engine+mode → axes → permission floored ONCE → surfaces (Engine.Exports over the same Package) → Route over the cell's roots → MintMCP once (BindMCP, BindEngine) (landed 7; Encode/carry 8)
   LR-->>OPS: Launch
-  OPS-->>CLI: Launch → bindLaunch; hostCoordinator(harp, Axes.Runtime); EncodeLaunch(l) + the resumed transcript + the startup findings → today's RunStart (landed 7)
+  OPS-->>CLI: Launch → OpenLaunch (the local launcher's half of the carrier codec) → bindLaunch; hostCoordinator(harp, Axes.Runtime); EncodeRunStart(l, pkg, managed) + the resumed transcript + the startup findings → the plugin run-start (landed 7/8; that arm is 13's)
   CLI->>SP: today's transport over the cell's handle (go-plugin | docker-exec | the owned run) — StartRunner with a pty is 13's; ctx scopes prepare+attach only (9)
   RN->>RN: DecodeReach once → Endpoint, run id
   RN->>CO: RunnerChannel Hello (credential) → Identify → Identity
-  CO->>RN: StartRun{launch: EncodeLaunch(Launch)}
+  CO->>RN: StartRun{launch: EncodeLaunch(Launch)} (the host's interactive arm is not here yet: 13)
   RN->>RN: Redeem (inline) → Decode → assert launch.Identity == Identify's
   RN->>DL: Static.Deliver(Loadout, def.Surfaces(), Target{session home, record, session:<harp>})
   RN->>DL: Dynamic.Serve(Loadout, ServePolicy{loopback origin}) — BINDS Launch.MCP
   RN->>EN: Instance(l.Session()) → Exec(Presented) → argv names the session home; env = home vars + HookEnv
   RN->>RN: exec the engine on the pty; record the transcript under persist/
 
-  Note over CLI,EN: B — `agent_run` child in a container (Structured, depth 1) — diverges at WHO asks (1) and WHERE the runner runs (8)
+  Note over CLI,EN: B — `agent_run` child in a container (Structured, depth 1) — diverges at WHO asks (1) and WHERE the runner runs — landed 8 through runner.Execute; the Turn frames and the bound endpoint are 9's
   CO->>CO: Verbs.Spawn(caller, SpawnRequest) → Validate; sessions.Mint{Depth: caller.Depth+1}; credential; enqueue
   CO->>CFG: Snapshots() → Reload() ONCE for this spawn → *Snapshot
   CO->>LR: Spawner.Resolve → Resolve(Deps, Source{Identity: child, Agent, Mode: Structured, Workspace})
   LR->>CELLS: Prepare(CellRequest{Axes{worktree, container-rootless}, Engine (Container() read here), Host}) → Cell{Container{Mounts incl. <harp>/persist}}
   LR-->>CO: Launch (same type; MintMCP gave a loopback address the container's netns will own; package carried by size)
-  CO->>SP: StartRunner(ctx, Launch, ReachURL(container-rootless)) — `docker run … ctxloom runner` as FOREGROUND; -e name-only forwards of the trio
-  RN->>CO: Hello over the bridge address (REACH-BACK) → Identity{Depth: 1}
-  CO->>RN: StartRun{launch} — the identical projection A received
-  RN->>RN: Redeem (claim → <harp>/persist/package/<digest> on the mount, or inline) → Decode
-  RN->>DL: Deliver under the MOUNTED session home; Serve binds the in-container loopback endpoint
-  RN->>EN: Instance(Session) → Drivers()[0].Turn(ex, Turn{Prompt}) → TurnResult{NativeKey}; result returns over RunChannel
+  CO->>SP: StartEngine → operations.StartEngine: today's starter (`ctxloom llm host` under docker-direct or on the host) with the reach-back TRIO on the runner env and nothing else; EngineSpawn.Wire = EncodeLaunch(Launch) (landed 8; StartRunner with a pty is 13's)
+  RN->>CO: Hello over the bridge address (REACH-BACK) — no identity in the env; the Home binds it from the Launch (landed 8)
+  CO->>RN: StartRun{run_id, launch} — the one typed message (landed 8)
+  RN->>RN: runner.Host → DecodeLaunch → runner.Execute: Redeem (claim → <harp>/persist/package/<digest> on the mount, or inline) → Decode (landed 8)
+  RN->>DL: the runner MCP endpoint under the Launch's identity; the engine's Setup delivers context, hooks, commands, skills, settings; .mcp.json under the session home (landed 8; delivery.Static/Dynamic and binding Launch.MCP are 12/9)
+  RN->>EN: EngineHost.Drive(Turn{Launch, ChatRequest, the context leading the prompt}) → StructuredChat.Chat (landed 8); Instance(Session) → Drivers()[0].Turn is 9/11b
   CO->>RN: RunnerTransport.Turn(runID, Turn{Prompt: next mail, Resume: key}) — the SAME runner; a discrete engine process per turn; the endpoint never moves
   Note over CO,RN: idle reaper: no turn for delegation.idle_timeout → StopRun → RunExited; the next mail resumes the harp through Spawner.Resume (endpoint reused; rebind only on ErrEndpointUnavailable)
 

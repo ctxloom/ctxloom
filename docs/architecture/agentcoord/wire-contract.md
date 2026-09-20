@@ -18,7 +18,7 @@ flowchart TD
     RF["RunnerFrame / RuntimeFrame<br/>runner lifecycle · :263-430"]
     AF["AgentFrame / CoordinatorFrame<br/>one run, 3 planes"]
     P1["plane 1 — AgentEvent<br/>15 payload arms, 12 produced"]
-    P2U["plane 2 up — AgentRequest<br/>approval · user_input · spawn_agent<br/>peer_send · list_runs · stop_run · custom"]
+    P2U["plane 2 up — AgentRequest<br/>approval · user_input · spawn_agent<br/>peer_send · list_runs · stop_run · host"]
     P2D["plane 2 down — CoordinatorRequest<br/>steer · question · summarize · pause · resume"]
     P3["plane 3 — Ack · Heartbeat · CoordinatorNotice"]
     AF --> P1 & P2U & P2D & P3
@@ -29,7 +29,7 @@ flowchart TD
   end
   MCP[["mcpschema/schemas/*.json<br/>LLM-facing tool surface"]]
   COORD[["coord/runchannel.go serve* handlers"]]
-  RUNNER[["coord/enginehost.go · harnessspec.go"]]
+  RUNNER[["coord/enginehost.go · adapters/runner · adapters/coordgrpc"]]
   VIEW[["operations/sessionfeed.go · cli/run_owned.go"]]
   P2U --> COORD
   P1 --> VIEW
@@ -65,7 +65,8 @@ interceptors (`grpcserver.go`).
 | Message | Role | Reality |
 | --- | --- | --- |
 | `AgentEvent` | the durable sequenced fact; "the coordinator's view is a pure fold over these" | envelope fields `task_id`, `turn_id`, `parent_item_id`, `traceparent` have **zero references repo-wide**; 4 of 15 payload arms are never constructed |
-| `HarnessSpec` | what to launch — `permission_mode` typed and enforced, everything else in an open `config` Struct | built+decoded in one file (`coord/harnessspec.go`), which is what keeps the three magic string keys honest |
+| `Launch` | what to launch — the resolved launch, field for field (`launch.Launch`), the package carried inline or by claim | one codec (`coordgrpc.EncodeLaunch`/`DecodeLaunch`) with a field-set parity test; `StartRun.harness`/`input`/`parent_run_id`/`role` are superseded and reserved in slice 9 |
+| `HostRequest` / `HostResult` | a host-relayed tool by name with its arguments as the tool's own JSON object | the coordinator's `Host` verb dispatches it to the `HostApp` it was composed with, under the caller's identity |
 | `SpawnAgentRequest` | `agent_run` | the live payload has migrated *into* the untyped `input` Struct (`prompt`, `workspace`, `dirty_tree_handler`, read at `runchannel.go`); the typed `budget`/`constraints`/`notify_on` are read by nobody |
 | `PeerSendRequest` | `agent_send` | `to_agent_id`/`to_role`/`text`/`structured`/`in_reply_to` are live; `artifact_ids` is never read and `PeerMessage.artifacts` is never populated |
 | `ListRunsRequest` / `ListRunsResult.RunInfo` | `roster` | see [observation.md](observation.md) — 2 of 4 filters and 2 of 9 result fields are inert |
@@ -92,9 +93,6 @@ field decodes to. This table is the security-relevant audit.
 
 Recorded because the comment is normative and a reader will otherwise trust it.
 
-- `HarnessSpec.extra_args` documents "runner-validated against an
-  allowlist — the runner has direct CLI control and is the enforcement point". There
-  is no allowlist; the field is never read and never populated.
 - `HelloAck.committed_seq` is "the authoritative resume cursor";
   `runchannel.go` sets `CommittedSeq: hello.GetResumeFromSeq()` — the agent's own
   claim, echoed. `HelloAck.event_window` has zero references, so the file header's

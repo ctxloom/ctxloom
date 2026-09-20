@@ -147,8 +147,9 @@ published; slot `TryAcquire`) → `RunOutcome` back to the caller (`Queued` says
 whether a slot was held) → `runChild` (`acquireRunSlot` blocks in FIFO order) →
 `runChildViaStartRun` → `Spawner.StartEngine` (exec or container, with the
 reach-back trio in the runner's env) → `issueStartRun` (`awaitRunner` for the
-runner's `RunnerHello`, then `RunnerRequest.start_run{HarnessSpec, Input}`) →
-runner `EngineHost.startRun` → `agent.StructuredChat.Chat`. The runner's identity on
+runner's `RunnerHello`, then `RunnerRequest.start_run{run_id, launch}`) →
+runner `EngineHost.startRun` → `runner.Execute` (redeem, decode, deliver) →
+`EngineHost.Drive` → `agent.StructuredChat.Chat`. The runner's identity on
 every subsequent frame is minted from its bearer credential
 (`Coordinator.Identify`), never from anything the frame claims. Detail, including
 the slot/park/idle/one-shot state machine and the exactly-once terminal, is in

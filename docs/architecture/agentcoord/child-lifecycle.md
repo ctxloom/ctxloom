@@ -48,9 +48,9 @@ flowchart TD
 |---|---|---|
 | `SpawnPlan` | `spawner.go` | a resolved agent launch: agent name, backend, label, profiles, runtime, context, permission, ladder, MCP servers, `ViaStartRun`, `ResumeMode`, `Degraded`. `Workspace`/`DirtyTreeHandler` are stamped **after** `Resolve`, by `AgentRun` |
 | `ResumeMode` | `spawner.go` | persistent vs one-shot engine lifecycle |
-| `Spawner` (interface) | `spawner.go` | the launch seam tests fake: `Resolve`, `AssignSession`, `Launch`, `StartEngine`, `ResumeContext`, `MarkSessionEnded` |
+| `Spawner` (interface) | `spawner.go` | the launch seam tests fake: `Resolve`, `AssignSession`, `RecordEngineVersion`, `StartEngine`, `ResumeHistory`, `MarkSessionEnded` |
 | `prodSpawner` | `spawner.go` | the one production implementation; its constructor also installs the executable trust gate on the shared config |
-| `EngineSpawn` | `spawner.go` | `StartEngine` result: a spawned-but-not-chatting runner plus HarnessSpec inputs and a `Kill` |
+| `EngineSpawn` | `spawner.go` | `StartEngine` result: a spawned-but-not-chatting runner, the resolved `Launch` with its wire form (`Wire`, the codec's projection) and a `Kill` |
 | `childRt` | `children.go` | the non-durable runtime attachment of one live run: identity, `slotHeld`, legacy channels (`in`/`close`/`wake`/`oneshot`), migrated state (`viaStartRun`/`finalMsgs`/`stderrTail`/`runFailure`), turn accumulators, `launchCancel` |
 | `RunOutcome` | `children.go` | `agent_run`'s return payload, **fixed at enqueue** |
 | `Coordinator.slots` | `coordinator.go` | `semaphore.Weighted` (`golang.org/x/sync`) with FIFO waiters, bounding concurrently executing child turns. `Release` panics on an over-release rather than handing back a token nobody took — a silently inflated cap admits more live engine processes than configured |
@@ -70,7 +70,7 @@ name.
 | `spawnReachURL` | `children.go` | resolves the child-reachable coordinator URL; **fatal unless `--degraded`**, with a remediation hint |
 | `childEnv` / `runnerEnv` | `children.go` | the child ENGINE env (harp + project id, deliberately no credential) vs the RUNNER env (reach-back trio + delegation-depth stamp) |
 | `runChild` | `children.go` | slot acquire → launch context → migrated or legacy spawn; every failure routes to `failChild` |
-| `runChildViaStartRun` / `issueStartRun` | `children.go` | build the `HarnessSpec`, join context+prompt, await dial-home, send `StartRun`, audit, drain queued mail, mark attached |
+| `runChildViaStartRun` / `issueStartRun` | `children.go` | settle the first turn's lead (`SpawnStart.Prompt`: the prompt, the rendered history ahead of it on a keyless resume), resolve and start the runner, await dial-home, send `StartRun{run_id, launch}`, audit, drain queued mail, mark attached; the runner leads with the package's context |
 | `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go` | the legacy event loop and its turn boundary — **FROZEN** per the spool-cutover RETIRE-FIRST ruling: never ported to the spool substrate, closed to new backends (`spawner.go`'s `checkLegacyChatFreeze`; frozen residue `legacyChatBackends` = mock alone, plus the degraded no-reach-back spawn) |
 | `bridgeTurnResult` | `children.go` | swaps out the turn accumulator and queues the child's answer to the parent as kind `result` |
 | `oneShotReady` / `onTurnIdle` | `children.go` | the three-condition one-shot gate, then either a `CauseOneShotBoundary` teardown or idle + slot yield + mail push |
@@ -176,16 +176,13 @@ Two consequences a reader must hold:
   `serveSpawnAgent` (`runchannel.go`) answers `"spawned <harp> (engine X,
   runtime container)"` at enqueue time; every later failure surfaces only as roster or
   mailbox state the caller must go looking for.
-- **A run can start with no input and be reported as a complete success.**
-  `runChildViaStartRun` computes `first := operations.JoinLeadBlocks(contextText,
-  prompt)`, and `issueStartRun` (`children.go`) builds `Input` only
-  `if first != ""` — leaving it nil — then audits `start_run`, resets the retry budget,
-  marks the child attached and returns nil. Three routes reach `first == ""`: a resume
-  whose `Spawner.ResumeContext` (`spawner.go`) warns and returns `""` for an
-  unreadable transcript; `StartOwnedRun`, which never validates `prompt`; and
-  `takeNextMail`'s journal-error path (see [mailbox.md](mailbox.md)). The empty case is
-  legitimate on resume, so the runner cannot distinguish resume from an empty composed
-  context.
+- **A run that would carry no work is refused at `issueStartRun`.**
+  `startRunPayloadErr` (`children.go`) refuses a `StartRun` whose `Launch.Prompt` is
+  empty with no native key to resume, no queued mail and no owner run behind it: the
+  runner would attach, the roster would say executing, and the engine would sit
+  having been told nothing. The empty prompt is legitimate on a native-key resume
+  (the engine continues its own recorded session) and for an owner run that takes
+  its turns through `SendOwnedRunTurn`.
 - **`agent_stop` cannot abort an in-flight `StartRun` round trip**: `issueStartRun`
   derives the request context from `c.baseCtx` (`children.go`) while the dial-home
   wait one block earlier correctly uses the cancellable `ctx`.

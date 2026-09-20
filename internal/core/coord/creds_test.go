@@ -70,7 +70,7 @@ func TestMailbox_AtLeastOnceRedeliveryAndDedupe(t *testing.T) {
 	_, err = c1.queueMail("sender", role, KindMessage, "second")
 	require.NoError(t, err)
 
-	msgs, err := c1.recvMail(context.Background(), role, 0)
+	msgs, err := c1.inbox.recv(context.Background(), role, 0)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2, "both pending messages are delivered")
 	c1.Close() // crash before the acking recv appends consume facts
@@ -78,19 +78,19 @@ func TestMailbox_AtLeastOnceRedeliveryAndDedupe(t *testing.T) {
 	// Round 2: a fresh coordinator adopts the SAME journals. The undelivered
 	// (unacked) messages are re-delivered — at-least-once.
 	c2 := newTestCoordinatorAt(t, stateDir)
-	redelivered, err := c2.recvMail(context.Background(), role, 0)
+	redelivered, err := c2.inbox.recv(context.Background(), role, 0)
 	require.NoError(t, err)
 	require.Len(t, redelivered, 2, "unacknowledged deliveries survive a relaunch and re-deliver")
 	assert.Equal(t, "first", redelivered[0].Body)
 	assert.Equal(t, "second", redelivered[1].Body)
 
 	// A subsequent recv ACKS them (cursor-ack); nothing re-delivers after.
-	_, err = c2.recvMail(context.Background(), role, 0)
+	_, err = c2.inbox.recv(context.Background(), role, 0)
 	require.ErrorIs(t, err, ErrRecvTimeout, "after the acking recv the mailbox is empty")
 	c2.Close()
 
 	c3 := newTestCoordinatorAt(t, stateDir)
-	_, err = c3.recvMail(context.Background(), role, 0)
+	_, err = c3.inbox.recv(context.Background(), role, 0)
 	require.ErrorIs(t, err, ErrRecvTimeout, "consumed messages stay consumed across a relaunch")
 	c3.Close()
 }
@@ -105,17 +105,17 @@ func TestMailbox_PollPreemption(t *testing.T) {
 
 	old := make(chan error, 1)
 	go func() {
-		_, err := c.recvMail(context.Background(), role, conformanceWait)
+		_, err := c.inbox.recv(context.Background(), role, conformanceWait)
 		old <- err
 	}()
 	require.Eventually(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.polls[role] != nil
+		c.inbox.mu.Lock()
+		defer c.inbox.mu.Unlock()
+		return c.inbox.polls[role] != nil
 	}, conformanceWait, 5*time.Millisecond)
 
 	// A newer poll preempts the older.
-	go func() { _, _ = c.recvMail(context.Background(), role, conformanceWait) }()
+	go func() { _, _ = c.inbox.recv(context.Background(), role, conformanceWait) }()
 
 	select {
 	case err := <-old:

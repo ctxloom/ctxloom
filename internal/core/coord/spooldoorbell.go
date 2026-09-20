@@ -202,7 +202,7 @@ func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
 		// An owner that DOES have a channel (a container-hosted owner run)
 		// is rung over the wire like any runner, and never reaches here.
 		if c.ownerSpool(role) {
-			c.deliverToPoll(role)
+			c.inbox.wake(role)
 			return nil
 		}
 		c.noteSpoolDrop(role, ref, "no live run channel")

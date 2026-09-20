@@ -1521,7 +1521,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// Revocation severs the credential's parked long-poll AND its live run
 	// channel (the channel teardown un-reserves tentative deliveries so the
 	// leftover-mail check below sees them).
-	c.severPoll(rec.Harp, ErrRevoked)
+	c.inbox.sever(rec.Harp, ErrRevoked)
 	c.severChan(rec.Harp)
 
 	// The synthesized terminal notice: the parent ALWAYS learns of a child

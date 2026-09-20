@@ -247,10 +247,6 @@ type Coordinator struct {
 	// it after the server is down, or a shutdown races its own last
 	// terminals against whatever removes the state dir next.
 	streams trackedGroup
-	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
-	// acked to the file it came from, so the consume-rename can find it at
-	// the acknowledgement moment (spoolowner.go). Guarded by mu.
-	spoolRefs map[string]spool.Ref
 	// spoolIn lends the per-child in/ writers. The writers themselves are
 	// lazy (one per child, on its first message), so a run that never sends
 	// never gets a spool directory.
@@ -270,12 +266,13 @@ type Coordinator struct {
 	spoolSeenMu sync.Mutex
 	spoolSeen   map[string]map[string]bool
 
-	mu        sync.Mutex
-	attach    map[string]*childRt // runID → runtime attachment
-	byHarp    map[string]*childRt // harp → current attachment
-	polls     map[string]*parkedPoll
-	delivered map[string][]string       // role → delivered-but-unacked ids
-	runners   map[string]*runnerSession // credHash → connected runner
+	mu     sync.Mutex
+	attach map[string]*childRt // runID → runtime attachment
+	byHarp map[string]*childRt // harp → current attachment
+	// inbox is the owner's ONE inbox: the parked receive and the spool
+	// reader behind agent_recv (spoolinbox.go).
+	inbox   *spoolInbox
+	runners map[string]*runnerSession // credHash → connected runner
 	// graceExpire fires the runner-loss grace windows adopt armed for the
 	// runs it found live at startup, ahead of their clock — the test seam
 	// expireRunnerGrace drains; each closure is idempotent with its timer.
@@ -465,8 +462,6 @@ func New(opts Options) (*Coordinator, error) {
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
 		byHarp:             make(map[string]*childRt),
-		polls:              make(map[string]*parkedPoll),
-		delivered:          make(map[string][]string),
 		runners:            make(map[string]*runnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*runChan),
@@ -477,6 +472,7 @@ func New(opts Options) (*Coordinator, error) {
 		spoolSweepInterval: opts.SpoolSweepInterval,
 		spoolIn:            newSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
+	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.sweepSpoolDir, c.onRolePark, c.onRoleUnpark)
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		return nil, c.abortNew(errors.New("coord: Options.Spawner is required (adapters/spawn, composed at cmd/*)"))
@@ -1108,7 +1104,10 @@ func deliveryDisposition(state string) (mode, prose string) {
 // after a coordinator relaunch. Dupes are deduped on message id at the store.
 func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.Duration) ([]Message, error) {
 	c.audit("agent_recv", caller.Harp, nil)
-	return c.recvMail(ctx, caller.Harp, wait)
+	if !c.ownerSpool(caller.Harp) {
+		return nil, fmt.Errorf("%w (asked for %q; the owner is %q)", ErrRecvNotOwner, caller.Harp, c.ownerHarp)
+	}
+	return c.inbox.recv(ctx, caller.Harp, wait)
 }
 
 // AgentStop kills a child run (KillRun semantics): the engine/container dies,

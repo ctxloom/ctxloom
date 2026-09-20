@@ -19,10 +19,10 @@ func waitParked(t *testing.T, c *Coordinator, role string) bool {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		c.mu.Lock()
-		p := c.polls[role]
+		c.inbox.mu.Lock()
+		p := c.inbox.polls[role]
 		parked := p != nil && !p.done
-		c.mu.Unlock()
+		c.inbox.mu.Unlock()
 		if parked {
 			return true
 		}
@@ -39,10 +39,10 @@ func waitPollCleared(t *testing.T, c *Coordinator, role string) bool {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		c.mu.Lock()
-		p := c.polls[role]
+		c.inbox.mu.Lock()
+		p := c.inbox.polls[role]
 		cleared := p == nil || p.done
-		c.mu.Unlock()
+		c.inbox.mu.Unlock()
 		if cleared {
 			return true
 		}
@@ -53,26 +53,18 @@ func waitPollCleared(t *testing.T, c *Coordinator, role string) bool {
 }
 
 // THE SWEEP BURST. A single spoolReactor pass sweeps EVERY child in
-// c.spoolRoles and routes their reports SERIALLY — sweepChildOut loops, and
-// each entry calls queueMailPayload in turn. So N children finishing during one
-// 30s window arrive as N separate queue operations microseconds apart, not as
-// one.
+// c.spoolRoles and routes their reports SERIALLY, so N children finishing
+// during one window arrive as N deliveries microseconds apart. Against a
+// parked receive the FIRST fires the wake; the woken receive claims whatever
+// is on disk AT THAT INSTANT and returns.
 //
-// Against a parked receive that is fatal: the FIRST queue fires deliverToPoll,
-// the poll wakes, and resolvePollWake claims whatever is deliverable AT THAT
-// INSTANT — which is one message. The receive returns. Entries 2..N are then
-// queued with c.polls[role] empty, so deliverToPoll returns false; and for a
-// coordinator's own harp pushMail cannot help either (c.chans has no entry for
-// a session owner that never attached a runner). They sit until the coordinator
-// happens to call agent_recv again.
-//
-// Observed in production as "a partial batch delivered, rest left queued": one
-// message returned while five more were already waiting, with nothing in the
-// response able to say so — agentRecvResult carries only Messages.
-//
-// This asserts the EFFECT — every message actually returned to the waiting
-// caller — not that a notification was emitted.
-func TestRecvMail_ASweepBurstIsDeliveredAsOneBatch(t *testing.T) {
+// There is no settling window to race: what lands after the claim is
+// deliverable to the NEXT receive, which returns it WITHOUT parking (a
+// receive begins with a read). The ordering is forced — the rest of the
+// burst is queued only once the first receive has provably returned — and
+// the effect is asserted: every message reaches the caller across the two
+// receives, and the second costs no wait at all.
+func TestRecvMail_MailLandingAfterAClaimReturnsOnTheNextReceiveWithoutParking(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
@@ -87,57 +79,47 @@ func TestRecvMail_ASweepBurstIsDeliveredAsOneBatch(t *testing.T) {
 	}
 	done := make(chan recvOutcome, 1)
 	go func() {
-		msgs, err := c.recvMail(context.Background(), role, 5*time.Second)
+		msgs, err := c.inbox.recv(context.Background(), role, 5*time.Second)
 		done <- recvOutcome{msgs: msgs, err: err}
 	}()
-
 	if !waitParked(t, c, role) {
 		return
 	}
 
-	// The first report of the sweep. This is what fires deliverToPoll and wakes
-	// the parked receive.
+	// The first report of the sweep: what wakes the parked receive.
 	if _, err := c.queueMailPayloadID("m0", "child-0", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
 		return
 	}
-
-	// Wait for the wake to actually fire — deliverToPoll deletes the poll — so
-	// the receive is provably PAST its first claim before the rest arrive.
-	//
-	// WITHOUT THIS the test proves nothing: queuing all six in a tight loop
-	// lets the woken goroutine claim them all in one pass, which the OLD code
-	// does too. The failure being pinned is specifically "claimed what was
-	// pending at the instant of waking, then returned", so the rest must arrive
-	// strictly after that instant.
-	if !waitPollCleared(t, c, role) {
+	var first recvOutcome
+	select {
+	case first = <-done:
+	case <-time.After(10 * time.Second):
+		t.Error("the woken receive never returned")
 		return
 	}
-	time.Sleep(15 * time.Millisecond) // the unfixed path has returned by now
+	if !assert.NoError(t, first.err) || !assert.Len(t, first.msgs, 1, "the wake claims what was on disk at that instant") {
+		return
+	}
 
-	// Entries 2..N of the same reactor pass.
+	// Entries 2..N of the same reactor pass, landing strictly after the first
+	// receive has returned.
 	for i := 1; i < burst; i++ {
 		id := fmt.Sprintf("m%d", i)
 		if _, err := c.queueMailPayloadID(id, fmt.Sprintf("child-%d", i), role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
 			return
 		}
 	}
+	assert.False(t, c.inbox.parked(role), "nothing is parked between the two receives: the reminder path, not a settle, covers this window")
 
-	select {
-	case out := <-done:
-		if !assert.NoError(t, out.err) {
-			return
-		}
-		assert.Len(t, out.msgs, burst,
-			"a receive woken by a sweep burst must return the WHOLE burst; returning a prefix strands the rest with no signal that they exist")
-	case <-time.After(10 * time.Second):
-		t.Error("recvMail never returned")
+	rest, err := c.inbox.recv(context.Background(), role, 0)
+	if !assert.NoError(t, err, "a zero-wait receive returns what landed since the last claim without parking") {
+		return
 	}
+	assert.Len(t, rest, burst-1, "the rest of the burst is the next receive's, whole")
 }
 
-// The settle window must not turn an ordinary single arrival into a stall: a
-// lone message is still returned, and promptly. This is the control for the
-// test above — without it, "returns the whole burst" would be satisfiable by
-// simply waiting longer on every receive.
+// A lone arrival is returned promptly: the woken receive claims and returns,
+// it does not wait for company.
 func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
@@ -151,7 +133,7 @@ func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 	done := make(chan recvOutcome, 1)
 	started := time.Now()
 	go func() {
-		msgs, err := c.recvMail(context.Background(), role, 5*time.Second)
+		msgs, err := c.inbox.recv(context.Background(), role, 5*time.Second)
 		done <- recvOutcome{msgs: msgs, err: err}
 	}()
 
@@ -169,7 +151,7 @@ func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 		}
 		assert.Len(t, out.msgs, 1)
 		assert.Less(t, time.Since(started), 2*time.Second,
-			"a lone arrival must not pay the full wait; the settle window bounds the batch, it does not become the latency")
+			"a lone arrival must not pay the full wait")
 	case <-time.After(10 * time.Second):
 		t.Error("recvMail never returned")
 	}

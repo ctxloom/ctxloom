@@ -32,26 +32,6 @@ func waitParked(t *testing.T, c *Coordinator, role string) bool {
 	return false
 }
 
-// waitPollCleared blocks until role's poll is gone or done — deliverToPoll
-// deletes it as it hands the wake over — so a test can tell that the receive
-// has PASSED the moment of waking rather than guessing at it.
-func waitPollCleared(t *testing.T, c *Coordinator, role string) bool {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		c.inbox.mu.Lock()
-		p := c.inbox.polls[role]
-		cleared := p == nil || p.done
-		c.inbox.mu.Unlock()
-		if cleared {
-			return true
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Errorf("poll for %q never cleared; the wake did not fire", role)
-	return false
-}
-
 // THE SWEEP BURST. A single spoolReactor pass sweeps EVERY child in
 // c.spoolRoles and routes their reports SERIALLY, so N children finishing
 // during one window arrive as N deliveries microseconds apart. Against a

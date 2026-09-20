@@ -18,9 +18,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"

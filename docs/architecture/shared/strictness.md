@@ -2,7 +2,7 @@
 
 `report` is the toolbox leaf a core component reports THROUGH: a `Finding{Kind, Text, Remedy}` is what a core function returns (`Findings`) or hands to the `Sink` it was given (`Reporter`), never a write to the process's stderr. It imports nothing of ours, so every ring may hold one. An empty `Kind` is an advisory; any other `Kind` is a fail-loudly class the startup gate can refuse on. `Once` marks a finding whose repeat is noise; `NonDegradable` marks one `--degraded` cannot waive; `Quiet` records without rendering.
 
-`strictness` is the fail-loudly policy layer beneath the CLI: the ledger of fail-loudly findings (per-goroutine windows opened by `Checkpoint`, read by `Since`, closed by `Close`; `All` for cross-goroutine observability; `Reset` as the test seam), the ONE rendering sink (`Sink(prog)`: the family's `<prog>: warning:` line through `clidiag`, then `Ledger` for the fail-loudly ones), and `Mode`.
+`strictness` is the fail-loudly policy layer in the toolbox: the ledger of fail-loudly findings (per-goroutine windows opened by `Checkpoint`, read by `Since`, closed by `Close`; `All` for cross-goroutine observability; `Reset` as the test seam), the terminal renderer (`Sink(prog)`: ONE implementation of the `report.Sink` port — the family's `<prog>: warning:` line through `clidiag`, then `Ledger` for the fail-loudly ones; the composition root chooses the implementation, so a test hands a `report.Collector` where production hands this), and `Mode`.
 
 ## The mode is a value
 
@@ -17,18 +17,18 @@ flowchart LR
   classDef core fill:#eef,stroke:#228
   classDef tool fill:#dfe,stroke:#282
   classDef adapter fill:#fee,stroke:#822
-  CORE["core: sessions · profiles · config · bundles · agent (part)"]:::core
+  CORE["core: sessions · profiles · config · bundles · coord · agent"]:::core
   REP["report.Finding / Findings / Reporter"]:::tool
   SINK["strictness.Sink(prog)"]:::tool
   CD["clidiag (the stderr line or the structured envelope)"]:::tool
   LED["strictness ledger (windows, All)"]:::tool
   MODE["strictness.Mode — Actionable / FindingsError"]:::tool
-  ROOT["composition root: cli.installApp · cmd/taskloom"]:::adapter
+  ROOT["composition root: cmd/ctxloom compose (cli.Composition.Reporter) · cmd/taskloom"]:::adapter
   GATE["gates: cli phase gates · operations isolation gate · tasks admitTags"]:::adapter
   LEG["adapters: strictness.Fail* (the ctxloom binary's legacy channel)"]:::adapter
   CORE -->|returns or reports| REP
   ROOT -->|builds once, hands down| MODE
-  ROOT -->|Mode.Sink| SINK
+  ROOT -->|chooses the Sink implementation: strictness.Sink in production, a Collector in tests| SINK
   REP -->|rendered by| SINK
   SINK --> CD
   SINK -->|Ledger| LED
@@ -38,7 +38,7 @@ flowchart LR
   MODE -->|Actionable| GATE
 ```
 
-Core never imports `clidiag` or `strictness`; the ratchet in `archrules.LayeringRules` holds the exhausted edges deleted. The engine base (`core/agent`) still carries `agent.Warn` for the sites that fan out through `BaseLifecycle`, `LaunchBackend` and the managed package writers; those convert when the engines hand a `Reporter` in.
+Core never imports `clidiag` or `strictness`; the ratchet in `archrules.LayeringRules` holds the exhausted edges deleted. The coordinator and everything it builds report through `coord.Options.Reporter` (the runner side through `HomeConfig.Reporter`, `DialRunner` and `NewEngineHost`); the engine base reports through the `Reporter` each call is handed (`SetupRequest.Reporter`, `SurfaceInputs.Reporter`, the managed writers' `WithReporter`/`WithWriteReporter`, `SettingsOptions.Reporter`). The one Reporter of a `ctxloom` process is built by `cmd/ctxloom`'s `compose` and travels as `cli.Composition.Reporter` → `operations.App.Reporter`.
 
 ## Invariants
 

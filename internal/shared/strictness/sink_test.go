@@ -15,7 +15,8 @@ import (
 )
 
 // A core function that reports through a report.Sink must render, through
-// the ONE CLI sink, to the byte-identical stderr the same site produced when
+// the terminal renderer (strictness.Sink, the one production implementation
+// of the port), to the byte-identical stderr the same site produced when
 // it called clidiag/strictness itself. The expected text is produced by the
 // live legacy path in the same test, not hand-written, and pinned once as a
 // literal so neither side can drift silently.

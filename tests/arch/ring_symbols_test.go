@@ -469,8 +469,10 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
-	// leaf adapters Part 1.1 does not permit and no slice names (measured)
-	"internal/adapters/remote/git_publisher.go": "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
+	// a leaf adapter Part 1.1 does not permit: GitPublisher's working clone is
+	// os.MkdirTemp("", …) — a temp-root read; it takes its root as a value once
+	// the composition carries one (launch.HostFacts has no temp root yet)
+	"internal/adapters/remote/git_publisher.go": "the publisher's scratch root becomes a HostFacts value the composition root supplies; no slice carries a temp root yet (measured)",
 }
 
 // declaredEnvKeys collects the CTXLOOM_* string values of the package-level

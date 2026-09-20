@@ -16,8 +16,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Home is the RUNNER's connection home: it owns the coordinator dial (one
@@ -33,6 +32,7 @@ import (
 // request_id as the idempotency key), and re-asserts its current park state.
 type Home struct {
 	cfg HomeConfig
+	rep report.Reporter // HomeConfig.Reporter, or silence
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -172,6 +172,10 @@ type HomeConfig struct {
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
+	// Reporter receives every diagnostic this Home and the courier, doorbell
+	// and terminal injector built on it raise; the runner's composition
+	// chooses the sink. Nil discards.
+	Reporter report.Sink
 }
 
 type homeReq struct {
@@ -238,6 +242,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	hctx, cancel := context.WithCancel(ctx)
 	h := &Home{
 		cfg:         cfg,
+		rep:         report.To(cfg.Reporter),
 		ctx:         hctx,
 		cancel:      cancel,
 		conn:        conn,
@@ -320,9 +325,9 @@ func (h *Home) waitTracked() {
 // heartbeats + best-effort RunExited at Close).
 func (h *Home) runnerChannelLoop() {
 	for {
-		link, err := DialRunner(h.ctx, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
+		link, err := DialRunner(h.ctx, h.rep, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
 		if err != nil {
-			clidiag.WarnOnce("ctxloom", "runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
+			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			select {
 			case <-time.After(homeRedialBackoff):
 				continue
@@ -355,7 +360,7 @@ func (h *Home) runChannelLoop() {
 			return
 		}
 		if err := h.runChannelOnce(client); err != nil && h.ctx.Err() == nil {
-			clidiag.WarnOnce("ctxloom", "run channel down (reconnecting): %v", err)
+			h.rep.WarnOncef("run channel down (reconnecting): %v", err)
 		}
 		select {
 		case <-time.After(homeRedialBackoff):
@@ -470,7 +475,7 @@ func (h *Home) trySend(frame *agentcoordpb.AgentFrame) bool {
 	defer h.sendMu.Unlock()
 	if err := stream.Send(frame); err != nil {
 		// The receive loop observes the same failure and re-dials.
-		clidiag.WarnOnce("ctxloom", "run channel send failed (reconnecting): %v", err)
+		h.rep.WarnOncef("run channel send failed (reconnecting): %v", err)
 		return false
 	}
 	return true
@@ -594,7 +599,7 @@ func (h *Home) SetTerminalNudge(fn func()) {
 		// session owner is never told mail arrived and every gate stays green
 		// — the "succeeds without doing the thing" shape. Report it and let
 		// strictness decide fatality.
-		strictness.FailOnce(strictness.ClassConfig,
+		h.rep.FailOncef(report.KindConfig,
 			"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
 			"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
 		return
@@ -630,7 +635,7 @@ func (h *Home) SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool) {
 	h.mu.Lock()
 	if h.turnQ != nil {
 		h.mu.Unlock()
-		clidiag.Warn("ctxloom", "runner: a turn sink is already registered for this run; the second registration is refused and that engine will receive no turns")
+		h.rep.Warnf("runner: a turn sink is already registered for this run; the second registration is refused and that engine will receive no turns")
 		return
 	}
 	q := make(chan *agentcoordpb.PeerMessage, turnQueueCap)
@@ -752,7 +757,7 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 			TerminalEventSeen: true,
 		},
 	}}); err != nil {
-		clidiag.Warn("ctxloom", "runner: report RunExited: %v (coordinator will synthesize loss)", err)
+		h.rep.Warnf("runner: report RunExited: %v (coordinator will synthesize loss)", err)
 	}
 }
 
@@ -924,7 +929,7 @@ func (h *Home) emitCustomEvent(name string, value map[string]any) {
 		var err error
 		v, err = structpb.NewStruct(value)
 		if err != nil {
-			clidiag.Warn("ctxloom", "runner: %s event value does not encode: %v (event dropped; the underlying state stays unacknowledged)", name, err)
+			h.rep.Warnf("runner: %s event value does not encode: %v (event dropped; the underlying state stays unacknowledged)", name, err)
 			return
 		}
 	}

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // trackedGroup is this package's goroutine-ownership discipline, shared by every
@@ -27,7 +27,8 @@ import (
 // Budget and diagnostic wording stay with the OWNER (passed to wait): they are
 // per-owner policy, the coordinator's being deliberately the most generous.
 type trackedGroup struct {
-	mu      sync.Mutex // guards closing, and serializes wg.Add against seal
+	rep     report.Reporter // the owner's Reporter, set when the owner is built
+	mu      sync.Mutex      // guards closing, and serializes wg.Add against seal
 	wg      sync.WaitGroup
 	closing bool
 }
@@ -64,7 +65,7 @@ func (g *trackedGroup) seal() {
 // waitBounded waits for wg up to budget, warning and proceeding past it —
 // the same discipline trackedGroup.wait applies, for a group that is not
 // sealed (the stream handlers are dispatched by the gRPC server, not by us).
-func waitBounded(wg *sync.WaitGroup, budget time.Duration, what string) {
+func waitBounded(rep report.Reporter, wg *sync.WaitGroup, budget time.Duration, what string) {
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -73,7 +74,7 @@ func waitBounded(wg *sync.WaitGroup, budget time.Duration, what string) {
 	select {
 	case <-done:
 	case <-time.After(budget):
-		clidiag.Warn("ctxloom", "%s: handlers did not finish within %s; proceeding (a late terminal may still touch the state dir)", what, budget)
+		rep.Warnf("%s: handlers did not finish within %s; proceeding (a late terminal may still touch the state dir)", what, budget)
 	}
 }
 
@@ -87,9 +88,9 @@ func (g *trackedGroup) wait(budget time.Duration, what, risk string) {
 	case <-done:
 	case <-time.After(budget):
 		if risk != "" {
-			clidiag.Warn("ctxloom", "%s: tracked goroutines did not finish within %s; proceeding (%s)", what, budget, risk)
+			g.rep.Warnf("%s: tracked goroutines did not finish within %s; proceeding (%s)", what, budget, risk)
 			return
 		}
-		clidiag.Warn("ctxloom", "%s: tracked goroutines did not finish within %s; proceeding", what, budget)
+		g.rep.Warnf("%s: tracked goroutines did not finish within %s; proceeding", what, budget)
 	}
 }

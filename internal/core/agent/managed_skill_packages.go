@@ -93,7 +93,7 @@ func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, 
 // a mode bit is not portable, the package digest deliberately excludes it, and
 // the declaration is the whole of what a publisher said about executability
 // (see content.SkillFile.Mode and content.DeclaredExecutable).
-func WriteManagedSkillPackages(fs afero.Fs, skillsDir string, skills []SkillExport) error {
+func WriteManagedSkillPackages(fs afero.Fs, skillsDir string, skills []SkillExport, opts ...ManagedWriteOption) error {
 	return WriteManagedPackageFiles(fs, skillsDir, ledger.SurfaceSkills, skills,
 		func(s SkillExport) bool { return s.Enabled },
 		func(s SkillExport) string { return s.Name },
@@ -111,7 +111,7 @@ func WriteManagedSkillPackages(fs afero.Fs, skillsDir string, skills []SkillExpo
 			}
 			return out, nil
 		},
-	)
+		opts...)
 }
 
 // Compile-time contract.

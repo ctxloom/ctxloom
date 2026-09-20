@@ -11,7 +11,6 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Phase 2a-B: top-level STRUCTURED and ONESHOT container runs onto Transport 2
@@ -219,7 +218,7 @@ func (c *Coordinator) recordContainerName(runID, name string) {
 		}
 		return []Fact{factAt(factRunContainer, c.now(), runContainer{RunID: runID, ContainerName: name})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: record container name: %v", err)
+		c.rep.Warnf("coordinator: record container name: %v", err)
 	}
 }
 

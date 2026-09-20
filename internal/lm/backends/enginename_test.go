@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
@@ -24,7 +25,7 @@ func TestRegistryLookups_ResolveTheRegisteredName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, name, cfg.BackendType())
 
-	assert.NotNil(t, GetSettingsWriter(name, afero.NewMemMapFs()))
+	assert.NotNil(t, GetSettingsWriter(name, agent.SettingsOptions{FS: afero.NewMemMapFs()}))
 
 	set, err := SurfacesFor(name)
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func TestRegistryLookups_RefuseEveryOtherSpelling(t *testing.T) {
 			assert.Nil(t, Get(name), "Get(%q) must not resolve", name)
 			assert.False(t, Exists(name), "Exists(%q) must be false", name)
 			assert.False(t, EnforcesReadOnlyPlan(name), "EnforcesReadOnlyPlan(%q) must be false", name)
-			assert.Nil(t, GetSettingsWriter(name, afero.NewMemMapFs()), "GetSettingsWriter(%q) must be nil", name)
+			assert.Nil(t, GetSettingsWriter(name, agent.SettingsOptions{FS: afero.NewMemMapFs()}), "GetSettingsWriter(%q) must be nil", name)
 
 			_, err := DecodeLLMConfig(name, map[string]interface{}{})
 			assert.Error(t, err, "DecodeLLMConfig(%q) must refuse", name)

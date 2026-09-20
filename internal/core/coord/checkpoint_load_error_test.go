@@ -34,7 +34,7 @@ func TestLoadItemsSnapshot_UnreadableWarns(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	snap, ok := loadItemsSnapshot(dir)
+	snap, ok := loadItemsSnapshot(termRep(), dir)
 	assert.False(t, ok, "an unreadable snapshot must still fall back to a full replay")
 	assert.Equal(t, itemsSnapshot{}, snap)
 	assert.Contains(t, buf.String(), "warning:",
@@ -52,7 +52,7 @@ func TestLoadItemsSnapshot_MissingIsSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	snap, ok := loadItemsSnapshot(dir)
+	snap, ok := loadItemsSnapshot(termRep(), dir)
 	assert.False(t, ok)
 	assert.Equal(t, itemsSnapshot{}, snap)
 	assert.Empty(t, buf.String(), "a first boot with no checkpoint must not warn")
@@ -68,7 +68,7 @@ func TestLoadItemsSnapshot_CorruptWarns(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	_, ok := loadItemsSnapshot(dir)
+	_, ok := loadItemsSnapshot(termRep(), dir)
 	assert.False(t, ok)
 	assert.Contains(t, buf.String(), "warning:")
 }

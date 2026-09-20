@@ -17,6 +17,7 @@ import (
 func newNoticeHome(t *testing.T) *Home {
 	t.Helper()
 	return &Home{
+		rep:         termRep(),
 		ctx:         context.Background(),
 		consumed:    map[string]bool{},
 		turnPending: map[string]bool{},

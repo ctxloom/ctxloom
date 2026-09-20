@@ -21,7 +21,7 @@ import (
 // wrapped stdin — not that some function was merely called.
 func TestTerminalInject_NoSinkInjectsMailPendingFrame(t *testing.T) {
 	h := newNoticeHome(t)
-	ti := &TerminalInjector{gate: openGate{}, quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{}, quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
 	h.SetTerminalNudge(ti.nudge)
 
 	// A real reader that never produces anything on its own, standing in for
@@ -129,7 +129,7 @@ func TestNudgeReader_EvictionNeverStrandsABareSubmit(t *testing.T) {
 func TestTerminalInject_AckWarnsWhenTheWakeNeverLands(t *testing.T) {
 	t.Run("mail never consumed is reported", func(t *testing.T) {
 		warnings := captureWarnings(t)
-		ti := &TerminalInjector{gate: openGate{}, ackWait: 30 * time.Millisecond, ackTick: 5 * time.Millisecond, count: func() int { return 2 }}
+		ti := &TerminalInjector{rep: termRep(), gate: openGate{}, ackWait: 30 * time.Millisecond, ackTick: 5 * time.Millisecond, count: func() int { return 2 }}
 
 		ti.awaitAck(2)
 
@@ -141,7 +141,7 @@ func TestTerminalInject_AckWarnsWhenTheWakeNeverLands(t *testing.T) {
 		warnings := captureWarnings(t)
 		var count atomic.Int32
 		count.Store(2)
-		ti := &TerminalInjector{gate: openGate{}, ackWait: 2 * time.Second, ackTick: 2 * time.Millisecond, count: func() int { return int(count.Load()) }}
+		ti := &TerminalInjector{rep: termRep(), gate: openGate{}, ackWait: 2 * time.Second, ackTick: 2 * time.Millisecond, count: func() int { return int(count.Load()) }}
 		go func() {
 			time.Sleep(20 * time.Millisecond)
 			count.Store(0) // the engine took a turn and called agent_recv
@@ -182,7 +182,7 @@ func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
 	// must not accidentally look "quiet" and pass this test for the wrong
 	// reason. maxWait is deliberately far BELOW quiet, so the only way an
 	// injection can land inside this test's window is the bound firing.
-	ti := &TerminalInjector{gate: openGate{}, quiet: 300 * time.Millisecond, tick: time.Millisecond, maxWait: 40 * time.Millisecond, count: func() int { return 3 }}
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{}, quiet: 300 * time.Millisecond, tick: time.Millisecond, maxWait: 40 * time.Millisecond, count: func() int { return 3 }}
 	var mu sync.Mutex
 	var got string
 	ti.inject = func(frame, submit string) { mu.Lock(); got = frame + submit; mu.Unlock() }
@@ -224,7 +224,7 @@ func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
 func TestTerminalInject_BurstOfMailCoalescesToOneInjection(t *testing.T) {
 	h := newNoticeHome(t)
 	var calls atomic.Int32
-	ti := &TerminalInjector{gate: openGate{}, quiet: 20 * time.Millisecond, tick: 2 * time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{}, quiet: 20 * time.Millisecond, tick: 2 * time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
 	ti.inject = func(string, string) { calls.Add(1) }
 	h.SetTerminalNudge(ti.nudge)
 
@@ -253,7 +253,7 @@ func TestTerminalInject_BurstOfMailCoalescesToOneInjection(t *testing.T) {
 // buffered for a real Recv instead.
 func TestTerminalInject_ReleaseStopsInjectingIntoTheEndedTurn(t *testing.T) {
 	h := newNoticeHome(t)
-	ti := &TerminalInjector{gate: openGate{}, quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 200 * time.Millisecond, count: h.BufferedMailCount}
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{}, quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 200 * time.Millisecond, count: h.BufferedMailCount}
 	h.SetTerminalNudge(ti.nudge)
 
 	turn, turnW := io.Pipe()
@@ -295,7 +295,7 @@ func TestTerminalInject_ReleaseStopsInjectingIntoTheEndedTurn(t *testing.T) {
 // surfaces only if some unrelated activity moves the pipeline.
 func TestTerminalInject_RewrapRetargetsInjectionToTheCurrentTurn(t *testing.T) {
 	h := newNoticeHome(t)
-	ti := &TerminalInjector{gate: openGate{}, quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{}, quiet: 5 * time.Millisecond, tick: time.Millisecond, maxWait: 500 * time.Millisecond, count: h.BufferedMailCount}
 	h.SetTerminalNudge(ti.nudge)
 
 	// Turn 1 wraps and then ends; nothing reads its stdin afterwards.
@@ -374,7 +374,7 @@ func TestSetTerminalNudge_SecondRegistrationIsAFinding(t *testing.T) {
 // waiving input-quiet along with it is what corrupts the line.
 func TestTerminalInject_WithheldWhileTheHumanIsTyping(t *testing.T) {
 	var injected atomic.Int64
-	ti := &TerminalInjector{gate: openGate{},
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{},
 		quiet:      5 * time.Millisecond,
 		tick:       time.Millisecond,
 		maxWait:    30 * time.Millisecond,
@@ -406,7 +406,7 @@ func TestTerminalInject_DeliveredOnceTypingHasStopped(t *testing.T) {
 	// outliving this test races it. A leaked goroutine that logs is not a
 	// flake; it fails deterministically under -race.
 	var consumed atomic.Bool
-	ti := &TerminalInjector{gate: openGate{},
+	ti := &TerminalInjector{rep: termRep(), gate: openGate{},
 		quiet:      5 * time.Millisecond,
 		tick:       time.Millisecond,
 		maxWait:    500 * time.Millisecond,

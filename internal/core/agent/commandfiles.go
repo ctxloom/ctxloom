@@ -10,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // CommandExport is the agent-agnostic slash-command export spec for one command.
@@ -35,6 +37,22 @@ type CommandFileOption func(*commandFileOptions)
 type commandFileOptions struct {
 	fs              afero.Fs
 	homeCommandsDir string
+	reporter        report.Sink
+}
+
+// WithReporter names where the engine's writer reports the packages it
+// skips; ResolveReporter reads it back for forwarding (WithWriteReporter).
+func WithReporter(sink report.Sink) CommandFileOption {
+	return func(o *commandFileOptions) { o.reporter = sink }
+}
+
+// ResolveReporter returns the sink WithReporter set, or nil (silence).
+func ResolveReporter(opts ...CommandFileOption) report.Sink {
+	var options commandFileOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return options.reporter
 }
 
 // WithCommandFS sets the filesystem for command file operations.
@@ -110,6 +128,13 @@ type ManagedWriteOption func(*managedWriteOptions)
 
 type managedWriteOptions struct {
 	dedupHomeDir string
+	rep          report.Reporter
+}
+
+// WithWriteReporter names where the managed writer reports skipped items and
+// failed chmods. Nil discards.
+func WithWriteReporter(sink report.Sink) ManagedWriteOption {
+	return func(o *managedWriteOptions) { o.rep = report.To(sink) }
 }
 
 // WithDedupHomeDir names a user-global command directory the agent also loads

@@ -40,7 +40,7 @@ dotted are hidden couplings through the environment or the filesystem.
 flowchart TD
   CLI["internal/adapters/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
   TUI["internal/adapters/cli/tui"]
-  MCP["internal/adapters/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go NewHostedCoordinator)"]
+  MCP["internal/adapters/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go HostCoordinator)"]
   COORD["internal/core/coord"]
   PROTO["internal/adapters/coordgrpc/pb (proto, seqwatch, messagekind)"]
   SCHEMA["internal/adapters/coordgrpc/mcpschema"]
@@ -98,7 +98,7 @@ Its long-lived goroutines are `runnerWatchdog`, `livenessWatchdog` and the
 coordinator-side `spoolReactor`. Every LLM-facing verb lands on one of
 `Coordinator.AgentRun`, `AgentSend`, `AgentRecv`, `AgentStop`, `StopChildren`,
 `Roster`/`ListRuns` — whether it arrived in-process (the coordinator-local MCP
-surface, `mcp.NewHostedCoordinator`) or over the wire (`handleAgentRequest →
+surface, `mcp.HostCoordinator` over the composition's constructor) or over the wire (`handleAgentRequest →
 serveSpawnAgent / serveListRuns / serveStopRun`).
 
 **The runner process** (`ctxloom llm serve|host|turn`, one per run;

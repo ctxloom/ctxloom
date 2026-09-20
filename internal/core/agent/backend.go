@@ -8,6 +8,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Backend is the LAUNCH facet of an agent — running the LLM and its session
@@ -386,6 +388,10 @@ const (
 
 // SetupRequest contains everything needed to prepare the backend before execution.
 type SetupRequest struct {
+	// Reporter receives every diagnostic this setup raises — the runner or
+	// the application service composing the launch chooses the sink. Nil
+	// discards.
+	Reporter  report.Sink
 	WorkDir   string
 	Fragments []*Fragment // context fragments (bundle pieces) to inject
 	Env       map[string]string

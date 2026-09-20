@@ -24,7 +24,7 @@ func TestNewContextInjectionHooks_ReadFailureIsWarned(t *testing.T) {
 	defer restore()
 
 	tmpDir := t.TempDir()
-	hooks := NewContextInjectionHooks("never-written-hash", tmpDir)
+	hooks := NewContextInjectionHooks(termRep(), "never-written-hash", tmpDir)
 	require.Len(t, hooks, 1, "a read failure still degrades to the single whole-content hook")
 	assert.Contains(t, buf.String(), "never-written-hash",
 		"a context-file read failure while building the injection hook(s) must be warned, not silently swallowed")
@@ -38,17 +38,17 @@ func TestMergeHooksConfig_NilInputs(t *testing.T) {
 			},
 		}
 		// Should not panic
-		MergeHooksConfig(nil, src)
+		MergeHooksConfig(termRep(), nil, src)
 	})
 
 	t.Run("nil src does nothing", func(t *testing.T) {
 		dest := &wire.HooksConfig{}
-		MergeHooksConfig(dest, nil)
+		MergeHooksConfig(termRep(), dest, nil)
 		assert.Empty(t, dest.Unified.PreTool)
 	})
 
 	t.Run("both nil does nothing", func(t *testing.T) {
-		MergeHooksConfig(nil, nil)
+		MergeHooksConfig(termRep(), nil, nil)
 	})
 }
 
@@ -69,7 +69,7 @@ func TestMergeHooksConfig_UnifiedHooks(t *testing.T) {
 		},
 	}
 
-	MergeHooksConfig(dest, src)
+	MergeHooksConfig(termRep(), dest, src)
 
 	assert.Len(t, dest.Unified.PreTool, 2)
 	assert.Equal(t, "existing-pre", dest.Unified.PreTool[0].Command)
@@ -92,7 +92,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 			},
 		}
 
-		MergeHooksConfig(dest, src)
+		MergeHooksConfig(termRep(), dest, src)
 
 		assert.NotNil(t, dest.Plugins)
 		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 1)
@@ -118,7 +118,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 			},
 		}
 
-		MergeHooksConfig(dest, src)
+		MergeHooksConfig(termRep(), dest, src)
 
 		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 2)
 		assert.Len(t, dest.Plugins["claude-code"]["PostTool"], 1)
@@ -151,7 +151,7 @@ func TestMergeHooksConfig_NilDestNamesTheDroppedHooks(t *testing.T) {
 	require.NotEmpty(t, src.Unified.PreTool)
 	require.NotEmpty(t, src.Plugins)
 
-	assert.NotPanics(t, func() { MergeHooksConfig(nil, src) })
+	assert.NotPanics(t, func() { MergeHooksConfig(termRep(), nil, src) })
 
 	out := buf.String()
 	assert.Contains(t, out, "warning:", "a whole hook set going missing must reach the diagnostic channel")
@@ -165,9 +165,9 @@ func TestMergeHooksConfig_NilDestWithNothingToLoseStaysSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	MergeHooksConfig(nil, &wire.HooksConfig{})
-	MergeHooksConfig(nil, nil)
-	MergeHooksConfig(&wire.HooksConfig{}, nil)
+	MergeHooksConfig(termRep(), nil, &wire.HooksConfig{})
+	MergeHooksConfig(termRep(), nil, nil)
+	MergeHooksConfig(termRep(), &wire.HooksConfig{}, nil)
 
 	assert.Empty(t, buf.String(), "a merge that loses nothing must not warn")
 }
@@ -196,7 +196,7 @@ func TestMergeHooksConfig_UnifiedHalfMatchesWireAppend(t *testing.T) {
 	}
 
 	viaMerge := &wire.HooksConfig{Unified: existing}
-	MergeHooksConfig(viaMerge, &wire.HooksConfig{Unified: src})
+	MergeHooksConfig(termRep(), viaMerge, &wire.HooksConfig{Unified: src})
 
 	viaAppend := existing
 	viaAppend.Append(src)

@@ -10,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // This file generalizes WriteManagedCommandFiles's manifest/traversal/cleanup
@@ -110,7 +112,7 @@ func WriteManagedPackageFiles[T any](
 	for _, opt := range opts {
 		opt(o)
 	}
-	led := ledger.Ledger{FS: fs, Dir: dir, Warn: Warn}
+	led := ledger.Ledger{FS: fs, Dir: dir, Warn: o.rep.Warnf}
 
 	// Read what this surface currently claims BEFORE anything else — read-only,
 	// nothing destructive yet. Ledger entries are data, not trusted paths: a
@@ -146,18 +148,18 @@ func WriteManagedPackageFiles[T any](
 		// from them. Nested names without traversal ("group/cmd") remain
 		// allowed; how they map to paths is the renderer's choice.
 		if _, ok := SafeCommandRelPath(dir, name); !ok {
-			Warn("skipping package %q: name is not a relative path inside %s", name, dir)
+			o.rep.Warnf("skipping package %q: name is not a relative path inside %s", name, dir)
 			continue
 		}
 		files, err := render(item)
 		if err != nil {
-			Warn("skipping package %q: render failed: %v", name, err)
+			o.rep.Warnf("skipping package %q: render failed: %v", name, err)
 			continue
 		}
 		safe := true
 		for _, f := range files {
 			if _, ok := SafeCommandRelPath(dir, f.RelPath); !ok {
-				Warn("skipping package %q: rendered path %q is not a relative path inside %s", name, f.RelPath, dir)
+				o.rep.Warnf("skipping package %q: rendered path %q is not a relative path inside %s", name, f.RelPath, dir)
 				safe = false
 				break
 			}
@@ -194,7 +196,7 @@ func WriteManagedPackageFiles[T any](
 		// path-safety validation with nothing at stake — the guard above
 		// already ruled out the destructive version of that case). Nothing to
 		// swap in; just revert this surface's previously-tracked set.
-		return revertManagedSurface(fs, dir, surface, previous, led)
+		return revertManagedSurface(o.rep, fs, dir, surface, previous, led)
 	}
 
 	// PHASE 2 — render the complete new file set into a temp SIBLING of dir
@@ -265,7 +267,7 @@ func WriteManagedPackageFiles[T any](
 			// brand-new temp file is not the missing-content defect this
 			// rewrite targets, so it does not abort the swap.
 			if err := fs.Chmod(tempPath, mode); err != nil {
-				Warn("package %q: chmod %s to %s failed: %v", p.name, f.RelPath, mode, err)
+				o.rep.Warnf("package %q: chmod %s to %s failed: %v", p.name, f.RelPath, mode, err)
 			}
 			written = append(written, f.RelPath)
 		}
@@ -275,7 +277,7 @@ func WriteManagedPackageFiles[T any](
 		// Every file was skipped by the home-dir dedup ("home wins") —
 		// legitimate, not a failure: nothing new to place, revert this
 		// surface's previous set exactly like the intentional-empty path.
-		return revertManagedSurface(fs, dir, surface, previous, led)
+		return revertManagedSurface(o.rep, fs, dir, surface, previous, led)
 	}
 
 	// PHASE 3 — swap. Each fully-rendered temp file moves into dir at its
@@ -353,7 +355,7 @@ func WriteManagedPackageFiles[T any](
 		}
 		path, ok := SafeCommandRelPath(dir, name)
 		if !ok {
-			Warn("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
+			o.rep.Warnf("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
 			continue
 		}
 		_ = fs.Remove(path)
@@ -382,12 +384,12 @@ func WriteManagedPackageFiles[T any](
 // enabled" / "everything deduped against home" path — sharing the removal
 // mechanics WriteManagedPackageFiles' phase 4 also uses, factored out so the
 // empty and non-empty branches don't duplicate the ledger-removal walk.
-func revertManagedSurface(fs afero.Fs, dir string, surface ledger.Surface, previous []string, led ledger.Ledger) error {
+func revertManagedSurface(rep report.Reporter, fs afero.Fs, dir string, surface ledger.Surface, previous []string, led ledger.Ledger) error {
 	var removedDirs []string
 	for _, name := range previous {
 		path, ok := SafeCommandRelPath(dir, name)
 		if !ok {
-			Warn("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
+			rep.Warnf("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
 			continue
 		}
 		_ = fs.Remove(path)

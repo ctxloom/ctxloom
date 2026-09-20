@@ -40,12 +40,13 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 		sctx, cancel := context.WithCancel(ctx)
 		host := newTestEngineHost(sctx, sc, backend, spawnEnv[EnvRunID])
 		home, err := NewHome(sctx, HomeConfig{
-			URL:     spawnEnv[EnvCoordURL],
-			Token:   spawnEnv[EnvCoordCred],
-			RunID:   spawnEnv[EnvRunID],
-			Harness: backend,
-			Version: "test",
-			Engine:  host.Handle,
+			Reporter: termSink(),
+			URL:      spawnEnv[EnvCoordURL],
+			Token:    spawnEnv[EnvCoordCred],
+			RunID:    spawnEnv[EnvRunID],
+			Harness:  backend,
+			Version:  "test",
+			Engine:   host.Handle,
 		})
 		if err != nil {
 			cancel()

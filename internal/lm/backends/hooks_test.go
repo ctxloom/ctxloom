@@ -22,6 +22,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // deliverManagedSettings materializes a backend's settings + MCP surfaces into dir
@@ -79,7 +81,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 	t.Run("small_content_single_hook", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		writeCtxFile(t, tmpDir, "smallhash", "# tiny\nbody")
-		hooks := agent.NewContextInjectionHooks("smallhash", tmpDir)
+		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "smallhash", tmpDir)
 		require.Len(t, hooks, 1)
 		assert.NotContains(t, hooks[0].Command, "--part",
 			"single chunk must use the legacy whole-content form")
@@ -87,7 +89,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 
 	t.Run("missing_file_single_hook", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		hooks := agent.NewContextInjectionHooks("nofile", tmpDir)
+		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "nofile", tmpDir)
 		require.Len(t, hooks, 1)
 		assert.NotContains(t, hooks[0].Command, "--part",
 			"missing file degrades to a single whole-content hook")
@@ -101,7 +103,7 @@ func TestNewContextInjectionHooks_ChunksLargeContext(t *testing.T) {
 		}
 		writeCtxFile(t, tmpDir, "bighash", strings.Join(sections, "\n\n---\n\n"))
 
-		hooks := agent.NewContextInjectionHooks("bighash", tmpDir)
+		hooks := agent.NewContextInjectionHooks(report.Reporter{}, "bighash", tmpDir)
 		n := len(hooks)
 		require.Greater(t, n, 1, "large content must split into multiple chunk hooks")
 		for k, h := range hooks {
@@ -140,7 +142,7 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			writer := GetSettingsWriter(tt.backend, nil)
+			writer := GetSettingsWriter(tt.backend, agent.SettingsOptions{})
 			if tt.expected {
 				assert.NotNil(t, writer)
 			} else {

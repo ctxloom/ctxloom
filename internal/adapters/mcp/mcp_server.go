@@ -24,6 +24,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 	"github.com/ctxloom/ctxloom/resources"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ctxServer holds shared state used by every SDK-backed tool handler. The
@@ -38,7 +40,10 @@ type ctxServer struct {
 	// server's life. A runner-terminated server (newRunnerMCPServer) is
 	// handed its generation and holds no app.
 	app *operations.App
-	cfg *config.Config
+	// build constructs the coordinator a bare `ctxloom mcp` stands up on its
+	// first agent_run — the composition root's constructor, handed in.
+	build CoordinatorConstructor
+	cfg   *config.Config
 	// dryRun suppresses the startup apply's single write. Starting this
 	// server normally REWRITES the project's managed settings — that is what
 	// ctxloom does — so this is the way to ask what a start would change
@@ -164,7 +169,7 @@ func (s *ctxServer) strictness() strictness.Mode {
 	return s.app.Strictness
 }
 
-func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func() error, dryRun bool) error {
+func ServeStdio(ctx context.Context, app *operations.App, build CoordinatorConstructor, cwd string, gate func() error, dryRun bool) error {
 	// FORWARD MODE (agentcoord B1.6): when the harness-inherited env names
 	// the runner's MCP socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the
@@ -199,7 +204,7 @@ func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func(
 		// forwardOutcomeRefused: same fall-through as the env-var trigger.
 	}
 
-	s := &ctxServer{app: app, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
+	s := &ctxServer{app: app, build: build, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is
@@ -265,7 +270,7 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Hooks/statusline/MCP entries are written as bare `ctxloom` and
 	// resolve via PATH at fire time. Flag the one case that can't catch:
 	// a different ctxloom shadowing the running binary on PATH.
-	agent.WarnOnCtxloomPathSkew()
+	agent.WarnOnCtxloomPathSkew(report.To(strictness.Sink("ctxloom")))
 
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`. The wiring itself

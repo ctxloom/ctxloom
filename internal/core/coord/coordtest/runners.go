@@ -32,13 +32,17 @@ import (
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Runners is the set of runner doubles one coordinator spawned, in spawn
 // order. Its Starter is what a test hands to coord.Options.Starter.
 type Runners struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	// Reporter is handed to every Home and EngineHost the double stands up;
+	// nil discards, as a test that asserts nothing about diagnostics wants.
+	Reporter report.Sink
+	ctx      context.Context
+	cancel   context.CancelFunc
 
 	mu      sync.Mutex
 	engines []*Engine
@@ -67,7 +71,7 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 	}
 	engine := &Engine{inner: chat}
 	rctx, cancel := context.WithCancel(r.ctx)
-	host := coord.NewEngineHost(rctx, engine, backend, runnerEnv[coord.EnvRunID])
+	host := coord.NewEngineHost(rctx, r.Reporter, engine, backend, runnerEnv[coord.EnvRunID])
 	// The runner tail over the double: the wire launch is decoded and its
 	// package opened for real; delivery is a no-op (the fake spawner's cell
 	// is not a directory), and the host drives the recorded chat.
@@ -86,6 +90,7 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		Version:      "coordtest",
 		Engine:       host.Handle,
 		Capabilities: coord.RunnerCapabilities(true),
+		Reporter:     r.Reporter,
 	})
 	if err != nil {
 		cancel()

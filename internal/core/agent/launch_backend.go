@@ -14,6 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // SessionHarpEnv is sessions.EnvHarp under this package's established name:
@@ -26,7 +28,7 @@ const SessionHarpEnv = sessions.EnvHarp
 // MCP; the surfaces × cells Setup then reads the merged state (GetHooks/GetMCP)
 // to write each settings/config surface. BaseLifecycle implements it.
 type ManagedLifecycle interface {
-	MergeManaged(m *ManagedConfig, workDir, contextHash string)
+	MergeManaged(rep report.Reporter, m *ManagedConfig, workDir, contextHash string)
 }
 
 // HashedContext is a ContextProvider that exposes the content hash and on-disk
@@ -278,7 +280,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	// AFTER the selection resolves (deliverSet), against these same merged
 	// hooks, so it lands only when the selected context approach actually
 	// rides the hook.
-	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), "")
+	b.lifecycle.MergeManaged(report.To(req.Reporter), req.Managed, b.WorkDir(), "")
 
 	// 2. Read the merged hooks + MCP so the settings/config surfaces write exactly
 	// the merged state. `ok` used to be discarded, so a lifecycle lacking
@@ -300,6 +302,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	}
 
 	inputs := SurfaceInputs{
+		Reporter:         req.Reporter,
 		Context:          assembled,
 		Fragments:        req.Fragments,
 		BundleMCP:        bundleMCP,
@@ -696,7 +699,7 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 		if _, rider := rs.approach.(Rider); !rider {
 			return nil
 		}
-		if !b.installContextInjectionHook(req) {
+		if !b.installContextInjectionHook(report.To(req.Reporter), req) {
 			return fmt.Errorf("failed to install the context-injection hook for surface %s", rs.kind)
 		}
 		return nil
@@ -752,9 +755,9 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 // delivery refuses the launch. It appends ONLY the injection hook
 // (never re-runs MergeManaged, which would clobber the statusline state).
 // Reports whether the install took hold.
-func (b *LaunchBackend) installContextInjectionHook(req *SetupRequest) bool {
+func (b *LaunchBackend) installContextInjectionHook(rep report.Reporter, req *SetupRequest) bool {
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
-		Warn("context-injection hook install: Provide failed: %v", err)
+		rep.Warnf("context-injection hook install: Provide failed: %v", err)
 		return false
 	}
 	hash := b.context.GetContextHash()
@@ -763,11 +766,11 @@ func (b *LaunchBackend) installContextInjectionHook(req *SetupRequest) bool {
 	}
 	hooks, _, ok := b.mergedState()
 	if !ok || hooks == nil {
-		Warn("context-injection hook install: could not read the merged hooks state")
+		rep.Warnf("context-injection hook install: could not read the merged hooks state")
 		return false
 	}
 	hooks.Unified.SessionStart = append(hooks.Unified.SessionStart,
-		NewContextInjectionHooks(hash, b.WorkDir())...)
+		NewContextInjectionHooks(rep, hash, b.WorkDir())...)
 	return true
 }
 

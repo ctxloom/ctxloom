@@ -97,13 +97,13 @@ func selfIdentityFromEnv(projectDir string) coord.Identity {
 // of that listener set — no separate per-harp viewer bind step exists
 // anymore). Children spawned from here reach back over the coordinator's
 // authenticated MCP endpoint exactly like run/acp-hosted ones.
-func newAgentDelegation(app *operations.App) (*agentDelegation, error) {
+func newAgentDelegation(build CoordinatorConstructor, app *operations.App) (*agentDelegation, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
 	}
 	self := selfIdentityFromEnv(cwd)
-	c, err := NewHostedCoordinator(app, cwd, self.Harp)
+	c, err := HostCoordinator(build, app, cwd, self.Harp)
 	if err != nil {
 		return nil, err
 	}
@@ -312,10 +312,10 @@ func (s *ctxServer) delegation() (*agentDelegation, error) {
 	if s.agents != nil {
 		return s.agents, nil
 	}
-	if s.app == nil {
+	if s.app == nil || s.build == nil {
 		return nil, errors.New("agent delegation unavailable: server started without the process composition")
 	}
-	d, err := newAgentDelegation(s.app)
+	d, err := newAgentDelegation(s.build, s.app)
 	if err != nil {
 		return nil, fmt.Errorf("agent delegation unavailable: %w", err)
 	}

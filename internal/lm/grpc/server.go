@@ -14,6 +14,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // LLMGRPCPlugin is the implementation of plugin.GRPCPlugin for AI backends.
@@ -314,6 +316,7 @@ func turnPromptContent(req *RunStart) string {
 func SetupFromRunStart(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) error {
 	opts := req.GetOptions()
 	setupReq := &agent.SetupRequest{
+		Reporter:  strictness.Sink("ctxloom"),
 		WorkDir:   opts.GetWorkDir(),
 		Fragments: convertFragments(req.Fragments),
 		Env:       env,

@@ -109,19 +109,17 @@ func TestDiscover_AgentConnectionLifetime(t *testing.T) {
 	})
 }
 
-// TestDialEnvAgent_ReturnsAClosableAgent proves the mechanism is live on the
+// TestDialAgentAt_ReturnsAClosableAgent proves the mechanism is live on the
 // PRODUCTION path, not merely on a fake that opted in. If the real dialer's
 // agent does not implement io.Closer, everything above passes while the actual
 // socket still leaks.
-func TestDialEnvAgent_ReturnsAClosableAgent(t *testing.T) {
+func TestDialAgentAt_ReturnsAClosableAgent(t *testing.T) {
 	sock := filepath.Join(testsupport.SocketDir(t, "agent.sock"), "agent.sock")
 	ln, err := net.Listen("unix", sock)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
-	t.Setenv("SSH_AUTH_SOCK", sock)
-
-	ag, err := dialEnvAgent()
+	ag, err := dialAgentAt(sock)()
 	require.NoError(t, err)
 
 	closer, ok := ag.(io.Closer)

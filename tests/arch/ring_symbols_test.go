@@ -211,10 +211,10 @@ type pinnedCall struct {
 // session identity is minted by the sessions.Store's AssignHarp through the
 // harp allocator, so both are pinned; their sanctioned callers are the
 // store itself, operations (StartRun's home) and the harp CLI, which mints
-// names, not sessions. config.Open is opened by operations.App (the one
-// owner) until cmd/* composes the process in slice 7; configload.Load is
-// the test-only read and has no sanctioned production caller. coord.New is
-// already the one constructor.
+// names, not sessions. config.Open and coord.New are called only inside the
+// composition root's closures (cmd/ctxloom's compose — cli.Composition);
+// configload.Load is the test-only read and has no sanctioned production
+// caller.
 var pinnedCalls = []pinnedCall{
 	{
 		what: "mints a session identity (AssignHarp / harp.Generate*)",
@@ -235,7 +235,7 @@ var pinnedCalls = []pinnedCall{
 	{
 		what:      "opens the config (config.Open — one owner per process)",
 		match:     func(c *ast.CallExpr) bool { return selectorCall(c, "config", "Open") },
-		permitted: []string{"cmd", "internal/adapters/operations"},
+		permitted: []string{"cmd"},
 	},
 	{
 		what:      "reads the config outside the owner (configload.Load is for tests only)",
@@ -251,12 +251,9 @@ var oneMintOneOwnerAllowed = map[string]string{
 	// asking the store
 	"internal/adapters/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 2 introduces sessions.Mint; coord.Coordinator.AgentRun calls it and the MCP server stops minting",
 
-	// the coordinator is constructed by the MCP server, not the composition root
-	"internal/adapters/mcp/coord_host.go#NewHostedCoordinator": "Part 1.1 one-mint-one-owner: coord.New moves under cmd/*; Part 4.1 names no slice for the move (measured)",
-
 	// the test-only read opens a throwaway owner; its own pin (the
 	// configload.Load entry in pinnedCalls) keeps it out of production
-	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through operations.App",
+	"internal/adapters/configload/sources.go#Load": "sanctioned: configload.Load is the tests' one read; production opens the config through the root's ConfigOpener (cmd/ctxloom compose)",
 
 	// the launch fixture plays the CALLER of launch.Resolve — the one that
 	// mints and hands the identity in — against an in-memory store
@@ -434,7 +431,6 @@ var envReadCalls = [][2]string{
 // mapped to the slice in which the site leaves.
 var envLiteralsOnceAllowed = map[string]string{
 	// re-spelled keys: the drift this rule exists to catch
-	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
 
 	// core reading the environment for itself
 	"internal/core/paths/homeguard.go":       "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
@@ -468,17 +464,15 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
 
 	// isolation: handed HostFacts and a CellRequest
-	"internal/adapters/isolation/container.go":       "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/imagebuild.go":      "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/adapters/isolation/sharedfs.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
-	// leaf adapters Part 1.1 does not permit and no slice names (measured)
-	"internal/adapters/remote/git_publisher.go":      "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
-	"internal/shared/mountns/mountns_linux.go":       "Part 1.1 does not name mountns; its shim scratch dir is a temp read no slice removes — measured",
-	"internal/adapters/signing/agentkey/agentkey.go": "slice 5: the signer's key path is a config.Sources fact, not a home lookup in the signing adapter",
+	// a leaf adapter Part 1.1 does not permit: GitPublisher's working clone is
+	// os.MkdirTemp("", …) — a temp-root read; it takes its root as a value once
+	// the composition carries one (launch.HostFacts has no temp root yet)
+	"internal/adapters/remote/git_publisher.go": "the publisher's scratch root becomes a HostFacts value the composition root supplies; no slice carries a temp root yet (measured)",
 }
 
 // declaredEnvKeys collects the CTXLOOM_* string values of the package-level
@@ -544,7 +538,7 @@ func scanEnvLiterals(t *testing.T) []ringSite {
 			switch node := n.(type) {
 			case *ast.CallExpr:
 				for _, c := range envReadCalls {
-					if selectorCall(node, c[0], c[1]) {
+					if selectorCall(node, c[0], c[1]) && !tempUnderCallersRoot(node) {
 						readsSeen++
 						note(n, "reads the process environment ("+c[0]+"."+c[1]+")")
 					}
@@ -564,6 +558,25 @@ func scanEnvLiterals(t *testing.T) []ringSite {
 		t.Fatal("the walk found no process-environment read anywhere outside envReadHomes — envReadCalls' spellings are stale, not the module clean")
 	}
 	return out
+}
+
+// tempUnderCallersRoot reports whether an os.MkdirTemp / os.CreateTemp call
+// names its own root: only the empty-string dir consults the process
+// environment (os.TempDir); a dir the caller supplies is that caller's value,
+// and the read that produced it is caught where it happened.
+func tempUnderCallersRoot(call *ast.CallExpr) bool {
+	if !selectorCall(call, "os", "MkdirTemp") && !selectorCall(call, "os", "CreateTemp") {
+		return false
+	}
+	if len(call.Args) == 0 {
+		return false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok {
+		return true
+	}
+	v, isString := vocabStringLit(lit)
+	return isString && v != ""
 }
 
 // TestArch_EnvLiteralsOnce is the gate: the CTXLOOM_* keys are spelled once

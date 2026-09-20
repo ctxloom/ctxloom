@@ -25,6 +25,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Deps are the runner's ports, composed once per process.
@@ -47,6 +49,9 @@ type Deps struct {
 	// the package) against the hosted engine's declaration; nil accepts the
 	// engine's default delivery.
 	Surfaces agent.SurfaceResolver
+	// Reporter receives the diagnostics delivering the launch raises; the
+	// runner's composition chooses the sink. Nil discards.
+	Reporter report.Sink
 	// Configure applies the label's own body to the hosted engine before
 	// anything is delivered or driven; nil when the engine takes no
 	// configuration.
@@ -124,9 +129,10 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		closeServed = c
 	}
 	managed := agent.ManagedConfigFor(agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}, l.Exports)
-	agent.PreferSurfaces(managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)
+	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)
 	env := l.EngineEnv()
 	if err := deps.Static.Setup(ctx, &agent.SetupRequest{
+		Reporter:  deps.Reporter,
 		WorkDir:   l.Cell.Workspace,
 		Fragments: contextFragments(pkg),
 		Env:       env,

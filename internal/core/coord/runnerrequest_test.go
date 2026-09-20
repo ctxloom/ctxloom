@@ -39,7 +39,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 			}},
 		}
 	}
-	link, err := DialRunner(context.Background(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", handler)
+	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", handler)
 	require.NoError(t, err)
 	t.Cleanup(link.cancel)
 
@@ -117,7 +117,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	// Give the waiter a moment to register before the runner dials in.
 	time.Sleep(20 * time.Millisecond)
 
-	link, err := DialRunner(context.Background(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err)
 	t.Cleanup(link.cancel)
 

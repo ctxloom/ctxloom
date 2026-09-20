@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // ContextInjectionTimeout is the timeout for the context injection hook in seconds.
@@ -157,7 +159,7 @@ func NewNextStepHook() wire.Hook {
 // hook with the same ChunkContext guarantees write-time and run-time agree on
 // N. Best-effort by design: any read error falls back to the single hook (the
 // runtime hook then emits nothing if the file is truly empty).
-func NewContextInjectionHooks(hash, workDir string) []wire.Hook {
+func NewContextInjectionHooks(rep report.Reporter, hash, workDir string) []wire.Hook {
 	content, err := ReadContextFile(workDir, hash)
 	if err != nil {
 		// This was a bare `_`, so a read failure right after the
@@ -166,9 +168,9 @@ func NewContextInjectionHooks(hash, workDir string) []wire.Hook {
 		// truncation ContextChunkMaxChars exists to prevent. The best-effort
 		// single-hook fallback is still correct (the runtime hook re-reads the
 		// file itself when it fires) — only the silence was the defect.
-		Warn("context injection hook for %s: %v — falling back to a single whole-content hook", hash, err)
+		rep.Warnf("context injection hook for %s: %v — falling back to a single whole-content hook", hash, err)
 	}
-	chunks := ChunkContext(content)
+	chunks := ChunkContext(rep, content)
 	if len(chunks) <= 1 {
 		return []wire.Hook{NewContextInjectionHook(hash)}
 	}
@@ -192,8 +194,8 @@ func shellSingleQuote(s string) string {
 // package's diagnostic channel: a nil DEST is a caller error, and a non-empty
 // set going missing is warned rather than leaving the session running with
 // none of its configured hooks and nothing said.
-func MergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
+func MergeHooksConfig(rep report.Reporter, dest *wire.HooksConfig, src *wire.HooksConfig) {
 	if n := wire.MergeHooksConfig(dest, src); n > 0 {
-		Warn("hook merge has no destination hook set: dropping %d configured hook(s); this is a caller error, not a configuration one", n)
+		rep.Warnf("hook merge has no destination hook set: dropping %d configured hook(s); this is a caller error, not a configuration one", n)
 	}
 }

@@ -18,12 +18,13 @@ import (
 func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]string) *Home {
 	t.Helper()
 	h, err := NewHome(context.Background(), HomeConfig{
-		URL:     env[EnvCoordURL],
-		Token:   env[EnvCoordCred],
-		RunID:   runID,
-		Harness: "mock",
-		Version: "test",
-		Harp:    env["CTXLOOM_SESSION_HARP"],
+		Reporter: termSink(),
+		URL:      env[EnvCoordURL],
+		Token:    env[EnvCoordCred],
+		RunID:    runID,
+		Harness:  "mock",
+		Version:  "test",
+		Harp:     env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
@@ -74,12 +75,13 @@ func TestRequest_NeverAttachedIsUnreachable(t *testing.T) {
 	env := waitForChildEnv(t, c, out.RunID)
 
 	h, err := NewHome(context.Background(), HomeConfig{
-		URL:     env[EnvCoordURL],
-		Token:   env[EnvCoordCred],
-		RunID:   "run-not-mine", // Hello is rejected; the channel never attaches
-		Harness: "mock",
-		Version: "test",
-		Harp:    env["CTXLOOM_SESSION_HARP"],
+		Reporter: termSink(),
+		URL:      env[EnvCoordURL],
+		Token:    env[EnvCoordCred],
+		RunID:    "run-not-mine", // Hello is rejected; the channel never attaches
+		Harness:  "mock",
+		Version:  "test",
+		Harp:     env["CTXLOOM_SESSION_HARP"],
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })

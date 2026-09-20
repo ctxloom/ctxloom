@@ -2,6 +2,8 @@ package agent
 
 import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // BaseLifecycle provides shared lifecycle handler logic for backends: it folds
@@ -35,18 +37,18 @@ func NewBaseLifecycle(backendName string) *BaseLifecycle {
 // failure class that once broke forward-bind. The context-injection hook is
 // appended here from the plugin-side contextHash, the one piece only the agent
 // knows.
-func (l *BaseLifecycle) MergeManaged(m *ManagedConfig, workDir string, contextHash string) {
+func (l *BaseLifecycle) MergeManaged(rep report.Reporter, m *ManagedConfig, workDir string, contextHash string) {
 	if m == nil {
 		return
 	}
 	l.ensureHooks()
 
 	if m.Hooks != nil {
-		MergeHooksConfig(l.hooks, m.Hooks)
+		MergeHooksConfig(rep, l.hooks, m.Hooks)
 	}
 	if contextHash != "" {
 		l.hooks.Unified.SessionStart = append(l.hooks.Unified.SessionStart,
-			NewContextInjectionHooks(contextHash, workDir)...)
+			NewContextInjectionHooks(rep, contextHash, workDir)...)
 	}
 
 	// Bundle MCP servers are the WHOLE managed set — every MCP server, ctxloom's

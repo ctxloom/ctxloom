@@ -29,7 +29,7 @@ func TestSendTerminal_DropAfterExhaustion_LogsTheDroppedRun(t *testing.T) {
 	ch := make(chan *agentcoordpb.AgentEvent, 1)
 	ch <- terminalEvent(1, "run-other") // a terminal that must not be evicted → no slot ever frees
 
-	sendTerminal(&watchSub{ch: ch}, terminalEvent(2, "run-dropped"))
+	sendTerminal(termRep(), &watchSub{ch: ch}, terminalEvent(2, "run-dropped"))
 
 	out := buf.String()
 	require.NotEmpty(t, out,

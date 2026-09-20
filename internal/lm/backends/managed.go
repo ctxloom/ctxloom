@@ -102,16 +102,16 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // merge used to discard at every step, and it is what any project-level hook
 // ORDERING has to act on. Writers take the projection, ManagedHooks.Wire, which
 // is byte-for-byte the wire config this function used to return.
-func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *ManagedHooks {
+func AssembleManagedHooks(rep report.Reporter, cfg *config.Config, workDir, contextHash string, profileNames []string) *ManagedHooks {
 	if cfg == nil {
 		return newManagedHooks()
 	}
-	return AssembleManagedHooksFor(cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
+	return AssembleManagedHooksFor(rep, cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
 }
 
 // AssembleManagedHooksFor is AssembleManagedHooks over an already resolved
 // profile set — the one assembly resolved, so its faults are reported once.
-func AssembleManagedHooksFor(cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *ManagedHooks {
+func AssembleManagedHooksFor(rep report.Reporter, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *ManagedHooks {
 	hooks := newManagedHooks()
 	if cfg == nil {
 		return hooks
@@ -136,7 +136,7 @@ func AssembleManagedHooksFor(cfg *config.Config, workDir, contextHash string, se
 		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(hooks, cfg, workDir, contextHash, set)
+	appendManagedDynamicHooks(rep, hooks, cfg, workDir, contextHash, set)
 	return hooks
 }
 
@@ -150,7 +150,7 @@ func AssembleManagedHooksFor(cfg *config.Config, workDir, contextHash string, se
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
+func appendManagedDynamicHooks(rep report.Reporter, m *ManagedHooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
 	if m == nil || cfg == nil {
 		return
 	}
@@ -182,7 +182,7 @@ func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, con
 		fixedSource(HookSource{Origin: HookOriginContext}))
 	if contextHash != "" {
 		m.mergeUnified(
-			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(contextHash, workDir)},
+			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(rep, contextHash, workDir)},
 			fixedSource(HookSource{Origin: HookOriginContext}))
 	}
 }

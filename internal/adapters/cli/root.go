@@ -16,10 +16,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -47,11 +49,34 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// theApp is the process's composition: the one config.Owner and the
-// per-invocation switches, built by rootPersistentPreRun from the invoked
-// command's parsed flags and the environment. Every command reaches
-// configuration through it — one owner, one generation per operation.
-var theApp *operations.App
+// Composition is what the composition root (cmd/ctxloom) decides once per
+// process and hands to Run: the Reporter every component reports through,
+// the one way to open the config owner and the one way to construct the
+// runtime coordinator. config.Open and coord.New are called only inside the
+// root's closures (the one-mint-one-owner rule); the CLI parses flags and
+// renders, and the application services compose from what it was handed.
+type Composition struct {
+	Reporter       report.Sink
+	OpenConfig     operations.ConfigOpener
+	NewCoordinator func(coord.Options) (*coord.Coordinator, error)
+}
+
+// theComposition is the root's Composition for this process; theApp is the
+// App composed over it — the one config.Owner and the per-invocation
+// switches, built by rootPersistentPreRun from the invoked command's parsed
+// flags and the environment. Every command reaches configuration through
+// theApp — one owner, one generation per operation.
+var (
+	theComposition Composition
+	theApp         *operations.App
+)
+
+// NewCoordinator is the root's coordinator constructor, with the root's
+// Reporter applied; the mcp hosting helpers take it as a parameter.
+func NewCoordinator(opts coord.Options) (*coord.Coordinator, error) {
+	opts.Reporter = theComposition.Reporter
+	return theComposition.NewCoordinator(opts)
+}
 
 // App returns the process's composition. A command reached without the root's
 // PersistentPreRun (a test driving RunE directly) composes from the process
@@ -80,7 +105,7 @@ func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode 
 	if err != nil {
 		clidiag.Warn("ctxloom", "config overrides: %v", err)
 	}
-	theApp = operations.NewApp(src, noCompanions, mode)
+	theApp = operations.NewApp(src, noCompanions, mode, theComposition.OpenConfig, theComposition.Reporter)
 }
 
 // strictnessMode is the posture this invocation runs under. Degraded comes
@@ -301,7 +326,8 @@ var rootAssembly sync.Once
 // the caller gets no chance to clean up after, so any process-wide resource
 // main installed (the zap logger's sinks) would be dropped on exactly the runs
 // that failed. Returning the code keeps the exit and the teardown in one frame.
-func Run() int {
+func Run(comp Composition) int {
+	theComposition = comp
 	// Compose the shipped engines before any command can read the registry.
 	// A refused declaration is a startup failure that names the engine and
 	// slot — never a silently empty registry.

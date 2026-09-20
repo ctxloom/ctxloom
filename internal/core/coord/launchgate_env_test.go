@@ -44,8 +44,8 @@ func TestEnvLaunchReaders_AgreeOnEveryFallbackClass(t *testing.T) {
 
 	for _, c := range envFallbackCases {
 		t.Run(c.name, func(t *testing.T) {
-			gotInt := withEnvTunable(t, c.raw, c.set, func() int { return envLaunchInt(envTunableName, defInt) })
-			gotDur := withEnvTunable(t, c.raw, c.set, func() time.Duration { return envLaunchDuration(envTunableName, defDur) })
+			gotInt := withEnvTunable(t, c.raw, c.set, func() int { return envLaunchInt(termRep(), envTunableName, defInt) })
+			gotDur := withEnvTunable(t, c.raw, c.set, func() time.Duration { return envLaunchDuration(termRep(), envTunableName, defDur) })
 
 			assert.Equal(t, defInt, gotInt.value, "integer reader must fall back on a %s value", c.name)
 			assert.Equal(t, defDur, gotDur.value, "duration reader must fall back on a %s value", c.name)
@@ -56,12 +56,12 @@ func TestEnvLaunchReaders_AgreeOnEveryFallbackClass(t *testing.T) {
 }
 
 func TestEnvLaunchReaders_PositiveValueWinsSilently(t *testing.T) {
-	gotInt := withEnvTunable(t, "9", true, func() int { return envLaunchInt(envTunableName, 4) })
+	gotInt := withEnvTunable(t, "9", true, func() int { return envLaunchInt(termRep(), envTunableName, 4) })
 	assert.Equal(t, 9, gotInt.value)
 	assert.False(t, gotInt.warned, "an accepted value is silent")
 
 	gotDur := withEnvTunable(t, "1500ms", true, func() time.Duration {
-		return envLaunchDuration(envTunableName, 200*time.Millisecond)
+		return envLaunchDuration(termRep(), envTunableName, 200*time.Millisecond)
 	})
 	assert.Equal(t, 1500*time.Millisecond, gotDur.value)
 	assert.False(t, gotDur.warned, "an accepted value is silent")
@@ -71,13 +71,13 @@ func TestEnvLaunchReaders_PositiveValueWinsSilently(t *testing.T) {
 // whole point of the loud fallback — it must say which variable was rejected,
 // what it said, and what is being used instead.
 func TestEnvLaunchReaders_WarningNamesVariableValueAndDefault(t *testing.T) {
-	gotInt := withEnvTunable(t, "nope", true, func() int { return envLaunchInt(envTunableName, 4) })
+	gotInt := withEnvTunable(t, "nope", true, func() int { return envLaunchInt(termRep(), envTunableName, 4) })
 	assert.Contains(t, gotInt.warning, envTunableName)
 	assert.Contains(t, gotInt.warning, `"nope"`)
 	assert.Contains(t, gotInt.warning, "4")
 
 	gotDur := withEnvTunable(t, "nope", true, func() time.Duration {
-		return envLaunchDuration(envTunableName, 200*time.Millisecond)
+		return envLaunchDuration(termRep(), envTunableName, 200*time.Millisecond)
 	})
 	assert.Contains(t, gotDur.warning, envTunableName)
 	assert.Contains(t, gotDur.warning, `"nope"`)
@@ -91,7 +91,7 @@ func TestResolveLaunchTunables_ReadsAllThreeOverrides(t *testing.T) {
 	t.Setenv(EnvLaunchBackoffBase, "1s")
 	t.Setenv(EnvLaunchBackoffMax, "2m")
 
-	attempts, base, ceiling := resolveLaunchTunables()
+	attempts, base, ceiling := resolveLaunchTunables(termRep())
 	assert.Equal(t, 7, attempts)
 	assert.Equal(t, time.Second, base)
 	assert.Equal(t, 2*time.Minute, ceiling)
@@ -108,7 +108,7 @@ func TestResolveLaunchTunables_UnconfiguredIsTheDocumentedDefaultSet(t *testing.
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	attempts, base, ceiling := resolveLaunchTunables()
+	attempts, base, ceiling := resolveLaunchTunables(termRep())
 	assert.Equal(t, defaultMaxLaunchAttempts, attempts)
 	assert.Equal(t, defaultLaunchBackoffBase, base)
 	assert.Equal(t, defaultLaunchBackoffMax, ceiling)

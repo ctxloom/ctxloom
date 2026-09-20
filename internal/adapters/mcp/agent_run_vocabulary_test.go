@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -27,7 +28,7 @@ func agentRunSurfaces(t *testing.T) map[string]map[string]any {
 	require.True(t, ok, "agent_run must have a generated schema")
 	out["generated (proto-canonical, runner surface)"] = decodeSchema(t, generated.InputSchema)
 
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig()), build: coord.New}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 	stdioTool, ok := listServerTools(t, server)[mcpschema.ToolAgentRun]
@@ -108,7 +109,7 @@ func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
 	// no raw os.Chdir).
 	testsupport.ProjectDir(t)
 
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig()), build: coord.New}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 

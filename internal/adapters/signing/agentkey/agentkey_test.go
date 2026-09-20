@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -434,33 +433,41 @@ func TestIsHardwareBacked(t *testing.T) {
 	assert.False(t, IsHardwareBacked(nil))
 }
 
-// TestExpandHome pins expandHome's use of filepath.Join, replacing a
-// hand-rolled twin whose stated rationale ("avoids importing path/filepath for
-// one call site twice") was false. The two differ on real inputs — the twin
-// produced a TRAILING SEPARATOR for a bare "~" (home + sep + "") and never
-// cleaned the result — so pin the shape the caller actually needs: a clean,
-// separator-correct absolute path, and a non-tilde path returned untouched.
+// TestExpandHome pins expandHome's shape: a clean, separator-correct absolute
+// path under the HOME THE CALLER HANDS IN (the composition's fact, never a
+// read of the discoverer's own), a non-tilde path returned untouched, and a
+// tilde with no home to expand against refused rather than left in place.
 func TestExpandHome(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skipf("no home dir in this environment: %v", err)
-	}
+	const home = "/home/someone"
 
-	got, err := expandHome("~")
+	got, err := expandHome(home, "~")
 	require.NoError(t, err)
 	if got != home {
 		t.Errorf("expandHome(%q) = %q, want %q (no trailing separator)", "~", got, home)
 	}
-	got, err = expandHome("~/.ssh/id_ed25519")
+	got, err = expandHome(home, "~/.ssh/id_ed25519")
 	require.NoError(t, err)
 	if want := filepath.Join(home, ".ssh/id_ed25519"); got != want {
 		t.Errorf("expandHome(~/.ssh/id_ed25519) = %q, want %q", got, want)
 	}
 	for _, p := range []string{"/abs/path/key", "relative/key", "", "~notauser/key"} {
-		got, err := expandHome(p)
-		require.NoError(t, err, "a path with no leading ~ never consults $HOME")
+		got, err := expandHome("", p)
+		require.NoError(t, err, "a path with no leading ~ needs no home")
 		if got != p {
 			t.Errorf("expandHome(%q) = %q, want it returned untouched", p, got)
 		}
 	}
+	_, err = expandHome("", "~/.ssh/key")
+	require.Error(t, err, "a tilde with no home handed in is an error, not a literal path segment")
+}
+
+// The discoverer dials the ssh-agent socket its composition handed it, never
+// one it read from its own environment; no socket means no agent.
+func TestNewDiscoverer_DialsTheHandedSocket(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "absent.sock")
+	_, err := NewDiscoverer(Env{AgentSocket: sock}).dialAgent()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), sock)
+	_, err = NewDiscoverer(Env{}).dialAgent()
+	require.Error(t, err, "no socket handed in means no ssh-agent to sign with")
 }

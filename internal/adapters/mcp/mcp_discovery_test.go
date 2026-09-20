@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -244,7 +245,7 @@ func TestMCPDiscovery_FailsLoudWhenExpectedRunnerIsUnreachable(t *testing.T) {
 	// context, the cwd, and the fail-loud gate), and it returns this error
 	// before ever touching stdio (no risk of the test hanging on stdin), so
 	// this is the real wiring, not a stand-in for it.
-	runErr := ServeStdio(context.Background(), nil, cellDir, nil, false)
+	runErr := ServeStdio(context.Background(), nil, coord.New, cellDir, nil, false)
 	require.Error(t, runErr, "the shim must fail loud, not silently fall back to a local coordinator")
 	assert.Contains(t, runErr.Error(), "refusing to silently start a local coordinator")
 	assert.Contains(t, runErr.Error(), deadSocket, "the error must name the unreachable socket")

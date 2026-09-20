@@ -10,6 +10,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // This file is the type-level FOUNDATION of ctxloom's unified surface-delivery
@@ -242,6 +244,9 @@ type KindedDelivery interface {
 // IT needs. It is the cross-backend contract that lets the generic Setup build
 // any engine's approaches without importing the concrete engine.
 type SurfaceInputs struct {
+	// Reporter is where the approaches built from these inputs report; the
+	// engine forwards it into its writers. Nil discards.
+	Reporter         report.Sink
 	Context          string
 	Fragments        []*Fragment
 	BundleMCP        map[string]wire.MCPServer
@@ -409,7 +414,7 @@ func (s *SurfaceSelection) WithEverything() *SurfaceSelection {
 // selected in the SAME Build: delivered alone it would write nothing and
 // report success.
 func (s *SurfaceSelection) Build(in SurfaceInputs, fs afero.Fs) (*ResolvedSelection, error) {
-	r := &ResolvedSelection{decl: s.decl}
+	r := &ResolvedSelection{rep: report.To(in.Reporter), decl: s.decl}
 	for _, k := range surfaceOrder {
 		name, ok := s.names[k]
 		if !ok {
@@ -488,6 +493,7 @@ func (k kindedResolvedDelivery) Kind() SurfaceKind { return k.kind }
 // (the launch path) may instead read Deliveries() directly and drive its own
 // cell.
 type ResolvedSelection struct {
+	rep      report.Reporter
 	decl     Declaration
 	surfaces []resolvedSurface
 }
@@ -625,6 +631,6 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, start present.S
 	if n, ok := rs.approach.(unsafeNamed); ok {
 		info = n.UnsafeInfo()
 	}
-	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
+	r.rep.Warnf("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
 	return rs.approach.Deliver(start)
 }

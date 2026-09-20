@@ -51,7 +51,8 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	h, err := NewHome(ctx, HomeConfig{
-		URL: url, Token: token, Harness: "test", Version: "test",
+		Reporter: termSink(),
+		URL:      url, Token: token, Harness: "test", Version: "test",
 		Capabilities: RunnerCapabilities(true),
 		Harp:         "child-harp-1",
 	})

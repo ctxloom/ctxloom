@@ -5,6 +5,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // fileTemplateDelivery is claude's file-template delivery strategy for the
@@ -31,6 +33,8 @@ type fileTemplateDelivery struct {
 	// — it is irrelevant to DeliverMCP/DeliverSettings and left false
 	// everywhere else.
 	selfContainedCommands bool
+	// reporter is where WriteCommandFiles reports the commands it skips.
+	reporter report.Sink
 	// denyTools, when non-empty, is unioned into the settings surface's
 	// permissions.deny (see writeSettingsFile / mergeDenyTools). Only
 	// settingsSurface.Deliver/DeliverIsolated set this (from
@@ -56,7 +60,7 @@ func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery
 // reprise:accept-drift
 func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs}
+	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter}
 	if err := w.writeMCPConfig(dir, bundle); err != nil {
 		return nil, err
 	}
@@ -90,7 +94,7 @@ func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (age
 func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (agent.Delivered, error) {
 	dir := d.place.Dir()
 	fs := d.fs
-	opts := []agent.CommandFileOption{agent.WithCommandFS(fs)}
+	opts := []agent.CommandFileOption{agent.WithCommandFS(fs), agent.WithReporter(d.reporter)}
 	if !d.selfContainedCommands {
 		if home, err := GlobalCommandsDir(); err == nil && home != "" {
 			opts = append(opts, agent.WithHomeCommandsDir(home))
@@ -118,7 +122,7 @@ func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (
 // surface).
 func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, statusLineDisabled: !manageStatusline}
+	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter, statusLineDisabled: !manageStatusline}
 	if err := w.writeSettingsFile(hooks, d.denyTools, dir); err != nil {
 		return nil, err
 	}

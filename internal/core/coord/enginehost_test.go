@@ -370,7 +370,7 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 
 // newTestEngineHost is NewEngineHost with the test runner bound.
 func newTestEngineHost(ctx context.Context, backend agent.StructuredChat, harness, runID string) *EngineHost {
-	eh := NewEngineHost(ctx, backend, harness, runID)
+	eh := NewEngineHost(ctx, nil, backend, harness, runID)
 	eh.BindRunner(testRunner{eh: eh})
 	return eh
 }

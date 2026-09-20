@@ -137,7 +137,7 @@ func TestWriteItemsSnapshot_RoundTrips(t *testing.T) {
 		CoversThroughSeq: 1,
 	})
 
-	snap, ok := loadItemsSnapshot(c.stateDir)
+	snap, ok := loadItemsSnapshot(termRep(), c.stateDir)
 	require.True(t, ok, "a SCOPE_CHECKPOINT report must produce a loadable snapshot file")
 
 	var live itemsSnapshot

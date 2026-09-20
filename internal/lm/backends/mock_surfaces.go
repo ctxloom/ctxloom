@@ -138,7 +138,7 @@ func mockSkillsPath(dir string) string {
 // here; this function contributes a directory and a manifest name.
 func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 	return agent.NewManagedSkillPackagesDelivery("mock/skills", mockSkillsDirName, in.Skills, func(dir string, skills []agent.SkillExport) error {
-		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills)
+		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills, agent.WithWriteReporter(in.Reporter))
 	})
 }
 
@@ -331,7 +331,7 @@ func newMockCommandsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach 
 		return agent.WriteManagedCommandFiles(agent.GetFS(fs), mockCommandsPath(dir), cmds,
 			func(c agent.CommandExport) (string, []byte, error) {
 				return filepath.Base(c.Name) + ".md", []byte(c.Content), nil
-			})
+			}, agent.WithWriteReporter(in.Reporter))
 	})
 }
 

@@ -4,7 +4,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Plane-1 ITEM journaling (Wave C1, per the pre-made journaling decision):
@@ -120,7 +119,7 @@ func (c *Coordinator) flushItems(ch *runChan) {
 	c.mu.Unlock()
 	if len(facts) > 0 {
 		if err := c.items.Exec(func() ([]Fact, error) { return facts, nil }); err != nil {
-			clidiag.Warn("ctxloom", "coordinator: journal %d item events for %s: %v (unacked; the runner re-emits)", len(facts), ch.role, err)
+			c.rep.Warnf("coordinator: journal %d item events for %s: %v (unacked; the runner re-emits)", len(facts), ch.role, err)
 			// Put the facts BACK instead of dropping them — the
 			// old behavior both lost them permanently (they existed in no
 			// buffer, no journal, nowhere) AND let a LATER successful flush

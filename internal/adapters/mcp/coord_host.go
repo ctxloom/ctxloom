@@ -26,7 +26,14 @@ import (
 // ownerHarp is the session owner's harp — the inbox this process drains
 // (coord.Options.OwnerHarp); every hosting site knows it before standing the
 // coordinator up.
-func NewHostedCoordinator(app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+// CoordinatorConstructor is the composition root's way to construct the
+// runtime coordinator (cli.NewCoordinator in production, coord.New in
+// tests): coord.New is called only under cmd/*.
+type CoordinatorConstructor func(coord.Options) (*coord.Coordinator, error)
+
+// HostCoordinator assembles the hosted coordinator's Options from the App's
+// config and asks the composition to construct it, then serves it.
+func HostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, error) {
 	cfg, err := app.Config(context.Background())
 	if err != nil {
 		return nil, err
@@ -35,7 +42,7 @@ func NewHostedCoordinator(app *operations.App, projectDir, ownerHarp string) (*c
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
 	} // best-effort: "" falls back to a path-derived key inside coord.New
-	c, err := coord.New(coord.Options{
+	c, err := build(coord.Options{
 		App:        app,
 		ProjectDir: projectDir,
 		ProjectKey: key,
@@ -170,8 +177,8 @@ var _ coord.HostApp = (*HostApp)(nil)
 // spool stamps) returned for injection at launch. A standup failure returns
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
-func HostCoordinatorForSession(app *operations.App, projectDir, ownerHarp string, runtimeAxis launch.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
-	c, err := NewHostedCoordinator(app, projectDir, ownerHarp)
+func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, runtimeAxis launch.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
+	c, err := HostCoordinator(build, app, projectDir, ownerHarp)
 	if err != nil {
 		return nil, nil, err
 	}

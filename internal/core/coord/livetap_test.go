@@ -181,7 +181,7 @@ func (noDelivery) Setup(context.Context, *agent.SetupRequest) error { return nil
 // via the SAME exported constructors it uses internally.
 func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
 	sctx, cancel := context.WithCancel(ctx)
-	host := coord.NewEngineHost(sctx, s.chat, plan.Backend, runnerEnv[coord.EnvRunID])
+	host := coord.NewEngineHost(sctx, nil, s.chat, plan.Backend, runnerEnv[coord.EnvRunID])
 	host.BindRunner(runner.Host{Deps: runner.Deps{
 		Engine:     engine.Name(plan.Backend),
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},

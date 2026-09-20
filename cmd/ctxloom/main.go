@@ -9,10 +9,12 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 func main() {
@@ -29,7 +31,7 @@ func main() {
 	// this runs BEFORE zap.ReplaceGlobals below; a warning handed to the
 	// not-yet-installed global logger would be dropped, and a bypass nobody
 	// hears is indistinguishable from hardening that silently failed.
-	procsec.HardenAtStartup("ctxloom")
+	procsec.HardenAtStartup("ctxloom", sessions.EnvCoordCred)
 
 	// Become the mount shim, if that is what this process was spawned to be.
 	// A re-exec of ourselves is the only way to run code between clone(2) and
@@ -50,7 +52,8 @@ func main() {
 	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1), dispatch, flush,
 	// exit — in that order, and with the exit as the LAST thing this process
 	// does. See runCLI for why the flush cannot be a defer.
-	os.Exit(runCLI(loggerConstructor(envSwitchOn("CTXLOOM_VERBOSE", os.Stderr)), cli.Run, os.Stderr))
+	comp := compose(strictness.Sink("ctxloom"))
+	os.Exit(runCLI(loggerConstructor(envSwitchOn("CTXLOOM_VERBOSE", os.Stderr)), func() int { return cli.Run(comp) }, os.Stderr))
 }
 
 // runCLI installs the process-wide logger, dispatches, then flushes the

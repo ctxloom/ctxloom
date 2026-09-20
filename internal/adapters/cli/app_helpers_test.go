@@ -12,6 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
 
@@ -22,7 +24,21 @@ import (
 // inherits the composition a previous test opened.
 func resetApp() { theApp = nil }
 
-func init() { taskstest.RegisterIsolateHook(resetApp) }
+// testComposition stands in for cmd/ctxloom's root in this package's tests:
+// a command driven without Run composes over it. The constructors are the
+// bare ones — a test process opens many owners and coordinators.
+func testComposition() Composition {
+	return Composition{
+		Reporter:       strictness.Sink("ctxloom"),
+		OpenConfig:     config.Open,
+		NewCoordinator: coord.New,
+	}
+}
+
+func init() {
+	theComposition = testComposition()
+	taskstest.RegisterIsolateHook(resetApp)
+}
 
 // testApp opens a composition over the real reader with opts and installs
 // it as the process's for the test's duration.

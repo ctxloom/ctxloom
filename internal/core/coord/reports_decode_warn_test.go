@@ -31,7 +31,7 @@ func TestReportsFold_UndecodableFactWarns(t *testing.T) {
 			restore := clidiag.SetSink(&buf)
 			defer restore()
 
-			f := newReportsFold()
+			f := newReportsFold(termRep())
 			// A payload of the wrong JSON shape is what a truncated or
 			// partially-written journal line decodes to.
 			f.apply(Fact{Kind: tc.kind, At: time.Now(), Data: []byte(`"not-an-object"`)})
@@ -52,7 +52,7 @@ func TestReportsFold_DecodableFactIsSilent(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	f := newReportsFold()
+	f := newReportsFold(termRep())
 	f.apply(summaryFactAt("child-a", "run-1", 1, "fine"))
 	f.apply(artifactFactAt("child-a", "plan", 1, "sha-one"))
 

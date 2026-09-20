@@ -11,10 +11,10 @@ import (
 // TestChunkContext_EmptyAndSmall covers the fast paths: empty content yields no
 // chunks, and content already within the cap is returned whole as one chunk.
 func TestChunkContext_EmptyAndSmall(t *testing.T) {
-	assert.Nil(t, ChunkContext(""), "empty content must yield no chunks")
+	assert.Nil(t, ChunkContext(termRep(), ""), "empty content must yield no chunks")
 
 	small := "# Tiny\nshort body"
-	got := ChunkContext(small)
+	got := ChunkContext(termRep(), small)
 	require.Len(t, got, 1, "content under the cap must be a single chunk")
 	assert.Equal(t, small, got[0])
 }
@@ -31,7 +31,7 @@ func TestChunkContext_SplitsOnSections(t *testing.T) {
 	}
 	content := strings.Join(sections, contextSectionSep)
 
-	chunks := ChunkContext(content)
+	chunks := ChunkContext(termRep(), content)
 	require.Greater(t, len(chunks), 1, "multi-section oversized content must split")
 
 	for i, c := range chunks {
@@ -49,7 +49,7 @@ func TestChunkContext_OversizedSectionLineSplit(t *testing.T) {
 	section := "# Big\n" + strings.Repeat("a line of text here\n", 800) // ~16KB
 	require.Greater(t, len(section), ContextChunkMaxChars)
 
-	chunks := ChunkContext(section)
+	chunks := ChunkContext(termRep(), section)
 	require.Greater(t, len(chunks), 1, "oversized single section must line-split")
 
 	for i, c := range chunks {
@@ -66,7 +66,7 @@ func TestChunkContext_OversizedSectionLineSplit(t *testing.T) {
 // line longer than the cap is emitted whole rather than cut mid-line.
 func TestChunkContext_LongLineEmittedWhole(t *testing.T) {
 	long := "# X\n" + strings.Repeat("z", ContextChunkMaxChars+500) // one giant line
-	chunks := ChunkContext(long)
+	chunks := ChunkContext(termRep(), long)
 	require.NotEmpty(t, chunks)
 	joined := strings.Join(chunks, "\n")
 	assert.Equal(t, long, joined, "content must be preserved even when a line exceeds the cap")

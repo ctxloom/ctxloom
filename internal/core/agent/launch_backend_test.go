@@ -17,6 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // recordLifecycle captures the contextHash MergeManaged receives so Setup tests
@@ -33,7 +35,7 @@ type recordLifecycle struct {
 	bundleMCP   map[string]wire.MCPServer
 }
 
-func (r *recordLifecycle) MergeManaged(m *ManagedConfig, _ string, contextHash string) {
+func (r *recordLifecycle) MergeManaged(_ report.Reporter, m *ManagedConfig, _ string, contextHash string) {
 	r.merged = true
 	r.contextHash = contextHash
 	if m != nil {
@@ -51,7 +53,7 @@ func (r *recordLifecycle) GetBundleMCP() map[string]wire.MCPServer { return r.bu
 // mergedState() ok=false branch gets exercised at all.
 type noAccessorLifecycle struct{}
 
-func (noAccessorLifecycle) MergeManaged(*ManagedConfig, string, string) {}
+func (noAccessorLifecycle) MergeManaged(report.Reporter, *ManagedConfig, string, string) {}
 
 // ---- cell-seam test doubles --------------------------------------------------
 

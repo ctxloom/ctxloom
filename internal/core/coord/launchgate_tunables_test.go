@@ -26,7 +26,7 @@ func TestResolveLaunchTunables_UnsetEnvUsesDefaults(t *testing.T) {
 	t.Setenv(EnvLaunchBackoffBase, "")
 	t.Setenv(EnvLaunchBackoffMax, "")
 
-	maxAttempts, backoffBase, backoffMax := resolveLaunchTunables()
+	maxAttempts, backoffBase, backoffMax := resolveLaunchTunables(termRep())
 
 	assert.Equal(t, defaultMaxLaunchAttempts, maxAttempts)
 	assert.Equal(t, defaultLaunchBackoffBase, backoffBase)
@@ -40,7 +40,7 @@ func TestResolveLaunchTunables_ValidEnvOverrides(t *testing.T) {
 	t.Setenv(EnvLaunchBackoffBase, "500ms")
 	t.Setenv(EnvLaunchBackoffMax, "1m")
 
-	maxAttempts, backoffBase, backoffMax := resolveLaunchTunables()
+	maxAttempts, backoffBase, backoffMax := resolveLaunchTunables(termRep())
 
 	assert.Equal(t, 9, maxAttempts)
 	assert.Equal(t, 500*time.Millisecond, backoffBase)
@@ -63,7 +63,7 @@ func TestResolveLaunchTunables_GarbageIntFallsBackToDefaultWithWarning(t *testin
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	maxAttempts, _, _ := resolveLaunchTunables()
+	maxAttempts, _, _ := resolveLaunchTunables(termRep())
 
 	require.NotEqual(t, 0, maxAttempts, "an invalid override must never silently become zero")
 	assert.Equal(t, defaultMaxLaunchAttempts, maxAttempts)
@@ -84,7 +84,7 @@ func TestResolveLaunchTunables_ZeroIntFallsBackToDefaultWithWarning(t *testing.T
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	maxAttempts, _, _ := resolveLaunchTunables()
+	maxAttempts, _, _ := resolveLaunchTunables(termRep())
 
 	assert.Equal(t, defaultMaxLaunchAttempts, maxAttempts, "a zero override must fall back to the default, not disable the ceiling")
 	assert.Contains(t, buf.String(), EnvLaunchMaxAttempts)
@@ -102,7 +102,7 @@ func TestResolveLaunchTunables_GarbageDurationFallsBackToDefaultWithWarning(t *t
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	_, backoffBase, backoffMax := resolveLaunchTunables()
+	_, backoffBase, backoffMax := resolveLaunchTunables(termRep())
 
 	require.NotZero(t, backoffBase, "an invalid override must never silently become a zero backoff")
 	require.NotZero(t, backoffMax, "an invalid override must never silently become a zero backoff")

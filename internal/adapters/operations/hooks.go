@@ -581,7 +581,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 	// takes its Wire() projection. Ordering and provenance stay in the model, so
 	// what `manage hooks list` reports and what lands in this backend's settings
 	// file are the same resolution, read twice.
-	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil).Wire()
+	hooksCfg := backends.AssembleManagedHooks(terminalReporter(), p.freshCfg, p.workDir, p.contextHash, nil).Wire()
 	settings := p.freshCfg.GetSettings()
 
 	decl := backends.Declared(backendName)

@@ -42,7 +42,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(appDir, "profiles", name+".yaml"), []byte(doc), 0o644))
 			}
 		}
-		return newProdSpawner(spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	hasCtxloom := func(servers []agent.ChatMCPServer) bool {

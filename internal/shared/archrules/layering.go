@@ -172,8 +172,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/coord -> internal/adapters/operations":          "slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp",
 			"internal/core/coord -> internal/adapters/transcript":          "slice 14a: the engine-host files move to adapters/runner",
 			"internal/core/coord -> internal/shared/envswitch":             "Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env",
-			"internal/core/coord -> internal/shared/clidiag":               "slice 15: clidiag becomes typed reports",
-			"internal/core/coord -> internal/shared/strictness":            "slice 15: strictness becomes a value",
 
 			// coord/coordtest is the in-process runner double compiled into no binary;
 			// Part 1.0 does not mention it. It stands up the real runner half, so it
@@ -185,8 +183,7 @@ var LayeringRules = []LayeringRule{
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
 			// excepted, so those two are not violations.
-			"internal/core/agent -> internal/shared/ledger":  "slice 12: shared/ledger is deleted",
-			"internal/core/agent -> internal/shared/clidiag": "slice 15: clidiag becomes typed reports",
+			"internal/core/agent -> internal/shared/ledger": "slice 12: shared/ledger is deleted",
 		},
 	},
 	{

@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
@@ -386,7 +385,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 // the caller already earned is the answer, and a failed release is the
 // implementation's own diagnostic (MarkSessionEnded warns for itself).
 func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
-	clidiag.Warn("ctxloom", "agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
+	c.rep.Warnf("agent_run: releasing session %s — the spawn was refused before the run was registered: %v", harp, cause)
 	c.spawner.MarkSessionEnded(harp)
 }
 
@@ -419,7 +418,7 @@ func (c *Coordinator) notePendingSpawn(caller Identity, agentName string) (settl
 	timer := time.AfterFunc(after, func() {
 		c.audit("agent_run.pending", caller.Harp, map[string]string{"agent": agentName, "after": after.String()})
 		zap.L().Warn(logSpawnPending, zap.String("caller", caller.Harp), zap.String("agent", agentName), zap.Duration("after", after))
-		clidiag.Warn("ctxloom", "agent_run: %s's spawn of agent %q has been preparing for over %s and is not registered yet, "+
+		c.rep.Warnf("agent_run: %s's spawn of agent %q has been preparing for over %s and is not registered yet, "+
 			"so it is not in the roster and has no run id; it is still starting, NOT lost — do not spawn a second one",
 			callerLabel(caller), agentName, after)
 	})
@@ -1003,7 +1002,7 @@ func (c *Coordinator) recordHarnessSession(runID, sessionID string) {
 		}
 		return []Fact{factAt(factRunHarness, c.now(), runHarness{RunID: runID, HarnessSessionID: sessionID})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: record harness session id: %v", err)
+		c.rep.Warnf("coordinator: record harness session id: %v", err)
 	}
 }
 
@@ -1023,7 +1022,7 @@ func (c *Coordinator) recordResumable(runID string, resumable bool) {
 		}
 		return []Fact{factAt(factRunResumable, c.now(), runResumable{RunID: runID, Resumable: resumable})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: record run resumable: %v", err)
+		c.rep.Warnf("coordinator: record run resumable: %v", err)
 	}
 }
 
@@ -1195,7 +1194,7 @@ func (c *Coordinator) onTurnIdle(role string) {
 // failChild reports a launch failure to the parent's mailbox — the spawn verb
 // already returned (async), so the mailbox is where the coordinator learns.
 func (c *Coordinator) failChild(rt *childRt, err error) {
-	clidiag.Warn("ctxloom", "agent_run: child %s (%s) failed to launch: %v", rt.harp, rt.agentName, err)
+	c.rep.Warnf("agent_run: child %s (%s) failed to launch: %v", rt.harp, rt.agentName, err)
 	// Count it BEFORE the terminal: terminateRun's leftover-mail tail reads
 	// this count to decide whether another relaunch is warranted at all.
 	c.noteLaunchFailure(rt.harp)
@@ -1213,7 +1212,7 @@ func (c *Coordinator) setState(rt *childRt, state string) {
 		}
 		return []Fact{factAt(factRunState, c.now(), runState{RunID: rt.runID, State: state})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "agent %s: journal state %s: %v", rt.harp, state, err)
+		c.rep.Warnf("agent %s: journal state %s: %v", rt.harp, state, err)
 		return
 	}
 	c.sampleExecGauge()
@@ -1404,7 +1403,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 		rec = *r
 		return []Fact{factAt(factRunEnded, c.now(), runEnded{RunID: runID, Cause: cause, Detail: detail})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "agent run %s: journal terminal: %v", runID, err)
+		c.rep.Warnf("agent run %s: journal terminal: %v", runID, err)
 		return
 	}
 	if !won {
@@ -1507,7 +1506,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 			// The spool write is what just failed, so the invariant above
 			// ("the parent ALWAYS learns of a child death") does not hold for
 			// this death. Said loudly: there is nothing behind the file.
-			clidiag.Warn("ctxloom", "agent %s: the terminal notice could not be written to parent %s's spool (%v) — the parent will not learn of this death", rec.Harp, rec.ParentHarp, err)
+			c.rep.Warnf("agent %s: the terminal notice could not be written to parent %s's spool (%v) — the parent will not learn of this death", rec.Harp, rec.ParentHarp, err)
 		}
 	}
 	c.spawner.MarkSessionEnded(rec.Harp)
@@ -1586,7 +1585,7 @@ func (c *Coordinator) reapEndedRuns() {
 		}
 		return []Fact{factAt(factRunReaped, c.now(), runReaped{RunIDs: safe})}, nil
 	}); err != nil {
-		clidiag.Warn("ctxloom", "coordinator: reap ended runs: %v", err)
+		c.rep.Warnf("coordinator: reap ended runs: %v", err)
 	}
 }
 
@@ -1669,9 +1668,9 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	}
 	plan, err := c.spawner.Resolve(lctx, rec.Agent)
 	if err != nil {
-		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, err)
+		c.rep.Warnf("agent resume %s: %v", harp, err)
 		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
-			clidiag.Warn("ctxloom", "agent %s: queue resume failure: %v", harp, qerr)
+			c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 		}
 		return
 	}
@@ -1710,9 +1709,9 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	// class must be known from the moment the fresh run is addressable.
 	url, uerr := c.spawnReachURL(harp, plan.Runtime)
 	if uerr != nil {
-		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, uerr)
+		c.rep.Warnf("agent resume %s: %v", harp, uerr)
 		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, uerr)); qerr != nil {
-			clidiag.Warn("ctxloom", "agent %s: queue resume failure: %v", harp, qerr)
+			c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 		}
 		return
 	}
@@ -1725,7 +1724,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 		return // a concurrent resume claimed it; the winner delivers
 	}
 	if err != nil {
-		clidiag.Warn("ctxloom", "agent resume %s: %v", harp, err)
+		c.rep.Warnf("agent resume %s: %v", harp, err)
 		return
 	}
 	settled = true // rt now owns `attached`'s AND the launch context's lifecycle

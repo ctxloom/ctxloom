@@ -347,6 +347,7 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home, err := NewHome(ctx, HomeConfig{
+		Reporter: termSink(),
 		// An address nothing serves: NewHome never fails hard, so the
 		// channel loops just keep reconnecting and no doorbell is possible.
 		URL:     "http://127.0.0.1:1/mcp",
@@ -399,7 +400,8 @@ func TestSpoolDelivery_AwaitMailAckedWaitsForTheConsumeRename(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home, err := NewHome(ctx, HomeConfig{
-		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-await", Harness: "mock", Harp: harp,
+		Reporter: termSink(),
+		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-await", Harness: "mock", Harp: harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Crash() })
@@ -467,7 +469,8 @@ func TestSpoolDelivery_ExitedRunnerStopsSweepingIn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home, err := NewHome(ctx, HomeConfig{
-		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-exited", Harness: "mock", Harp: harp,
+		Reporter: termSink(),
+		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-exited", Harness: "mock", Harp: harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Crash() })
@@ -571,7 +574,8 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fresh, err := NewHome(ctx, HomeConfig{
-		URL: "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh",
+		Reporter: termSink(),
+		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh",
 		Harness: "mock", Harp: out.Harp,
 		SpoolSweepInterval: 50 * time.Millisecond,
 	})
@@ -849,11 +853,12 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	home, err := NewHome(ctx, HomeConfig{
-		URL:     "http://127.0.0.1:1/mcp",
-		Token:   "unused",
-		RunID:   "run-unmappable-kind",
-		Harness: "mock",
-		Harp:    harp,
+		Reporter: termSink(),
+		URL:      "http://127.0.0.1:1/mcp",
+		Token:    "unused",
+		RunID:    "run-unmappable-kind",
+		Harness:  "mock",
+		Harp:     harp,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Crash() })

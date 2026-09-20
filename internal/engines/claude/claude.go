@@ -32,7 +32,7 @@ import (
 
 // NewWriter constructs the Claude Code settings writer.
 func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
-	return &ClaudeCodeHookWriter{FS: o.FS}
+	return &ClaudeCodeHookWriter{FS: o.FS, Reporter: o.Reporter}
 }
 
 // ----- moved verbatim from internal/lm/backends (hooks.go + uninstall.go) -----
@@ -40,6 +40,8 @@ func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.
 	FS afero.Fs
+	// Reporter is where the ledger names entries it refuses; nil discards.
+	Reporter report.Sink
 	// statusLineDisabled opts out of managing the ctxloom HUD statusline.
 	statusLineDisabled bool
 }
@@ -206,7 +208,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 		// managed-content ledger beside settings.json — Claude Code's strict schema
 		// forbids an in-file marker (claudeCodeHook.SCM is json:"-" and never
 		// reaches disk), which is exactly what a SIDECAR record is for.
-		led := ledger.Ledger{FS: fs, Dir: claudeDir, Warn: agent.Warn}
+		led := ledger.Ledger{FS: fs, Dir: claudeDir, Warn: report.To(w.Reporter).Warnf}
 		owned, err := led.Read(ledger.SurfaceHooks)
 		if err != nil {
 			return err
@@ -1082,7 +1084,7 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load existing settings: %w", err)
 		}
-		led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: agent.Warn}
+		led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: report.To(w.Reporter).Warnf}
 		owned, err := led.Read(ledger.SurfaceHooks)
 		if err != nil {
 			return err

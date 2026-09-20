@@ -44,7 +44,7 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 	require.NoError(t, err)
 	src.reads.Store(0)
 
-	s := newProdSpawner(operations.OpenedApp(owner), filepath.Dir(appDir), nil)
+	s := newProdSpawner(termRep(), operations.OpenedApp(owner), filepath.Dir(appDir), nil)
 
 	_, err = s.Resolve(context.Background(), "dev")
 	require.NoError(t, err)

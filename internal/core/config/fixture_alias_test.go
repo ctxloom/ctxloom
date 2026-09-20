@@ -159,3 +159,35 @@ func TestNewFixture_MutatingTheSourceFixtureDoesNotReachTheConfig(t *testing.T) 
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected",
 		"NewFixture must take ownership of its own containers, not the caller's")
 }
+
+// TestToDoc_NeverAliasesConfigContainers is the same read-half contract for
+// the persisted document: Owner.Update hands the doc toDoc builds to an
+// arbitrary caller's fn as the package's WRITE surface, so an fn mutating a
+// container in place must not reach back into the Config the draft was
+// taken from.
+func TestToDoc_NeverAliasesConfigContainers(t *testing.T) {
+	cfg := NewFixture(aliasProbeFixture())
+
+	d := cfg.toDoc()
+
+	assertNoSharedContainers(t, reflect.ValueOf(cfg).Elem(), reflect.ValueOf(d), "Config", "configDoc")
+}
+
+// TestToFixture_CarriesEveryPersistedFieldOfTheDoc pins that a Fixture's
+// persisted half IS the persisted document: every field configDoc carries
+// exists on Fixture under the same name and holds the same value. A field
+// added to the document and not to the Fixture (or the reverse) fails here.
+func TestToFixture_CarriesEveryPersistedFieldOfTheDoc(t *testing.T) {
+	cfg := NewFixture(aliasProbeFixture())
+
+	doc := reflect.ValueOf(cfg.toDoc())
+	fix := reflect.ValueOf(cfg.ToFixture())
+
+	for i := range doc.NumField() {
+		name := doc.Type().Field(i).Name
+		got := fix.FieldByName(name)
+		require.True(t, got.IsValid(), "Fixture has no field %s, but the persisted document does", name)
+		assert.True(t, reflect.DeepEqual(doc.Field(i).Interface(), got.Interface()),
+			"Fixture.%s differs from the persisted document's", name)
+	}
+}

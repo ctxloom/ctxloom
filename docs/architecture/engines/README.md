@@ -14,8 +14,7 @@ registry table — the doc comment above `init()` in
 
 ## The definition / instance split
 
-An engine is two halves, and since the definition extraction (arch migration
-slice 6b) they live in two places:
+An engine is two halves on one port (`internal/core/engine`):
 
 - **The DEFINITION — declarative, in `internal/core/engine`.** An engine KIND
   is a value: the engine package's struct embedding `engine.Base`, whose
@@ -30,14 +29,36 @@ slice 6b) they live in two places:
   `engines.Build()` composes the kinds into an `engine.Registry` value.
   `core/engine/conformance` asserts the declarative half for every kind;
   each engine package runs it against its own constructor.
-- **The INSTANCE — what runs a session.** The port names it
-  (`Engine.Instance(Session)`, `Instance.Exec/Drivers/Resume`) and the mock
-  kind implements it; for claude it still lives in `internal/lm/backends`
-  (`Setup`/`Execute`) fed by the engine's HOSTING record in
-  `internal/lm/hosting` (the backend constructor, the writers, the export
-  projections, the home/container/transcript stories), paired with the
-  kind by name at `backends.Register`. Slice 11b moves it onto the port and
-  retires `lm/backends` and `lm/hosting`.
+- **The INSTANCE — what runs a session, on the port.** `Engine.Instance(Session)`
+  binds one session and is where REQUIREDNESS is refused (a kind whose
+  `Definition` lacks the context surface the session needs refuses it by
+  name, `engine.ErrUnsupported`); `Instance.Exec(presented)` is the ONE
+  place an engine's argv/env/cwd is composed — for claude, `buildArgs` and
+  `Chat` are projections onto it and the launch golden
+  (`engines/claude/testdata/exec_parity.golden`) pins every launch of the
+  matrix byte-identical; `Instance.Drivers()` are the engine's native
+  structured drivers (claude: a per-turn stream-json driver; empty means
+  pty-only and a Structured launch is refused with
+  `ErrUnsupported{drive}`); `Instance.Resume(key)` re-attaches a native
+  session. The engine's own stories are the kind's methods: `Home()`
+  (`engine.HomeSpec`, the zero value the null object; the credential seed
+  carries the deliveries it accepts), `Container()` (a spec or a refusal),
+  `Transcripts()` (readers the composition root hands in — they are
+  transcript adapters an engine must not import) and `Hooks()` (the native
+  payload codec). `adapters/isolation` reads those facts off the engine
+  (`isolation.FactsOf`), and `adapters/runner.Execute` binds the Instance
+  before delivering. `core/engine/conformance` asserts both halves
+  (Part 4.2 test A in full) for every kind.
+- **What `internal/lm/backends` still is.** The name-keyed registry over
+  `agent.Backend` (`Setup`/`Execute`/`Chat`), the managed-hooks assembly,
+  the pty launcher and the availability/version probes, paired with each
+  kind through the HOSTING remainder in `internal/lm/hosting` (the backend
+  constructor, the typed config, the named-form table, the settings writer,
+  the hook scope guard, the version command). The structured drive is still
+  `coord.EngineHost.Drive` over `agent.StructuredChat`: the port's per-turn
+  `StructuredDriver` carries no channel for the mid-turn control messages
+  the coordinator sends (permission answers, cancel, terminal), which is
+  the open fork before the drive can move onto it.
 
 Core code reads an engine's facts off the Definition (through the
 registry) and never branches on its name: `tests/arch`'s

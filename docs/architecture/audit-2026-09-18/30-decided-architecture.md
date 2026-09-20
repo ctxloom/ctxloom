@@ -103,7 +103,7 @@ Two facts the graph makes checkable, measured with `go list -f '{{.Imports}}'` o
 | `core/coord` | `adapters/coordgrpc/pb`, `agentcoord/discover`, `adapters/coordgrpc/mcpschema`, `adapters/agents`, `adapters/isolation`, `adapters/operations`, `adapters/transcript`, `shared/envswitch` | `adapters/coordgrpc/pb`: slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc; `agentcoord/discover`: slice 10: discover moves to adapters/coordgrpc; `adapters/coordgrpc/mcpschema`: slice 10: mcpschema moves to adapters/coordgrpc; `adapters/agents`: slice 8: harnessspec/SpawnPlan become core/launch types; `adapters/isolation`: slice 8: the isolation axes become core/launch value types; `adapters/operations`: slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp; `adapters/transcript`: slice 14a: the engine-host files move to adapters/runner; `shared/envswitch`: Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env (the `shared/clidiag` and `shared/strictness` edges are exhausted: slice 15 — every coordinator diagnostic reports through the `report.Reporter` its owner was built with, `coord.Options.Reporter`) |
 | `core/coord/coordtest` | `lm/backends`, `adapters/isolation` | `lm/backends`: slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest); `adapters/isolation`: slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest) |
 | `core/agent` (today's engine base; its contract half becomes `core/engine`) | `shared/ledger` | `shared/ledger`: slice 12: shared/ledger is deleted (the `shared/clidiag` and `shared/strictness` edges are exhausted: slice 15 — the engine base reports through the `report.Reporter` each call is handed: `SetupRequest.Reporter`, `SurfaceInputs.Reporter`, the managed writers' `WithReporter`/`WithWriteReporter`; `agent.Warn` is deleted) |
-| `lm/hosting` (the instance-half remainder of the retired `lm/engine`; dies with `lm/backends`) | `adapters/engineversion`, `adapters/transcript/vendorreader` | `adapters/engineversion`: slice 11b: the version command is the engine's own; `adapters/transcript/vendorreader`: slice 11b: the readers become engine.TranscriptReader values the engine supplies |
+| `lm/hosting` (what `lm/backends` still needs to run a kind that the port does not carry: the backend constructor, the typed config, the named-form table, the settings writer, the hook scope guard, the version command; dies with `lm/backends`) | `adapters/engineversion` | `adapters/engineversion`: the version command is the engine's own (the `adapters/transcript/vendorreader` edge is exhausted: slice 11b — the readers are `engine.TranscriptReader` values the composition root hands each kind, `Engine.Transcripts`) |
 | `core/trust`, `core/paths`, `core/wire`, `core/present`, `core/spool`, `shared/harp` | none | pure today |
 | `core/engine`, `core/composite`, `core/launch` | none | born pure in slice 2; zero allowlist from their first commit |
 | `core/delivery` | does not exist | born pure in slice 12; zero allowlist from its first commit |
@@ -137,7 +137,7 @@ flowchart TB
     P5["coord.Spawner · coord.RunnerTransport · coord.HostApp · config.Sources"]:::port
   end
   subgraph ENGINES["internal/engines — import core/engine + core/present (+ core/agent for the delivery seam until 12)"]
-    ENGS["claude (Build → Claude{Base}; claude/engine = its hosting record) · mock (New/Build → Mock{Base}; mock/runtime = the binary's runtime) · conformance (the settings-writer equity suite) · engines (Build → engine.Registry; Register pairs kinds with lm/hosting records)"]:::adapter
+    ENGS["claude (Build → Claude{Base}: Instance/Exec/Drivers/Resume, Home, Container, Hooks; claude/engine = the hosting remainder + the readers the root hands WithTranscripts) · mock (New/Build → Mock{Base}: full conformance; Doubles carry WithContainer; mock/runtime = the binary's runtime) · conformance (the settings-writer equity suite) · engines (Build → engine.Registry, readers injected; Register pairs kinds with lm/hosting records)"]:::adapter
   end
   subgraph ADAPTERS["internal/adapters — import core; imported by no core package"]
     RUNNER["runner — landed 8: Deps, Execute (redeem → decode → configure → serve → deliver → drive), Host over the frame's launch; the engine host it drives through stays in core/coord until 14a; runner/mcp is 9's (today: adapters/mcp, the stdio server)"]:::adapter
@@ -3103,7 +3103,7 @@ flowchart LR
     LO["runner: the managed payload from the decoded Package + Launch.Exports (agent.ManagedConfigFor, landed 8); delivery.Loadout is 12's"]:::consume
     DELIV["the engine's Setup over the cell's roots (landed 8: one payload for the host's plugin arm and the runner alike — the identical-file-set gate); delivery.Static replaces it in 12"]:::consume
     DYN["the runner MCP endpoint stands up at payload arrival under the Launch's identity, and .mcp.json lands under the session home (landed 8); Dynamic.Serve BINDING Launch.MCP is 9's"]:::consume
-    INST["EngineHost.Drive(coord.Turn) — today's in-process StructuredChat drive, the context leading the first turn (landed 8); engine.Instance(l.Session()) → Exec is 9/11b"]:::consume
+    INST["engine.Instance ← Kind.Instance(l.Session()) in runner.Execute (landed 11b: requiredness refused by the engine before delivery; a Structured launch needs a driver) · Instance.Exec is the ONE argv composer (claude's buildArgs and Chat project onto it; the 64-launch golden holds) · the drive is still EngineHost.Drive(coord.Turn) over agent.StructuredChat: the port's per-turn StructuredDriver carries no mid-turn control channel (permission answers, cancel, terminal) — a fork for 14a"]:::consume
     SNAP -->|PASSED Deps.Snapshot| RES
     RES -->|PASSED| PKG --> EXP
     RES -->|PASSED| CELL --> PLAN
@@ -3198,7 +3198,7 @@ flowchart TB
   ENC["Encode → Carrier (inline | claim in <harp>/persist/package/<digest>)"]:::s
   V3["VERIFY 3 (at rest, in the runner): Redeem → Decode checks the digest; skill files written from the decoded set; RequireDelivered asserts the bytes landed"]:::v
   D["Static.Deliver under the session home (or the project root on materialize) — one ownership record, writer-tagged"]:::s
-  X["engine.Instance.Exec(presented) — argv/env name the delivered files; hooks decoded by Engine.Hooks() on the way back"]:::s
+  X["engine.Instance.Exec(presented) (landed 11b: claude's one argv composer — each presentation's argv channel in delivery order, the minimal posture as an argv-only presentation; Env holds only engine-native vars; the 64-launch golden pins argv/env/cwd) — hooks decoded by Engine.Hooks() on the way back"]:::s
   R --> V1 --> C --> RD
   L --> RD
   RD --> V2 --> P --> E --> PL --> ENC --> V3 --> D --> X

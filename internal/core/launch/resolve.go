@@ -69,7 +69,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		return Launch{}, fmt.Errorf("%w: %s declares %v, not %v", ErrModeUnsupported, def.Name, def.Modes, src.Mode)
 	}
 
-	axes, err := resolveAxes(cfg, src, sel)
+	declared, axes, err := resolveAxes(cfg, src, sel)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -128,6 +128,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		Label:      labelCfg,
 		Mode:       src.Mode,
 		Permission: perm,
+		Declared:   declared,
 		Axes:       axes,
 		Cell:       cell,
 		Home:       cell.Home,
@@ -240,26 +241,37 @@ func selectEngine(deps Deps, cfg *config.Config, label string) (engine.Engine, e
 	return eng, engine.LabelConfig{Label: label, Model: model}, entry.Permissions, nil
 }
 
-// resolveAxes settles the two isolation axes: the workspace is a SESSION
-// trait (the invocation, else the project default); the runtime is the
-// binding's, else the project default. Each string is parsed exactly once;
-// silence on either axis is the host and the shared checkout.
-func resolveAxes(cfg *config.Config, src Source, sel selection) (Axes, error) {
-	ws, err := ParseWorkspaceAxis(firstNonEmpty(string(src.Workspace), cfg.GetWorkspace()))
-	if err != nil {
-		return Axes{}, err
+// resolveAxes settles the two isolation axes and keeps what was declared
+// apart from what they settled to: the workspace is a SESSION trait (the
+// invocation, else the project default); the runtime is the binding's,
+// else the project default. A project default is not a declaration — it
+// fills the settled pair, never the declared one. Each string is parsed
+// exactly once; silence on either axis is the host and the shared checkout.
+func resolveAxes(cfg *config.Config, src Source, sel selection) (declared, settled Axes, err error) {
+	if declared.Workspace, err = ParseWorkspaceAxis(string(src.Workspace)); err != nil {
+		return Axes{}, Axes{}, err
 	}
-	rt, err := ParseRuntimeAxis(firstNonEmpty(sel.runtime, cfg.GetRuntime()))
-	if err != nil {
-		return Axes{}, err
+	if declared.Runtime, err = ParseRuntimeAxis(sel.runtime); err != nil {
+		return Axes{}, Axes{}, err
 	}
-	if ws == "" {
-		ws = WorkspaceNone
+	settled = declared
+	if settled.Workspace == "" {
+		if settled.Workspace, err = ParseWorkspaceAxis(cfg.GetWorkspace()); err != nil {
+			return Axes{}, Axes{}, err
+		}
 	}
-	if rt == "" {
-		rt = RuntimeHost
+	if settled.Runtime == "" {
+		if settled.Runtime, err = ParseRuntimeAxis(cfg.GetRuntime()); err != nil {
+			return Axes{}, Axes{}, err
+		}
 	}
-	return Axes{Workspace: ws, Runtime: rt}, nil
+	if settled.Workspace == "" {
+		settled.Workspace = WorkspaceNone
+	}
+	if settled.Runtime == "" {
+		settled.Runtime = RuntimeHost
+	}
+	return declared, settled, nil
 }
 
 // resolveDirtyTree settles what a worktree cell does about a dirty parent

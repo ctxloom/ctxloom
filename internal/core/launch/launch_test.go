@@ -225,6 +225,39 @@ func TestResolve_Axes_ProjectRuntimeTypoIsRefused(t *testing.T) {
 	require.Equal(t, launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeHost}, l.Axes, "the invocation's workspace and the project's runtime")
 }
 
+// TestResolve_Axes_DeclaredIsKeptApartFromSettled: the launch carries the
+// axes as they were ASKED beside the axes it settled on. An axis nothing
+// declared stays empty on Declared while Axes carries its default, so a
+// reader of the launch (the --dry-run preview) can say what was asked
+// without showing a default as a guarantee somebody declared.
+func TestResolve_Axes_DeclaredIsKeptApartFromSettled(t *testing.T) {
+	env := launchtest.Deps(t,
+		launchtest.WithAgent("dev"),
+		launchtest.WithAgent("boxed", launchtest.Runtime(launch.RuntimeRootless)),
+		launchtest.RuntimesAvailable(launch.RuntimeRootless))
+	at := func(src launch.Source) launch.Launch {
+		t.Helper()
+		src.Identity, src.Mode, src.WorkDir = env.Identity, engine.Interactive, env.Project
+		l, err := launch.Resolve(context.Background(), env.Deps, src)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
+		return l
+	}
+
+	l := at(launch.Source{Agent: "dev"})
+	require.Equal(t, launch.Axes{}, l.Declared, "nothing declared either axis")
+	require.Equal(t, launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost}, l.Axes, "both settled to their defaults")
+
+	l = at(launch.Source{Agent: "boxed", Workspace: launch.WorkspaceWorktree})
+	require.Equal(t, launch.Axes{Workspace: launch.WorkspaceWorktree, Runtime: launch.RuntimeRootless}, l.Declared, "the invocation's workspace and the binding's runtime, as declared")
+	require.Equal(t, l.Declared, l.Axes, "a fully declared request settles to itself")
+
+	env = launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.ProjectRuntime(string(launch.RuntimeHost)))
+	l = at(launch.Source{Agent: "dev"})
+	require.Equal(t, launch.Axes{}, l.Declared, "the project default is not a declaration: it fills Axes, never Declared")
+	require.Equal(t, launch.RuntimeHost, l.Axes.Runtime)
+}
+
 // TestResolve_NamedProfilesThatAssembleToNothingAreRefused: naming a
 // specialisation and delivering none of it is a failed assembly.
 func TestResolve_NamedProfilesThatAssembleToNothingAreRefused(t *testing.T) {

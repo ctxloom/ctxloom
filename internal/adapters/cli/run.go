@@ -82,11 +82,15 @@ var (
 // the agent.
 type dryRunJSON struct {
 	// Agent names the --agent binding this preview resolved (empty for the
-	// classic profile flow); Workspace/Runtime are the session's resolved
-	// isolation axes.
+	// classic profile flow). Workspace/Runtime are the isolation axes as
+	// DECLARED — the invocation's --workspace, the binding's runtime — each
+	// unset where nothing asked for it; Resolved is the pair the run would
+	// land on. Kept apart so a default is never reported as a guarantee
+	// somebody asked for.
 	Agent     string   `json:"agent,omitempty"`
 	Workspace string   `json:"workspace,omitempty"`
 	Runtime   string   `json:"runtime,omitempty"`
+	Resolved  axesJSON `json:"resolved"`
 	LLM       string   `json:"llm"`
 	Backend   string   `json:"backend"`
 	Profiles  []string `json:"profiles"`
@@ -97,6 +101,12 @@ type dryRunJSON struct {
 	// authoritative estimate instead of re-deriving its own chars/token guess.
 	Tokens int    `json:"tokens"`
 	Prompt string `json:"prompt,omitempty"`
+}
+
+// axesJSON is one isolation-axis pair on the wire.
+type axesJSON struct {
+	Workspace string `json:"workspace"`
+	Runtime   string `json:"runtime"`
 }
 
 // orEmpty returns a non-nil slice so json renders [] rather than null.
@@ -846,12 +856,10 @@ func (st *runState) emitDryRun() error {
 		})
 	}
 	payload := dryRunJSON{
-		Agent: runAgent,
-		// The DECLARED axis, not the resolved one: an unset --workspace is
-		// reported unset. Filling in the default here would invent an
-		// isolation guarantee nobody asked for (TestRun_Agent_DryRun).
-		Workspace: runWorkspace,
-		Runtime:   string(l.Axes.Runtime),
+		Agent:     runAgent,
+		Workspace: string(l.Declared.Workspace),
+		Runtime:   string(l.Declared.Runtime),
+		Resolved:  axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
 		LLM:       l.Label.Label,
 		Backend:   string(l.Engine),
 		Profiles:  orEmpty(l.Package.Profiles),

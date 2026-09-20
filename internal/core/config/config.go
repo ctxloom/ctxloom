@@ -1243,18 +1243,6 @@ func (c *Config) SetFS(fs afero.Fs) {
 // generation it builds.
 func (c *Config) SetReporter(sink report.Sink) { c.rep = report.To(sink) }
 
-// Advisory is a copy of c whose composition findings are advice: a preview
-// composes exactly what a run would, and a fault that would refuse that run
-// (an unloadable bundle ref, an unresolvable profile) is rendered, not
-// recorded as fatal — nothing launches from a preview, so there is nothing
-// to refuse. A copy, because c is the published generation and a concurrent
-// consumer's findings keep their force.
-func (c *Config) Advisory() *Config {
-	preview := *c
-	preview.rep = report.To(report.Advisory(c.rep.Sink))
-	return &preview
-}
-
 // Reporter is the Sink this Config reports through, for an adapter that
 // builds a reader or loader over this generation and must report the same
 // way it does. nil when none was set.

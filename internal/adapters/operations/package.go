@@ -45,11 +45,6 @@ type PackageRequest struct {
 	Consumer ContextConsumer
 	// WorkDir is the project root the managed hooks are composed for.
 	WorkDir string
-	// Preview marks an assembly nothing launches from (--dry-run): the same
-	// package is composed, and its composition findings are advisory — see
-	// Config.Advisory.
-	Preview bool
-
 	// Pipeline is the injected-stage seam: a pre-built process stage in
 	// place of the generation's gated one (tests).
 	Pipeline *bundles.Pipeline
@@ -59,9 +54,6 @@ type PackageRequest struct {
 
 // AssemblePackage is the one place a Package is assembled from a config.
 func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest) (composite.Package, error) {
-	if req.Preview {
-		cfg = cfg.Advisory()
-	}
 	static, err := req.Consumer.static()
 	if err != nil {
 		return composite.Package{}, fmt.Errorf("resolve who consumes the assembled context: %w", err)

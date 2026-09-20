@@ -161,16 +161,22 @@ type Launch struct {
 	Label      engine.LabelConfig
 	Mode       engine.Mode
 	Permission engine.PermissionMode // floored ONCE, here
-	Axes       Axes
-	Cell       Cell
-	Home       []engine.HomeBinding
-	Package    Package
-	Exports    engine.Exports
-	Plan       delivery.Plan
-	MCP        sessions.Endpoint // minted per harp in Resolve; the runner BINDS it
-	Prompt     string
-	Resume     sessions.ResumeRef
-	Env        map[string]string // engine passthrough only
+	// Declared is the isolation request as it was ASKED — the invocation's
+	// workspace and the binding's runtime, each empty where nothing declared
+	// it — kept apart from Axes, the pair it settled to. A preview reports
+	// both, so an axis nobody set is never shown as the guarantee its
+	// default happens to be.
+	Declared Axes
+	Axes     Axes
+	Cell     Cell
+	Home     []engine.HomeBinding
+	Package  Package
+	Exports  engine.Exports
+	Plan     delivery.Plan
+	MCP      sessions.Endpoint // minted per harp in Resolve; the runner BINDS it
+	Prompt   string
+	Resume   sessions.ResumeRef
+	Env      map[string]string // engine passthrough only
 }
 
 var (

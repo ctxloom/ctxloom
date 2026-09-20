@@ -168,7 +168,7 @@ func NewContextInjectionHooks(rep report.Reporter, hash, workDir string) []wire.
 		// truncation ContextChunkMaxChars exists to prevent. The best-effort
 		// single-hook fallback is still correct (the runtime hook re-reads the
 		// file itself when it fires) — only the silence was the defect.
-		Warn("context injection hook for %s: %v — falling back to a single whole-content hook", hash, err)
+		rep.Warnf("context injection hook for %s: %v — falling back to a single whole-content hook", hash, err)
 	}
 	chunks := ChunkContext(rep, content)
 	if len(chunks) <= 1 {
@@ -196,6 +196,6 @@ func shellSingleQuote(s string) string {
 // none of its configured hooks and nothing said.
 func MergeHooksConfig(rep report.Reporter, dest *wire.HooksConfig, src *wire.HooksConfig) {
 	if n := wire.MergeHooksConfig(dest, src); n > 0 {
-		Warn("hook merge has no destination hook set: dropping %d configured hook(s); this is a caller error, not a configuration one", n)
+		rep.Warnf("hook merge has no destination hook set: dropping %d configured hook(s); this is a caller error, not a configuration one", n)
 	}
 }

@@ -97,7 +97,7 @@ func splitOversizedSection(rep report.Reporter, sec string) []string {
 		// harness will persist it instead of injecting it inline — warn so the
 		// truncation is diagnosable rather than silent.
 		if len(ln) > ContextChunkMaxChars {
-			Warn("context chunk: single line of %d chars exceeds the %d-char cap; it will be emitted whole and the harness may truncate it", len(ln), ContextChunkMaxChars)
+			rep.Warnf("context chunk: single line of %d chars exceeds the %d-char cap; it will be emitted whole and the harness may truncate it", len(ln), ContextChunkMaxChars)
 		}
 		addLen := len(ln)
 		if cur.Len() > 0 {

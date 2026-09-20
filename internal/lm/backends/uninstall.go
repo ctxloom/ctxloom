@@ -17,7 +17,7 @@ func RemoveSettings(backendName, projectDir string, opts ...SettingsOption) erro
 	for _, opt := range opts {
 		opt(options)
 	}
-	writer := GetSettingsWriter(backendName, options.FS)
+	writer := GetSettingsWriter(backendName, *options)
 	if writer == nil {
 		return nil
 	}
@@ -46,7 +46,7 @@ func BackendStatus(backendName, projectDir string, opts ...SettingsOption) (agen
 	for _, opt := range opts {
 		opt(options)
 	}
-	writer := GetSettingsWriter(backendName, options.FS)
+	writer := GetSettingsWriter(backendName, *options)
 	if writer == nil {
 		return agent.SettingsStatus{}, nil
 	}

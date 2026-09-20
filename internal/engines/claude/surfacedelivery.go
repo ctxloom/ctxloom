@@ -60,7 +60,7 @@ func newFileTemplateDelivery(place placement, fs afero.Fs) *fileTemplateDelivery
 // reprise:accept-drift
 func (d *fileTemplateDelivery) DeliverMCP(bundle map[string]wire.MCPServer) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs}
+	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter}
 	if err := w.writeMCPConfig(dir, bundle); err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (d *fileTemplateDelivery) DeliverCommands(commands []agent.CommandExport) (
 // surface).
 func (d *fileTemplateDelivery) DeliverSettings(hooks *wire.HooksConfig, manageStatusline bool) (agent.Delivered, error) {
 	dir := d.place.Dir()
-	w := &ClaudeCodeHookWriter{FS: d.fs, statusLineDisabled: !manageStatusline}
+	w := &ClaudeCodeHookWriter{FS: d.fs, Reporter: d.reporter, statusLineDisabled: !manageStatusline}
 	if err := w.writeSettingsFile(hooks, d.denyTools, dir); err != nil {
 		return nil, err
 	}

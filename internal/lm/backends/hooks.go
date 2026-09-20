@@ -4,7 +4,6 @@ import (
 	"sort"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/spf13/afero"
 )
 
 // Settings options + shared write helpers live in shared/agent (the
@@ -24,10 +23,10 @@ var WithSettingsFS = agent.WithSettingsFS
 // not supported. If fs is provided, it will be used for filesystem operations;
 // otherwise the OS filesystem is used. The per-backend writer constructors
 // live in the descriptor table (registry.go).
-func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
+func GetSettingsWriter(name string, o agent.SettingsOptions) agent.SettingsWriter {
 	if d, ok := lookup(name); ok {
 		if w, ok := d.SettingsWriter.Get(); ok {
-			return w(agent.SettingsOptions{FS: fs})
+			return w(o)
 		}
 	}
 	return nil

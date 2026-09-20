@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -146,12 +144,13 @@ func ctxloomOwnMCPServer(rep report.Reporter, src wire.MCPServer) wire.MCPServer
 }
 
 // SettingsOptions configures a settings-writing operation. It carries the
-// filesystem seam and nothing else: per-engine POLICY (which surfaces are
-// managed, whether the HUD statusline is one of them) rides the surfaces ×
-// cells seam — each engine's settings approach — not this struct,
+// filesystem seam and the Reporter, nothing else: per-engine POLICY (which
+// surfaces are managed, whether the HUD statusline is one of them) rides the
+// surfaces × cells seam — each engine's settings approach — not this struct,
 // which is shared by every backend.
 type SettingsOptions struct {
-	FS afero.Fs // filesystem to use; nil means the real OS filesystem
+	FS       afero.Fs    // filesystem to use; nil means the real OS filesystem
+	Reporter report.Sink // where the writer reports what it skips; nil discards
 }
 
 // SettingsOption is a functional option for settings operations.
@@ -163,31 +162,17 @@ func WithSettingsFS(fs afero.Fs) SettingsOption {
 	return func(o *SettingsOptions) { o.FS = fs }
 }
 
+// WithSettingsReporter names where the settings writer reports.
+func WithSettingsReporter(sink report.Sink) SettingsOption {
+	return func(o *SettingsOptions) { o.Reporter = sink }
+}
+
 // GetFS returns fs, or the OS filesystem when fs is nil.
 func GetFS(fs afero.Fs) afero.Fs {
 	if fs == nil {
 		return afero.NewOsFs()
 	}
 	return fs
-}
-
-// ComputeHookHash returns a short, stable hash of a hook's defining fields.
-// ComputeCommandDigest is the ledger's identity for a hook: a short digest of
-// the command string.
-//
-// The ledger records THIS, never the command itself. A hook command is
-// arbitrary user-supplied text — it can carry paths, tokens, or anything else
-// the operator put in it — and copying it verbatim into a sidecar would
-// duplicate that content into a second file for no gain. A digest is enough to
-// recognise "ctxloom wrote this one" on the next reconcile, which is the only
-// question the ledger has to answer.
-// Warn is the engine base's remaining route to the process's diagnostic
-// channel. It stays until BaseLifecycle, LaunchBackend and the managed
-// package writers carry a report.Reporter the engines hand in; the sites
-// that already do (ResolveManagedMCPServers, RouteUnifiedHooks,
-// ResolveDefault) report findings instead.
-func Warn(format string, args ...any) {
-	clidiag.Warn("ctxloom", format, args...)
 }
 
 func ComputeCommandDigest(command string) string {

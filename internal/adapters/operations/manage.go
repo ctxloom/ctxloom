@@ -38,7 +38,7 @@ type RemoveHooksResult struct {
 func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) (*RemoveHooksResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
-	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
+	settingsOpts := []backends.SettingsOption{backends.WithSettingsFS(fs), agent.WithSettingsReporter(terminalReporter().Sink)}
 
 	names, err := manageBackendNames(req.Backend)
 	if err != nil {
@@ -170,7 +170,7 @@ type SurfaceCurrency struct {
 func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
-	opts := []backends.SettingsOption{backends.WithSettingsFS(fs)}
+	opts := []backends.SettingsOption{backends.WithSettingsFS(fs), agent.WithSettingsReporter(terminalReporter().Sink)}
 
 	settings := cfg.GetSettings()
 	result := &HarnessStatusResult{

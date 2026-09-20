@@ -344,6 +344,7 @@ func (s *mcpUnsafeFile) UnsafeInfo() string { return "claude/mcp" }
 type settingsSurface struct {
 	hooks            *wire.HooksConfig
 	manageStatusline bool
+	reporter         report.Sink // SurfaceInputs.Reporter, forwarded to the settings writer
 	// denyTools is the resolved deny_tools union (SurfaceInputs.DenyTools) —
 	// per-tool identifiers (e.g. "Task") this run's settings.json denies via
 	// permissions.deny. Threaded to fileTemplateDelivery as a RECEIVER field
@@ -366,6 +367,7 @@ func (s *settingsSurface) Present(start present.Start) present.Presentation {
 // settings JSON including hooks and the statusline policy.
 func (s *settingsSurface) deliver(dir string) (agent.Delivered, error) {
 	d := newFileTemplateDelivery(dirPlacement{dir: dir}, s.fs)
+	d.reporter = s.reporter
 	d.denyTools = s.denyTools
 	return d.DeliverSettings(s.hooks, s.manageStatusline)
 }

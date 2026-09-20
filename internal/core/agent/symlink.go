@@ -91,7 +91,7 @@ func WarnOnCtxloomPathSkew(rep report.Reporter) {
 		onPath = resolved
 	}
 	if ctxloomPathSkewed(running, onPath) {
-		Warn("PATH ctxloom (%s) differs from the running binary (%s) — "+
+		rep.Warnf("PATH ctxloom (%s) differs from the running binary (%s) — "+
 			"bundle hooks and the statusline run via PATH and may use a "+
 			"different version", onPath, running)
 	}

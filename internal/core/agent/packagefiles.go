@@ -112,7 +112,7 @@ func WriteManagedPackageFiles[T any](
 	for _, opt := range opts {
 		opt(o)
 	}
-	led := ledger.Ledger{FS: fs, Dir: dir, Warn: Warn}
+	led := ledger.Ledger{FS: fs, Dir: dir, Warn: o.rep.Warnf}
 
 	// Read what this surface currently claims BEFORE anything else — read-only,
 	// nothing destructive yet. Ledger entries are data, not trusted paths: a
@@ -148,18 +148,18 @@ func WriteManagedPackageFiles[T any](
 		// from them. Nested names without traversal ("group/cmd") remain
 		// allowed; how they map to paths is the renderer's choice.
 		if _, ok := SafeCommandRelPath(dir, name); !ok {
-			Warn("skipping package %q: name is not a relative path inside %s", name, dir)
+			o.rep.Warnf("skipping package %q: name is not a relative path inside %s", name, dir)
 			continue
 		}
 		files, err := render(item)
 		if err != nil {
-			Warn("skipping package %q: render failed: %v", name, err)
+			o.rep.Warnf("skipping package %q: render failed: %v", name, err)
 			continue
 		}
 		safe := true
 		for _, f := range files {
 			if _, ok := SafeCommandRelPath(dir, f.RelPath); !ok {
-				Warn("skipping package %q: rendered path %q is not a relative path inside %s", name, f.RelPath, dir)
+				o.rep.Warnf("skipping package %q: rendered path %q is not a relative path inside %s", name, f.RelPath, dir)
 				safe = false
 				break
 			}
@@ -267,7 +267,7 @@ func WriteManagedPackageFiles[T any](
 			// brand-new temp file is not the missing-content defect this
 			// rewrite targets, so it does not abort the swap.
 			if err := fs.Chmod(tempPath, mode); err != nil {
-				Warn("package %q: chmod %s to %s failed: %v", p.name, f.RelPath, mode, err)
+				o.rep.Warnf("package %q: chmod %s to %s failed: %v", p.name, f.RelPath, mode, err)
 			}
 			written = append(written, f.RelPath)
 		}
@@ -355,7 +355,7 @@ func WriteManagedPackageFiles[T any](
 		}
 		path, ok := SafeCommandRelPath(dir, name)
 		if !ok {
-			Warn("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
+			o.rep.Warnf("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
 			continue
 		}
 		_ = fs.Remove(path)
@@ -389,7 +389,7 @@ func revertManagedSurface(rep report.Reporter, fs afero.Fs, dir string, surface 
 	for _, name := range previous {
 		path, ok := SafeCommandRelPath(dir, name)
 		if !ok {
-			Warn("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
+			rep.Warnf("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
 			continue
 		}
 		_ = fs.Remove(path)

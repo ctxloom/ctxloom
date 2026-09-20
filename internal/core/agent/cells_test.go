@@ -177,7 +177,7 @@ func TestDelivery_UnrootedStartIsRefusedAtBothEntryPoints(t *testing.T) {
 
 	t.Run("shared cwd", func(t *testing.T) {
 		var call deliveryCall
-		r := &ResolvedSelection{}
+		r := &ResolvedSelection{rep: termRep()}
 		rs := resolvedSurface{kind: SurfaceCommands, name: ApproachUnsafeFile,
 			approach: recordingDelivery{got: &call, handle: stubHandle{}, info: "x"}}
 		_, err := r.deliverOneShared(rs, unrooted)
@@ -194,7 +194,7 @@ func TestDelivery_UnrootedStartIsRefusedAtBothEntryPoints(t *testing.T) {
 func TestDeliverOneShared_PrefersOutOfCwdForm(t *testing.T) {
 	var isolatedCalled bool
 	var wellKnownCalled deliveryCall
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnownCalled, handle: stubHandle{}}, &isolatedCalled}
 
 	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: surface}, present.ProjectOnHost("/live"))
@@ -214,7 +214,7 @@ func TestDualCapableSurface_WorksInEveryMechanism(t *testing.T) {
 	if _, err := NewIsolatedCell(present.ProjectOnHost("/home/agent")).Deliver(dualStub{}); err != nil {
 		t.Fatalf("isolated cell (container): %v", err)
 	}
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 	if _, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: dualStub{}}, present.ProjectOnHost("/live")); err != nil {
 		t.Fatalf("deliverOneShared: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestDeliverOneShared_NoRealization_WarnsThenProceeds(t *testing.T) {
 	dir := "/work/project"
 	// The surface self-describes via UnsafeInfo — no hand-typed reason.
 	surface := recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/settings"}
-	r := &ResolvedSelection{} // the approach has no out-of-cwd form
+	r := &ResolvedSelection{rep: termRep()} // the approach has no out-of-cwd form
 
 	var (
 		d   Delivered
@@ -280,7 +280,7 @@ func TestDeliverOneShared_Degraded_WarnsWithoutRecording(t *testing.T) {
 
 	var call deliveryCall
 	surface := recordingDelivery{got: &call, handle: stubHandle{}, info: "engine/context"}
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 
 	stderr := captureStderr(t, func() {
 		_, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: surface}, present.ProjectOnHost("/w"))
@@ -302,7 +302,7 @@ func TestDeliverOneShared_RiderIsANoOpWithoutWarning(t *testing.T) {
 	resetStrictness(t)
 
 	var call deliveryCall
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 	var (
 		d   Delivered
 		err error
@@ -405,7 +405,7 @@ func TestDeliverOneShared_OutOfCwdApproachRealizesUnwarned(t *testing.T) {
 
 	var realizeCalled bool
 	var wellKnown deliveryCall
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}, &realizeCalled}
 
 	stderr := captureStderr(t, func() {
@@ -428,7 +428,7 @@ func TestDeliverOneShared_UnsafeFileHonoredWithWarning(t *testing.T) {
 	resetStrictness(t)
 
 	var wellKnown deliveryCall
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 	surface := recordingDelivery{got: &wellKnown, handle: stubHandle{}, info: "engine/context"}
 
 	stderr := captureStderr(t, func() {
@@ -501,7 +501,7 @@ func TestDeliverOneShared_NonProjectRootApproachIsNotWarned(t *testing.T) {
 	resetStrictness(t)
 
 	var call deliveryCall
-	r := &ResolvedSelection{}
+	r := &ResolvedSelection{rep: termRep()}
 	start := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: "/live"},
 		EngineHome:  present.Root{Host: "/live/.ctxloom/state/h/home/claude"},

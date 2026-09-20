@@ -18,7 +18,7 @@ import (
 // deterministic trigger.
 func TestMergeHooksConfig_ReportsToTheReporterItIsHanded(t *testing.T) {
 	var a, b report.Collector
-	src := &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{"x": {}}}
+	src := &wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "echo"}}}}
 
 	MergeHooksConfig(report.To(&a), nil, src)
 

@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // fakePlacement (contextdelivery_test.go) and mcpServersOf (surfacedelivery_test.go)
@@ -56,7 +57,8 @@ func runRoots(project, scratch, engineHome string) present.Start {
 // sampleInputs is a representative, fully-populated SurfaceInputs.
 func sampleInputs() agent.SurfaceInputs {
 	return agent.SurfaceInputs{
-		Context: "# Rules\nthe secret color is vermilion",
+		Reporter: strictness.Sink("ctxloom"),
+		Context:  "# Rules\nthe secret color is vermilion",
 		BundleMCP: map[string]wire.MCPServer{
 			agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}},
 			"config-server":     {Command: "config-cmd", Args: []string{"--flag"}},

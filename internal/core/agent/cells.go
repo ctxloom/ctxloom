@@ -631,6 +631,6 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, start present.S
 	if n, ok := rs.approach.(unsafeNamed); ok {
 		info = n.UnsafeInfo()
 	}
-	Warn("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
+	r.rep.Warnf("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
 	return rs.approach.Deliver(start)
 }

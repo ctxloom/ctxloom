@@ -5,7 +5,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -52,7 +51,7 @@ func PreferSurfaces(rep report.Reporter, managed *ManagedConfig, engine string, 
 	}
 	surfaces, err := resolve(engine, declared)
 	if err != nil {
-		clidiag.Warn("ctxloom", "delivery preference: %v — using %s's default delivery", err, engine)
+		rep.Warnf("delivery preference: %v — using %s's default delivery", err, engine)
 		return
 	}
 	managed.Surfaces = surfaces

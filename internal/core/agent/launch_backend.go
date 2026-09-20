@@ -757,7 +757,7 @@ func (b *LaunchBackend) deliverSet(in SurfaceInputs, req *SetupRequest, start pr
 // Reports whether the install took hold.
 func (b *LaunchBackend) installContextInjectionHook(rep report.Reporter, req *SetupRequest) bool {
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
-		Warn("context-injection hook install: Provide failed: %v", err)
+		rep.Warnf("context-injection hook install: Provide failed: %v", err)
 		return false
 	}
 	hash := b.context.GetContextHash()
@@ -766,7 +766,7 @@ func (b *LaunchBackend) installContextInjectionHook(rep report.Reporter, req *Se
 	}
 	hooks, _, ok := b.mergedState()
 	if !ok || hooks == nil {
-		Warn("context-injection hook install: could not read the merged hooks state")
+		rep.Warnf("context-injection hook install: could not read the merged hooks state")
 		return false
 	}
 	hooks.Unified.SessionStart = append(hooks.Unified.SessionStart,

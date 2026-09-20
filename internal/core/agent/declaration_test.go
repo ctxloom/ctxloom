@@ -123,7 +123,7 @@ func TestDeclaration_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
 func TestDeclaration_NovelEngineSharedCwdWarnsThroughItsOwnLabel(t *testing.T) {
 	resetStrictness(t)
 	fs := afero.NewMemMapFs()
-	r, err := Select(steeringDeclaration()).With(SurfaceContext, steeringApproach).Build(SurfaceInputs{Context: "x"}, fs)
+	r, err := Select(steeringDeclaration()).With(SurfaceContext, steeringApproach).Build(SurfaceInputs{Reporter: termRep().Sink, Context: "x"}, fs)
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {

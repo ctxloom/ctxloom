@@ -67,7 +67,7 @@ func TestWriteManagedPackageFiles_ExecBitPreserved(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 
 	skillMD, err := afero.ReadFile(fs, filepath.Join(skillDir, "SKILL.md"))
 	require.NoError(t, err)
@@ -103,11 +103,11 @@ func TestWriteManagedPackageFiles_ReMaterializeIsIdempotent(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 	manifest1, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	require.NoError(t, err)
 
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 	manifest2, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	require.NoError(t, err)
 
@@ -136,7 +136,7 @@ func TestWriteManagedPackageFiles_CleanupPreservesForeignFiles(t *testing.T) {
 			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 
 	managedExists, _ := afero.Exists(fs, filepath.Join(dir, "humanize", "SKILL.md"))
 	require.True(t, managedExists, "precondition: the managed package was written")
@@ -173,7 +173,7 @@ func TestWriteManagedPackageFiles_UnsafeItemPathSkipsWholeItem(t *testing.T) {
 			{RelPath: "../escape.md", Content: []byte("evil"), Mode: 0644},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "bad", "SKILL.md"))
 	assert.False(t, exists, "a package with any unsafe file path writes NONE of its files")
@@ -202,7 +202,7 @@ func TestWriteManagedPackageFiles_ChmodFailureWarns(t *testing.T) {
 			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 
 	assert.NotEmpty(t, buf.String(), "a chmod failure on the exec-bit re-assert must be warned about, not silently ignored")
 }
@@ -219,7 +219,7 @@ func TestWriteManagedPackageFiles_DisabledItemNotWritten(t *testing.T) {
 			{RelPath: "off/SKILL.md", Content: []byte("nope"), Mode: 0644},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender, WithWriteReporter(termRep().Sink)))
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "off", "SKILL.md"))
 	assert.False(t, exists, "a disabled item must not be written")

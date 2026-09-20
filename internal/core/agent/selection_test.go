@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // captureStderr redirects os.Stderr around fn and returns everything written to
@@ -130,7 +131,7 @@ func TestDeliverShared_ClaudeContextRawBuilderResolvesTableDefault_U100F05(t *te
 	isolated := "/isolated-scratch"
 	engineHome := "/engine-home"
 	sharedCwd := "/live/project"
-	r, err := agent.Select(claude.Declaration()).WithEverything().Build(agent.SurfaceInputs{Context: "project rules"}, fs)
+	r, err := agent.Select(claude.Declaration()).WithEverything().Build(agent.SurfaceInputs{Reporter: strictness.Sink("ctxloom"), Context: "project rules"}, fs)
 	require.NoError(t, err)
 
 	stderr := captureStderr(t, func() {
@@ -156,6 +157,7 @@ func TestDeliverShared_NoRealization_WarnsThenWritesWellKnown(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/live"
 	r, err := agent.Select(backends.Declared(config.BackendMock)).With(agent.SurfaceSkills, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{
+		Reporter: strictness.Sink("ctxloom"),
 		Skills: []agent.SkillExport{{Name: "review", Enabled: true,
 			Files: []agent.PackageFile{{RelPath: "SKILL.md", Content: []byte("do it")}}}},
 	}, fs)

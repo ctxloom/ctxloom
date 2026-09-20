@@ -211,7 +211,7 @@ type settingsApproach struct{ traits }
 func (*settingsApproach) Name() string { return "settings" }
 func (*settingsApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
+		return &settingsSurface{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, reporter: in.Reporter, fs: agent.GetFS(fs)}
 	}).Or(ApproachHewRecord, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 		return &settingsRecord{hooks: in.Hooks, manageStatusline: in.ManageStatusline, denyTools: in.DenyTools, fs: agent.GetFS(fs)}
 	})

@@ -235,7 +235,8 @@ func tightenSeedDestinations(engine, destDir string, files []seedFile) error {
 // reports whether there is anything seedable at all. ok=false is the
 // "nothing to seed" degrade — an unresolvable/empty host HOME, or an absent
 // REQUIRED file — never an error, because the caller must be free to proceed
-// (worktree.go turns it into its own fail-loud decision).
+// (the preparation seam turns it into the actionable error
+// operations.ResolveInTreeAgentHome fails loud on).
 func hostSeedSources(engine string, seed agent.CredentialSeed) ([]seedFile, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {

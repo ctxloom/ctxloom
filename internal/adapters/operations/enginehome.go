@@ -77,6 +77,24 @@ type AgentHomeResolution struct {
 	Mount *present.Mount
 	// Absent is "" when the home is present; otherwise WHY this run has none.
 	Absent string
+	// release stops what preparing the home left running (the seam's
+	// InTreeAgentHomeSpec.Prepare). Unexported: the only thing a caller may
+	// do with it is Release, at the run's end.
+	release func() error
+}
+
+// Release stops what preparing the home left RUNNING — the credential
+// replicator that keeps the instance in step with the host's rotating token
+// for as long as the run lives. It belongs at the run's end (Cells.Prepare
+// folds it into the cell's Cleanup): called earlier, the instance's token
+// goes stale behind a live engine; never called, every launch leaks a
+// watcher into the process that started it. Safe on an absent home and on a
+// home that left nothing running.
+func (r AgentHomeResolution) Release() error {
+	if r.release == nil {
+		return nil
+	}
+	return r.release()
 }
 
 // absent is the one constructor for the ABSENT shape, so a reason can never
@@ -172,8 +190,11 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	}
 
 	home := spec.Dir
+	var release func() error
 	if spec.Prepare != nil {
-		if err := spec.Prepare(in.Cwd); err != nil {
+		var err error
+		release, err = spec.Prepare(in.Cwd)
+		if err != nil {
 			// NON-DEGRADABLE. The fallback is not "less isolation", it is the
 			// SHARED host config home — the agent would read and write the
 			// user's real engine credentials and state, which is the precise
@@ -193,7 +214,7 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	// config and live credential bytes.
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: cannot create %s (%v); using the runtime's own config home instead", in.Backend, home, err)
-		return absent("cannot create %s: %v", home, err)
+		return AgentHomeResolution{release: release}.releasedAbsent("cannot create %s: %v", home, err)
 	}
 
 	var advice present.PathsAdvice = present.Host{}
@@ -204,8 +225,9 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	}
 	paths, mounts := advice.ApplyPaths(present.Paths{EngineHome: present.Root{Host: home}})
 	res := AgentHomeResolution{
-		Root: paths.EngineHome,
-		Env:  map[string]string{spec.EnvVar: paths.EngineHome.Engine},
+		Root:    paths.EngineHome,
+		Env:     map[string]string{spec.EnvVar: paths.EngineHome.Engine},
+		release: release,
 	}
 	if len(mounts) > 0 {
 		m := mounts[0]
@@ -228,7 +250,17 @@ func BindAgentHome(ws isolation.Workspace, in InTreeAgentHome) AgentHomeResoluti
 	if err := isolation.MountEngineHome(ws, *res.Mount); err != nil {
 		strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
 			"in-tree agent home for %s: %v; this run uses the runtime's own config home instead", in.Backend, err)
-		return absent("%v", err)
+		return res.releasedAbsent("%v", err)
 	}
 	return res
+}
+
+// releasedAbsent is absent for a home that was PREPARED and then could not be
+// delivered: what preparing left running is stopped first, because no run is
+// going to own it. The reason is reported exactly as absent reports it.
+func (r AgentHomeResolution) releasedAbsent(format string, args ...any) AgentHomeResolution {
+	if err := r.Release(); err != nil {
+		clidiag.Warn("ctxloom", "in-tree agent home: stopping the credential replication of a home this run cannot use: %v", err)
+	}
+	return absent(format, args...)
 }

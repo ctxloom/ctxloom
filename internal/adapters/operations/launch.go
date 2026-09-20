@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -299,15 +300,24 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 		Harp:     harp,
 		HomeMode: homeMode,
 	})
+	// The cell's teardown, in the order the run's end needs: the home is
+	// released FIRST — its credential replicator stops writing into the
+	// instance — and only then is the workspace torn down. Stopping the
+	// replicator at any earlier point would leave a live engine on a token
+	// the host has since rotated; leaving it running past this point leaks
+	// a watcher into the coordinator for every launch.
+	cleanup := func() error {
+		return errors.Join(home.Release(), ws.Cleanup())
+	}
 	found := strictness.Since(mark)
 	strictness.Close(mark)
 	if gerr := isolationGateErr(c.mode, found); gerr != nil {
-		_ = ws.Cleanup()
+		_ = cleanup()
 		return launch.Cell{}, fmt.Errorf("%w: %v", launch.ErrRuntimeUnavailable, gerr)
 	}
 	if pendingCopy != nil {
 		if err := applyCopySnapshot(ctx, gitClient, ws.Dir(), pendingCopy); err != nil {
-			_ = ws.Cleanup()
+			_ = cleanup()
 			return launch.Cell{}, err
 		}
 	}
@@ -320,7 +330,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	cell := launch.Cell{
 		Workspace: ws.Dir(),
 		Env:       env,
-		Cleanup:   ws.Cleanup,
+		Cleanup:   cleanup,
 		Handle:    PreparedCell{Policy: policy, Workspace: ws},
 	}
 	if home.Absent == "" {

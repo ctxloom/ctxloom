@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,6 +151,46 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(cfg), cell.Workspace, "the trust answer names the checkout the engine runs in")
 	})
+}
+
+// The credential replicator a controlled home starts belongs to the RUN. A
+// host token refresh reaches the instance while the cell lives — the seeded
+// copy would otherwise be revoked on its next request — and Cleanup ends it,
+// so a finished run leaves no watcher writing into a home nothing reads.
+func TestCellsPrepare_SessionHomeCredentialFollowsTheHostUntilCleanup(t *testing.T) {
+	resetStrictness(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	hostFile := filepath.Join(home, ".claude", claude.CredentialsFileName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(hostFile), 0o700))
+	require.NoError(t, os.WriteFile(hostFile, []byte(`{"token":"one"}`), 0o600))
+	workDir := t.TempDir()
+
+	req := claudeKind(t)
+	req.ProjectRoot = workDir
+	req.HomeMode = launch.HomeModeSession
+	cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cell.Cleanup() })
+
+	instFile := filepath.Join(claudeInstanceDir(t, workDir, "test-harp"), claude.CredentialsFileName)
+	reads := func(want string) func() bool {
+		return func() bool {
+			got, err := os.ReadFile(instFile)
+			return err == nil && string(got) == want
+		}
+	}
+	require.Eventually(t, reads(`{"token":"one"}`), 5*time.Second, 25*time.Millisecond)
+
+	require.NoError(t, os.WriteFile(hostFile, []byte(`{"token":"two"}`), 0o600))
+	require.Eventually(t, reads(`{"token":"two"}`), 5*time.Second, 25*time.Millisecond,
+		"a host refresh must reach the live run's instance")
+
+	require.NoError(t, cell.Cleanup())
+	require.NoError(t, os.WriteFile(hostFile, []byte(`{"token":"three"}`), 0o600))
+	assert.Never(t, reads(`{"token":"three"}`), time.Second, 50*time.Millisecond,
+		"after Cleanup nothing may go on writing into the instance: the replicator is the run's, not the process's")
 }
 
 func initIsolationTestRepo(t *testing.T) string {

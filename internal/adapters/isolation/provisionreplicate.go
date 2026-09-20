@@ -221,21 +221,44 @@ func (r *replicator) Close() error {
 	return r.closeErr
 }
 
-// bootstrap gives the instance its first copy of the host material, under the
-// lock so it cannot read a refresh half-written by another process.
+// bootstrap gives the instance the host material, under the lock so it
+// cannot read a refresh half-written by another process.
+//
+// An instance already holding the host's bytes is left alone. The instance
+// is shared by every run of one session, so this bootstrap can land on a
+// file another run's engine is reading, and an in-place rewrite of identical
+// bytes is a truncate-and-refill window under that reader for nothing. A
+// stale instance — a resumed run's copy of a token the host has since
+// rotated — differs and is replaced.
 func (p *replicaPair) bootstrap() error {
 	return p.locked(func() error {
 		data, err := os.ReadFile(p.host)
 		if err != nil {
 			return fmt.Errorf("replication provisioning: read %s: %w", p.host, err)
 		}
-		if err := p.write(p.instance, data); err != nil {
-			return err
+		if !p.instanceHolds(data) {
+			if err := p.write(p.instance, data); err != nil {
+				return err
+			}
 		}
 		p.lastHost = sha256.Sum256(data)
 		p.lastInst = p.lastHost
 		return nil
 	})
+}
+
+// instanceHolds reports whether the instance is a REGULAR file already
+// holding data. Decided by Lstat first, so a symlinked instance path is never
+// "already identical": it is handed to the write, whose open refuses it at
+// the syscall — the same refusal the engine's own open would make, surfaced
+// at placement rather than as an engine that starts logged out.
+func (p *replicaPair) instanceHolds(data []byte) bool {
+	info, err := os.Lstat(p.instance)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	have, err := os.ReadFile(p.instance)
+	return err == nil && bytes.Equal(have, data)
 }
 
 // reconcile propagates whichever side changed, under the lock.

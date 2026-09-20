@@ -272,6 +272,12 @@ var WorktreeArtifactPatterns = []string{
 	".mcp.json",
 	".claude/",
 	".ctxloom/cache/",
+	// Minted by resolveProject on first contact with the worktree, before any
+	// engine runs. It is private state (PrivateStatePatterns), so no checkout
+	// carries one; in a repository whose committed .gitignore predates the
+	// nested rule the mint is untracked, and the dirty-tree gate would refuse
+	// to delegate over ctxloom's own artifact.
+	".ctxloom/project-id",
 	"CLAUDE.md",
 	// mock's own written set. It is here for the same reason claude's is: mock
 	// delivers every surface, so a mock-backed worktree leaves these behind,

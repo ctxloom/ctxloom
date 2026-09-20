@@ -178,7 +178,7 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 	// without a trace. An AGENT initiator gets no mirror — the parent IS the
 	// initiator.
 	if by.Kind == agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN {
-		if _, _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
+		if _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
 			c.rep.Warnf("steer %s: mirror notice: %v", harp, merr)
 		}
 	}
@@ -191,13 +191,11 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 // turn's provenance header so the agent sees an instruction rather than an
 // anonymous message.
 func (c *Coordinator) steerAsMail(sender, harp, kind, text string) (msgID string, outcome SteerOutcome, err error) {
-	msgID, completed, err := c.queueMailPayload(sender, harp, kind, text, nil, "")
+	msgID = newMessageID()
+	observed, err := c.deliverMailID(msgID, sender, harp, kind, text, nil, "")
 	if err != nil {
 		return "", SteerOutcome{}, err
 	}
-	if completed {
-		return msgID, SteerOutcome{Delivery: DeliveryCompletedRecv}, nil
-	}
-	mode, _ := deliveryDisposition(c.driveQueued(harp))
+	mode, _ := deliveryDisposition(observed)
 	return msgID, SteerOutcome{Delivery: mode}, nil
 }

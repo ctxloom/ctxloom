@@ -121,6 +121,15 @@ func (c *Coordinator) Serve() error {
 	s.saveEndpoint()
 
 	c.srv.Store(s)
+	if c.closed.Load() {
+		// Close ran while this was binding and found nothing to take down.
+		// It marked itself before looking, so this is the second of the
+		// two to act, and the listeners are this call's to unwind.
+		if c.srv.CompareAndSwap(s, nil) {
+			s.close()
+		}
+		return fmt.Errorf("coord: %w", ErrClosed)
+	}
 	// A previous incarnation opened the wide listener for a container run;
 	// a container runner from before the restart redials that recorded
 	// address, so it is re-bound NOW — not on the next container spawn, which

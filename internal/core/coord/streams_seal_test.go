@@ -26,7 +26,7 @@ func TestRunnerChannel_RefusedOnceTheCoordinatorSeals(t *testing.T) {
 	defer cancel()
 	link, err := DialRunner(ctx, termSink(), c.LoopbackURL(), token, "", "mock", "test", nil)
 	if link != nil {
-		t.Cleanup(link.cancel)
+		t.Cleanup(link.Abort)
 	}
 	require.Error(t, err, "a handler arriving after the seal must be refused, not admitted")
 	require.Equal(t, codes.Unavailable, status.Code(err), "%v", err)

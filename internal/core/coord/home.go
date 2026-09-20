@@ -340,12 +340,17 @@ func (h *Home) runnerChannelLoop() {
 		h.mu.Unlock()
 		select {
 		case <-link.Done():
+			// The dead link's connection is closed HERE, before the redial
+			// replaces it: Shutdown only ever reaches the link Close finds
+			// current, so an unreleased predecessor is a leaked ClientConn.
+			h.releaseLink(link)
 			select {
 			case <-time.After(homeRedialBackoff):
 			case <-h.ctx.Done():
 				return
 			}
 		case <-h.ctx.Done():
+			h.releaseLink(link)
 			return
 		}
 	}
@@ -402,6 +407,7 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	// with their ORIGINAL request_ids, and a fresh park assertion when a
 	// recv is parked (park state is runtime state the coordinator forgot
 	// with the old stream).
+	h.sendMu.Lock()
 	h.mu.Lock()
 	h.stream = stream
 	h.everAttached = true
@@ -412,12 +418,15 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	}
 	parked := h.parked
 	h.mu.Unlock()
+	// The reissue batch holds sendMu so no fresh emit can interleave a
+	// higher seq into it (see emitEvent).
 	for _, ev := range events {
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
+		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
 	for _, r := range reqs {
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
+		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
 	}
+	h.sendMu.Unlock()
 	// RECONNECT SWEEP: every doorbell rung while this stream was down was
 	// dropped by design (the file was the truth, so nothing needed reissuing),
 	// and this is the moment that costs nothing to make good.
@@ -465,14 +474,20 @@ func (h *Home) send(frame *agentcoordpb.AgentFrame) { _ = h.trySend(frame) }
 // must be able to count what it dropped instead of letting a permanently down
 // channel look like a permanently quiet one.
 func (h *Home) trySend(frame *agentcoordpb.AgentFrame) bool {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
+	return h.sendLocked(frame)
+}
+
+// sendLocked is trySend's body for a caller already holding sendMu — the
+// emitters that must pair a seq assignment with the write under one guard.
+func (h *Home) sendLocked(frame *agentcoordpb.AgentFrame) bool {
 	h.mu.Lock()
 	stream := h.stream
 	h.mu.Unlock()
 	if stream == nil {
 		return false
 	}
-	h.sendMu.Lock()
-	defer h.sendMu.Unlock()
 	if err := stream.Send(frame); err != nil {
 		// The receive loop observes the same failure and re-dials.
 		h.rep.WarnOncef("run channel send failed (reconnecting): %v", err)
@@ -735,6 +750,20 @@ func (h *Home) AwaitMailAcked(ctx context.Context, ids []string) error {
 	}
 }
 
+// releaseLink aborts link and forgets it, if it is still the current one — a
+// Close that already took it (h.link nil) owns its graceful Shutdown instead.
+func (h *Home) releaseLink(link *RunnerLink) {
+	h.mu.Lock()
+	current := h.link == link
+	if current {
+		h.link = nil
+	}
+	h.mu.Unlock()
+	if current {
+		link.Abort()
+	}
+}
+
 // ReportRunExited sends a best-effort RunExited on the live lifecycle link
 // WITHOUT tearing the home down — the engine host's chat-ended signal (the
 // runner process itself stays up until the coordinator kills it; the
@@ -948,7 +977,17 @@ func (h *Home) emitCustomEvent(name string, value map[string]any) {
 
 // emitEvent assigns the next seq, buffers the event as unacked, and sends it
 // when the stream is live. Returns the assigned seq.
+//
+// Seq assignment and the stream write are ONE critical section (sendMu is
+// held across both). The coordinator's cumulative Ack dedupes by "seq at or
+// below the channel's watermark", so an event reaching the wire behind a
+// higher seq is dropped as a duplicate and acked past — and a Report waiting
+// on that ack returns with its fact never journaled. Concurrent emitters
+// (a Report on one goroutine, the engine host's park/turn events on another)
+// must therefore serialize the whole assign-then-write, not just the assign.
 func (h *Home) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
 	h.mu.Lock()
 	h.seq++
 	ev.Seq = h.seq
@@ -957,7 +996,7 @@ func (h *Home) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
 	h.unacked = append(h.unacked, ev)
 	seq := h.seq
 	h.mu.Unlock()
-	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
+	h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	return seq
 }
 
@@ -1029,12 +1068,18 @@ const ackReissueInterval = 2 * time.Second
 // re-issuing is what resolves the two. It costs nothing: (run, seq) is the
 // coordinator's idempotency key, so a seq it already processed is re-acked
 // rather than re-journaled — the same reissue the post-Hello reattach performs.
+//
+// The whole batch goes out under sendMu: a fresh emit landing between two
+// reissued events would put its higher seq ahead of the rest of the batch,
+// and the coordinator would drop those as duplicates (see emitEvent).
 func (h *Home) reissueUnacked() {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
 	h.mu.Lock()
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
 	h.mu.Unlock()
 	for _, ev := range events {
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
+		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
 }
 

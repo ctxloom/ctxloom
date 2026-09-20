@@ -598,7 +598,24 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 	if err := c.Serve(); err != nil {
 		t.Fatalf("serve coordinator: %v", err)
 	}
-	t.Cleanup(c.Close)
+	t.Cleanup(func() {
+		c.Close()
+		// Every runner half this fake stood up is the coordinator's to kill
+		// — through the run's terminal, through Close, or (a terminal that
+		// landed mid-launch) by the launch itself. One left alive keeps its
+		// channels, its connection and its sweep for the life of the test
+		// PROCESS, which is how a -count=N run of this package used to grow
+		// its heap by megabytes per pass.
+		if fs, ok := sp.(*fakeSpawner); ok {
+			fs.mu.Lock()
+			defer fs.mu.Unlock()
+			for i, h := range fs.engineHomes {
+				if h.ctx.Err() == nil {
+					t.Errorf("runner half %d (run %s) is still alive after Coordinator.Close: nothing killed it", i, h.cfg.RunID)
+				}
+			}
+		}
+	})
 	return c
 }
 

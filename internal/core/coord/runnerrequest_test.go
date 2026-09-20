@@ -43,7 +43,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	}
 	link, err := DialRunner(context.Background(), termSink(), c.LoopbackURL(), token, "", "mock", "test", handler)
 	require.NoError(t, err)
-	t.Cleanup(link.cancel)
+	t.Cleanup(link.Abort)
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
@@ -119,7 +119,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 
 	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err)
-	t.Cleanup(link.cancel)
+	t.Cleanup(link.Abort)
 
 	select {
 	case werr := <-waited:

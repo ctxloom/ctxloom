@@ -37,10 +37,9 @@ func TestDeliveryDisposition_OneClassificationForBothVocabularies(t *testing.T) 
 // four documented modes rather than a bare state name leaking through.
 func TestDeliveryDisposition_ModeIsAlwaysAKnownDeliveryConstant(t *testing.T) {
 	known := map[string]bool{
-		DeliveryCompletedRecv: true,
-		DeliveryNewTurn:       true,
-		DeliveryQueued:        true,
-		DeliveryResumed:       true,
+		DeliveryNewTurn: true,
+		DeliveryQueued:  true,
+		DeliveryResumed: true,
 	}
 	for _, state := range []string{StateQueued, StateExecuting, StateParked, StateIdle, StateEnded, "some-future-state"} {
 		mode, prose := deliveryDisposition(state)

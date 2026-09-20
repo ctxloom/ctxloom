@@ -195,7 +195,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed(t *testing.T) {
 	out, _ := awaitCutoverChild(t, c, sp, "first task")
 
 	structured := json.RawMessage(`{"ticket":"T-9","severity":"high"}`)
-	msgID, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindQuestion, "second task", structured, "corr-1")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindQuestion, "second task", structured, "corr-1")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 
@@ -555,7 +555,7 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, home := awaitCutoverChild(t, c, sp, "first task")
 
-	_, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
+	_, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "exactly once please", nil, "")
 	require.NoError(t, err)
 	awaitChatText(t, sp, 0, "exactly once please")
 	awaitSpoolCount(t, out.Harp, spool.DirInConsumed, 1, "after the first delivery")
@@ -723,7 +723,7 @@ func TestSpoolDelivery_NonObjectStructuredSurvivesTheDelivery(t *testing.T) {
 	// A bare array; a number no YAML round trip preserves; a string YAML
 	// would hand back as a number.
 	raw := json.RawMessage(`[1,"two",12345678901234567890123,"0640"]`)
-	msgID, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "carrying an array", raw, "")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "carrying an array", raw, "")
 	require.NoError(t, err)
 
 	awaitChatText(t, sp, 0, "carrying an array")

@@ -65,9 +65,9 @@ func TestMailbox_AtLeastOnceRedeliveryAndDedupe(t *testing.T) {
 	// then simulate a crash (close without the acking recv).
 	c1 := newTestCoordinatorAt(t, stateDir)
 	role := ownerIdentity().Harp
-	_, _, err := c1.queueMail("sender", role, KindMessage, "first")
+	_, err := c1.queueMail("sender", role, KindMessage, "first")
 	require.NoError(t, err)
-	_, _, err = c1.queueMail("sender", role, KindMessage, "second")
+	_, err = c1.queueMail("sender", role, KindMessage, "second")
 	require.NoError(t, err)
 
 	msgs, err := c1.recvMail(context.Background(), role, 0)

@@ -51,8 +51,17 @@ func (g *trackedGroup) dispatch(fn func()) {
 }
 
 // enter takes a slot for a goroutine the owner did NOT dispatch — a stream
-// handler the gRPC server runs — so wait can join its deferred teardown.
+// handler the gRPC server runs — so wait can join its deferred teardown. It
+// is dispatch's admission under the same guard: past the seal the slot is
+// REFUSED (ok false) rather than counted, because an Add racing an
+// in-progress Wait is the sync.WaitGroup misuse -race reports. A refused
+// handler returns without serving; the server is being torn down anyway.
 func (g *trackedGroup) enter() (done func(), ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closing {
+		return nil, false
+	}
 	g.wg.Add(1)
 	return g.wg.Done, true
 }
@@ -69,22 +78,6 @@ func (g *trackedGroup) seal() {
 // naming what (the teardown, e.g. "coordinator close") and, when risk is
 // non-empty, what a goroutine still running past the budget may still touch —
 // rather than deadlocking the teardown.
-// waitBounded waits for wg up to budget, warning and proceeding past it —
-// the same discipline trackedGroup.wait applies, for a group that is not
-// sealed (the stream handlers are dispatched by the gRPC server, not by us).
-func waitBounded(rep report.Reporter, wg *sync.WaitGroup, budget time.Duration, what string) {
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(budget):
-		rep.Warnf("%s: handlers did not finish within %s; proceeding (a late terminal may still touch the state dir)", what, budget)
-	}
-}
-
 func (g *trackedGroup) wait(budget time.Duration, what, risk string) {
 	done := make(chan struct{})
 	go func() {

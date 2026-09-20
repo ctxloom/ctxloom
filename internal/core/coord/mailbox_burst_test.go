@@ -97,7 +97,7 @@ func TestRecvMail_ASweepBurstIsDeliveredAsOneBatch(t *testing.T) {
 
 	// The first report of the sweep. This is what fires deliverToPoll and wakes
 	// the parked receive.
-	if _, _, err := c.queueMailPayloadID("m0", "child-0", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m0", "child-0", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 
@@ -117,7 +117,7 @@ func TestRecvMail_ASweepBurstIsDeliveredAsOneBatch(t *testing.T) {
 	// Entries 2..N of the same reactor pass.
 	for i := 1; i < burst; i++ {
 		id := fmt.Sprintf("m%d", i)
-		if _, _, err := c.queueMailPayloadID(id, fmt.Sprintf("child-%d", i), role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
+		if _, err := c.queueMailPayloadID(id, fmt.Sprintf("child-%d", i), role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
 			return
 		}
 	}
@@ -158,7 +158,7 @@ func TestRecvMail_ASingleArrivalStillReturnsPromptly(t *testing.T) {
 	if !waitParked(t, c, role) {
 		return
 	}
-	if _, _, err := c.queueMailPayloadID("solo", "child-solo", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("solo", "child-solo", role, "result", "FINAL: done", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 

@@ -40,7 +40,7 @@ func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	if _, _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: the message is deliverable") {

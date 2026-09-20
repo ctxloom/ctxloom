@@ -222,7 +222,7 @@ func TestTerminalInject_NeverQuietStillInjectsWithinBound(t *testing.T) {
 // test cares about can land while the cycle is waiting, and nowhere else.
 type latchGate struct{ open atomic.Bool }
 
-func (*latchGate) Observe([]byte)          {}
+func (*latchGate) Observe([]byte)        {}
 func (g *latchGate) AcceptingText() bool { return g.open.Load() }
 
 // awaitInjectCycleDone waits for the injector's armed cycle to have run to
@@ -249,7 +249,7 @@ func TestTerminalInject_BurstOfMailCoalescesToOneInjection(t *testing.T) {
 	var calls atomic.Int32
 	var frames []string
 	var mu sync.Mutex
-	ti := &TerminalInjector{rep: termRep(), gate: gate, quiet: time.Millisecond, tick: time.Millisecond, maxWait: 5 * time.Second, count: h.BufferedMailCount, parked: h.RecvParked}
+	ti := &TerminalInjector{rep: termRep(), gate: gate, quiet: time.Millisecond, tick: time.Millisecond, maxWait: 5 * time.Second, ackWait: time.Millisecond, ackTick: time.Millisecond, count: h.BufferedMailCount, parked: h.RecvParked}
 	ti.inject = func(frame, _ string) {
 		calls.Add(1)
 		mu.Lock()
@@ -281,7 +281,7 @@ func TestTerminalInject_WithheldWhileAReceiveIsParked(t *testing.T) {
 	h := newNoticeHome(t)
 	gate := &latchGate{}
 	var calls atomic.Int32
-	ti := &TerminalInjector{rep: termRep(), gate: gate, quiet: time.Millisecond, tick: time.Millisecond, maxWait: 5 * time.Second, count: h.BufferedMailCount, parked: h.RecvParked}
+	ti := &TerminalInjector{rep: termRep(), gate: gate, quiet: time.Millisecond, tick: time.Millisecond, maxWait: 5 * time.Second, ackWait: time.Millisecond, ackTick: time.Millisecond, count: h.BufferedMailCount, parked: h.RecvParked}
 	ti.inject = func(string, string) { calls.Add(1) }
 	h.SetTerminalNudge(ti.nudge)
 

@@ -26,7 +26,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	if _, _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: the message is deliverable") {
@@ -88,7 +88,7 @@ func TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	if _, _, err := c.queueMailPayloadID("m9", "parent", role, KindMessage, "already yours", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m9", "parent", role, KindMessage, "already yours", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 

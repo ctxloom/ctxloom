@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"google.golang.org/grpc/codes"
@@ -828,6 +829,15 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	l := resolved.Launch
 	c.recordCell(rt.runID, l)
 	c.mu.Lock()
+	// A terminal that landed while Start was in flight found no close to
+	// call (terminateRun takes rt out of c.attach and nils rt.close). The
+	// runner it just stood up is then this launch's to kill, right here:
+	// stored on an rt nothing will ever revisit, it outlives the run.
+	if c.attach[rt.runID] != rt {
+		c.mu.Unlock()
+		engine.Kill()
+		return
+	}
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
 	rt.runnerWait = engine.Wait
@@ -1538,7 +1548,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 			kind = "error"
 			body += ": " + runFailure
 		}
-		if _, _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
+		if _, err := c.queueMail(rec.Harp, rec.ParentHarp, kind, body); err != nil {
 			// The spool write is what just failed, so the invariant above
 			// ("the parent ALWAYS learns of a child death") does not hold for
 			// this death. Said loudly: there is nothing behind the file.
@@ -1705,7 +1715,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	plan, err := c.spawner.Resolve(lctx, rec.Agent)
 	if err != nil {
 		c.rep.Warnf("agent resume %s: %v", harp, err)
-		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
+		if _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, err)); qerr != nil {
 			c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 		}
 		return
@@ -1746,7 +1756,7 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 	url, uerr := c.spawnReachURL(harp, plan.Runtime)
 	if uerr != nil {
 		c.rep.Warnf("agent resume %s: %v", harp, uerr)
-		if _, _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, uerr)); qerr != nil {
+		if _, qerr := c.queueMail(harp, rec.ParentHarp, "error", fmt.Sprintf("agent %q (session %s) could not be resumed: %v", rec.Agent, harp, uerr)); qerr != nil {
 			c.rep.Warnf("agent %s: queue resume failure: %v", harp, qerr)
 		}
 		return
@@ -1805,18 +1815,28 @@ func (c *Coordinator) resumeChild(harp, forRun string, attached chan struct{}, d
 // that will not happen.
 const deliveryEndedDraining = "ended-draining"
 
-// driveQueued drives the recipient of an already-enqueued message per its
-// fold state (§6a): resume an ended child or wake an idle one into a new
-// turn; executing/parked/queued children reach the message at their own
-// boundary. Returns the state the delivery observed (or
-// deliveryEndedDraining for a resume refused under drain).
-func (c *Coordinator) driveQueued(harp string) string {
-	state, runID := "", ""
+// observeRecipient reads the state a delivery to harp is judged by: the
+// harp's current run and its fold state. It is read BEFORE the write, and the
+// disposition the sender is told is THIS observation — a read after the write
+// races the recipient itself, which may already have taken the file and
+// started its turn, and would then describe an idle child it woke as
+// "queued mid-turn".
+func (c *Coordinator) observeRecipient(harp string) (state, runID string) {
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(harp); r != nil {
 			state, runID = r.State, r.RunID
 		}
 	})
+	return state, runID
+}
+
+// driveObserved acts on the state observeRecipient saw, once the message is
+// on disk (§6a delivery-by-state): resume an ended child; an idle one is
+// woken by the doorbell that rang at the write, and executing/parked/queued
+// children reach the message at their own boundary. Returns the state the
+// delivery is described by (deliveryEndedDraining for a resume refused under
+// drain).
+func (c *Coordinator) driveObserved(harp, state, runID string) string {
 	switch state {
 	case StateEnded:
 		// Under drain a resume is new work, and the message is not lost by
@@ -1840,6 +1860,18 @@ func (c *Coordinator) driveQueued(harp string) string {
 		// starts the new turn (§6a decided runner-side).
 	}
 	return state
+}
+
+// deliverMailID is the one delivery for mail whose sender is told what
+// happened: observe the recipient, write the file (queueMailPayloadID), then
+// act on the observation. The observed state is what deliveryDisposition
+// classifies.
+func (c *Coordinator) deliverMailID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (observed string, err error) {
+	state, runID := c.observeRecipient(to)
+	if _, err := c.queueMailPayloadID(msgID, from, to, kind, body, structured, inReplyTo); err != nil {
+		return "", err
+	}
+	return c.driveObserved(to, state, runID), nil
 }
 
 // onRolePark ties recv parking to the execution-slot accounting (§6a slot

@@ -302,14 +302,13 @@ func (c *Coordinator) controlAsk(ctx context.Context, by ControlInitiator, harp,
 		// fails it.
 		hook(askID)
 	}
-	if _, _, err := c.queueMailPayloadID(askID, by.auditName(), harp, kind, text, nil, ""); err != nil {
-		return AskAnswer{}, fmt.Errorf("%s %s: %w", kind, harp, err)
-	}
 	// The child must be woken for an idle or ended run, or the ask sits in a
 	// spool nothing is reading — the same delivery-by-state wake ordinary mail
 	// gets. THIS is what bounds an idle child's answer to one delivery rather
 	// than to whenever it next happens to run.
-	c.driveQueued(harp)
+	if _, err := c.deliverMailID(askID, by.auditName(), harp, kind, text, nil, ""); err != nil {
+		return AskAnswer{}, fmt.Errorf("%s %s: %w", kind, harp, err)
+	}
 
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc

@@ -294,6 +294,13 @@ func (ti *TerminalInjector) run() {
 	if inject == nil {
 		return // Wrap was never called: no interactive stdin exists to inject into
 	}
+	if ti.parked != nil && ti.parked() {
+		// A receive is parked: the engine is already collecting, so a
+		// reminder to call agent_recv would interrupt the very call it asks
+		// for. The mail completes that receive; nothing is lost by standing
+		// down, and the next arrival with no park re-arms.
+		return
+	}
 	if n := ti.count(); n > 0 {
 		// "\r", not "\n": an interactive engine holds the terminal in RAW
 		// mode, so the kernel's ICRNL input translation is off and the Enter

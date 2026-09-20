@@ -230,7 +230,9 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 		return nil, err
 	}
 	host.BindHome(home)
-	return &coord.EngineSpawn{Kill: cancel}, nil
+	// Kill is the runner-process death: the Home crashes with it, or its
+	// channels and connections outlive the test.
+	return &coord.EngineSpawn{Kill: func() { cancel(); home.Crash() }}, nil
 }
 
 func (s *liveTapSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {

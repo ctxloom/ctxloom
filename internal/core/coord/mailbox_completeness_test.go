@@ -57,7 +57,7 @@ func TestRecvOverlapping_EveryQueuedMessageIsReceivedExactlyOnce(t *testing.T) {
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("m%d", i)
 		body := fmt.Sprintf("report %d", i)
-		if _, _, err := c.queueMailPayloadID(id, "parent", role, KindResult, body, nil, ""); !assert.NoError(t, err) {
+		if _, err := c.queueMailPayloadID(id, "parent", role, KindResult, body, nil, ""); !assert.NoError(t, err) {
 			return
 		}
 		sent = append(sent, id)
@@ -149,7 +149,7 @@ func TestRecvPreempted_ConcurrentOverlapLosesNoMessage(t *testing.T) {
 	sent := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("o%d", i)
-		if _, _, err := c.queueMailPayloadID(id, "parent", role, KindResult, fmt.Sprintf("finding %d", i), nil, ""); !assert.NoError(t, err) {
+		if _, err := c.queueMailPayloadID(id, "parent", role, KindResult, fmt.Sprintf("finding %d", i), nil, ""); !assert.NoError(t, err) {
 			return
 		}
 		sent = append(sent, id)

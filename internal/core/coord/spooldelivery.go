@@ -395,7 +395,7 @@ var ErrNoSpoolReader = errors.New("coordinator mail: the recipient has no spool 
 
 // queueMail is queueMailPayload's common-case wrapper: no structured
 // companion, no reply correlation.
-func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
+func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err error) {
 	return c.queueMailPayload(from, to, kind, body, nil, "")
 }
 
@@ -406,10 +406,10 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, comp
 // ApprovalRequest projection); inReplyTo correlates this message to an
 // earlier one's id.
 //
-// completed is always false: nothing is handed to a waiting receiver
-// synchronously. The recipient's reader delivers it on the doorbell or its
-// next sweep, and its consume-rename is what reports back that it landed.
-func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, completed bool, err error) {
+// Nothing is handed to a waiting receiver synchronously: the recipient's
+// reader delivers it on the doorbell or its next sweep, and its
+// consume-rename is what reports back that it landed.
+func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, err error) {
 	return c.queueMailPayloadID(newMessageID(), from, to, kind, body, structured, inReplyTo)
 }
 
@@ -418,12 +418,12 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // somewhere before the mail is observable: this function publishes, and after
 // it returns a reply quoting the id can already arrive. relayApproval is the
 // case that forced it; see its comment.
-func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
 	// Role "" is undrainable by construction — agent_recv drains the caller's
 	// own harp and no session has the empty harp. Refused here, at the one
 	// point every sender funnels through, rather than at each sender.
 	if to == "" {
-		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+		return "", fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
 	}
 	// A message with NO payload is refused at the same chokepoint. Delivered,
 	// it completes a parked recv and is answered with the ordinary success
@@ -432,12 +432,12 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// relayed ApprovalRequest projection and its replies carry it), so only a
 	// message with neither is empty.
 	if strings.TrimSpace(body) == "" && len(structured) == 0 {
-		return "", false, fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
+		return "", fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
 			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+
 			"(check the sender's message composition)", from, to, kind)
 	}
 	if !c.spoolDeliverTo(to) {
-		return "", false, fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
+		return "", fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
 	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	// Write-and-ring is ONE operation (spoolcourier.go): the pairing used to be
@@ -446,9 +446,9 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// is nothing behind the file, so a write that failed is a message that
 	// does not exist and the sender must be told so.
 	if _, err := c.mailCourier().Send(msg); err != nil {
-		return "", false, err
+		return "", err
 	}
-	return msg.ID, false, nil
+	return msg.ID, nil
 }
 
 // mailCourier delivers coordinator mail into the RECIPIENT's inbound spool.
@@ -460,8 +460,11 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 		ring:    c.ringSpool,
 		onSent: func(to string, msg Message, ref spool.Ref) {
 			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
-			if c.afterMailWritten != nil {
-				c.afterMailWritten(to)
+			c.mu.Lock()
+			seam := c.afterMailWritten
+			c.mu.Unlock()
+			if seam != nil {
+				seam(to)
 			}
 		},
 		side: "coordinator",
@@ -604,7 +607,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
-	if _, _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
+	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
 		// The routing chokepoint refused it (closed kind vocabulary,
 		// hub-and-spoke, unknown recipient). The agent's local write already
 		// returned success, so the refusal is reported back the only way that
@@ -664,7 +667,7 @@ func failSpool(rep report.Reporter, side string, ref spool.Ref, why string, caus
 // succeeded, and the refusal happens later in another process.
 func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 	body := fmt.Sprintf("your message to %q was not delivered: %v", msg.To, cause)
-	if _, _, err := c.queueMail(role, role, KindError, body); err != nil {
+	if _, err := c.queueMail(role, role, KindError, body); err != nil {
 		c.rep.Warnf("coordinator: could not tell %s that its message was refused (%v): %v", role, cause, err)
 	}
 }
@@ -713,7 +716,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
 			"\n--- the message text, as %s wrote it ---\n%s",
 		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
-	if _, _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+	if _, err := c.queueMail(role, parent, KindError, notice); err != nil {
 		c.rep.Warnf("coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
 	}
 }

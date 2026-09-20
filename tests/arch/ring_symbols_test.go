@@ -444,7 +444,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/cli/clean_cmd.go":       "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/doctor_cmd.go":      "slice 15: operations.Doctor takes the facts it checks as values",
 	"internal/adapters/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/mcp_server.go":      "slice 9: the stdio MCP server is deleted",
+	"internal/adapters/cli/mcp_server.go":      "slice 13: the stdio MCP server dies with the plugin arm",
 	"internal/adapters/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/session_distill.go": "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
@@ -459,7 +459,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	// the runner's halves today
 	"internal/lm/grpc/client.go":                  "slice 13: the go-plugin protocol is deleted whole",
 	"internal/adapters/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
-	"internal/adapters/mcp/mcp_runner.go":         "slice 9: runner/mcp is bound by the runner, which holds the session home",
+	"internal/adapters/mcp/owner_socket.go":       "slice 13: the plugin-hosted owner arm's socket endpoint dies with the plugin arm; its cwd is the cell-path boundary until then",
 	"internal/adapters/mcp/mcp_tools_agents.go":   "slice 8: agent_run is a Verbs.Host frame carrying the launch; no cwd is read",
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
 

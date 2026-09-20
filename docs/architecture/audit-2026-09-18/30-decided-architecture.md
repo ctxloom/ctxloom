@@ -140,7 +140,7 @@ flowchart TB
     ENGS["claude (Build → Claude{Base}: Instance/Exec/Drivers/Resume, Home, Container, Hooks; claude/engine = the hosting remainder + the readers the root hands WithTranscripts) · mock (New/Build → Mock{Base}: full conformance; Doubles carry WithContainer; mock/runtime = the binary's runtime) · conformance (the settings-writer equity suite) · engines (Build → engine.Registry, readers injected; Register pairs kinds with lm/hosting records)"]:::adapter
   end
   subgraph ADAPTERS["internal/adapters — import core; imported by no core package"]
-    RUNNER["runner — landed 8: Deps, Execute (redeem → decode → configure → serve → deliver → drive), Host over the frame's launch; the engine host it drives through stays in core/coord until 14a; runner/mcp is 9's (today: adapters/mcp, the stdio server)"]:::adapter
+    RUNNER["runner — landed 8: Deps, Execute (redeem → decode → configure → serve → deliver → drive), Host over the frame's launch; landed 9: runner/mcp (delivery.Dynamic — Endpoint.Serve binds Launch.MCP under ServePolicy; the cell-local surface off the Loadout; the coordination and relay surface over the reach-back Home) and the session .mcp.json naming URL + bearer; the engine host it drives through stays in core/coord until 14a (parks between one-shot turns since 9)"]:::adapter
     CGRPC["coordgrpc — landed 8: EncodeLaunch/DecodeLaunch, WireFieldNames, MaxRecvMsgSize, the Carrier codec, EncodeRunStart (the plugin arm's projection, until 13); the servers, client and reach address are 9–10's; coordgrpc/pb (the generated proto) · coordgrpc/mcpschema"]:::adapter
     CSPAWN["spawn (the only container exec) — born 8"]:::later
     ISO["isolation (Cells: worktree · docker · podman · host)"]:::adapter
@@ -1926,15 +1926,20 @@ func Route(pkg composite.Package, root engine.Base, pref Preference, roots prese
 }
 
 // Loadout is what a delivery consumes: the Plan, the DECODED Package, the
-// engine's Exports and the session's MCP endpoint. The runner builds it from
-// the Launch after composite.Decode; the local launcher builds the same
-// value.
+// engine's Exports and the session's MCP endpoint, under the session's
+// identity in the cell's working directory (landed 9: Identity and WorkDir
+// are the two additions — the endpoint serves the coordination tools AS the
+// session and confines agent_report's paths to the cell). The runner builds
+// it from the Launch after composite.Decode; the local launcher builds the
+// same value.
 type Loadout struct {
-	Plan    Plan
-	Package composite.Package
-	Exports engine.Exports
-	MCP     sessions.Endpoint
-	Index   composite.Index
+	Plan     Plan
+	Package  composite.Package
+	Exports  engine.Exports
+	MCP      sessions.Endpoint
+	Index    composite.Index
+	Identity sessions.Identity
+	WorkDir  string
 }
 
 // Inputs is every kind's typed inputs, built ONCE from the loadout by
@@ -2802,9 +2807,14 @@ type RunRecord struct {
 	LastActivity time.Time
 }
 
-// Spawner is the launch port the coordinator calls (coord/spawn implements it
-// over launch.Resolve and StartRunner). Resume re-resolves from the journaled
-// record and the session entry — it needs no Launch to exist.
+// Spawner is the launch port the coordinator calls (adapters/spawn implements
+// it over launch.Resolve and StartRunner). Resume re-resolves from the
+// journaled record and the session entry — it needs no Launch to exist.
+// Landed 9 as Resolve/ResolveLaunch(plan, SpawnStart{Rebind})/Start(l,
+// reach)/Adopt(rec) — Adopt gives a re-adopted run its cell ownership (the
+// session home's credential replicator) back; the selection step (Resolve →
+// SpawnPlan) folds into Resolve's Source when the plan's fields become
+// launch types.
 type Spawner interface {
 	Resolve(ctx context.Context, id sessions.Identity, req SpawnRequest) (launch.Launch, error)
 	Resume(ctx context.Context, id sessions.Identity, rec RunRecord, rebind bool) (launch.Launch, error)
@@ -2821,7 +2831,9 @@ type RunnerHandle struct {
 // RunnerTransport is the port the gRPC adapter implements for the
 // coordinator side of RunnerChannel. Turn is the one-shot turn injection:
 // the runner OUTLIVES a one-shot turn (runner lifetime = session), so a
-// turn is a frame to the same runner, not a new run.
+// turn is a frame to the same runner, not a new run. Landed 9 as
+// Coordinator.Turn over requestRunner (RunnerRequest.turn /
+// RunnerResponse.turn); StartRun still carries the wire Launch until 10.
 type RunnerTransport interface {
 	StartRun(ctx context.Context, runID string, l launch.Launch) (StartRunResult, error)
 	Turn(ctx context.Context, runID string, t engine.Turn) (engine.TurnResult, error)
@@ -2838,7 +2850,7 @@ type StartRunResult struct{ NativeKey string }
 
 **Mail to a containerized child rides the mounted session dir.** The spool stays under `<harp>/persist/spool`; its `HarpMember` row is `Mounted`, so the isolation adapter's session-state mounts (derived from the table) carry it; the doorbell is fire-and-forget and the sweep is the floor. A push verb on the runner link is rejected: the mount is already the durable carrier, a push verb would make the runner's inbox a second substrate with a second ordering, and the spool's own contract exists to kill exactly that two-carrier desync. The `delegation.spool_delivery` gate for pause and resume is unchanged, because the spool remains the runner's inbound substrate.
 
-**Transport security, stated as the contract.** The runner's MCP endpoint is Streamable HTTP over loopback with a bearer on every request AND an Origin allowlist (403 on a miss), as `delivery.ServePolicy` — the port's contract, not an option. The coordinator's bridge listener for container reach-back is gRPC over h2c: **bearer-authenticated and unencrypted for 0.7.0**. The threat model that makes this acceptable: the traffic is same-host, same-user, on loopback or a docker bridge; the credential is per run, minted by the coordinator and bound to one identity; an attacker who can read that link already runs as the same user on the same host and can read the coordinator credential from any same-uid process environment, so encryption on the link would defend against nothing that user-level isolation does not already concede. mTLS for `RunnerTransport` on the bridge listener is a later slice (Part 4.1, slice 16), taken when a runner is ever reached across a host or user boundary.
+**Transport security, stated as the contract.** The runner's MCP endpoint is Streamable HTTP over loopback with a bearer on every request AND an Origin allowlist (403 on a miss), as `delivery.ServePolicy` — the port's contract, not an option (landed 9: `runner/mcp.Endpoint.Serve`; the bearer is compared in constant time and checked before the Origin, so an unauthenticated caller learns nothing about the allowlist). The coordinator's bridge listener for container reach-back is gRPC over h2c: **bearer-authenticated and unencrypted for 0.7.0**. The threat model that makes this acceptable: the traffic is same-host, same-user, on loopback or a docker bridge; the credential is per run, minted by the coordinator and bound to one identity; an attacker who can read that link already runs as the same user on the same host and can read the coordinator credential from any same-uid process environment, so encryption on the link would defend against nothing that user-level isolation does not already concede. mTLS for `RunnerTransport` on the bridge listener is a later slice (Part 4.1, slice 16), taken when a runner is ever reached across a host or user boundary.
 
 ### 1.8 Config lifecycle
 
@@ -3164,10 +3176,11 @@ sequenceDiagram
   RN->>CO: Hello over the bridge address (REACH-BACK) — no identity in the env; the Home binds it from the Launch (landed 8)
   CO->>RN: StartRun{run_id, launch} — the one typed message (landed 8)
   RN->>RN: runner.Host → DecodeLaunch → runner.Execute: Redeem (claim → <harp>/persist/package/<digest> on the mount, or inline) → Decode (landed 8)
-  RN->>DL: the runner MCP endpoint under the Launch's identity; the engine's Setup delivers context, hooks, commands, skills, settings; .mcp.json under the session home (landed 8; delivery.Static/Dynamic and binding Launch.MCP are 12/9)
-  RN->>EN: EngineHost.Drive(Turn{Launch, ChatRequest, the context leading the prompt}) → StructuredChat.Chat (landed 8); Instance(Session) → Drivers()[0].Turn is 9/11b
-  CO->>RN: RunnerTransport.Turn(runID, Turn{Prompt: next mail, Resume: key}) — the SAME runner; a discrete engine process per turn; the endpoint never moves
-  Note over CO,RN: idle reaper: no turn for delegation.idle_timeout → StopRun → RunExited; the next mail resumes the harp through Spawner.Resume (endpoint reused; rebind only on ErrEndpointUnavailable)
+  RN->>DL: Dynamic.Serve(Loadout{Package, Index, MCP, Identity, WorkDir}, ServePolicy{loopback origin}) — runner/mcp BINDS Launch.MCP (landed 9; ErrEndpointUnavailable → one rebind on the same runner); the engine's Setup delivers context, hooks, commands, skills, settings (delivery.Static is 12's); .mcp.json under the session home names the endpoint as URL + bearer (landed 9)
+  RN->>EN: EngineHost.Drive(Turn{Launch, ChatRequest, the context leading the prompt}) → StructuredChat.Chat (landed 8); Instance(Session) → Drivers()[0].Turn is 11b/decision 21
+  Note over RN,EN: a ONE-SHOT boundary ends the ENGINE process and PARKS the runner (EngineHost.parkAtBoundary; landed 9) — the run is idle, the endpoint stays bound, one transcript recorder spans every engine process
+  CO->>RN: mail through the spool, or Coordinator.Turn(runID, Turn{Prompt, Resume: key}) as a RunnerRequest.Turn frame — the SAME runner; a fresh engine process resumed by key (EngineHost.unpark); the endpoint never moves (landed 9)
+  Note over CO,RN: idle reaper (landed 9): no turn for delegation.idle_timeout → reapIdleRuns → terminateRun(CauseIdleReaped); the next mail resumes the harp as a new incarnation through the resume arm (endpoint reused; rebind only on ErrEndpointUnavailable). A restarted coordinator RE-ADOPTS a runner that dials back within the runner-loss grace (readopt → Spawner.Adopt re-binds the session home)
 
   Note over CLI,EN: C — a distill one-shot (Structured, depth 0) — diverges only at the Source (1) — landed 7 as operations.OneShot
   OPS->>OPS: StartOneShot: MintIdentity{OneShot: true} (landed 7; Lifetime: Ephemeral on the entry is later)

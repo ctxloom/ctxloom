@@ -40,7 +40,9 @@ dotted are hidden couplings through the environment or the filesystem.
 flowchart TD
   CLI["internal/adapters/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
   TUI["internal/adapters/cli/tui"]
-  MCP["internal/adapters/mcp<br/>(mcp_runner.go coordinationHandler;<br/>mcp_tools_agents.go local surface;<br/>coord_host.go HostCoordinator)"]
+  MCP["internal/adapters/mcp<br/>(the stdio server; owner_socket.go the plugin arm's socket;<br/>coord_host.go HostCoordinator)"]
+  RMCP["internal/adapters/runner/mcp<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
+  SPAWN["internal/adapters/spawn<br/>(coord.Spawner: Resolve/ResolveLaunch/Start/Adopt;<br/>StartRunner and its context contract)"]
   COORD["internal/core/coord"]
   PROTO["internal/adapters/coordgrpc/pb (proto, seqwatch, messagekind)"]
   SCHEMA["internal/adapters/coordgrpc/mcpschema"]
@@ -49,7 +51,6 @@ flowchart TD
   OPS["internal/adapters/operations"]
   ISO["internal/adapters/isolation"]
   TRANS["internal/adapters/transcript"]
-  CFG["internal/core/config"]
   AGENTS["internal/adapters/agents"]
   LIVE["internal/shared/liveness"]
   PATHS["internal/core/paths"]
@@ -57,13 +58,22 @@ flowchart TD
   ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]
 
   CLI --> COORD
+  CLI --> RMCP
   TUI --> COORD
   MCP --> COORD
   MCP --> SCHEMA
+  MCP --> RMCP
+  RMCP --> COORD
+  RMCP --> PROTO
+  RMCP --> SCHEMA
+  RMCP --> OPS
+  SPAWN --> COORD
+  SPAWN --> OPS
+  SPAWN --> ISO
+  SPAWN --> AGENTS
   COORD --> PROTO
   COORD --> SPOOL
   COORD --> DISC
-  COORD --> OPS
   COORD --> LIVE
   COORD --> PATHS
   SCHEMA --> PROTO
@@ -71,18 +81,12 @@ flowchart TD
   DISC --> PATHS
   OPS -.->|"must not import coord (ok)"| COORD
 
-  COORD -. "runtime library imported by a<br/>stdio RELAY (tacky-padding)" .-> MCP
-  COORD -->|"isolation.ParseWorkspaceAxis (runchannel.go)<br/>isolation.EngineStarter (spawner.go)"| ISO
-  linkStyle 15 stroke:#c00,stroke-dasharray:5
-  COORD -->|"transcript.Recorder in EngineHost —<br/>RUNNER-side concern living in the coordinator package"| TRANS
-  linkStyle 16 stroke:#c00,stroke-dasharray:5
-  COORD -->|"config.Load per Resolve (spawner.go)"| CFG
-  linkStyle 17 stroke:#c00,stroke-dasharray:5
-  COORD --> AGENTS
-  COORD -->|"mcpschema.RecvWaitMax (runtime importing the LLM-facing schema)"| SCHEMA
-  linkStyle 19 stroke:#c00,stroke-dasharray:5
+  COORD -->|"transcript.Recorder in EngineHost —<br/>RUNNER-side concern living in the coordinator package (14a)"| TRANS
+  linkStyle 23 stroke:#c00,stroke-dasharray:5
+  COORD -->|"mcpschema.RecvWaitMax (runtime importing the LLM-facing schema; 10)"| SCHEMA
+  linkStyle 24 stroke:#c00,stroke-dasharray:5
   COORD -. "9 × spool.NewHomeMapper() per call; root re-resolved from $HOME at write time" .-> FS
-  COORD -. "runnerEnv() writes; consumeCoordinatorReachBack / selfIdentityFromEnv / os.Getenv(EnvMCPSocket) read" .-> ENV
+  COORD -. "OwnerRunnerEnv / sessions.EncodeReach write; consumeCoordinatorReachBack / selfIdentityFromEnv / os.Getenv(EnvMCPSocket) read" .-> ENV
   MCP -. "selfIdentityFromEnv(cwd)" .-> ENV
 ```
 

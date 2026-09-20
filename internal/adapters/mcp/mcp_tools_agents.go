@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -252,7 +251,7 @@ func agentRunInputSchema() *jsonschema.Schema {
 		panic(fmt.Sprintf("agent_run: input schema: %v", err))
 	}
 	constrainToVocabulary(schema, "dirty_tree_handler", launch.DirtyTreeHandlerNames())
-	constrainToVocabulary(schema, "workspace", isolation.WorkspaceNames())
+	constrainToVocabulary(schema, "workspace", launch.WorkspaceNames())
 	return schema
 }
 

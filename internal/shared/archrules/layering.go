@@ -273,7 +273,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/isolation -> internal/adapters/git":                      "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; Part 1.1 does not place gitignore — no slice names this edge",
-			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "slice 9: runner/mcp serves delivery.Dynamic (measured; Part 1.1 does not place contextmetrics)",
+			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "slice 13: the stdio server dies with the plugin arm; its context_status handler reads contextmetrics until then (measured; Part 1.1 does not place contextmetrics)",
 			"internal/adapters/operations -> internal/adapters/agents":                  "slice 4: the adapters/configload split (measured; Part 1.1 does not place agents)",
 			"internal/adapters/operations -> internal/adapters/content":                 "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
@@ -297,7 +297,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/engines":                   "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
 			"internal/adapters/cli -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
 			"internal/adapters/cli -> internal/adapters/isolation":               "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
-			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
+			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 13: the stdio server and the plugin-hosted owner arm die with the plugin protocol; the session endpoint already lives in runner/mcp",
 			"internal/adapters/cli -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":                  "slice 15: operations.ReviewWalk/ResolveLocalSigner take the orchestration out of the CLI",
 			"internal/adapters/cli -> internal/adapters/signing":                 "slice 15: operations.ResolveLocalSigner takes the orchestration out of the CLI",
@@ -353,10 +353,9 @@ var LayeringRules = []LayeringRule{
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
 			"internal/lm/grpc -> internal/adapters/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
-			"internal/adapters/mcp -> internal/lm/backends":           "slice 9: runner/mcp serves delivery.Dynamic; it holds no backend",
-			"internal/adapters/mcp -> internal/adapters/isolation":    "slice 9: runner/mcp serves delivery.Dynamic; the cell is resolved before it exists",
+			"internal/adapters/mcp -> internal/lm/backends":           "slice 13: the stdio server dies with the plugin arm; its session tools resolve the backend until then",
 			"internal/adapters/mcp -> internal/adapters/memory":       "slice 14a: memory off the plugin; the compactor is an operation",
-			"internal/adapters/mcp -> internal/adapters/operations":   "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which operations implements",
+			"internal/adapters/mcp -> internal/adapters/operations":   "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
 			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
 
 			// isolation, memory, and the leaf adapters

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -33,25 +36,24 @@ import (
 // (launch.IsContainerRuntime — ReachURL, the stale-run reap), so either mode
 // behaves identically today; the value stops being right the moment something
 // downstream branches on ownership, at which point it has to be plumbed
-// through OwnerRunSpec from the caller's resolved axis instead.
+// through OwnerRun from the caller's resolved axis instead.
 const ownerRunRuntime = launch.RuntimeRootless
 
-// OwnerRunSpec is everything StartOwnedRun needs beyond the prompt and the
-// runner-launch closure. Its harness-shaped fields (WorkDir/Env/MCPServers/
-// Model/Permission) are resolved host-side by the owning `ctxloom run` exactly
-// as the go-plugin path resolved them — StartOwnedRun does not re-resolve them.
-type OwnerRunSpec struct {
-	// Launch is the owner's resolved launch. The owner-owned run REUSES the
-	// owner's harp (Launch.Identity.Harp) as its run role so transcript and
-	// session identity (state mounts, the harp carrier) stay coherent. The
-	// collision-audit test pins that the role-keyed maps stay coherent under
-	// this reuse.
+// OwnerRun is the owner-owned run as the owning `ctxloom run` hands it in:
+// the owner's resolved launch, the same launch as StartRun carries it (the
+// codec's projection, made where the launch was opened), and the composed
+// MCP names the enqueue journal records. The owner-owned run REUSES the
+// owner's harp (Launch.Identity.Harp) as its run role so transcript and
+// session identity (state mounts, the harp carrier) stay coherent; the
+// collision-audit test pins that the role-keyed maps stay coherent under
+// this reuse. OneShot marks a --print single-turn run: the run tears down
+// after the host collects the final answer, which changes only the host's
+// wait mode.
+type OwnerRun struct {
 	Launch     launch.Launch
+	Wire       *agentcoordpb.Launch
 	MCPServers []agent.ChatMCPServer
-	// Oneshot marks a --print single-turn run: the run tears down after the
-	// host collects the final answer. It changes only the host's wait mode; the
-	// coordinator machinery is identical.
-	Oneshot bool
+	OneShot    bool
 }
 
 // OwnedRunStarter launches the runner process for an owner-owned run with the
@@ -77,7 +79,7 @@ type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill
 // turns via SendOwnedRunTurn. On any launch/handshake failure the run is failed
 // (terminateRun, exactly-once) and the error returned; the caller's deferred
 // runner teardown still runs.
-func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRunSpec, start OwnedRunStarter, prompt string) (*RunOutcome, error) {
+func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec OwnerRun, start OwnedRunStarter, prompt string) (*RunOutcome, error) {
 	if c.Draining() {
 		return nil, fmt.Errorf("owner run: %w", ErrDraining)
 	}
@@ -86,6 +88,9 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	}
 	if spec.Launch.Engine == "" {
 		return nil, errors.New("owner run: the launch names no engine")
+	}
+	if spec.Wire == nil {
+		return nil, errors.New("owner run: the launch's wire form is required (the runner delivers what StartRun carries)")
 	}
 	if start == nil {
 		return nil, errors.New("owner run: a runner starter is required")
@@ -98,7 +103,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// payload and every signal green. A STRUCTURED run is different: it
 	// legitimately opens with no lead and takes its turns via
 	// SendOwnedRunTurn, so it is not refused here.
-	if spec.Oneshot && prompt == "" {
+	if spec.OneShot && prompt == "" {
 		return nil, errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
 			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
 	}
@@ -151,7 +156,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	}
 	c.mu.Lock()
 	rt.ownerRun = true
-	rt.oneshot = spec.Oneshot
+	rt.oneshot = spec.OneShot
 	c.mu.Unlock()
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
@@ -177,13 +182,8 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.mu.Unlock()
 	c.recordContainerName(rt.runID, containerName)
 
-	hs, err := buildHarnessSpec(harnessSpecOf(l, spec.MCPServers, ""))
-	if err != nil {
-		c.failChild(rt, err)
-		return nil, err
-	}
-	// The host already composed fragments into prompt (JoinLeadBlocks at the
-	// call site), so it leads the first turn verbatim.
+	// The runner leads the first turn with the package's context ahead of
+	// Launch.Prompt; prompt is what the host asked for this run.
 	//
 	// This bare return LOOKS like it skips cleanup (the two
 	// failure paths above both call c.failChild explicitly), but it does
@@ -195,7 +195,9 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// handled. Pinned by TestStartOwnedRun_CleansUpOnIssueStartRunFailure
 	// (owner_run_cleanup_test.go): rt.close fires and the run leaves the
 	// live roster without any cleanup call at this call site.
-	if err := c.issueStartRun(ctx, rt, hashToken(token), hs, prompt, l.Label.Model, ""); err != nil {
+	wire := proto.Clone(spec.Wire).(*agentcoordpb.Launch)
+	wire.Prompt = prompt
+	if err := c.issueStartRun(ctx, rt, hashToken(token), wire, prompt, l.Label.Model, ""); err != nil {
 		return nil, err
 	}
 

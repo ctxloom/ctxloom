@@ -190,7 +190,7 @@ func NewMock() *Mock { return newMockBackend(config.BackendMock) }
 // The stash comes FIRST and unconditionally: recordMockInput and
 // buildMockResponse read b.fragments/b.managed, and a great many hermetic
 // scenarios assert on those bytes. A delivery failure is warned by the caller
-// (grpc.runTurnSetup) and the turn proceeds to Execute, so the echo must
+// (grpc.SetupFromRunStart) and the turn proceeds to Execute, so the echo must
 // already hold its payload by then — returning early on the delegate's error
 // would silently empty the echo, which is precisely the silent no-op this
 // backend exists to catch in others.

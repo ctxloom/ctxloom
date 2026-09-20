@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -66,4 +67,17 @@ func SkillExportsOf(exports engine.Exports) []SkillExport {
 		out = append(out, SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled, Files: files})
 	}
 	return out
+}
+
+// JoinLeadBlocks joins first-turn lead blocks — the composed context, a
+// rendered history, the prompt — dropping empties, so the first turn is one
+// text however many blocks lead it.
+func JoinLeadBlocks(blocks ...string) string {
+	var nonEmpty []string
+	for _, b := range blocks {
+		if b != "" {
+			nonEmpty = append(nonEmpty, b)
+		}
+	}
+	return strings.Join(nonEmpty, "\n\n")
 }

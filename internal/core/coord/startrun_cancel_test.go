@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,16 +47,12 @@ func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 	c.runners[credHash] = rs
 	c.mu.Unlock()
 
-	spec, err := buildHarnessSpec(HarnessSpecInput{
-		Harness: plan.Backend, Model: "test-model", Workspace: t.TempDir(),
-		SessionHarp: rt.harp, Permission: agent.PermissionBypass,
-	})
-	require.NoError(t, err)
+	wire := coordgrpc.EncodeLaunch(ownerLaunch(rt.harp, plan.Backend, "fast", "test-model", t.TempDir(), agent.PermissionBypass))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- c.issueStartRun(ctx, rt, credHash, spec, "the first turn", "test-model", "") }()
+	go func() { done <- c.issueStartRun(ctx, rt, credHash, wire, "the first turn", "test-model", "") }()
 
 	// Past the dial-home wait: the StartRun frame is on the runner's send
 	// queue, so the coordinator is parked on the RESPONSE — which is the

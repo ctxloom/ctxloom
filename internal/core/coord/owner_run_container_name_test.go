@@ -49,7 +49,7 @@ func TestStartOwnedRun_SurfacesContainerNameOnRoster(t *testing.T) {
 	sc := &scriptedChat{}
 	starter, started := ownerRunStarterNamed(ctx, sc, "claude-code", wantName)
 
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "hello owner run")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello owner run")
 	require.NoError(t, err)
 	require.True(t, *started, "StartOwnedRun must launch the runner via the starter")
 
@@ -76,7 +76,7 @@ func TestStartOwnedRun_ContainerNameEmptyForHostRun(t *testing.T) {
 	sc := &scriptedChat{}
 	starter, started := ownerRunStarter(ctx, sc, "claude-code")
 
-	outcome, err := c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "hello owner run")
+	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "hello owner run")
 	require.NoError(t, err)
 	require.True(t, *started)
 

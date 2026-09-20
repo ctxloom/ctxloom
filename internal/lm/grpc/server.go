@@ -220,7 +220,7 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	}
 
 	promptContent := turnPromptContent(req)
-	if err := runTurnSetup(ctx, impl, req, env); err != nil {
+	if err := SetupFromRunStart(ctx, impl, req, env); err != nil {
 		return nil, err
 	}
 	execReq := turnExecuteRequest(req, promptContent, env, stdin, stdinCleanup, resize)
@@ -299,8 +299,9 @@ func turnPromptContent(req *RunStart) string {
 	return content
 }
 
-// runTurnSetup runs the backend's Setup for this turn, unless the turn asked to
-// skip it (distillation/minimal mode).
+// SetupFromRunStart runs the backend's Setup for this turn from the
+// run-start message: the plugin arm's delivery, the mirror of the runner's
+// over a Launch — both feed the engine's writers the same payload.
 //
 // A Setup failure STOPS the turn. Setup is what delivers the run's context, its
 // MCP servers and its hooks; a turn that launches without them is not a
@@ -310,7 +311,7 @@ func turnPromptContent(req *RunStart) string {
 // but the cost of that reasoning is a launch with no context and exit 0, which
 // is precisely the silent no-op this project refuses. The error reaches the
 // caller so the launch can fail with it and name the remedy.
-func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) error {
+func SetupFromRunStart(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) error {
 	opts := req.GetOptions()
 	setupReq := &agent.SetupRequest{
 		WorkDir:   opts.GetWorkDir(),

@@ -51,7 +51,7 @@ func TestEngineHost_Adapt_MessageAndToolLifecycle(t *testing.T) {
 		{Complete: &agent.TurnMeta{StopReason: "end_turn", OutputTokens: 3}},
 	}}
 
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})

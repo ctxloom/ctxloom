@@ -9,11 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -241,7 +243,7 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(ctx)
-	host := NewEngineHost(sctx, backend, plan.Backend, runnerEnv[EnvRunID])
+	host := newTestEngineHost(sctx, backend, plan.Backend, runnerEnv[EnvRunID])
 	home, err := NewHome(sctx, HomeConfig{
 		URL:          runnerEnv[EnvCoordURL],
 		Token:        runnerEnv[EnvCoordCred],
@@ -285,6 +287,16 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 		maps.Copy(spawnedEnv, env)
 		maps.Copy(spawnedEnv, engineEnv)
 	}
+	// The fake's package: the context every conformance test looks for,
+	// carried inline the way the resolver carries it.
+	enc, err := composite.Encode(composite.Package{Context: composite.Context{Text: "FRAG-ONE"}})
+	if err != nil {
+		return nil, err
+	}
+	carrier, err := composite.Inline{}.Carry(ctx, enc)
+	if err != nil {
+		return nil, err
+	}
 	l := launch.Launch{
 		Identity:   start.Identity,
 		Engine:     engine.Name(plan.Backend),
@@ -292,13 +304,15 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 		Mode:       engine.Structured,
 		Permission: perm,
 		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
-		Cell:       launch.Cell{Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
+		Package:    carrier,
+		Prompt:     start.Prompt,
 		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
 	}
 	plan.Launch = l
 	return &EngineSpawn{
 		Launch:     l,
-		Context:    "FRAG-ONE",
+		Wire:       coordgrpc.EncodeLaunch(l),
 		MCPServers: plan.MCPServers,
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,
@@ -374,9 +388,7 @@ func (s *fakeSpawner) lastDirtyTreeHandler() launch.DirtyTreeHandler {
 	return s.dirtyTreeHandlers[len(s.dirtyTreeHandlers)-1]
 }
 
-func (s *fakeSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
-	return contextText
-}
+func (s *fakeSpawner) ResumeHistory(context.Context, string) string { return "" }
 
 // awaitResolveGate parks Resolve, WITHOUT holding s.mu (a gated resolve that
 // held the fake's own mutex would wedge every other observation the test
@@ -619,12 +631,27 @@ func childRecv(t *testing.T, c *Coordinator, runID string, wait time.Duration) (
 // ownerLaunch is the test's resolved owner launch: the fields StartOwnedRun
 // reads off it, and nothing a resolver would decide.
 func ownerLaunch(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
+	enc, err := composite.Encode(composite.Package{})
+	if err != nil {
+		panic(err)
+	}
+	carrier, err := composite.Inline{}.Carry(context.Background(), enc)
+	if err != nil {
+		panic(err)
+	}
 	return launch.Launch{
 		Identity:   sessions.Identity{Harp: harp},
 		Engine:     engine.Name(backend),
 		Label:      engine.LabelConfig{Label: label, Model: model},
 		Mode:       engine.Structured,
 		Permission: perm,
-		Cell:       launch.Cell{Workspace: workDir, Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Cleanup: func() error { return nil }},
+		Package:    carrier,
 	}
+}
+
+// ownerRun is the owner-owned run over l: the launch, its wire form, and
+// whether it is the --print single turn.
+func ownerRun(l launch.Launch, oneShot bool) OwnerRun {
+	return OwnerRun{Launch: l, Wire: coordgrpc.EncodeLaunch(l), OneShot: oneShot}
 }

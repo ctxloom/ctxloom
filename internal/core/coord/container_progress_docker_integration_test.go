@@ -200,9 +200,7 @@ func (s *progressSpawner) record(name string, kill func()) {
 	s.cleanups = append(s.cleanups, kill)
 }
 
-func (s *progressSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
-	return contextText
-}
+func (s *progressSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *progressSpawner) RecordEngineVersion(context.Context, string, string) {}
 
 func (s *progressSpawner) MarkSessionEnded(string) {}

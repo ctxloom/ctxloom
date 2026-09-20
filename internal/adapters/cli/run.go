@@ -148,7 +148,7 @@ func validateResumeFlags(session string, distill bool) error {
 // it is split into fragments, via the SAME primitives the ACP resume path
 // already uses (operations.RecordedSessionEntries + RenderResumedTranscript +
 // JoinLeadBlocks — see internal/adapters/operations/engine_session.go's acp resume and
-// coord/spawner.go's ResumeContext). entriesFn is the IoC seam (production:
+// coord/spawner.go's ResumeHistory). entriesFn is the IoC seam (production:
 // operations.RecordedSessionEntries bound to the run's ctx) so this is
 // testable without a live session index or backend transcript reader.
 //
@@ -1177,7 +1177,6 @@ func (st *runState) startTransport() error {
 		// in-container listener.
 		handle, sess, oerr := startContainerOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
 			Launch:     st.launch,
-			Context:    st.opened.Package.Context.Text,
 			Policy:     st.policy,
 			Workspace:  st.ws,
 			Req:        st.req,

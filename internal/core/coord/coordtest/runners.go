@@ -26,8 +26,12 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
@@ -66,6 +70,16 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 	engine := &Engine{inner: chat}
 	rctx, cancel := context.WithCancel(r.ctx)
 	host := coord.NewEngineHost(rctx, engine, backend, runnerEnv[coord.EnvRunID])
+	// The runner tail over the double: the wire launch is decoded and its
+	// package opened for real; delivery is a no-op (the fake spawner's cell
+	// is not a directory), and the host drives the recorded chat.
+	host.BindRunner(runner.Host{Deps: runner.Deps{
+		Engine:     enginepkg.Name(backend),
+		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
+		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
+		Static:     noDelivery{},
+		Driver:     host,
+	}})
 	home, err := coord.NewHome(rctx, coord.HomeConfig{
 		URL:          runnerEnv[coord.EnvCoordURL],
 		Token:        runnerEnv[coord.EnvCoordCred],
@@ -111,6 +125,12 @@ func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation
 		StderrTail: func() string { return "" },
 	}, nil
 }
+
+// noDelivery is the double's static writer: the fake spawner's cell is no
+// directory, so nothing lands; what the tests observe is the drive.
+type noDelivery struct{}
+
+func (noDelivery) Setup(context.Context, *agent.SetupRequest) error { return nil }
 
 // Close kills every runner spawned so far.
 func (r *Runners) Close() {

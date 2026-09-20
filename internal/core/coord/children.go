@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -119,9 +118,8 @@ type childRt struct {
 	// session's own credential carries no run id); a child spawned by a
 	// container top-level session's owned run, or by any already-delegated
 	// child, sees this set — both carry a run id of their own from the
-	// moment they start. Threaded onto the outgoing StartRun request
-	// (runChildViaStartRun) so RunStarted.parent_run_id carries durable
-	// lineage on the log — mirrors RunRecord.ParentRunID.
+	// moment they start. Journaled onto runEnqueued.ParentRunID: the
+	// coordinator's own record is the durable lineage.
 	parentRunID string
 	// depth is this run's own position in the delegation tree — the value
 	// stamped into its runner's env (EnvRunDepth) and journaled onto
@@ -795,16 +793,20 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // runChildViaStartRun is the spawn tail: resolve the child's launch and
 // spawn its runner process (the coordinator trio on the runner's env, never
 // the engine's), await its RunnerChannel dial-home, and issue StartRun with
-// the HarnessSpec built from the Launch — the model and the permission the
-// resolver decided, the cell's workspace, its env with the identity
-// carriers, the MCP set and the session harp in config, resume_session_id
-// from the journal on a resume. A resume with no journaled native key
-// primes the first turn with the rendered history; a fresh spawn leads with
-// the launch's context. ctx is the caller's CANCELLABLE launch context
-// (launchgate.go), not baseCtx: agent_stop cancels it to abort a spawn that
-// is still in flight.
+// the Launch — the one typed message the runner redeems, decodes, delivers
+// and drives. The first turn's lead is settled HERE, before the launch
+// resolves, and rides Launch.Prompt: the caller's prompt on a fresh spawn;
+// on a resume with a native key NOTHING (the engine continues its own
+// recorded session); on a resume without one the rendered history ahead of
+// the prompt. The runner leads with the package's context. ctx is the
+// caller's CANCELLABLE launch context (launchgate.go), not baseCtx:
+// agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
 	start.Identity = Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot, Project: c.projectDir}
+	start.Prompt = prompt
+	if start.Resumed && start.ResumeKey == "" {
+		start.Prompt = operations.JoinLeadBlocks(c.spawner.ResumeHistory(ctx, rt.harp), prompt)
+	}
 	engine, err := c.spawner.StartEngine(ctx, rt.plan, start,
 		runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
@@ -819,26 +821,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	rt.workDir = l.Cell.Workspace
 	c.mu.Unlock()
 
-	spec, err := buildHarnessSpec(harnessSpecOf(l, engine.MCPServers, start.ResumeKey))
-	if err != nil {
-		c.failChild(rt, err)
-		return
-	}
-	// The first turn's lead: the launch's context on a fresh spawn; on a
-	// resume with a native key NOTHING (the engine continues its own recorded
-	// session); on a resume without one the context plus the rendered
-	// history, re-primed.
-	contextText := engine.Context
-	switch {
-	case start.Resumed && start.ResumeKey != "":
-		contextText = ""
-	case start.Resumed:
-		contextText = c.spawner.ResumeContext(ctx, contextText, rt.harp)
-	}
-	// The composed context leads the first turn, joined once here (the runner
-	// writes input.prompt verbatim as the first turn).
-	first := operations.JoinLeadBlocks(contextText, prompt)
-	_ = c.issueStartRun(ctx, rt, hashToken(token), spec, first, l.Label.Model, start.ResumeKey)
+	_ = c.issueStartRun(ctx, rt, hashToken(token), engine.Wire, l.Prompt, l.Label.Model, start.ResumeKey)
 }
 
 // issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this
@@ -853,9 +836,8 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 // ctx is the launch context: cancelling it (agent_stop) aborts the
 // dial-home wait instead of holding the harp for the full
 // c.runnerAwaitTimeout.
-// startRunPayloadErr refuses a StartRun that would carry no work at all.
-// issueStartRun builds Input only `if first != ""`, so an empty
-// lead used to go out as a StartRun with a NIL Input: it round-trips, the run
+// startRunPayloadErr refuses a StartRun that would carry no work at all: an
+// empty Launch.Prompt with nothing else to drive round-trips, the run
 // attaches, the roster says executing, and the engine sits there having been
 // told nothing. Zero payload, every signal green — ctxloom's characteristic
 // silent no-op, and the same shape as the known `runtime:container`
@@ -887,7 +869,7 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 		rt.agentName, rt.harp)
 }
 
-func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, spec *agentcoordpb.HarnessSpec, first, model, resumeSessionID string) error {
+func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, wire *agentcoordpb.Launch, first, model, resumeSessionID string) error {
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
 	// closes) against DEATH (the runner process exiting). Without the second
@@ -916,13 +898,6 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 		c.failChild(rt, err)
 		return err
 	}
-	var input *structpb.Struct
-	if first != "" {
-		if input, err = structpb.NewStruct(map[string]any{"prompt": first}); err != nil {
-			c.failChild(rt, err)
-			return err
-		}
-	}
 	// The round trip hangs off the LAUNCH context, not c.baseCtx. ctx is the
 	// cancellable per-harp context agent_stop cancels (launchgate.go); baseCtx
 	// dies only on coordinator shutdown, so binding the request to it left a
@@ -933,11 +908,8 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	rctx, rcancel := context.WithTimeout(ctx, defaultRequestTimeout)
 	resp, err := c.requestRunner(rctx, credHash, &agentcoordpb.RunnerRequest{
 		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
-			RunId:       rt.runID,
-			Harness:     spec,
-			Input:       input,
-			Role:        rt.agentName,
-			ParentRunId: rt.parentRunID, // D5: durable lineage on the log (manly-grant (5)) — enginehost.go echoes this into RunStarted
+			RunId:  rt.runID,
+			Launch: wire,
 		}},
 	})
 	rcancel()

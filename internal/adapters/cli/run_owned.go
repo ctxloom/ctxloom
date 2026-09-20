@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -49,10 +50,7 @@ type ownedRunLaunch struct {
 	// Launch is the owner's resolved launch; the coordinator's owned run is
 	// enqueued from it. Policy/Workspace are its cell's transport handle,
 	// Req its wire projection with what only this invocation adds.
-	Launch launch.Launch
-	// Context is the launch's assembled context as this process opened it,
-	// the first turn's lead.
-	Context    string
+	Launch     launch.Launch
 	Policy     isolation.Policy
 	Workspace  isolation.Workspace
 	Req        *pb.RunStart
@@ -119,12 +117,14 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	// not for its whole lifetime.
 	_, events, cancel, narrow := c.WatchRuns(nil)
 
-	lead := operations.JoinLeadBlocks(spec.Context, spec.Launch.Prompt)
-	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
+	// The runner leads the first turn with the package's context ahead of
+	// the prompt; the prompt alone rides the launch.
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRun{
 		Launch:     spec.Launch,
+		Wire:       coordgrpc.EncodeLaunch(spec.Launch),
 		MCPServers: spec.MCPServers,
-		Oneshot:    spec.Launch.Mode == engine.Structured,
-	}, starter, lead)
+		OneShot:    spec.Launch.Mode == engine.Structured,
+	}, starter, spec.Launch.Prompt)
 	if err != nil {
 		cancel()
 		return handle, nil, err

@@ -68,6 +68,11 @@ type ChatRequest struct {
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
 	// native config the engine reads from its cwd.
 	MCPServers []ChatMCPServer
+	// MCPConfigPath is the .mcp.json the runner delivered under the session
+	// home naming exactly MCPServers; an engine whose argv takes a config
+	// file names this path rather than writing its own. "" when the set is
+	// empty.
+	MCPConfigPath string
 	// ResumeSessionID, when set, asks the backend to resume a prior native
 	// session instead of starting fresh (claude --resume <id>, codex
 	// thread/resume, ACP session/load). A backend that cannot resume (no

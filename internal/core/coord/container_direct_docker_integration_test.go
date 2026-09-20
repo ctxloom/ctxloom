@@ -120,9 +120,7 @@ func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, sta
 	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
 }
 
-func (s *directBusSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
-	return contextText
-}
+func (s *directBusSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
 
 func (s *directBusSpawner) MarkSessionEnded(string) {}

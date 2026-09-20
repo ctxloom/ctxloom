@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,7 +45,7 @@ func TestChatArgs_ResumeSessionID(t *testing.T) {
 }
 
 // TestChatArgs_MCPConfigPath verifies --mcp-config is emitted with the path
-// writeChatMCPConfig produced, and omitted when there is none.
+// the runner delivered, and omitted when there is none.
 func TestChatArgs_MCPConfigPath(t *testing.T) {
 	b := &ClaudeCode{}
 	args := b.chatArgs(agent.ChatRequest{}, "/tmp/scratch/.mcp.json")
@@ -289,90 +288,30 @@ func TestChat_ForwardTerminal_Refused(t *testing.T) {
 	assert.False(t, opened, "Chat must refuse before ever opening a transport")
 }
 
-// TestWriteChatMCPConfig_Empty: no servers means no file and no --mcp-config.
-func TestWriteChatMCPConfig_Empty(t *testing.T) {
-	path, cleanup, err := writeChatMCPConfig(nil)
-	require.NoError(t, err)
-	defer cleanup()
-	assert.Equal(t, "", path)
-}
-
-// TestWriteChatMCPConfig_StdioPreservesEnvVerbatim: a stdio server's Env map
-// (carrying the coordinator's CTXLOOM_MCP_SOCKET stamp) must reach the written
-// file byte-for-byte — this is the reach-back channel a delegated child uses to
-// call back to its parent, so a dropped key here breaks delegation silently.
-func TestWriteChatMCPConfig_StdioPreservesEnvVerbatim(t *testing.T) {
-	servers := []agent.ChatMCPServer{
-		{
-			Name:    "ctxloom",
-			Command: "/usr/local/bin/ctxloom",
-			Args:    []string{"mcp", "serve"},
-			Env:     map[string]string{"CTXLOOM_MCP_SOCKET": "/run/sock.sock"},
-		},
-	}
-	path, cleanup, err := writeChatMCPConfig(servers)
-	require.NoError(t, err)
-	defer cleanup()
-	require.NotEqual(t, "", path)
-	assert.Equal(t, MCPFileName, filepath.Base(path))
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), `"CTXLOOM_MCP_SOCKET":"/run/sock.sock"`)
-	assert.Contains(t, string(data), `"command":"/usr/local/bin/ctxloom"`)
-}
-
-// TestWriteChatMCPConfig_HTTPAndSSE: remote servers carry type/url/headers,
-// never command/args/env.
-func TestWriteChatMCPConfig_HTTPAndSSE(t *testing.T) {
-	servers := []agent.ChatMCPServer{
-		{Name: "remote-http", Transport: agent.MCPTransportHTTP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer tok"}},
-		{Name: "remote-sse", Transport: agent.MCPTransportSSE, URL: "https://example.com/sse"},
-	}
-	path, cleanup, err := writeChatMCPConfig(servers)
-	require.NoError(t, err)
-	defer cleanup()
-
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	s := string(data)
-	assert.Contains(t, s, `"type":"http"`)
-	assert.Contains(t, s, `"url":"https://example.com/mcp"`)
-	assert.Contains(t, s, `"Authorization":"Bearer tok"`)
-	assert.Contains(t, s, `"type":"sse"`)
-	assert.NotContains(t, s, `"command"`)
-}
-
-// TestWriteChatMCPConfig_UnknownTransport_Refused: an unrecognized transport
-// string must be refused loudly, not silently dropped or mis-written.
-func TestWriteChatMCPConfig_UnknownTransport_Refused(t *testing.T) {
-	_, cleanup, err := writeChatMCPConfig([]agent.ChatMCPServer{{Name: "bad", Transport: "carrier-pigeon"}})
-	defer cleanup()
-	require.ErrorIs(t, err, ErrChatMCPTransportUnsupported)
-}
-
-// TestChat_MCPConfigCleanedUpAfterChat: the scratch .mcp.json is removed once
-// Chat returns — it must not leak a temp directory per chat call.
-func TestChat_MCPConfigCleanedUpAfterChat(t *testing.T) {
-	var seenPath string
+// TestChat_NamesTheDeliveredMCPConfig: Chat names the .mcp.json the runner
+// delivered (ChatRequest.MCPConfigPath) on its argv and writes no config of
+// its own; with none delivered no --mcp-config is emitted.
+func TestChat_NamesTheDeliveredMCPConfig(t *testing.T) {
+	var seen []string
 	b := &ClaudeCode{}
 	b.openChatTransport = func(_ context.Context, args []string, _ map[string]string, _ string) (*chatTransport, error) {
-		seenPath = argValue(args, "--mcp-config")
+		seen = args
 		return &chatTransport{stdin: nopWriteCloser{&bytes.Buffer{}}, stdout: strings.NewReader(""), close: func() error { return nil }}, nil
 	}
+	run := func(req agent.ChatRequest) {
+		in := make(chan agent.ChatMessage)
+		out := make(chan agent.ChatEvent)
+		close(in)
+		go func() { //nolint:revive // drain
+			for range out {
+			}
+		}()
+		require.NoError(t, b.Chat(context.Background(), req, in, out))
+	}
+	delivered := filepath.Join(t.TempDir(), MCPFileName)
+	run(agent.ChatRequest{MCPServers: []agent.ChatMCPServer{{Name: "s", Command: "cmd"}}, MCPConfigPath: delivered})
+	assert.Equal(t, delivered, argValue(seen, "--mcp-config"))
 
-	in := make(chan agent.ChatMessage)
-	out := make(chan agent.ChatEvent)
-	close(in)
-	go func() { //nolint:revive // drain
-		for range out {
-		}
-	}()
-
-	req := agent.ChatRequest{MCPServers: []agent.ChatMCPServer{{Name: "s", Command: "cmd"}}}
-	require.NoError(t, b.Chat(context.Background(), req, in, out))
-
-	require.NotEmpty(t, seenPath)
-	_, statErr := os.Stat(filepath.Dir(seenPath))
-	assert.True(t, os.IsNotExist(statErr), "the mcp config scratch dir must be removed after Chat returns")
+	run(agent.ChatRequest{})
+	assert.NotContains(t, seen, "--mcp-config")
 }

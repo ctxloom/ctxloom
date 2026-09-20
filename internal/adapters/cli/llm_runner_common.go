@@ -3,15 +3,22 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -64,6 +71,11 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	if homeCfg.RunID != "" {
 		if sc, ok := backend.(agent.StructuredChat); ok {
 			standup.engineHost = coord.NewEngineHost(cmd.Context(), sc, backendName, homeCfg.RunID)
+			runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost)
+			if derr != nil {
+				return nil, derr
+			}
+			standup.engineHost.BindRunner(runner.Host{Deps: runnerDeps})
 			homeCfg.Engine = standup.engineHost.Handle
 		}
 	}
@@ -90,6 +102,38 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 		standup.engineHost.BindHome(h)
 	}
 	return standup, nil
+}
+
+// runnerDepsFor composes the runner's ports for the one engine this process
+// hosts: the two package transports (the claim store rooted at this
+// process's sessions root — the mounted one inside a container), the
+// engine's own Setup as the static writer, the binding-preference validator,
+// the engine's configure seam over the label body the Launch carries, and
+// the engine host as the driver.
+func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost) (runner.Deps, error) {
+	ctxHome, err := paths.HomeConfigDir()
+	if err != nil {
+		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
+	}
+	deps := runner.Deps{
+		Engine:     engine.Name(backendName),
+		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
+		ClaimCheck: composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(ctxHome, paths.SessionsDir)}},
+		Static:     backend,
+		Surfaces:   operations.ResolveAgentSurfaces,
+		Driver:     host,
+	}
+	if c, ok := backend.(backends.Configurable); ok {
+		deps.Configure = func(body map[string]any) error {
+			bc, err := backends.DecodeLLMConfig(backendName, body)
+			if err != nil {
+				return err
+			}
+			c.Configure(bc)
+			return nil
+		}
+	}
+	return deps, nil
 }
 
 // loadAndConfigureBackend reads this runner process's configuration and

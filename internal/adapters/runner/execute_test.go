@@ -41,12 +41,12 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	env := newDeliveryEnv(t)
 
 	host, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: sessions.Identity{Harp: "host-harp", Project: "proj"},
+		Identity: env.mint(t, 0, ""),
 		Agent:    "x", Mode: engine.Interactive, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: sessions.Identity{Harp: "child-harp", RunID: "run-1", Depth: 1, Project: "proj"},
+		Identity: env.mint(t, 1, "run-1"),
 		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
 	})
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "mock", Engines: env.deps.Engines,
+		Engine: "mock",
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: childEngine, Surfaces: operations.ResolveAgentSurfaces, Driver: drive,
 	}, wire)
@@ -101,15 +101,16 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 // runner leads with nothing.
 func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 	env := newDeliveryEnv(t)
+	id := env.mint(t, 1, "run-2")
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: sessions.Identity{Harp: "child-harp", RunID: "run-2", Depth: 1, Project: "proj"},
+		Identity: id,
 		Agent:    "x", Mode: engine.Structured, Prompt: "again", WorkDir: env.project,
-		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: "child-harp", NativeKey: "native-9"}},
+		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: id.Harp, NativeKey: "native-9"}},
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "mock", Engines: env.deps.Engines, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Engine: "mock", Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: backends.NewMock(), Surfaces: operations.ResolveAgentSurfaces, Driver: drive,
 	}, l)
 	require.NoError(t, err)
@@ -123,13 +124,13 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 func TestExecute_RefusesALaunchForAnotherEngine(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: sessions.Identity{Harp: "child-harp", RunID: "run-3", Depth: 1, Project: "proj"},
+		Identity: env.mint(t, 1, "run-3"),
 		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "other", Engines: env.deps.Engines, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Engine: "other", Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: backends.NewMock(), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, runner.ErrWrongEngine)
@@ -143,7 +144,7 @@ func TestExecute_ATamperedClaimIsRefusedBeforeDelivery(t *testing.T) {
 	env := newDeliveryEnv(t)
 	env.deps.InlineMax = -1
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: sessions.Identity{Harp: "child-harp", RunID: "run-4", Depth: 1, Project: "proj"},
+		Identity: env.mint(t, 1, "run-4"),
 		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
@@ -151,7 +152,7 @@ func TestExecute_ATamperedClaimIsRefusedBeforeDelivery(t *testing.T) {
 	env.store[l.Package.Claim.Location] = []byte("tampered")
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "mock", Engines: env.deps.Engines, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Engine: "mock", Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: backends.NewMock(), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, composite.ErrDigestMismatch)
@@ -166,6 +167,14 @@ type deliveryEnv struct {
 	deps    launch.Deps
 	project string
 	store   launchtest.MemStore
+}
+
+// mint assigns a harp in the store (the caller mints; Resolve never does).
+func (e *deliveryEnv) mint(t *testing.T, depth int, runID string) sessions.Identity {
+	t.Helper()
+	entry, err := e.deps.Sessions.AssignHarp(e.project, "")
+	require.NoError(t, err)
+	return sessions.Identity{Harp: entry.HarpName, RunID: runID, Depth: depth, Project: "proj"}
 }
 
 func newDeliveryEnv(t *testing.T) *deliveryEnv {

@@ -47,7 +47,7 @@ flowchart TD
   PROTO["internal/adapters/coordgrpc/pb (proto, seqwatch, messagekind)"]
   SCHEMA["internal/adapters/coordgrpc/mcpschema"]
   SPOOL["internal/core/spool"]
-  DISC["internal/agentcoord/discover"]
+  DISC["internal/adapters/coordgrpc/discover"]
   OPS["internal/adapters/operations"]
   ISO["internal/adapters/isolation"]
   TRANS["internal/adapters/transcript"]
@@ -171,12 +171,12 @@ stateDiagram-v2
     [*] --> OutFile: Home.sendPeerViaSpool (the child's agent_send) | Home.ReportTurnResult (the runner's automatic turn report, at EngineHost's turn Complete) → Home.writeOutbound → spool.Writer.Write(out/) [fsync] + ringSpool (AgentFrame.spool_changed, drop-counted)
     OutFile --> Swept: coordinator sweepChildOut (doorbell mark | reattach mark | periodic tick | startup pass)
     Swept --> Routed: routeSpoolOut → peerSend (ask-reply intercept; SenderMailKind; childSend lineage) → queueMailPayload
-    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool→deliverToPoll
+    Routed --> OwnerInFile: mailCourier.Send → spool.Writer.Write(owner in/) [NEW id] + ringSpool→spoolInbox.wake
     Routed --> OutFailed: refused → replySpoolRefusal (to sender) + noticeSpoolDrop (to parent) + spool.Fail(out/failed/)
     OwnerInFile --> OutConsumed: consumeSpool(out/→out/consumed/)
-    OwnerInFile --> Claimed: AgentRecv → claimSpoolInbox (reserve id in c.delivered; remember ref)
-    Claimed --> Returned: recvMail returns []Message (+settleBurst)
-    Returned --> InConsumed: NEXT AgentRecv → ackSpoolInbox → spool.Consume(in/→in/consumed/); unreserve
+    OwnerInFile --> Claimed: Recv → spoolInbox.claim (reserve the id; remember the ref)
+    Claimed --> Returned: spoolInbox.recv returns []Message
+    Returned --> InConsumed: NEXT Recv → spoolInbox.ack → spool.Consume(in/→in/consumed/); unreserve
     Claimed --> OwnerInFile: coordinator crash before ack → re-read under same id
   }
   state "parent → child" as down {
@@ -208,13 +208,13 @@ Reading it:
   coordinator writes into the child's `in/` and rings `CoordinatorNotice.spool_changed`;
   the runner's `Home.sweepSpoolIn` picks it up and either hands it to the engine as a
   turn (`turnPump → EngineHost.enqueueTurn`) or buffers it for a parked `Home.Recv`.
-- **The owner's inbox** has no runner: `Coordinator.recvMail` drains the owner's
-  `in/` in the coordinator process (`claimSpoolInbox` / `ackSpoolInbox`,
-  `spoolowner.go`). The owner is identified by declaration (`Options.OwnerHarp`),
-  not by a run record.
+- **The owner's inbox** has no runner: the `Recv` verb drains the owner's
+  `in/` in the coordinator process through the one `spoolInbox`
+  (`spoolinbox.go`; see mailbox.md). The owner is identified by declaration
+  (`Options.OwnerHarp`), not by a run record.
 - **The ack** on both sides is `spool.Consume` — a rename into `consumed/` —
   performed one receive late: a reader acknowledges the previous batch when it asks
-  for the next (`Home.ackReturned`, `Coordinator.ackSpoolInbox`), or on a clean
+  for the next (`Home.ackReturned`, `spoolInbox.ack`), or on a clean
   `Home.Close`. There is no cursor and no consumption fact.
 - **Every runner-side node above is a real process**, in the hermetic suite
   too: the delegation journey (`j002300_cross_engine_delegation.feature`)
@@ -248,7 +248,7 @@ false — delete it rather than leave it.
 | I3 | Facts become visible only after they are durable: one writer goroutine serialises every `decide → append → fsync → apply` window. | `Store.writer`, `Store.execLocked` (`journal.go`) |
 | I4 | Folds are single-writer by construction; `Store.View` is a read-lock window and callers must not retain references out of it. | `Store.View` (`journal.go`) |
 | I5 | The file is the message. The wire carries only a `spool.Ref` (harp, dir, name); a doorbell lost on a down stream costs latency, never a message, because every reader's sweep re-derives the whole picture (`spoolReactor`, `spoolSweepInterval`, the startup and reconnect sweeps). | `spool.Writer.Write`, `spool.Sweep`; `AgentFrame.spool_changed` doc in `coordination.proto` |
-| I6 | The ack is the consume-rename. Delivery is at-least-once and one receive late; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set; the owner's `c.delivered` reservation). | `spool.Consume`; `Home.ackReturned` / `Home.ackMailConsumed`; `Coordinator.ackSpoolInbox` |
+| I6 | The ack is the consume-rename. Delivery is at-least-once and one receive late; a reader that crashes before acking is re-delivered the same file, deduped on its id (`Home.deliverNotice`'s `consumed` set; the owner's `spoolInbox` reservation ledger). | `spool.Consume`; `Home.ackReturned` / `Home.ackMailConsumed`; `spoolInbox.ack` |
 | I7 | Each spool directory has one writer: the coordinator writes `in/`, the run's own runner writes `out/`. A sender is who the DIRECTORY says, and a `SpoolChanged.harp` arriving on a child's channel is resolved against THAT child's spool, never against the harp the frame names. | `spool.DirIn` / `spool.DirOut` docs; `Coordinator.handleSpoolChanged`, `spoolSenderIdentity` |
 | I8 | A `Ref` from a less-trusted peer is validated at one chokepoint — harp grammar, closed `Dir` set, bare filename — and rejected, never sanitised. Nothing is silently dropped: a malformed file is a named `spool.Problem`, a lost rename is `spool.ErrAlreadyGone`. | `spool.Ref.Validate`, `spool.HomeMapper.Resolve`, `spool.Sweep` |
 | I9 | Every run death funnels through one exactly-once terminal that claims `factRunEnded` inside the journal window; only the claimant frees the slot, revokes the credential, severs the channel and notices the parent. | `Coordinator.terminateRun` (`children.go`) |

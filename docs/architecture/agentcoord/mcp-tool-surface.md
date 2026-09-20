@@ -100,9 +100,10 @@ structurally cannot: a new untracked golden, and a stale golden for a deleted bi
   handler, which is a *second* hand-written map literal in another package
   (`runner/mcp/server.go`). They agree today and nothing enforces that they continue
   to.
-- **`agent_recv`'s schema prose hard-codes "default 60, max 600"** while the real values
-  are `defaultRecvWait` and `maxRecvWait` in `mcp/mcp_tools_agents.go`, and the
-  runtime **silently clamps** rather than rejecting (`runner/mcp/server.go`).
+- **`agent_recv`'s wait bounds** are `mcpschema.RecvWaitDefault` and
+  `coord.RecvWaitMax` (the verb's bound, which the shutdown drain shares);
+  the schema prose quotes them from the declaration, and the runtime clamps
+  (`mcpschema.ClampRecvWait`) rather than rejecting.
 - **`additionalProperties: false` is set only at the top level** (`project.go`), so
   the stated "models must not invent argument names" invariant does not hold for nested
   objects (`agent_run`'s `budget`, `roster`'s `runs.items`, `agent_recv`'s

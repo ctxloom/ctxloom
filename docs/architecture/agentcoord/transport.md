@@ -18,9 +18,9 @@ flowchart TD
     EP[("endpoint.json<br/>ports + consumer cred")]
     GS["grpcServer<br/>auth interceptors (D1 read-only enforcement)"]
     CS["coordService"]
-    RSESS["runnerSession<br/>credHash → send · pending · lastBeat"]
+    RSESS["runnerSession (bidiSession)<br/>credHash → queue · pending · lastBeat"]
     WD["runnerWatchdog → checkRunnerLiveness"]
-    CH["runChan<br/>role · send · parked/pushed · ackSeq/flushedSeq/items"]
+    CH["runChan (bidiSession)<br/>role · queue · ackSeq/flushedSeq/items"]
     HAF["handleAgentFrame"]
     HAE["handleAgentEvent"]
     HCE["handleCustomEvent"]
@@ -70,7 +70,7 @@ flowchart TD
 | `coordServing.close` | `grpcSrv.Stop()` **before** shutting the listeners — `GracefulStop` caused a confirmed process-crashing panic |
 | `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/endpoint.json`, sort by mtime newest-first, return `(URL, Cred)` pairs |
 
-`internal/agentcoord/discover` is a deliberate **leaf**: `coord` imports
+`internal/adapters/coordgrpc/discover` is a deliberate **leaf**: `coord` imports
 `internal/adapters/operations`, so `operations` cannot import `coord`. `discover` therefore
 re-declares four things by hand — the state-dir name (`coord/statedir.go`), the MCP
 path (`coord/httpserver.go`), the `endpoint.json` shape (`coord/httpserver.go`)
@@ -84,20 +84,20 @@ the same workaround exists at `operations/sessionfeed.go` (`bearerToken` mirrors
 | --- | --- |
 | `Coordinator.grpcServer` | builds the server plus the stream and unary interceptors that **deny consumer credentials** on `CoordinatorService` — the read-only enforcement point |
 | `mdToken` | extracts the Bearer token from gRPC metadata |
-| `runnerSession` | one connected `RunnerChannel`, keyed by credential hash; `lastBeat` is guarded by `Coordinator.mu` while `pending` is guarded by a session-local `reqMu` |
+| `runnerSession` | one connected `RunnerChannel`, keyed by credential hash, on the one `bidiSession` scaffold (`bidisession.go`: the single-writer send queue and pump, and the request/response correlation — register refused once ended, resolve by id, failPending as the one atomic end); `lastBeat` is guarded by `Coordinator.mu` |
 | `coordService.RunnerChannel` | Hello / ownership / ack, registration, writer pump, recv loop, and loss synthesis in the defer |
 | `Coordinator.handleRunExited` | validates ownership, records the resume handle, terminates; an unowned `RunExited` warns and is ignored |
 | `Coordinator.runnerLost` | synthesizes termination for every active run of a dead credential |
 | `runnerWatchdog` / `checkRunnerLiveness` | declares loss past `runnerLossTimeout`, outside the lock |
 | `Coordinator.awaitRunner` | blocks until the spawned runner dials home; distinguishes "signalled but already ended" from ctx expiry |
 | `Coordinator.requestRunner` | one coordinator→runner request/response round trip (`defaultRequestTimeout` 60s) |
-| `runnerSession.failPending` | swaps out `pending` and answers every waiter `UNAVAILABLE` — converts a hang into a typed refusal |
+| `runnerSession.end` | `bidiSession.failPending`: answers every waiter `UNAVAILABLE` and ends the session in one step, so a later register is refused rather than parked forever |
 
 ## RunChannel — one run, three planes
 
 | Symbol | Contract |
 | --- | --- |
-| `runChan` | one live coordinator-side channel for a role: transport (`send`/`cancel`/`id`), mail reservation (`parked`/`pushed`), journal watermark (`ackSeq`/`flushedSeq`/`items`/`completed`). Every mutable field is guarded by `Coordinator.mu` |
+| `runChan` | one live coordinator-side channel for a role on the `bidiSession` scaffold (its queue and pump; this side issues no requests), plus the journal watermark (`ackSeq`/`flushedSeq`/`items`/`completed`). Every mutable field is guarded by `Coordinator.mu` |
 | `reqKey` / `inflightReq` | the `(role, request_id)` idempotency key that survives a reconnect, and the one-field struct whose nil `resp` means "still running" |
 | `coordService.RunChannel` | auth, Hello/HelloAck, register, start the send and recv pumps, deferred cleanup |
 | `handleAgentFrame` / `handleAgentEvent` | five-way frame switch; seq dedupe and re-ack, live tee to the watch hub, custom/summary/artifact/item routing, terminal marking |

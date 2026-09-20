@@ -10,7 +10,7 @@ the symbol it rests on, so `git grep` settles whether it still holds.
 | [wire-contract.md](wire-contract.md) | `agentcoord.v1`: the three gRPC services, the three planes, message families, proto3 enum zero-value polarity, the dead surface, and the contracts the protos assert but the code does not implement |
 | [coordinator-core.md](coordinator-core.md) | The `Coordinator` object: the four append-only journals, the fsync-before-apply durability engine, the six folds and the fact vocabulary, bearer credentials and `Identity`, lifecycle and state directory |
 | [child-lifecycle.md](child-lifecycle.md) | `agent_run` → enqueue → execution slot → spawn → turn loop → exactly-once terminal; the two launch drivers, the retry/stop gate, one-shot driving, and the owner-owned container run |
-| [mailbox.md](mailbox.md) | The durable at-least-once message queue: addressing rules (children address only "parent"), `message_id` dedupe, cursor-ack, the runtime reservation ledger, and both delivery paths |
+| [mailbox.md](mailbox.md) | The owner's inbox (`spoolInbox`): the parked receive, the claim that reserves, the ack that consume-renames one receive late — and why there is no burst settling |
 | [approvals.md](approvals.md) | The escalation ladder: rung matching, relay-and-park, the decode-before-consume reply rule, the for-session accept cache, and the fail-closed decision allow-list |
 | [artifacts.md](artifacts.md) | `agent_report` filings and their fold, the items-journal checkpoint, and the content-addressed artifact store with its sha256-verified transfer service |
 | [transport.md](transport.md) | The gRPC server and auth interceptors, `RunChannel`/`RunnerChannel`, the runner-side `Home`/`RunnerLink`/`EngineHost`, the launch on the wire (`coordgrpc.EncodeLaunch`/`DecodeLaunch`, `runner.Execute`), and listener/endpoint plumbing |
@@ -25,7 +25,7 @@ flowchart TD
   COORD["internal/core/coord<br/>the delegation runtime"]
   SCHEMA["internal/adapters/coordgrpc/mcpschema<br/>the LLM-facing tool surface"]
   GEN["internal/adapters/coordgrpc/mcpschema/gen<br/>build-time generator"]
-  DISC["internal/agentcoord/discover<br/>endpoint discovery (leaf)"]
+  DISC["internal/adapters/coordgrpc/discover<br/>endpoint discovery (leaf)"]
   OPS[["internal/adapters/operations"]]
   CLI[["internal/adapters/cli · cli/tui"]]
 

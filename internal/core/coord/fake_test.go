@@ -109,6 +109,20 @@ type fakeSpawner struct {
 	// see from outside it.
 	resolveEntered chan string
 	resolveGate    chan struct{}
+	// launches records every launch ResolveLaunch resolved, in order;
+	// rebindFlags records, per call, whether it asked for a rebind; endpoints
+	// is the per-harp MCP endpoint the fake "minted", reused across resumes
+	// the way Resolve reuses the session record's.
+	launches    []launch.Launch
+	rebindFlags []bool
+	endpoints   map[string]sessions.Endpoint
+	endpointSeq int
+	// refuseBinds is how many launches the runner tail refuses with
+	// delivery.ErrEndpointUnavailable before binding normally.
+	refuseBinds int
+	// adoptedHarps / adoptReleasedHarps record Adopt and its release.
+	adoptedHarps       []string
+	adoptReleasedHarps []string
 }
 
 type fakeAgent struct {
@@ -198,16 +212,14 @@ func (s *fakeSpawner) AssignSession(_, _ string) (string, error) {
 	return harp, nil
 }
 
-// StartEngine spawns the MIGRATED path's runner half for real: an in-process
-// Home dialing the coordinator's live listeners with the spawn-injected trio,
-// an EngineHost wired as its RunnerRequest handler, and a scripted
-// StructuredChat as the engine. Kill models SIGKILL (docker-stop): the
-// shared context dies — no RunExited, no clean teardown; the coordinator's
-// loss synthesis is what must notice.
-func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+// ResolveLaunch resolves the child's launch the way the production spawner
+// does — the floor applied, the axes and handler recorded, the package (the
+// context every conformance test looks for) carried inline, and the MCP
+// endpoint minted ONCE per harp: a resume reuses it, a Rebind mints a new one.
+func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
 	perm, err := floorChild(s.degraded, plan.AgentName, plan.Permission)
 	if err != nil {
-		return nil, err
+		return Resolved{}, err
 	}
 	// The child's engine env is what the launch stamps: the identity
 	// carriers. The fake stamps the same two.
@@ -215,6 +227,69 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	if start.Identity.Project != "" {
 		env[sessions.EnvProjectID] = start.Identity.Project
 	}
+	s.mu.Lock()
+	s.perms = append(s.perms, perm)
+	s.workspaces = append(s.workspaces, plan.Workspace)
+	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
+	s.rebindFlags = append(s.rebindFlags, start.Rebind)
+	if s.endpoints == nil {
+		s.endpoints = map[string]sessions.Endpoint{}
+	}
+	ep, bound := s.endpoints[start.Identity.Harp]
+	if !bound || start.Rebind {
+		s.endpointSeq++
+		ep = sessions.Endpoint{URL: fmt.Sprintf("http://127.0.0.1:%d/mcp", 40000+s.endpointSeq), Credential: fmt.Sprintf("bearer-%d", s.endpointSeq)}
+		s.endpoints[start.Identity.Harp] = ep
+	}
+	workDir := s.engineWorkDir
+	engineEnv := s.engineEnv
+	s.mu.Unlock()
+	if workDir == "" {
+		workDir = "/work"
+	}
+	spawnedEnv := env
+	if len(engineEnv) > 0 {
+		spawnedEnv = make(map[string]string, len(env)+len(engineEnv))
+		maps.Copy(spawnedEnv, env)
+		maps.Copy(spawnedEnv, engineEnv)
+	}
+	enc, err := composite.Encode(composite.Package{Context: composite.Context{Text: "FRAG-ONE"}})
+	if err != nil {
+		return Resolved{}, err
+	}
+	carrier, err := composite.Inline{}.Carry(ctx, enc)
+	if err != nil {
+		return Resolved{}, err
+	}
+	l := launch.Launch{
+		Identity:   start.Identity,
+		Engine:     engine.Name(plan.Backend),
+		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
+		Mode:       engine.Structured,
+		Permission: perm,
+		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
+		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
+		Package:    carrier,
+		MCP:        ep,
+		Prompt:     start.Prompt,
+		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
+	}
+	plan.Launch = l
+	s.mu.Lock()
+	s.launches = append(s.launches, l)
+	s.mu.Unlock()
+	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+}
+
+// Start spawns the runner half for real: an in-process Home dialing the
+// coordinator's live listeners with the spawn-injected trio, an EngineHost
+// wired as its RunnerRequest handler, and a scripted StructuredChat as the
+// engine. The runner's context is NOT the caller's: a runner is its own
+// process and outlives the coordinator that started it (a restart re-adopts
+// it); only Kill ends it. Kill models SIGKILL (docker-stop): the shared
+// context dies — no RunExited, no clean teardown; the coordinator's loss
+// synthesis is what must notice.
+func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error) {
 	s.mu.Lock()
 	var backend agent.StructuredChat
 	if s.nextBackend != nil {
@@ -226,29 +301,25 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 		}
 		sc := mk()
 		sc.mu.Lock()
-		sc.gotEnv = env
+		sc.gotEnv = l.Cell.Env
 		sc.gotRunnerEnv = runnerEnv
 		sc.mu.Unlock()
 		s.chats = append(s.chats, sc)
 		backend = sc
 	}
-	s.perms = append(s.perms, perm)
-	s.workspaces = append(s.workspaces, plan.Workspace)
-	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)
-	workDir := s.engineWorkDir
-	engineEnv := s.engineEnv
 	caps := s.engineCaps
 	sweepInterval := s.spoolSweepInterval
 	s.mu.Unlock()
 
-	sctx, cancel := context.WithCancel(ctx)
-	host := newTestEngineHost(sctx, backend, plan.Backend, runnerEnv[EnvRunID])
+	sctx, cancel := context.WithCancel(context.Background())
+	host := newTestEngineHost(sctx, backend, string(l.Engine), runnerEnv[EnvRunID])
+	host.BindRunner(testRunner{eh: host, refuse: s.refuseBind})
 	home, err := NewHome(sctx, HomeConfig{
 		Reporter:     termSink(),
 		URL:          runnerEnv[EnvCoordURL],
 		Token:        runnerEnv[EnvCoordCred],
 		RunID:        runnerEnv[EnvRunID],
-		Harness:      plan.Backend,
+		Harness:      string(l.Engine),
 		Version:      "test",
 		Engine:       host.Handle,
 		Capabilities: caps,
@@ -275,44 +346,66 @@ func (s *fakeSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	s.released = append(s.released, released)
 	s.engineHomes = append(s.engineHomes, home)
 	s.mu.Unlock()
-	if workDir == "" {
-		workDir = "/work"
-	}
-	spawnedEnv := env
-	if len(engineEnv) > 0 {
-		spawnedEnv = make(map[string]string, len(env)+len(engineEnv))
-		maps.Copy(spawnedEnv, env)
-		maps.Copy(spawnedEnv, engineEnv)
-	}
-	// The fake's package: the context every conformance test looks for,
-	// carried inline the way the resolver carries it.
-	enc, err := composite.Encode(composite.Package{Context: composite.Context{Text: "FRAG-ONE"}})
-	if err != nil {
-		return nil, err
-	}
-	carrier, err := composite.Inline{}.Carry(ctx, enc)
-	if err != nil {
-		return nil, err
-	}
-	l := launch.Launch{
-		Identity:   start.Identity,
-		Engine:     engine.Name(plan.Backend),
-		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
-		Mode:       engine.Structured,
-		Permission: perm,
-		Axes:       launch.Axes{Workspace: plan.Workspace, Runtime: plan.Runtime},
-		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Env: spawnedEnv, Cleanup: func() error { return nil }},
-		Package:    carrier,
-		Prompt:     start.Prompt,
-		Resume:     sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey},
-	}
-	plan.Launch = l
 	return &EngineSpawn{
-		Launch:     l,
-		Wire:       coordgrpc.EncodeLaunch(l),
 		Kill:       kill,
 		StderrTail: s.engineStderrTail,
 	}, nil
+}
+
+// refuseBind is the runner tail's bind seam: while refuseBinds is positive,
+// each launch the runner executes is refused with
+// delivery.ErrEndpointUnavailable (the port was taken between incarnations),
+// and the count goes down by one.
+func (s *fakeSpawner) refuseBind() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refuseBinds > 0 {
+		s.refuseBinds--
+		return true
+	}
+	return false
+}
+
+// Adopt records the re-adopted harp and hands back a release that records
+// itself — the seam a restart test reads to prove the run got its owner.
+func (s *fakeSpawner) Adopt(_ context.Context, rec RunRecord) (func() error, error) {
+	s.mu.Lock()
+	s.adoptedHarps = append(s.adoptedHarps, rec.Harp)
+	s.mu.Unlock()
+	return func() error {
+		s.mu.Lock()
+		s.adoptReleasedHarps = append(s.adoptReleasedHarps, rec.Harp)
+		s.mu.Unlock()
+		return nil
+	}, nil
+}
+
+// resolvedLaunches returns every launch ResolveLaunch produced, in order.
+func (s *fakeSpawner) resolvedLaunches() []launch.Launch {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]launch.Launch(nil), s.launches...)
+}
+
+// rebinds returns, per ResolveLaunch call, whether it asked for a rebind.
+func (s *fakeSpawner) rebinds() []bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]bool(nil), s.rebindFlags...)
+}
+
+// adopted returns the harps Adopt was asked to re-own, in order.
+func (s *fakeSpawner) adopted() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.adoptedHarps...)
+}
+
+// adoptReleased returns the harps whose adoption release has fired.
+func (s *fakeSpawner) adoptReleased() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.adoptReleasedHarps...)
 }
 
 // engineHome returns the i-th spawned runner-side Home, nil if unspawned.

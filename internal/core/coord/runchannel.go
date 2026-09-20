@@ -17,7 +17,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -766,7 +765,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	// has already answered "spawned": a typo would otherwise be reported as a
 	// child that died, to a caller who could no longer see which argument was
 	// wrong.
-	workspace, werr := isolation.ParseWorkspaceAxis(rawWorkspace)
+	workspace, werr := launch.ParseWorkspaceAxis(rawWorkspace)
 	if werr != nil {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "agent_run: "+werr.Error())}
 	}

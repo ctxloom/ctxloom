@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -37,7 +38,7 @@ func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.C
 	cfg, root := delegationFixture(t, subs)
 	runners := coordtest.NewRunners()
 	t.Cleanup(runners.Close)
-	c, err := coord.New(coord.Options{App: fixtureApp(t, cfg), ProjectDir: root, StateDir: t.TempDir(), Starter: runners.Starter, OwnerHarp: "coordinator-harp"})
+	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -156,7 +157,7 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	resetStrictness(t)
 	spawns := coordtest.NewRunners()
 	t.Cleanup(spawns.Close)
-	c, err := coord.New(coord.Options{App: fixtureApp(t, cfg), ProjectDir: root, StateDir: t.TempDir(), Starter: spawns.Starter, OwnerHarp: "coordinator-harp"})
+	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, spawns.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
@@ -228,7 +229,7 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 	resetStrictness(t)
 	spawns := coordtest.NewRunners()
 	t.Cleanup(spawns.Close)
-	c, err := coord.New(coord.Options{App: fixtureApp(t, cfg), ProjectDir: root, StateDir: t.TempDir(), Starter: spawns.Starter, OwnerHarp: "coordinator-harp"})
+	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, spawns.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)

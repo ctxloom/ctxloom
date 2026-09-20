@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
@@ -346,12 +347,20 @@ func testStartRun(runID string) *agentcoordpb.StartRun {
 // and the first-turn lead the real runner builds (adapters/runner, which
 // this package's tests cannot import), delivering nothing — the tests
 // observe the drive.
-type testRunner struct{ eh *EngineHost }
+type testRunner struct {
+	eh *EngineHost
+	// refuse, when set and true, refuses the launch the way a runner whose
+	// endpoint cannot be bound does.
+	refuse func() bool
+}
 
 func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
 	l, err := coordgrpc.DecodeLaunch(wire)
 	if err != nil {
 		return err
+	}
+	if r.refuse != nil && r.refuse() {
+		return delivery.ErrEndpointUnavailable
 	}
 	pkg, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package)
 	if err != nil {

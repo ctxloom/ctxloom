@@ -1,17 +1,16 @@
-package coord
+package spawn
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // TestChildVerbosity pins the env-only diagnostics knob: CTXLOOM_VERBOSE=1
@@ -47,29 +46,29 @@ func TestViaStartRunBackends(t *testing.T) {
 
 // TestResolveResumeMode pins the Slice 2 static per-engine resume-capability
 // table (Fork 3's static half): conversational (and the empty/default) always
-// resolves to ResumeModePersistent regardless of backend; oneshot resolves to
-// ResumeModeOneShot ONLY on a resume-capable backend and otherwise fails
+// resolves to coord.ResumeModePersistent regardless of backend; oneshot resolves to
+// coord.ResumeModeOneShot ONLY on a resume-capable backend and otherwise fails
 // loud, never silently downgrading to persistent.
 func TestResolveResumeMode(t *testing.T) {
 	t.Run("conversational is always persistent, any backend", func(t *testing.T) {
 		for _, backend := range []string{"claude-code", "mock", "unknown", ""} {
 			mode, err := resolveResumeMode(agents.DrivingConversational, backend)
 			require.NoError(t, err, "backend %q", backend)
-			assert.Equal(t, ResumeModePersistent, mode, "backend %q", backend)
+			assert.Equal(t, coord.ResumeModePersistent, mode, "backend %q", backend)
 		}
 	})
 
 	t.Run("empty driving (the zero value) is persistent", func(t *testing.T) {
 		mode, err := resolveResumeMode("", "mock")
 		require.NoError(t, err)
-		assert.Equal(t, ResumeModePersistent, mode)
+		assert.Equal(t, coord.ResumeModePersistent, mode)
 	})
 
-	t.Run("oneshot on a resume-capable backend resolves to ResumeModeOneShot", func(t *testing.T) {
+	t.Run("oneshot on a resume-capable backend resolves to coord.ResumeModeOneShot", func(t *testing.T) {
 		for _, backend := range []string{"claude-code"} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.NoError(t, err, "backend %q", backend)
-			assert.Equal(t, ResumeModeOneShot, mode, "backend %q", backend)
+			assert.Equal(t, coord.ResumeModeOneShot, mode, "backend %q", backend)
 		}
 	})
 
@@ -77,7 +76,7 @@ func TestResolveResumeMode(t *testing.T) {
 		for _, backend := range []string{"mock", "unknown-backend", ""} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.Error(t, err, "backend %q", backend)
-			assert.Equal(t, ResumeModePersistent, mode, "the returned mode on error must never be ResumeModeOneShot (backend %q)", backend)
+			assert.Equal(t, coord.ResumeModePersistent, mode, "the returned mode on error must never be coord.ResumeModeOneShot (backend %q)", backend)
 			assert.Contains(t, err.Error(), backend)
 			assert.Contains(t, err.Error(), "resume-capable")
 		}
@@ -103,7 +102,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
 
-	s := newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+	s := newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 
 	// The agent present at construction resolves fine (baseline).
 	plan, err := s.Resolve(context.Background(), "dev")
@@ -130,7 +129,7 @@ func TestProdSpawner_ResolveRereadsConfigFromDisk(t *testing.T) {
 
 	// The generation the FIRST spawn captured never mutates: a reload is a
 	// new generation, not a rewrite of the one already published.
-	_, ok := plan.snap.Config.Agent("fresh")
+	_, ok := plan.Snapshot.Config.Agent("fresh")
 	assert.False(t, ok, "the first spawn's generation is never rewritten")
 }
 
@@ -146,7 +145,7 @@ func TestProdSpawner_ResolveFallsBackToPublishedGenerationOnReloadFailure(t *tes
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: plan\n")
 
-	s := newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+	s := newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	writeSpawnerConfig(t, appDir, "version: 6\nagents: [unclosed\n  : nonsense\n")
 
 	plan, err := s.Resolve(context.Background(), "dev")
@@ -163,27 +162,27 @@ func TestProdSpawner_ResolveFallsBackToPublishedGenerationOnReloadFailure(t *tes
 // separate, deliberately temporary v0.8 "not yet available" gate) — proving
 // item 4's requirement is satisfied "regardless" of which one applies.
 func TestProdSpawner_Resolve_Driving(t *testing.T) {
-	newSpawner := func(t *testing.T, body string) *prodSpawner {
+	newSpawner := func(t *testing.T, body string) *spawner {
 		t.Helper()
 		resetStrictness(t)
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
-		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+		return newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	t.Run("absent driving resolves persistent, unchanged from today", func(t *testing.T) {
 		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
-		assert.Equal(t, ResumeModePersistent, plan.ResumeMode)
+		assert.Equal(t, coord.ResumeModePersistent, plan.ResumeMode)
 	})
 
 	t.Run("driving: conversational resolves persistent", func(t *testing.T) {
 		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: conversational\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err)
-		assert.Equal(t, ResumeModePersistent, plan.ResumeMode)
+		assert.Equal(t, coord.ResumeModePersistent, plan.ResumeMode)
 	})
 
 	t.Run("unknown driving value FAILS LOUD at resolve, not merely at the write edge", func(t *testing.T) {
@@ -201,77 +200,11 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		assert.Contains(t, err.Error(), "mock")
 	})
 
-	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {
+	t.Run("driving: oneshot on a SUPPORTED migrated engine (claude-code) now RESOLVES to coord.ResumeModeOneShot (Slice 4 landed)", func(t *testing.T) {
 		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n    driving: oneshot\n")
 		plan, err := s.Resolve(context.Background(), "dev")
 		require.NoError(t, err, "the one-shot turn loop is wired end to end for claude-code (Slice 4)")
-		assert.Equal(t, ResumeModeOneShot, plan.ResumeMode)
+		assert.Equal(t, coord.ResumeModeOneShot, plan.ResumeMode)
 	})
 
-}
-
-// TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan is GAP 2's threading
-// proof at the coordinator layer: the workspace string agent_run's caller
-// supplies rides AgentRun -> SpawnPlan.Workspace -> the Spawner's
-// Launch/StartEngine call, completely independent of the agent's OWN
-// resolved runtime axis (fakeAgent declares no runtime here). Each case gets
-// its own coordinator (rather than two AgentRun calls on one) so the D4
-// single-slot cap can never queue the second spawn behind the first and
-// race this assertion. Omitting the argument (the empty-string call)
-// carries nothing — PrepareAgentChat is where an empty override falls back
-// to the project's cfg.Workspace default (delegate_test.go pins that hop).
-func TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan(t *testing.T) {
-	newWorker := func(t *testing.T) (*fakeSpawner, *Coordinator) {
-		t.Helper()
-		resetStrictness(t)
-		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
-		return sp, newTestCoordinator(t, sp, nil)
-	}
-
-	t.Run("override rides the plan the Spawner launches from", func(t *testing.T) {
-		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "worktree", "")
-		require.NoError(t, err)
-		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Equal(t, launch.WorkspaceWorktree, sp.lastWorkspace())
-	})
-
-	t.Run("omitting workspace carries no override", func(t *testing.T) {
-		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
-		require.NoError(t, err)
-		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Empty(t, sp.lastWorkspace())
-	})
-}
-
-// TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan is the identical
-// threading proof as TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan, for
-// AgentRun's dirty_tree_handler override: AgentRun -> SpawnPlan.DirtyTreeHandler
-// -> the Spawner's Launch/StartEngine call. Omitting it carries nothing —
-// PrepareAgentChat is where an empty override falls back to the project's
-// cfg.GetDirtyTreeHandler() default (delegate_test.go pins that hop).
-func TestAgentRun_DirtyTreeHandlerOverrideThreadsToSpawnPlan(t *testing.T) {
-	newWorker := func(t *testing.T) (*fakeSpawner, *Coordinator) {
-		t.Helper()
-		resetStrictness(t)
-		sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
-		return sp, newTestCoordinator(t, sp, nil)
-	}
-
-	t.Run("override rides the plan the Spawner launches from", func(t *testing.T) {
-		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", launch.DirtyTreeHandlerStale)
-		require.NoError(t, err)
-		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Equal(t, launch.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
-	})
-
-	t.Run("omitting dirty_tree_handler carries no override", func(t *testing.T) {
-		sp, c := newWorker(t)
-		_, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
-		require.NoError(t, err)
-		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
-		assert.Empty(t, sp.lastDirtyTreeHandler())
-	})
 }

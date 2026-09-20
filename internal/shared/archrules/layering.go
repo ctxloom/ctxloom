@@ -163,15 +163,11 @@ var LayeringRules = []LayeringRule{
 			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
 
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
-			// profiles). envswitch is listed there without a slice.
+			// profiles).
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":        "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
 			"internal/core/coord -> internal/agentcoord/discover":          "slice 10: discover moves to adapters/coordgrpc",
 			"internal/core/coord -> internal/adapters/coordgrpc/mcpschema": "slice 10: mcpschema moves to adapters/coordgrpc",
-			"internal/core/coord -> internal/adapters/agents":              "slice 8: harnessspec/SpawnPlan become core/launch types",
-			"internal/core/coord -> internal/adapters/isolation":           "slice 8: the isolation axes become core/launch value types",
-			"internal/core/coord -> internal/adapters/operations":          "slice 8: operations.DirtyTreeHandler becomes launch.DirtyTreeHandler; operations implements coord.HostApp",
 			"internal/core/coord -> internal/adapters/transcript":          "slice 14a: the engine-host files move to adapters/runner",
-			"internal/core/coord -> internal/shared/envswitch":             "Part 1.0 lists this edge without a slice; it leaves with the engine host (14a), which is what reads the switched env",
 
 			// coord/coordtest is the in-process runner double compiled into no binary;
 			// Part 1.0 does not mention it. It stands up the real runner half, so it
@@ -334,6 +330,15 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/transcript":              "slice 14a: sessions.Entry.NativeSession is the one record; transcript is an injected reader",
 			"internal/adapters/operations -> internal/adapters/transcript/policy":       "slice 14a: transcript policy rides with the reader adapter",
 			"internal/adapters/operations -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
+
+			// adapters/spawn — the production coord.Spawner, composed at cmd/*. It
+			// SELECTS over the App's generations, RESOLVES through the launch trunk
+			// and STARTS runners through isolation; Part 1.1 gives it launch.Deps
+			// and a Runtimes port instead, both handed in at cmd/*.
+			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
+			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
+			"internal/adapters/spawn -> internal/adapters/agents":     "measured: agents.DrivingMode/ValidateDriving on the binding; leaves when config's own agents edge does",
+			"internal/adapters/spawn -> internal/adapters/coordgrpc":  "slice 10: RunnerTransport.StartRun takes the launch.Launch and the coordgrpc adapter encodes it; spawn stops projecting the wire form itself",
 
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",

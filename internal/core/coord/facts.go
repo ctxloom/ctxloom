@@ -78,6 +78,14 @@ const (
 	// (the turn's result was already bridged) and — like every cause except
 	// CauseStopped — it must NOT clear the harp's ACCEPT_FOR_SESSION grants.
 	CauseOneShotBoundary = "oneshot-boundary"
+	// CauseIdleReaped is the idle reaper's terminal: the run's runner had no
+	// turn for delegation.idle_timeout and was ended to free its slot, its
+	// process (a container, on that axis) and its bound endpoint. Like
+	// CauseOneShotBoundary it is an EXPECTED, non-error terminal that leaves
+	// the harp RESUMABLE — the next mail starts a new incarnation through the
+	// resume arm, reusing the bound endpoint — queues NO "exited" notice to
+	// the parent, and must NOT clear the harp's ACCEPT_FOR_SESSION grants.
+	CauseIdleReaped = "idle-reaped"
 	// CauseDrained is a child ended by the coordinator's DRAIN at a point
 	// where no work was cut short: at its own turn boundary (the exit the
 	// drain REQUESTED, honoured), between turns, or before it ever started.

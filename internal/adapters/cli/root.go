@@ -56,9 +56,12 @@ func (e *ExitError) Error() string {
 // root's closures (the one-mint-one-owner rule); the CLI parses flags and
 // renders, and the application services compose from what it was handed.
 type Composition struct {
-	Reporter       report.Sink
-	OpenConfig     operations.ConfigOpener
-	NewCoordinator func(coord.Options) (*coord.Coordinator, error)
+	Reporter   report.Sink
+	OpenConfig operations.ConfigOpener
+	// NewCoordinator constructs the process's one coordinator over the App
+	// it is handed: the root composes the production launch seam
+	// (adapters/spawn) from that App unless the options carry one.
+	NewCoordinator func(*operations.App, coord.Options) (*coord.Coordinator, error)
 }
 
 // theComposition is the root's Composition for this process; theApp is the
@@ -75,7 +78,7 @@ var (
 // Reporter applied; the mcp hosting helpers take it as a parameter.
 func NewCoordinator(opts coord.Options) (*coord.Coordinator, error) {
 	opts.Reporter = theComposition.Reporter
-	return theComposition.NewCoordinator(opts)
+	return theComposition.NewCoordinator(App(), opts)
 }
 
 // App returns the process's composition. A command reached without the root's

@@ -87,8 +87,11 @@ func (s *failingLaunchSpawner) doomedLaunch(ctx context.Context) error {
 	}
 }
 
-func (s *failingLaunchSpawner) StartEngine(ctx context.Context, _ *SpawnPlan, _ SpawnStart, _ map[string]string) (*EngineSpawn, error) {
-	return nil, s.doomedLaunch(ctx)
+// ResolveLaunch is where a container cell fails to prepare (image missing,
+// shared-fs probe failing, daemon unreachable): the resolver's Cells.Prepare
+// is what a real launch dies in, and what agent_stop's cancellation reaches.
+func (s *failingLaunchSpawner) ResolveLaunch(ctx context.Context, _ *SpawnPlan, _ SpawnStart) (Resolved, error) {
+	return Resolved{}, s.doomedLaunch(ctx)
 }
 
 // spinUpRetryLoop drives a child into the failing-launch retry loop: spawn it

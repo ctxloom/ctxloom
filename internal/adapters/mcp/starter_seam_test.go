@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/coord/coordtest"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
@@ -29,9 +30,8 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	runners := coordtest.NewRunners()
 	t.Cleanup(runners.Close)
 	c, err := coord.New(coord.Options{
-		App: fixtureApp(t, cfg), ProjectDir: root, StateDir: t.TempDir(),
+		Spawner: spawn.New(nil, fixtureApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: t.TempDir(),
 		OwnerHarp: "coordinator-harp",
-		Starter:   runners.Starter,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

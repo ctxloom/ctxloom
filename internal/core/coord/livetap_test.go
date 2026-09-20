@@ -177,42 +177,16 @@ type noDelivery struct{}
 
 func (noDelivery) Setup(context.Context, *agent.SetupRequest) error { return nil }
 
-// StartEngine bridges the coordinator's own RunChannel to liveTapChat,
-// mirroring fake_test.go's fakeSpawner.StartEngine (coord/fake_test.go:229)
-// via the SAME exported constructors it uses internally.
-func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
-	sctx, cancel := context.WithCancel(ctx)
-	host := coord.NewEngineHost(sctx, nil, s.chat, plan.Backend, runnerEnv[coord.EnvRunID])
-	host.BindRunner(runner.Host{Deps: runner.Deps{
-		Kind:       mock.NewNamed(engine.Name(plan.Backend)),
-		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
-		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
-		Static:     noDelivery{},
-		Driver:     host,
-	}})
-	home, err := coord.NewHome(sctx, coord.HomeConfig{
-		URL:     runnerEnv[coord.EnvCoordURL],
-		Token:   runnerEnv[coord.EnvCoordCred],
-		RunID:   runnerEnv[coord.EnvRunID],
-		Harness: plan.Backend,
-		Version: "test",
-		Engine:  host.Handle,
-	})
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	host.BindHome(home)
-	// The worker composes no context: the tap renders the turn's own words.
+// ResolveLaunch resolves the worker's launch: it composes no context (the
+// tap renders the turn's own words).
+func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	enc, err := composite.Encode(composite.Package{})
 	if err != nil {
-		cancel()
-		return nil, err
+		return coord.Resolved{}, err
 	}
 	carrier, err := composite.Inline{}.Carry(ctx, enc)
 	if err != nil {
-		cancel()
-		return nil, err
+		return coord.Resolved{}, err
 	}
 	l := launch.Launch{
 		Identity:   start.Identity,
@@ -225,7 +199,41 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		Prompt:     start.Prompt,
 	}
 	plan.Launch = l
-	return &coord.EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: cancel}, nil
+	return coord.Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+}
+
+// Start bridges the coordinator's own RunChannel to liveTapChat, mirroring
+// fake_test.go's fakeSpawner.Start via the SAME exported constructors it
+// uses internally.
+func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
+	sctx, cancel := context.WithCancel(context.Background())
+	backend := string(l.Engine)
+	host := coord.NewEngineHost(sctx, nil, s.chat, backend, runnerEnv[coord.EnvRunID])
+	host.BindRunner(runner.Host{Deps: runner.Deps{
+		Kind:       mock.NewNamed(l.Engine),
+		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
+		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
+		Static:     noDelivery{},
+		Driver:     host,
+	}})
+	home, err := coord.NewHome(sctx, coord.HomeConfig{
+		URL:     runnerEnv[coord.EnvCoordURL],
+		Token:   runnerEnv[coord.EnvCoordCred],
+		RunID:   runnerEnv[coord.EnvRunID],
+		Harness: backend,
+		Version: "test",
+		Engine:  host.Handle,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	host.BindHome(home)
+	return &coord.EngineSpawn{Kill: cancel}, nil
+}
+
+func (s *liveTapSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {
+	return nil, nil
 }
 
 func (s *liveTapSpawner) ResumeHistory(context.Context, string) string        { return "" }

@@ -43,7 +43,6 @@ func HostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 		key = pid
 	} // best-effort: "" falls back to a path-derived key inside coord.New
 	c, err := build(coord.Options{
-		App:        app,
 		ProjectDir: projectDir,
 		ProjectKey: key,
 		// The host-relayed tools (Verbs.Host) terminate in THIS process, on a

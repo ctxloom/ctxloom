@@ -16,7 +16,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
@@ -58,10 +57,6 @@ const (
 
 // Options configures a Coordinator.
 type Options struct {
-	// App is the process's composition — the one config.Owner the production
-	// spawner captures a generation from per spawn (tests inject Spawner
-	// instead).
-	App *operations.App
 	// ProjectDir is the project working directory the coordinator serves.
 	ProjectDir string
 	// ProjectKey is the stable project identity keying the durable state
@@ -69,7 +64,8 @@ type Options struct {
 	ProjectKey string
 	// StateDir overrides the state dir entirely (tests).
 	StateDir string
-	// Spawner overrides the launch seam (tests). Nil = production.
+	// Spawner is the launch seam: adapters/spawn in production, composed at
+	// cmd/*; a fake in tests. Required.
 	Spawner Spawner
 	// Host is the application service every host-relayed tool is dispatched
 	// to (Verbs.Host), under the caller's identity. Nil refuses every relayed
@@ -81,15 +77,6 @@ type Options struct {
 	// discards. Long-lived goroutines report to the Reporter they were
 	// constructed with, never to a process-wide channel.
 	Reporter report.Sink
-	// Starter is the production spawner's RUNNER-PROCESS test seam: for each
-	// spawn it is handed the backend and the per-spawn runner env (the
-	// reach-back trio, harp, depth — exactly what a real runner process
-	// reads from its environment) and returns the isolation.EngineStarter
-	// that "launches" it. Nil = production, where isolation binds the real
-	// starter. It exists so an in-process runner double (coordtest) can be
-	// handed to the PRODUCTION spawner, and it is the ONLY route by which
-	// the mock backend is admitted for delegated children (prodSpawner.Resolve).
-	Starter StarterFunc
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
 	// ConcurrencyCap overrides the number of concurrently EXECUTING child
@@ -121,6 +108,11 @@ type Options struct {
 	// this, independent of EndedRunTail. <= 0 keeps the package default
 	// (defaultEndedRunMaxAge).
 	EndedRunMaxAge time.Duration
+	// IdleTimeout is delegation.idle_timeout: the idle reaper ends a run
+	// whose runner has had no turn for this long. <= 0 keeps the package
+	// default (defaultIdleTimeout). Production sources it from coordinator
+	// config (config.Config.GetDelegationIdleTimeout).
+	IdleTimeout time.Duration
 	// RunnerAwaitTimeout overrides how long issueStartRun waits for a
 	// just-spawned runner to dial home before declaring the launch attempt
 	// failed (children.go's dial-home barrier, awaitRunner). <= 0 keeps the
@@ -207,6 +199,8 @@ type Coordinator struct {
 	// runnerAwaitTimeout is issueStartRun's dial-home budget — see
 	// Options.RunnerAwaitTimeout / defaultRunnerAwaitTimeout (children.go).
 	runnerAwaitTimeout time.Duration
+	// idleTimeout is the idle reaper's bound — see Options.IdleTimeout.
+	idleTimeout time.Duration
 	// maxLaunchAttempts / launchBackoffBase / launchBackoffMax are the
 	// launch-retry budget (launchgate.go) resolved ONCE here at
 	// construction — the built-in defaultMaxLaunchAttempts/
@@ -430,6 +424,7 @@ func New(opts Options) (*Coordinator, error) {
 		endedRunTail:       t.endedRunTail,
 		endedRunMaxAge:     t.endedRunMaxAge,
 		runnerAwaitTimeout: t.runnerAwaitTimeout,
+		idleTimeout:        t.idleTimeout,
 		maxLaunchAttempts:  t.maxLaunchAttempts,
 		launchBackoffBase:  t.launchBackoffBase,
 		launchBackoffMax:   t.launchBackoffMax,
@@ -452,10 +447,7 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
-		if opts.App == nil {
-			return nil, c.abortNew(errors.New("coord: Options.App is required without an injected Spawner"))
-		}
-		c.spawner = newProdSpawner(c.rep, opts.App, opts.ProjectDir, opts.Starter)
+		return nil, c.abortNew(errors.New("coord: Options.Spawner is required (adapters/spawn, composed at cmd/*)"))
 	}
 	if err := c.openJournals(); err != nil {
 		return nil, c.abortNew(err)
@@ -505,6 +497,7 @@ type tunables struct {
 	endedRunTail       int
 	endedRunMaxAge     time.Duration
 	runnerAwaitTimeout time.Duration
+	idleTimeout        time.Duration
 	maxLaunchAttempts  int
 	launchBackoffBase  time.Duration
 	launchBackoffMax   time.Duration
@@ -520,6 +513,7 @@ func resolveTunables(opts Options) tunables {
 		endedRunTail:       opts.EndedRunTail,
 		endedRunMaxAge:     opts.EndedRunMaxAge,
 		runnerAwaitTimeout: opts.RunnerAwaitTimeout,
+		idleTimeout:        opts.IdleTimeout,
 	}
 	if t.now == nil {
 		t.now = time.Now
@@ -538,6 +532,9 @@ func resolveTunables(opts Options) tunables {
 	}
 	if t.runnerAwaitTimeout <= 0 {
 		t.runnerAwaitTimeout = defaultRunnerAwaitTimeout
+	}
+	if t.idleTimeout <= 0 {
+		t.idleTimeout = defaultIdleTimeout
 	}
 	// The launch-retry budget has no Options field (deliberately — it is an
 	// operator/env tunable, not a per-call test seam): resolved once, here,

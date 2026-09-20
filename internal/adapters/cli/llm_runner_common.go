@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -98,13 +98,13 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	// A hosted run: identity arrives on the Launch, so the runner's MCP
 	// endpoint (keyed by the harp, gated by the depth) stands up at payload
 	// arrival, inside runner.Execute, strictly before the engine is driven.
-	runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost, func(ctx context.Context, l launch.Launch) (func(), error) {
-		leaf := l.Identity.IsLeaf(cfg.GetDelegationDepth())
-		if err := attachRunnerMCP(standup, cfg, h, l.Identity.Harp, leaf, l.Cell.Workspace); err != nil {
+	runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost, socketDynamic(func(lo delivery.Loadout) (func(), error) {
+		leaf := lo.Identity.IsLeaf(cfg.GetDelegationDepth())
+		if err := attachRunnerMCP(standup, cfg, h, lo.Identity.Harp, leaf, lo.WorkDir); err != nil {
 			return nil, err
 		}
 		return standup.endpointClose, nil
-	})
+	}))
 	if derr != nil {
 		h.Close(1, "")
 		return nil, derr
@@ -121,7 +121,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 // dynamic half, the binding-preference validator, the engine's configure
 // seam over the label body the Launch carries, and the engine host as the
 // driver.
-func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic runner.Dynamic) (runner.Deps, error) {
+func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
@@ -150,6 +150,18 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *coord.Engine
 		}
 	}
 	return deps, nil
+}
+
+// socketDynamic adapts the socket-backed runner MCP standup to the Dynamic
+// port until runner/mcp binds the Launch's endpoint.
+type socketDynamic func(lo delivery.Loadout) (func(), error)
+
+func (f socketDynamic) Serve(_ context.Context, lo delivery.Loadout, _ delivery.ServePolicy) (delivery.Served, error) {
+	closeFn, err := f(lo)
+	if err != nil {
+		return delivery.Served{}, err
+	}
+	return delivery.Served{Close: func() error { closeFn(); return nil }}, nil
 }
 
 // loadAndConfigureBackend reads this runner process's configuration and

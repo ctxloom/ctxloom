@@ -1,17 +1,21 @@
 // Package delivery plans which package items go STATIC and which DYNAMIC for
 // an engine: the Plan is ROUTES over the cell's roots, computed once per
-// launch in launch.Resolve and carried on the Launch. The two delivery ports
-// (Static, Dynamic) and the ownership record arrive with the writers. It
-// must never know engine argv, transport, or config. Imports: engine,
-// present — nothing imports delivery but launch.
+// launch in launch.Resolve and carried on the Launch. The Dynamic port is
+// declared here and implemented by the runner's mcp package; the Static
+// port and the ownership record arrive with the writers. It must never know
+// engine argv, transport, or config. Imports: engine, present, composite,
+// sessions.
 package delivery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // Preference is the binding's delivery preference: per kind, the ROOT it
@@ -153,3 +157,49 @@ func has(roots present.Paths, r present.RootKind) bool {
 	}
 	return false
 }
+
+// Loadout is what a delivery consumes: the Plan, the DECODED Package, the
+// engine's Exports, the catalog Index and the session's MCP endpoint, under
+// the session's identity in the cell's working directory. The runner builds
+// it from the Launch after composite.Decode; the local launcher builds the
+// same value.
+type Loadout struct {
+	Plan     Plan
+	Package  composite.Package
+	Exports  engine.Exports
+	Index    composite.Index
+	MCP      sessions.Endpoint
+	Identity sessions.Identity
+	WorkDir  string
+}
+
+// Dynamic serves the dynamic kinds on the session's ONE MCP endpoint. The
+// implementation lives in the runner's mcp package. It BINDS the endpoint
+// the Loadout carries; it never mints one. ServePolicy is the contract:
+// a bearer on every request, an Origin allowlist with 403 on a miss — part
+// of the port, not an option.
+type Dynamic interface {
+	Serve(ctx context.Context, lo Loadout, policy ServePolicy) (Served, error)
+}
+
+// ServePolicy is the endpoint's admission contract. AllowedOrigins is the
+// Origin allowlist (loopback origins only); an empty allowlist is refused
+// with ErrNoAllowedOrigins, so no caller can serve without one.
+type ServePolicy struct {
+	AllowedOrigins []string
+}
+
+// Served is a bound endpoint: Close releases its address.
+type Served struct {
+	Close func() error
+}
+
+var (
+	// ErrEndpointUnavailable: the session endpoint cannot be bound at its
+	// recorded address (a port another process took between two
+	// incarnations). The coordinator's recovery arm answers this ONE
+	// refusal by re-resolving with a rebind.
+	ErrEndpointUnavailable = errors.New("delivery: the session endpoint cannot be bound at its recorded address")
+	// ErrNoAllowedOrigins refuses a ServePolicy with no Origin allowlist.
+	ErrNoAllowedOrigins = errors.New("delivery: the endpoint's serve policy names no allowed origin")
+)

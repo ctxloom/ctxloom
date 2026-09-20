@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -86,7 +87,7 @@ func TestRunnerServer_ControlToolsReachTheCoordinatorVerb(t *testing.T) {
 	c, err := coord.New(coord.Options{
 		ProjectDir: cwd,
 		StateDir:   t.TempDir(),
-		App:        fixtureApp(t, testConfig()),
+		Spawner:    spawn.New(nil, fixtureApp(t, testConfig()), cwd, nil),
 		OwnerHarp:  "owner-harp",
 	})
 	require.NoError(t, err)

@@ -1,4 +1,4 @@
-package coord
+package spawn
 
 import (
 	"context"
@@ -40,13 +40,13 @@ func TestCheckStartRunAllowlist(t *testing.T) {
 // unreviewed backend fails loud at Resolve instead of resolving into a run
 // nothing can drive.
 func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
-	newSpawner := func(t *testing.T, body string) *prodSpawner {
+	newSpawner := func(t *testing.T, body string) *spawner {
 		t.Helper()
 		resetStrictness(t)
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, body)
-		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
+		return newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), nil)
 	}
 
 	t.Run("an unreviewed backend type is refused at Resolve", func(t *testing.T) {
@@ -71,13 +71,13 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 // Starter seam is orthogonal — it swaps the runner for an in-process double
 // and admits nothing on its own — and the allowlist admits nothing unreviewed.
 func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {
-	newSpawner := func(t *testing.T, starter StarterFunc) *prodSpawner {
+	newSpawner := func(t *testing.T, starter StarterFunc) *spawner {
 		t.Helper()
 		resetStrictness(t)
 		t.Setenv("HOME", t.TempDir())
 		appDir := filepath.Join(t.TempDir(), ".ctxloom")
 		writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: mock\n    permissions: bypass\n")
-		return newProdSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), starter)
+		return newSpawner(termRep(), spawnerApp(t, appDir), filepath.Dir(appDir), starter)
 	}
 
 	t.Run("no Starter: mock resolves off the allowlist alone", func(t *testing.T) {

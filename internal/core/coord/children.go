@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"go.uber.org/zap"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -466,6 +466,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		return nil, "", err
 	}
 	won := true
+	var mcpServerNames []string
+	for _, srv := range plan.MCPServers {
+		mcpServerNames = append(mcpServerNames, srv.Name)
+	}
+	slices.Sort(mcpServerNames)
 	if err := c.runs.Exec(func() ([]Fact, error) {
 		if resume {
 			cur := c.runsF.currentRun(harp)
@@ -495,9 +500,11 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Prompt:     prompt,
 			Resume:     resume,
 			Permission: plan.Permission,
-			// Names only: an operator auditing a live delegation sees WHAT a
-			// child can reach, and command/args/env never enter the journal.
-			MCPServers: operations.MCPServerNames(plan.MCPServers),
+			// Names only, sorted: an operator auditing a live delegation sees
+			// WHAT a child can reach; command, args and env — any of which can
+			// carry a credential — never enter the journal, and the journaled
+			// value is stable across runs.
+			MCPServers: mcpServerNames,
 		})}, nil
 	}); err != nil {
 		return nil, "", err
@@ -803,12 +810,17 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	if start.Resumed && start.ResumeKey == "" {
 		start.Prompt = textblocks.Join(c.spawner.ResumeHistory(ctx, rt.harp), prompt)
 	}
-	engine, err := c.spawner.StartEngine(ctx, rt.plan, start, runnerEnv(rt.harp, rt.runID, token, url))
+	resolved, err := c.spawner.ResolveLaunch(ctx, rt.plan, start)
 	if err != nil {
 		c.failChild(rt, err)
 		return
 	}
-	l := engine.Launch
+	engine, err := c.spawner.Start(ctx, resolved.Launch, runnerEnv(rt.harp, rt.runID, token, url))
+	if err != nil {
+		c.failChild(rt, err)
+		return
+	}
+	l := resolved.Launch
 	c.mu.Lock()
 	rt.close = engine.Kill
 	rt.stderrTail = engine.StderrTail
@@ -816,7 +828,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	rt.workDir = l.Cell.Workspace
 	c.mu.Unlock()
 
-	_ = c.issueStartRun(ctx, rt, hashToken(token), engine.Wire, l.Prompt, l.Label.Model, start.ResumeKey)
+	_ = c.issueStartRun(ctx, rt, hashToken(token), resolved.Wire, l.Prompt, l.Label.Model, start.ResumeKey)
 }
 
 // issueStartRun is the shared StartRun-issuing tail (Phase 2a-B factored this

@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
@@ -43,10 +44,10 @@ type Deps struct {
 	// Static delivers the package's surfaces into the cell: today the hosted
 	// engine's own Setup.
 	Static Static
-	// Dynamic stands up the session's served surface — today the runner's
-	// MCP endpoint, keyed by the launch's identity — before the engine is
-	// driven, and returns its closer. nil serves nothing.
-	Dynamic Dynamic
+	// Dynamic BINDS the session's MCP endpoint — the one the Launch carries
+	// — before the engine is driven, and returns its closer. nil serves
+	// nothing.
+	Dynamic delivery.Dynamic
 	// Surfaces validates the binding's delivery preference (as written on
 	// the package) against the hosted engine's declaration; nil accepts the
 	// engine's default delivery.
@@ -67,10 +68,6 @@ type Deps struct {
 type Static interface {
 	Setup(ctx context.Context, req *agent.SetupRequest) error
 }
-
-// Dynamic is the served-surface port: stand the session's endpoint up for
-// the launch, return its closer.
-type Dynamic func(ctx context.Context, l launch.Launch) (close func(), err error)
 
 // Driver is the engine-drive port: coord.EngineHost implements it.
 type Driver interface {
@@ -139,11 +136,12 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	}
 	var closeServed func()
 	if deps.Dynamic != nil {
-		c, err := deps.Dynamic(ctx, l)
+		lo := delivery.Loadout{Plan: l.Plan, Package: pkg, Exports: l.Exports, Index: l.Index, MCP: l.MCP, Identity: l.Identity, WorkDir: l.Cell.Workspace}
+		served, err := deps.Dynamic.Serve(ctx, lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
 		if err != nil {
 			return Outcome{}, fmt.Errorf("runner: serve the session's endpoint: %w", err)
 		}
-		closeServed = c
+		closeServed = func() { _ = served.Close() }
 	}
 	managed := agent.ManagedConfigFor(agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}, l.Exports)
 	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)

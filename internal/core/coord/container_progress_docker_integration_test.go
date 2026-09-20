@@ -76,6 +76,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/liveness"
@@ -115,6 +116,7 @@ type progressSpawner struct {
 	mu         sync.Mutex
 	containers []string
 	cleanups   []func()
+	cells      map[string]preparedContainerCell
 }
 
 func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, error) {
@@ -142,10 +144,13 @@ func (s *progressSpawner) AssignSession(projectDir, backend string) (string, err
 	return entry.HarpName, nil
 }
 
-func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
 	if s.mode == progressSpawnDark {
-		return s.startDark(ctx, plan, start, env)
+		l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
+		l.Cell.Env = env
+		plan.Launch = l
+		return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
 	}
 	rt := isolation.ProbeRuntime("docker")
 	// Auth keys on the plan's engine, never on plan.AgentName — see
@@ -153,24 +158,42 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, star
 	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
-		return nil, err
+		return Resolved{}, err
 	}
-	starter := isolation.StarterForWorkspace(pol, ws, plan.Backend, plan.Label, 0, runnerEnv)
+	s.mu.Lock()
+	if s.cells == nil {
+		s.cells = map[string]preparedContainerCell{}
+	}
+	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
+	s.mu.Unlock()
+	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l.Cell.Env = env
+	plan.Launch = l
+	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+}
+
+func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error) {
+	if s.mode == progressSpawnDark {
+		return s.startDark(ctx)
+	}
+	s.mu.Lock()
+	cell := s.cells[l.Identity.Harp]
+	s.mu.Unlock()
+	starter := isolation.StarterForWorkspace(cell.pol, cell.ws, cell.backend, cell.label, 0, runnerEnv)
 	handle, err := starter(ctx)
 	if err != nil {
-		_ = ws.Cleanup()
+		_ = cell.ws.Cleanup()
 		return nil, err
 	}
 	kill := sync.OnceFunc(func() {
 		handle.Kill()
-		_ = ws.Cleanup()
+		_ = cell.ws.Cleanup()
 	})
 	s.record(handle.Name, kill)
-	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
-	l.Cell.Env = env
-	plan.Launch = l
-	return &EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: kill}, nil
+	return &EngineSpawn{Kill: kill}, nil
 }
+
+func (s *progressSpawner) Adopt(context.Context, RunRecord) (func() error, error) { return nil, nil }
 
 // startDark launches a live container from the SAME image that never runs the
 // runner — the injected fault. Hand-rolled `docker run` is correct here
@@ -178,7 +201,7 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, star
 // it is meant to break it in the one way the shipped defect broke it, while
 // keeping every cheap signal (a spawn that returns success, a container in
 // `docker ps`) truthful-looking.
-func (s *progressSpawner) startDark(ctx context.Context, plan *SpawnPlan, start SpawnStart, env map[string]string) (*EngineSpawn, error) {
+func (s *progressSpawner) startDark(ctx context.Context) (*EngineSpawn, error) {
 	name := "ctxloom-progress-dark-" + randID("", 8)
 	run := exec.CommandContext(ctx, "docker", "run", "-d", "--name", name, s.image, "sleep", "300")
 	if out, err := run.CombinedOutput(); err != nil {
@@ -188,10 +211,7 @@ func (s *progressSpawner) startDark(ctx context.Context, plan *SpawnPlan, start 
 		_ = exec.Command("docker", "rm", "-f", name).Run()
 	})
 	s.record(name, kill)
-	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
-	l.Cell.Env = env
-	plan.Launch = l
-	return &EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: kill}, nil
+	return &EngineSpawn{Kill: kill}, nil
 }
 
 func (s *progressSpawner) record(name string, kill func()) {

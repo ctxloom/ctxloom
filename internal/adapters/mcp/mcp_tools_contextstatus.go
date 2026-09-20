@@ -15,9 +15,6 @@ import (
 // host-relay tool already carries (credential-derived on the coordinator's
 // HTTP surface, env-derived on stdio), so a child asking "how full am I"
 // cannot accidentally be told about its parent.
-type contextStatusInput struct {
-	Trend int `json:"trend,omitempty" jsonschema:"How many of the most recent samples to return as a trend, oldest first (default 10, maximum 100)"`
-}
 
 // contextStatusResult is what an agent gets back.
 //
@@ -59,8 +56,6 @@ const noSessionIdentityMsg = "no ctxloom session identity for this caller — co
 
 // contextStatusDesc is registered on BOTH the stdio server and the runner's
 // host relay, so the two surfaces cannot describe the tool two ways.
-const contextStatusDesc = "Measure how full this session's context window actually is, instead of estimating it. Returns the most recent recorded sample (percent used, tokens in the window, window size) plus a short trend of earlier samples so the DIRECTION is visible, not just the level. Call this the moment a conversation starts to feel long — before winding down, compacting, splitting work off to a subagent, or telling the user you are running low: this turns that hunch into a number. Samples are captured by ctxloom's statusline integration as the session runs. When no samples exist the tool says so explicitly and returns NO percentage — an absent measurement, never a zero one, because a reported 0% would be indistinguishable from an empty context."
-
 // registerContextStatusTool wires context_status on the stdio server and
 // returns the names it registered, matching the convention the cell-local
 // registrar follows so the runner's route-classification check reads the

@@ -13,7 +13,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // agent_recv allows one live receive per session: a newer receive supersedes
@@ -156,12 +158,12 @@ func TestHandleAgentRecv_SurvivingReceiveDeliversThePendingMessageExactlyOnce(t 
 // sentinel identity intact for every errors.Is caller; a coordinator's is a
 // successful empty receive that never sees that instruction.
 func TestRecvOutcome_TimeoutVerdictFollowsTheAudience(t *testing.T) {
-	disposition, leaf := recvOutcome(coord.ErrRecvTimeout, 5*time.Second, true)
+	disposition, leaf := runnermcp.RecvOutcome(coord.ErrRecvTimeout, 5*time.Second, true)
 	require.ErrorIs(t, leaf, coord.ErrRecvTimeout)
 	assert.Empty(t, disposition, "a leaf's timeout is a failure, not a disposition")
-	assert.Contains(t, leaf.Error(), recvTimeoutLeafGuidance)
+	assert.Contains(t, leaf.Error(), runnermcp.RecvTimeoutLeafGuidance)
 
-	disposition, coordinator := recvOutcome(coord.ErrRecvTimeout, 5*time.Second, false)
+	disposition, coordinator := runnermcp.RecvOutcome(coord.ErrRecvTimeout, 5*time.Second, false)
 	require.NoError(t, coordinator, "a coordinator's timeout is not a failure")
 	assert.Equal(t, mcpschema.RecvDispositionTimedOut, disposition)
 	assert.NotContains(t, disposition, instructionToFinish)
@@ -170,13 +172,13 @@ func TestRecvOutcome_TimeoutVerdictFollowsTheAudience(t *testing.T) {
 		"the shared sentinel must stay audience-neutral; the child's instruction belongs only where a child reads it")
 
 	for _, leaf := range []bool{true, false} {
-		disposition, failure := recvOutcome(coord.ErrRecvPreempted, time.Second, leaf)
+		disposition, failure := runnermcp.RecvOutcome(coord.ErrRecvPreempted, time.Second, leaf)
 		require.NoError(t, failure, "a yield is a success for every audience")
 		assert.Equal(t, mcpschema.RecvDispositionYielded, disposition)
 	}
 
 	other := errors.New("something else")
-	disposition, failure := recvOutcome(other, time.Second, true)
+	disposition, failure := runnermcp.RecvOutcome(other, time.Second, true)
 	assert.Equal(t, other, failure, "only the timeout gains guidance")
 	assert.Empty(t, disposition)
 }
@@ -196,7 +198,7 @@ type runnerRecvOutcome struct {
 }
 
 func TestRecvHandler_SupersededReceiveYieldsAsSuccess(t *testing.T) {
-	h := recvHandler(testHome(t), false)
+	h := runnermcp.RecvHandler(report.To(nil), testHome(t), false)
 
 	outcomes := make(chan runnerRecvOutcome, 2)
 	for i := 0; i < 2; i++ {

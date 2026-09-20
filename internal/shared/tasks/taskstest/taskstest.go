@@ -57,7 +57,6 @@ var EnvKeys = []string{
 	"CTXLOOM_COORD_URL",
 	"CTXLOOM_COORD_CRED",
 	"CTXLOOM_RUN_ID",
-	"CTXLOOM_CELL_WORKDIR",
 	// internal/adapters/isolation/traceprobe.go's probeTraceEnv const, read via
 	// os.Getenv(probeTraceEnv) — same shape, same discovery.
 	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",

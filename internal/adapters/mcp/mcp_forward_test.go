@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"io"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -30,7 +29,7 @@ import (
 // modes of `ctxloom mcp` (forward-to-runner, bare local) both covered by
 // tests (playbook deliverable 1).
 func TestForward_UnixSocketRoundTrip(t *testing.T) {
-	endpoint, err := ServeRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(nil, testConfig(), "test-harp", testHome(t))
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
@@ -84,7 +83,7 @@ func TestBuildForwardServer_RefusesAZeroToolRunner(t *testing.T) {
 }
 
 // TestDialReachBackSocket_UnixDefault pins the unchanged default: any plain
-// path (no tcp:// marker) dials as a unix socket, exactly as before the
+// path dials as a unix socket, exactly as before the
 // off-Linux fallback existed.
 func TestDialReachBackSocket_UnixDefault(t *testing.T) {
 	sock := filepath.Join(testsupport.SocketDir(t, "mcp.sock"), "mcp.sock")
@@ -103,87 +102,6 @@ func TestDialReachBackSocket_UnixDefault(t *testing.T) {
 	_ = conn.Close()
 }
 
-// TestDialReachBackSocket_TCPFallback pins the off-Linux fallback's far side:
-// a "tcp://host:port" value dials TCP, not unix — the exact form a container
-// reach-back must emit on darwin/windows.
-func TestDialReachBackSocket_TCPFallback(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		conn, aerr := ln.Accept()
-		if aerr == nil {
-			_ = conn.Close()
-		}
-	}()
-
-	conn, err := dialReachBackSocket(context.Background(), "tcp://"+ln.Addr().String())
-	require.NoError(t, err, "a tcp:// value must dial TCP")
-	_ = conn.Close()
-}
-
-// TestForward_TCPFallbackRoundTrip is TestForward_UnixSocketRoundTrip's
-// off-Linux twin: the SAME runner MCP endpoint, reached over a TCP bridge
-// standing in for a container reach-back's host-loopback bridge, instead of
-// the unix socket directly, dialed via dialReachBackSocket exactly
-// as runMCPForward would. Proves the far-side dial change is not just wiring
-// — the whole forwarded toolset survives the TCP hop.
-func TestForward_TCPFallbackRoundTrip(t *testing.T) {
-	endpoint, err := ServeRunnerMCP(testConfig(), "test-harp", testHome(t), false, "")
-	require.NoError(t, err)
-	t.Cleanup(endpoint.Close)
-
-	// A minimal TCP<->unix bridge, standing in for a container reach-back's
-	// host-loopback bridge.
-	bridgeLn, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = bridgeLn.Close() })
-	go func() {
-		for {
-			conn, aerr := bridgeLn.Accept()
-			if aerr != nil {
-				return
-			}
-			go func(c net.Conn) {
-				defer func() { _ = c.Close() }()
-				uc, uerr := net.Dial("unix", endpoint.SocketPath)
-				if uerr != nil {
-					return
-				}
-				defer func() { _ = uc.Close() }()
-				done := make(chan struct{})
-				go func() { _, _ = io.Copy(uc, c); close(done) }()
-				_, _ = io.Copy(c, uc)
-				<-done
-			}(conn)
-		}
-	}()
-
-	tcpAddr := "tcp://" + bridgeLn.Addr().String()
-
-	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: "test"}, nil)
-	transport := &mcp.StreamableClientTransport{
-		Endpoint: "http://ctxloom-runner/mcp",
-		HTTPClient: &http.Client{Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return dialReachBackSocket(ctx, tcpAddr)
-			},
-		}},
-	}
-	cs, err := client.Connect(context.Background(), transport, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = cs.Close() })
-
-	server, err := buildForwardServer(context.Background(), cs)
-	require.NoError(t, err)
-
-	tools := listServerTools(t, server)
-	for name := range mcpschema.Routes() {
-		_, ok := tools[name]
-		assert.True(t, ok, "forwarded surface (over the TCP fallback) is missing %q", name)
-	}
-}
-
 // TestPrepareForward_EmitsPreForwardDiagnostic is the behaviour proof for
 // graceful-egomaniac unit 1 ("forwarding is never silent"): on an ACCEPTED
 // forward, prepareForward must print a stderr diagnostic naming what
@@ -199,11 +117,11 @@ func TestPrepareForward_EmitsPreForwardDiagnostic(t *testing.T) {
 	// os.Stderr reassignment below. Installing a sink first routes that
 	// goroutine's warnings away from os.Stderr for the rest of the test.
 	captureWarnings(t)
-	endpoint, err := ServeRunnerMCP(testConfig(), "diagnostic-harp", testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(nil, testConfig(), "diagnostic-harp", testHome(t))
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
-	trigger := forwardTrigger{Kind: triggerEnvVar, Name: "CTXLOOM_MCP_SOCKET"}
+	trigger := forwardTrigger{Name: "CTXLOOM_MCP_SOCKET"}
 	var cs *mcp.ClientSession
 	var outcome forwardOutcome
 	captured := captureStderr(t, func() {
@@ -234,11 +152,11 @@ func TestPrepareForward_RefusesOnSessionIdentityMismatch(t *testing.T) {
 	// through clidiag.Warn, which this redirect routes to warnings rather
 	// than os.Stderr — so it will NOT appear in captureStderr's capture below.
 	warnings := captureWarnings(t)
-	endpoint, err := ServeRunnerMCP(testConfig(), "someone-elses-harp", testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(nil, testConfig(), "someone-elses-harp", testHome(t))
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
-	trigger := forwardTrigger{Kind: triggerMarker, Name: "/fake/marker/path.json"}
+	trigger := forwardTrigger{Name: "CTXLOOM_MCP_SOCKET"}
 	var cs *mcp.ClientSession
 	var outcome forwardOutcome
 	captureStderr(t, func() {
@@ -268,7 +186,7 @@ func TestPrepareForward_RefusesOnBuildStampMismatch(t *testing.T) {
 	t.Cleanup(func() { version.Version = origVersion })
 
 	version.Version = "stamp-A"
-	endpoint, err := ServeRunnerMCP(testConfig(), "same-harp", testHome(t), false, "")
+	endpoint, err := ServeRunnerMCP(nil, testConfig(), "same-harp", testHome(t))
 	require.NoError(t, err)
 	t.Cleanup(endpoint.Close)
 
@@ -278,7 +196,7 @@ func TestPrepareForward_RefusesOnBuildStampMismatch(t *testing.T) {
 	// version.Version changes now.
 	version.Version = "stamp-B"
 
-	trigger := forwardTrigger{Kind: triggerEnvVar, Name: "CTXLOOM_MCP_SOCKET"}
+	trigger := forwardTrigger{Name: "CTXLOOM_MCP_SOCKET"}
 	var cs *mcp.ClientSession
 	var outcome forwardOutcome
 	captureStderr(t, func() {
@@ -337,54 +255,27 @@ func TestVerifyForwardTarget(t *testing.T) {
 // Measured directly: `go test -timeout 30s` on such a test had to be killed
 // by its own timeout rather than finishing. Coverage for ServeStdio's
 // forward-trigger/fall-through wiring stays at the safe layer instead:
-// runMCPForward's forwardOutcome contract (this file) and
-// probeWellKnownRunner's marker-path decisions (mcp_discovery_test.go) —
-// the remaining glue in ServeStdio itself is a short, directly readable
-// diff. A real integration test here needs loadStartupConfig to accept an
+// runMCPForward's forwardOutcome contract (this file) — the remaining glue in
+// ServeStdio itself is a short, directly readable diff. A real integration test here needs loadStartupConfig to accept an
 // injected loader first.
 
 // A forward target that cannot be reached at all is fatal by design — a
 // silently-empty toolset would be a wrong-context session. But the refusal is
 // the whole user interface for that failure, so it must carry a remedy the
-// caller can actually act on, and the two trigger channels do not share one.
-// Before this, the error was a bare dial failure naming no action whatsoever.
+// caller can actually act on. Before this, the error was a bare dial failure
+// naming no action whatsoever.
 func TestPrepareForwardUnreachableTargetStatesAFollowableRemedy(t *testing.T) {
 	// A path inside a fresh temp dir: nothing is listening, and nothing ever
 	// created it — the stale-address shape, not a mid-flight drop.
 	dead := filepath.Join(t.TempDir(), "mcp-dead.sock")
+	trigger := forwardTrigger{Name: "CTXLOOM_MCP_SOCKET"}
 
-	for _, tc := range []struct {
-		name    string
-		trigger forwardTrigger
-		want    string
-		absent  string
-	}{
-		{
-			name:    "env var names a runner that has exited",
-			trigger: forwardTrigger{Kind: triggerEnvVar, Name: "CTXLOOM_MCP_SOCKET"},
-			want:    staleForwardEnvRemedy,
-			absent:  staleForwardMarkerRemedy,
-		},
-		{
-			name:    "discovery marker names a runner that has exited",
-			trigger: forwardTrigger{Kind: triggerMarker, Name: "/run/user/1000/ctxloom/marker.json"},
-			want:    staleForwardMarkerRemedy,
-			absent:  staleForwardEnvRemedy,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cs, outcome, err := prepareForward(context.Background(), tc.trigger, dead)
-			require.Error(t, err, "an unreachable target must stay fatal")
-			require.Nil(t, cs)
-			// Fatal, NOT the graceful fall-through an identity refusal takes.
-			require.Equal(t, forwardOutcomeServed, outcome)
-
-			require.Contains(t, err.Error(), tc.want,
-				"the refusal must name the remedy for the channel that actually fired")
-			require.NotContains(t, err.Error(), tc.absent,
-				"naming the other channel's remedy advises an action this caller cannot take")
-			// The remedy is worthless without saying WHICH address is stale.
-			require.Contains(t, err.Error(), tc.trigger.Name)
-		})
-	}
+	cs, outcome, err := prepareForward(context.Background(), trigger, dead)
+	require.Error(t, err, "an unreachable target must stay fatal")
+	require.Nil(t, cs)
+	// Fatal, NOT the graceful fall-through an identity refusal takes.
+	require.Equal(t, forwardOutcomeServed, outcome)
+	require.Contains(t, err.Error(), staleForwardEnvRemedy, "the refusal must name the remedy")
+	// The remedy is worthless without saying WHICH address is stale.
+	require.Contains(t, err.Error(), trigger.Name)
 }

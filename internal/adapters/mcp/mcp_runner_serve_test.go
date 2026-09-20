@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -22,7 +24,7 @@ import (
 // tool in the harness's session fails against an endpoint nobody said had
 // died.
 func TestServeRunnerHTTP_ReportsAServeFailure(t *testing.T) {
-	warnings := captureWarnings(t)
+	var found report.Collector
 
 	sock := filepath.Join(testsupport.SocketDir(t, "mcp.sock"), "mcp.sock")
 	ln, err := net.Listen("unix", sock)
@@ -31,9 +33,9 @@ func TestServeRunnerHTTP_ReportsAServeFailure(t *testing.T) {
 	// endpoint stops answering after the socket was published.
 	require.NoError(t, ln.Close())
 
-	serveRunnerHTTP(&http.Server{Handler: http.NewServeMux()}, ln, sock)
+	serveRunnerHTTP(report.To(&found), &http.Server{Handler: http.NewServeMux()}, ln, sock)
 
-	out := warnings.String()
+	out := fmt.Sprint(found.All())
 	assert.Contains(t, out, "stopped serving", "a dead endpoint must say so")
 	assert.Contains(t, out, sock, "the warning must name the socket that is now dead")
 }
@@ -42,7 +44,7 @@ func TestServeRunnerHTTP_ReportsAServeFailure(t *testing.T) {
 // Shutdown is not a fault, and warning on it would train the reader to ignore
 // the warning that matters.
 func TestServeRunnerHTTP_SilentOnCleanShutdown(t *testing.T) {
-	warnings := captureWarnings(t)
+	var found report.Collector
 
 	sock := filepath.Join(testsupport.SocketDir(t, "mcp.sock"), "mcp.sock")
 	ln, err := net.Listen("unix", sock)
@@ -51,7 +53,7 @@ func TestServeRunnerHTTP_SilentOnCleanShutdown(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		serveRunnerHTTP(srv, ln, sock)
+		serveRunnerHTTP(report.To(&found), srv, ln, sock)
 		close(done)
 	}()
 
@@ -64,5 +66,5 @@ func TestServeRunnerHTTP_SilentOnCleanShutdown(t *testing.T) {
 		t.Fatal("serveRunnerHTTP did not return after Shutdown")
 	}
 
-	assert.Empty(t, warnings.String(), "a clean shutdown must not warn")
+	assert.Empty(t, found.All(), "a clean shutdown must not warn")
 }

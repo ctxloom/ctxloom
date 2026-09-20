@@ -50,7 +50,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })
 
-	server, err := newRunnerMCPServer(testConfig(), harp, home, false, "")
+	server, err := newTestServer(harp, home, false, cwd)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -155,7 +155,7 @@ func TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { home.Close(0, "") })
 
-	server, err := newRunnerMCPServer(testConfig(), harp, home, false, cellDir)
+	server, err := newTestServer(harp, home, false, cellDir)
 	require.NoError(t, err)
 
 	ctx := context.Background()

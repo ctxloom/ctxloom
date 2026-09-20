@@ -8,97 +8,51 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
-// FORWARD MODE (agentcoord B1.6, runner-terminated MCP): when a `ctxloom mcp`
-// process finds CTXLOOM_MCP_SOCKET in its harness-inherited env, it is the
-// harness's stdio endpoint and the RUNNER owns the whole surface. This
-// server then forwards ALL its tools (and resources) to the runner's MCP
-// endpoint over HTTP-on-unix — a standard MCP stdio↔HTTP bridge, zero
-// bespoke protocol. The socket is container-local, so the tool path never
-// crosses the container boundary; the runner is the one credential holder
-// and the one egress to the coordinator. (This REPLACED the B1
-// forward-to-coordinator HTTP mode: CTXLOOM_COORD_URL/CRED are now consumed
-// ONLY by the runner.)
-//
-// OFF-LINUX TCP FALLBACK: a container reach-back cannot always hand this a
-// unix socket path — off Linux (macOS/Windows Docker Desktop) it must bridge
-// the runner's unix socket onto a host-loopback TCP port instead (a
-// bind-mounted unix socket file is not a live endpoint across the Docker
-// Desktop VM boundary) and encode that as "tcp://host:port". Both ends read
-// that marker from the same shared leaf (internal/shared/mcpsocket) so they
-// cannot drift — and from a LEAF, not from the engine-client side: a CLI
-// frontend must never import the engine client (the one-door invariant).
+// FORWARD MODE: when a `ctxloom mcp` process finds CTXLOOM_MCP_SOCKET in the
+// env its engine inherited, it is the plugin-hosted owner arm's stdio shim
+// and the RUNNER owns the whole surface. This server then forwards ALL its
+// tools (and resources) to the runner's socket endpoint over HTTP-on-unix — a
+// standard MCP stdio↔HTTP bridge, zero bespoke protocol. The socket is host
+// user-private; the runner is the one credential holder and the one egress to
+// the coordinator. A hosted run never reaches this: its runner binds the
+// Launch's loopback endpoint and the engine dials it directly. This tier dies
+// with the plugin arm.
 
-// dialReachBackSocket dials socketPath as either a unix socket (the default —
-// any absolute filesystem path) or, when it carries the mcpsocket.TCPPrefix
-// marker, a TCP host:port — the off-Linux reach-back fallback. Factored
-// out of runMCPForward's transport so the dial decision is independently
-// unit-testable without driving a full stdio server.
+// dialReachBackSocket dials the owner arm's unix socket. Factored out of
+// runMCPForward's transport so the dial is independently unit-testable
+// without driving a full stdio server.
 func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, error) {
-	if addr, ok := strings.CutPrefix(socketPath, mcpsocket.TCPPrefix); ok {
-		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
-	}
 	return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 }
 
-// forwardTriggerKind enumerates the two independent channels that can name a
-// forward target. They are not interchangeable when the target turns out to be
-// unreachable: see staleForwardRemedy.
-type forwardTriggerKind string
-
-const (
-	triggerEnvVar forwardTriggerKind = "env var"
-	triggerMarker forwardTriggerKind = "discovery marker"
-)
-
-// forwardTrigger names what caused ServeStdio to attempt a forward, so the
-// mandatory pre-forward diagnostic (graceful-egomaniac unit 1: "forwarding
-// is never silent") can say precisely which of the two independent trigger
-// paths fired and by what name — the measured incident this fixes was THREE
-// silent hijacks in one day, one via the env var and two via the cwd-keyed
-// marker, with no diagnostic distinguishing them at all.
+// forwardTrigger names what caused ServeStdio to attempt a forward — the env
+// var, by name — so the mandatory pre-forward diagnostic ("forwarding is
+// never silent") says precisely what fired.
 type forwardTrigger struct {
-	// Kind says which of the two channels named the target. It is typed
-	// because staleForwardRemedy BRANCHES on it to pick a remedy, so a bare
-	// string here would be a magic value two packages could drift on.
-	Kind forwardTriggerKind
-	// Name is the env var's name (coord.EnvMCPSocket) or the marker file's
-	// absolute path, whichever Kind names.
 	Name string
 }
 
 func (t forwardTrigger) String() string {
-	return fmt.Sprintf("%s %s", t.Kind, t.Name)
+	return "env var " + t.Name
 }
 
 // staleForwardRemedy names the action that ENDS a "cannot reach the runner"
 // failure. The refusal message is the entire user interface for this failure,
-// so it states what to DO, not just what broke — and the two trigger channels
-// do not share a remedy.
-//
-// The env-var case is the one that must not say "unset it". A runner exports
-// its address into a terminal that OUTLIVES it, so by the time this fires the
-// caller is a process that INHERITED a dead address and cannot clear it from
-// the environment it was launched with. Advising that would be advising
-// something the caller cannot do.
-const (
-	staleForwardMarkerRemedy = "remedy: that runner has exited; delete the stale marker file and retry"
-	staleForwardEnvRemedy    = "remedy: that runner has exited, and a process cannot clear a variable from the environment it inherited — start a fresh `ctxloom run` session so the stale address is not passed down"
-)
+// so it states what to DO, not just what broke. It must not say "unset it": a
+// runner exports its address into a terminal that OUTLIVES it, so by the time
+// this fires the caller is a process that INHERITED a dead address and cannot
+// clear it from the environment it was launched with.
+const staleForwardEnvRemedy = "remedy: that runner has exited, and a process cannot clear a variable from the environment it inherited — start a fresh `ctxloom run` session so the stale address is not passed down"
 
 func staleForwardRemedy(trigger forwardTrigger) string {
-	if trigger.Kind == triggerMarker {
-		return fmt.Sprintf("%s (%s)", staleForwardMarkerRemedy, trigger.Name)
-	}
 	return fmt.Sprintf("%s (%s)", staleForwardEnvRemedy, trigger.Name)
 }
 
@@ -156,9 +110,8 @@ func runMCPForward(ctx context.Context, trigger forwardTrigger, socketPath strin
 func prepareForward(ctx context.Context, trigger forwardTrigger, socketPath string) (cs *mcp.ClientSession, outcome forwardOutcome, err error) {
 	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: version.Version}, nil)
 	transport := &mcp.StreamableClientTransport{
-		// The endpoint host is nominal — the transport dials socketPath via
-		// dialReachBackSocket, either a unix socket (the default) or a TCP
-		// host:port (the off-Linux reach-back fallback).
+		// The endpoint host is nominal — the transport dials the unix
+		// socket via dialReachBackSocket.
 		Endpoint: "http://ctxloom-runner/mcp",
 		HTTPClient: &http.Client{Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -173,16 +126,13 @@ func prepareForward(ctx context.Context, trigger forwardTrigger, socketPath stri
 
 	runnerHarp, runnerStamp := forwardTargetIdentity(cs)
 
-	// UNIT 1 — forwarding is never silent: this line fires on EVERY forward
-	// attempt that reaches a live connection, whether accepted or refused
-	// below, naming what triggered it, the socket, and the target's claimed
-	// identity — the diagnostic that was measured completely absent across
-	// three silent hijacks (one env-var-triggered, two marker-triggered) in
-	// one day.
+	// Forwarding is never silent: this line fires on EVERY forward attempt
+	// that reaches a live connection, whether accepted or refused below,
+	// naming what triggered it, the socket, and the target's claimed identity.
 	fmt.Fprintf(os.Stderr, "ctxloom: mcp forward: %s selected runner at %s (harp %q, build %q)\n",
 		trigger, socketPath, runnerHarp, runnerStamp)
 
-	// UNIT 2 — identity + stamp verification.
+	// Identity + stamp verification.
 	if reason := verifyForwardTarget(runnerHarp, runnerStamp); reason != "" {
 		clidiag.Warn("ctxloom", "mcp forward: refusing %s at %s — %s; falling back to a local session instead of forwarding", trigger, socketPath, reason)
 		_ = cs.Close()
@@ -195,12 +145,10 @@ func prepareForward(ctx context.Context, trigger forwardTrigger, socketPath stri
 // forwardTargetIdentity reads the connected runner's self-reported session
 // harp and build stamp from the MCP initialize handshake. The harp rides
 // Implementation.Title — an existing, spec-legal field this internal
-// client<->runner handshake repurposes (newRunnerMCPServer sets it; the
+// client<->runner handshake repurposes (runnermcp.NewServer sets it; the
 // stdio server this same file later exposes to the REAL external client,
 // buildForwardServer, sets no Title at all, so nothing about the external
-// wire protocol changes). The stamp rides Implementation.Version, which
-// already carried version.Version before this fix — only reading it back is
-// new.
+// wire protocol changes). The stamp rides Implementation.Version.
 func forwardTargetIdentity(cs *mcp.ClientSession) (harp, stamp string) {
 	init := cs.InitializeResult()
 	if init == nil || init.ServerInfo == nil {
@@ -216,9 +164,7 @@ func forwardTargetIdentity(cs *mcp.ClientSession) (harp, stamp string) {
 //   - harp: compared against CTXLOOM_SESSION_HARP. Unset (a genuinely
 //     standalone `ctxloom mcp serve`, or a harness that dropped the env the
 //     same way it drops CTXLOOM_MCP_SOCKET) means there is nothing to
-//     compare against, so this axis is silently skipped rather than guessed
-//     — matching probeWellKnownRunner's identical hedge for the marker-level
-//     pre-check (mcp_discovery.go).
+//     compare against, so this axis is silently skipped rather than guessed.
 //   - stamp: always checked, because this process always knows its own
 //     version.Version — a forward from one binary revision to another is a
 //     mixed-build session even when identity matches (e.g. a stale runner

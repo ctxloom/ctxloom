@@ -15,12 +15,6 @@ import (
 // evaluateTriggersDesc is registered on BOTH surfaces — the stdio server and
 // the runner's host relay (mcp_runner.go) — from this one declaration, like its
 // five session-memory siblings in mcp_tools_memory.go.
-const evaluateTriggersDesc = "Evaluate every Deferred task's revive trigger against gathered evidence (git history since the task was deferred, changed files, and the status of other tasks) and return a machine verdict per trigger: fired, not-fired, needs-investigation, or cannot-determine. The batch is triaged in bounded chunks against the fast model, not one call for everything, so a large Deferred backlog does not silently lose tasks off the end of an oversized response. A needs-investigation verdict may resolve itself internally — ctxloom can run one bounded, whitelisted follow-up look (file existence, a read-only grep, recent commits on a path, another task's status) before settling a final verdict, without any extra turns on your part. This is TRIAGE ONLY — it proposes verdicts for a human to confirm and never changes any task's status itself. Use it before check-triggers' own judgement, or to get a second, evidence-grounded opinion on a Deferred task's trigger. A \"cannot-determine\" verdict means the trigger genuinely cannot be judged from evidence available inside this system (e.g. it depends on something a person has to say) — treat it the same as \"not yet\", never as \"fired\". If the model dropped any task from its response despite chunking, the \"omitted\" count says so explicitly — those tasks still get a cannot-determine verdict, but the count tells you it was a drop, not a genuine judgment; rerun with refresh=true to retry them. Verdicts are cached against the evidence that produced them (see the \"cached\" field per verdict); pass refresh=true to force a fresh look."
-
-type evaluateTriggersInput struct {
-	MaxCommits int  `json:"max_commits,omitempty" jsonschema:"Per-task cap on how many commits (since the task was deferred) are gathered as evidence. Default 20."`
-	Refresh    bool `json:"refresh,omitempty" jsonschema:"Bypass the verdict cache and re-evaluate every Deferred task's trigger against the model, even if nothing about its evidence changed since the last call."`
-}
 
 // evaluateTriggersResult mirrors operations.EvaluateTriggersResult; Verdicts
 // rides the pure triggers.Verdict shape directly rather than a duplicate

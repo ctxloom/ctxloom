@@ -9,11 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"mime"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,348 +24,52 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/pidalive"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
-// RUNNER-TERMINATED MCP (agentcoord B1.6): the runner (`ctxloom llm serve`)
-// serves the whole ctxloom MCP surface over streamable HTTP on a
-// container-LOCAL unix socket, created BEFORE the harness spawns. The
-// harness's stdio `ctxloom mcp` shim forwards here (CTXLOOM_MCP_SOCKET); the
-// runner routes each tool per the routing table (mcpschema.Routes):
-//
-//   - coordination tools → typed plane-2 frames on the RunChannel (the
-//     proto-canonical generated surface; the runner holds the one
-//     credential and is the one egress — the tool path never crosses the
-//     container boundary);
-//   - cell-local content tools → served locally (the data was delivered
-//     into the cell; same binary, same handlers);
-//   - host-resident tools → typed HostRequest frames the coordinator's Host
-//     verb dispatches to its application service (4MiB watched there);
-//   - artifact-fetch tools (E1d) → served locally by calling
-//     ArtifactTransferService directly on the runner's own credentialed
-//     connection (coord.Home.DownloadArtifact) — schema-derived like the
-//     coordination tools, but never a typed RunChannel frame; see
-//     mcpschema.RouteArtifactFetch.
-
-// RunnerMCP is one runner's MCP endpoint: the unix listener + server.
-type RunnerMCP struct {
-	SocketPath string
-	httpSrv    *http.Server
-	cleanup    func()
+// LocalSurface is the cell-local half of the endpoint's surface — the
+// context tools and the ctxloom:// resources — registered on the server and
+// answering for the names it returns, which the routing table must classify
+// cell-local. The runner serves it off the Loadout's Package and Index; the
+// plugin-hosted owner arm's socket endpoint (adapters/mcp, until the plugin
+// arm dies) serves it off the process config.
+type LocalSurface interface {
+	Register(server *mcp.Server) (toolNames []string)
 }
 
-// ServeRunnerMCP builds the runner's MCP server, binds the unix socket, and
-// starts serving. It returns only with the socket LISTENING — the ordering
-// invariant: the runner controls the harness spawn, and the socket exists
-// before it (assert, don't race).
+// NewServer assembles one session's MCP surface per the routing table
+// (mcpschema.Routes): the local surface, the host-relayed tools as
+// HostRequest frames on the runner's reach-back Home, and the proto-canonical
+// coordination and artifact-fetch tools. Completeness is a STARTUP
+// invariant: every tool registered here must be classified, and every
+// classified tool must be served by exactly the route the table names — a
+// mismatch errors the runner up front, never a silent fallthrough.
 //
-// HOST-CONTROLLED DISCOVERY (fix/host-controlled-mcp-discovery): env-var
-// delivery of the socket path rides a VENDOR-CONTROLLED channel (the ACP
-// mcpServers.env array) that at least one real adapter drops on the floor
-// (codex-acp: honors name/command/args, discards env). Alongside the socket,
-// this ALSO publishes a discovery marker at a well-known location keyed the
-// same way a shim with no env can rediscover it — see writeDiscoveryMarker
-// and probeWellKnownRunner (mcp_discovery.go). Best-effort: a marker failure
-// degrades to env-only discovery, same fault tolerance as the socket bind
-// itself never blocking the runner.
-//
-// cellWorkDir is the prepared workspace dir the harness's engine process
-// actually runs in — the Launch's cell for a hosted run, the env-carried
-// stamp for the plugin-hosted owner — which can differ from THIS process's
-// own os.Getwd() for a workspace:worktree run (the runner is spawned with no
-// cmd.Dir and inherits the coordinator's cwd, while the harness is launched
-// with cmd.Dir=the per-agent worktree). The marker key must agree with the
-// shim's cwd-derived key, so cellWorkDir wins over os.Getwd() when present;
-// falls back to os.Getwd() when empty.
-func ServeRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*RunnerMCP, error) {
-	// cellWorkDir must reach the SAME place on both uses — the
-	// discovery marker key below AND the tool surface's own cell-path
-	// boundary (newRunnerMCPServer's ctxServer identity + resolveCellPath
-	// roots). Before this fix only the marker got it; newRunnerMCPServer
-	// took its own independent os.Getwd() — the coordinator's cwd, not the
-	// cell work dir the harness actually runs in (coord/identity.go's own
-	// doc names this mismatch) — so a workspace:worktree run's
-	// agent_report/agent_fetch_artifact resolved against the PARENT
-	// project root instead of the per-agent worktree resolveCellPath
-	// exists to confine them to.
-	server, err := newRunnerMCPServer(cfg, harp, home, leaf, cellWorkDir)
-	if err != nil {
-		return nil, err
-	}
-	path, dir, kind, cleanupSocket, err := runnerSocketPath()
-	if err != nil {
-		return nil, err
-	}
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		cleanupSocket()
-		return nil, fmt.Errorf("runner MCP socket %s: %w", path, err)
-	}
-	// habitable-cape / graceful-egomaniac unit 4: reap this dir's stale
-	// markers (confirmed-dead owner pid) BEFORE publishing our own — cheap,
-	// best-effort, and this is what clears the 12,334-marker backlog the
-	// finding measured on the very first runner launch after this fix, and
-	// keeps it from reaccumulating on every launch after that.
-	if n := reapStaleDiscoveryMarkers(dir); n > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: runner MCP: reaped %d stale discovery marker(s) in %s\n", n, dir)
-	}
-	if n := reapDeadRunnerSockets(dir); n > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: runner MCP: reaped %d dead runner socket(s) in %s\n", n, dir)
-	}
-	cwd := resolveCellWorkDir(cellWorkDir)
-	cleanupMarker, merr := writeDiscoveryMarker(dir, kind, cwd, runnerDiscoveryMarker{
-		Socket: path,
-		Pid:    os.Getpid(),
-		Harp:   harp,
-		Stamp:  version.Version,
-	})
-	if merr != nil {
-		clidiag.Warn("ctxloom", "runner MCP discovery marker: %v (the shim will still find this runner via %s)", merr, coord.EnvMCPSocket)
-		cleanupMarker = func() {}
-	}
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
-	srv := &http.Server{Handler: mux}
-	go serveRunnerHTTP(srv, ln, path)
-	cleanup := func() {
-		cleanupMarker()
-		cleanupSocket()
-	}
-	return &RunnerMCP{SocketPath: path, httpSrv: srv, cleanup: cleanup}, nil
-}
-
-// serveRunnerHTTP runs the runner's MCP endpoint until it stops. http.Server's
-// Serve ALWAYS returns an error; on a deliberate shutdown that error is
-// http.ErrServerClosed, so any other value means the endpoint died while the
-// runner carried on running and carried on advertising a socket (and a
-// discovery marker) that nothing answers on. The harness's stdio shim then
-// dials a live-looking path, and every ctxloom tool in that session fails with
-// a transport error that names nothing about the real cause.
-func serveRunnerHTTP(srv *http.Server, ln net.Listener, socketPath string) {
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		clidiag.Warn("ctxloom", "runner MCP endpoint at %s stopped serving: %v (ctxloom tools in this session will fail until the runner is restarted)", socketPath, err)
-	}
-}
-
-// Close shuts the endpoint down and removes its socket dir.
-func (r *RunnerMCP) Close() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = r.httpSrv.Shutdown(ctx)
-	r.cleanup()
-}
-
-// socketKind classifies WHICH tier runnerSocketPath landed on, so
-// ServeRunnerMCP knows whether (and how) to publish a discovery marker
-// alongside the socket — see mcp_discovery.go.
-type socketKind int
-
-const (
-	// socketKindContainer is the /run/ctxloom/local convention: exactly ONE
-	// runner per container, so its discovery marker can use a FIXED name —
-	// no key negotiation needed between writer and reader.
-	socketKindContainer socketKind = iota
-	// socketKindHostRuntime is $XDG_RUNTIME_DIR/ctxloom: a host user-private
-	// dir that MULTIPLE runners (multiple ctxloom sessions on one host, no
-	// container isolation) can share, so its discovery marker is keyed by
-	// the cell's workspace path to avoid collisions.
-	socketKindHostRuntime
-	// socketKindPrivateTemp is the last-resort per-process MkdirTemp dir:
-	// unique to this runner by construction, so nothing else could ever
-	// know where to look — no discovery marker is published there; the
-	// env var remains the only path to this tier.
-	socketKindPrivateTemp
-)
-
-// inContainerSocketDir is the agent-image convention: the first tier
-// runnerSocketPath tries, and the well-known location mcp_discovery reads back.
-//
-// A VAR, not a const, and only so a test can neutralise it. The reasoning that
-// made a const look safe was "writable only in-container, never on a bare host
-// (a normal user can't mkdir under /run), so trying it first costs nothing" —
-// TRUE for a normal user and FALSE for root, which is what CI and this
-// project's own devcontainer run as. There, tier 1 SUCCEEDS, so a test that
-// carefully isolates $XDG_RUNTIME_DIR (tier 2) still has production publish its
-// marker to a global path outside the sandbox, and every concurrent runner
-// shares one directory. Measured 2026-08-26: three discovery tests passed on a
-// developer host and failed in-container for exactly this reason.
-//
-// Production never assigns this. Tests redirect it through
-// withIsolatedContainerSocketDir.
-var inContainerSocketDir = "/run/ctxloom/local"
-
-// runnerSocketPath picks the runner MCP socket location on CONTAINER-LOCAL
-// (or host user-private) filesystem — NEVER inside the host-mounted plugin
-// dir: a bind-mounted unix socket is exactly the VirtioFS trap the design
-// avoids. Preference order: /run/ctxloom/local (the agent-image convention;
-// writable only in-container), $XDG_RUNTIME_DIR, then a private temp dir.
-// Paths are kept short for the sun_path limit. Returns the socket path, the
-// directory it lives in, and which tier was chosen (socketKind) — the
-// directory+kind pair is what writeDiscoveryMarker needs to publish this
-// socket at its well-known location.
-func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(), err error) {
-	const sunPathHeadroom = 100
-	candidate := func(dir string) (string, bool) {
-		if dir == "" {
-			return "", false
-		}
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return "", false
-		}
-		p := filepath.Join(dir, fmt.Sprintf("mcp-%d.sock", os.Getpid()))
-		if len(p) > sunPathHeadroom {
-			return "", false
-		}
-		_ = os.Remove(p) // a stale same-pid socket from a recycled pid
-		return p, true
-	}
-	if p, ok := candidate(inContainerSocketDir); ok {
-		return p, inContainerSocketDir, socketKindContainer, func() { _ = os.Remove(p) }, nil
-	}
-	hostDir := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "ctxloom")
-	if p, ok := candidate(hostDir); ok {
-		return p, hostDir, socketKindHostRuntime, func() { _ = os.Remove(p) }, nil
-	}
-	tmpDir, mkErr := os.MkdirTemp("", "ctxloom-mcp-")
-	if mkErr != nil {
-		return "", "", socketKindPrivateTemp, nil, fmt.Errorf("runner MCP socket dir: %w", mkErr)
-	}
-	p := filepath.Join(tmpDir, "mcp.sock")
-	if len(p) > sunPathHeadroom {
-		_ = os.RemoveAll(tmpDir)
-		return "", "", socketKindPrivateTemp, nil, fmt.Errorf("runner MCP socket path %q exceeds the portable sun_path limit", p)
-	}
-	return p, tmpDir, socketKindPrivateTemp, func() { _ = os.RemoveAll(tmpDir) }, nil
-}
-
-// reapDeadRunnerSockets unlinks socket files in dir whose owning pid is
-// confirmed gone, returning how many it removed.
-//
-// It is the SOCKET sibling of reapStaleDiscoveryMarkers and deliberately the
-// same shape, including "never reap on uncertainty": pidalive.Probe errs toward
-// Alive under pid reuse, so an unsure verdict skips. Removing a LIVE runner's
-// socket would sever the only route to a working session, which is far worse
-// than the leak this fixes.
-//
-// It exists because graceful cleanup is not enough and cannot be made enough.
-// runnerSocketPath already returns a cleanup closure, RunnerMCP.cleanup composes
-// it with the marker cleanup, and Close invokes it — so an orderly exit already
-// unlinks. Every leaked socket is therefore a process that died WITHOUT one: a
-// SIGKILL, a crash, or the OOM kills this project takes when full gates run
-// concurrently. No change to the shutdown path can reach those, so the reap has
-// to happen on the next startup. Measured on a developer machine before this
-// existed: 297 dead sockets against 1 live, the oldest four days old.
-//
-// The pid is read from the FILENAME because that is where runnerSocketPath puts
-// it (mcp-<pid>.sock). The private-temp tier names its socket mcp.sock inside a
-// per-process directory instead, so it does not match this glob and is not
-// swept — correctly: that directory is removed wholesale by its own cleanup.
-func reapDeadRunnerSockets(dir string) int {
-	paths, err := filepath.Glob(filepath.Join(dir, "mcp-*.sock"))
-	if err != nil {
-		return 0
-	}
-	removed := 0
-	self := os.Getpid()
-	for _, path := range paths {
-		pid, ok := pidFromSocketName(filepath.Base(path))
-		if !ok || pid == self {
-			continue
-		}
-		if pidalive.Probe(pid).MaybeAlive() {
-			continue // alive, or unsure — never reap on uncertainty
-		}
-		if os.Remove(path) == nil {
-			removed++
-		}
-	}
-	return removed
-}
-
-// pidFromSocketName extracts the owner pid from a runner socket's base name,
-// reporting false for anything that is not exactly mcp-<digits>.sock. It is
-// strict on purpose: a name this cannot parse is a file some other writer owns,
-// and the sweep must leave it alone rather than guess.
-func pidFromSocketName(base string) (int, bool) {
-	const prefix, suffix = "mcp-", ".sock"
-	if !strings.HasPrefix(base, prefix) || !strings.HasSuffix(base, suffix) {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(base[len(prefix) : len(base)-len(suffix)])
-	if err != nil || pid <= 0 {
-		return 0, false
-	}
-	return pid, true
-}
-
-// newRunnerMCPServer assembles the runner's tool surface per the routing
-// table. Completeness is a STARTUP invariant: every tool registered here
-// must be classified, and every classified tool must be served by exactly
-// the route the table names — a mismatch errors the runner up front, never
-// a silent fallthrough.
-//
-// leaf is the trust-boundary gate's session-conditional axis (computed in
-// attachRunnerMCP/runnerIsLeaf, llm_runner_common.go: this run's stamped
-// delegation depth (EnvRunDepth) compared against the resolved
-// delegation-depth cap, depth >= cap — the session owner is always depth 0
-// and so is never leaf at the built-in cap — OR this run's stamped
-// one-shot fact (EnvRunOneShot): a `driving: oneshot` run is ALWAYS a
-// leaf, regardless of depth, since its engine tears down at every turn
-// boundary and cannot hold a coordination relationship with a child):
-// when true, the coordinator-only tools (mcpschema.CoordinatorOnlyTools)
-// are deliberately withheld from THIS session's surface — see the
-// registration loop below.
-// resolveCellWorkDir is the DRY form of the "cellWorkDir wins over
-// os.Getwd()" fallback rule: cellWorkDir is the prepared
-// workspace dir the harness's engine process actually runs in, which can
-// differ from THIS process's own os.Getwd() for a workspace:worktree run —
-// the runner is spawned with no cmd.Dir and inherits the coordinator's cwd,
-// while the harness is launched with cmd.Dir=the per-agent worktree. Falls
-// back to os.Getwd() when cellWorkDir is empty (workspace:none/container, or
-// a caller — mcp_docgen.go, tests — that has no real cell to anchor to).
-func resolveCellWorkDir(cellWorkDir string) string {
-	if cellWorkDir != "" {
-		return cellWorkDir
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return "."
-}
-
-func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*mcp.Server, error) {
+// harp names the session (the server's Title and the identity every
+// coordination frame speaks as); cwd is the cell's working directory — the
+// cell-path boundary agent_report and agent_fetch_artifact confine
+// themselves to (resolveCellPath). leaf withholds the coordinator-only tools
+// (mcpschema.CoordinatorOnlyTools): a one-shot run, or one at the
+// delegation-depth cap, holding an agent_recv inbox plus a roster would
+// infer it has children and stall waiting on notifications that never
+// arrive. It is the launch identity's Leaf, decided by the coordinator that
+// minted it — the runner holds no config to compute it from.
+func NewServer(rep report.Reporter, home *coord.Home, harp, cwd string, leaf bool, local LocalSurface) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name: "ctxloom",
-		// Title carries this runner's session harp across the initialize
-		// handshake — graceful-egomaniac unit 2's identity check
-		// (mcp_forward.go's forwardTargetIdentity/verifyForwardTarget). This
-		// is an INTERNAL extension of the client<->runner handshake only:
-		// the stdio server this package exposes to the real external MCP
-		// client (buildForwardServer, mcp_forward.go) builds its own
-		// separate Implementation with no Title, so nothing about the
-		// wire protocol an editor sees changes.
+		Name:    "ctxloom",
 		Title:   harp,
 		Version: version.Version,
-	}, &mcp.ServerOptions{Instructions: sessionInstructions(harp)})
+	}, &mcp.ServerOptions{Instructions: operations.SessionInstructions(harp)})
 
 	routes := mcpschema.Routes()
 	registered := map[string]bool{}
 
-	// Cell-local content tools + resources: the per-runner ctxServer over
-	// the cell-delivered config. Identity is the runner's own harp. cwd is
-	// ALSO the cell-path boundary root threaded into coordinationHandler/
-	// artifactFetchHandler below (resolveCellPath) — this used to
-	// be an independent os.Getwd() call, ignoring cellWorkDir entirely.
-	cwd := resolveCellWorkDir(cellWorkDir)
-	s := &ctxServer{cfg: cfg, self: coord.Identity{Harp: harp, Project: cwd}}
-	s.registerResources(server)
-	if err := claimRoutes(routes, registered, mcpschema.RouteCellLocal, s.registerContextTools(server)...); err != nil {
+	if err := claimRoutes(routes, registered, mcpschema.RouteCellLocal, local.Register(server)...); err != nil {
 		return nil, err
 	}
 
@@ -376,7 +77,7 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 		return nil, err
 	}
 
-	if err := registerGeneratedTools(server, home, harp, cwd, leaf, routes, registered); err != nil {
+	if err := registerGeneratedTools(rep, server, home, harp, cwd, leaf, routes, registered); err != nil {
 		return nil, err
 	}
 
@@ -422,21 +123,19 @@ func routeName(r mcpschema.Route) string {
 	}
 }
 
-// registerHostRelays adds the host-resident tools as CustomRequest relays and
-// returns the names it registered. Each carries the SAME typed input (and so
-// the same advertised schema) AND the same description constant the stdio
-// server registers (mcp_tools_memory.go, mcp_tools_triggers.go), so the two
-// surfaces cannot describe one tool two ways;
-// TestRunnerServer_HostRelayDescriptionsMatchStdio pins that.
+// registerHostRelays adds the host-resident tools as HostRequest relays and
+// returns the names it registered. Each carries the typed input and the
+// description operations declares as the tool's contract, so this endpoint
+// and the stdio server cannot describe one tool two ways.
 func registerHostRelays(server *mcp.Server, home *coord.Home) []string {
 	return []string{
-		addHostRelay[compactSessionInput](server, home, "compact_session", compactSessionDesc),
-		addHostRelay[loadSessionInput](server, home, "load_session", loadSessionDesc),
-		addHostRelay[recoverSessionInput](server, home, "recover_session", recoverSessionDesc),
-		addHostRelay[getPreviousSessionInput](server, home, "get_previous_session", getPreviousSessionDesc),
-		addHostRelay[listSessionsInput](server, home, "list_sessions", listSessionsDesc),
-		addHostRelay[evaluateTriggersInput](server, home, "evaluate_triggers", evaluateTriggersDesc),
-		addHostRelay[contextStatusInput](server, home, "context_status", contextStatusDesc),
+		addHostRelay[operations.CompactSessionInput](server, home, "compact_session", operations.CompactSessionDesc),
+		addHostRelay[operations.LoadSessionInput](server, home, "load_session", operations.LoadSessionDesc),
+		addHostRelay[operations.RecoverSessionInput](server, home, "recover_session", operations.RecoverSessionDesc),
+		addHostRelay[operations.GetPreviousSessionInput](server, home, "get_previous_session", operations.GetPreviousSessionDesc),
+		addHostRelay[operations.ListSessionsInput](server, home, "list_sessions", operations.ListSessionsDesc),
+		addHostRelay[operations.EvaluateTriggersInput](server, home, "evaluate_triggers", operations.EvaluateTriggersDesc),
+		addHostRelay[operations.ContextStatusInput](server, home, "context_status", operations.ContextStatusDesc),
 	}
 }
 
@@ -451,7 +150,7 @@ func addHostRelay[In any](server *mcp.Server, home *coord.Home, name, desc strin
 // registerGeneratedTools adds the proto-canonical tools: coordination frames
 // AND artifact-fetch both draw their schemas from mcpschema.Tools() and differ
 // only in which handler builder serves them (Binding.Route).
-func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
+func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *coord.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
 	tools, err := mcpschema.Tools()
 	if err != nil {
 		return err
@@ -479,7 +178,7 @@ func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd stri
 			registered[spec.Name] = true
 			continue
 		}
-		h, herr := generatedToolHandler(home, harp, cwd, route, spec.Name, leaf)
+		h, herr := generatedToolHandler(rep, home, harp, cwd, route, spec.Name, leaf)
 		if herr != nil {
 			return herr
 		}
@@ -499,10 +198,10 @@ func registerGeneratedTools(server *mcp.Server, home *coord.Home, harp, cwd stri
 
 // generatedToolHandler picks the handler builder one generated tool's route
 // names. An unclassified tool is a startup error, never a silent fallthrough.
-func generatedToolHandler(home *coord.Home, harp, cwd string, route mcpschema.Route, name string, leaf bool) (mcp.ToolHandler, error) {
+func generatedToolHandler(rep report.Reporter, home *coord.Home, harp, cwd string, route mcpschema.Route, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch route {
 	case mcpschema.RouteCoordination:
-		return coordinationHandler(home, harp, cwd, name, leaf)
+		return coordinationHandler(rep, home, harp, cwd, name, leaf)
 	case mcpschema.RouteArtifactFetch:
 		return artifactFetchHandler(home, cwd, name)
 	default:
@@ -560,7 +259,7 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 // tool: protojson-decode the args into the bound contract message (both
 // snake_case and camelCase accepted), run the plane-2 exchange (or the
 // runner-local recv/report), and project the result back with proto names.
-func coordinationHandler(home *coord.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
+func coordinationHandler(rep report.Reporter, home *coord.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch name {
 	case mcpschema.ToolAgentRun:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -611,9 +310,9 @@ func coordinationHandler(home *coord.Home, harp, cwd, name string, leaf bool) (m
 			return coordinationResult(resp, resp.GetListRuns())
 		}, nil
 	case mcpschema.ToolAgentRecv:
-		return recvHandler(home, leaf), nil
+		return RecvHandler(rep, home, leaf), nil
 	case mcpschema.ToolAgentReport:
-		return reportHandler(home, harp, cwd), nil
+		return reportHandler(rep, home, harp, cwd), nil
 	case mcpschema.ToolAgentSteer:
 		return controlToolHandler(home, name,
 			func(m *agentcoordpb.ControlSteer) *agentcoordpb.ControlRun {
@@ -743,7 +442,7 @@ func protoIsNil(m proto.Message) bool {
 	return m == nil || !m.ProtoReflect().IsValid()
 }
 
-// recvHandler is the runner-LOCAL agent_recv: park against the Home's
+// RecvHandler is the runner-LOCAL agent_recv: park against the Home's
 // notice buffer. Returned messages stay tentative at the coordinator until
 // the NEXT recv (cursor-ack) or a clean runner shutdown acknowledges them —
 // the go-sdk streamable server runs tool handlers on session-scoped
@@ -751,7 +450,7 @@ func protoIsNil(m proto.Message) bool {
 // hook to ack on; a crash before the ack re-delivers (at-least-once).
 // leaf selects the timeout verdict (see recvOutcome): a child gets an error
 // telling it to finish, a coordinator a successful empty receive.
-func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
+func RecvHandler(rep report.Reporter, home *coord.Home, leaf bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var in struct {
 			Wait int `json:"wait"`
@@ -767,7 +466,7 @@ func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
 			// Role, not transport, picks the verdict shape; recvOutcome
 			// holds the leaf/coordinator asymmetry and the reason it must
 			// stay.
-			disposition, failure := recvOutcome(err, wait, leaf)
+			disposition, failure := RecvOutcome(err, wait, leaf)
 			if failure != nil {
 				return nil, failure
 			}
@@ -792,13 +491,13 @@ func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
 			raw, merr := protojson.MarshalOptions{UseProtoNames: true}.Marshal(m)
 			if merr != nil {
 				dropped = append(dropped, m.GetMessageId())
-				clidiag.Warn("ctxloom", "agent_recv: message %s: marshal: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), merr)
+				rep.Warnf("agent_recv: message %s: marshal: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), merr)
 				continue
 			}
 			var v any
 			if uerr := json.Unmarshal(raw, &v); uerr != nil {
 				dropped = append(dropped, m.GetMessageId())
-				clidiag.Warn("ctxloom", "agent_recv: message %s: decode: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), uerr)
+				rep.Warnf("agent_recv: message %s: decode: %v (already acked as returned — dropped, not redelivered)", m.GetMessageId(), uerr)
 				continue
 			}
 			items = append(items, v)
@@ -817,7 +516,7 @@ func recvHandler(home *coord.Home, leaf bool) mcp.ToolHandler {
 // bytes are UPLOADED via ArtifactTransferService BEFORE the manifest fact is
 // filed — the ArtifactProduced fact carries upload_id (+ sha256), path stays
 // a label, never the transfer mechanism (manifests can no longer dangle).
-func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
+func reportHandler(rep report.Reporter, home *coord.Home, harp, cwd string) mcp.ToolHandler {
 	stamper := &artifactStamper{harp: harp}
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var summary agentcoordpb.Summary
@@ -844,13 +543,13 @@ func reportHandler(home *coord.Home, harp, cwd string) mcp.ToolHandler {
 		// per file exactly as before E1.
 		cands, cerr := stamper.planCandidates()
 		if cerr != nil {
-			clidiag.Warn("ctxloom", "agent_report: plan discovery: %v", cerr)
+			rep.Warnf("agent_report: plan discovery: %v", cerr)
 			stampFailures = append(stampFailures, fmt.Sprintf("plan discovery: %v", cerr))
 		}
 		for _, cand := range cands {
 			a, perr := stamper.publish(ctx, home, cand)
 			if perr != nil {
-				clidiag.Warn("ctxloom", "agent_report: plan stamp %s: %v", cand.absPath, perr)
+				rep.Warnf("agent_report: plan stamp %s: %v", cand.absPath, perr)
 				stampFailures = append(stampFailures, fmt.Sprintf("%s: %v", cand.absPath, perr))
 				continue
 			}

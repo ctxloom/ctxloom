@@ -385,6 +385,10 @@ message Identity {
   int32 depth = 3;
   bool one_shot = 4;
   string project = 5;
+  // The coordinator's leaf verdict at mint (sessions.Identity.Leaf): the
+  // runner withholds the coordinator-only tools by it, holding no config to
+  // read the depth cap from.
+  bool leaf = 6;
 }
 
 // LabelConfig is engine.LabelConfig: one llm.configs label resolved. body is

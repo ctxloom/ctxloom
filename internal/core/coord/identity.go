@@ -7,11 +7,10 @@ import "github.com/ctxloom/ctxloom/internal/core/sessions"
 // is read from the HARNESS-INHERITED process env only — it is never written
 // into any MCP config structure, file, or Env map.
 const (
-	EnvCoordURL    = sessions.EnvCoordURL
-	EnvCoordCred   = sessions.EnvCoordCred
-	EnvRunID       = sessions.EnvRunID
-	EnvMCPSocket   = sessions.EnvMCPSocket
-	EnvCellWorkDir = sessions.EnvCellWorkDir
+	EnvCoordURL  = sessions.EnvCoordURL
+	EnvCoordCred = sessions.EnvCoordCred
+	EnvRunID     = sessions.EnvRunID
+	EnvMCPSocket = sessions.EnvMCPSocket
 )
 
 // Identity is sessions.Identity: what a credential authenticates AND

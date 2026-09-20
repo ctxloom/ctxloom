@@ -236,15 +236,10 @@ Read-only listings are exposed as MCP resources rather than tools.
 
 | URI | Name | Description |
 |-----|------|-------------|
-| `ctxloom://commands` | commands | All available commands with descriptions. Replaces the list_commands tool. |
-| `ctxloom://fragments` | fragments | All local context fragments with tags and source locations. A fragment carrying a PREMISE applies conditionally: the premise names the situation it applies under, and the qualified ref is what an assemble_context call quotes back to load it. |
+| `ctxloom://commands` | commands | The catalog's commands with descriptions. |
+| `ctxloom://fragments` | fragments | The catalog's context fragments with their qualified refs. A fragment carrying a PREMISE applies conditionally: the premise names the situation it applies under, and the qualified ref is what an assemble_context call quotes back to load it. |
 | `ctxloom://help` | ctxloom help | Documentation of every ctxloom resource URI. Read this first if you need to know what's available. |
-| `ctxloom://mcp-servers` | mcp servers | Configured MCP servers per backend. Replaces the list_mcp_servers tool. |
-| `ctxloom://profiles` | profiles | All configured profiles with their bundle lists. Replaces the list_profiles tool. |
-| `ctxloom://remotes` | remotes | Configured remote sources. Replaces the list_remotes tool. |
-| `ctxloom://sessions` | sessions | All harp-named sessions across every project, most recently worked first. For the project-filtered view, use ctxloom://sessions/recent. |
-| `ctxloom://sessions/recent` | recent sessions | Harp-named sessions for the current project, most recent first. YAML, with harp_name, started_at, summary. |
-| `ctxloom://skills` | skills | All available Agent Skill packages (model-invoked SKILL.md directories) with descriptions and file counts. Distinct from commands (user-invoked slash commands). |
+| `ctxloom://skills` | skills | The catalog's Agent Skill packages (model-invoked SKILL.md directories). |
 
 ## Resource Templates
 
@@ -252,9 +247,6 @@ Parameterized resources for single-record lookup (RFC 6570 URI templates).
 
 | URI Template | Name | Description |
 |--------------|------|-------------|
-| `ctxloom://commands/{name}` | command | A single command's content by name. Replaces the get_command tool. |
-| `ctxloom://fragments/{name}` | fragment | A single fragment's content by name. Replaces the get_fragment tool. |
-| `ctxloom://profiles/{name}` | profile | A single profile's config by name. Replaces the get_profile tool. |
-| `ctxloom://remotes/{name}/contents` | remote contents | Bundles and profiles available in a configured remote, by remote name. Replaces the browse_remote tool. |
-| `ctxloom://skills/{name}` | skill | A single Agent Skill package's frontmatter, instructions body, and file manifest by name. |
+| `ctxloom://commands/{name}` | command | A single command's content, by qualified ref or name, as this session's package carries it. |
+| `ctxloom://fragments/{name}` | fragment | A single fragment's content, by qualified ref or name, as this session's package carries it. |
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/cucumber/godog"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 )
 
 // Steps for the coordination-contract feature: what the agent-delegation tools
@@ -27,7 +27,7 @@ import (
 //
 // So these steps enumerate that surface the way the published reference page
 // does: the in-memory MCP client round trip against the registered runner tool
-// set (internal/adapters/mcp's NewDocMCPServer, no handler invoked, nothing dialed). It is
+// set (internal/adapters/runner/mcp's NewDocServer, no handler invoked, nothing dialed). It is
 // a genuine ListTools response over a real MCP transport, not a Go struct
 // capture — and it is the ONLY thing in the repo that can observe a coordination
 // tool's advertised RESULT shape.
@@ -38,21 +38,21 @@ import (
 // overclaim this suite has been caught making before.
 
 type contractState struct {
-	tools map[string]mcp.DocMCPToolContract
-	last  mcp.DocMCPToolContract
+	tools map[string]runnermcp.ToolContract
+	last  runnermcp.ToolContract
 }
 
 func registerCoordinationContractSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the coordination tool surface a harness receives$`, func(c context.Context) error {
 		w := worldFrom(c)
-		contracts, err := mcp.ListDocMCPToolContracts(c)
+		contracts, err := runnermcp.ListDocToolContracts(c)
 		if err != nil {
 			return fmt.Errorf("enumerate the runner-terminated tool surface: %w", err)
 		}
 		if len(contracts) == 0 {
 			return fmt.Errorf("the runner-terminated tool surface advertises no tools at all")
 		}
-		st := &contractState{tools: map[string]mcp.DocMCPToolContract{}}
+		st := &contractState{tools: map[string]runnermcp.ToolContract{}}
 		for _, t := range contracts {
 			st.tools[t.Name] = t
 		}
@@ -83,7 +83,7 @@ func registerCoordinationContractSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("tool %q advertises NO %s schema, so there is nothing to assert against "+
 				"(a change that dropped the schema would otherwise pass every assertion below)", tool, side)
 		}
-		w.contract.last = mcp.DocMCPToolContract{Name: t.Name, Description: t.Description, InputSchema: schema}
+		w.contract.last = runnermcp.ToolContract{Name: t.Name, Description: t.Description, InputSchema: schema}
 		return nil
 	})
 
@@ -102,7 +102,7 @@ func registerCoordinationContractSteps(ctx *godog.ScenarioContext) {
 		}
 		// The following assertions read the same "last" slot; description text
 		// goes in it so one set of steps serves all three surfaces.
-		w.contract.last = mcp.DocMCPToolContract{Name: t.Name, Description: t.Description, InputSchema: t.Description}
+		w.contract.last = runnermcp.ToolContract{Name: t.Name, Description: t.Description, InputSchema: t.Description}
 		return nil
 	})
 

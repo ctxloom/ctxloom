@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // A timed-out agent_recv is two different events depending on who parked.
@@ -40,7 +42,7 @@ func TestHandleAgentRecv_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.
 		"a coordinator on a quiet wait re-arms; telling it to finish is the child's instruction")
 }
 
-// A leaf's agent_recv is served by ITS RUNNER (recvHandler, below), which
+// A leaf's agent_recv is served by ITS RUNNER (runnermcp.RecvHandler), which
 // drains the run's own spool. The coordinator-side stdio server receives for
 // the session owner only; a leaf identity reaching it is refused rather
 // than parked on an inbox it does not have.
@@ -53,7 +55,7 @@ func TestHandleAgentRecv_LeafIsRefusedAtTheCoordinator(t *testing.T) {
 }
 
 func TestRecvHandler_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.T) {
-	h := recvHandler(testHome(t), false)
+	h := runnermcp.RecvHandler(report.To(nil), testHome(t), false)
 
 	res, err := runnerRecv(t, h, 1)
 	require.NoError(t, err, "a coordinator's quiet wait is not a failure")
@@ -65,10 +67,10 @@ func TestRecvHandler_CoordinatorTimeoutIsASuccessfulEmptyReceive(t *testing.T) {
 }
 
 func TestRecvHandler_LeafTimeoutStaysAnError(t *testing.T) {
-	h := recvHandler(testHome(t), true)
+	h := runnermcp.RecvHandler(report.To(nil), testHome(t), true)
 
 	res, err := runnerRecv(t, h, 1)
 	require.ErrorIs(t, err, coord.ErrRecvTimeout, "a leaf's timeout is its signal to stop, and its harness should show red")
 	assert.Nil(t, res, "a leaf timeout carries no successful result to mistake for an empty receive")
-	assert.Contains(t, err.Error(), recvTimeoutLeafGuidance)
+	assert.Contains(t, err.Error(), runnermcp.RecvTimeoutLeafGuidance)
 }

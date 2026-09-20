@@ -6,10 +6,12 @@
 // Execute is the ONE tail every launch ends in — a delegated child's and an
 // owner run's alike — so a host `run --agent X` and an `agent_run X` deliver
 // the same file set by construction: both projections feed the same writers
-// with the same package. Until the static writers land (Part 4.1, slice 12)
-// the writers are the engine's own Setup, and until the engine host moves
-// beside this package (14a) the drive is coord.EngineHost's, reached through
-// the Driver port.
+// with the same package. The session's MCP endpoint is BOUND here, at the
+// address the Launch carries (runner/mcp is the Dynamic port), and the
+// engine's .mcp.json names it as URL + bearer. Until the static writers land
+// (Part 4.1, slice 12) the writers are the engine's own Setup, and until the
+// engine host moves beside this package (14a) the drive is
+// coord.EngineHost's, reached through the Driver port.
 package runner
 
 import (
@@ -25,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -158,7 +161,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	}); err != nil {
 		return Outcome{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
-	servers := agent.ComposeChatMCPServers(pkg.MCP, nil)
+	servers := bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP)
 	mcpConfig := ""
 	if len(servers) > 0 {
 		mcpConfig = filepath.Join(sessionHome(l), mcpConfigName)
@@ -192,6 +195,30 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		return Outcome{}, err
 	}
 	return Outcome{Delivered: managed, MCPConfig: mcpConfig, Close: closeServed}, nil
+}
+
+// bindEndpoint points ctxloom's own server entry at the session's bound
+// endpoint: the URL the runner serves on and the bearer every request must
+// carry, in place of the stdio command the package declares. The engine then
+// dials the runner directly; no shim process is spawned. A set with no
+// ctxloom entry (the builtin server withheld) is returned unchanged — that
+// child has no reach-back, which its spawn already warned about.
+func bindEndpoint(servers []agent.ChatMCPServer, ep sessions.Endpoint) []agent.ChatMCPServer {
+	if ep.URL == "" {
+		return servers
+	}
+	for i, srv := range servers {
+		if srv.Name != agent.MCPServerName {
+			continue
+		}
+		servers[i] = agent.ChatMCPServer{
+			Name:      agent.MCPServerName,
+			Transport: agent.MCPTransportHTTP,
+			URL:       ep.URL,
+			Headers:   map[string]string{"Authorization": "Bearer " + ep.Credential},
+		}
+	}
+	return servers
 }
 
 // contextFragments is the assembled context as the writers take it: one

@@ -160,7 +160,6 @@ func TestConsumeCoordinatorReachBack_ReadsTheTrioThenScrubs(t *testing.T) {
 		coord.EnvCoordURL:      "tcp://127.0.0.1:1",
 		coord.EnvCoordCred:     "the-token",
 		coord.EnvRunID:         "run-7",
-		coord.EnvCellWorkDir:   "/work/cell",
 		"CTXLOOM_SESSION_HARP": "regal-rash-dash",
 	}
 	reach, err := consumeCoordinatorReachBack("mock",

@@ -37,22 +37,12 @@ const (
 	// with the slice that carries that value.
 
 	// EnvMCPSocket is the container-local (or host user-private) unix
-	// socket path of the RUNNER's MCP endpoint. The runner creates the
-	// socket BEFORE the harness spawns and exports this into the harness
-	// env; a `ctxloom mcp` shim finding it forwards the whole surface there.
-	//
-	// This var has a SECOND value shape, which every reader must handle: a
-	// container transport cannot bind-mount a live unix socket across the
-	// Docker Desktop VM boundary off Linux, so there it instead carries
-	// "tcp://host:port" — a host-loopback TCP bridge onto the same unix
-	// socket (the marker is mcpsocket.TCPPrefix).
+	// socket path of the plugin-hosted owner arm's MCP endpoint. That runner
+	// creates the socket BEFORE the engine spawns and exports this into the
+	// engine's env; a `ctxloom mcp` shim finding it forwards the whole
+	// surface there. A hosted run never sets it: its engine dials the
+	// runner's bound endpoint by URL and bearer. Dies with the plugin arm.
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
-	// EnvCellWorkDir carries the prepared workspace directory (a worktree's
-	// per-agent checkout) to the plugin-hosted `llm serve` process at spawn
-	// time, so its MCP discovery marker is keyed by the SAME directory the
-	// shim's cwd derives from. The runner learns its cell from the Launch
-	// (Launch.Cell.Workspace); this carrier dies with the plugin arm.
-	EnvCellWorkDir = "CTXLOOM_CELL_WORKDIR"
 )
 
 // ErrNoReachBack is DecodeReach's refusal: the process environment carries no

@@ -250,8 +250,9 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                                       "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 13: the stdio server dies with the plugin arm; until then it classifies its tools by the same routing table",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (Part 1.1's proto-only-in-adapters)",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/mcpschema":                         "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
 
 			// edges the prefix form surfaced (packages unit A's explicit
 			// lists did not name); each MEASURED, with the slice that
@@ -340,6 +341,15 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/spawn -> internal/adapters/agents":     "measured: agents.DrivingMode/ValidateDriving on the binding; leaves when config's own agents edge does",
 			"internal/adapters/spawn -> internal/adapters/coordgrpc":  "slice 10: RunnerTransport.StartRun takes the launch.Launch and the coordgrpc adapter encodes it; spawn stops projecting the wire form itself",
 
+			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
+			// contract and the shared DTOs it advertises live in operations
+			// beside the application services that answer them.
+			"internal/adapters/runner/mcp -> internal/adapters/operations": "slice 13: the host-tool contract becomes a coord.Verbs projection in mcpschema; the stdio server's DTOs die with it",
+			// the stdio server and the plugin-hosted owner arm reach the endpoint's
+			// surface for the one server they still build (ServeRunnerMCP)
+			"internal/adapters/mcp -> internal/adapters/runner/mcp": "slice 13: the owner arm's socket endpoint and the stdio server die with the plugin protocol",
+			"internal/adapters/cli -> internal/adapters/runner/mcp": "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
+
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
 			"internal/lm/grpc -> internal/adapters/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
@@ -408,7 +418,7 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/adapters/coordgrpc/pb"},
 		Allowed: map[string]string{
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                 "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
+			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",

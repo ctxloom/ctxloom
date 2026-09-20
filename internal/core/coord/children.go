@@ -806,6 +806,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
 	start.Identity = Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot, Project: c.projectDir}
+	start.Identity.Leaf = start.Identity.IsLeaf(c.depthCap)
 	start.Prompt = prompt
 	if start.Resumed && start.ResumeKey == "" {
 		start.Prompt = textblocks.Join(c.spawner.ResumeHistory(ctx, rt.harp), prompt)

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -409,7 +408,11 @@ func runSkillExport(cmd *cobra.Command, args []string) error {
 		Sign:    skillExportSign,
 	}
 	if skillExportSign {
-		discovered, err := agentkey.NewDiscoverer().Discover(cmd.Context(), cfg.SignKey())
+		discoverer, err := operations.SignerDiscoverer()
+		if err != nil {
+			return err
+		}
+		discovered, err := discoverer.Discover(cmd.Context(), cfg.SignKey())
 		if err != nil {
 			return err
 		}

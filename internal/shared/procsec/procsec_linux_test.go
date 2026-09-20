@@ -48,7 +48,7 @@ func TestHelperInspectionTarget(t *testing.T) {
 		return
 	}
 	if os.Getenv(helperHardenEnv) == "1" {
-		procsec.HardenAtStartup("ctxloom")
+		procsec.HardenAtStartup("ctxloom", "CTXLOOM_COORD_CRED")
 	}
 	readyPath := os.Args[len(os.Args)-1]
 	if err := os.WriteFile(readyPath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {

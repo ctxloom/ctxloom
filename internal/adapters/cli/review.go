@@ -113,7 +113,11 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	// cannot record its result is a waste of a human's attention and an
 	// insult besides"). --project hard-requires a key; the personal store
 	// degrades to the unsigned path with an explicit confirmation.
-	signer, unsigned, err := resolveReviewSigner(cmd.Context(), agentkey.NewDiscoverer(), cfg.SignKey(), reviewProjectFlag)
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		return err
+	}
+	signer, unsigned, err := resolveReviewSigner(cmd.Context(), discoverer, cfg.SignKey(), reviewProjectFlag)
 	if err != nil {
 		return err
 	}

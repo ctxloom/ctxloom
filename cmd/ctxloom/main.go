@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/mountns"
@@ -30,7 +31,7 @@ func main() {
 	// this runs BEFORE zap.ReplaceGlobals below; a warning handed to the
 	// not-yet-installed global logger would be dropped, and a bypass nobody
 	// hears is indistinguishable from hardening that silently failed.
-	procsec.HardenAtStartup("ctxloom")
+	procsec.HardenAtStartup("ctxloom", sessions.EnvCoordCred)
 
 	// Become the mount shim, if that is what this process was spawned to be.
 	// A re-exec of ourselves is the only way to run code between clone(2) and

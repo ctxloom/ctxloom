@@ -275,6 +275,10 @@ func (e *NoKeyError) Error() string {
 // package. Every field is overridable so Discover is exercisable without a
 // real git binary, a real repository, or a real ssh-agent socket.
 type Discoverer struct {
+	// Home is the user's home directory a leading "~" in a configured key
+	// path expands against — the composition's fact (Env.Home), not a read
+	// of this process's environment.
+	Home string
 	// Dir is the working directory `git config` runs in. Empty uses the
 	// process's own cwd.
 	Dir string
@@ -365,8 +369,17 @@ func (d *Discoverer) readFile(path string) ([]byte, error) {
 // real ssh-agent named by SSH_AUTH_SOCK — the production configuration. It is
 // the explicit form of what a zero Discoverer already resolves to; callers
 // that want to name the wiring, or to read a default out of a field, use it.
-func NewDiscoverer() *Discoverer {
+// Env is what the discoverer takes from the process's composition instead of
+// reading the environment itself: the user's home (for a "~" in the
+// configured key path) and the ssh-agent socket (SSH_AUTH_SOCK's value).
+type Env struct {
+	Home        string
+	AgentSocket string
+}
+
+func NewDiscoverer(env Env) *Discoverer {
 	return &Discoverer{
+		Home:      env.Home,
 		GitConfig: execGitConfig,
 		DialAgent: dialEnvAgent,
 		ReadFile:  readPublicKeyFile,
@@ -674,7 +687,7 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 		return nil, fmt.Errorf("%s is not a public key, and is not read as a file path", displayKeyValue(value))
 	}
 
-	path, err := expandHome(value)
+	path, err := expandHome(d.Home, value)
 	if err != nil {
 		return nil, err
 	}
@@ -717,7 +730,7 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 // under no name, so "$HOME is not defined" surfaces as a missing key file and
 // sends the user hunting for a key they already have. A path with no leading
 // tilde is returned untouched.
-func expandHome(path string) (string, error) {
+func expandHome(home, path string) (string, error) {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {

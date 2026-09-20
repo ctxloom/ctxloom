@@ -162,19 +162,23 @@ the report, don't grep the exit code. A usage error is still an error (e.g. a
 func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	cfg, cfgErr := GetConfig()
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		return err
+	}
 	var checks []doctorCheck
 	if doctorDepsOnlyFlag {
 		checks = []doctorCheck{
 			doctorCheckDeps(cfg),
-			doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
-			doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+			doctorCheckSignKey(ctx, cfg, discoverer),
+			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
 		}
 	} else {
 		checks = []doctorCheck{
 			doctorCheckSetupMarker(cfg, cfgErr),
 			doctorCheckDeps(cfg),
-			doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
-			doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+			doctorCheckSignKey(ctx, cfg, discoverer),
+			doctorCheckGitIdentity(ctx, discoverer.GitConfig),
 			doctorCheckAgents(ctx, cfg, cfgErr),
 			doctorCheckCapabilityLoss(ctx, cfg, cfgErr),
 			doctorCheckVersion(),
@@ -434,7 +438,7 @@ func signKeyResolutionDetail(ctx context.Context, discoverer *agentkey.Discovere
 // gitConfigFunc is agentkey.Discoverer.GitConfig's shape: the one existing
 // generic `git config --get <key>` reader in this codebase (internal/
 // signing/agentkey/agentkey.go's execGitConfig, defaulted by
-// agentkey.NewDiscoverer()) — already used to resolve user.signingkey.
+// operations.SignerDiscoverer()) — already used to resolve user.signingkey.
 // doctorCheckGitIdentity reuses it verbatim for user.name/user.email rather
 // than shelling out to git a second, bespoke way.
 type gitConfigFunc = func(ctx context.Context, dir, key string) (value string, ok bool, err error)

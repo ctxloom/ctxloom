@@ -431,7 +431,6 @@ var envReadCalls = [][2]string{
 // mapped to the slice in which the site leaves.
 var envLiteralsOnceAllowed = map[string]string{
 	// re-spelled keys: the drift this rule exists to catch
-	"internal/shared/procsec/procsec.go": "slice 2: the env codecs move to core/sessions and the key is referenced by symbol, not re-spelled",
 
 	// core reading the environment for itself
 	"internal/core/paths/homeguard.go":       "slice 14a: the ctxloom home is a launch.HostFacts value; core/paths is vocabulary only",
@@ -465,17 +464,13 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
 
 	// isolation: handed HostFacts and a CellRequest
-	"internal/adapters/isolation/container.go":       "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/imagebuild.go":      "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/adapters/isolation/sharedfs.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 	"internal/adapters/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
 	// leaf adapters Part 1.1 does not permit and no slice names (measured)
-	"internal/adapters/remote/git_publisher.go":      "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
-	"internal/shared/mountns/mountns_linux.go":       "Part 1.1 does not name mountns; its shim scratch dir is a temp read no slice removes — measured",
-	"internal/adapters/signing/agentkey/agentkey.go": "slice 5: the signer's key path is a config.Sources fact, not a home lookup in the signing adapter",
+	"internal/adapters/remote/git_publisher.go": "Part 1.1 permits temp reads in the fs adapters only; adapters/remote (slice 5) is not one — no slice names this read",
 }
 
 // declaredEnvKeys collects the CTXLOOM_* string values of the package-level
@@ -541,7 +536,7 @@ func scanEnvLiterals(t *testing.T) []ringSite {
 			switch node := n.(type) {
 			case *ast.CallExpr:
 				for _, c := range envReadCalls {
-					if selectorCall(node, c[0], c[1]) {
+					if selectorCall(node, c[0], c[1]) && !tempUnderCallersRoot(node) {
 						readsSeen++
 						note(n, "reads the process environment ("+c[0]+"."+c[1]+")")
 					}
@@ -561,6 +556,25 @@ func scanEnvLiterals(t *testing.T) []ringSite {
 		t.Fatal("the walk found no process-environment read anywhere outside envReadHomes — envReadCalls' spellings are stale, not the module clean")
 	}
 	return out
+}
+
+// tempUnderCallersRoot reports whether an os.MkdirTemp / os.CreateTemp call
+// names its own root: only the empty-string dir consults the process
+// environment (os.TempDir); a dir the caller supplies is that caller's value,
+// and the read that produced it is caught where it happened.
+func tempUnderCallersRoot(call *ast.CallExpr) bool {
+	if !selectorCall(call, "os", "MkdirTemp") && !selectorCall(call, "os", "CreateTemp") {
+		return false
+	}
+	if len(call.Args) == 0 {
+		return false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok {
+		return true
+	}
+	v, isString := vocabStringLit(lit)
+	return isString && v != ""
 }
 
 // TestArch_EnvLiteralsOnce is the gate: the CTXLOOM_* keys are spelled once

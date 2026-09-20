@@ -52,7 +52,11 @@ func pushBundle(cmd *cobra.Command, bundleName, remoteOverride string, createPR 
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return pushBundleCfg(cmd, cfg, agentkey.NewDiscoverer(), nil, bundleName, remoteOverride, createPR, message, sign, noSign)
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		return err
+	}
+	return pushBundleCfg(cmd, cfg, discoverer, nil, bundleName, remoteOverride, createPR, message, sign, noSign)
 }
 
 // pushBundleCfg is the testable body of pushBundle: cfg, discoverer, and mgr

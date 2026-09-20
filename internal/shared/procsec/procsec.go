@@ -86,7 +86,7 @@ func HardenAgainstSameUIDInspection() (applied bool, reason string, err error) {
 // reported, because a bypass that prints nothing is indistinguishable from
 // hardening that silently failed. An unrecognized reason is silent rather than
 // guessed at; the outcomes that carry an exposure are enumerated here.
-func Diagnostic(reason string, err error) string {
+func Diagnostic(reason string, err error, credKey string) string {
 	exposure := fmt.Sprintf("/proc/%d/environ is readable by any process of this uid and may contain %s",
 		os.Getpid(), credEnvName)
 	switch reason {
@@ -104,9 +104,9 @@ func Diagnostic(reason string, err error) string {
 // left inspectable. It is a single call rather than a documented two-step so
 // that no caller can apply the hardening and forget the report. It never
 // fails; prog is the binary name clidiag stamps on the warning.
-func HardenAtStartup(prog string) {
+func HardenAtStartup(prog, credKey string) {
 	_, reason, err := HardenAgainstSameUIDInspection()
-	if msg := Diagnostic(reason, err); msg != "" {
+	if msg := Diagnostic(reason, err, credKey); msg != "" {
 		clidiag.Warn(prog, "%s", msg)
 	}
 }

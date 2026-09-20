@@ -22,7 +22,7 @@ func TestHardenAgainstSameUIDInspection_BypassIsReportedNotSilent(t *testing.T) 
 	require.NoError(t, err, "a deliberate bypass is not an error")
 	require.False(t, applied)
 	require.Equal(t, procsec.ReasonBypassed, reason)
-	require.NotEmpty(t, procsec.Diagnostic(reason, err),
+	require.NotEmpty(t, procsec.Diagnostic(reason, err, "CTXLOOM_COORD_CRED"),
 		"a bypass that prints nothing is indistinguishable from hardening that silently failed")
 }
 
@@ -94,7 +94,7 @@ func TestDiagnostic(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := procsec.Diagnostic(tc.reason, tc.err)
+			got := procsec.Diagnostic(tc.reason, tc.err, "CTXLOOM_COORD_CRED")
 
 			if tc.wantSilence {
 				require.Empty(t, got)
@@ -107,5 +107,14 @@ func TestDiagnostic(t *testing.T) {
 			require.False(t, strings.HasSuffix(got, "\n"),
 				"Diagnostic returns a message body; the reporting channel owns the line ending")
 		})
+	}
+}
+
+// The credential key the diagnostic names is the one the caller hands in
+// (core/sessions declares it); procsec spells no CTXLOOM_* key of its own.
+func TestDiagnostic_NamesTheCredentialKeyItIsHanded(t *testing.T) {
+	msg := procsec.Diagnostic(procsec.ReasonBypassed, nil, "MY_COORD_CRED")
+	if !strings.Contains(msg, "MY_COORD_CRED") {
+		t.Fatalf("the diagnostic must name the key it was handed; got %q", msg)
 	}
 }

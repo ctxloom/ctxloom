@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -135,7 +134,11 @@ func resolveSignerOrUnsigned(cfg *config.Config, injected ssh.Signer, project bo
 	if cfg != nil {
 		explicitKey = cfg.SignKey()
 	}
-	discovered, agentErr := agentkey.NewDiscoverer().Discover(context.Background(), explicitKey)
+	discoverer, err := SignerDiscoverer()
+	if err != nil {
+		return nil, false, err
+	}
+	discovered, agentErr := discoverer.Discover(context.Background(), explicitKey)
 	if agentErr == nil {
 		return discovered.Signer, false, nil
 	}

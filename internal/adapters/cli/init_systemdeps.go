@@ -10,7 +10,7 @@ import (
 	"os/exec"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -75,7 +75,12 @@ func checkSystemDeps() error {
 // init: a project that only ever consumes already-trusted/embedded content
 // has nothing to approve and genuinely needs no key.
 func warnIfNoSignKey() {
-	ok, detail := signKeyResolutionDetail(context.Background(), agentkey.NewDiscoverer(), "")
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		clidiag.Warn("ctxloom", "%v", err)
+		return
+	}
+	ok, detail := signKeyResolutionDetail(context.Background(), discoverer, "")
 	if !ok {
 		clidiag.Warn("ctxloom", "%s", detail)
 	}
@@ -86,14 +91,19 @@ func warnIfNoSignKey() {
 // warnIfNoSignKey above: informational only, reusing the SAME shared
 // gitIdentityDetail (doctor_cmd.go) and the SAME `git config --get` reader
 // (internal/adapters/signing/agentkey.Discoverer.GitConfig, defaulted by
-// agentkey.NewDiscoverer()) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
+// operations.SignerDiscoverer()) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
 // says the exact same thing `ctxloom doctor --deps` reports. Agents ctxloom
 // launches commit their own work inside isolated worktrees (internal/lm/
 // isolation/worktree.go's teardown), so an incomplete identity here can
 // surface later as a failed or mis-attributed commit deep inside a run —
 // surfacing it at init time, before that happens, beats discovering it then.
 func warnIfGitIdentityMissing() {
-	ok, detail := gitIdentityDetail(context.Background(), agentkey.NewDiscoverer().GitConfig)
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		clidiag.Warn("ctxloom", "%v", err)
+		return
+	}
+	ok, detail := gitIdentityDetail(context.Background(), discoverer.GitConfig)
 	if !ok {
 		clidiag.Warn("ctxloom", "%s", detail)
 	}

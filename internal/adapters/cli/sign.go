@@ -72,7 +72,11 @@ func runSignCmd(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		ref = args[0]
 	}
-	return runSign(cmd, cfg, agentkey.NewDiscoverer(), ref, signAllFlag, signKeyFlag)
+	discoverer, err := operations.SignerDiscoverer()
+	if err != nil {
+		return err
+	}
+	return runSign(cmd, cfg, discoverer, ref, signAllFlag, signKeyFlag)
 }
 
 // bundleSignCmd is the bundle noun's `sign` domain verb.

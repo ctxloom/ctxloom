@@ -178,3 +178,59 @@ func TestMode_TwoModesInOneProcessDoNotInterfere(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// The coordinator's sites, captured before they moved onto a Reporter: a
+// plain warning (the checkpoint snapshot fallback), a dedup'd warning (the
+// runner's spool doorbell drop, which a reconnect loop repeats) and the
+// runner Home's fail-loudly refusal of a second terminal nudge. The legacy
+// path renders them live in the same test; the literal pins the text.
+func TestDiagnosticSink_RendersWhatCoordRenderedToday(t *testing.T) {
+	err := errors.New("unexpected end of JSON input")
+
+	var found report.Findings
+	rep := report.To(&found)
+	rep.Warnf("coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", "/s/items.snapshot", err)
+	rep.WarnOncef("runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
+	rep.WarnOncef("runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
+	rep.FailOncef(report.KindConfig,
+		"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
+		"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
+	rep.Recordf(report.KindApply, "narrow the relayed tool's request before the 4MiB cap fails it",
+		"host-relay tool %s returned %d bytes (watch: >3MiB)", "search_content", 3_200_000)
+
+	var legacy bytes.Buffer
+	restore := clidiag.SetSink(&legacy)
+	clidiag.ResetWarnOnce()
+	strictness.Reset()
+	clidiag.Warn("ctxloom", "coordinator: checkpoint snapshot %s unreadable, falling back to a full replay: %v", "/s/items.snapshot", err)
+	clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
+	clidiag.WarnOnce("ctxloom", "runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", "harp/out/1")
+	strictness.FailOnce(strictness.ClassConfig,
+		"construct ONE TerminalInjector per Home and call Wrap on it once per turn (see llm_serve.go) instead of building a new injector for each turn",
+		"runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake")
+	strictness.Record(strictness.ClassApply, "narrow the relayed tool's request before the 4MiB cap fails it",
+		"host-relay tool %s returned %d bytes (watch: >3MiB)", "search_content", 3_200_000)
+	legacyFindings := strictness.All()
+	restore()
+
+	var rendered bytes.Buffer
+	restore = clidiag.SetSink(&rendered)
+	clidiag.ResetWarnOnce()
+	strictness.Reset()
+	t.Cleanup(func() { restore(); clidiag.ResetWarnOnce(); strictness.Reset() })
+	sink := strictness.Sink("ctxloom")
+	for _, f := range found {
+		sink.Report(f)
+	}
+
+	assert.Equal(t, legacy.String(), rendered.String())
+	assert.Equal(t, legacyFindings, strictness.All())
+
+	const today = "ctxloom: warning: coordinator: checkpoint snapshot /s/items.snapshot unreadable, falling back to a full replay: unexpected end of JSON input\n" +
+		"ctxloom: warning: runner: spool doorbell dropped (run channel down); harp/out/1 is still on disk and will be delivered by the next sweep\n" +
+		"ctxloom: warning: runner: a terminal nudge is already registered for this run; the second registration is refused, which silently disables the session owner's mail wake\n"
+	assert.Equal(t, today, rendered.String(), "Record is quiet on stderr; FailOnce renders once and ledgers once")
+	require.Len(t, legacyFindings, 2)
+	assert.Equal(t, strictness.ClassConfig, legacyFindings[0].Class)
+	assert.Equal(t, strictness.ClassApply, legacyFindings[1].Class)
+}

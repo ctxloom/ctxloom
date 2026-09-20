@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 )
 
@@ -75,6 +76,12 @@ type Options struct {
 	// to (Verbs.Host), under the caller's identity. Nil refuses every relayed
 	// tool (ErrNoHostApp).
 	Host HostApp
+	// Reporter receives every diagnostic this coordinator, its spawner and
+	// its spool couriers raise — the composition root chooses the sink (the
+	// terminal renderer in production, a report.Collector in tests). Nil
+	// discards. Long-lived goroutines report to the Reporter they were
+	// constructed with, never to a process-wide channel.
+	Reporter report.Sink
 	// Starter is the production spawner's RUNNER-PROCESS test seam: for each
 	// spawn it is handed the backend and the per-spawn runner env (the
 	// reach-back trio, harp, depth — exactly what a real runner process

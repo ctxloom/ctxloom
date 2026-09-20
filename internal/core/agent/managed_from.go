@@ -6,6 +6,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ManagedSurfaces are the package's surfaces beside the engine's exports:
@@ -34,6 +35,26 @@ func ManagedConfigFor(surfaces ManagedSurfaces, exports engine.Exports) *Managed
 		ManageStatusline: surfaces.Statusline,
 		DenyTools:        surfaces.DenyTools,
 	}
+}
+
+// SurfaceResolver validates a binding's declared delivery preference (one
+// approach name per surface kind, as written) against the named engine.
+type SurfaceResolver func(engine string, declared map[string]string) (map[SurfaceKind]string, error)
+
+// PreferSurfaces applies the binding's delivery preference to the payload:
+// validated by resolve, it selects the approaches; a preference the engine
+// cannot honour is reported and the engine's default delivery stands. A nil
+// resolver or an empty preference leaves the default.
+func PreferSurfaces(managed *ManagedConfig, engine string, declared map[string]string, resolve SurfaceResolver) {
+	if resolve == nil || len(declared) == 0 {
+		return
+	}
+	surfaces, err := resolve(engine, declared)
+	if err != nil {
+		clidiag.Warn("ctxloom", "delivery preference: %v — using %s's default delivery", err, engine)
+		return
+	}
+	managed.Surfaces = surfaces
 }
 
 // CommandExportsOf is the engine's command exports in the writers' shape.

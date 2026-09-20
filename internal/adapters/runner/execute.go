@@ -24,7 +24,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Deps are the runner's ports, composed once per process.
@@ -42,7 +41,7 @@ type Deps struct {
 	// Surfaces validates the binding's delivery preference (as written on
 	// the package) against the hosted engine's declaration; nil accepts the
 	// engine's default delivery.
-	Surfaces SurfaceResolver
+	Surfaces agent.SurfaceResolver
 	// Configure applies the label's own body to the hosted engine before
 	// anything is delivered or driven; nil when the engine takes no
 	// configuration.
@@ -56,10 +55,6 @@ type Deps struct {
 type Static interface {
 	Setup(ctx context.Context, req *agent.SetupRequest) error
 }
-
-// SurfaceResolver validates a binding's declared delivery preference
-// against the named engine.
-type SurfaceResolver func(engine string, declared map[string]string) (map[agent.SurfaceKind]string, error)
 
 // Driver is the engine-drive port: coord.EngineHost implements it.
 type Driver interface {
@@ -109,14 +104,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		}
 	}
 	managed := agent.ManagedConfigFor(agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}, l.Exports)
-	if deps.Surfaces != nil && len(pkg.Selection.Preference) > 0 {
-		surfaces, err := deps.Surfaces(string(l.Engine), pkg.Selection.Preference)
-		if err != nil {
-			clidiag.Warn("ctxloom", "delivery preference: %v — using %s's default delivery", err, l.Engine)
-		} else {
-			managed.Surfaces = surfaces
-		}
-	}
+	agent.PreferSurfaces(managed, string(l.Engine), pkg.Selection.Preference, deps.Surfaces)
 	env := l.EngineEnv()
 	if err := deps.Static.Setup(ctx, &agent.SetupRequest{
 		WorkDir:   l.Cell.Workspace,

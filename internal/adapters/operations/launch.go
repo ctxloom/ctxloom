@@ -133,14 +133,7 @@ func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened,
 		return Opened{}, fmt.Errorf("open the launch's package: %w", err)
 	}
 	managed := agent.ManagedConfigFor(ManagedSurfacesOf(pkg), l.Exports)
-	if len(pkg.Selection.Preference) > 0 {
-		surfaces, err := ResolveAgentSurfaces(string(l.Engine), pkg.Selection.Preference)
-		if err != nil {
-			clidiag.Warn("ctxloom", "delivery preference: %v — using %s's default delivery", err, l.Engine)
-		} else {
-			managed.Surfaces = surfaces
-		}
-	}
+	agent.PreferSurfaces(managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
 	return Opened{Package: pkg, Managed: managed}, nil
 }
 

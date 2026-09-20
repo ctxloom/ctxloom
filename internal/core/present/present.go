@@ -170,6 +170,15 @@ func (c Containerize) Apply(p Paths) Mapped {
 	return Mapped{paths: paths, mounts: mounts}
 }
 
+// Advised rebuilds a Mapped from an advised Paths and the mounts that made
+// it true. It is the wire codec's constructor and nobody else's: the advice
+// was applied exactly once on the originator, and the runner receives its
+// RESULT — both sides of every root and the mount list — rather than
+// applying any advice of its own.
+func Advised(paths Paths, mounts []Mount) Mapped {
+	return Mapped{paths: paths, mounts: mounts}
+}
+
 // Mapped is a Paths that has been advised: every root's Engine side is
 // settled, and every mount a container runtime must honour to make that true
 // has been recorded. It is the ONLY thing New accepts, so a raw Paths cannot

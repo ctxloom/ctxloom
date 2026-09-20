@@ -65,7 +65,7 @@ func TestEngineHost_CloseJoinsTranscriptCapture(t *testing.T) {
 	testsupport.Isolate(t)
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	eh.BindHome(home)
 
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})

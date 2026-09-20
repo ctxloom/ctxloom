@@ -88,7 +88,7 @@ func isAutoReport(structured json.RawMessage) bool {
 // message that started the turn, or empty for a turn nothing delivered
 // started — a briefing, or an engine continuing on its own.
 func (h *Home) ReportTurnResult(text, inReplyTo string) error {
-	if h.cfg.Depth == 0 {
+	if h.Depth() == 0 {
 		return nil
 	}
 	if h.takeSelfReported() {
@@ -105,11 +105,11 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		// prompt-delivery defect this fires every turn while roster state,
 		// transcript existence and exit code all stay green.
 		kind = KindError
-		body = fmt.Sprintf("agent %q (run %s) turn produced no output — nothing to report", h.cfg.Harp, h.cfg.RunID)
-		clidiag.Warn("ctxloom", "runner: this turn ended with no report and no output; telling the parent so (%s)", h.cfg.Harp)
+		body = fmt.Sprintf("agent %q (run %s) turn produced no output — nothing to report", h.Harp(), h.cfg.RunID)
+		clidiag.Warn("ctxloom", "runner: this turn ended with no report and no output; telling the parent so (%s)", h.Harp())
 	}
 	if _, err := h.writeOutbound(Message{
-		From: h.cfg.Harp, To: ParentAddress, Kind: kind, Body: body, InReplyTo: inReplyTo,
+		From: h.Harp(), To: ParentAddress, Kind: kind, Body: body, InReplyTo: inReplyTo,
 		// MARKED AUTOMATIC. The correlation above is what makes this necessary:
 		// without the marker this message is indistinguishable from the child
 		// deliberately answering the ask that started the turn.
@@ -119,7 +119,7 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		// parent will never hear about, and the accumulator that held it has
 		// already been taken — there is nothing to retry from, so the failure
 		// is the only trace and it must exist.
-		clidiag.Warn("ctxloom", "runner: could not write this turn's report for %s: %v (the parent will not hear about this turn)", h.cfg.Harp, err)
+		clidiag.Warn("ctxloom", "runner: could not write this turn's report for %s: %v (the parent will not hear about this turn)", h.Harp(), err)
 		h.spoolDeliveryCount.failed.Add(1)
 		return err
 	}
@@ -172,7 +172,7 @@ func (h *Home) writeOutbound(msg Message) (spool.Ref, error) {
 func (h *Home) outboundCourier() *spoolCourier {
 	return &spoolCourier{
 		writers: h.spoolOut,
-		keyFor:  func(string) string { return h.cfg.Harp },
+		keyFor:  func(string) string { return h.Harp() },
 		ring:    func(_ string, ref spool.Ref) error { return h.ringSpool(ref) },
 		side:    "runner",
 	}

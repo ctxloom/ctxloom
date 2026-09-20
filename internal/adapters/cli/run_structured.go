@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
@@ -411,10 +411,10 @@ func chatPlanEntriesJSON(entries []agent.PlanEntry) []chatPlanEntryJSON {
 func pumpTurns(ctx context.Context, turns chatTurns, out chan<- agent.ChatMessage) error {
 	lead := turns.Lead
 	send := func(text string) error {
-		// JoinLeadBlocks drops empties, so a turn with no lead (every turn
+		// textblocks.Join drops empties, so a turn with no lead (every turn
 		// after the first) is sent exactly as typed. Clearing lead here is
 		// what makes the context ride ONE turn.
-		text = operations.JoinLeadBlocks(lead, text)
+		text = textblocks.Join(lead, text)
 		lead = ""
 		select {
 		case out <- agent.ChatMessage{Text: text}:

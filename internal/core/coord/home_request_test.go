@@ -40,16 +40,12 @@ func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]str
 // outage while the distillation ran happily to completion behind it.
 func TestRequest_DeliveredButSlowIsADeadlineNotUnreachable(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, researcherSpawner(), nil)
-
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
-	c.SetCustomHandlers(map[string]CustomHandler{
-		CustomToolPrefix + "slow_tool": func(ctx context.Context, caller Identity, args json.RawMessage) (json.RawMessage, error) {
-			<-release // the host is WORKING, not gone
-			return json.RawMessage(`{}`), nil
-		},
-	})
+	c := newTestCoordinatorWithHost(t, researcherSpawner(), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
+		<-release // the host is WORKING, not gone
+		return HostResult{Body: json.RawMessage(`{}`)}, nil
+	}})
 
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
@@ -58,10 +54,7 @@ func TestRequest_DeliveredButSlowIsADeadlineNotUnreachable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	_, rerr := h.Request(ctx, &agentcoordpb.AgentRequest{
-		Kind: &agentcoordpb.AgentRequest_Custom{Custom: &agentcoordpb.CustomRequest{
-			Name:  CustomToolPrefix + "slow_tool",
-			Value: &structpb.Struct{},
-		}},
+		Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "slow_tool", Args: &structpb.Struct{}}},
 	})
 
 	require.Error(t, rerr)

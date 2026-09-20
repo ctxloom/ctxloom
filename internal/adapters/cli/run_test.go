@@ -37,7 +37,7 @@ func TestValidateResumeFlags(t *testing.T) {
 // TestResumeFullContext_FoldsRenderedTranscript covers the happy path: a
 // resolvable harp's recorded entries render and join onto the existing
 // assembled context via the SAME operations.RenderResumedTranscript/
-// JoinLeadBlocks primitives the ACP resume path uses.
+// textblocks.Join primitives the ACP resume path uses.
 func TestResumeFullContext_FoldsRenderedTranscript(t *testing.T) {
 	entries := []agent.SessionEntry{
 		{Type: agent.EntryTypeUser, Content: "what does this function do?"},

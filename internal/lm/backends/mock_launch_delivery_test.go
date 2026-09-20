@@ -26,7 +26,7 @@ import (
 // "Setup returned nil" is precisely what the broken version also did.
 
 // launchSetupRequest is the SetupRequest a live turn hands a backend, in the
-// shape grpc.runTurnSetup builds it: the resolved workspace, the run's
+// shape grpc.SetupFromRunStart builds it: the resolved workspace, the run's
 // fragments, the host-assembled managed payload, and the resolved cell. It is a
 // helper rather than a literal per test so a field that matters to delivery
 // (CellKind especially) cannot be silently omitted by one test and set by

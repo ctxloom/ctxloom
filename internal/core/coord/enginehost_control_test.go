@@ -19,7 +19,7 @@ import (
 func TestEnqueueTurn_KeepsTheTagFifoInSendOrder(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	require.Equal(t, int32(0), eh.Handle(&agentcoordpb.RunnerRequest{
@@ -51,7 +51,7 @@ func TestEnqueueTurn_KeepsTheTagFifoInSendOrder(t *testing.T) {
 // silently returning nil would let a control verb report success for a turn
 // nothing will ever take.
 func TestEnqueueTurn_RefusesBeforeAnyRunStarted(t *testing.T) {
-	eh := NewEngineHost(context.Background(), &scriptedChat{}, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), &scriptedChat{}, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	err := eh.enqueueTurn(context.Background(), turnTag{}, "nowhere to go")
 	require.Error(t, err)

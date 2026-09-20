@@ -5,11 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -93,17 +91,13 @@ func (b *ClaudeCode) Chat(parentCtx context.Context, req agent.ChatRequest, in <
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 
-	mcpConfigPath, cleanupMCP, err := writeChatMCPConfig(req.MCPServers)
-	if err != nil {
-		return err
-	}
-	defer cleanupMCP()
-
+	// The MCP config is the .mcp.json the runner delivered under the session
+	// home (ChatRequest.MCPConfigPath) — Chat writes nothing of its own.
 	open := b.openChatTransport
 	if open == nil {
 		open = b.spawnChatTransport
 	}
-	tr, err := open(ctx, b.chatArgs(req, mcpConfigPath), req.Env, req.WorkDir)
+	tr, err := open(ctx, b.chatArgs(req, req.MCPConfigPath), req.Env, req.WorkDir)
 	if err != nil {
 		return err
 	}
@@ -253,36 +247,6 @@ func (b *ClaudeCode) chatArgs(req agent.ChatRequest, mcpConfigPath string) []str
 	// interactive path, so it's findable in the /resume picker.
 	args = append(args, sessionNameArgs(req.Env)...)
 	return args
-}
-
-// writeChatMCPConfig materializes req.MCPServers into a scratch claude
-// .mcp.json for one Chat call and returns its path (for --mcp-config) plus a
-// cleanup that removes the scratch directory. Returns ("", noop, nil) for an
-// empty server set — no --mcp-config flag is then emitted, and buildArgs's own
-// project-.mcp.json behavior (layered, not replaced) is unaffected.
-//
-// The document shape and write itself (mode 0o600, Env preserved verbatim —
-// load-bearing for the coordinator's CTXLOOM_MCP_SOCKET stamp, see
-// injectMCPSocketEnv in internal/core/coord/enginehost.go) are owned by
-// agent.WriteChatMCPConfigFile; this function only manages the scratch
-// directory a single Chat call needs the file to live in.
-func writeChatMCPConfig(servers []agent.ChatMCPServer) (path string, cleanup func(), err error) {
-	noop := func() {}
-	if len(servers) == 0 {
-		return "", noop, nil
-	}
-
-	dir, err := os.MkdirTemp("", "ctxloom-claude-chat-mcp-*")
-	if err != nil {
-		return "", noop, fmt.Errorf("claude chat: creating mcp config scratch dir: %w", err)
-	}
-	cleanup = func() { _ = os.RemoveAll(dir) }
-	path = filepath.Join(dir, MCPFileName)
-	if err := agent.WriteChatMCPConfigFile(path, servers); err != nil {
-		cleanup()
-		return "", noop, fmt.Errorf("claude chat: writing mcp config: %w", err)
-	}
-	return path, cleanup, nil
 }
 
 // spawnChatTransport launches the real `claude` process with piped stdio (NOT a

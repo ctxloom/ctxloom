@@ -13,7 +13,7 @@ the symbol it rests on, so `git grep` settles whether it still holds.
 | [mailbox.md](mailbox.md) | The durable at-least-once message queue: addressing rules (children address only "parent"), `message_id` dedupe, cursor-ack, the runtime reservation ledger, and both delivery paths |
 | [approvals.md](approvals.md) | The escalation ladder: rung matching, relay-and-park, the decode-before-consume reply rule, the for-session accept cache, and the fail-closed decision allow-list |
 | [artifacts.md](artifacts.md) | `agent_report` filings and their fold, the items-journal checkpoint, and the content-addressed artifact store with its sha256-verified transfer service |
-| [transport.md](transport.md) | The gRPC server and auth interceptors, `RunChannel`/`RunnerChannel`, the runner-side `Home`/`RunnerLink`/`EngineHost`, the `HarnessSpec` launch contract, and listener/endpoint plumbing |
+| [transport.md](transport.md) | The gRPC server and auth interceptors, `RunChannel`/`RunnerChannel`, the runner-side `Home`/`RunnerLink`/`EngineHost`, the launch on the wire (`coordgrpc.EncodeLaunch`/`DecodeLaunch`, `runner.Execute`), and listener/endpoint plumbing |
 | [observation.md](observation.md) | The read-only plane: the roster projection, live event fan-out, consumer credentials, out-of-process endpoint discovery, and the liveness watchdog |
 | [mcp-tool-surface.md](mcp-tool-surface.md) | `mcpschema`: the tool→proto binding table, the JSON Schema projector, the routing table and leaf trust gate, and the generator plus its drift gates |
 

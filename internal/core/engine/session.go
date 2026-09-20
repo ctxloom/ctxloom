@@ -37,6 +37,10 @@ type LabelConfig struct {
 	Model  string
 	Binary string
 	Args   []string
+	// Body is the labeled entry's own configuration as written, opaque
+	// here: the engine's config decoder reads it where the engine is
+	// configured (the runner), so a runner needs no config of its own.
+	Body map[string]any
 }
 
 // HomeBinding is one home var resolved: the engine sets Var to Path.

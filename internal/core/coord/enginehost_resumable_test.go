@@ -47,7 +47,7 @@ func TestEngineHost_ResumeCapabilityRidesTheSessionID(t *testing.T) {
 	report := func(t *testing.T, sc *sessionOnlyChat) map[string]any {
 		t.Helper()
 		home := &fakeEngineHome{}
-		eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+		eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 		t.Cleanup(eh.Close)
 		eh.BindHome(home)
 		resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})

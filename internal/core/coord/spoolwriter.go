@@ -56,6 +56,15 @@ func newSpoolWriterCache(m spool.PathMapper, dir spool.Dir, writerID string) *sp
 	return &spoolWriterCache{mapper: m, dir: dir, id: writerID, writers: map[string]*spool.Writer{}}
 }
 
+// setWriterID names the writer once the runner knows which run it is (the
+// harp bound from the Launch); a writer built before is impossible, since
+// nothing writes a spool for an unbound run.
+func (c *spoolWriterCache) setWriterID(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.id = id
+}
+
 // writerFor returns harp's writer, creating (and thereby creating the spool
 // directories) on first use, and a release the caller MUST call once its
 // write is done — the lease close waits on. The lock is held across

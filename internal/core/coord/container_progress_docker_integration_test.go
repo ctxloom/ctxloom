@@ -72,6 +72,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -168,7 +169,7 @@ func (s *progressSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, star
 	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
 	plan.Launch = l
-	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
+	return &EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: kill}, nil
 }
 
 // startDark launches a live container from the SAME image that never runs the
@@ -190,7 +191,7 @@ func (s *progressSpawner) startDark(ctx context.Context, plan *SpawnPlan, start 
 	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
 	l.Cell.Env = env
 	plan.Launch = l
-	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
+	return &EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: kill}, nil
 }
 
 func (s *progressSpawner) record(name string, kill func()) {
@@ -200,9 +201,7 @@ func (s *progressSpawner) record(name string, kill func()) {
 	s.cleanups = append(s.cleanups, kill)
 }
 
-func (s *progressSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
-	return contextText
-}
+func (s *progressSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *progressSpawner) RecordEngineVersion(context.Context, string, string) {}
 
 func (s *progressSpawner) MarkSessionEnded(string) {}

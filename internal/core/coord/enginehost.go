@@ -1,6 +1,8 @@
 package coord
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -8,20 +10,22 @@ import (
 	"sync"
 	"time"
 
-	"context"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // engineHome is the slice of *Home the engine host consumes — an interface so
 // the adaptation logic tests hermetically without a dialed coordinator.
 type engineHome interface {
+	// BindIdentity binds the run's identity from the Launch, once, before
+	// anything is driven — the spool's harp, the turn report's depth.
+	BindIdentity(id Identity)
 	emitEvent(ev *agentcoordpb.AgentEvent) uint64
 	emitCustomEvent(name string, value map[string]any)
 	SetTurnSink(sink func(*agentcoordpb.PeerMessage) bool)
@@ -45,6 +49,29 @@ type engineHome interface {
 // Compile-time assertion that Home satisfies the engine host's seam.
 var _ engineHome = (*Home)(nil)
 
+// Runner is the tail the engine host hands a StartRun's launch to: it
+// decodes the wire launch (the codec is adapters/coordgrpc's), redeems and
+// decodes the package, delivers it into the cell, and drives the engine back
+// through Drive. adapters/runner implements it; the host lives here until
+// the engine-host files move beside Execute (Part 4.1, slice 14a).
+type Runner interface {
+	Execute(ctx context.Context, wire *agentcoordpb.Launch) error
+}
+
+// Turn is what the runner asks the engine host to drive once the launch is
+// delivered: the launch itself, the structured-chat request built from it,
+// and the first turn's lead (the composed context ahead of the prompt on a
+// fresh spawn; the prompt alone on a native-key resume).
+type Turn struct {
+	Launch launch.Launch
+	Chat   agent.ChatRequest
+	Prompt string
+}
+
+// ErrNoRunner is startRun's refusal when no Runner was bound: a StartRun
+// with nothing to deliver it never launches an engine over nothing.
+var ErrNoRunner = errors.New("engine host: no runner is bound to deliver the launch")
+
 // homeBindTimeout bounds Handle's wait for BindHome. StartRun can only arrive
 // after the Home dialed in (Hello handshake), so in practice the bind (the
 // very next statement after NewHome in llm_serve.go) has always happened;
@@ -66,6 +93,7 @@ type EngineHost struct {
 
 	homeReady chan struct{}
 	home      engineHome
+	runner    Runner
 
 	mu      sync.Mutex
 	started bool
@@ -182,6 +210,14 @@ func (eh *EngineHost) BindHome(h engineHome) {
 	close(eh.homeReady)
 }
 
+// BindRunner wires the runner tail a StartRun is executed through. Called
+// once at composition, before any frame arrives.
+func (eh *EngineHost) BindRunner(r Runner) {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	eh.runner = r
+}
+
 // Handle answers coordinator-initiated RunnerRequests — the RunnerRequestHandler
 // wired into HomeConfig.Engine.
 func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
@@ -218,8 +254,10 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 }
 
 // startRun launches the hosted engine for the run this runner was spawned
-// for. Idempotent on reissue (same run_id after a reconnect returns the
-// cached result); a second DIFFERENT run is refused (MaxConcurrentRuns=1).
+// for: the bound Runner executes the launch the frame carries (redeem →
+// decode → deliver → Drive), and the result is this runner's pid.
+// Idempotent on reissue (same run_id after a reconnect returns the cached
+// result); a second DIFFERENT run is refused (MaxConcurrentRuns=1).
 func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerResponse {
 	eh.mu.Lock()
 	if eh.started {
@@ -235,23 +273,40 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		eh.mu.Unlock()
 		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("this runner was spawned for run %s, not %s (A9 correlation)", eh.runID, sr.GetRunId()))}
 	}
-	if h := sr.GetHarness().GetHarness(); h != eh.harness {
-		eh.mu.Unlock()
-		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.FailedPrecondition, fmt.Sprintf("this runner drives %q, StartRun asked for %q (RunnerHello is the advertisement)", eh.harness, h))}
+	runner := eh.runner
+	eh.mu.Unlock()
+	if runner == nil {
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
 	}
-	dec, err := decodeHarnessSpec(sr.GetHarness())
-	if err != nil {
-		eh.mu.Unlock()
+	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
 		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 	}
-	injectMCPSocketEnv(dec.Chat.MCPServers, os.Getenv(EnvMCPSocket))
-	prompt := ""
-	if in := sr.GetInput(); in != nil {
-		if v, ok := in.GetFields()["prompt"]; ok {
-			prompt = v.GetStringValue()
-		}
+	eh.mu.Lock()
+	result := eh.result
+	eh.mu.Unlock()
+	if result == nil {
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Internal, "the runner executed the launch but drove no engine")}
 	}
+	return result
+}
 
+// Drive is the engine-drive half of runner.Execute, called once the launch
+// is delivered: it launches the backend's StructuredChat conversation
+// IN-PROCESS over the request the runner built, records the transcript,
+// and adapts the engine's native event stream onto plane-1 AgentEvents.
+// The engine this runner advertised is the one the launch names — the
+// runner refused any other before delivering.
+func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
+	eh.mu.Lock()
+	if eh.started {
+		eh.mu.Unlock()
+		return fmt.Errorf("engine host: run %s is already driven", eh.runID)
+	}
+	if string(t.Launch.Engine) != eh.harness {
+		eh.mu.Unlock()
+		return fmt.Errorf("this runner drives %q, the launch names %q (RunnerHello is the advertisement)", eh.harness, t.Launch.Engine)
+	}
+	prompt := t.Prompt
 	ctx, cancel := context.WithCancel(eh.baseCtx)
 	in := make(chan agent.ChatMessage)
 	out := make(chan agent.ChatEvent, 64)
@@ -274,42 +329,35 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	eh.result = result
 	eh.mu.Unlock()
 
-	// RunStarted first: the log is self-contained (input + config echo,
-	// including whether this attempt resumed a prior native session).
+	// Identity arrives ONCE, on the launch: the home learns which run it is
+	// here, before the first frame it emits.
+	home.BindIdentity(t.Launch.Identity)
+
+	// RunStarted first: the log is self-contained (the first turn and the
+	// launch's facts, including whether this attempt resumed a prior native
+	// session).
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunStarted{RunStarted: &agentcoordpb.RunStarted{
-		Input:       sr.GetInput(),
-		Agent:       &agentcoordpb.AgentIdentity{Role: sr.GetRole()},
-		Config:      runStartedConfig(sr.GetHarness()),
-		ParentRunId: sr.GetParentRunId(),
+		Input:  runStartedInput(prompt),
+		Config: runStartedConfig(t),
 	}}})
 
-	// Capture this delegated child's canonical transcript on
-	// the runner process that hosts it — the in-process backend.Chat seam
-	// (plan §2c seam 2). dec.SessionHarp is the child's own harp (decoded from
-	// StartRun's HarnessSpec.config, "ctxloom.session_harp" — see
-	// harnessspec.go), always assigned by the coordinator before StartRun is
-	// issued (buildHarnessSpec's caller always passes rt.harp), so unlike the
-	// GRPCClient.Chat seam this is not expected to hit the no-harp gap in
-	// practice; the emptiness check stays as defensive degrade-gracefully
-	// discipline, not a documented live gap.
-	//
-	// rec is opened HERE, before backend.Chat is ever dispatched,
-	// so it can ALSO record the user turns this host writes to `in` below —
-	// the briefing prompt and any later coordinator-delivered mail
-	// (SetTurnSink). TeeAndClose only ever sees the outbound `out`/ChatEvent
-	// stream, so without this a delegated child's canonical transcript
-	// carried assistant output but no user turns at all, same as the
-	// GRPCClient.Chat seam. The briefing is recorded synchronously right
+	// Capture this run's canonical transcript on the runner process that
+	// hosts it. The harp is the launch's — the one carrier of identity to
+	// the runner. rec is opened HERE, before backend.Chat is ever
+	// dispatched, so it can ALSO record the user turns this host writes to
+	// `in` below — the briefing prompt and any later coordinator-delivered
+	// mail (SetTurnSink). TeeAndClose only ever sees the outbound
+	// `out`/ChatEvent stream. The briefing is recorded synchronously right
 	// below, strictly before backend.Chat's own goroutine starts — the one
 	// case here where we know the full user text up front, so there is no
 	// need to race it against the backend's own first ChatEvent (its Session
 	// event, typically) the way a later, dynamically-arriving SetTurnSink
 	// message necessarily does.
 	var rec transcript.Recorder
-	if dec.SessionHarp != "" {
-		r, rerr := transcript.NewRecorder(dec.SessionHarp, eh.harness, transcript.WithRawPolicy(transcript.RawPolicy(dec.Chat.TranscriptRawPolicy)))
+	if harp := t.Launch.Identity.Harp; harp != "" {
+		r, rerr := transcript.NewRecorder(harp, eh.harness, transcript.WithRawPolicy(transcript.RawPolicy(t.Chat.TranscriptRawPolicy)))
 		if rerr != nil {
-			clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", dec.SessionHarp, eh.harness, rerr)
+			clidiag.Warn("ctxloom", "transcript capture: open recorder for harp %s (engine %s): %v", harp, eh.harness, rerr)
 		} else {
 			rec = r
 		}
@@ -330,7 +378,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 
 	chatErr := make(chan error, 1)
 	eh.goTracked(func() {
-		chatErr <- eh.backend.Chat(ctx, dec.Chat, in, out)
+		chatErr <- eh.backend.Chat(ctx, t.Chat, in, out)
 	})
 
 	adaptOut := (<-chan agent.ChatEvent)(out)
@@ -365,7 +413,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		return eh.enqueueTurn(ctx, turnTag{mail: pm.GetMessageId()}, frameCoordinatorMessage(pm)) == nil
 	})
 
-	// The briefing is the first turn (context already joined coordinator-side).
+	// The briefing is the first turn (the context joined by the runner).
 	if prompt != "" {
 		eh.goTracked(func() {
 			defer close(briefed)
@@ -375,7 +423,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 			}
 		})
 	}
-	return result
+	return nil
 }
 
 // adapt is the NATIVE-EVENT ADAPTATION: it translates the engine's
@@ -620,21 +668,31 @@ func (s *itemStream) text(e *agent.SessionEntry) {
 	}
 }
 
-// runStartedConfig echoes the HarnessSpec into RunStarted.config so the log
-// alone shows what the run was started with (resume lineage included).
-func runStartedConfig(spec *agentcoordpb.HarnessSpec) *structpb.Struct {
-	if spec == nil {
+// runStartedInput is the first turn as RunStarted.input carries it: the
+// {prompt} object the log has always recorded. nil for an empty lead.
+func runStartedInput(prompt string) *structpb.Struct {
+	if prompt == "" {
 		return nil
 	}
+	in, err := structpb.NewStruct(map[string]any{"prompt": prompt})
+	if err != nil {
+		return nil
+	}
+	return in
+}
+
+// runStartedConfig echoes the launch's facts into RunStarted.config so the
+// log alone shows what the run was started with (resume lineage included).
+func runStartedConfig(t Turn) *structpb.Struct {
 	cfg, err := structpb.NewStruct(map[string]any{
-		"harness":                         spec.GetHarness(),
-		"model":                           spec.GetModel(),
-		"workspace":                       spec.GetWorkspace(),
-		"permission_mode":                 spec.GetPermissionMode(),
-		"resumed_from_harness_session_id": spec.GetResumeSessionId(),
+		"harness":                         string(t.Launch.Engine),
+		"model":                           t.Launch.Label.Model,
+		"workspace":                       t.Launch.Cell.Workspace,
+		"permission_mode":                 t.Launch.Permission.String(),
+		"resumed_from_harness_session_id": t.Launch.Resume.NativeKey,
 	})
 	if err != nil {
-		clidiag.Warn("ctxloom", "engine host: RunStarted config echo for harness %q: %v", spec.GetHarness(), err)
+		clidiag.Warn("ctxloom", "engine host: RunStarted config echo for harness %q: %v", t.Launch.Engine, err)
 		return nil
 	}
 	return cfg
@@ -831,43 +889,4 @@ func asciiLower(s string) string {
 		}
 	}
 	return string(out)
-}
-
-// injectMCPSocketEnv stamps the runner's own CTXLOOM_MCP_SOCKET onto the
-// ctxloom forwarder MCP server entry's OWN env, so the reach-back socket is
-// delivered EXPLICITLY over the ACP session/new mcpServers env (mapping.go's
-// mcpServersToACP renders each stdio server's Env verbatim) rather than
-// relying on the engine adapter to propagate its ambient process env down to
-// the MCP subprocess it spawns.
-//
-// The two shipping ACP adapters differ exactly here: claude-code-acp passes
-// its own env through to a spawned stdio MCP server (so the ambient
-// CTXLOOM_MCP_SOCKET reached the shim and its agent_send forwarded to the
-// coordinator), but a vendor shim may NOT — it then found no socket, fell
-// back to its LOCAL surface, stood up a second rogue coordinator in-process,
-// and every `agent_send(to:"parent")` failed with "this session is the
-// coordinator — it has no parent" (j002300 @live). Injecting the
-// value into the entry's declared env removes the dependency on adapter
-// behavior entirely — the isolation-must-not-negotiate discipline applied to
-// reach-back delivery: make it a property of what we send, not a promise we
-// hope the vendor keeps.
-//
-// socket=="" (no runner MCP endpoint — a bare/degraded runner) injects
-// nothing. An entry that already declares the var (a user override) is left
-// untouched.
-func injectMCPSocketEnv(servers []agent.ChatMCPServer, socket string) {
-	if socket == "" {
-		return
-	}
-	for i := range servers {
-		if servers[i].Name != agent.MCPServerName {
-			continue
-		}
-		if servers[i].Env == nil {
-			servers[i].Env = map[string]string{}
-		}
-		if _, ok := servers[i].Env[EnvMCPSocket]; !ok {
-			servers[i].Env[EnvMCPSocket] = socket
-		}
-	}
 }

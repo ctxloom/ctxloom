@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
 
 // HookOutput is the JSON output format for AI tool SessionStart hooks,
@@ -166,7 +167,7 @@ func runHookInjectContext(cmd *cobra.Command, args []string) (err error) {
 	// nudge (when this project has profiles but no agents). Both ride the
 	// systemMessage channel and can co-occur, so they are joined rather than
 	// one clobbering the other.
-	output.SystemMessage = operations.JoinLeadBlocks(
+	output.SystemMessage = textblocks.Join(
 		clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
 		agentSetupNudge(part),
 	)

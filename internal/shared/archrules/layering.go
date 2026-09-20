@@ -129,6 +129,7 @@ var LayeringRules = []LayeringRule{
 			"internal/shared/report",
 			"internal/shared/filelock",
 			"internal/shared/exectoken",
+			"internal/shared/textblocks",
 		},
 		Allowed: map[string]string{
 			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
@@ -179,6 +180,7 @@ var LayeringRules = []LayeringRule{
 			// imports what the runner imports until the runner is a package of its own.
 			"internal/core/coord/coordtest -> internal/lm/backends":        "slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest)",
 			"internal/core/coord/coordtest -> internal/adapters/isolation": "slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest)",
+			"internal/core/coord/coordtest -> internal/adapters/runner":    "slice 14a: the double moves beside the runner it stands up (measured; Part 1.0 does not mention coordtest)",
 
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
@@ -230,6 +232,11 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/configload -> internal/adapters/projectroot":            "slice 7: launch.HostFacts carries the project root from cmd/*",
 			"internal/adapters/operations -> internal/adapters/configload":             "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
 			"internal/adapters/operations -> internal/adapters/companions":             "slice 7: the process is composed at cmd/*; the companion Prober is injected",
+			"internal/adapters/operations -> internal/adapters/fsstore":                "slice 15: the composition root hands operations its session-dir claim store; until then operations roots it itself, per session, after the mint (ForSession)",
+			"internal/adapters/cli -> internal/adapters/fsstore":                       "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root and roots the runner's claim store",
+			"internal/adapters/cli -> internal/adapters/runner":                        "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/runner -> internal/adapters/coordgrpc":                  "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
+			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":               "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/configload":                    "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
 			"internal/adapters/cli -> internal/adapters/companions":                    "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
 			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
@@ -249,6 +256,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
+			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                                       "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
@@ -260,7 +268,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
 			"internal/adapters/cli -> internal/adapters/coordgrpc":                      "slice 13: the CLI hands the Launch to the spawner and stops encoding the run-start message itself",
-			"internal/adapters/coordgrpc -> internal/lm/grpc":                           "slice 8: EncodeLaunch targets the coordination proto's Launch; the plugin run-start form is deleted in 13",
+			"internal/adapters/coordgrpc -> internal/lm/grpc":                           "slice 13: EncodeRunStart, the plugin arm's projection of the launch, is deleted with that arm",
 			"internal/adapters/cli -> internal/adapters/git":                            "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; Part 1.1 does not place gitignore — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",
@@ -403,6 +411,8 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/pb":                 "sanctioned: today's MCP server is the future runner/mcp, which speaks the wire",
 			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
+			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",
+			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then per Part 1.0",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":          "slice 13: allowlisted until then per Part 1.0",
 		},

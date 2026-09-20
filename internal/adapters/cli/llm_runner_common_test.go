@@ -12,21 +12,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// testConfig is an empty-but-valid config: enough for the leafness arithmetic
-// below, which reads only the resolved delegation-depth cap. A local copy of
-// internal/adapters/mcp's fixture of the same name — the two packages' test binaries
-// share no code, and the fixture is four lines of literal.
-func testConfig() *config.Config {
-	return config.NewFixture(config.Fixture{
-		LM: config.LMConfig{Configs: map[string]config.LLMConfig{}},
-	})
-}
 
 // TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins that `llm
 // serve`/`llm host`/`llm turn` are process-owning entry points that used to
@@ -160,15 +149,17 @@ func TestStandUpRunner_ConfiguresFromTheLabelItWasGiven(t *testing.T) {
 	}
 }
 
-// TestConsumeCoordinatorReachBack_ReadsThenScrubs is the characterization half
-// of the reach-back scrub: it is read into the standup's own state and then
-// removed from the environment, so nothing the runner spawns can inherit it.
-func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
+// TestConsumeCoordinatorReachBack_ReadsTheTrioThenScrubs is the
+// characterization half of the reach-back scrub: the trio is read into the
+// standup's own state and then removed from the environment, so nothing the
+// runner spawns can inherit it. A hosted run's identity is NOT read here —
+// it arrives on the Launch — so a harp in the env of a hosted run is left
+// where it is (it is the engine's hook carrier, not the runner's identity).
+func TestConsumeCoordinatorReachBack_ReadsTheTrioThenScrubs(t *testing.T) {
 	env := map[string]string{
 		coord.EnvCoordURL:      "tcp://127.0.0.1:1",
 		coord.EnvCoordCred:     "the-token",
 		coord.EnvRunID:         "run-7",
-		coord.EnvRunDepth:      "1",
 		coord.EnvCellWorkDir:   "/work/cell",
 		"CTXLOOM_SESSION_HARP": "regal-rash-dash",
 	}
@@ -181,90 +172,29 @@ func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
 	assert.Equal(t, "the-token", reach.home.Token)
 	assert.Equal(t, "run-7", reach.home.RunID)
 	assert.Equal(t, "mock", reach.home.Harness)
-	assert.Equal(t, "regal-rash-dash", reach.harp)
-	assert.Equal(t, "/work/cell", reach.cellWorkDir)
-	assert.Equal(t, 1, reach.depth, "the stamped depth is read as-is, leafness is decided later against the resolved cap")
+	assert.Equal(t, "", reach.harp, "a hosted run's harp rides the Launch, never its environment")
+	assert.Equal(t, "", reach.home.Harp)
 
 	for _, k := range coordinatorEnvKeys {
 		assert.NotContainsf(t, env, k, "%s must not survive into the engine child's environment", k)
 	}
 }
 
-// TestConsumeCoordinatorReachBack_DepthParsing pins parseRunDepth's contract:
-// unset, empty, and unparseable ALL read as depth 0 — never an error, never
-// "unknown" — and a real numeric value round-trips exactly. This is read-only
-// env parsing; the leaf DECISION (depth compared against the resolved cap)
-// is a separate concern — see TestRunnerIsLeaf_* below.
-func TestConsumeCoordinatorReachBack_DepthParsing(t *testing.T) {
-	depthFor := func(env map[string]string) int {
-		reach, err := consumeCoordinatorReachBack("mock",
-			func(k string) string { return env[k] },
-			func(string) error { return nil })
-		require.NoError(t, err)
-		return reach.depth
+// TestConsumeCoordinatorReachBack_ThePluginArmsOwnerReadsItsHarp: the
+// session owner's plugin-hosted runner (no run id, no Launch) is the one
+// runner whose harp rides the env, until that arm is deleted.
+func TestConsumeCoordinatorReachBack_ThePluginArmsOwnerReadsItsHarp(t *testing.T) {
+	env := map[string]string{
+		coord.EnvCoordURL:      "tcp://127.0.0.1:1",
+		coord.EnvCoordCred:     "the-token",
+		"CTXLOOM_SESSION_HARP": "owner-harp",
 	}
-	assert.Equal(t, 0, depthFor(map[string]string{}), "unset reads as depth 0 (the session owner)")
-	assert.Equal(t, 0, depthFor(map[string]string{coord.EnvRunDepth: ""}), "empty reads as depth 0")
-	assert.Equal(t, 0, depthFor(map[string]string{coord.EnvRunDepth: "not-a-number"}), "unparseable reads as depth 0, never an error")
-	assert.Equal(t, 3, depthFor(map[string]string{coord.EnvRunDepth: "3"}), "a real numeric value round-trips exactly")
-}
-
-// TestRunnerIsLeaf_OwnerNeverLeafAtBuiltInCap pins the regression this whole
-// design exists to prevent: depth 0, conversational (the session owner, on
-// EITHER the plugin-hosted or the container ViaStartRun owned-run path) is
-// never a leaf at the built-in default cap.
-func TestRunnerIsLeaf_OwnerNeverLeafAtBuiltInCap(t *testing.T) {
-	assert.False(t, runnerIsLeaf(0, false, testConfig()))
-}
-
-// TestRunnerIsLeaf_DelegatedChildIsLeafAtBuiltInCap pins the other direction:
-// a depth-1 delegated child IS a leaf at the built-in default cap (1) — it
-// must not receive the coordinator-only MCP tools.
-func TestRunnerIsLeaf_DelegatedChildIsLeafAtBuiltInCap(t *testing.T) {
-	assert.True(t, runnerIsLeaf(1, false, testConfig()))
-}
-
-// TestRunnerIsLeaf_CapBoundary pins the exact boundary the comparison must
-// use: a run AT the cap is a leaf, a run one shallower is not. Using a
-// RAISED cap (3, not the built-in 1) also proves the cap is read from
-// config, not hardcoded — see the next test for the direct version of that
-// claim.
-func TestRunnerIsLeaf_CapBoundary(t *testing.T) {
-	cfg := config.NewFixture(config.Fixture{Delegation: config.DelegationConfig{Depth: 3}})
-	assert.False(t, runnerIsLeaf(2, false, cfg), "one shallower than the cap must NOT be a leaf")
-	assert.True(t, runnerIsLeaf(3, false, cfg), "AT the cap must be a leaf")
-}
-
-// TestRunnerIsLeaf_CapIsReadFromConfig pins that the cap is genuinely
-// resolved from the loaded config, not the built-in default: with
-// delegation.depth raised to 2, a depth-1 caller (a leaf at the built-in
-// default of 1) is no longer a leaf. If GetDelegationDepth ever started
-// ignoring the config value and returning only the built-in default, this
-// assertion would flip to true and the test would fail — the config key
-// would be decorative.
-func TestRunnerIsLeaf_CapIsReadFromConfig(t *testing.T) {
-	raised := config.NewFixture(config.Fixture{Delegation: config.DelegationConfig{Depth: 2}})
-	assert.False(t, runnerIsLeaf(1, false, raised), "delegation.depth=2 must let a depth-1 caller through")
-	assert.True(t, runnerIsLeaf(1, false, testConfig()), "the built-in default (1) still gates the same caller")
-}
-
-// TestRunnerIsLeaf_OneShotIsLeafEvenAtDepthZero pins the newest rule: a
-// `driving: oneshot` run is a leaf REGARDLESS of depth — its engine tears
-// down at every turn boundary, so it cannot hold a coordination
-// relationship with a child across turns. Depth 0 is the interesting case:
-// the depth term ALONE would say "not a leaf" (see
-// TestRunnerIsLeaf_OwnerNeverLeafAtBuiltInCap), so this is the one case
-// that actually exercises the OR.
-func TestRunnerIsLeaf_OneShotIsLeafEvenAtDepthZero(t *testing.T) {
-	assert.True(t, runnerIsLeaf(0, true, testConfig()))
-}
-
-// TestRunnerIsLeaf_ConversationalAtDepthZeroIsNotLeaf is the control for the
-// test above: a conversational (non-oneshot) run at depth 0 is NOT a leaf,
-// so a rule that degenerated to "always leaf" (e.g. dropping the `oneshot ||`
-// and returning true unconditionally) cannot pass both tests at once.
-func TestRunnerIsLeaf_ConversationalAtDepthZeroIsNotLeaf(t *testing.T) {
-	assert.False(t, runnerIsLeaf(0, false, testConfig()))
+	reach, err := consumeCoordinatorReachBack("mock",
+		func(k string) string { return env[k] },
+		func(k string) error { delete(env, k); return nil })
+	require.NoError(t, err)
+	assert.Equal(t, "owner-harp", reach.harp)
+	assert.Equal(t, "owner-harp", reach.home.Harp)
 }
 
 // TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch pins the

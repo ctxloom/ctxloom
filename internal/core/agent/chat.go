@@ -60,14 +60,19 @@ type ChatRequest struct {
 	// engine unless this is true AND actually wired — ctxloom brokers
 	// terminal/* to a real editor, it never implements a terminal of its own.
 	// A populator must set this from the connected editor's own
-	// clientCapabilities.terminal; a caller with no editor upstream (delegated
-	// child agents, e.g. agentcoord's HarnessSpec) leaves it false, which is
-	// exactly correct: there is nothing to broker to.
+	// clientCapabilities.terminal; a caller with no editor upstream (a
+	// delegated child's runner) leaves it false, which is exactly correct:
+	// there is nothing to broker to.
 	ForwardTerminal bool
 	// MCPServers are caller-supplied MCP servers to attach to the conversation
 	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
 	// native config the engine reads from its cwd.
 	MCPServers []ChatMCPServer
+	// MCPConfigPath is the .mcp.json the runner delivered under the session
+	// home naming exactly MCPServers; an engine whose argv takes a config
+	// file names this path rather than writing its own. "" when the set is
+	// empty.
+	MCPConfigPath string
 	// ResumeSessionID, when set, asks the backend to resume a prior native
 	// session instead of starting fresh (claude --resume <id>, codex
 	// thread/resume, ACP session/load). A backend that cannot resume (no

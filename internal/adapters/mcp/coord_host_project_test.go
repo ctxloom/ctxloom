@@ -17,13 +17,14 @@ import (
 // A relayed host tool runs in the COORDINATOR's process, whose cwd is the
 // originator's project — but it runs on behalf of the CALLER, whose cell may
 // be a different project entirely (a delegated child in its own worktree, or a
-// runner hosted for another project). The identity relayHost hands the handler
-// (serverFor(caller)) already names the caller's project; a handler that
-// consults os.Getwd() instead answers for the wrong project and never notices.
+// runner hosted for another project). The HostApp serves every Verbs.Host
+// frame under the caller's identity, which names the caller's project; a
+// handler that consults os.Getwd() instead answers for the wrong project and
+// never notices.
 //
 // Both projects carry a session so the assertion has a direction: the caller's
 // session is listed AND the host's is not.
-func TestRelayHost_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testing.T) {
+func TestHostApp_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testing.T) {
 	testsupport.Isolate(t)
 	hostProject := t.TempDir()
 	callerProject := t.TempDir()
@@ -34,16 +35,14 @@ func TestRelayHost_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testin
 	callerEntry, err := operations.AssignSessionHarp(callerProject, "mock")
 	require.NoError(t, err)
 
-	handlers := coordCustomHandlers(&config.Config{}, nil)
-	relay := handlers[coord.CustomToolPrefix+"list_sessions"]
-	require.NotNil(t, relay, "list_sessions is a host-relayed tool")
+	app := NewHostApp(&config.Config{})
 
 	caller := coord.Identity{Harp: callerEntry.HarpName, Project: callerProject}
-	raw, err := relay(context.Background(), caller, nil)
+	res, err := app.Serve(context.Background(), caller, coord.HostRequest{Tool: "list_sessions"})
 	require.NoError(t, err)
 
 	var out listSessionsResult
-	require.NoError(t, json.Unmarshal(raw, &out))
+	require.NoError(t, json.Unmarshal(res.Body, &out))
 	harps := make([]string, 0, len(out.Sessions))
 	for _, s := range out.Sessions {
 		harps = append(harps, s.Harp)
@@ -52,4 +51,12 @@ func TestRelayHost_ListSessionsResolvesTheCallersProjectNotTheHostsCwd(t *testin
 		"the relayed tool must list the CALLER's project's sessions")
 	assert.NotContains(t, harps, hostEntry.HarpName,
 		"the coordinator's own cwd is not the caller's project; its sessions must not leak into the caller's listing")
+}
+
+// TestHostApp_AnUnknownToolIsRefused: the set the app serves is derived —
+// every tool that reads the sessions root or cross-session history — and a
+// name outside it is refused by name, never answered by a default.
+func TestHostApp_AnUnknownToolIsRefused(t *testing.T) {
+	_, err := NewHostApp(&config.Config{}).Serve(context.Background(), coord.Identity{Harp: "h"}, coord.HostRequest{Tool: "agent_run"})
+	require.ErrorIs(t, err, coord.ErrUnknownHostTool)
 }

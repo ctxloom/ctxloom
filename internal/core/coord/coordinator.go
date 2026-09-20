@@ -71,6 +71,10 @@ type Options struct {
 	StateDir string
 	// Spawner overrides the launch seam (tests). Nil = production.
 	Spawner Spawner
+	// Host is the application service every host-relayed tool is dispatched
+	// to (Verbs.Host), under the caller's identity. Nil refuses every relayed
+	// tool (ErrNoHostApp).
+	Host HostApp
 	// Starter is the production spawner's RUNNER-PROCESS test seam: for each
 	// spawn it is handed the backend and the per-spawn runner env (the
 	// reach-back trio, harp, depth — exactly what a real runner process
@@ -213,9 +217,8 @@ type Coordinator struct {
 	// consumerCreds is the D1 read-only credential class (consumer.go):
 	// minted fresh per process at Serve(), never journaled.
 	consumerCreds *consumerCreds
-	// custom maps host-relay tool names ("ctxloom/<tool>") onto the
-	// coordinator-side handlers the hosting process injects.
-	custom map[string]CustomHandler
+	// host serves the Host verb; composed at New, never re-set.
+	host HostApp
 	// spoolDoorbell counts what the spool doorbell deliberately does not
 	// retry (spooldoorbell.go). Atomics, not mu-guarded: a counter that
 	// needed the coordinator lock would put contention on the exact path
@@ -409,6 +412,7 @@ func New(opts Options) (*Coordinator, error) {
 		now:                t.now,
 		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
+		host:               opts.Host,
 		slots:              semaphore.NewWeighted(int64(t.concurrencyCap)),
 		depthCap:           t.depthCap,
 		spawnNoticeAfter:   defaultSpawnNoticeAfter,

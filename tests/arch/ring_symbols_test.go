@@ -454,7 +454,6 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/cli/session_query.go":   "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 
 	// the engines: Home() is a HomeSpec the runner realises
-	"internal/engines/claude/chat_run.go":                        "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/lm/backends/mock.go":                               "slice 11b: lm/backends is deleted whole",

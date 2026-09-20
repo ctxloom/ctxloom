@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -56,13 +58,13 @@ func testLaunchDeps(t *testing.T, cfg *config.Config) launch.Deps {
 // profiles, so no assembly runs; the managed surfaces are empty.
 type launchtestAssembler struct{}
 
-func (launchtestAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (launch.Assembled, error) {
-	return launch.Assembled{}, nil
+func (launchtestAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (composite.Package, error) {
+	return composite.Package{}, nil
+}
+func (launchtestAssembler) Index(context.Context, *config.Snapshot) (composite.Index, error) {
+	return composite.Index{}, nil
 }
 func (launchtestAssembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
-func (launchtestAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
-	return &agent.ManagedConfig{}, nil
-}
 
 // sequenceMinter mints a fresh loopback endpoint per call.
 type sequenceMinter struct{}
@@ -166,7 +168,7 @@ func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 
 	var got launch.Launch
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(_ context.Context, l launch.Launch) error { got = l; return nil }
+	launchEngineWithPromptFn = func(_ context.Context, l launch.Launch, _ operations.Opened) error { got = l; return nil }
 	t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
 
 	cmd := &cobra.Command{}
@@ -326,7 +328,7 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
 		launchCalled = true
 		return nil
 	}
@@ -354,7 +356,7 @@ func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
 		launchCalled = true
 		return nil
 	}
@@ -412,7 +414,7 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 		t.Cleanup(func() { authPingFactory = origFactory })
 
 		origLaunch := launchEngineWithPromptFn
-		launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
+		launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
 			return assert.AnError
 		}
 		t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
@@ -463,7 +465,7 @@ func TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch(t *testing.T) {
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, launch.Launch) error {
+	launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
 		launchCalled = true
 		return nil
 	}

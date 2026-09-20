@@ -259,8 +259,8 @@ var vocabConversionAllowed = map[string]string{
 	"cmd/ltk/check.go#checkFlags.run#internal/ltk/ir.Shell":       "the --shell flag value is asserted into ir.Shell; internal/ltk/ir declares the vocabulary but ships no parser for it — add one and call it here (shellenv.ShellFromPath is the nearest existing membership decision)",
 	"cmd/ltk/evaluate.go#evaluateFlags.run#internal/ltk/ir.Shell": "same --shell assertion as cmd/ltk/check.go; both wait on a parser in internal/ltk/ir",
 
-	"internal/core/coord/enginehost.go#EngineHost.startRun#internal/adapters/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/adapters/transcript ships no parser for RawPolicy — add one and call it",
-	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/adapters/transcript.RawPolicy":      "same RawPolicy assertion as coord.EngineHost.startRun, reached from the wire side",
+	"internal/core/coord/enginehost.go#EngineHost.Drive#internal/adapters/transcript.RawPolicy": "raw-transcript policy string asserted into the enum; internal/adapters/transcript ships no parser for RawPolicy — add one and call it",
+	"internal/lm/grpc/chat.go#GRPCClient.openRecorder#internal/adapters/transcript.RawPolicy":   "same RawPolicy assertion as coord.EngineHost.Drive, reached from the wire side",
 
 	"internal/lm/grpc/chat.go#chatStartFromProto#internal/core/agent.MCPTransport":                    "a proto string field asserted into the transport enum; an unknown wire value becomes a well-typed value nothing rejects",
 	"internal/lm/grpc/sessionhistory.go#entryFromProto#internal/core/agent.SessionEntryType":          "a proto string field asserted into the entry-type enum; same unchecked-wire-value shape",

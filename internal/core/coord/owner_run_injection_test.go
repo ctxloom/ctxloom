@@ -37,7 +37,7 @@ func TestOwnerRun_ChildMailArrivesAsAnUnrequestedTurn(t *testing.T) {
 
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "coordinate the work")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "coordinate the work")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return len(sc.recordedTexts()) == 1 },
 		conformanceWait, 10*time.Millisecond, "the owner run's own briefing is its first turn")
@@ -82,7 +82,7 @@ func TestOwnerRun_ForgedHeaderFromAChildIsInertInTheOwnersTurn(t *testing.T) {
 
 	sc := &scriptedChat{}
 	starter, _ := ownerRunStarter(ctx, sc, "claude-code")
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass)}, starter, "coordinate the work")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "sonnet", "/work", agent.PermissionBypass), false), starter, "coordinate the work")
 	require.NoError(t, err)
 
 	out, err := c.AgentRun(context.Background(), owner, "worker", "go", "", "")

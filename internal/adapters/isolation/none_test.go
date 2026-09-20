@@ -45,7 +45,10 @@ func TestNoneStartRunner_LaunchFailureNamesTheAgent(t *testing.T) {
 // (this env is the runner's MCP discovery marker — see EnvCellWorkDir) could
 // silently miss the other. Both halves must copy the caller's map rather than
 // mutate it, and both must stamp the workspace dir under the SAME key.
-func TestNoneSpawnEnv_BothHalvesStampTheCellWorkDir(t *testing.T) {
+// TestNoneStartRunner_CarriesTheCallersEnvAndNoCell: the runner learns its
+// cell from the Launch, so the runner subprocess is started with the caller's
+// per-spawn env (the reach-back trio) and no workspace stamp.
+func TestNoneStartRunner_CarriesTheCallersEnvAndNoCell(t *testing.T) {
 	var got map[string]string
 	withStartHostRunner(t, func(_ []string, env map[string]string) (*pb.HostRunner, error) {
 		got = env
@@ -55,13 +58,13 @@ func TestNoneSpawnEnv_BothHalvesStampTheCellWorkDir(t *testing.T) {
 	caller := map[string]string{"CTXLOOM_COORD_URL": "http://host:9000"}
 	_, _ = None{}.StartRunner(context.Background(), "mock", "m", 0, hostWorkspace{dir: "/ws"}, caller)
 
-	assert.Equal(t, "/ws", got[sessions.EnvCellWorkDir], "the workspace dir is stamped for the runner's discovery marker")
+	assert.NotContains(t, got, sessions.EnvCellWorkDir, "the runner's cell rides the Launch, never its environment")
 	assert.Equal(t, "http://host:9000", got["CTXLOOM_COORD_URL"], "the caller's per-spawn env rides along")
 	assert.NotContains(t, caller, sessions.EnvCellWorkDir, "the caller's map is copied, never mutated")
 }
 
-// TestSpawnEnvWithCellWorkDir covers every arm of the shared assembly the two
-// halves now collapse onto — a nil caller map, a nil workspace, a workspace
+// TestSpawnEnvWithCellWorkDir covers every arm of the plugin subprocess's
+// assembly — a nil caller map, a nil workspace, a workspace
 // with no directory, and the stamped case.
 func TestSpawnEnvWithCellWorkDir(t *testing.T) {
 	assert.Empty(t, spawnEnvWithCellWorkDir(nil, nil), "no caller env and no workspace stamps nothing")

@@ -33,7 +33,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 	boom := errors.New("no such image: ctxloom-agent-claude")
 	starter := func(context.Context, map[string]string) (func(), string, error) { return nil, "", boom }
 
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass)}, starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
 
 	if !assert.Error(t, err) {
 		return
@@ -84,7 +84,7 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 	// times out and it fails the child itself.
 	starter := func(context.Context, map[string]string) (func(), string, error) { return func() {}, "", nil }
 
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass)}, starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), false), starter, "hello")
 	if !assert.Error(t, err, "a runner that never dials home must fail the owner run") {
 		return
 	}
@@ -154,7 +154,7 @@ func TestStartOwnedRun_FlagsAreSetBeforeTheRunnerCanExist(t *testing.T) {
 		return nil, "", errors.New("stop here: the flags have already been observed")
 	}
 
-	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{Launch: ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), Oneshot: true}, starter, "hello")
+	_, err = c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "claude-code", "fast", "", "/work", agent.PermissionBypass), true), starter, "hello")
 	if !assert.Error(t, err) {
 		return
 	}

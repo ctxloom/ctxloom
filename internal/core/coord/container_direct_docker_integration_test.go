@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -117,12 +118,10 @@ func (s *directBusSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, sta
 	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
 	plan.Launch = l
-	return &EngineSpawn{Launch: l, MCPServers: plan.MCPServers, Kill: kill}, nil
+	return &EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: kill}, nil
 }
 
-func (s *directBusSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
-	return contextText
-}
+func (s *directBusSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *directBusSpawner) RecordEngineVersion(context.Context, string, string) {}
 
 func (s *directBusSpawner) MarkSessionEnded(string) {}

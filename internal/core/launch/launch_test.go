@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -144,9 +145,11 @@ func TestResolve_InternalSource_BindsNoAgent(t *testing.T) {
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Internal: true, Label: "fast", Mode: engine.Structured, Prompt: "distill this", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Equal(t, "fast", l.Label.Label)
-	require.Empty(t, l.Package.Profiles, "no binding: no profiles composed")
-	require.Empty(t, l.Package.Context)
-	require.NotNil(t, l.Package.Managed, "the managed surfaces still ride: the one-shot is a real session")
+	pkg, err := launch.Open(context.Background(), env.Deps, l)
+	require.NoError(t, err, "the package still rides, carried: the one-shot is a real session")
+	require.Empty(t, pkg.Selection.Profiles, "no binding: no profiles composed")
+	require.Empty(t, pkg.Context.Text)
+	require.NotNil(t, l.Plan.Static, "a plan exists even when empty")
 	require.Equal(t, engine.PermissionBypass, l.Permission)
 	require.NotEmpty(t, l.MCP.URL)
 }
@@ -270,13 +273,13 @@ func TestResolve_NamedProfilesThatAssembleToNothingAreRefused(t *testing.T) {
 // emptyAssembler composes every profile set to nothing.
 type emptyAssembler struct{}
 
-func (emptyAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (launch.Assembled, error) {
-	return launch.Assembled{}, nil
+func (emptyAssembler) Assemble(context.Context, *config.Snapshot, launch.Selection) (composite.Package, error) {
+	return composite.Package{}, nil
+}
+func (emptyAssembler) Index(context.Context, *config.Snapshot) (composite.Index, error) {
+	return composite.Index{}, nil
 }
 func (emptyAssembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
-func (emptyAssembler) Surfaces(context.Context, *config.Snapshot, engine.Name, string, []string, map[string]string) (launch.Surfaces, error) {
-	return nil, nil
-}
 
 // TestResolve_Permission_PlanCollapsesOnEveryPath: on an engine with no
 // read-only tier a declared plan is not enforced and collapses to default —
@@ -299,3 +302,48 @@ func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
 	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
 	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a delegated child declaring an unenforceable plan is refused, never launched with a flag the engine ignores")
 }
+
+// TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage: Resolve measures
+// the encoded package and carries it inline under the ceiling, by claim check
+// above it; the consumer redeems with the adapter the carrier's shape names
+// and decodes the same package either way; a claim whose bytes do not hash
+// to the digest is refused.
+func TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage(t *testing.T) {
+	store := memStore{}
+	inline, claim := composite.Inline{Max: 1 << 20}, composite.ClaimCheck{Store: store}
+
+	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
+	env.Deps.Inline, env.Deps.ClaimCheck = inline, claim
+	env.Deps.InlineMax = 1 << 20
+	small, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	require.NoError(t, err)
+	require.Nil(t, small.Package.Claim, "under the ceiling the bytes ride the frame")
+
+	env.Deps.InlineMax = -1 // every package is above the ceiling
+	large, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	require.NoError(t, err)
+	require.NotNil(t, large.Package.Claim, "above the ceiling a claim rides the frame")
+
+	enc, err := composite.Encode(env.Assembled())
+	require.NoError(t, err)
+	for _, c := range []composite.Carrier{small.Package, large.Package} {
+		back, err := launchtest.Redeem(context.Background(), inline, claim, c) // the consumer's shape conditional, mirrored from Resolve's size conditional
+		require.NoError(t, err)
+		require.Equal(t, enc.Digest, back.Digest)
+		_, err = composite.Decode(back)
+		require.NoError(t, err)
+	}
+	store[large.Package.Claim.Location] = []byte("tampered")
+	back, err := claim.Redeem(context.Background(), large.Package)
+	require.NoError(t, err)
+	_, err = composite.Decode(back)
+	require.ErrorIs(t, err, composite.ErrDigestMismatch)
+}
+
+type memStore map[string][]byte
+
+func (m memStore) Put(ctx context.Context, digest [32]byte, b []byte) (string, error) {
+	m[string(digest[:])] = b
+	return string(digest[:]), nil
+}
+func (m memStore) Get(ctx context.Context, loc string) ([]byte, error) { return m[loc], nil }

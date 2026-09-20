@@ -8,6 +8,7 @@ package launchtest
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 	"testing"
@@ -31,7 +32,12 @@ type Env struct {
 	Identity sessions.Identity
 	Project  string
 	cells    *cells
+	asm      *assembler
 }
+
+// Assembled is the package the assembler double composed on the most
+// recent Resolve: what the carrier on that launch encodes.
+func (e Env) Assembled() composite.Package { return e.asm.last }
 
 // Option adjusts the fixture before Deps builds it.
 type Option func(*fixture)
@@ -178,16 +184,21 @@ func Deps(t *testing.T, opts ...Option) Env {
 	require.NoError(t, err)
 
 	c := &cells{available: f.available, withoutContainer: f.withoutContainer}
+	asm := &assembler{profileLLM: f.profileLLM}
 	return Env{
 		cells: c,
+		asm:   asm,
 		Deps: launch.Deps{
-			Snapshot:  snap,
-			Engines:   reg,
-			Assembler: assembler{profileLLM: f.profileLLM},
-			Cells:     c,
-			Endpoints: &StableMinter{},
-			Sessions:  store,
-			Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+			Snapshot:   snap,
+			Engines:    reg,
+			Assembler:  asm,
+			Cells:      c,
+			Endpoints:  &StableMinter{},
+			Sessions:   store,
+			Inline:     composite.Inline{Max: composite.DefaultInlineMax},
+			ClaimCheck: composite.ClaimCheck{Store: MemStore{}},
+			InlineMax:  composite.DefaultInlineMax,
+			Host:       launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 		},
 		Identity: sessions.Identity{Harp: entry.HarpName, Project: "proj"},
 		Project:  project,
@@ -302,24 +313,44 @@ func (*approach) DeliverSkills(present.Start, present.RootKind, engine.SkillsInp
 }
 
 // assembler is the Assembler double: the context is the profile set's names
-// joined, the managed surfaces are empty, the profiles declare the fixture's
-// label (none by default).
-type assembler struct{ profileLLM string }
-
-func (a assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
-	return launch.Assembled{Context: fmt.Sprintf("context of %v", sel.Profiles), Profiles: sel.Profiles, ProfileLLM: a.profileLLM}, nil
+// joined, the surfaces are empty, the profiles declare the fixture's label
+// (none by default); the catalog index is empty.
+type assembler struct {
+	profileLLM string
+	last       composite.Package
 }
 
-func (assembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
-
-func (assembler) Surfaces(_ context.Context, _ *config.Snapshot, _ engine.Name, _ string, _ []string, _ map[string]string) (launch.Surfaces, error) {
-	return surfaces{}, nil
+func (a *assembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch.Selection) (composite.Package, error) {
+	text := fmt.Sprintf("context of %v", sel.Profiles)
+	a.last = composite.Package{
+		Context:   composite.Context{Text: text, Hash: fmt.Sprintf("%x", sha256.Sum256([]byte(text)))},
+		Selection: composite.Selection{Profiles: sel.Profiles, LLM: a.profileLLM},
+	}
+	return a.last, nil
 }
 
-// surfaces is the empty managed payload.
-type surfaces struct{}
+func (*assembler) Index(context.Context, *config.Snapshot) (composite.Index, error) {
+	return composite.Index{}, nil
+}
 
-func (surfaces) Items() engine.Items { return engine.Items{} }
+func (*assembler) LabelEnv(*config.Snapshot, string) map[string]string { return nil }
+
+// MemStore is the in-memory claim store: the content-addressed location is
+// the digest itself.
+type MemStore map[string][]byte
+
+func (m MemStore) Put(_ context.Context, digest [32]byte, b []byte) (string, error) {
+	m[string(digest[:])] = b
+	return string(digest[:]), nil
+}
+func (m MemStore) Get(_ context.Context, loc string) ([]byte, error) { return m[loc], nil }
+
+// Redeem is the consumer's shape conditional, mirrored from Resolve's size
+// conditional: a claim present names the claim check, otherwise the inline
+// transport.
+func Redeem(ctx context.Context, inline, claim composite.Transport, c composite.Carrier) (composite.Encoded, error) {
+	return composite.Redeem(ctx, inline, claim, c)
+}
 
 // cells is the Cells double: the host cell is the project root; a container
 // axis is refused as an ownership mismatch when its runtime is not

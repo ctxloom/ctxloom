@@ -262,15 +262,13 @@ func ManagedConfigOf(pkg composite.Package, engineName string) (*agent.ManagedCo
 	if err != nil {
 		return nil, err
 	}
-	hooks := pkg.Hooks
-	return &agent.ManagedConfig{
-		Commands:         CommandExportsOf(exports),
-		Skills:           SkillExportsOf(exports),
-		Hooks:            &hooks,
-		BundleMCP:        pkg.MCP,
-		ManageStatusline: pkg.Statusline,
-		DenyTools:        pkg.DenyTools,
-	}, nil
+	return agent.ManagedConfigFor(ManagedSurfacesOf(pkg), exports), nil
+}
+
+// ManagedSurfacesOf is the package's surfaces as the writers' payload names
+// them.
+func ManagedSurfacesOf(pkg composite.Package) agent.ManagedSurfaces {
+	return agent.ManagedSurfaces{Hooks: pkg.Hooks, MCP: pkg.MCP, DenyTools: pkg.DenyTools, Statusline: pkg.Statusline}
 }
 
 // ExportsFor is what the named engine says about the package: its own
@@ -287,38 +285,12 @@ func ExportsFor(pkg composite.Package, engineName string) (engine.Exports, error
 	return exports, nil
 }
 
-// CommandExportsOf is the engine's command exports in the writers' shape.
-func CommandExportsOf(exports engine.Exports) []agent.CommandExport {
-	if len(exports.Commands) == 0 {
-		return nil
-	}
-	out := make([]agent.CommandExport, 0, len(exports.Commands))
-	for _, c := range exports.Commands {
-		out = append(out, agent.CommandExport{
-			Name: c.Name, Content: string(c.Body), Enabled: c.Enabled,
-			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
-		})
-	}
-	return out
-}
-
-// SkillExportsOf is the engine's skill exports in the writers' shape; the
-// bundle package keeps a file's mode as plain permission bits, so the
-// os.FileMode conversion is here.
-func SkillExportsOf(exports engine.Exports) []agent.SkillExport {
-	if len(exports.Skills) == 0 {
-		return nil
-	}
-	out := make([]agent.SkillExport, 0, len(exports.Skills))
-	for _, s := range exports.Skills {
-		files := make([]agent.PackageFile, 0, len(s.Files))
-		for _, f := range s.Files {
-			files = append(files, agent.PackageFile{RelPath: f.Path, Content: f.Bytes, Mode: os.FileMode(f.Mode)})
-		}
-		out = append(out, agent.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled, Files: files})
-	}
-	return out
-}
+// CommandExportsOf and SkillExportsOf are the writers' shapes of the
+// engine's exports, written once in core/agent beside the payload they fill.
+var (
+	CommandExportsOf = agent.CommandExportsOf
+	SkillExportsOf   = agent.SkillExportsOf
+)
 
 // LoadedSkills is the package's skills in the loaded shape, for the
 // surfaces that read a skill's link tags beside its name.

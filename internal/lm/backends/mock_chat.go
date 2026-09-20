@@ -133,7 +133,7 @@ func (b *Mock) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 //
 // The turn text is recorded as the prompt because on this arm it IS the
 // prompt — the host composes context and prompt into one lead block
-// (JoinLeadBlocks) before the turn is issued.
+// (textblocks.Join) before the turn is issued.
 func (b *Mock) recordChatTurn(req agent.ChatRequest, text string) error {
 	return writeMockRecord(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), mockRecordFields{
 		WorkDir:       req.WorkDir,

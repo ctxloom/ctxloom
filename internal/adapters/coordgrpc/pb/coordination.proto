@@ -306,6 +306,7 @@ message RunnerRequest {
     // this is something done TO the run.
     PauseRun pause_run = 14;
     ResumeRun resume_run = 15;
+    Turn turn = 16;
     CustomRequest custom = 90;
   }
 }
@@ -336,10 +337,273 @@ message StartRun {
   // first, under a new field number.
   reserved 1, 5;
   string run_id = 2;
+  // harness, input, parent_run_id and role are SUPERSEDED by launch (the
+  // engine, model, workspace, env, MCP set, permission and resume key ride
+  // Launch typed; the prompt is Launch.prompt; the lineage is the
+  // coordinator's own journal). Nothing writes or reads them since the
+  // arch-migration row snowy-jujitsu (slice 8); they stay on the wire under
+  // the additive rule until the reader that dies in slice 9 lets them be
+  // reserved.
   HarnessSpec harness = 3;
-  google.protobuf.Struct input = 4;  // initial prompt / task payload
-  string parent_run_id = 6;          // set for spawned sub-agents
+  google.protobuf.Struct input = 4;
+  string parent_run_id = 6;
   string role = 7;
+  // The resolved launch, ONE typed message: what the runner redeems, decodes,
+  // delivers and drives. coordgrpc.EncodeLaunch/DecodeLaunch are its codec.
+  Launch launch = 8;
+}
+
+// Launch is the resolved launch on the wire — the projection of
+// launch.Launch, field for field (coordgrpc.WireFieldNames pins the parity).
+// Every value the runner needs crosses here once, typed; the runner
+// re-derives nothing.
+message Launch {
+  Identity identity = 1;             // harp, run_id, depth, one_shot, project
+  string engine = 2;
+  LabelConfig label = 3;
+  Mode mode = 5;
+  PermissionMode permission = 6;     // an ENUM on the wire, never a string
+  Axes axes = 7;
+  Cell cell = 8;
+  repeated HomeBinding home = 9;
+  Carrier package = 10;              // oneof { bytes inline; Claim claim } + digest
+  Exports exports = 11;
+  Plan plan = 12;                    // routes only, never bytes
+  Index index = 13;
+  Endpoint mcp = 14;                 // URL + bearer: the runner binds it; the engine's .mcp.json names it
+  string prompt = 15;
+  ResumeRef resume = 16;
+  map<string, string> env = 17;      // engine passthrough only
+  Axes declared = 18;                // the axes as ASKED (empty where nothing declared them); axes is what they settled to
+}
+
+// Identity is sessions.Identity: minted once, carried typed, never re-read
+// from the environment by a process that holds it.
+message Identity {
+  string harp = 1;
+  string run_id = 2;
+  int32 depth = 3;
+  bool one_shot = 4;
+  string project = 5;
+}
+
+// LabelConfig is engine.LabelConfig: one llm.configs label resolved. body is
+// the entry as written, opaque here — the engine's own decoder reads it at
+// the runner, which is what leaves the runner with no config of its own.
+message LabelConfig {
+  string label = 1;
+  string model = 2;
+  string binary = 3;
+  repeated string args = 4;
+  google.protobuf.Struct body = 5;
+}
+
+// Mode is engine.Mode.
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_INTERACTIVE = 1;
+  MODE_STRUCTURED = 2;
+}
+
+// PermissionMode is engine.PermissionMode: floored ONCE by the resolver; the
+// runner honours exactly what it is told.
+enum PermissionMode {
+  PERMISSION_MODE_UNSPECIFIED = 0;   // engine.PermissionNotRequested: never on a resolved launch
+  PERMISSION_MODE_DEFAULT = 1;
+  PERMISSION_MODE_ACCEPT_EDITS = 2;
+  PERMISSION_MODE_PLAN = 3;
+  PERMISSION_MODE_BYPASS = 4;
+}
+
+// Axes are launch.Axes: the two isolation axes, each a spelled value.
+message Axes {
+  string workspace = 1;
+  string runtime = 2;
+}
+
+// Cell is launch.Cell: the prepared place the run happens in. The roots
+// carry BOTH sides (host and engine) and the mounts that made the engine
+// side true, so the runner inside a container opens engine paths without
+// translating anything. The cell's process-local handles (Cleanup, Handle)
+// do not cross.
+message Cell {
+  Paths paths = 1;
+  repeated Mount mounts = 2;
+  string workspace = 3;
+  map<string, string> env = 4;
+  repeated HomeBinding home = 5;
+  ContainerCell container = 6;       // absent on a host cell
+}
+
+// Paths is present.Paths: every root a presentation builds from.
+message Paths {
+  Root project_root = 1;
+  Root engine_home = 2;
+  Root ctxloom_home = 3;
+  Root scratch = 4;
+}
+
+// Root is present.Root: where the bytes live and what the engine is told.
+message Root {
+  string host = 1;
+  string engine = 2;
+}
+
+// Mount is present.Mount.
+message Mount {
+  string host_dir = 1;
+  string target_dir = 2;
+}
+
+// ContainerCell is launch.ContainerCell.
+message ContainerCell {
+  string runtime = 1;
+  string image = 2;
+  repeated Mount mounts = 3;
+  string home = 4;
+}
+
+// HomeBinding is engine.HomeBinding: one home var resolved to its path.
+message HomeBinding {
+  string var = 1;
+  string path = 2;
+}
+
+// Carrier is composite.Carrier: the encoded package rides the frame inline
+// or as a claim on the session-dir store, by size; the digest always rides.
+message Carrier {
+  oneof form {
+    bytes inline = 1;
+    Claim claim = 2;
+  }
+  bytes digest = 3;
+}
+
+// Claim is composite.Claim: where the bytes were stowed, store-relative.
+message Claim {
+  string location = 1;
+  int64 size = 2;
+}
+
+// Exports is engine.Exports: what the engine said about the package.
+message Exports {
+  repeated CommandExport commands = 1;
+  repeated SkillExport skills = 2;
+  map<string, string> hook_event = 3;
+  repeated string deny_tools = 4;
+}
+
+message CommandExport {
+  string name = 1;
+  bytes body = 2;
+  bool enabled = 3;
+  string description = 4;
+  string argument_hint = 5;
+  repeated string allowed_tools = 6;
+  string model = 7;
+}
+
+message SkillExport {
+  string name = 1;
+  string description = 2;
+  repeated SkillFile files = 3;
+  bool enabled = 4;
+}
+
+message SkillFile {
+  string path = 1;
+  string digest = 2;
+  int64 size = 3;
+  uint32 mode = 4;
+  bytes bytes = 5;
+}
+
+// Plan is delivery.Plan: routes, never bytes.
+message Plan {
+  repeated StaticItem static = 1;
+  repeated string dynamic = 2;
+  repeated Loss losses = 3;
+}
+
+message StaticItem {
+  SurfaceKind kind = 1;
+  string approach = 2;
+  RootKind root = 3;
+  Traits traits = 4;
+}
+
+message Loss {
+  SurfaceKind kind = 1;
+}
+
+// Traits is present.Traits.
+message Traits {
+  repeated RootKind roots = 1;
+  Channel channel = 2;
+  bool launch_only = 3;
+  bool persists = 4;
+}
+
+// SurfaceKind is present.Kind, offset by one for the unspecified zero.
+enum SurfaceKind {
+  SURFACE_KIND_UNSPECIFIED = 0;
+  SURFACE_KIND_CONTEXT = 1;
+  SURFACE_KIND_MCP = 2;
+  SURFACE_KIND_SETTINGS = 3;
+  SURFACE_KIND_HOOKS = 4;
+  SURFACE_KIND_COMMANDS = 5;
+  SURFACE_KIND_SKILLS = 6;
+}
+
+// RootKind is present.RootKind (its zero names no root).
+enum RootKind {
+  ROOT_KIND_UNSPECIFIED = 0;
+  ROOT_KIND_SESSION_HOME = 1;
+  ROOT_KIND_PROJECT_ROOT = 2;
+  ROOT_KIND_WORK_DIR = 3;
+}
+
+// Channel is present.Channel (its zero names no channel).
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_FILE = 1;
+  CHANNEL_ARGV = 2;
+  CHANNEL_ENV = 3;
+}
+
+// Index is composite.Index: the catalog's refs, kinds and descriptions.
+message Index {
+  repeated IndexEntry entries = 1;
+}
+
+message IndexEntry {
+  string ref = 1;
+  string kind = 2;
+  string description = 3;
+  string premise = 4;
+}
+
+// Endpoint is sessions.Endpoint. credential HAS a field because the MCP
+// bearer legitimately rides StartRun: it is bound inside the runner, the
+// frame is authenticated by the run credential the runner already holds,
+// and it is never journaled.
+message Endpoint {
+  string url = 1;
+  string credential = 2;
+}
+
+// ResumeRef is sessions.ResumeRef.
+message ResumeRef {
+  string harp = 1;
+  string native_key = 2;
+}
+
+// Turn is a one-shot turn to a LIVE runner: the runner outlives a turn
+// (runner lifetime = session), so a turn is a frame to the same runner, not
+// a new run. resume is the engine's native session key to continue.
+message Turn {
+  string prompt = 1;
+  string resume = 2;
 }
 
 message HarnessSpec {
@@ -670,9 +934,30 @@ message AgentRequest {
     // question, summarize, pause, resume — through the same coordinator verbs
     // the human drives from the viewer; answered by ControlRunResult.
     ControlRun control_run = 17;
-    // Open extension point, mirroring CustomEvent.
+    // A host-relayed tool (every tool that reads the sessions root or
+    // cross-session history), dispatched by the coordinator's Host verb to
+    // the application service it was composed with, under THIS caller's
+    // identity; answered by HostResult.
+    HostRequest host = 18;
+    // custom carried the host-relayed tools untyped (name "ctxloom/<tool>")
+    // before host above; nothing writes or reads it since the arch-migration
+    // row snowy-jujitsu (slice 8). It stays under the additive rule until
+    // slice 9 reserves it.
     CustomRequest custom = 90;
   }
+}
+
+// HostRequest is coord.HostRequest on the wire: the tool by name and its
+// arguments as the tool's own JSON object.
+message HostRequest {
+  string tool = 1;
+  google.protobuf.Struct args = 2;
+}
+
+// HostResult is coord.HostResult on the wire: the tool's answer as its own
+// JSON object.
+message HostResult {
+  google.protobuf.Struct body = 1;
 }
 
 message CoordinatorResponse {
@@ -693,6 +978,8 @@ message CoordinatorResponse {
     ListRunsResult list_runs = 14;
     StopRunResult stop_run = 16;  // answers AgentRequest.stop_run
     ControlRunResult control_run = 17;  // answers AgentRequest.control_run
+    HostResult host = 18;  // answers AgentRequest.host
+    // custom answered the untyped relay; see AgentRequest.custom.
     google.protobuf.Struct custom = 90;
   }
 }

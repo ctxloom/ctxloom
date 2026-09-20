@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,12 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -166,12 +170,25 @@ func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, erro
 	return entry.HarpName, nil
 }
 
+// noDelivery is the live-tap runner's static writer: nothing lands; the
+// test observes the drive.
+type noDelivery struct{}
+
+func (noDelivery) Setup(context.Context, *agent.SetupRequest) error { return nil }
+
 // StartEngine bridges the coordinator's own RunChannel to liveTapChat,
 // mirroring fake_test.go's fakeSpawner.StartEngine (coord/fake_test.go:229)
 // via the SAME exported constructors it uses internally.
 func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
 	sctx, cancel := context.WithCancel(ctx)
 	host := coord.NewEngineHost(sctx, s.chat, plan.Backend, runnerEnv[coord.EnvRunID])
+	host.BindRunner(runner.Host{Deps: runner.Deps{
+		Engine:     engine.Name(plan.Backend),
+		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
+		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
+		Static:     noDelivery{},
+		Driver:     host,
+	}})
 	home, err := coord.NewHome(sctx, coord.HomeConfig{
 		URL:     runnerEnv[coord.EnvCoordURL],
 		Token:   runnerEnv[coord.EnvCoordCred],
@@ -179,29 +196,38 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 		Harness: plan.Backend,
 		Version: "test",
 		Engine:  host.Handle,
-		Harp:    runnerEnv["CTXLOOM_SESSION_HARP"],
-		Depth:   liveTapDepth(runnerEnv),
 	})
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 	host.BindHome(home)
+	// The worker composes no context: the tap renders the turn's own words.
+	enc, err := composite.Encode(composite.Package{})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	carrier, err := composite.Inline{}.Carry(ctx, enc)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	l := launch.Launch{
 		Identity:   start.Identity,
 		Engine:     engine.Name(plan.Backend),
 		Label:      engine.LabelConfig{Label: plan.Label, Model: "test-model"},
 		Mode:       engine.Structured,
 		Permission: agent.PermissionBypass,
-		Cell:       launch.Cell{Workspace: "/work", Cleanup: func() error { return nil }},
+		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: "/work"}}), Workspace: "/work", Cleanup: func() error { return nil }},
+		Package:    carrier,
+		Prompt:     start.Prompt,
 	}
 	plan.Launch = l
-	return &coord.EngineSpawn{Launch: l, Kill: cancel}, nil
+	return &coord.EngineSpawn{Launch: l, Wire: coordgrpc.EncodeLaunch(l), Kill: cancel}, nil
 }
 
-func (s *liveTapSpawner) ResumeContext(_ context.Context, contextText, _ string) string {
-	return contextText
-}
+func (s *liveTapSpawner) ResumeHistory(context.Context, string) string        { return "" }
 func (s *liveTapSpawner) RecordEngineVersion(context.Context, string, string) {}
 
 func (s *liveTapSpawner) MarkSessionEnded(string) {}
@@ -329,13 +355,4 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("overlay did not quit")
 	}
-}
-
-// liveTapDepth reads the stamped EnvRunDepth; anything unparseable is 0.
-func liveTapDepth(env map[string]string) int {
-	d, err := strconv.Atoi(env[coord.EnvRunDepth])
-	if err != nil {
-		return 0
-	}
-	return d
 }

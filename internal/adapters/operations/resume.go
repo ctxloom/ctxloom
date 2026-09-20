@@ -104,7 +104,7 @@ func RenderResumedTranscript(harp string, entries []agent.SessionEntry) string {
 		// has no substantive entries used to prime the resumed engine with
 		// ZERO bytes of history and give no signal beyond a plain "". Warn
 		// here — once — so all three consumers (engine_session.go's ACP
-		// resume, coord/spawner.go's ResumeContext, cli/run.go's
+		// resume, coord/spawner.go's ResumeHistory, cli/run.go's
 		// resumeFullContext) get it automatically instead of each needing
 		// its own rendered=="" check.
 		clidiag.Warn("ctxloom", "resumed session %s: recorded transcript has no user/assistant/tool-use entries to prime; resuming with no prior history", harp)
@@ -140,15 +140,4 @@ func RenderResumedTranscript(harp string, entries []agent.SessionEntry) string {
 	}
 	b.WriteString(strings.Join(parts[start:], "\n\n"))
 	return b.String()
-}
-
-// JoinLeadBlocks joins first-turn lead blocks, dropping empties.
-func JoinLeadBlocks(blocks ...string) string {
-	var nonEmpty []string
-	for _, b := range blocks {
-		if b != "" {
-			nonEmpty = append(nonEmpty, b)
-		}
-	}
-	return strings.Join(nonEmpty, "\n\n")
 }

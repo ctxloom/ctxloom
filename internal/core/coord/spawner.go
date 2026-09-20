@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -91,6 +92,12 @@ type SpawnStart struct {
 	// Resumed says this is a resume even when no native key survived, so
 	// the launch re-resolves the same harp.
 	Resumed bool
+	// Prompt is the first turn as the coordinator composed it: the caller's
+	// prompt on a fresh spawn; the rendered history ahead of it on a resume
+	// that has no native key to continue. The runner leads with the
+	// package's context ahead of it, so the launch carries the prompt and
+	// never the context.
+	Prompt string
 }
 
 // Spawner is the coordinator's launch seam: production selects, resolves
@@ -133,9 +140,9 @@ type Spawner interface {
 	// own RunnerChannel (StartRun), built from the returned EngineSpawn. On
 	// success plan.Launch is set.
 	StartEngine(ctx context.Context, plan *SpawnPlan, start SpawnStart, runnerEnv map[string]string) (*EngineSpawn, error)
-	// ResumeContext composes the context for a RESUMED harp: the launch's
-	// context plus the rendered recorded history when one is loadable.
-	ResumeContext(ctx context.Context, contextText, harp string) string
+	// ResumeHistory renders the recorded history of a RESUMED harp for the
+	// first turn's lead, "" when none is loadable.
+	ResumeHistory(ctx context.Context, harp string) string
 	// MarkSessionEnded ends the harp's session: it stamps it ended in session
 	// accounting AND (in production, via operations.EndSession) removes the
 	// child's per-session engine-home instance, credential copy and all, from
@@ -180,10 +187,10 @@ func newProdSpawner(app *operations.App, projectDir string, starter StarterFunc)
 // The bar for admitting one is a per-backend recon showing that delta is
 // empty. What makes it empty generally: the runner-side standup
 // (internal/adapters/cli's standUpRunner), the isolation starter
-// (`ctxloom llm host <backend> --label ...`) and the HarnessSpec codec never
-// name a backend at all, and a delegated child's context rides the FIRST
-// TURN (runChildViaStartRun's JoinLeadBlocks into StartRun.input) rather than
-// through any backend-specific config file a Setup step would have to write.
+// (`ctxloom llm host <backend> --label ...`) and the launch codec
+// (coordgrpc.EncodeLaunch) never name a backend at all, and the runner
+// delivers the package through the engine's own Setup (runner.Execute), the
+// same writers every host launch goes through.
 //
 // TODO(slice 11b): these three tables are the last name-keyed capability
 // declarations in core. They read Instance.Resume(key) — real or refused —
@@ -239,7 +246,7 @@ func checkStartRunAllowlist(backend string) error {
 //     answer different questions, and one that neither consumes
 //     ChatRequest.ResumeSessionID nor emits a native session-id Session event
 //     stays FALSE here and re-primes from rendered history instead
-//     (resumeChild's ResumeContext fallback), over StartRun all the same.
+//     (the rendered-history lead, ResumeHistory), over StartRun all the same.
 //   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,
 //     exactly like viaStartRunBackends, so a new backend is reviewed onto
 //     resume explicitly rather than swept in by implementing StructuredChat.
@@ -410,9 +417,9 @@ var startEngine = operations.StartEngine
 type EngineSpawn struct {
 	// Launch is the resolved launch the runner was started for.
 	Launch launch.Launch
-	// MCPServers is the composed managed set for the child session —
-	// HarnessSpec.config["mcp_servers"].
-	MCPServers []agent.ChatMCPServer
+	// Wire is the same launch as StartRun carries it, projected once by the
+	// codec beside the process it is issued to.
+	Wire *agentcoordpb.Launch
 	// Kill tears the engine process and its cell down (idempotent).
 	Kill func()
 	// StderrTail reads the runner's bounded stderr tail without reaping —
@@ -442,6 +449,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 		Identity:  start.Identity,
 		Agent:     plan.AgentName,
 		Mode:      launch.StructuredMode(),
+		Prompt:    start.Prompt,
 		WorkDir:   s.projectDir,
 		Workspace: workspace,
 		DirtyTree: plan.DirtyTreeHandler,
@@ -449,7 +457,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	if start.Resumed {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}}
 	}
-	l, err := launch.Resolve(ctx, deps, src)
+	l, err := launch.Resolve(ctx, operations.ForSession(deps, start.Identity.Harp), src)
 	if err != nil {
 		return nil, err
 	}
@@ -464,30 +472,27 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, start Sp
 	plan.Launch = l
 	return &EngineSpawn{
 		Launch:     l,
-		MCPServers: plan.MCPServers,
+		Wire:       proc.Wire,
 		Kill:       proc.Kill,
 		StderrTail: proc.StderrTail,
 		Wait:       proc.Wait,
 	}, nil
 }
 
-func (s *prodSpawner) ResumeContext(ctx context.Context, contextText, harp string) string {
-	if entries, err := operations.RecordedSessionEntries(ctx, harp); err == nil {
-		rendered := operations.RenderResumedTranscript(harp, entries)
-		// RenderResumedTranscript legitimately returns "" for zero
-		// substantive entries, and JoinLeadBlocks(contextText, "") yields
-		// contextText UNCHANGED — indistinguishable, from the outside, from
-		// "loaded the whole conversation". Only the error branch below used
-		// to warn, so a resume that silently primed with no history at all
-		// gave no signal the user could tell apart from a healthy resume.
-		if rendered == "" {
-			clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (transcript rendered empty); resuming with the agent context only", harp)
-		}
-		contextText = operations.JoinLeadBlocks(contextText, rendered)
-	} else {
+func (s *prodSpawner) ResumeHistory(ctx context.Context, harp string) string {
+	entries, err := operations.RecordedSessionEntries(ctx, harp)
+	if err != nil {
 		clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (%v); resuming with the agent context only", harp, err)
+		return ""
 	}
-	return contextText
+	rendered := operations.RenderResumedTranscript(harp, entries)
+	// RenderResumedTranscript legitimately returns "" for zero substantive
+	// entries — indistinguishable, from the outside, from "loaded the whole
+	// conversation" — so a resume that primes with no history says so.
+	if rendered == "" {
+		clidiag.Warn("ctxloom", "agent resume %s: no recorded history to prime (transcript rendered empty); resuming with the agent context only", harp)
+	}
+	return rendered
 }
 
 func (s *prodSpawner) MarkSessionEnded(harp string) {

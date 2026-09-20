@@ -83,10 +83,10 @@ var retiredSlice1aFiles = []string{
 
 // reservedStartRunFields are the StartRun wire fields nothing reads on either
 // side of the runner channel today (audit 11-dataflow-review U14). Each is
-// asserted reserved by number and absent by name; the four fields the
-// coordinator still populates and the runner still reads (harness, input,
-// parent_run_id, role) are reserved only once Launch absorbs them, in the
-// slice that introduces it.
+// asserted reserved by number and absent by name. The four fields Launch
+// superseded (harness, input, parent_run_id, role) are written and read by
+// nobody since slice 8 but stay on the message under the additive rule; they
+// join this table in slice 9, when the plugin arm's twin reader dies.
 var reservedStartRunFields = map[string]int{
 	"task_id": 1,
 	"budget":  5,

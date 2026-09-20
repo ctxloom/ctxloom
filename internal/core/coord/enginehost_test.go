@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,21 +12,26 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/grpc/codes"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
+	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // fakeEngineHome records everything the engine host emits, standing in for a
 // dialed Home.
 type fakeEngineHome struct {
-	mu      sync.Mutex
-	events  []*agentcoordpb.AgentEvent
-	customs []struct {
+	mu       sync.Mutex
+	identity Identity
+	events   []*agentcoordpb.AgentEvent
+	customs  []struct {
 		Name  string
 		Value map[string]any
 	}
@@ -70,6 +74,13 @@ func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentReque
 			Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, Note: "fakeEngineHome default",
 		}},
 	}, nil
+}
+
+// BindIdentity records the identity the host bound from the launch.
+func (f *fakeEngineHome) BindIdentity(id Identity) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.identity = id
 }
 
 func (f *fakeEngineHome) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
@@ -323,18 +334,45 @@ func (s *scriptedChat) awaitPermissionAnswer(ctx context.Context, in <-chan agen
 }
 
 func testStartRun(runID string) *agentcoordpb.StartRun {
-	spec, err := buildHarnessSpec(HarnessSpecInput{
-		Harness:     "claude-code",
-		Model:       "claude-sonnet-5",
-		Workspace:   "/work",
-		SessionHarp: "child-harp-1",
-		Permission:  agent.PermissionBypass,
-	})
+	l := ownerLaunch("child-harp-1", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l.Identity.RunID = runID
+	l.Identity.Depth = 1
+	l.Prompt = "CTX\n\ndo the thing"
+	return &agentcoordpb.StartRun{RunId: runID, Launch: coordgrpc.EncodeLaunch(l)}
+}
+
+// testRunner is the Runner double the engine-host tests bind: it decodes
+// the wire launch, opens its package, and drives the host with the request
+// and the first-turn lead the real runner builds (adapters/runner, which
+// this package's tests cannot import), delivering nothing — the tests
+// observe the drive.
+type testRunner struct{ eh *EngineHost }
+
+func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) error {
+	l, err := coordgrpc.DecodeLaunch(wire)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	input, _ := structpb.NewStruct(map[string]any{"prompt": "CTX\n\ndo the thing"})
-	return &agentcoordpb.StartRun{RunId: runID, Harness: spec, Input: input, Role: "worker"}
+	pkg, err := composite.Open(ctx, composite.Inline{}, composite.ClaimCheck{Store: launchtest.MemStore{}}, l.Package)
+	if err != nil {
+		return err
+	}
+	prompt := l.Prompt
+	if l.Resume.NativeKey == "" {
+		prompt = textblocks.Join(pkg.Context.Text, l.Prompt)
+	}
+	return r.eh.Drive(ctx, Turn{
+		Launch: l,
+		Chat:   agent.ChatRequest{WorkDir: l.Cell.Workspace, Model: l.Label.Model, Permissions: l.Permission, ResumeSessionID: l.Resume.NativeKey},
+		Prompt: prompt,
+	})
+}
+
+// newTestEngineHost is NewEngineHost with the test runner bound.
+func newTestEngineHost(ctx context.Context, backend agent.StructuredChat, harness, runID string) *EngineHost {
+	eh := NewEngineHost(ctx, backend, harness, runID)
+	eh.BindRunner(testRunner{eh: eh})
+	return eh
 }
 
 // TestEngineHost_StartRunDrivesChatInProcess pins the whole runner half of
@@ -345,7 +383,7 @@ func testStartRun(runID string) *agentcoordpb.StartRun {
 func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
@@ -443,7 +481,7 @@ func TestEngineHost_StartRun_CapturesTranscript(t *testing.T) {
 	testsupport.Isolate(t)
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
@@ -505,57 +543,25 @@ func TestEngineHost_StartRun_CapturesTranscript(t *testing.T) {
 	assert.Equal(t, "end_turn", recs[6].Complete.StopReason)
 }
 
-// TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully pins the defensive
-// degrade-gracefully branch: if a StartRun somehow arrives with no
-// SessionHarp in its HarnessSpec (not expected in production — the
-// coordinator always assigns one before issuing StartRun — but defensive per
-// the plan's "no crash" requirement), the engine still runs and adapts
-// normally; it simply writes no transcript.
-func TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully(t *testing.T) {
+// TestEngineHost_StartRun_WithoutAHarpIsRefused: identity arrives ONCE, on
+// the launch, and a launch naming no session is refused by the codec before
+// anything is delivered or driven — never run harpless with capture
+// silently skipped.
+func TestEngineHost_StartRun_WithoutAHarpIsRefused(t *testing.T) {
 	testsupport.Isolate(t)
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
-	spec, err := buildHarnessSpec(HarnessSpecInput{
-		Harness:    "claude-code",
-		Model:      "claude-sonnet-5",
-		Workspace:  "/work",
-		Permission: agent.PermissionBypass,
-		// SessionHarp deliberately omitted.
-	})
-	require.NoError(t, err)
-	input, _ := structpb.NewStruct(map[string]any{"prompt": "no harp here"})
+	l := ownerLaunch("", "claude-code", "fast", "claude-sonnet-5", "/work", agent.PermissionBypass)
+	l.Prompt = "no harp here"
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{
-		StartRun: &agentcoordpb.StartRun{RunId: "run-1", Harness: spec, Input: input, Role: "worker"},
+		StartRun: &agentcoordpb.StartRun{RunId: "run-1", Launch: coordgrpc.EncodeLaunch(l)},
 	}})
-	require.Equal(t, int32(0), resp.GetStatus().GetCode())
-
-	require.Eventually(t, func() bool {
-		for _, n := range home.customNames() {
-			if n == CustomTurnIdle {
-				return true
-			}
-		}
-		return false
-	}, 5*time.Second, 10*time.Millisecond, "adapt must still process the turn normally with no harp")
-
-	// No harp was ever assigned to this run, so NO canonical transcript file
-	// should exist anywhere under the isolated home's sessions tree — the
-	// real assertion that capture was skipped outright, not attempted and
-	// silently swallowed.
-	sessionsDir, err := paths.HomeSessionsDir()
-	require.NoError(t, err)
-	found := false
-	_ = filepath.WalkDir(sessionsDir, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr == nil && !d.IsDir() && d.Name() == paths.CanonicalTranscriptFileName {
-			found = true
-		}
-		return nil
-	})
-	assert.False(t, found, "no harp on the StartRun must produce no transcript.jsonl anywhere")
+	require.Equal(t, int32(codes.InvalidArgument), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	assert.Empty(t, home.customNames(), "nothing was driven")
 }
 
 // TestEngineHost_TurnSinkDeliversFramedMail: a coordinator-pushed
@@ -564,7 +570,7 @@ func TestEngineHost_StartRun_NoHarpSkipsCaptureGracefully(t *testing.T) {
 func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
@@ -602,7 +608,7 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 func TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{endAfterTurns: 2} // the briefing, then the delivered turn, then exit
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
@@ -632,7 +638,7 @@ func TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked(t *testing.T) {
 func TestEngineHost_StartRunIdempotentOnReissue(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
-	eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 
@@ -652,7 +658,7 @@ func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
 	ctx, cancel := context.WithCancel(context.Background())
-	eh := NewEngineHost(ctx, sc, "claude-code", "run-1")
+	eh := newTestEngineHost(ctx, sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})

@@ -99,6 +99,14 @@ type Home struct {
 	// spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
 	spoolDoorbell spoolDoorbellCounters
+	// identity is this run's, bound ONCE: from the Launch the coordinator's
+	// StartRun carries (BindIdentity, called by the engine host as it
+	// drives), or at dial for the plugin-hosted owner (HomeConfig.Harp). Its
+	// harp names this runner's spool; its depth gates the automatic turn
+	// report (a depth-0 run has no parent to report to). Zero until bound:
+	// the spool machinery sweeps and writes nothing for a run that does not
+	// yet know which run it is.
+	identity Identity
 	// spoolOut lends this harp's out/ writer: where this agent's sends go.
 	spoolOut *spoolWriterCache
 	// spoolRefs maps a delivered message's dedupe id to the in/ file it came
@@ -156,17 +164,11 @@ type HomeConfig struct {
 	// can actually execute (RunnerCapabilities). Empty advertises
 	// CapPeerMessaging alone — the mailbox surface every runner has.
 	Capabilities []string
-	// Harp is this run's session harp (CTXLOOM_SESSION_HARP), which is the
-	// name of ITS spool. Required: a runner with no harp has no spool to
-	// read or write, and so no way to receive or send at all (NewHome refuses
-	// it — ErrRunNeedsHarp).
+	// Harp is set for the session owner's plugin-hosted runner ALONE: no
+	// StartRun ever reaches it, so its harp — the name of its spool — rides
+	// the process env and binds at dial, at depth 0. A hosted run leaves it
+	// empty and binds its identity from the Launch (BindIdentity).
 	Harp string
-	// Depth is this run's delegation depth (EnvRunDepth): 0 is the session
-	// owner's own run, which has no parent, so its automatic turn report has
-	// nobody to go to (ReportTurnResult). A report written to "parent" from
-	// depth 0 would be refused and the refusal mailed back to the run as its
-	// next turn — a self-loop the bridge this replaced also had to suppress.
-	Depth int
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
@@ -222,9 +224,6 @@ func (h *Home) requestFailure(ctx context.Context, waited time.Duration) error {
 // the tool verbs failing fast with ErrCoordinatorUnreachable — the
 // coordinator's runner-loss synthesis covers the lifecycle either way.
 func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
-	if cfg.Harp == "" {
-		return nil, ErrRunNeedsHarp
-	}
 	target, err := grpcTarget(cfg.URL)
 	if err != nil {
 		return nil, err
@@ -251,13 +250,53 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	}
 	// A runner writes exactly ONE spool: its own harp's out/. The cache is
 	// still keyed by harp because spoolWriterCache is shared with the
-	// coordinator's half, which serves many.
-	h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, cfg.Harp)
+	// coordinator's half, which serves many; the writer id is the harp,
+	// stamped at bind.
+	h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
 	h.startSpoolReactor()
+	if cfg.Harp != "" {
+		h.BindIdentity(Identity{Harp: cfg.Harp})
+	}
 	h.goTracked(h.runnerChannelLoop)
 	h.goTracked(h.runChannelLoop)
 	return h, nil
+}
+
+// BindIdentity binds this run's identity ONCE — the harp its spool is named
+// by, the depth its turn report is gated on — from the Launch the
+// coordinator's StartRun carried (the engine host binds as it drives). A
+// second bind is refused silently: a live runner's spool cannot be renamed
+// under it. Binding wakes the startup sweep, so mail written while the run
+// was coming up is delivered as turns.
+func (h *Home) BindIdentity(id Identity) {
+	h.mu.Lock()
+	if h.identity.Harp != "" || id.Harp == "" {
+		h.mu.Unlock()
+		return
+	}
+	h.identity = id
+	h.spoolOut.setWriterID(id.Harp)
+	h.mu.Unlock()
+	h.SweepSpoolIn()
+}
+
+// Harp is this run's session harp — the name of its spool — "" until the
+// identity is bound.
+func (h *Home) Harp() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.identity.Harp
+}
+
+// Depth is this run's delegation depth: 0 is the session owner's own run,
+// which has no parent, so its automatic turn report has nobody to go to
+// (ReportTurnResult). A report written to "parent" from depth 0 would be
+// refused and the refusal mailed back to the run as its next turn.
+func (h *Home) Depth() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.identity.Depth
 }
 
 // RunID is the run this Home hosts ("" for a session owner's runner).

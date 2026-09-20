@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -351,14 +351,12 @@ func TestCurrentSessionRecoverable(t *testing.T) {
 // TestInjectContextSystemMessageComposition pins the join behavior the
 // inject-context RunE relies on for output.SystemMessage (the two
 // SessionStart nudges — clear-recovery + agent-setup — coexisting):
-// non-empty parts join with a blank line, empties drop. Previously covered
-// via composeSystemMessage, a pure rename of operations.JoinLeadBlocks that
-// was later deleted; the RunE now calls JoinLeadBlocks directly.
+// non-empty parts join with a blank line, empties drop (textblocks.Join).
 func TestInjectContextSystemMessageComposition(t *testing.T) {
-	assert.Equal(t, "a\n\nb", operations.JoinLeadBlocks("a", "b"))
-	assert.Equal(t, "b", operations.JoinLeadBlocks("", "b"))
-	assert.Equal(t, "a", operations.JoinLeadBlocks("a", ""))
-	assert.Empty(t, operations.JoinLeadBlocks("", ""))
+	assert.Equal(t, "a\n\nb", textblocks.Join("a", "b"))
+	assert.Equal(t, "b", textblocks.Join("", "b"))
+	assert.Equal(t, "a", textblocks.Join("a", ""))
+	assert.Empty(t, textblocks.Join("", ""))
 }
 
 // TestAgentSetupNudge_Wiring proves the SessionStart hook fires the nudge

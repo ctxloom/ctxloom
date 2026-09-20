@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
@@ -512,7 +513,7 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock, toolUseResu
 	var evs []agent.ChatEvent
 	var textParts []string
 	flushText := func() {
-		evs = append(evs, vendorreader.TextEntry(entryType, vendorreader.JoinNonEmpty(textParts))...)
+		evs = append(evs, vendorreader.TextEntry(entryType, textblocks.Join(textParts...))...)
 		textParts = nil
 	}
 
@@ -595,7 +596,7 @@ func toolResultContent(raw json.RawMessage) (text string, blocks []agent.ToolCon
 			})
 		}
 	}
-	return vendorreader.JoinNonEmpty(parts), blocks
+	return textblocks.Join(parts...), blocks
 }
 
 // toolUseResultBlocks canonicalizes claude's top-level "toolUseResult" key —

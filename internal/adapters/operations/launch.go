@@ -9,13 +9,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -46,6 +47,9 @@ func StartRun(ctx context.Context, deps launch.Deps, seed sessions.Seed, src lau
 		return launch.Launch{}, err
 	}
 	src.Identity = id
+	if deps.ClaimCheck == nil {
+		deps = ForSession(deps, id.Harp)
+	}
 	l, err := launch.Resolve(ctx, deps, src)
 	if err != nil {
 		if eerr := EndSessionIn(deps.Sessions, id.Harp, time.Now()); eerr != nil {
@@ -105,9 +109,54 @@ func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, er
 		Cells:     Cells{cfg: snap.Config, mode: mode},
 		Endpoints: endpointMinter{},
 		Sessions:  store,
+		Inline:    composite.Inline{Max: composite.DefaultInlineMax},
+		InlineMax: composite.DefaultInlineMax,
 		Host:      host,
 	}, nil
 }
+
+// Opened is a launch's package as the local launcher reads it: the decoded
+// package and the managed payload today's writers deliver from it, with the
+// binding's delivery preference validated against the engine.
+type Opened struct {
+	Package composite.Package
+	Managed *agent.ManagedConfig
+}
+
+// OpenLaunch is the in-process consumer of the carrier (launch.Open) plus
+// the projection the plugin arm still hands its writers: the same package
+// and the same payload the runner builds for a delegated launch, so the two
+// deliver one set.
+func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened, error) {
+	pkg, err := launch.Open(ctx, deps, l)
+	if err != nil {
+		return Opened{}, fmt.Errorf("open the launch's package: %w", err)
+	}
+	managed := agent.ManagedConfigFor(ManagedSurfacesOf(pkg), l.Exports)
+	agent.PreferSurfaces(managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
+	return Opened{Package: pkg, Managed: managed}, nil
+}
+
+// ForSession roots the claim check at the minted session: the package store
+// is the session dir (<harp>/persist/package), so it exists only once the
+// harp does. StartRun composes it after its mint unless the caller already
+// chose a claim check (a preview keeps its claims in memory).
+func ForSession(deps launch.Deps, harp string) launch.Deps {
+	deps.ClaimCheck = composite.ClaimCheck{Store: fsstore.PackageStore{Root: filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir), Harp: harp}}
+	return deps
+}
+
+// PreviewClaims is the claim check a --dry-run carries with: in memory, so a
+// preview of a package above the inline ceiling stows nothing on disk.
+func PreviewClaims() composite.Transport { return composite.ClaimCheck{Store: memClaims{}} }
+
+type memClaims map[string][]byte
+
+func (m memClaims) Put(_ context.Context, digest [32]byte, b []byte) (string, error) {
+	m[string(digest[:])] = b
+	return string(digest[:]), nil
+}
+func (m memClaims) Get(_ context.Context, loc string) ([]byte, error) { return m[loc], nil }
 
 // hostFacts is the originator's host facts: the real home, the ctxloom home
 // and the binary. The home is read through the one reader core/paths keeps
@@ -127,34 +176,35 @@ func hostFacts() (launch.HostFacts, error) {
 }
 
 // assembler implements launch.Assembler over the ONE package: Assemble
-// assembles it (AssemblePackage → composite.Assemble, once) and Surfaces
-// projects the engine's managed surfaces off the same Package, so the
-// context a run delivers and the surfaces beside it are one assembly. pipe
-// is a test seam: a pre-configured process stage in place of the gated
-// exposure one.
+// assembles it (AssemblePackage → composite.Assemble, once) and the
+// resolver reads everything a launch delivers off that Package. pipe is a
+// test seam: a pre-configured process stage in place of the gated exposure
+// one.
 type assembler struct {
 	pipe *bundles.Pipeline
 	// preview composes the same package for a --dry-run, at the same
 	// severity, and delivers no surfaces from it.
 	preview bool
-	// pkg is the package Assemble assembled, for Surfaces; profiles is the
-	// profile set it was assembled for.
-	pkg      *composite.Package
-	profiles []string
 }
 
-func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
-	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, Pipeline: a.pipe}
+func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (composite.Package, error) {
+	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, WorkDir: sel.WorkDir, Pipeline: a.pipe}
 	pkg, err := AssemblePackage(ctx, snap.Config, req)
 	if err != nil {
-		return launch.Assembled{}, fmt.Errorf("assemble context: %w", err)
+		return composite.Package{}, fmt.Errorf("assemble context: %w", err)
 	}
-	res := contextResultOf(pkg)
-	if err := refuseEmptySelection(req, res); err != nil {
-		return launch.Assembled{}, err
+	if err := refuseEmptySelection(req, contextResultOf(pkg)); err != nil {
+		return composite.Package{}, err
 	}
-	a.pkg, a.profiles = &pkg, res.Profiles
-	return launch.Assembled{Context: res.Context, Profiles: res.Profiles, Fragments: res.FragmentsLoaded, ProfileLLM: res.ProfileLLM}, nil
+	// A withheld executable is reported, content-free, never silently.
+	WarnWithheldBy(snap.Config.ExecutableTrustGate())
+	return pkg, nil
+}
+
+// Index is the generation's catalog (bound on its Config, so a caller that
+// wrapped a bare Config still answers) as the runner's search surface.
+func (*assembler) Index(_ context.Context, snap *config.Snapshot) (composite.Index, error) {
+	return composite.IndexOf(snap.Config.Catalog())
 }
 
 // PreviewAssembler is the --dry-run assembler: the real context composition
@@ -168,41 +218,6 @@ func PreviewAssembler() launch.Assembler { return &assembler{preview: true} }
 // LabelEnv is the labeled entry's own request-borne environment.
 func (*assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
 	return MockControlFor(snap.Config, label)
-}
-
-// Surfaces projects the managed surfaces for the engine off the package
-// Assemble assembled for the same profile set — assembled here only when a
-// run selected no context at all; the binding's delivery preference is
-// validated against the engine and rides on the payload. A withheld
-// executable is reported, content-free, never silently.
-func (a *assembler) Surfaces(ctx context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (launch.Surfaces, error) {
-	if a.preview {
-		// A preview delivers no surfaces, so none are projected for it; the
-		// context it shows is still the one assembly a run would deliver.
-		return nil, nil
-	}
-	pkg := a.pkg
-	if pkg == nil || !slices.Equal(a.profiles, profiles) {
-		assembled, err := AssemblePackage(ctx, snap.Config, PackageRequest{Profiles: profiles, WorkDir: projectRoot, Pipeline: a.pipe})
-		if err != nil {
-			return nil, err
-		}
-		pkg = &assembled
-	}
-	managed, err := ManagedConfigOf(*pkg, string(eng))
-	if err != nil {
-		return nil, err
-	}
-	WarnWithheldBy(snap.Config.ExecutableTrustGate())
-	if len(preference) > 0 {
-		surfaces, err := ResolveAgentSurfaces(string(eng), preference)
-		if err != nil {
-			clidiag.Warn("ctxloom", "delivery preference: %v — using %s's default delivery", err, eng)
-		} else {
-			managed.Surfaces = surfaces
-		}
-	}
-	return managed, nil
 }
 
 // Cells implements launch.Cells: it settles the dirty parent tree for a

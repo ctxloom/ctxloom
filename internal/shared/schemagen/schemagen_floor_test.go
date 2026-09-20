@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Generate with zero targets used to succeed silently — MkdirAll succeeded,
@@ -260,4 +262,31 @@ func TestIDBase_MatchesTheHandMaintainedInputSchemas(t *testing.T) {
 			t.Errorf("%s declares $id %q, which is not under idBase %q", base, doc.ID, idBase)
 		}
 	}
+}
+
+// A target may carry an AUTHORED schema instead of a Go type to reflect — an
+// engine's export-block schema is written by the engine, not derived from a
+// struct — and it is published under its Name with the same $schema/$id/title
+// stamping, verbatim otherwise: the bytes an author validates against are
+// the bytes the engine decodes against.
+func TestGenerate_PublishesAnAuthoredSchemaVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	authored := []byte(`{"title":"claude-code export block","type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false}`)
+	written, err := Generate(dir, []Target{{Name: "engine-exports-claude-code", Schema: authored}})
+	require.NoError(t, err)
+	require.Equal(t, 1, written)
+
+	data, err := os.ReadFile(filepath.Join(dir, "engine-exports-claude-code-schema.json"))
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(data, &doc))
+	assert.Equal(t, draft, doc["$schema"])
+	assert.Equal(t, idBase+"engine-exports-claude-code.json", doc["$id"])
+	assert.Equal(t, "claude-code export block", doc["title"], "the author's title is kept")
+	assert.Equal(t, false, doc["additionalProperties"], "the authored constraints are published as written")
+	props, _ := doc["properties"].(map[string]any)
+	assert.Contains(t, props, "enabled")
+
+	_, err = Generate(dir, []Target{{Schema: authored}})
+	require.Error(t, err, "an authored schema has no Go type to derive a name from; it must be named")
 }

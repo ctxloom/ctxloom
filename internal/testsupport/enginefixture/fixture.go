@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/lm/hosting"
@@ -55,8 +54,6 @@ func Hosting(name string) hosting.Hosting {
 			name + " (fixture) writes no settings"),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
 			name + " (fixture) generates no instance config"),
-		CommandExports:  agent.Absent[func([]*bundles.LoadedContent) []agent.CommandExport](name + " (fixture) exports no commands"),
-		SkillExports:    agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport](name + " (fixture) exports no skills"),
 		HookGlobalScope: agent.Absent[hosting.HookGlobalScope](name + " (fixture) has no global settings path"),
 		VersionCommand:  agent.Absent[engineversion.Command](name + " (fixture) has no binary to ask"),
 		Home:            agent.Absent[agent.EngineHome](name + " (fixture) keeps no global state"),

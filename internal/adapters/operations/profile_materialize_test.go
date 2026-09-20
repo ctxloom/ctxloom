@@ -79,7 +79,11 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	// a materializing host that has already installed its own commands (e.g. via
 	// `manage hooks install`), which the --target launch environment does NOT
 	// share.
-	exports := backends.CommandExportsFor("claude-code", commandsOf(t, cfg, []string{"reviewer"}))
+	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Profiles: []string{"reviewer"}})
+	require.NoError(t, err)
+	engineExports, err := ExportsFor(pkg, "claude-code")
+	require.NoError(t, err)
+	exports := CommandExportsOf(engineExports)
 	var seeded bool
 	for _, e := range exports {
 		if e.Name != "discover" {

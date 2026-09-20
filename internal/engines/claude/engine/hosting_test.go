@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
@@ -66,8 +65,6 @@ func TestHosting_EveryCapabilityClaudeCarriesIsProvided(t *testing.T) {
 		"SettingsWriter":    d.SettingsWriter.Decided() && d.SettingsWriter.AbsentReason() == "",
 		"InstanceConfig":    d.InstanceConfig.Decided() && d.InstanceConfig.AbsentReason() == "",
 		"Provisioning":      d.Provisioning.Decided() && d.Provisioning.AbsentReason() == "",
-		"CommandExports":    d.CommandExports.Decided() && d.CommandExports.AbsentReason() == "",
-		"SkillExports":      d.SkillExports.Decided() && d.SkillExports.AbsentReason() == "",
 		"HookGlobalScope":   d.HookGlobalScope.Decided() && d.HookGlobalScope.AbsentReason() == "",
 		"VersionCommand":    d.VersionCommand.Decided() && d.VersionCommand.AbsentReason() == "",
 		"TranscriptReaders": d.TranscriptReaders.Decided() && d.TranscriptReaders.AbsentReason() == "",
@@ -83,45 +80,6 @@ func TestParseVersion_VersionLeadsNameFollows(t *testing.T) {
 	v, err := parseVersion("2.1.225 (Claude Code)\n")
 	require.NoError(t, err)
 	assert.Equal(t, "2.1.225", v)
-}
-
-func TestCommandExports_DecodesTheClaudeCodeBlock(t *testing.T) {
-	block := []byte(`{"enabled":false,"description":"d","argument_hint":"h","allowed_tools":["Read"],"model":"m"}`)
-	ex := CommandExports([]*bundles.LoadedContent{
-		{Name: "p", Content: "body", Exports: bundles.EngineBlocks{claude.EngineName: block}},
-		{Name: "curated", Content: "body", Exports: bundles.EngineBlocks{claude.EngineName: block}, Curated: true},
-		{Name: "other", Content: "body", Exports: bundles.EngineBlocks{"other-engine": []byte(`{"enabled":false}`)}},
-	})
-	require.Len(t, ex, 3)
-	assert.Equal(t, agent.CommandExport{Name: "p", Content: "body", Enabled: false, Description: "d", ArgumentHint: "h", AllowedTools: []string{"Read"}, Model: "m"}, ex[0])
-	assert.True(t, ex[1].Enabled, "a curated command exports even where its block opts out")
-	assert.True(t, ex[2].Enabled, "another engine's block says nothing about this one")
-}
-
-// A block the schema refuses withholds the item from this engine — it is
-// not exported with a guess — and the refusal names the engine.
-func TestCommandExports_RefusesAMalformedBlock(t *testing.T) {
-	_, err := claude.DecodeExportBlock([]byte(`{"enabled":"yes"}`))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), claude.EngineName)
-	_, err = claude.DecodeExportBlock([]byte(`{"unknown_key":1}`))
-	require.Error(t, err, "the schema closes the block: an unknown key is an authoring error")
-
-	ex := CommandExports([]*bundles.LoadedContent{{Name: "p", Content: "body", Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":"yes"}`)}}})
-	require.Len(t, ex, 1)
-	assert.False(t, ex[0].Enabled)
-}
-
-func TestSkillExports_ReadsTheClaudeCodeBlock(t *testing.T) {
-	ex := SkillExports([]*bundles.LoadedSkill{
-		{Frontmatter: bundles.SkillFrontmatter{Name: "on"}},
-		{Frontmatter: bundles.SkillFrontmatter{Name: "off"}, Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":false}`)}},
-		{Frontmatter: bundles.SkillFrontmatter{Name: "curated"}, Exports: bundles.EngineBlocks{claude.EngineName: []byte(`{"enabled":false}`)}, Curated: true},
-	})
-	require.Len(t, ex, 3)
-	assert.True(t, ex[0].Enabled)
-	assert.False(t, ex[1].Enabled)
-	assert.True(t, ex[2].Enabled)
 }
 
 // Claude's refresh token is single-use and rotating, so the ORDER is the

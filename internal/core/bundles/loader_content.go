@@ -127,12 +127,12 @@ func (c *LoadedContent) ExportName() string {
 	if c.Bundle == "" || c.Item == "" {
 		return c.Name
 	}
-	return exportBaseName(c.Bundle) + "/" + c.Item
+	return ExportBaseName(c.Bundle) + "/" + c.Item
 }
 
-// exportBaseName shortens a bundle loader name to its last path segment,
+// ExportBaseName shortens a bundle loader name to its last path segment,
 // stripping the canonical ref's "<url>@<type>/" prefix when present.
-func exportBaseName(bundleName string) string {
+func ExportBaseName(bundleName string) string {
 	base := bundleName
 	if i := strings.LastIndex(base, "@"); i >= 0 {
 		base = base[i+1:]

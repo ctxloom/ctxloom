@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
@@ -89,21 +90,30 @@ func MaterializedFor(backend string) ContextConsumer {
 // a static assembly INCLUDES premised fragments and hands back an empty
 // PremiseIndex, because nobody behind the surface can act on a menu. It is
 // decided from the consumer alone. A materialized surface goes static exactly
-// when its engine has no skills surface to re-deliver the withheld fragments
-// through — read via backends.SupportsSkills, the same predicate
-// SkillExportsFor gates on, so the mode and the skills delivery cannot
-// disagree either. An engine nobody registered is refused rather than treated
-// as skill-less: that would dump every premised fragment into a file for a
+// when its engine exports no skill package to re-deliver the withheld
+// fragments through — asked of the engine's own Exports, the same decision
+// the skills delivery is made by, so the mode and the delivery cannot
+// disagree. An engine nobody registered is refused rather than treated as
+// skill-less: that would dump every premised fragment into a file for a
 // launch that does not exist.
 func (c ContextConsumer) static() (bool, error) {
 	if !c.materialized {
 		return false, nil
 	}
-	backend, err := registeredBackend(c.backend)
-	if err != nil {
-		return false, err
+	eng, ok := backends.Engines().Lookup(engine.Name(c.backend))
+	if !ok {
+		return false, fmt.Errorf("unknown backend %q", c.backend)
 	}
-	return !backends.SupportsSkills(backend), nil
+	return !exportsSkills(eng), nil
+}
+
+// exportsSkills asks the engine whether it exports a skill package at all:
+// handed one package with no block of its own, does it offer it? A double
+// that declares no skill export answers no; every engine with a skills
+// surface answers yes.
+func exportsSkills(eng engine.Engine) bool {
+	ex, err := eng.Exports(engine.Items{Skills: []engine.SkillItem{{Ref: "ctxloom+builtin:probe#skills/probe", Name: "probe"}}})
+	return err == nil && len(ex.Skills) == 1 && ex.Skills[0].Enabled
 }
 
 // WithheldFragment is one premised fragment an assembly held back, with the

@@ -5,13 +5,44 @@ package operations
 import (
 	"reflect"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/schemagen"
 )
 
 // SchemaTargets lists the JSON output structs in this package that publish a
-// JSON Schema. Build-tagged so it and its reflection import stay
-// out of the production binary; consumed only by cmd/gen-schemas (-tags schemagen).
+// JSON Schema, plus every registered engine's export-block schema
+// (EngineExportSchemaTargets). Build-tagged so it and its reflection import
+// stay out of the production binary; consumed only by cmd/gen-schemas
+// (-tags schemagen).
 func SchemaTargets() []schemagen.Target {
+	return append(EngineExportSchemaTargets(), operationsSchemaTargets()...)
+}
+
+// EngineExportSchemaTargets publishes each shipped engine's export-block
+// schema — the document a bundle item's block under that engine's name is
+// decoded against (engine.Definition.ExportSchema) — as
+// "engine-exports-<name>", so an author validates against the same bytes the
+// engine decodes with. The set is engines.Build()'s: what the composition
+// root ships, composed here because the generator is its own process. An
+// engine that declares no schema publishes nothing.
+func EngineExportSchemaTargets() []schemagen.Target {
+	reg, err := engines.Build()
+	if err != nil {
+		panic("schemagen: " + err.Error())
+	}
+	var targets []schemagen.Target
+	for _, name := range reg.Names(nil) {
+		eng, _ := reg.Lookup(name)
+		schema := eng.Root().ExportSchema
+		if len(schema) == 0 {
+			continue
+		}
+		targets = append(targets, schemagen.Target{Name: "engine-exports-" + string(name), Schema: schema})
+	}
+	return targets
+}
+
+func operationsSchemaTargets() []schemagen.Target {
 	return []schemagen.Target{
 		{Type: reflect.TypeOf(AddItemResult{})},
 		{Type: reflect.TypeOf(AddRemoteResult{})},

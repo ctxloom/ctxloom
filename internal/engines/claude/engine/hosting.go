@@ -17,10 +17,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/hosting"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // Hosting returns claude-code's hosting record: what the backend registry
@@ -39,8 +37,6 @@ func Hosting() hosting.Hosting {
 		Surfaces:       claude.Declaration(),
 		SettingsWriter: agent.Provide(claude.NewWriter),
 		InstanceConfig: agent.Provide(claude.NewInstanceConfigWriter),
-		CommandExports: agent.Provide(CommandExports),
-		SkillExports:   agent.Provide(SkillExports),
 		// claude's project settings.json collapses onto its user-global one
 		// exactly when workDir == $HOME — found live (`manage hooks install`
 		// run from $HOME silently went global).
@@ -138,49 +134,4 @@ func containerAuthHint() string {
 // the version leads, the product name follows in parentheses.
 func parseVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
-}
-
-// CommandExports resolves the per-prompt claude-code export config from
-// each item's own block (claude.DecodeExportBlock). A block the schema
-// refuses withholds the item from this engine, naming the engine; a profile
-// that curated the item exports it even where its block opts out. The /help
-// text is the block's description when it gives one, else the command's
-// authored description.
-func CommandExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return hosting.BuildCommandExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		cc, err := claude.DecodeExportBlock(p.Exports[claude.EngineName])
-		if err != nil {
-			clidiag.Warn("ctxloom", "command %q withheld from %s: %v", p.Name, claude.EngineName, err)
-			return agent.CommandExport{Enabled: false}
-		}
-		description := cc.Description
-		if description == "" {
-			description = p.Description
-		}
-		return agent.CommandExport{
-			Enabled:      p.Curated || cc.IsEnabled(),
-			Description:  description,
-			ArgumentHint: cc.ArgumentHint,
-			AllowedTools: cc.AllowedTools,
-			Model:        cc.Model,
-		}
-	})
-}
-
-// SkillEnabled is claude-code's per-skill enablement: the one pick both the
-// materializer (SkillExports) and the skill-mates hook read, so what the hook
-// names as a mate is a skill the engine actually has. Decoded from the
-// skill's own block; a curated skill is enabled regardless.
-func SkillEnabled(s *bundles.LoadedSkill) bool {
-	cc, err := claude.DecodeExportBlock(s.Exports[claude.EngineName])
-	if err != nil {
-		clidiag.Warn("ctxloom", "skill %q withheld from %s: %v", s.Name, claude.EngineName, err)
-		return false
-	}
-	return s.Curated || cc.IsEnabled()
-}
-
-// SkillExports resolves claude-code's per-skill enablement.
-func SkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return hosting.BuildSkillExports(skills, SkillEnabled)
 }

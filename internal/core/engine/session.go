@@ -106,12 +106,17 @@ type Exports struct {
 	DenyTools []string
 }
 
-// CommandExport is one command in the engine's native slash-command shape.
+// CommandExport is one command in the engine's native slash-command shape:
+// the export-facing name, the body, whether this engine exports it, and the
+// help text and metadata it decoded from its own block.
 type CommandExport struct {
-	Name    string
-	Body    []byte
-	Enabled bool
-	Meta    map[string]string
+	Name         string
+	Body         []byte
+	Enabled      bool
+	Description  string
+	ArgumentHint string
+	AllowedTools []string
+	Model        string
 }
 
 // SkillExport is one skill package as the engine enables it. Name and

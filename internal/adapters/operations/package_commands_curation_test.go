@@ -14,11 +14,11 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/spf13/afero"
 )
@@ -58,7 +58,7 @@ func optOut() bundles.EngineBlocks {
 // bundlePromptItems returns the bare item names of the bundle (non-builtin)
 // prompts in an export set. Builtins carry no Item, so they are filtered out and
 // the assertion is about the curated/auto-exported bundle prompt set only.
-func bundlePromptItems(prompts []*bundles.LoadedContent) []string {
+func bundlePromptItems(prompts []composite.Command) []string {
 	var items []string
 	for _, p := range prompts {
 		if p.Item != "" {
@@ -162,9 +162,9 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 	prompts := commandsOf(t, withSeed(t, cfg, seed), nil)
 	require.Equal(t, []string{"optout"}, bundlePromptItems(prompts))
 
-	// The downstream backend mapper must see it ENABLED despite the bundle's
-	// opt-out, since the profile curated it.
-	ex := backends.CommandExportsFor("claude-code", prompts)
+	// The engine must see it ENABLED despite the bundle's opt-out, since the
+	// profile curated it.
+	ex := claudeExportsOf(t, withSeed(t, cfg, seed))
 	var found bool
 	for _, e := range ex {
 		if e.Name == "dev-tools/optout" {
@@ -212,7 +212,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
 		if p.Item == "review" {
-			assert.Equal(t, "V1-PINNED", p.Content, "the pinned historical version is exported, not the default")
+			assert.Equal(t, "V1-PINNED", p.Body, "the pinned historical version is exported, not the default")
 		}
 	}
 

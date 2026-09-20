@@ -249,6 +249,18 @@ func (fixtureEngine) Instance(engine.Session) (engine.Instance, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "instance"}
 }
 
+// Exports exports every item as-is: the fixture decodes no block.
+func (fixtureEngine) Exports(items engine.Items) (engine.Exports, error) {
+	var out engine.Exports
+	for _, c := range items.Commands {
+		out.Commands = append(out.Commands, engine.CommandExport{Name: c.Name, Body: c.Body, Enabled: true, Description: c.Description})
+	}
+	for _, s := range items.Skills {
+		out.Skills = append(out.Skills, engine.SkillExport{Name: s.Name, Description: s.Description, Files: s.Files, Enabled: true})
+	}
+	return out, nil
+}
+
 // approach is the fixture's one typed approach for every kind: a file under
 // the session home.
 type approach struct{}

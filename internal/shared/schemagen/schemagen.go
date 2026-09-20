@@ -34,9 +34,17 @@ const draft = "https://json-schema.org/draft/2020-12/schema"
 // An omitted Name binds the published $id to the Go identifier: renaming the
 // type renames the schema's URL. Set Name explicitly on any target whose $id is
 // meant to outlive Go-side refactoring.
+//
+// A target may instead carry an AUTHORED schema (Schema, with Type nil): a
+// document written by its owner rather than reflected from a struct — an
+// engine's export-block schema, which the engine decodes against. It is
+// published verbatim under Name (required: there is no type to derive one
+// from), stamped with $schema and $id like the reflected ones, so the bytes
+// an author validates against are the bytes the engine decodes against.
 type Target struct {
-	Type reflect.Type
-	Name string
+	Type   reflect.Type
+	Name   string
+	Schema []byte
 }
 
 // Generate writes one <name>-schema.json per target into dir, reflecting each
@@ -90,19 +98,9 @@ func Generate(dir string, targets []Target) (int, error) {
 	written := 0
 	for _, t := range ordered {
 		n := name(t)
-		schema, err := jsonschema.ForType(t.Type, nil)
+		data, err := document(t, n)
 		if err != nil {
-			return written, fmt.Errorf("reflect %s: %w", t.Type, err)
-		}
-		schema.Schema = draft
-		schema.ID = idBase + n + ".json"
-		if schema.Title == "" {
-			schema.Title = t.Type.Name()
-		}
-
-		data, err := json.MarshalIndent(schema, "", "  ")
-		if err != nil {
-			return written, fmt.Errorf("marshal %s: %w", n, err)
+			return written, err
 		}
 		data = append(data, '\n')
 		path := filepath.Join(dir, n+"-schema.json")
@@ -112,6 +110,41 @@ func Generate(dir string, targets []Target) (int, error) {
 		written++
 	}
 	return written, nil
+}
+
+// document renders one target: the reflected schema of its type, or its
+// authored schema stamped with the dialect and $id, indented.
+func document(t Target, n string) ([]byte, error) {
+	if t.Schema != nil {
+		var doc map[string]any
+		if err := json.Unmarshal(t.Schema, &doc); err != nil {
+			return nil, fmt.Errorf("authored schema %s: %w", n, err)
+		}
+		doc["$schema"] = draft
+		doc["$id"] = idBase + n + ".json"
+		if _, ok := doc["title"]; !ok {
+			doc["title"] = n
+		}
+		data, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("marshal %s: %w", n, err)
+		}
+		return data, nil
+	}
+	schema, err := jsonschema.ForType(t.Type, nil)
+	if err != nil {
+		return nil, fmt.Errorf("reflect %s: %w", t.Type, err)
+	}
+	schema.Schema = draft
+	schema.ID = idBase + n + ".json"
+	if schema.Title == "" {
+		schema.Title = t.Type.Name()
+	}
+	data, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal %s: %w", n, err)
+	}
+	return data, nil
 }
 
 // rejectUnderivableNames reports an error for any target whose schema name
@@ -124,6 +157,9 @@ func rejectUnderivableNames(targets []Target) error {
 	for _, t := range targets {
 		if name(t) != "" {
 			continue
+		}
+		if t.Type == nil {
+			return errors.New("schemagen: an authored schema has no Go type to derive a name from — give the target an explicit Name")
 		}
 		return fmt.Errorf(
 			"schemagen: cannot derive a schema name for %s (unnamed types have no reflect name) — give the target an explicit Name", t.Type)
@@ -138,7 +174,7 @@ func rejectNameCollisions(targets []Target) error {
 	for _, t := range targets {
 		n := name(t)
 		if prev, dup := seen[n]; dup {
-			return fmt.Errorf("schemagen: %s and %s both resolve to schema %q — one would silently overwrite the other on disk", prev, t.Type, n)
+			return fmt.Errorf("schemagen: %v and %v both resolve to schema %q — one would silently overwrite the other on disk", prev, t.Type, n)
 		}
 		seen[n] = t.Type
 	}
@@ -150,6 +186,9 @@ func rejectNameCollisions(targets []Target) error {
 func name(t Target) string {
 	if t.Name != "" {
 		return t.Name
+	}
+	if t.Type == nil {
+		return ""
 	}
 	return kebab(t.Type.Name())
 }

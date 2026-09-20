@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
 type fixtureConfig struct{}
@@ -29,8 +28,6 @@ func validHosting() Hosting {
 			"fixture writes no settings"),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
 			"fixture generates no instance config"),
-		CommandExports:    agent.Absent[func([]*bundles.LoadedContent) []agent.CommandExport]("fixture exports no commands"),
-		SkillExports:      agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport]("fixture exports no skills"),
 		HookGlobalScope:   agent.Absent[HookGlobalScope]("fixture's global path never collapses onto its project path"),
 		VersionCommand:    agent.Absent[engineversion.Command]("fixture has no binary to ask"),
 		Home:              agent.Absent[agent.EngineHome]("fixture keeps no global state"),
@@ -67,7 +64,7 @@ func TestValidate_EveryDeclaredSlotIsGated(t *testing.T) {
 	}
 	// The count is asserted so the loop cannot pass vacuously if the
 	// interface match ever stops finding the slots.
-	assert.GreaterOrEqual(t, gated, 10, "expected every optional capability to be a Declared slot")
+	assert.GreaterOrEqual(t, gated, 8, "expected every optional capability to be a Declared slot")
 }
 
 func TestValidate_RefusesAnUnnamedEngine(t *testing.T) {

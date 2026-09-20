@@ -76,39 +76,6 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 	return br, nil
 }
 
-// CommandExportsFor maps loaded bundle content to the named backend's command
-// exports (resolving that backend's per-prompt enablement + metadata), or nil
-// for a backend without slash-command export. Reads the descriptor table's
-// exports field — the same mapper WriteCommandFilesFor uses — so the two
-// paths can't diverge.
-func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
-	d, ok := lookup(backendName)
-	if !ok {
-		return nil
-	}
-	exports, ok := d.CommandExports.Get()
-	if !ok {
-		return nil
-	}
-	return exports(prompts)
-}
-
-// SkillExportsFor maps loaded bundle skills to the named backend's Agent
-// Skill package exports (resolving that backend's per-skill enablement), or
-// nil for a backend without skill export. Reads the descriptor table's
-// skillExports field — the skills-surface analog of CommandExportsFor.
-func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
-	d, ok := lookup(backendName)
-	if !ok {
-		return nil
-	}
-	exports, ok := d.SkillExports.Get()
-	if !ok {
-		return nil
-	}
-	return exports(skills)
-}
-
 // AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
 // writer of a backend settings file must produce identically: config-level
 // hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when

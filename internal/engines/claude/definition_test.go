@@ -122,7 +122,7 @@ func TestDeliverSettings_WritesStatuslineAndDenyList(t *testing.T) {
 func TestDeliverCommandsAndSkills_LandUnderTheProjectRoot(t *testing.T) {
 	def := claudeDef(t)
 	start, project, _ := hostStart(t)
-	_, err := def.Commands.DeliverCommands(start, present.RootProjectRoot, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Meta: map[string]string{"description": "greets"}}}}, nil)
+	_, err := def.Commands.DeliverCommands(start, present.RootProjectRoot, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, nil)
 	require.NoError(t, err)
 	body, err := os.ReadFile(filepath.Join(project, ".claude", "commands", "greet.md"))
 	require.NoError(t, err)

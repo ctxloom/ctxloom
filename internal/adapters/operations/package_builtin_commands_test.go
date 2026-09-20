@@ -25,28 +25,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
 // findByName returns the entry named name, or nil.
-func findByName(prompts []*bundles.LoadedContent, name string) *bundles.LoadedContent {
-	for _, p := range prompts {
-		if p.Name == name {
-			return p
+func findByName(prompts []composite.Command, name string) *composite.Command {
+	for i := range prompts {
+		if prompts[i].Name == name {
+			return &prompts[i]
 		}
 	}
 	return nil
-}
-
-func promptNames(prompts []*bundles.LoadedContent) []string {
-	names := make([]string, len(prompts))
-	for i, p := range prompts {
-		names[i] = p.Name
-	}
-	return names
 }
 
 // TestLoadCommandExports_CtxloomInitAlwaysPresent proves the ctxloom-init
@@ -63,9 +54,9 @@ func TestLoadCommandExports_CtxloomInitAlwaysPresent(t *testing.T) {
 
 	prompts := commandsOf(t, cfg, nil)
 	found := findByName(prompts, "ctxloom-init")
-	require.NotNil(t, found, "ctxloom-init missing from LoadCommandExports; got names: %v", promptNames(prompts))
+	require.NotNil(t, found, "ctxloom-init missing from the package; got %d commands: %+v", len(prompts), prompts)
 	assert.NotEmpty(t, found.Description, "ctxloom-init must carry its frontmatter description for /help listings")
-	assert.Contains(t, found.Content, "Phase 2", "ctxloom-init's exported content must be the five-phase body, not a placeholder")
+	assert.Contains(t, found.Body, "Phase 2", "ctxloom-init's exported content must be the five-phase body, not a placeholder")
 }
 
 // TestBuiltinCommandFrontmatterParity pins the two public seams above the

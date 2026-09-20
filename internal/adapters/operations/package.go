@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -254,43 +255,74 @@ func managedStatuslineEnabled(cfg *config.Config) bool {
 
 // ManagedConfigOf projects a package onto the managed surfaces for one
 // engine: its command and skill exports as that engine decides them from
-// its own blocks, the hooks, the servers, the deny list and the statusline.
-func ManagedConfigOf(pkg composite.Package, engineName string) *agent.ManagedConfig {
+// its own blocks (Engine.Exports over EngineItems), the hooks, the servers,
+// the deny list and the statusline. An engine nobody registered, or a block
+// its schema refuses, is an error naming it.
+func ManagedConfigOf(pkg composite.Package, engineName string) (*agent.ManagedConfig, error) {
+	exports, err := ExportsFor(pkg, engineName)
+	if err != nil {
+		return nil, err
+	}
 	hooks := pkg.Hooks
 	return &agent.ManagedConfig{
-		Commands:         backends.CommandExportsFor(engineName, loadedCommands(pkg)),
-		Skills:           backends.SkillExportsFor(engineName, LoadedSkills(pkg)),
+		Commands:         CommandExportsOf(exports),
+		Skills:           SkillExportsOf(exports),
 		Hooks:            &hooks,
 		BundleMCP:        pkg.MCP,
 		ManageStatusline: pkg.Statusline,
 		DenyTools:        pkg.DenyTools,
-	}
+	}, nil
 }
 
-// loadedCommands is the package's commands in the loaded shape the engine
-// hosting records still decide over (their Exports mappers take it).
-func loadedCommands(pkg composite.Package) []*bundles.LoadedContent {
-	out := make([]*bundles.LoadedContent, 0, len(pkg.Commands))
-	for _, c := range pkg.Commands {
-		out = append(out, &bundles.LoadedContent{
-			Name:        c.Value.Name,
-			Bundle:      c.Value.Bundle,
-			Item:        c.Value.Item,
-			Tags:        c.Value.Tags,
-			Content:     c.Value.Body,
-			Description: c.Value.Description,
-			Exports:     engineBlocks(c.Value.Exports),
-			Curated:     c.Value.Curated,
-			TrustRef:    c.Ref,
-			Signer:      c.Signer,
-			Form:        c.Form,
+// ExportsFor is what the named engine says about the package: its own
+// Exports over the engine-facing projection of the package.
+func ExportsFor(pkg composite.Package, engineName string) (engine.Exports, error) {
+	eng, ok := backends.Engines().Lookup(engine.Name(engineName))
+	if !ok {
+		return engine.Exports{}, fmt.Errorf("unknown backend %q", engineName)
+	}
+	exports, err := eng.Exports(pkg.EngineItems(engine.Name(engineName)))
+	if err != nil {
+		return engine.Exports{}, fmt.Errorf("%s exports: %w", engineName, err)
+	}
+	return exports, nil
+}
+
+// CommandExportsOf is the engine's command exports in the writers' shape.
+func CommandExportsOf(exports engine.Exports) []agent.CommandExport {
+	if len(exports.Commands) == 0 {
+		return nil
+	}
+	out := make([]agent.CommandExport, 0, len(exports.Commands))
+	for _, c := range exports.Commands {
+		out = append(out, agent.CommandExport{
+			Name: c.Name, Content: string(c.Body), Enabled: c.Enabled,
+			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
 		})
 	}
 	return out
 }
 
-// LoadedSkills is the package's skills in the loaded shape the engine
-// hosting records decide over.
+// SkillExportsOf is the engine's skill exports in the writers' shape; the
+// bundle package keeps a file's mode as plain permission bits, so the
+// os.FileMode conversion is here.
+func SkillExportsOf(exports engine.Exports) []agent.SkillExport {
+	if len(exports.Skills) == 0 {
+		return nil
+	}
+	out := make([]agent.SkillExport, 0, len(exports.Skills))
+	for _, s := range exports.Skills {
+		files := make([]agent.PackageFile, 0, len(s.Files))
+		for _, f := range s.Files {
+			files = append(files, agent.PackageFile{RelPath: f.Path, Content: f.Bytes, Mode: os.FileMode(f.Mode)})
+		}
+		out = append(out, agent.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled, Files: files})
+	}
+	return out
+}
+
+// LoadedSkills is the package's skills in the loaded shape, for the
+// surfaces that read a skill's link tags beside its name.
 func LoadedSkills(pkg composite.Package) []*bundles.LoadedSkill {
 	out := make([]*bundles.LoadedSkill, 0, len(pkg.Skills))
 	for _, s := range pkg.Skills {

@@ -585,6 +585,10 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 	settings := p.freshCfg.GetSettings()
 
 	decl := backends.Declared(backendName)
+	exports, err := ExportsFor(p.pkg, backendName)
+	if err != nil {
+		return nil, err
+	}
 	inputs := agent.SurfaceInputs{
 		// Empty when context was not regenerated this round (assembledContext ==
 		// ""), which strips a native-file backend's managed context section —
@@ -595,7 +599,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 		BundleMCP:        p.pkg.MCP,
 		Hooks:            hooksCfg,
 		ManageStatusline: settings.ShouldManageStatusline(),
-		Commands:         backends.CommandExportsFor(backendName, loadedCommands(p.pkg)),
+		Commands:         CommandExportsOf(exports),
 		DenyTools:        p.pkg.DenyTools,
 	}
 

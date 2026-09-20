@@ -6,13 +6,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // These cover the HOST side of the setup seam (config/profile/bundle resolution
@@ -130,21 +127,4 @@ func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "inheritance",
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
-}
-
-// TestCommandExportsFor resolves each backend's per-prompt enablement + metadata
-// from the same bundle content, and returns nil for an unknown backend.
-func TestCommandExportsFor(t *testing.T) {
-	c := &bundles.LoadedContent{Name: "x", Content: "body", Exports: bundles.EngineBlocks{
-		claude.EngineName: []byte(`{"enabled":true,"description":"claude desc","argument_hint":"hint"}`),
-	}}
-	prompts := []*bundles.LoadedContent{c}
-
-	claudeEx := CommandExportsFor("claude-code", prompts)
-	require.Len(t, claudeEx, 1)
-	assert.Equal(t, "claude desc", claudeEx[0].Description)
-	assert.Equal(t, "hint", claudeEx[0].ArgumentHint)
-	assert.True(t, claudeEx[0].Enabled)
-
-	assert.Nil(t, CommandExportsFor("unknown-backend", prompts))
 }

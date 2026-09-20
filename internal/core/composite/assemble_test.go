@@ -285,3 +285,31 @@ func TestAssemble_InjectedFragmentsHonourTheirPremise(t *testing.T) {
 		assert.Empty(t, pkg.Premised)
 	})
 }
+
+// A command's export name is the SHORT name — the owning bundle's last path
+// segment plus the item — never the canonical URL (unusable as a slash
+// command, and ':' is invalid in a filename on Windows); when two bundles
+// shorten to the same name both fall back to their full sanitised identity
+// so neither overwrites the other's file; an injected command with no
+// bundle passes through untouched.
+func TestAssemble_ExportNamesShortenAndResolveCollisions(t *testing.T) {
+	cat := corpus(t)
+	own := composite.Command{Name: "check-triggers", Body: "Set up."}
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat, profiles.ResolvedProfile{Bundles: []string{"beta"}}), compositetest.Trust(), composite.Options{Commands: []composite.Command{own}})
+	require.NoError(t, err)
+
+	byRef := map[string]composite.Command{}
+	for _, c := range pkg.Commands {
+		byRef[c.Ref] = c.Value
+	}
+	assert.Equal(t, "check-triggers", byRef["check-triggers"].ExportName, "an injection passes through")
+	assert.Equal(t, "alpha/review", byRef[alphaReview].ExportName)
+	assert.Equal(t, "beta/ship", byRef[betaShip].ExportName)
+
+	items := pkg.EngineItems(engine.Name("claude-code"))
+	var names []string
+	for _, c := range items.Commands {
+		names = append(names, c.Name)
+	}
+	assert.Equal(t, []string{"check-triggers", "alpha/release", "alpha/review", "beta/ship"}, names, "the engine sees the export names")
+}

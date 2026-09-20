@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/schema"
 )
 
@@ -71,4 +72,46 @@ func DecodeExportBlock(raw json.RawMessage) (ExportBlock, error) {
 		return ExportBlock{}, fmt.Errorf("%s: export block: %w", EngineName, err)
 	}
 	return block, nil
+}
+
+// Exports decodes each item's claude-code block and says what this engine
+// exports: a command is a slash command unless its block opts out (a
+// profile-curated one exports regardless), with the block's help text or,
+// absent that, the authored description; a skill package is offered unless
+// its block opts out. A block the schema refuses is an error naming the
+// engine and the item — nothing is exported on a guess.
+func (c Claude) Exports(items engine.Items) (engine.Exports, error) {
+	var out engine.Exports
+	for _, item := range items.Commands {
+		block, err := DecodeExportBlock(item.Exports)
+		if err != nil {
+			return engine.Exports{}, fmt.Errorf("command %q: %w", item.Ref, err)
+		}
+		description := block.Description
+		if description == "" {
+			description = item.Description
+		}
+		out.Commands = append(out.Commands, engine.CommandExport{
+			Name:         item.Name,
+			Body:         item.Body,
+			Enabled:      item.Curated || block.IsEnabled(),
+			Description:  description,
+			ArgumentHint: block.ArgumentHint,
+			AllowedTools: block.AllowedTools,
+			Model:        block.Model,
+		})
+	}
+	for _, item := range items.Skills {
+		block, err := DecodeExportBlock(item.Exports)
+		if err != nil {
+			return engine.Exports{}, fmt.Errorf("skill %q: %w", item.Ref, err)
+		}
+		out.Skills = append(out.Skills, engine.SkillExport{
+			Name:        item.Name,
+			Description: item.Description,
+			Files:       item.Files,
+			Enabled:     item.Curated || block.IsEnabled(),
+		})
+	}
+	return out, nil
 }

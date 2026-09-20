@@ -147,9 +147,14 @@ type Fragment struct {
 // Command is one slash-command item. Exports is per engine name, opaque:
 // that engine's Exports decodes its own block against its ExportSchema.
 type Command struct {
-	Name        string
-	Bundle      string // the owning bundle's loader name ("" for an injected command)
-	Item        string
+	Name   string
+	Bundle string // the owning bundle's loader name ("" for an injected command)
+	Item   string
+	// ExportName is the name the command is exported under: the owning
+	// bundle's last path segment plus the item name, or the full identity
+	// (sanitised) when two bundles shorten to the same name, so neither
+	// silently overwrites the other's command file.
+	ExportName  string
 	Tags        []string // the effective tags (bundle tags merged onto the item's)
 	Description string
 	Body        string

@@ -211,8 +211,12 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// preserved).
 	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).WireDeclared()
 	bundleMCP := pkg.MCP
-	commands := backends.CommandExportsFor(backend, loadedCommands(pkg))
-	skills := backends.SkillExportsFor(backend, LoadedSkills(pkg))
+	exports, err := ExportsFor(pkg, backend)
+	if err != nil {
+		return nil, err
+	}
+	commands := CommandExportsOf(exports)
+	skills := SkillExportsOf(exports)
 	// Withheld fragments join the authored skills. A collision between two of
 	// them is fatal rather than a silent overwrite — see PremisedFragmentSkills.
 	withheld := make([]backends.PremisedFragment, 0, len(asm.WithheldFragments))

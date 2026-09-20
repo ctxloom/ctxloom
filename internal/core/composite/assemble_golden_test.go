@@ -17,12 +17,15 @@ import (
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -148,7 +151,9 @@ func renderToday(t *testing.T, g *golden, cfg *config.Config, engine, profile, a
 	g.section(t, fmt.Sprintf("engine=%s profile=%s consumer=materialized", engine, profile), mat)
 	pkg, err := operations.AssemblePackage(context.Background(), cfg, operations.PackageRequest{Profiles: []string{profile}, WorkDir: filepath.Dir(appDir)})
 	require.NoError(t, err)
-	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), operations.ManagedConfigOf(pkg, engine))
+	managed, err := operations.ManagedConfigOf(pkg, engine)
+	require.NoError(t, err)
+	g.section(t, fmt.Sprintf("engine=%s profile=%s managed", engine, profile), managed)
 }
 
 // golden accumulates sections. A string longer than blobThreshold is
@@ -285,4 +290,31 @@ func copyTree(t *testing.T, fsys afero.Fs, src, dst string) {
 		testsupport.WriteFile(t, fsys, filepath.Join(dst, rel), data, info.Mode().Perm())
 		return nil
 	}))
+}
+
+// Every bundle in the corpus decodes through the engine: each command's and
+// skill's claude-code block — authored in the document form, the tree form
+// or not at all — is accepted by claude.DecodeExportBlock, so the migration
+// to opaque blocks refuses nothing that loaded before it. The golden above
+// pins WHAT they decode to; this pins that none is refused.
+func TestCorpus_EveryExportBlockDecodesThroughTheEngine(t *testing.T) {
+	appDir := goldenAppDir(t)
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	pkg, err := operations.AssemblePackage(context.Background(), cfg, operations.PackageRequest{Profiles: []string{"golden-auto"}})
+	require.NoError(t, err)
+	require.NotEmpty(t, pkg.Commands)
+	require.NotEmpty(t, pkg.Skills)
+
+	items := pkg.EngineItems(engine.Name(claude.EngineName))
+	for _, c := range items.Commands {
+		_, err := claude.DecodeExportBlock(c.Exports)
+		assert.NoError(t, err, "command %s", c.Ref)
+	}
+	for _, s := range items.Skills {
+		_, err := claude.DecodeExportBlock(s.Exports)
+		assert.NoError(t, err, "skill %s", s.Ref)
+	}
+	_, err = operations.ExportsFor(pkg, claude.EngineName)
+	assert.NoError(t, err, "the engine exports the whole corpus without a refusal")
 }

@@ -52,6 +52,7 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust,
 
 	a.fragments()
 	a.commands()
+	a.exportNames()
 	a.skills()
 
 	withheld := pipe.Withheld()
@@ -256,6 +257,38 @@ func (a *assembly) commands() {
 	}
 }
 
+// exportNames names every command for export: the short name (bundle base
+// plus item) when it is unique across the set, the full identity —
+// sanitised for filesystem safety — for the colliders, so neither silently
+// overwrites the other's command file.
+func (a *assembly) exportNames() {
+	counts := make(map[string]int, len(a.commandItems))
+	for _, c := range a.commandItems {
+		counts[shortExportName(c.Value)]++
+	}
+	for i := range a.commandItems {
+		c := &a.commandItems[i].Value
+		short := shortExportName(*c)
+		if counts[short] > 1 {
+			c.ExportName = strings.NewReplacer(":", "-", `\`, "-").Replace(c.Name)
+			continue
+		}
+		c.ExportName = short
+	}
+}
+
+// shortExportName is the export-facing name before collision resolution:
+// the owning bundle's last path segment plus the item name — a remote
+// bundle keyed by its canonical ref must not name the command after the
+// whole URL — or the full identity for a command with no bundle (an
+// injection).
+func shortExportName(c Command) string {
+	if c.Bundle == "" || c.Item == "" {
+		return c.Name
+	}
+	return bundles.ExportBaseName(c.Bundle) + "/" + c.Item
+}
+
 // skills: the curated asks or the bundles' set, one per item.
 func (a *assembly) skills() {
 	seen := map[string]bool{}
@@ -422,7 +455,7 @@ func (p Package) EngineItems(name engine.Name) engine.Items {
 		items.Fragments = append(items.Fragments, engine.FragmentItem{Ref: f.Ref, Name: f.Value.Name, Body: []byte(f.Value.Body), Premise: f.Value.Premise})
 	}
 	for _, c := range p.Commands {
-		items.Commands = append(items.Commands, engine.CommandItem{Ref: c.Ref, Name: c.Value.Name, Description: c.Value.Description, Body: []byte(c.Value.Body), Exports: block(c.Value.Exports, name), Curated: c.Value.Curated})
+		items.Commands = append(items.Commands, engine.CommandItem{Ref: c.Ref, Name: c.Value.ExportName, Description: c.Value.Description, Body: []byte(c.Value.Body), Exports: block(c.Value.Exports, name), Curated: c.Value.Curated})
 	}
 	for _, s := range p.Skills {
 		items.Skills = append(items.Skills, engine.SkillItem{Ref: s.Ref, Name: s.Value.Name, Description: s.Value.Description, Files: s.Value.Files, Exports: block(s.Value.Exports, name), Curated: s.Value.Curated})

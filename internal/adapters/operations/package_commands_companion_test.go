@@ -24,7 +24,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // ltkLoadoutWithTaskRunnerCommand is a minimal stand-in for
@@ -91,7 +90,7 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	items := bundlePromptItems(prompts)
 	require.Contains(t, items, "task-runner", "ltk's companion command must export with no profile wiring")
 
-	ex := backends.CommandExportsFor("claude-code", prompts)
+	ex := claudeExportsOf(t, withCompanions(t, cfg))
 	var found bool
 	for _, e := range ex {
 		if e.Name == "ltk/task-runner" {

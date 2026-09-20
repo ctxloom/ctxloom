@@ -234,7 +234,8 @@ func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind,
 }
 
 // commandsApproach is claude's commands surface: .claude/commands/ under the
-// project root. The Meta keys are claude's own slash-command frontmatter.
+// project root; a command's help text and metadata arrive already decoded
+// from its block (Claude.Exports) and become the slash-command frontmatter.
 type commandsApproach struct{ traits }
 
 func (*commandsApproach) Name() string { return "commands-dir" }
@@ -249,16 +250,10 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 	}
 	cmds := make([]agent.CommandExport, 0, len(in.Commands))
 	for _, c := range in.Commands {
-		e := agent.CommandExport{Name: c.Name, Content: string(c.Body), Enabled: c.Enabled}
-		if c.Meta != nil {
-			e.Description = c.Meta["description"]
-			e.ArgumentHint = c.Meta["argument-hint"]
-			e.Model = c.Meta["model"]
-			if tools := c.Meta["allowed-tools"]; tools != "" {
-				e.AllowedTools = []string{tools}
-			}
-		}
-		cmds = append(cmds, e)
+		cmds = append(cmds, agent.CommandExport{
+			Name: c.Name, Content: string(c.Body), Enabled: c.Enabled,
+			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
+		})
 	}
 	form := &commandsSurface{commands: cmds, fs: agent.GetFS(fs)}
 	h, err := form.Deliver(start)

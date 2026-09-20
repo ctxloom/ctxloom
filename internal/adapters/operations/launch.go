@@ -173,7 +173,10 @@ func (a *assembler) Surfaces(ctx context.Context, snap *config.Snapshot, eng eng
 		}
 		pkg = &assembled
 	}
-	managed := ManagedConfigOf(*pkg, string(eng))
+	managed, err := ManagedConfigOf(*pkg, string(eng))
+	if err != nil {
+		return nil, err
+	}
 	WarnWithheldBy(snap.Config.ExecutableTrustGate())
 	if len(preference) > 0 {
 		surfaces, err := ResolveAgentSurfaces(string(eng), preference)

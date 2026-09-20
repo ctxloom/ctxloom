@@ -4,7 +4,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	mockreader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/mock"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/lm/hosting"
@@ -47,11 +46,10 @@ func MockHostings() []hosting.Hosting {
 
 	// The NO-SKILLS double: THE ABSENCE IS THE ENTIRE POINT. Every other
 	// registered backend exports skills, which left the missing-skills arm of
-	// every caller with nothing to point at. It is a declared absence, so it
-	// cannot be "completed" by accident without rewriting this line.
+	// every caller with nothing to point at. Its engine Definition has no
+	// Skills approach (engines/mock builds it Without skills), so its Exports
+	// offer none.
 	noSkills := mockHosting(config.BackendMockNoSkills, NewMockNoSkills, func() agent.BackendConfig { return &MockNoSkillsConfig{} })
-	noSkills.SkillExports = agent.Absent[func([]*bundles.LoadedSkill) []agent.SkillExport](
-		config.BackendMockNoSkills + " declares no skill export: it is the subject of every missing-skills-surface arm")
 
 	return []hosting.Hosting{
 		mockHosting(config.BackendMock, NewMock, func() agent.BackendConfig { return &MockConfig{} }),
@@ -71,12 +69,6 @@ func mockHosting(name string, ctor func() *Mock, newConfig func() agent.BackendC
 		SettingsWriter: agent.Provide(NewMockSettingsWriter),
 		InstanceConfig: agent.Absent[func(agent.SettingsOptions) agent.InstanceConfigWriter](
 			name + " generates no instance config: it has no config file of its own"),
-		// Every prompt and skill is ENABLED: mock has no per-engine export
-		// block in a bundle's LLM section, and a mock that silently exported
-		// nothing would be a surface that reports success and writes zero
-		// bytes — precisely the silent no-op the mock engine exists to catch.
-		CommandExports:  agent.Provide(mockExports),
-		SkillExports:    agent.Provide(mockSkillExports),
 		HookGlobalScope: agent.Absent[hosting.HookGlobalScope](name + "'s settings surface is a project-relative file with no user-global twin"),
 		VersionCommand:  agent.Absent[engineversion.Command](name + " has no binary: there is no single version that would mean anything"),
 		// mock keeps NO engine-global config or credential state: a bare echo

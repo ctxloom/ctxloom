@@ -36,8 +36,12 @@ const (
 
 // Mock is the engine KIND: the engine root embedded (its Definition, the
 // views and the common decisioning), the engine-specific logic as methods.
-// Built once by New; immutable.
-type Mock struct{ engine.Base }
+// Built once by New; immutable. noSkillExport is the NoSkills double's one
+// declared difference: it exports no skill package, whatever it is handed.
+type Mock struct {
+	engine.Base
+	noSkillExport bool
+}
 
 // Option adjusts the Definition before Validate.
 type Option func(*engine.Definition)
@@ -120,8 +124,18 @@ func Doubles() []engine.Engine {
 		New(),
 		NewNamed(NameLossy),
 		NewNamed(NameLaunch, Without(present.MCP, present.Settings, present.Hooks, present.Commands, present.Skills)),
-		NewNamed(NameNoSkills),
+		NewNoSkills(),
 	}
+}
+
+// NewNoSkills is the double that exports no skill: THE ABSENCE IS THE
+// ENTIRE POINT. Every other kind exports skills, which would leave the
+// missing-skills arm of every caller with nothing to point at; it is a
+// declared difference, so it cannot be "completed" by accident.
+func NewNoSkills() engine.Engine {
+	m := NewNamed(NameNoSkills).(Mock)
+	m.noSkillExport = true
+	return m
 }
 
 // Build is THE CONSTRUCTOR: the one place this engine's declaration is
@@ -240,6 +254,26 @@ func (a *marker) DeliverCommands(s present.Start, r present.RootKind, _ engine.C
 }
 func (a *marker) DeliverSkills(s present.Start, r present.RootKind, _ engine.SkillsInputs, fs afero.Fs) (present.Delivered, error) {
 	return a.write(s, r, fs)
+}
+
+// Exports exports EVERYTHING: no bundle carries a block for a mock (mock is
+// a test engine nobody publishes a bundle FOR), so there is no opt-out to
+// read and nothing to invent one from — a mock that silently exported
+// nothing would be a commands surface that reports success and writes zero
+// bytes, precisely the silent no-op the mock exists to catch in others. The
+// NoSkills double exports no skill: that absence is the subject of every
+// missing-skills-surface arm.
+func (m Mock) Exports(items engine.Items) (engine.Exports, error) {
+	var out engine.Exports
+	for _, item := range items.Commands {
+		out.Commands = append(out.Commands, engine.CommandExport{Name: item.Name, Body: item.Body, Enabled: true})
+	}
+	if !m.noSkillExport {
+		for _, item := range items.Skills {
+			out.Skills = append(out.Skills, engine.SkillExport{Name: item.Name, Description: item.Description, Files: item.Files, Enabled: true})
+		}
+	}
+	return out, nil
 }
 
 var _ engine.Engine = Mock{}

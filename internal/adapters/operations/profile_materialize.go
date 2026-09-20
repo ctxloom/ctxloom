@@ -300,7 +300,7 @@ func notCarried(backend string, kind engine.Engine, pkg composite.Package, plan 
 		out = append(out, agent.SurfaceLoss{
 			Surface: "hooks",
 			Detail:  fmt.Sprintf("%d %s", n, event),
-			Reason:  fmt.Sprintf("%s fires no %s hook", backend, event),
+			Reason:  fmt.Sprintf("%s has no native %s event", backend, event),
 		})
 	}
 	return out

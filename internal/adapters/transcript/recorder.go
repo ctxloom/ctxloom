@@ -29,7 +29,7 @@ const (
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
 // transcript.jsonl. It is the type S2 tees the host-side ChatEvent stream
-// through (internal/lm/grpc/chat.go's GRPCClient.Chat and
+// through (the engine chat client and
 // internal/core/coord/enginehost.go's adapt) — this package only
 // defines the writer; nothing in S1 wires it to those call sites yet.
 type Recorder interface {
@@ -253,7 +253,7 @@ func openAppendFile(path string) (io.WriteCloser, error) {
 // complexity gate.
 //
 // A DEFAULT-path recorder (no WithPath override — the two structured/ACP
-// host seams, internal/lm/grpc/chat.go and
+// host seams, the engine chat client and
 // internal/core/coord/enginehost.go) also takes a SHARED ownership
 // lock on the canonical transcript here, held for the recorder's lifetime
 // and released in Close. This is the other half of the easeful-dial fix:

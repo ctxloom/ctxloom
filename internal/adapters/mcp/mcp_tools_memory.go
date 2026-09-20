@@ -285,9 +285,14 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		taskHint, _ := memory.ReadNextStep(harp)
 		distiller := operations.NewLazyOneShot(s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
 		defer distiller.End()
+		source, serr := operations.DistillSource(backend, workDir)
+		if serr != nil {
+			return nil, fmt.Errorf("resolve transcript source: %w", serr)
+		}
 		compactor, cerr := memory.NewCompactor(memory.CompactionConfig{
 			Run:             distiller.Turn,
 			Backend:         backend,
+			Source:          source,
 			EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 			SessionID:       in.SessionID,
 			WorkDir:         workDir,
@@ -1129,9 +1134,14 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	taskHint, _ := memory.ReadNextStep(harp)
 	distiller := operations.NewLazyOneShot(s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
 	defer distiller.End()
+	source, serr := operations.DistillSource(backendName, workDir)
+	if serr != nil {
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Couldn't resolve a transcript source for session %s: %v", sessionID, serr)}, nil
+	}
 	compactor, err := makeCompactor(memory.CompactionConfig{
 		Run:             distiller.Turn,
 		Backend:         backendName,
+		Source:          source,
 		EssenceMaxChars: s.cfg.GetEssenceMaxChars(),
 		SessionID:       sessionID,
 		WorkDir:         workDir,

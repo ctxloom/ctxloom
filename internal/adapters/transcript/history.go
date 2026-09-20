@@ -11,11 +11,11 @@
 // is currently registered: a canonical transcript captured under a
 // since-removed engine still reads.
 //
-// Deliberately NOT imported here: internal/lm/grpc (aliased `pb` elsewhere),
+// Deliberately NOT imported here: the plugin wire (aliased `pb` elsewhere),
 // whose pb.SessionSource interface this type's method set structurally
 // satisfies (GetSession/ListSessions/CurrentSession, matching signatures
 // exactly — see history_interface_test.go's external black-box assertion).
-// S2 (running in parallel on this same release) wires internal/lm/grpc/
+// A parallel effort wires the plugin wire's
 // chat.go to import THIS package for Tee; importing pb back from here would
 // create transcript -> grpc -> transcript, an import cycle. A consumer
 // package (S4) declares the `var _ pb.SessionSource = (*CanonicalHistory)(nil)`
@@ -180,7 +180,7 @@ func (h *CanonicalHistory) ListSessions(_ context.Context) ([]agent.SessionMeta,
 // every candidate fails is an error returned — and then it is the first
 // failure, not (nil, nil), because "none of these files could be read" and
 // "this project has no sessions" are different facts and the caller
-// (lm/grpc's CanonicalFallbackSource) routes on the difference. See
+// (the canonical-fallback source) routes on the difference. See
 // ParseTranscriptFile's doc for the same discrimination on the read side.
 func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, error) {
 	entries, err := h.store.ListForProject(h.workDir)
@@ -205,7 +205,7 @@ func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, 
 	// project has captured transcripts, none of them could be read, and
 	// reporting (nil, nil) would assert the conversations were empty when all
 	// that is known is that the files were unreadable — the discrimination
-	// ParseTranscriptFile's doc states and lm/grpc's fallback source routes on.
+	// ParseTranscriptFile's doc states and the canonical-fallback source routes on.
 	if firstErr != nil {
 		return nil, firstErr
 	}
@@ -254,7 +254,7 @@ func warnSkippedTranscript(harp, path string, err error) {
 //     anything when there IS a part; "the whole file was unreadable" and "the
 //     conversation was empty" are different facts, and returning an empty
 //     Session with a nil error asserted the second when only the first was
-//     known. It also suppressed lm/grpc/canonical_source.go's legacy fallback,
+//     known. It also suppressed the canonical-fallback source's legacy fallback,
 //     which runs only when this errors. Note the discrimination that matters:
 //     zero ENTRIES is legitimate (a file of session/complete envelope lines is
 //     a real, entry-less conversation and returns nil); zero RECORDS is not,

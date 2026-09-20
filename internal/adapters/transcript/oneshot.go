@@ -2,7 +2,7 @@
 // Recorder/Tee (recorder.go) structurally cannot reach: a ONESHOT
 // Backend.Execute run (`kiro --no-interactive`, `codex exec`)
 // returns prose on stdout with no ChatEvent stream at all, so the tee at
-// GRPCClient.Chat (internal/lm/grpc/chat.go) and coord/enginehost.startRun
+// the engine chat client and the engine host's startRun
 // never fires for it — the structured-capture win of S2/S3 leaves this path
 // silently uncaptured (slice S6, "Oneshot Execute").
 //

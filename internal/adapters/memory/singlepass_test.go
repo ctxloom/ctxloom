@@ -254,7 +254,6 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",
@@ -305,7 +304,6 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 
 	compactor, err := NewCompactor(CompactionConfig{
 		BackendOverride: mockBe,
-		ClientFactory:   pb.MockClientFactory(mockClient),
 		Run:             runnerOver(mockClient),
 		OutputDir:       t.TempDir(),
 		HarpName:        "compactor-under-test",

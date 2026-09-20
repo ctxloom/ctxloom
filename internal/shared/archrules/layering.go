@@ -364,8 +364,6 @@ var LayeringRules = []LayeringRule{
 
 			// isolation, memory, and the leaf adapters
 			"internal/adapters/isolation -> internal/lm/grpc":                             "slice 13: the go-plugin protocol is deleted whole",
-			"internal/adapters/memory -> internal/lm/backends":                            "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
-			"internal/adapters/memory -> internal/lm/grpc":                                "slice 14a: memory off the plugin — NewCompactor(entry, source, llm)",
 			"internal/vpio/dockerexec -> internal/adapters/isolation":                     "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
 			"internal/vpio/goplugin -> internal/lm/grpc":                                  "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
 			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",

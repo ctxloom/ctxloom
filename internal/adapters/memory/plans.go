@@ -2,11 +2,49 @@ package memory
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
+
+// readSessionPlans reads a harp's own *.plan.md documents straight from its
+// ctxloom session directory (shared/plans.SessionPlanPaths). This is a pure
+// filesystem read — plans are the session's authored artifacts, never mined
+// from the transcript and never fetched over a plugin — so the compactor no
+// longer needs an engine reader to attach them. An empty harp and a genuinely
+// absent session directory are quietly "no plans"; a file present but
+// unreadable is a per-file warning, not a failed compaction.
+func readSessionPlans(harp string) []agent.PlanFile {
+	if harp == "" {
+		return nil
+	}
+	candidates, problems := plans.SessionPlanPaths(harp)
+	var out []agent.PlanFile
+	for _, path := range candidates {
+		base := filepath.Base(path)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			problems = append(problems, fmt.Errorf("plan file %s omitted, unreadable: %w", base, err))
+			continue
+		}
+		out = append(out, agent.PlanFile{
+			Name:    strings.TrimSuffix(base, paths.PlanFileExt),
+			Content: string(content),
+		})
+	}
+	for _, err := range problems {
+		clidiag.Warn("ctxloom", "%v", err)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
 
 // PlanBlock is a plan document preserved verbatim in the distilled output. The
 // distiller re-attaches the full content as a trailing section so the summary

@@ -332,7 +332,6 @@ var noEngineNameInCoreAllowed = map[string]string{
 	"internal/adapters/spawn/spawner.go":                  "slice 11b: Instance.Resume(key) succeeds or refuses; Resolve invokes it for a one-shot or a resume, and the three name-keyed tables go",
 	"internal/adapters/operations/session_adopt.go":       "slice 11b: adopt scans the engine's own store through Engine.Transcripts(); the reader knows its own format",
 	"internal/core/bundles/bundles.go":                    "contract: signing.CommandPreimageContract canonicalises the claude-code block into the frozen preimage bytes (CommandSurface.ExportsPayload); leaves with a contract bump that re-signs every bundle, which is a human's call, not a slice's",
-	"internal/adapters/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/adapters/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
 
 	// adapters choosing a default by name

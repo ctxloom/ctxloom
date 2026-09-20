@@ -58,20 +58,6 @@ func currentRunID(c *Coordinator, harp string) string {
 	return id
 }
 
-// endsItself asks the production predicate whether this run already tears
-// itself down at its next turn boundary — used as a test PRECONDITION so the
-// one-shot control below cannot pass merely because the live resume confirm
-// had not been journaled yet.
-func endsItself(c *Coordinator, runID string) bool {
-	ok := false
-	c.runs.View(func() {
-		if r := c.runsF.run(runID); r != nil {
-			ok = endsItselfAtBoundary(r)
-		}
-	})
-	return ok
-}
-
 // collectOwnerMail drains the owner's mailbox for window and returns EVERY
 // message in ARRIVAL ORDER. recvKind/recvWhere cannot serve an ordering
 // assertion: they filter, and drop everything that does not match — including
@@ -262,17 +248,12 @@ func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 		"the resume must be a NEW run of the SAME harp; reusing the run id would mean the run never ended")
 }
 
-// TestFinalReport_OneShotBoundaryIsNotRepainted is the double-fire control. A
-// driving:oneshot child ALREADY tears its engine down at every turn boundary,
-// and terminateRun deliberately suppresses that terminal's parent notice
-// because it fires once per TURN — spamming a parent with an "exited" per turn
-// is the defect that suppression exists to prevent.
-//
-// onTurnIdle checks the drain's exit request BEFORE the one-shot branch, so an
-// armed drain here would win and repaint an expected CauseOneShotBoundary as
-// CauseFinalReported, un-suppressing that notice. The leak cannot happen to a
-// child that already ends every turn, so a one-shot run is never armed.
-func TestFinalReport_OneShotBoundaryIsNotRepainted(t *testing.T) {
+// TestFinalReport_OneShotChildIsEndedByItsFinal: a one-shot child's engine
+// process ends at every boundary but its RUN does not — the runner parks, so
+// nothing ends the run but a terminal. FINAL is that terminal for a one-shot
+// child exactly as for a persistent one: CauseFinalReported, one exited
+// notice, the runner released.
+func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true, turnGate: gate} })
@@ -280,20 +261,15 @@ func TestFinalReport_OneShotBoundaryIsNotRepainted(t *testing.T) {
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
-	// The PRECONDITION, waited for rather than assumed: this run is one that
-	// ends itself at its boundary. Without the wait a fixture whose live
-	// resume confirm had not landed yet would pass this test for the wrong
-	// reason — it would be a persistent child, which SHOULD be armed.
-	require.Eventually(t, func() bool { return endsItself(c, out.RunID) }, conformanceWait, 10*time.Millisecond,
-		"the fixture must actually be a live-confirmed one-shot run")
+	require.Eventually(t, func() bool { return harnessSessionID(c, out.Harp) != "" }, conformanceWait, 10*time.Millisecond,
+		"the fixture must be a live-confirmed one-shot run before it files FINAL")
 
 	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: task one done"))
 	close(gate)
 
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond)
-	assert.Equal(t, CauseOneShotBoundary, runCause(c, out.RunID),
-		"a one-shot child's own boundary teardown must keep its terminal; FINAL must not repaint it")
-	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
+	assert.Equal(t, CauseFinalReported, runCause(c, out.RunID),
+		"a one-shot child's FINAL ends its run: the runner no longer ends it at the boundary")
 }
 
 // TestFinalReport_OwnerRunIsNeverEndedByItsOwnReport guards the case that

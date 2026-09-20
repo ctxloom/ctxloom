@@ -116,7 +116,8 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, s
 	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
 }
 
-func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
 	cell := s.cells[l.Identity.Harp]
 	s.mu.Unlock()

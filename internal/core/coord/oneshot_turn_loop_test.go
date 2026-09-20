@@ -36,78 +36,6 @@ func runCause(c *Coordinator, runID string) string {
 	return cause
 }
 
-// TestOneShot_TurnBoundaryTearsDownAndResumesByKey is Slice 4's real gate: a
-// driving:oneshot child, live-confirmed resume-capable, runs turn 1; its engine
-// process is torn down AT THE TURN BOUNDARY (a resumable terminal, NOT an
-// agent_stop) with no external kill; a later agent_send RESUMES it by the
-// captured native session id (session/load — not a cold start, not a lossy
-// transcript replay); and the second turn's result is delivered. The harp
-// survives the boundary; the parent is NEVER spammed with a per-turn
-// "exited" notice.
-func TestOneShot_TurnBoundaryTearsDownAndResumesByKey(t *testing.T) {
-	resetStrictness(t)
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true} })
-	c := newTestCoordinator(t, sp, nil)
-
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
-	require.NoError(t, err)
-
-	// Turn 1 runs, and the ENGINE ENDS ITSELF at the clean boundary — no
-	// killEngine here, unlike the runner-loss resume test. The proof it was a
-	// RESUMABLE teardown (not agent_stop): the run's terminal cause is
-	// CauseOneShotBoundary while chatCount stays 1 (nothing resumed yet: the
-	// mailbox is empty).
-	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
-		"the one-shot engine must tear itself down at the turn boundary")
-	assert.Equal(t, CauseOneShotBoundary, runCause(c, out.RunID),
-		"the boundary teardown must be a resumable one-shot terminal, not a stop")
-	assert.Equal(t, 1, sp.chatCount(), "nothing may resume while the mailbox is empty")
-
-	// Turn 1's result was bridged to the parent (the child's answer, without
-	// its model choosing to report), and NO exited notice was queued.
-	res1 := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "task one") }, conformanceWait)
-	require.NotEmpty(t, res1, "turn 1's result must bridge to the parent")
-	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
-
-	// A later send RESUMES the harp by its captured native session key.
-	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "carry on", nil, "")
-	require.NoError(t, err)
-	awaitCtx, awaitCancel := context.WithTimeout(context.Background(), conformanceWait)
-	defer awaitCancel()
-	require.NoError(t, c.awaitChildUp(awaitCtx, out.Harp), "the send to a one-shot-ended harp must resume it")
-	require.Equal(t, 2, sp.chatCount(), "the resume must spawn a fresh engine")
-
-	require.Eventually(t, func() bool {
-		sc := sp.chat(1)
-		if sc == nil {
-			return false
-		}
-		sc.mu.Lock()
-		defer sc.mu.Unlock()
-		return len(sc.requests) == 1
-	}, conformanceWait, 10*time.Millisecond)
-	sc := sp.chat(1)
-	sc.mu.Lock()
-	resumed := sc.requests[0].ResumeSessionID
-	sc.mu.Unlock()
-	assert.Equal(t, "native-sess-42", resumed,
-		"the resume must ride the captured session id (session/load), not a cold start or transcript replay")
-
-	// The second turn ran and its result reached the parent.
-	res2 := recvWhere(t, c, func(m Message) bool { return m.Kind == "result" && strings.Contains(m.Body, "carry on") }, conformanceWait)
-	require.NotEmpty(t, res2, "the resumed turn's result must be delivered")
-
-	// The resumed turn reaches a clean boundary (ended when its live confirm
-	// landed in time — the common case — or idle if it raced and safely parked
-	// warm), and either way the parent is NEVER spammed with a per-turn
-	// "exited" notice.
-	require.Eventually(t, func() bool {
-		st := rosterState(c, out.Harp)
-		return st == StateEnded || st == StateIdle
-	}, conformanceWait, 10*time.Millisecond)
-	assertNoMailKind(t, c, KindExited, 200*time.Millisecond)
-}
-
 // TestSlotYield_MidTurnParkYieldsSlotToPeer is the §6a SLOT-YIELD gate: a
 // child parked mid-turn consumes no compute, so its execution slot goes back
 // to the pool and a peer queued behind the concurrency cap runs on it.
@@ -195,11 +123,11 @@ func countRuns(c *Coordinator) int {
 }
 
 // TestReapEndedRuns_KeepsCurrentAndTail is the DETERMINISTIC unit test of the
-// retention reap (Slice 4 / Fork 2.3): manufacturing several ended runs for
-// one harp directly on the journal, reapEndedRuns must keep the harp's CURRENT
-// run (its resume key) plus the newest EndedRunTail ended runs and drop the
-// rest — the fold-level guarantee the one-shot loop relies on, tested without
-// the engine timing the integration test is subject to.
+// retention reap: manufacturing several ended runs for one harp directly on
+// the journal (each an idle-reaped incarnation), reapEndedRuns must keep the
+// harp's CURRENT run (its resume key) plus the newest EndedRunTail ended runs
+// and drop the rest — the fold-level guarantee a long-lived harp's
+// incarnations rely on, tested without engine timing.
 func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
@@ -226,7 +154,7 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 			return []Fact{
 				factAt(factRunEnqueued, at, runEnqueued{RunID: id, Harp: harp, Agent: "worker", CredHash: id + "-cred", Depth: 1}),
 				factAt(factRunHarness, at, runHarness{RunID: id, HarnessSessionID: "native-sess-42"}),
-				factAt(factRunEnded, at, runEnded{RunID: id, Cause: CauseOneShotBoundary}),
+				factAt(factRunEnded, at, runEnded{RunID: id, Cause: CauseIdleReaped}),
 			}, nil
 		}))
 	}
@@ -257,14 +185,12 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 }
 
 // TestRetention_BoundsFoldGrowthAcrossResumes is the integration half of the
-// reap (Slice 4 / Fork 2.3): the wiring terminateRun → reapEndedRuns must keep
-// the live fold bounded as one harp accumulates ended run after ended run. It
-// uses a LEGACY in-process engine that EXITS after each turn (endAfterTurns:1)
-// — so every mailbox delivery resumes the harp as a fresh, promptly-ended run,
-// exactly the per-turn ended-run churn one-shot produces, but through the
-// deterministic in-process legacy path rather than the migrated RunChannel
-// (whose real engine round-trips this test must not race). With tail=1 the
-// fold must never grow one record per resume.
+// reap: the wiring terminateRun → reapEndedRuns must keep the live fold
+// bounded as one harp accumulates ended run after ended run. It uses an
+// in-process engine that EXITS after each turn (endAfterTurns:1) — so every
+// mailbox delivery resumes the harp as a fresh, promptly-ended incarnation,
+// the churn a repeatedly reaped harp produces. With tail=1 the fold must never
+// grow one record per resume.
 func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
@@ -304,14 +230,14 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 		"ended runs must be reaped as the harp resumes, not accumulate one per resume")
 }
 
-// TestOneShot_PersistentModeUnchanged proves the change is inert for a
-// conversational (ResumeModePersistent) migrated child: its engine stays WARM
-// across turns — the same process handles turn 2, no teardown, no resume — so
-// the persistent model this release still ships is byte-for-byte untouched.
+// TestOneShot_PersistentModeUnchanged proves the one-shot park is inert for
+// a conversational (ResumeModePersistent) child: its engine stays WARM across
+// turns — the same process handles turn 2, no teardown, no resume.
 func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	resetStrictness(t)
-	// A resume-capable, live-confirmed engine but a PERSISTENT plan: the gate's
-	// static half is false, so the boundary must NOT tear down.
+	// A resume-capable, live-confirmed engine but a PERSISTENT plan: the
+	// runner's park decision reads the launch identity's OneShot, so the
+	// boundary must NOT end the engine process.
 	sp := newFakeSpawner(map[string]fakeAgent{
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code"}, // oneshot:false

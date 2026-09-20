@@ -12,6 +12,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // engineDeathTail is the distinctive diagnostic a dying engine adapter writes
@@ -204,7 +205,7 @@ func newDeadRunnerSpawner(exitErr error) *deadRunnerSpawner {
 	}
 }
 
-func (s *deadRunnerSpawner) Start(_ context.Context, _ launch.Launch, _ map[string]string) (*EngineSpawn, error) {
+func (s *deadRunnerSpawner) Start(_ context.Context, _ launch.Launch, _ sessions.Endpoint) (*EngineSpawn, error) {
 	return &EngineSpawn{
 		Kill: func() {},
 		Wait: func() error {

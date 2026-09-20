@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -143,7 +144,8 @@ func newSilentRunnerSpawner() *silentRunnerSpawner {
 	}
 }
 
-func (s *silentRunnerSpawner) Start(_ context.Context, _ launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *silentRunnerSpawner) Start(_ context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
 	s.envs = append(s.envs, runnerEnv)
 	s.mu.Unlock()

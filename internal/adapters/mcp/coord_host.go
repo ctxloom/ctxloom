@@ -56,8 +56,10 @@ func HostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 		// A configurable STRUCTURAL ceiling on the delegation tree's depth —
 		// see coord.agentDepthCap's doc. <= 0 (unset project config) falls
 		// back to the built-in default inside coord.New.
-		Depth:     cfg.GetDelegationDepth(),
-		OwnerHarp: ownerHarp,
+		Depth: cfg.GetDelegationDepth(),
+		// The idle reaper's bound — delegation.idle_timeout, resolved by config.
+		IdleTimeout: cfg.GetDelegationIdleTimeout(),
+		OwnerHarp:   ownerHarp,
 	})
 	if err != nil {
 		return nil, err

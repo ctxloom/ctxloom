@@ -289,7 +289,8 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 // it); only Kill ends it. Kill models SIGKILL (docker-stop): the shared
 // context dies — no RunExited, no clean teardown; the coordinator's loss
 // synthesis is what must notice.
-func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
 	var backend agent.StructuredChat
 	if s.nextBackend != nil {

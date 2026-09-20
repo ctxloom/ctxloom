@@ -320,27 +320,58 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 	return coord.Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
 }
 
-// Start starts the runner for a resolved launch through its cell's
-// transport, with the reach-back trio on the runner's env.
-func (s *spawner) Start(ctx context.Context, l launch.Launch, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
-	var starter isolation.EngineStarter
-	if s.starter != nil {
-		starter = s.starter(string(l.Engine), runnerEnv)
-	}
-	proc, err := startEngine(ctx, l, runnerEnv, childVerbosity(), starter)
+// Start starts the runner for a resolved launch through StartRunner over the
+// cell's transport, with the reach-back trio on the runner's env.
+func (s *spawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
+	h, err := StartRunner(ctx, cellRuntime{starter: s.starter}, l, reach)
 	if err != nil {
 		return nil, err
 	}
-	return &coord.EngineSpawn{
-		Kill:       proc.Kill,
-		StderrTail: proc.StderrTail,
-		Wait:       proc.Wait,
-	}, nil
+	return &coord.EngineSpawn{Kill: h.Kill, StderrTail: h.StderrTail, Wait: h.Wait}, nil
 }
 
-// Adopt re-acquires a re-adopted run's cell ownership.
-func (s *spawner) Adopt(ctx context.Context, rec coord.RunRecord) (func() error, error) {
-	return nil, nil
+// cellRuntime is Runtimes over the cell's transport: the isolation starter
+// the launch's cell handle names (docker-direct for a container cell, the
+// bare self-invoked runner for a host cell), or the test seam's. Its Start
+// returns once the runner PROCESS is up: that is attach, after which the
+// process is the run record's and the ctx says nothing about it.
+type cellRuntime struct{ starter StarterFunc }
+
+func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]string) (coord.RunnerHandle, error) {
+	var starter isolation.EngineStarter
+	if r.starter != nil {
+		starter = r.starter(string(l.Engine), env)
+	}
+	proc, err := startEngine(ctx, l, env, childVerbosity(), starter)
+	if err != nil {
+		return coord.RunnerHandle{}, err
+	}
+	return coord.RunnerHandle{Kill: proc.Kill, Wait: proc.Wait, StderrTail: proc.StderrTail}, nil
+}
+
+// Adopt re-acquires a re-adopted run's cell ownership: for a run whose
+// binding asked for a per-session engine home, the home is re-bound —
+// re-seeded from the host's current credential and its replicator started
+// in THIS process — and the returned release ends it when the run ends. The
+// previous coordinator held that replicator; without this, a live engine
+// would sit on a token the host has since rotated, or a released instance
+// would never be cleaned. A run with no session home owns nothing to
+// re-acquire.
+func (s *spawner) Adopt(_ context.Context, rec coord.RunRecord) (func() error, error) {
+	if rec.HomeMode != string(agents.HomeModeSession) {
+		return nil, nil
+	}
+	res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
+		Backend:  rec.Engine,
+		WorkDir:  s.projectDir,
+		Cwd:      rec.WorkDir,
+		Harp:     rec.Harp,
+		HomeMode: agents.HomeModeSession,
+	})
+	if res.Absent != "" {
+		return nil, fmt.Errorf("re-bind the session home of %s: %s", rec.Harp, res.Absent)
+	}
+	return res.Release, nil
 }
 
 func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {

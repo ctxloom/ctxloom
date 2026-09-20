@@ -172,7 +172,8 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, st
 	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
 }
 
-func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error) {
+func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	if s.mode == progressSpawnDark {
 		return s.startDark(ctx)
 	}

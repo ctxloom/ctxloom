@@ -379,8 +379,8 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		if sid == "" {
 			// The harness-native session id is the run's ONLY resume handle: a
 			// child killed mid-run respawns through Launch.Resume.NativeKey,
-			// and the one-shot turn loop refuses to tear an engine down without
-			// one (oneShotReady). recordHarnessSession drops an empty id, so
+			// and a one-shot runner will not park its engine without one.
+			// recordHarnessSession drops an empty id, so
 			// losing it here used to leave no trace at all — the run simply
 			// stopped being resumable and nothing said why.
 			c.rep.Warnf("coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",

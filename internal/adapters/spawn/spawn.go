@@ -2,7 +2,6 @@ package spawn
 
 import (
 	"context"
-	"errors"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -16,8 +15,6 @@ type Runtimes interface {
 	Start(ctx context.Context, l launch.Launch, env map[string]string) (coord.RunnerHandle, error)
 }
 
-var errUnimplemented = errors.New("spawn: not implemented")
-
 // StartRunner starts the runner for a resolved launch. The ctx scopes
 // PREPARATION AND ATTACH ONLY: a cancellation before attach aborts the
 // preparation and removes what it created (no orphaned container, worktree
@@ -27,5 +24,5 @@ var errUnimplemented = errors.New("spawn: not implemented")
 // agent_stop, terminateRun, the idle reaper, or the runner's own exit — and
 // a single cancelled call never tears down a running container.
 func StartRunner(ctx context.Context, rt Runtimes, l launch.Launch, reach sessions.Endpoint) (coord.RunnerHandle, error) {
-	return coord.RunnerHandle{}, errUnimplemented
+	return rt.Start(ctx, l, sessions.EncodeReach(reach, l.Identity.RunID))
 }

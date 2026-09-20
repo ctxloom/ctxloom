@@ -142,10 +142,12 @@ type Spawner interface {
 	// re-minted when start.Rebind). On success plan.Launch is set. It starts
 	// nothing: a rebind re-resolves for a runner that is already up.
 	ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error)
-	// Start spawns the runner process for a resolved launch with the
-	// coordinator trio on the runner's env, WITHOUT attaching. Engine control
-	// then arrives over the runner's own RunnerChannel (StartRun).
-	Start(ctx context.Context, l launch.Launch, runnerEnv map[string]string) (*EngineSpawn, error)
+	// Start starts the runner for a resolved launch with the reach-back
+	// (the coordinator's endpoint and the run's credential) on the runner's
+	// env, WITHOUT attaching. Engine control then arrives over the runner's
+	// own RunnerChannel (StartRun). The ctx scopes preparation and attach
+	// only — spawn.StartRunner's contract.
+	Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error)
 	// Adopt gives a run this coordinator did not start — one it RE-ADOPTED
 	// from the journal after a restart, whose runner outlived the previous
 	// process — its cell ownership back: in production the harp's engine

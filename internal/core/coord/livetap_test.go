@@ -205,7 +205,8 @@ func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPla
 // Start bridges the coordinator's own RunChannel to liveTapChat, mirroring
 // fake_test.go's fakeSpawner.Start via the SAME exported constructors it
 // uses internally.
-func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, runnerEnv map[string]string) (*coord.EngineSpawn, error) {
+func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
+	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	sctx, cancel := context.WithCancel(context.Background())
 	backend := string(l.Engine)
 	host := coord.NewEngineHost(sctx, nil, s.chat, backend, runnerEnv[coord.EnvRunID])

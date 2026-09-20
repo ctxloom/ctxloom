@@ -16,6 +16,8 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -115,6 +117,20 @@ type EngineHost struct {
 	pendingTags []turnTag
 	currentTag  turnTag
 
+	// The runner OUTLIVES a one-shot turn. oneShot is the launch identity's:
+	// at each clean turn boundary the ENGINE process ends (the chat context
+	// is cancelled) and the host PARKS — parked is true, nativeKey is the
+	// engine's own session key as it last reported it — until the next turn
+	// (delivered mail, or a Turn frame) starts a fresh engine process resumed
+	// by that key. chatReq is the request every engine process is driven
+	// with; resumable is the engine's live loadSession capability, without
+	// which a one-shot boundary keeps the engine warm instead of parking.
+	oneShot   bool
+	resumable bool
+	parked    bool
+	nativeKey string
+	chatReq   agent.ChatRequest
+
 	// turnFinal accumulates the CURRENT turn's FINAL-channel text — the
 	// engine's answer, excluding its reasoning and its system chatter — for
 	// the automatic turn report (spoolturnresult.go).
@@ -197,7 +213,20 @@ func (eh *EngineHost) Close() {
 			cancel()
 		}
 		eh.waitTracked()
+		eh.closeRecorder()
 	})
+}
+
+// closeRecorder closes the run's transcript recorder once, at the run's end
+// — the recorder outlives the engine processes a parked session drives.
+func (eh *EngineHost) closeRecorder() {
+	eh.mu.Lock()
+	rec := eh.rec
+	eh.rec = nil
+	eh.mu.Unlock()
+	if rec != nil {
+		_ = rec.Close()
+	}
 }
 
 // BindHome wires the dialed Home (event emission + turn sink + RunExited).
@@ -226,7 +255,7 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	select {
 	case <-eh.homeReady:
 	case <-time.After(homeBindTimeout):
-		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Unavailable, "runner engine host is not bound to its coordinator link yet")}
+		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.FailedPrecondition, "runner engine host is not bound to its coordinator link yet")}
 	}
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.RunnerRequest_StartRun:
@@ -235,6 +264,8 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		return eh.pauseRun(kind.PauseRun)
 	case *agentcoordpb.RunnerRequest_ResumeRun:
 		return eh.resumeRun(kind.ResumeRun)
+	case *agentcoordpb.RunnerRequest_Turn:
+		return eh.turnFrame(kind.Turn)
 	case *agentcoordpb.RunnerRequest_KillRun, *agentcoordpb.RunnerRequest_StopRun:
 		// C1-minimal termination: cancel the engine context (Chat returns,
 		// RunExited flows). The graceful interrupt-then-escalate StopRun
@@ -281,6 +312,13 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
 	}
 	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
+		// The ONE refusal the coordinator answers with a rebind rides a code
+		// of its own: the recorded endpoint could not be bound (another
+		// process took the port between two incarnations). Everything else
+		// is the launch's own fault.
+		if errors.Is(err, delivery.ErrEndpointUnavailable) {
+			return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Unavailable, err.Error())}
+		}
 		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
 	}
 	eh.mu.Lock()
@@ -309,15 +347,10 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 		return fmt.Errorf("this runner drives %q, the launch names %q (RunnerHello is the advertisement)", eh.harness, t.Launch.Engine)
 	}
 	prompt := t.Prompt
-	ctx, cancel := context.WithCancel(eh.baseCtx)
-	in := make(chan agent.ChatMessage)
-	out := make(chan agent.ChatEvent, 64)
 	eh.started = true
-	eh.in = in
-	eh.cancel = cancel
-	eh.runCtx = ctx
-	eh.briefed = make(chan struct{})
-	briefed := eh.briefed
+	eh.oneShot = t.Launch.Identity.OneShot
+	eh.chatReq = t.Chat
+	eh.nativeKey = t.Chat.ResumeSessionID
 	home := eh.home
 	result := &agentcoordpb.RunnerResponse{
 		Status: okStatus(""),
@@ -345,16 +378,11 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 
 	// Capture this run's canonical transcript on the runner process that
 	// hosts it. The harp is the launch's — the one carrier of identity to
-	// the runner. rec is opened HERE, before backend.Chat is ever
-	// dispatched, so it can ALSO record the user turns this host writes to
-	// `in` below — the briefing prompt and any later coordinator-delivered
-	// mail (SetTurnSink). TeeAndClose only ever sees the outbound
-	// `out`/ChatEvent stream. The briefing is recorded synchronously right
-	// below, strictly before backend.Chat's own goroutine starts — the one
-	// case here where we know the full user text up front, so there is no
-	// need to race it against the backend's own first ChatEvent (its Session
-	// event, typically) the way a later, dynamically-arriving SetTurnSink
-	// message necessarily does.
+	// the runner. rec is opened HERE, before any engine process starts, and
+	// it OUTLIVES every one of them: a parked-and-resumed session writes one
+	// transcript through as many engine processes as it takes turns. It
+	// also records the user turns this host writes to `in` — the briefing
+	// and any later coordinator-delivered mail (SetTurnSink).
 	var rec transcript.Recorder
 	if harp := t.Launch.Identity.Harp; harp != "" {
 		r, rerr := transcript.NewRecorder(harp, eh.harness, transcript.WithRawPolicy(transcript.RawPolicy(t.Chat.TranscriptRawPolicy)))
@@ -378,54 +406,113 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	}
 	eh.mu.Unlock()
 
-	chatErr := make(chan error, 1)
-	eh.goTracked(func() {
-		chatErr <- eh.backend.Chat(ctx, t.Chat, in, out)
-	})
-
-	adaptOut := (<-chan agent.ChatEvent)(out)
-	if rec != nil {
-		adaptOut = transcript.TeeAndClose(rec, out)
-	}
-	eh.goTracked(func() { eh.adapt(ctx, home, adaptOut, chatErr) })
-
-	// SetTurnSink's closure and the briefing goroutine below both
-	// send to the same UNBUFFERED `in`, from two different goroutines, with
-	// no ordering between them — a Go select/send race Go itself does not
-	// resolve in send order. If mail is already in the spool at standup
-	// (the startup sweep runs the moment the run is up), that mail's
-	// delivery can win that race and land as the
-	// child's FIRST turn, with the briefing (composed context + prompt)
-	// arriving second — every signal still reports success. `briefed`
-	// gates the turn sink on the briefing's OWN send actually completing
-	// first; a run with no briefing (prompt == "") has nothing to gate on.
-	if prompt == "" {
-		close(briefed)
-	}
+	eh.startEngine(home, t.Chat, prompt)
 
 	// The engine turn-delivery seam: coordinator mail lands as new turns
-	// (the driver's own loop queues mid-turn arrivals to the next boundary).
-	// It rides enqueueTurn like every other locally-originated turn, so mail
-	// and the control verbs cannot reach `in` by two different disciplines.
+	// (the driver's own loop queues mid-turn arrivals to the next boundary;
+	// a parked one-shot host starts a fresh engine process for it). It rides
+	// enqueueTurn like every other locally-originated turn, so mail and the
+	// control verbs cannot reach `in` by two different disciplines.
 	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
 		// The delivered message's id rides the turn's attribution tag, so the
 		// report this turn produces can quote it (spoolturnresult.go). It is
 		// the id the DELIVERY used — the file's origin id — which is exactly
 		// what the sender registered its waiter under.
-		return eh.enqueueTurn(ctx, turnTag{mail: pm.GetMessageId()}, frameCoordinatorMessage(pm)) == nil
+		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId()}, frameCoordinatorMessage(pm)) == nil
+	})
+	return nil
+}
+
+// startEngine starts ONE engine process: the backend's in-process
+// StructuredChat conversation over req, adapted onto plane-1 by adapt, with
+// briefing as its first turn when non-empty. On the first drive it is the
+// launch's request; on a one-shot unpark it is the same request with the
+// engine's own session key as ResumeSessionID. The host's `in`, its run
+// context and `briefed` are this process's; enqueueTurn reads them under
+// the lock, so a turn always lands on the live process.
+func (eh *EngineHost) startEngine(home engineHome, req agent.ChatRequest, briefing string) {
+	ctx, cancel := context.WithCancel(eh.baseCtx)
+	in := make(chan agent.ChatMessage)
+	out := make(chan agent.ChatEvent, 64)
+	briefed := make(chan struct{})
+	eh.mu.Lock()
+	eh.in = in
+	eh.cancel = cancel
+	eh.runCtx = ctx
+	eh.briefed = briefed
+	eh.parked = false
+	rec := eh.rec
+	eh.mu.Unlock()
+
+	chatErr := make(chan error, 1)
+	eh.goTracked(func() {
+		chatErr <- eh.backend.Chat(ctx, req, in, out)
 	})
 
-	// The briefing is the first turn (the context joined by the runner).
-	if prompt != "" {
-		eh.goTracked(func() {
-			defer close(briefed)
-			select {
-			case in <- agent.ChatMessage{Text: prompt}:
-			case <-ctx.Done():
-			}
-		})
+	adaptOut := (<-chan agent.ChatEvent)(out)
+	if rec != nil {
+		adaptOut = transcript.Tee(rec, out)
 	}
-	return nil
+	eh.goTracked(func() { eh.adapt(ctx, home, adaptOut, chatErr) })
+
+	// SetTurnSink's closure and the briefing goroutine below both send to
+	// the same UNBUFFERED `in`, from two different goroutines, with no
+	// ordering between them — a Go select/send race Go itself does not
+	// resolve in send order. If mail is already in the spool at standup
+	// (the startup sweep runs the moment the run is up), that mail's
+	// delivery can win that race and land as the child's FIRST turn, with
+	// the briefing (composed context + prompt) arriving second — every
+	// signal still reports success. `briefed` gates the turn sink on the
+	// briefing's OWN send actually completing first; a process with no
+	// briefing has nothing to gate on.
+	if briefing == "" {
+		close(briefed)
+		return
+	}
+	eh.goTracked(func() {
+		defer close(briefed)
+		select {
+		case in <- agent.ChatMessage{Text: briefing}:
+		case <-ctx.Done():
+		}
+	})
+}
+
+// unpark starts a fresh engine process for a parked one-shot host, resumed
+// by the native key the previous process reported. Called under enqueueMu
+// by the turn that ends the park, so exactly one process is started per
+// boundary. It is a no-op when the host is not parked.
+func (eh *EngineHost) unpark() {
+	eh.mu.Lock()
+	if !eh.parked {
+		eh.mu.Unlock()
+		return
+	}
+	req := eh.chatReq
+	req.ResumeSessionID = eh.nativeKey
+	home := eh.home
+	eh.mu.Unlock()
+	eh.startEngine(home, req, "")
+}
+
+// parkAtBoundary decides, at a clean turn boundary, whether this engine
+// process ends and the host parks: a one-shot session whose engine has
+// live-confirmed it can be resumed by key. The engine process ends by
+// cancellation (Chat returns, adapt's loop drains); the host stays, its
+// endpoint bound, and the next turn resumes by key.
+func (eh *EngineHost) parkAtBoundary(sessionID string, resumable bool) bool {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	if !eh.oneShot || sessionID == "" || !resumable {
+		return false
+	}
+	eh.parked = true
+	eh.nativeKey = sessionID
+	eh.resumable = resumable
+	if eh.cancel != nil {
+		eh.cancel()
+	}
+	return true
 }
 
 // adapt is the NATIVE-EVENT ADAPTATION: it translates the engine's
@@ -441,6 +528,8 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		lastMeta  *agent.TurnMeta
 		turns     int
 		sessionID string
+		resumable bool
+		parked    bool
 		// accepted is every delivered message whose turn the engine TOOK
 		// (its tag was popped by beginTurn), completed or not — see
 		// awaitAcceptedAcks.
@@ -452,6 +541,7 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 		case ev.Session != nil:
 			if ev.Session.SessionID != "" {
 				sessionID = ev.Session.SessionID
+				resumable = ev.Session.Resumable
 				// resumable carries the engine's LIVE loadSession capability
 				// (ChatSessionInfo.Resumable) up to the coordinator's run
 				// record — the one-shot resume gate's live half (one-shot-
@@ -481,13 +571,25 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 			inTurn = false
 			tag := eh.endTurn()
 			accepted = appendMail(accepted, tag)
+			final := eh.takeTurnFinal()
 			// THE AUTOMATIC TURN REPORT (spoolturnresult.go). It runs BEFORE
 			// the turn-idle event, so the child's answer is durable before
 			// the coordinator is told the child is idle — which is the
 			// moment a leftover-mail resume decision reads the spool.
-			if err := home.ReportTurnResult(eh.takeTurnFinal(), tag.mail); err != nil {
+			if err := home.ReportTurnResult(final, tag.mail); err != nil {
 				eh.rep.Warnf("engine host: this turn's report was not written: %v", err)
 			}
+			if tag.done != nil {
+				// A Turn frame is waiting on this turn: answer it with the
+				// turn's final text and the key the next turn resumes by.
+				tag.done <- engine.TurnResult{NativeKey: sessionID, Answer: final}
+			}
+			// THE ONE-SHOT BOUNDARY: the engine process ends here and the
+			// host parks, keeping the run, its endpoint and this recorder; the
+			// coordinator sees an idle run, never a terminal. Decided BEFORE
+			// the idle event so a turn the coordinator sends on seeing "idle"
+			// finds the host already parked and starts the next process.
+			parked = eh.parkAtBoundary(sessionID, resumable)
 			home.emitCustomEvent(CustomTurnIdle, map[string]any{"stop_reason": ev.Complete.StopReason})
 			// TURN-BOUNDARY SWEEP (the §6a drain): mail that arrived mid-turn
 			// becomes the next turn here. It dispatches rather than blocks —
@@ -501,7 +603,14 @@ func (eh *EngineHost) adapt(ctx context.Context, home engineHome, out <-chan age
 	accepted = appendMail(accepted, eh.endTurn())
 	awaitAcceptedAcks(eh.rep, home, accepted)
 
-	result, exitCode := terminalResult(<-chatErr, ctx.Err(), lastMeta, turns)
+	chatEnd := <-chatErr
+	if parked {
+		// The engine process ended at its boundary by design; the run did
+		// not. No terminal, no RunExited — the runner stays for the next turn.
+		return
+	}
+	eh.closeRecorder()
+	result, exitCode := terminalResult(chatEnd, ctx.Err(), lastMeta, turns)
 	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
 		Result: result,
 	}}})

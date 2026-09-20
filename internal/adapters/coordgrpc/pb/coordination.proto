@@ -321,6 +321,7 @@ message RunnerResponse {
     DrainResult drain = 13;
     PauseRunResult pause_run = 14;
     ResumeRunResult resume_run = 15;
+    TurnResult turn = 16;
     google.protobuf.Struct custom = 90;
   }
 }
@@ -608,6 +609,13 @@ message ResumeRef {
 message Turn {
   string prompt = 1;
   string resume = 2;
+}
+
+// TurnResult answers a Turn: the turn's final text and the native key the
+// NEXT turn resumes by (engine.TurnResult).
+message TurnResult {
+  string native_key = 1;
+  string answer = 2;
 }
 
 message HarnessSpec {

@@ -16,7 +16,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -261,14 +260,18 @@ type Coordinator struct {
 	spoolSeenMu sync.Mutex
 	spoolSeen   map[string]map[string]bool
 
-	mu          sync.Mutex
-	attach      map[string]*childRt // runID → runtime attachment
-	byHarp      map[string]*childRt // harp → current attachment
-	polls       map[string]*parkedPoll
-	delivered   map[string][]string       // role → delivered-but-unacked ids
-	runners     map[string]*runnerSession // credHash → connected runner
-	runnerReady map[string]chan struct{}  // credHash → closed on Hello registration (awaitRunner)
-	chans       map[string]*runChan       // role harp → live RunChannel
+	mu        sync.Mutex
+	attach    map[string]*childRt // runID → runtime attachment
+	byHarp    map[string]*childRt // harp → current attachment
+	polls     map[string]*parkedPoll
+	delivered map[string][]string       // role → delivered-but-unacked ids
+	runners   map[string]*runnerSession // credHash → connected runner
+	// graceExpire fires the runner-loss grace windows adopt armed for the
+	// runs it found live at startup, ahead of their clock — the test seam
+	// expireRunnerGrace drains; each closure is idempotent with its timer.
+	graceExpire []func()
+	runnerReady map[string]chan struct{} // credHash → closed on Hello registration (awaitRunner)
+	chans       map[string]*runChan      // role harp → live RunChannel
 	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
 	// reconnect, keyed by (role, request_id). It replaces the per-connection
 	// runChan.reqCache/inflight (reset to empty on every dial): a request the
@@ -461,6 +464,7 @@ func New(opts Options) (*Coordinator, error) {
 	// runs.
 	c.startSpoolReactor()
 	c.goTracked(c.runnerWatchdog)
+	c.goTracked(c.idleReaper)
 	// The PROGRESS watchdog (liveness.go), alongside the runner-liveness one
 	// above. They answer different questions and neither subsumes the other:
 	// runnerWatchdog catches a runtime that DIED (heartbeat silence) and acts
@@ -648,18 +652,17 @@ func (c *Coordinator) waitTracked() {
 	c.tracked.wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
 }
 
-// adopt reconciles state read from disk with the fresh process (acceptance
-// (4)): queued mail is preserved as-is (drainable); non-ended HOST runs died
-// with the previous process and are terminated (orphaned); non-ended
-// CONTAINER runs may still be alive — their credentials stay valid so their
-// RunnerChannels can re-Hello against the re-bound endpoint, and a grace
-// timer terminates any that never dial back (runner loss). Live-child
-// engine-stream continuity is Wave C.
+// adopt reconciles state read from disk with the fresh process: queued mail
+// is preserved as-is (drainable); every non-ended run gets ONE runner-loss
+// grace window in which its runner — a container's foreground process, or a
+// host runner that is its own session leader — may dial back naming the run
+// (RunnerHello.active_run_ids), whereupon readopt gives it its attachment
+// and its cell owner back; a run whose runner never returns ends as runner
+// loss. Live-child engine-stream continuity is Wave C.
 func (c *Coordinator) adopt() {
 	type pending struct {
-		runID     string
-		credHash  string
-		container bool
+		runID    string
+		credHash string
 	}
 	var stale []pending
 	c.runs.View(func() {
@@ -667,33 +670,33 @@ func (c *Coordinator) adopt() {
 			if r.Ended {
 				continue
 			}
-			// EITHER ownership mode gets the runner-loss grace below: what
-			// earns it is that the run's engine outlives the coordinator
-			// process, which is true of a container regardless of who owns
-			// its daemon.
-			stale = append(stale, pending{runID: id, credHash: r.CredHash, container: launch.IsContainerRuntimeAxis(r.Runtime)})
+			stale = append(stale, pending{runID: id, credHash: r.CredHash})
 		}
 	})
 	for _, p := range stale {
-		if !p.container {
-			c.terminateRun(p.runID, CauseOrphaned, "coordinator relaunched; the child's engine died with the previous process")
-			continue
-		}
-		// Container run: its runner may still be alive. Give it one
-		// runner-loss window to re-Hello; terminate as runner loss if it
-		// never does.
 		runID, credHash := p.runID, p.credHash
+		fired := make(chan struct{})
+		var once sync.Once
+		fire := func() {
+			once.Do(func() {
+				close(fired)
+				c.mu.Lock()
+				_, connected := c.runners[credHash]
+				c.mu.Unlock()
+				if !connected {
+					c.terminateRun(runID, CauseRunnerLoss, "no runner re-Hello after coordinator relaunch")
+				}
+			})
+		}
+		c.mu.Lock()
+		c.graceExpire = append(c.graceExpire, fire)
+		c.mu.Unlock()
 		c.goTracked(func() {
 			select {
 			case <-time.After(runnerLossTimeout):
+				fire()
+			case <-fired:
 			case <-c.baseCtx.Done():
-				return
-			}
-			c.mu.Lock()
-			_, connected := c.runners[credHash]
-			c.mu.Unlock()
-			if !connected {
-				c.terminateRun(runID, CauseRunnerLoss, "no runner re-Hello after coordinator relaunch")
 			}
 		})
 	}

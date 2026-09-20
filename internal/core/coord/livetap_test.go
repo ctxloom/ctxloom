@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -183,7 +184,7 @@ func (s *liveTapSpawner) StartEngine(ctx context.Context, plan *coord.SpawnPlan,
 	sctx, cancel := context.WithCancel(ctx)
 	host := coord.NewEngineHost(sctx, nil, s.chat, plan.Backend, runnerEnv[coord.EnvRunID])
 	host.BindRunner(runner.Host{Deps: runner.Deps{
-		Engine:     engine.Name(plan.Backend),
+		Kind:       mock.NewNamed(engine.Name(plan.Backend)),
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
 		Static:     noDelivery{},

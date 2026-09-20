@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -21,7 +21,7 @@ import (
 // explicitly PARKED, and expiry is LOUD.
 //
 //   - A wait on a PROCESS (drain) is bounded at agent_recv's own maximum
-//     wait, mcpschema.RecvWaitMax: exit is REQUESTED at drain start (no new
+//     wait, RecvWaitMax: exit is REQUESTED at drain start (no new
 //     turn is handed out; a child ends at its next turn boundary) and FORCED
 //     at the bound. A child that dies during drain is not relaunched — drain
 //     is shutdown, not supervision.
@@ -81,7 +81,7 @@ func TestDrainBound_IsAgentRecvsMaxWait(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	assert.Equal(t, mcpschema.RecvWaitMax, c.drainBound,
+	assert.Equal(t, RecvWaitMax, c.drainBound,
 		"the drain bound must be agent_recv's max wait, not a value of its own")
 }
 
@@ -282,6 +282,9 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	texts := sp.chat(1).recordedTexts()
 	assert.Len(t, texts, 1, "the leftover mail is one turn, not several")
 	assert.Contains(t, texts[0], leftover, "the relaunched run's first turn must carry the message that raced the death")
+	// The consume-rename is the runner's ACCEPTANCE of the turn, and it
+	// follows the engine seeing the text; the relaunch is judged on it.
+	awaitSpoolCount(t, harp, spool.DirInConsumed, 1, "after the relaunched run took the leftover mail")
 	assert.Zero(t, c.pendingCount(harp), "delivery consumes the mail; nothing is left queued behind the new run")
 	assert.NotEqual(t, runID, currentRunID(c, harp), "the delivery rides a fresh run, not the dead one")
 }
@@ -429,11 +432,11 @@ func TestBeginDrain_IsIdempotentAndReturnsTheSameDrain(t *testing.T) {
 }
 
 // TestDrainBound_NoSecondLiteralExists pins the other half of (d) at the
-// source: across the drain's reader (this package), agent_recv's readers
-// (internal/adapters/mcp) and the declaring package, the only duration expression
-// equal to the bound is mcpschema.RecvWaitMax's own declaration — and this
-// package reaches the bound by that name. A second number, however it is
-// spelled, is the drift this test exists to refuse.
+// source: across the drain's reader (this package, which declares the verb's
+// bound), the tool schema's clamp (mcpschema, which reads it by name) and
+// agent_recv's readers (internal/adapters/mcp), the only duration expression
+// equal to the bound is RecvWaitMax's own declaration. A second number,
+// however it is spelled, is the drift this test exists to refuse.
 func TestDrainBound_NoSecondLiteralExists(t *testing.T) {
 	coordDir := packageDir(t)
 	dirs := map[string]string{
@@ -441,20 +444,20 @@ func TestDrainBound_NoSecondLiteralExists(t *testing.T) {
 		"mcpschema": filepath.Join(coordDir, "..", "..", "adapters", "coordgrpc", "mcpschema"),
 		"mcp":       filepath.Join(coordDir, "..", "..", "adapters", "mcp"),
 	}
-	const declaring = "recvwait.go"
+	const declaring = "verbs.go"
 	var seenDeclaration bool
 	for name, dir := range dirs {
 		for _, f := range nonTestGoFiles(t, dir) {
-			for _, hit := range durationLiteralsEqualTo(t, f, mcpschema.RecvWaitMax) {
-				if name == "mcpschema" && filepath.Base(f) == declaring && hit == "RecvWaitMax" {
+			for _, hit := range durationLiteralsEqualTo(t, f, RecvWaitMax) {
+				if name == "coord" && filepath.Base(f) == declaring && hit == "RecvWaitMax" {
 					seenDeclaration = true
 					continue
 				}
-				t.Errorf("%s: a second spelling of the drain bound (%s) in %s: cite mcpschema.RecvWaitMax instead", name, mcpschema.RecvWaitMax, f)
+				t.Errorf("%s: a second spelling of the drain bound (%s) in %s: cite coord.RecvWaitMax instead", name, RecvWaitMax, f)
 			}
 		}
 	}
 	require.True(t, seenDeclaration, "the walker must find the declaration itself, or it is not finding anything")
 	assert.Contains(t, referencingFiles(t, coordDir, "RecvWaitMax", false), "coordinator.go",
-		"the drain bound must be read by name from the declaring package")
+		"the drain bound must be read by name from its declaration")
 }

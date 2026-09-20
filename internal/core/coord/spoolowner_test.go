@@ -142,9 +142,9 @@ func TestSpoolOwner_ParkedRecvIsWokenByTheDoorbell(t *testing.T) {
 		parked <- recvOut{msgs, err}
 	}()
 	require.Eventually(t, func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		p := c.polls[ownerIdentity().Harp]
+		c.inbox.mu.Lock()
+		defer c.inbox.mu.Unlock()
+		p := c.inbox.polls[ownerIdentity().Harp]
 		return p != nil && !p.done
 	}, conformanceWait, 5*time.Millisecond, "the owner never parked")
 

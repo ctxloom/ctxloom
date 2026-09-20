@@ -156,3 +156,43 @@ func TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause(t *testing.T) {
 	assert.Contains(t, buf.String(), "test teardown")
 	assert.NotContains(t, buf.String(), "()")
 }
+
+// TestTrackedGroup_EnterAfterSealIsRefused pins the stream-handler half of the
+// discipline. A gRPC stream handler is dispatched by the SERVER, not by
+// dispatch, so it takes its slot with enter — and a handler arriving after the
+// owner sealed is REFUSED, never counted: a WaitGroup.Add racing an in-progress
+// Wait is the -race finding Coordinator.Close used to produce.
+func TestTrackedGroup_EnterAfterSealIsRefused(t *testing.T) {
+	g := trackedGroup{rep: termRep()}
+	g.seal()
+	done, ok := g.enter()
+	assert.False(t, ok, "a slot taken after the seal would Add into the join")
+	assert.Nil(t, done)
+}
+
+// TestTrackedGroup_EnterBeforeSealIsJoined: a slot taken before the seal holds
+// the join until it is released, so a handler's deferred teardown finishes
+// before the owner proceeds past wait.
+func TestTrackedGroup_EnterBeforeSealIsJoined(t *testing.T) {
+	g := trackedGroup{rep: termRep()}
+	done, ok := g.enter()
+	require.True(t, ok)
+
+	g.seal()
+	joined := make(chan struct{})
+	go func() {
+		g.wait(time.Second, "test teardown", "")
+		close(joined)
+	}()
+	select {
+	case <-joined:
+		t.Fatal("the join returned while a slot was still held")
+	case <-time.After(20 * time.Millisecond):
+	}
+	done()
+	select {
+	case <-joined:
+	case <-time.After(time.Second):
+		t.Fatal("the join did not return once the slot was released")
+	}
+}

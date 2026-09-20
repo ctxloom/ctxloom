@@ -152,14 +152,16 @@ created; `closePartial` discards all four journal `Close()` errors.
 | `Serve` / `ReachURL` | see [transport.md](transport.md) |
 | `StartOwnedRun` / `SendOwnedRunTurn` | see [child-lifecycle.md](child-lifecycle.md) |
 
-`Inject` accepts an empty `text` and durably journals an empty-body mail, returning a
-success delivery mode; the only emptiness guard is three layers away in the TUI
-(`cli/tui/model.go`). The sibling verb `AgentSend` is guarded at a different layer
-(`mcp/mcp_tools_agents.go`). Neither guard is in the verb.
+Every verb's request is validated in ONE place — `Validate` on its request
+type (`coord.Verbs`, `verbs.go`): a transport (the RunChannel handlers, the
+stdio surface in `mcp/mcp_tools_agents.go`) only decodes and calls the verb.
+`SendRequest.Validate` holds the recipient, body, kind and body-cap
+(`MaxSendBodyBytes`) refusals; `queueMailPayloadID` refuses an empty message
+at the chokepoint every internal sender shares.
 
-The delivery-by-state classification is written twice over the same `driveQueued`
-return, in two vocabularies: `peerSend` returns English
-prose, `Inject` returns the typed `Delivery*` constants.
+The delivery-by-state classification (`deliveryDisposition`) renders the ONE
+state `deliverMailID` observed at the write in two vocabularies: `peerSend`
+returns English prose, `Inject`/steer return the typed `Delivery*` constants.
 
 ## State directory
 

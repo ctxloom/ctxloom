@@ -100,7 +100,7 @@ type parsedFile struct {
 // scanPathAuthority walks the whole module outside pathAuthorityExemptDir,
 // grouping files by directory (a Go package may span several files, and a
 // const this gate cares about can be declared in one file and used in
-// another — internal/agentcoord/discover's DirName/FileName both live in the
+// another — internal/adapters/coordgrpc/discover's DirName/FileName both live in the
 // same file here, but the mechanism does not assume that). For every
 // directory it first collects the package-level CONST names declared there,
 // then scans every filepath.Join/path.Join call for the co-occurrence

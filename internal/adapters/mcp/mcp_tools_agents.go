@@ -328,20 +328,10 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, nil, err
 	}
-	// THIS IS THE EDGE for the per-call dirty-tree vocabulary on the native
-	// surface: the argument is a model-supplied string, and the member it
-	// would otherwise default to auto-commits the user's working tree. Parse
-	// it here, so an unrecognized spelling is refused at the tool call
-	// naming the legal values, and only the typed value travels inward.
-	workspace, err := launch.ParseWorkspaceAxis(in.Workspace)
-	if err != nil {
-		return nil, nil, fmt.Errorf("agent_run: %w", err)
-	}
-	dirtyTreeHandler, err := launch.ParseDirtyTreeHandler(in.DirtyTreeHandler)
-	if err != nil {
-		return nil, nil, fmt.Errorf("agent_run: %w", err)
-	}
-	out, err := d.c.AgentRun(ctx, d.self, in.Agent, in.Prompt, workspace, dirtyTreeHandler)
+	// This handler only DECODES: the Spawn verb validates (the agent, the
+	// prompt, both per-call vocabularies) — the one site every transport
+	// shares, so a refusal reads the same here as over the wire.
+	out, err := d.c.Spawn(ctx, d.self, coord.SpawnRequest{Agent: in.Agent, Prompt: in.Prompt, Workspace: in.Workspace, DirtyTree: in.DirtyTreeHandler})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -355,16 +345,10 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	}, nil
 }
 
-func (s *ctxServer) handleAgentSend(_ context.Context, _ *mcp.CallToolRequest, in agentSendInput) (*mcp.CallToolResult, *agentSendResult, error) {
+func (s *ctxServer) handleAgentSend(ctx context.Context, _ *mcp.CallToolRequest, in agentSendInput) (*mcp.CallToolResult, *agentSendResult, error) {
 	d, err := s.delegation()
 	if err != nil {
 		return nil, nil, err
-	}
-	if in.To == "" {
-		return nil, nil, errors.New(`agent_send: to is required (a child harp, or "parent" from a delegated child)`)
-	}
-	if in.Body == "" {
-		return nil, nil, errors.New("agent_send: body is required")
 	}
 	var structured json.RawMessage
 	if len(in.Structured) > 0 {
@@ -374,11 +358,11 @@ func (s *ctxServer) handleAgentSend(_ context.Context, _ *mcp.CallToolRequest, i
 		}
 		structured = raw
 	}
-	disposition, err := d.c.AgentSend(d.self, in.To, in.Kind, in.Body, structured, in.InReplyTo)
+	out, err := d.c.Send(ctx, d.self, coord.SendRequest{To: in.To, Kind: in.Kind, Body: in.Body, Structured: structured, InReplyTo: in.InReplyTo})
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, &agentSendResult{To: in.To, Disposition: disposition}, nil
+	return nil, &agentSendResult{To: in.To, Disposition: out.Disposition}, nil
 }
 
 func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest, in agentRecvInput) (*mcp.CallToolResult, *agentRecvResult, error) {
@@ -387,7 +371,7 @@ func (s *ctxServer) handleAgentRecv(ctx context.Context, _ *mcp.CallToolRequest,
 		return nil, nil, err
 	}
 	wait := mcpschema.ClampRecvWait(in.Wait)
-	msgs, err := d.c.AgentRecv(ctx, d.self, wait)
+	msgs, err := d.c.Recv(ctx, d.self, wait)
 	if err != nil {
 		// Role, not transport, picks the verdict shape; runnermcp.RecvOutcome holds
 		// the leaf/coordinator asymmetry and the reason it must stay.
@@ -425,27 +409,13 @@ func (s *ctxServer) handleAgentStop(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, nil, err
 	}
-	if in.Harp == "" {
-		// The bulk sweep: every live child of this session.
-		stopped, err := d.c.StopChildren(ctx, d.self, in.Reason)
-		if errors.Is(err, coord.ErrStopReasonRequired) {
-			return nil, nil, fmt.Errorf("%w — give harp to stop one child, or reason to stop them all", err)
-		}
-		if err != nil {
-			return nil, nil, fmt.Errorf("agent_stop: %w", err)
-		}
-		out := &agentStopResult{Disposition: fmt.Sprintf("stopped %d child(ren) of this session; their execution slots are freed (a later agent_send resumes any of them as a fresh run)", len(stopped))}
-		if len(stopped) == 0 {
-			out.Disposition = "no live children to stop"
-		}
-		for _, sc := range stopped {
-			out.Children = append(out.Children, agentStoppedChild{Harp: sc.Harp, RunID: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail})
-		}
-		return nil, out, nil
-	}
-	disposition, err := d.c.AgentStop(d.self, in.Harp, in.Reason)
+	out, err := d.c.Stop(ctx, d.self, coord.StopRequest{Harp: in.Harp, Reason: in.Reason})
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, &agentStopResult{Harp: in.Harp, Disposition: disposition}, nil
+	res := &agentStopResult{Harp: in.Harp, Disposition: out.Disposition}
+	for _, sc := range out.Children {
+		res.Children = append(res.Children, agentStoppedChild{Harp: sc.Harp, RunID: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail})
+	}
+	return nil, res, nil
 }

@@ -299,7 +299,7 @@ const (
 	// coordinator state dir (~/.ctxloom/coord/<project-key>/endpoint.json):
 	// the ports a coordinator last bound, re-minted every Serve() so a
 	// relaunched coordinator re-binds the SAME endpoint and a separate CLI
-	// invocation (internal/agentcoord/discover.List) can find it. 0600 and
+	// invocation (internal/adapters/coordgrpc/discover.List) can find it. 0600 and
 	// host-local — it also carries the read-only consumer credential.
 	CoordEndpointFileName = "endpoint.json"
 
@@ -705,7 +705,7 @@ func TriggerCacheDir() (string, error) {
 
 // HomeCoordDir returns ~/.ctxloom/coord — the per-user root holding one
 // subdirectory of coordinator state per project (see CoordDirName,
-// CoordProjectStateDir). internal/agentcoord/discover.List globs one level
+// CoordProjectStateDir). internal/adapters/coordgrpc/discover.List globs one level
 // below this root for every project's endpoint.json.
 func HomeCoordDir() (string, error) {
 	return homeUnder(whatHomeCoord, CoordDirName)

@@ -31,7 +31,7 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 
 	role := ownerIdentity().Harp
 	for _, body := range []string{"", "   ", "\n\t "} {
-		_, _, err := c.queueMailPayloadID("m-empty", "parent", role, KindMessage, body, nil, "")
+		_, err := c.queueMailPayloadID("m-empty", "parent", role, KindMessage, body, nil, "")
 		if !assert.Error(t, err, "an empty body (%q) must be refused, not queued", body) {
 			return
 		}
@@ -42,7 +42,7 @@ func TestQueueMail_RefusesAnEmptyBody(t *testing.T) {
 	}
 
 	// A recv finds nothing: no phantom delivery was made.
-	msgs, err := c.recvMail(context.Background(), role, 0)
+	msgs, err := c.inbox.recv(context.Background(), role, 0)
 	assert.Empty(t, msgs)
 	assert.ErrorIs(t, err, ErrRecvTimeout)
 }
@@ -56,7 +56,7 @@ func TestQueueMail_StructuredOnlyMessageIsStillAllowed(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	_, _, err := c.queueMailPayloadID("m-structured", "parent", role, KindResult, "",
+	_, err := c.queueMailPayloadID("m-structured", "parent", role, KindResult, "",
 		json.RawMessage(`{"decision":"accept"}`), "")
 	if !assert.NoError(t, err, "a structured-only message carries a payload and must be queued") {
 		return

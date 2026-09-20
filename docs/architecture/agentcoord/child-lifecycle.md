@@ -83,7 +83,7 @@ name.
 | `failChild` | `children.go` | warn, count the failure, terminate, mark attached |
 | `resumeChild` | `children.go` | backoff, re-check the stop flag, resolve, enqueue as a **fresh run**, relaunch |
 | `reapEndedRuns` | `children.go` | bounds live ended-run records by tail + age; re-asserts "not the harp's current run" **inside** the writer window |
-| `driveQueued` | `children.go` | classifies how a queued message will reach a recipient, by fold state |
+| `observeRecipient` / `driveObserved` | `children.go` | the recipient's fold state is read BEFORE the write and acted on after it (`deliverMailID`): resume an ended child, let the doorbell wake an idle one; the state observed is what the sender is told |
 | `Coordinator.StartOwnedRun` / `SendOwnedRunTurn` | `owner_run.go` | mint and drive a parent-less top-level container run; `run_owned.go` is the CLI caller |
 
 ## Execution slots and the concurrency ceiling

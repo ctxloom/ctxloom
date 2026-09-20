@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 )
 
 // endpoint.json is a seam with a writer here and a reader in
-// internal/agentcoord/discover — the D1 consumer discovery path a separate CLI
+// internal/adapters/coordgrpc/discover — the D1 consumer discovery path a separate CLI
 // invocation (the TUI, `ctxloom session transcript watch`) uses to find a live
 // coordinator. The two halves are in different packages by necessity: coord
 // imports internal/adapters/operations, which imports discover, so discover can never

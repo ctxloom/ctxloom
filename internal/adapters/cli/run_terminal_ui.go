@@ -100,7 +100,7 @@ func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string
 			// — its absence (no coordinator hosted) never blanks the pane.
 			var held []coord.RosterEntry
 			if sessionCoord != nil {
-				held = sessionCoord.Roster()
+				held = sessionCoord.Roster(sessionCoord.Owner())
 			}
 			return tui.BuildRoster(index, held, selfHarp), nil
 		},
@@ -132,7 +132,7 @@ func surroundRoster(sessionCoord *coord.Coordinator) ([]termui.RosterEntry, erro
 	if sessionCoord == nil {
 		return nil, nil
 	}
-	held := sessionCoord.Roster()
+	held := sessionCoord.Roster(sessionCoord.Owner())
 	rows := make([]termui.RosterEntry, len(held))
 	for i, b := range held {
 		rows[i] = termui.RosterEntry{Harp: b.Harp, State: b.State, LastActivityUnix: b.LastActivityUnix}

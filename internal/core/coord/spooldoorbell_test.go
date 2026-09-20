@@ -46,7 +46,7 @@ func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 	for _, dir := range spool.Dirs() {
 		t.Run(dir.String(), func(t *testing.T) {
 			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-			h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
+			h := dialHome(t, c, doorbellHarp)
 
 			got := make(chan spool.Ref, 1)
 			var gotRole string
@@ -75,7 +75,7 @@ func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 	for _, dir := range spool.Dirs() {
 		t.Run(dir.String(), func(t *testing.T) {
 			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-			h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
+			h := dialHome(t, c, doorbellHarp)
 
 			got := make(chan spool.Ref, 1)
 			h.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { got <- ref })
@@ -224,7 +224,7 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-			h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
+			h := dialHome(t, c, doorbellHarp)
 
 			fired := make(chan spool.Ref, 1)
 			c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { fired <- ref })
@@ -278,7 +278,7 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 // latency (see TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep).
 func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
+	h := dialHome(t, c, doorbellHarp)
 
 	got := make(chan spool.Ref, 1)
 	c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { got <- ref })
@@ -401,9 +401,9 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		// ch.send off-lock by design, so swapping it under a live channel
 		// races the very goroutine the test is trying to stall.
 		ch := &runChan{
-			role:      doorbellHarp,
-			send:      make(chan *agentcoordpb.CoordinatorFrame, 1),
-			completed: make(chan struct{}),
+			role:        doorbellHarp,
+			bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 1),
+			completed:   make(chan struct{}),
 		}
 		ch.send <- &agentcoordpb.CoordinatorFrame{}
 		c.mu.Lock()
@@ -424,7 +424,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 
 	t.Run("runner: no stream", func(t *testing.T) {
 		c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-		h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
+		h := dialHome(t, c, doorbellHarp)
 		h.Close(0, "")
 
 		done := make(chan error, 1)
@@ -445,7 +445,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 // being refused at a peer.
 func TestSpoolDoorbell_InvalidRefNeverReachesTheWire(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	h := dialHome(t, c, doorbellHarp, CapPeerMessaging)
+	h := dialHome(t, c, doorbellHarp)
 
 	bad := []spool.Ref{
 		{Harp: doorbellHarp, Dir: spool.DirIn, Name: "../escape.md"},

@@ -24,7 +24,7 @@ func testHome(t *testing.T) *Home {
 		ctx:         ctx,
 		cancel:      cancel,
 		ackCh:       make(chan struct{}),
-		pending:     make(map[string]*homeReq),
+		requests:    newBidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse](cancel, 0),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
 	}

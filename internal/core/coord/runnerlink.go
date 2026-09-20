@@ -324,6 +324,16 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 	// what left the window the race detector found; the lock is what closes
 	// it without giving the graceful sequence up.
 	l.closeSend()
+	l.Abort()
+}
+
+// Abort is the crash-side teardown: no RunExited, no half-close — the stream
+// is cancelled, the loops joined, and the connection CLOSED. It is what a
+// link that is being replaced (Home's redial) or crashed with its Home owes
+// the process: a ClientConn left open keeps its goroutines and buffers for
+// the life of the process, which is a leak per reconnect and per run.
+func (l *RunnerLink) Abort() {
+	l.tracked.seal()
 	l.cancel()
 	<-l.done
 	l.waitTracked()

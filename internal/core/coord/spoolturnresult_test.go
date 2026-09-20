@@ -71,7 +71,7 @@ func TestSpoolTurnResult_CorrelatesToTheMessageThatStartedTheTurn(t *testing.T) 
 	// turn this test starts.
 	require.NotEmpty(t, bridgedResultFor(t, c, conformanceWait))
 
-	msgID, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "check the lockfile", nil, "")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "check the lockfile", nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 

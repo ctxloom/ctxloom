@@ -151,6 +151,9 @@ type TerminalInjector struct {
 	// carried explicitly.
 	injectGen uint64
 	count     func() int
+	// parked reports whether a receive is parked on the Home: the engine is
+	// already collecting, so a reminder to do so is redundant.
+	parked func() bool
 }
 
 // NewTerminalInjector builds an injector for home and registers it as home's
@@ -171,6 +174,7 @@ func NewTerminalInjector(home *Home, gate agent.InputGate) *TerminalInjector {
 		ackWait:    terminalInjectAckWait,
 		ackTick:    terminalInjectAckTick,
 		count:      home.BufferedMailCount,
+		parked:     home.RecvParked,
 	}
 	home.SetTerminalNudge(ti.nudge)
 	return ti
@@ -289,6 +293,13 @@ func (ti *TerminalInjector) run() {
 	ti.mu.Unlock()
 	if inject == nil {
 		return // Wrap was never called: no interactive stdin exists to inject into
+	}
+	if ti.parked != nil && ti.parked() {
+		// A receive is parked: the engine is already collecting, so a
+		// reminder to call agent_recv would interrupt the very call it asks
+		// for. The mail completes that receive; nothing is lost by standing
+		// down, and the next arrival with no park re-arms.
+		return
 	}
 	if n := ti.count(); n > 0 {
 		// "\r", not "\n": an interactive engine holds the terminal in RAW

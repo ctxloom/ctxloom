@@ -849,9 +849,10 @@ message Hello {
   uint32 protocol_version = 5;  // this file: 1
 
   // ACP-style capability strings ("approvals", "state_delta",
-  // "peer_messaging", "on_demand_summary"). The coordinator MUST NOT
-  // send request kinds the agent didn't advertise. Vendor extensions
-  // namespaced: "x-acme/foo".
+  // "on_demand_summary"). The coordinator MUST NOT send request kinds the
+  // agent didn't advertise. Vendor extensions namespaced: "x-acme/foo".
+  // RETIRED, never to be reissued: "peer_messaging" (mail rides the spool;
+  // every runner has that surface; a receiver ignores the string).
   repeated string capabilities = 6;
 }
 

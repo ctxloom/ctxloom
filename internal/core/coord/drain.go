@@ -16,7 +16,7 @@ import (
 // Every wait the coordinator holds on a child is one of exactly two things:
 //
 //   - a wait on a PROCESS, which is BOUNDED at c.drainBound (agent_recv's own
-//     maximum wait, mcpschema.RecvWaitMax — the one declaration of that
+//     maximum wait, RecvWaitMax — the one declaration of that
 //     number). Exit is REQUESTED at drain start and FORCED at the bound;
 //   - a wait on a HUMAN — a child parked in agent_recv or on a permission
 //     decision (StateParked) — which is a PARK, not a wait: unbounded, never
@@ -374,10 +374,11 @@ func (c *Coordinator) drainAtBoundary(rt *childRt, p *drainPolicy) {
 // agent_stop's BULK form.
 // ---------------------------------------------------------------------------
 
-// ErrStopReasonRequired refuses a bulk stop with no reason: omitting run_id
+// ErrStopReasonRequired refuses a bulk stop with no reason: naming no child
 // stops EVERY live child of the calling session, and an accidental omission
-// must not do that silently.
-var ErrStopReasonRequired = errors.New("agent_stop: reason is required when run_id is omitted (omitting run_id stops EVERY live child of this session; say why)")
+// must not do that silently. Shared by StopRequest.Validate and StopChildren
+// (one wording, whichever entry the stop arrived by).
+var ErrStopReasonRequired = errors.New("agent_stop: reason is required when no child (harp / run_id) is named: that form stops EVERY live child of this session; say why")
 
 // A StoppedChild's Outcome: the child ended without a turn being cut short
 // (between turns, at its turn boundary, before it started, or while parked),
@@ -422,6 +423,13 @@ func (c *Coordinator) StopChildren(ctx context.Context, caller Identity, reason 
 	if reason == "" {
 		return nil, ErrStopReasonRequired
 	}
+	return c.stopChildren(ctx, caller, reason)
+}
+
+// stopChildren is StopChildren's body once the reason is settled — Stop's
+// bulk arm reaches it through StopRequest.Validate, which owns the same
+// refusal for that shape.
+func (c *Coordinator) stopChildren(ctx context.Context, caller Identity, reason string) ([]StoppedChild, error) {
 	tracked := c.drainTracked(func(r *RunRecord) bool { return r.ParentHarp == caller.Harp })
 	for _, ch := range tracked {
 		c.markStopped(ch.harp)

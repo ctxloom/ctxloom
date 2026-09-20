@@ -17,10 +17,9 @@ func TestQueueMail_RefusesAnUndrainableRecipient(t *testing.T) {
 	home := teeHome(t)
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
 
-	id, completed, err := c.queueMail("child-a", "", KindUserInjected, "a digest nobody can ever read")
+	id, err := c.queueMail("child-a", "", KindUserInjected, "a digest nobody can ever read")
 	assert.Error(t, err, "a message with no recipient must be refused, not queued")
 	assert.Empty(t, id)
-	assert.False(t, completed)
 	if err != nil {
 		assert.Contains(t, err.Error(), "recipient")
 	}
@@ -31,7 +30,7 @@ func TestQueueMail_RefusesAnUndrainableRecipient(t *testing.T) {
 
 	// A recipient with a reader still queues, so the guard is a guard and not
 	// a blanket refusal: the owner is one.
-	id, _, err = c.queueMail("child-a", ownerIdentity().Harp, "message", "for a real session")
+	id, err = c.queueMail("child-a", ownerIdentity().Harp, "message", "for a real session")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, id)
 	assert.Equal(t, 1, c.pendingCount(ownerIdentity().Harp))

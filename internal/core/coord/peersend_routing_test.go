@@ -22,7 +22,7 @@ func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 
 	// A depth>0 identity with no run of its own has no parent to resolve.
 	ghost := Identity{Harp: "ghost-harp", RunID: "no-such-run", Depth: 1}
-	_, _, _, err := c.peerSend(ghost, ParentAddress, KindMessage, "anyone there", nil, "")
+	_, _, err := c.peerSend(ghost, ParentAddress, KindMessage, "anyone there", nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown sender")
 
@@ -31,18 +31,18 @@ func TestPeerSend_RoutingAndDispositions(t *testing.T) {
 	child := Identity{Harp: out.Harp, RunID: out.RunID, Depth: 1}
 
 	// Child → parent: accepted by address AND by the parent's own harp.
-	id, _, disposition, err := c.peerSend(child, ParentAddress, "result", "finding A", nil, "")
+	id, disposition, err := c.peerSend(child, ParentAddress, "result", "finding A", nil, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
 	assert.Equal(t, "sent to the coordinator", disposition)
 
-	id, _, disposition, err = c.peerSend(child, ownerIdentity().Harp, "result", "finding B", nil, "")
+	id, disposition, err = c.peerSend(child, ownerIdentity().Harp, "result", "finding B", nil, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
 	assert.Equal(t, "sent to the coordinator", disposition)
 
 	// Owner → child: the disposition names the state the delivery observed.
-	id, _, disposition, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "next assignment", nil, "")
+	id, disposition, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "next assignment", nil, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
 	assert.Contains(t, []string{

@@ -59,13 +59,8 @@ type fakeSpawner struct {
 	engineWorkDir string
 	engineEnv     map[string]string
 	// engineCaps is the Hello advertisement StartEngine's in-process Home
-	// makes. It defaults to EMPTY — i.e. peer_messaging only — deliberately,
-	// so every test written before plane 2's control verbs keeps exercising
-	// the §5.6 MAILBOX route it was written against, which is what proves
-	// Inject's fallback survives as a strict superset. A test that wants the
-	// plane-2 path says so by setting this to RunnerCapabilities(true), the
-	// advertisement a production migrated child actually makes
-	// (llm_runner_common.go).
+	// makes; empty is what an engine-hosting runner advertises
+	// (RunnerCapabilities(true)).
 	engineCaps []string
 	// spoolSweepInterval is handed to every in-process Home this fake builds
 	// (HomeConfig.SpoolSweepInterval). A cutover test that has to prove the
@@ -339,6 +334,10 @@ func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.E
 	var releaseOnce sync.Once
 	kill := func() {
 		cancel()
+		// The runner's own teardown order: the engine host is joined before
+		// the Home crashes, so no turn goroutine of the host reaches the
+		// Home's spool after the Home is gone.
+		host.Close()
 		home.Crash()
 		releaseOnce.Do(func() { close(released) })
 	}
@@ -598,7 +597,24 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 	if err := c.Serve(); err != nil {
 		t.Fatalf("serve coordinator: %v", err)
 	}
-	t.Cleanup(c.Close)
+	t.Cleanup(func() {
+		c.Close()
+		// Every runner half this fake stood up is the coordinator's to kill
+		// — through the run's terminal, through Close, or (a terminal that
+		// landed mid-launch) by the launch itself. One left alive keeps its
+		// channels, its connection and its sweep for the life of the test
+		// PROCESS, which is how a -count=N run of this package used to grow
+		// its heap by megabytes per pass.
+		if fs, ok := sp.(*fakeSpawner); ok {
+			fs.mu.Lock()
+			defer fs.mu.Unlock()
+			for i, h := range fs.engineHomes {
+				if h.ctx.Err() == nil {
+					t.Errorf("runner half %d (run %s) is still alive after Coordinator.Close: nothing killed it", i, h.cfg.RunID)
+				}
+			}
+		}
+	})
 	return c
 }
 

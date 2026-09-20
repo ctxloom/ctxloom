@@ -115,7 +115,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	home.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { rings <- ref })
 
 	const body = "cross-boundary body\n"
-	msgID, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, body, nil, "")
+	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, body, nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 

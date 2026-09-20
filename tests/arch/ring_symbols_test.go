@@ -249,7 +249,7 @@ var pinnedCalls = []pinnedCall{
 var oneMintOneOwnerAllowed = map[string]string{
 	// the second mint: agent_run makes the child's harp itself instead of
 	// asking the store
-	"internal/adapters/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 2 introduces sessions.Mint; coord.Coordinator.AgentRun calls it and the MCP server stops minting",
+	"internal/adapters/mcp/mcp_tools_agents.go#selfIdentityFromEnv": "slice 13: the stdio delegation surface (PATH A) leaves once the acceptance journeys drive the runner's endpoint; its ambient identity is minted by the composition root then",
 
 	// the test-only read opens a throwaway owner; its own pin (the
 	// configload.Load entry in pinnedCalls) keeps it out of production
@@ -460,7 +460,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/lm/grpc/client.go":                  "slice 13: the go-plugin protocol is deleted whole",
 	"internal/adapters/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
 	"internal/adapters/mcp/owner_socket.go":       "slice 13: the plugin-hosted owner arm's socket endpoint dies with the plugin arm; its cwd is the cell-path boundary until then",
-	"internal/adapters/mcp/mcp_tools_agents.go":   "slice 8: agent_run is a Verbs.Host frame carrying the launch; no cwd is read",
+	"internal/adapters/mcp/mcp_tools_agents.go":   "slice 13: the stdio delegation surface (PATH A) leaves once the acceptance journeys drive the runner's endpoint; no cwd or env is read then",
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
 
 	// isolation: handed HostFacts and a CellRequest

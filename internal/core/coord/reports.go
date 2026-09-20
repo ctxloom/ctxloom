@@ -313,7 +313,7 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s *agentcoordpb.Sum
 	if rec == nil || rec.ParentHarp == "" {
 		return
 	}
-	if _, _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.GetText()); err != nil {
+	if _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.GetText()); err != nil {
 		c.rep.Warnf("coordinator: %s's FINAL report is journaled but could not be queued to %s: %v "+
 			"(the report is intact in the reports fold; its parent will not be woken by it)", harp, rec.ParentHarp, err)
 	}

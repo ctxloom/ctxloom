@@ -252,7 +252,7 @@ func (c *Coordinator) SendOwnedRunTurn(runID, text string) error {
 			"which routes and audits it as its parent's message", runID)
 	}
 	// The write rings the run's doorbell; its runner delivers the turn.
-	if _, _, err := c.queueMail(rt.harp, rt.harp, "message", text); err != nil {
+	if _, err := c.queueMail(rt.harp, rt.harp, "message", text); err != nil {
 		return fmt.Errorf("owner run %q: enqueue turn: %w", runID, err)
 	}
 	return nil

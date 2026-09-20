@@ -136,6 +136,13 @@ func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 // runner rides the same pair (a `ctxloom run` session's agent_steer goes
 // through its owner Home, not the stdio path), and the delivery mode it is
 // told is the one the child actually got.
+//
+// The mode is the state the delivery OBSERVED AT THE WRITE. The interleaving
+// that used to redden this under load is FORCED here: the child takes the
+// steer and starts its turn the instant the file lands (afterMailWritten, the
+// seam between the write and the disposition), so a disposition read AFTER
+// the write would see an executing child and answer "queued" for a steer
+// that woke an idle one.
 func TestControlRun_SteerFromTheOwnerReachesTheChild(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
@@ -143,6 +150,14 @@ func TestControlRun_SteerFromTheOwnerReachesTheChild(t *testing.T) {
 	c := newCutoverCoordinator(t, sp, 0)
 	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 	owner := ownerHome(t, c)
+
+	c.mu.Lock()
+	c.afterMailWritten = func(to string) {
+		if to == out.Harp {
+			c.onTurnStarted(out.Harp) // the child took it before anyone looked
+		}
+	}
+	c.mu.Unlock()
 
 	resp := controlRun(t, owner, &agentcoordpb.ControlSteer{Harp: out.Harp, Text: "stop and rebase first"})
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
@@ -252,7 +267,7 @@ func TestControlRun_PauseHoldsTurnsAndResumeReleases(t *testing.T) {
 	require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 	assert.True(t, resp.GetControlRun().GetPause().GetNewlyPaused(), "the first pause installed the gate")
 
-	_, _, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
+	_, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, "work item while paused", nil, "")
 	require.NoError(t, err)
 	require.Never(t, func() bool { return countChatText(sp, 0, "work item while paused") > 0 },
 		750*time.Millisecond, 10*time.Millisecond, "a paused run must take no new turn")

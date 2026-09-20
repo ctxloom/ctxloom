@@ -28,10 +28,10 @@ func TestHandleCustomEvent_MalformedEventsAreReported(t *testing.T) {
 		c := newTestCoordinator(t, sp, nil)
 		role := "child-malformed"
 		ch := &runChan{
-			role:      role,
-			id:        Identity{Harp: role, RunID: "run-malformed"},
-			send:      make(chan *agentcoordpb.CoordinatorFrame, 4),
-			completed: make(chan struct{}),
+			role:        role,
+			id:          Identity{Harp: role, RunID: "run-malformed"},
+			bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 4),
+			completed:   make(chan struct{}),
 		}
 		var val *structpb.Struct
 		if value != nil {

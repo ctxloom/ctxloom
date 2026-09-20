@@ -49,7 +49,8 @@ func (k MessageKind) IsSenderAllowed() bool { return senderAllowedKinds[k] }
 
 // IsCoordinatorReserved reports whether only the coordinator may mint this
 // kind. UNSPECIFIED is neither reserved nor allowed — it is INVALID, which is a
-// third thing (see ValidateMessageKind).
+// third thing: no spelling maps to it, so a decode refuses it (coord's
+// sendRequestFromWire).
 func (k MessageKind) IsCoordinatorReserved() bool {
 	return k != MessageKind_MESSAGE_KIND_UNSPECIFIED && !k.IsSenderAllowed() && k.recognised()
 }
@@ -65,64 +66,6 @@ func (k MessageKind) IsCoordinatorReserved() bool {
 func (k MessageKind) recognised() bool {
 	_, ok := MessageKind_name[int32(k)]
 	return ok
-}
-
-// ValidateMessageKind is the INGRESS GUARD for a kind that arrived from a
-// sender (`agent_send`, over either the runner's typed plane-2 frame or the
-// stdio tool surface).
-//
-// It refuses three distinct things, and says which:
-//
-//   - an unrecognised number — the open-enum case, a sender on a newer or
-//     hand-rolled build, or a probe;
-//   - MESSAGE_KIND_UNSPECIFIED — a message that never named its kind. Refused
-//     rather than defaulted: the zero value must not be a way to arrive
-//     unclassified;
-//   - a coordinator-reserved value — the forgery case, and the reason any of
-//     this exists.
-//
-// The error names the accepted vocabulary, because a refusal an agent cannot
-// act on just becomes a retry loop.
-func ValidateMessageKind(k MessageKind) error {
-	switch {
-	case !k.recognised():
-		return fmt.Errorf("agent_send: kind %d is not a message kind this build knows; use one of %s",
-			int32(k), SenderAllowedKindNames())
-	case k == MessageKind_MESSAGE_KIND_UNSPECIFIED:
-		return fmt.Errorf("agent_send: kind is required — name one of %s", SenderAllowedKindNames())
-	case k.IsCoordinatorReserved():
-		return fmt.Errorf("agent_send: kind %s is the coordinator's own and cannot be sent; use one of %s",
-			k, SenderAllowedKindNames())
-	}
-	return nil
-}
-
-// ParseMessageKind resolves an enum NAME to its value, refusing anything
-// outside the vocabulary.
-//
-// It exists for the surfaces that still carry the kind as text — the stdio MCP
-// tool's JSON arguments, and CLI/journal round-trips — so that exactly one
-// place turns a string into a MessageKind, with exactly one error message. A
-// second string→kind conversion somewhere else is how the old free-string
-// vocabulary drifted in the first place.
-func ParseMessageKind(name string) (MessageKind, error) {
-	v, ok := MessageKind_value[name]
-	if !ok {
-		return MessageKind_MESSAGE_KIND_UNSPECIFIED,
-			fmt.Errorf("unknown message kind %q; the vocabulary is %s", name, allKindNames())
-	}
-	return MessageKind(v), nil
-}
-
-// SenderAllowedKindNames lists the sender-allowed value names, sorted, for use
-// in error messages.
-func SenderAllowedKindNames() string {
-	names := make([]string, 0, len(senderAllowedKinds))
-	for k := range senderAllowedKinds {
-		names = append(names, k.String())
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }
 
 // LegacyKindName is one enum value's spelling in the mailbox's string

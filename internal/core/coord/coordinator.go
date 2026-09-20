@@ -14,7 +14,6 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
@@ -38,15 +37,18 @@ var ErrNotInjectable = errors.New("inject: target is not a child this coordinato
 // that isn't draining), never a permanent failure.
 var ErrDraining = errors.New("coordinator is draining: refusing new work (already-admitted runs continue to completion)")
 
+// ErrClosed refuses a Serve that lands after Close has begun: the listeners
+// it would have bound have no owner left to close them.
+var ErrClosed = errors.New("coordinator is closed")
+
 // Delivery modes Inject reports back: which §6a delivery-by-state rule the
 // coordinator applied to the user's text. Relocated from internal/agentbus
 // (D2) — same vocabulary, now native rather than borrowed from the retired
 // bus wire protocol.
 const (
-	DeliveryCompletedRecv = "completed-recv" // completed the child's parked agent_recv
-	DeliveryNewTurn       = "new-turn"       // woke an idle child into a new turn
-	DeliveryQueued        = "queued"         // queued for the child's next turn boundary
-	DeliveryResumed       = "resumed"        // relaunched an ended session, the text as its next turn
+	DeliveryNewTurn = "new-turn" // woke an idle child into a new turn
+	DeliveryQueued  = "queued"   // queued for the child's next turn boundary
+	DeliveryResumed = "resumed"  // relaunched an ended session, the text as its next turn
 	// DeliveryRejected is the plane-2 arrival the mailbox route could never
 	// produce: the target was reached, understood the steer, and DECLINED it
 	// (paused, foremost). It exists so a refusal is never printed as a queue —
@@ -128,6 +130,10 @@ type Options struct {
 	// whose inbox it drains would write every child->parent message into a
 	// directory nothing reads.
 	OwnerHarp string
+	// Mapper resolves spool references to paths — the ONE mapper every spool
+	// read and write this coordinator performs goes through. Nil is the
+	// home-relative mapper (spool.NewHomeMapper).
+	Mapper spool.PathMapper
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval). Exposed for tests, which must be able to
 	// prove that a DROPPED doorbell is still delivered by the sweep without
@@ -230,17 +236,16 @@ type Coordinator struct {
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
-	// streams counts the RunnerChannel/RunChannel handlers in flight. Their
+	// mapper is Options.Mapper: the one spool path mapper. Read-only after New.
+	mapper spool.PathMapper
+	// streams holds the RunnerChannel/RunChannel handlers in flight. Their
 	// deferred teardown is where a dropped runner becomes a terminal
 	// (runnerLost -> terminateRun -> the session index, the parent's notice),
-	// and grpc.Server.Stop returns without joining it — so Close waits on
-	// this after the server is down, or a shutdown races its own last
+	// and grpc.Server.Stop returns without joining it — so Close seals this
+	// group first (a handler arriving later is refused at enter) and joins
+	// it after the server is down, or a shutdown races its own last
 	// terminals against whatever removes the state dir next.
-	streams sync.WaitGroup
-	// spoolRefs maps a message id the owner's reader has DELIVERED but not yet
-	// acked to the file it came from, so the consume-rename can find it at
-	// the acknowledgement moment (spoolowner.go). Guarded by mu.
-	spoolRefs map[string]spool.Ref
+	streams trackedGroup
 	// spoolIn lends the per-child in/ writers. The writers themselves are
 	// lazy (one per child, on its first message), so a run that never sends
 	// never gets a spool directory.
@@ -260,12 +265,13 @@ type Coordinator struct {
 	spoolSeenMu sync.Mutex
 	spoolSeen   map[string]map[string]bool
 
-	mu        sync.Mutex
-	attach    map[string]*childRt // runID → runtime attachment
-	byHarp    map[string]*childRt // harp → current attachment
-	polls     map[string]*parkedPoll
-	delivered map[string][]string       // role → delivered-but-unacked ids
-	runners   map[string]*runnerSession // credHash → connected runner
+	mu     sync.Mutex
+	attach map[string]*childRt // runID → runtime attachment
+	byHarp map[string]*childRt // harp → current attachment
+	// inbox is the owner's ONE inbox: the parked receive and the spool
+	// reader behind agent_recv (spoolinbox.go).
+	inbox   *spoolInbox
+	runners map[string]*runnerSession // credHash → connected runner
 	// graceExpire fires the runner-loss grace windows adopt armed for the
 	// runs it found live at startup, ahead of their clock — the test seam
 	// expireRunnerGrace drains; each closure is idempotent with its timer.
@@ -295,6 +301,12 @@ type Coordinator struct {
 	// correct implementation from one that registers between the write and the
 	// hook, since both have registered by then. Nil in production.
 	onAskPublished func(askID string)
+	// afterMailWritten, when set, is called by the coordinator's mail courier
+	// once a message is on disk and rung, before the sender learns its
+	// disposition — the seam a test uses to make the recipient act on the
+	// file at exactly that moment. Nil in production. Guarded by mu: the
+	// courier runs on the spool reactor's goroutine too.
+	afterMailWritten func(to string)
 	// spoolHandler is THE consumer for validated inbound spool doorbells
 	// (SetSpoolDoorbellHandler), registered by startSpoolReactor whenever
 	// delivery is on. Nil only when delivery is off, and then an arriving
@@ -353,7 +365,7 @@ type Coordinator struct {
 	admissionClosed atomic.Bool
 	// drainBound is how long BeginDrain waits on a child's PROCESS before
 	// forcing it — resolved at construction (tunables.drainBound) from
-	// agent_recv's own maximum wait, mcpschema.RecvWaitMax, which is the one
+	// agent_recv's own maximum wait, RecvWaitMax, which is the one
 	// declaration of that number. A field so a test can shrink it; no
 	// Options field, because the bound is the policy, not a knob.
 	drainBound time.Duration
@@ -395,6 +407,11 @@ type Coordinator struct {
 	spawnDispatchedHook func(harp string)
 
 	closeOnce sync.Once
+	// closed is set at the START of Close, before it looks for listeners to
+	// take down. Serve checks it after publishing its own: whichever of the
+	// two ran second sees the other's mark, so a Serve racing a Close can
+	// never leave a bound listener nothing will close.
+	closed atomic.Bool
 }
 
 // New opens (or adopts) the project's coordinator state and starts the
@@ -412,8 +429,15 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	t := resolveTunables(opts)
 
+	rep := report.To(opts.Reporter)
+	mapper := opts.Mapper
+	if mapper == nil {
+		mapper = spool.NewHomeMapper()
+	}
 	c := &Coordinator{
-		rep:                report.To(opts.Reporter),
+		rep:                rep,
+		tracked:            trackedGroup{rep: rep},
+		streams:            trackedGroup{rep: rep},
 		projectDir:         opts.ProjectDir,
 		stateDir:           claim.dir,
 		ephemeral:          claim.ephemeral,
@@ -437,17 +461,17 @@ func New(opts Options) (*Coordinator, error) {
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
 		byHarp:             make(map[string]*childRt),
-		polls:              make(map[string]*parkedPoll),
-		delivered:          make(map[string][]string),
 		runners:            make(map[string]*runnerSession),
 		runnerReady:        make(map[string]chan struct{}),
 		chans:              make(map[string]*runChan),
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
 		ownerHarp:          opts.OwnerHarp,
+		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            newSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
+	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.sweepSpoolDir, c.onRolePark, c.onRoleUnpark)
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		return nil, c.abortNew(errors.New("coord: Options.Spawner is required (adapters/spawn, composed at cmd/*)"))
@@ -549,7 +573,7 @@ func resolveTunables(opts Options) tunables {
 	// child) is not bounded at all. The drain bound is therefore agent_recv's
 	// maximum, read by name — never a second number that could drift from
 	// it.
-	t.drainBound = mcpschema.RecvWaitMax
+	t.drainBound = RecvWaitMax
 	return t
 }
 
@@ -760,8 +784,9 @@ func (c *Coordinator) Draining() bool {
 // children are killed via their launch close (the run process is their
 // lifetime).
 //
-// Order: seal the tracked group (goTracked stops
-// Add()ing, so nothing can race the join below) → cancel baseCtx (every ctx-aware
+// Order: seal the tracked group and the stream group (goTracked stops
+// Add()ing and a late stream handler is refused at enter, so nothing can
+// race the joins below) → cancel baseCtx (every ctx-aware
 // tracked goroutine starts unwinding) → kill live attachments (best-effort;
 // a goroutine still mid-launch may not have published rt.close yet — that is
 // exactly what the wg join below catches) → srv.close (Stop the gRPC server
@@ -780,7 +805,9 @@ func (c *Coordinator) Draining() bool {
 // paths were fixed at construction, can wait for the join.
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
+		c.closed.Store(true)
 		c.tracked.seal()
+		c.streams.seal()
 		c.cancel()
 		c.mu.Lock()
 		attachments := make([]*childRt, 0, len(c.attach))
@@ -796,13 +823,13 @@ func (c *Coordinator) Close() {
 				closeFn()
 			}
 		}
-		if srv := c.srv.Load(); srv != nil {
+		if srv := c.srv.Swap(nil); srv != nil {
 			srv.close()
 		}
 		// The stream handlers' deferred terminals run AFTER Stop returns;
 		// join them before the writers close so a runner dropped by the
 		// shutdown still gets its terminal recorded, not raced.
-		waitBounded(c.rep, &c.streams, closeJoinBudget, "coordinator close: stream handlers")
+		c.streams.wait(closeJoinBudget, "coordinator close: stream handlers", "a late terminal may still touch the state dir")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
@@ -919,9 +946,18 @@ func (c *Coordinator) Identify(token string) (Identity, bool) {
 	return id, ok
 }
 
-// Roster lists the coordinator's children — the single state behind BOTH
-// transports (MCP and the surviving bus roster verb).
-func (c *Coordinator) Roster() []RosterEntry {
+// Owner is the identity of the session this coordinator drains for
+// (Options.OwnerHarp): the caller the owner's own process speaks as.
+func (c *Coordinator) Owner() Identity { return Identity{Harp: c.ownerHarp} }
+
+// Roster lists the coordinator's children — the single state behind every
+// transport. Only the coordinating session (the owner) sees its children: a
+// child caller is answered with nothing, the same refusal the wire gives it
+// (a child holds no lineage below itself here).
+func (c *Coordinator) Roster(caller Identity) []RosterEntry {
+	if caller.IsChild() {
+		return nil
+	}
 	var out []RosterEntry
 	c.runs.View(func() { out = c.rosterF.snapshot() })
 	return out
@@ -932,7 +968,7 @@ func (c *Coordinator) Roster() []RosterEntry {
 // children by harp. inReplyTo carries a correlation — see peerSend for the
 // ask-reply interception it enables.
 func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
-	_, _, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
+	_, disposition, err := c.peerSend(caller, to, kind, body, structured, inReplyTo)
 	return disposition, err
 }
 
@@ -946,7 +982,7 @@ func (c *Coordinator) AgentSend(caller Identity, to, kind, body string, structur
 // ordinary mail. An UNKNOWN id falls through to ordinary delivery, so a
 // stale/duplicate in_reply_to degrades gracefully rather than erroring the
 // send.
-func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, delivered bool, disposition string, err error) {
+func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, disposition string, err error) {
 	// THE COLLISION, and where it is resolved (spoolturnresult.go).
 	//
 	// A child's AUTOMATIC turn report quotes the id of the message
@@ -972,7 +1008,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 		// it never asked for. A miss falls through, so a stale correlation
 		// degrades to ordinary mail rather than failing the send.
 		if disposition, matched := c.resolveAskReply(caller, inReplyTo, body, structured); matched {
-			return inReplyTo, true, disposition, nil
+			return inReplyTo, disposition, nil
 		}
 	}
 	// The closed-vocabulary ingress guard, at the ONE point both sender surfaces
@@ -982,7 +1018,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	// ask-reply interception, whose reply carries its answer in the body rather
 	// than the kind.
 	if err := SenderMailKind(kind); err != nil {
-		return "", false, "", err
+		return "", "", err
 	}
 	if caller.IsChild() {
 		return c.childSend(caller, to, kind, body, structured, inReplyTo)
@@ -993,7 +1029,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 // childSend is peerSend's HUB-AND-SPOKE half: a delegated child addresses only
 // its own parent, resolved from journaled lineage — by ParentAddress or by the
 // parent's own harp, nothing else.
-func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, string, error) {
+func (c *Coordinator) childSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	parent := ""
 	c.runs.View(func() {
 		if r := c.runsF.currentRun(caller.Harp); r != nil {
@@ -1001,41 +1037,39 @@ func (c *Coordinator) childSend(caller Identity, to, kind, body string, structur
 		}
 	})
 	if parent == "" {
-		return "", false, "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
+		return "", "", fmt.Errorf("agent_send: unknown sender %q: not a child of this coordinator", caller.Harp)
 	}
 	if to != ParentAddress && to != parent {
-		return "", false, "", ErrPeerRouting
+		return "", "", ErrPeerRouting
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": parent, "kind": kind})
-	id, completed, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
+	id, err := c.queueMailPayload(caller.Harp, parent, kind, body, structured, inReplyTo)
 	if err != nil {
-		return "", false, "", err
+		return "", "", err
 	}
-	return id, completed, "sent to the coordinator", nil
+	return id, "sent to the coordinator", nil
 }
 
 // ownerSend is peerSend's other half: the session owner addressing one of its
 // own children by harp. The disposition names the §6a state the delivery
 // observed (deliveryDisposition).
-func (c *Coordinator) ownerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, string, error) {
+func (c *Coordinator) ownerSend(caller Identity, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, string, error) {
 	if to == ParentAddress {
-		return "", false, "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
+		return "", "", errors.New("agent_send: this session is the coordinator — it has no parent; address a child by its harp")
 	}
 	known := false
 	c.runs.View(func() { known = c.runsF.currentRun(to) != nil })
 	if !known {
-		return "", false, "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
+		return "", "", fmt.Errorf("agent_send: unknown recipient %q: not a child of this session (spawn it with agent_run first)", to)
 	}
 	c.audit("agent_send", caller.Harp, map[string]string{"to": to, "kind": kind})
-	msgID, delivered, err := c.queueMailPayload(caller.Harp, to, kind, body, structured, inReplyTo)
+	msgID := newMessageID()
+	observed, err := c.deliverMailID(msgID, caller.Harp, to, kind, body, structured, inReplyTo)
 	if err != nil {
-		return "", false, "", err
+		return "", "", err
 	}
-	if delivered {
-		return msgID, true, "completed the child's waiting agent_recv", nil
-	}
-	_, prose := deliveryDisposition(c.driveQueued(to))
-	return msgID, false, prose, nil
+	_, prose := deliveryDisposition(observed)
+	return msgID, prose, nil
 }
 
 // deliveryDisposition classifies ONE §6a delivery-by-state outcome — the state
@@ -1069,7 +1103,10 @@ func deliveryDisposition(state string) (mode, prose string) {
 // after a coordinator relaunch. Dupes are deduped on message id at the store.
 func (c *Coordinator) AgentRecv(ctx context.Context, caller Identity, wait time.Duration) ([]Message, error) {
 	c.audit("agent_recv", caller.Harp, nil)
-	return c.recvMail(ctx, caller.Harp, wait)
+	if !c.ownerSpool(caller.Harp) {
+		return nil, fmt.Errorf("%w (asked for %q; the owner is %q)", ErrRecvNotOwner, caller.Harp, c.ownerHarp)
+	}
+	return c.inbox.recv(ctx, caller.Harp, wait)
 }
 
 // AgentStop kills a child run (KillRun semantics): the engine/container dies,

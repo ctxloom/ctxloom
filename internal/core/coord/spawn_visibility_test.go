@@ -67,7 +67,7 @@ func TestAgentRun_RegistersTheRunBeforeProbingTheEngineVersion(t *testing.T) {
 
 	// THE ASSERTION. The probe is parked right now. If it were still on the
 	// pre-registration path, nothing would name this child anywhere.
-	roster := c.Roster()
+	roster := c.Roster(ownerIdentity())
 	var found *RosterEntry
 	for i := range roster {
 		if roster[i].Harp == probedHarp {

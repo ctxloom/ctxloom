@@ -22,9 +22,9 @@ import (
 // is left to read). Then issue a second recv for the same role, exactly as
 // "newest preempts" describes.
 //
-// Today, deliverToPoll RESERVES the message id in c.delivered the instant it
+// Today, deliverToPoll RESERVES the message id in c.inbox.delivered the instant it
 // hands the message to the older poll's channel. The second recv's very first
-// step, ackDelivered, reads c.delivered and journals a factMailConsumed for
+// step, ackDelivered, reads c.inbox.delivered and journals a factMailConsumed for
 // it — treating "handed to a channel" as proof of receipt, when nothing has
 // proven the older poll's caller ever read that channel. The message is
 // durably consumed, filtered out of undeliveredLocked forever, and the second
@@ -40,7 +40,7 @@ func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	if _, _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: the message is deliverable") {
@@ -51,18 +51,18 @@ func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	// simulating the auto-backgrounded first agent_recv whose channel nobody
 	// is ever going to drain.
 	p := &parkedPoll{ch: make(chan pollResult, 1)}
-	c.mu.Lock()
-	c.polls[role] = p
-	c.mu.Unlock()
+	c.inbox.mu.Lock()
+	c.inbox.polls[role] = p
+	c.inbox.mu.Unlock()
 
-	if !assert.True(t, c.deliverToPoll(role), "precondition: the wake reaches the parked poll") {
+	if !assert.True(t, c.inbox.wake(role), "precondition: the wake reaches the parked poll") {
 		return
 	}
 
 	// A newer recv now issues for the SAME role — "one active long-poll per
 	// role, newest preempts" — while the older poll's delivery sits
 	// undrained.
-	got, err := c.recvMail(context.Background(), role, 0)
+	got, err := c.inbox.recv(context.Background(), role, 0)
 
 	assert.NoError(t, err, "a message handed to an orphaned poll must still reach the next recv, not vanish as an ack for a delivery nobody received")
 	if !assert.Len(t, got, 1, "the batch delivered to the abandoned poll must not be silently lost") {

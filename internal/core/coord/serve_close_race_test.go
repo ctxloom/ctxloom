@@ -67,14 +67,20 @@ func TestCoordinator_CloseIsRaceFreeAgainstServe(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(1)
+	var serveErr error
 	go func() {
 		defer wg.Done()
-		_ = c.Serve()
+		serveErr = c.Serve()
 	}()
 	c.Close()
 	wg.Wait()
 
-	// Whichever order won, a second Close is idempotent and takes any
-	// listeners Serve did manage to publish with it.
-	c.Close()
+	// Whichever order won, no listener survives: a Serve that published
+	// behind the Close unwinds its own and says so (ErrClosed), and a Serve
+	// that published ahead of it was taken down by the Close.
+	if serveErr != nil {
+		assert.ErrorIs(t, serveErr, ErrClosed)
+	}
+	assert.Nil(t, c.srv.Load(), "no listener set may survive a Close, whichever order the two ran in")
+	c.Close() // idempotent
 }

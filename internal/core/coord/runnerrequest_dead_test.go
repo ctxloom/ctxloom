@@ -25,7 +25,7 @@ func TestRequestRunner_FailsFastOnASessionThatAlreadyFailedItsPending(t *testing
 	c.mu.Lock()
 	c.runners["cred-hash-dead"] = rs
 	c.mu.Unlock()
-	rs.failPending() // the channel's teardown ran
+	rs.end() // the channel's teardown ran
 
 	done := make(chan error, 1)
 	go func() {
@@ -66,7 +66,7 @@ func TestFailPending_ResolvesWaitersRegisteredBeforeIt(t *testing.T) {
 		defer rs.reqMu.Unlock()
 		return len(rs.pending) == 1
 	}, 3*time.Second, 5*time.Millisecond, "the waiter must register while the session is live")
-	rs.failPending()
+	rs.end()
 
 	select {
 	case resp := <-done:

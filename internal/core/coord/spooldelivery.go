@@ -395,7 +395,7 @@ var ErrNoSpoolReader = errors.New("coordinator mail: the recipient has no spool 
 
 // queueMail is queueMailPayload's common-case wrapper: no structured
 // companion, no reply correlation.
-func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, completed bool, err error) {
+func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, err error) {
 	return c.queueMailPayload(from, to, kind, body, nil, "")
 }
 
@@ -406,10 +406,10 @@ func (c *Coordinator) queueMail(from, to, kind, body string) (msgID string, comp
 // ApprovalRequest projection); inReplyTo correlates this message to an
 // earlier one's id.
 //
-// completed is always false: nothing is handed to a waiting receiver
-// synchronously. The recipient's reader delivers it on the doorbell or its
-// next sweep, and its consume-rename is what reports back that it landed.
-func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, completed bool, err error) {
+// Nothing is handed to a waiting receiver synchronously: the recipient's
+// reader delivers it on the doorbell or its next sweep, and its
+// consume-rename is what reports back that it landed.
+func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured json.RawMessage, inReplyTo string) (msgID string, err error) {
 	return c.queueMailPayloadID(newMessageID(), from, to, kind, body, structured, inReplyTo)
 }
 
@@ -418,12 +418,12 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // somewhere before the mail is observable: this function publishes, and after
 // it returns a reply quoting the id can already arrive. relayApproval is the
 // case that forced it; see its comment.
-func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
+func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, error) {
 	// Role "" is undrainable by construction — agent_recv drains the caller's
 	// own harp and no session has the empty harp. Refused here, at the one
 	// point every sender funnels through, rather than at each sender.
 	if to == "" {
-		return "", false, fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
+		return "", fmt.Errorf("coordinator mail: refusing to queue a %q message from %q with no recipient: no session can drain role %q", kind, from, to)
 	}
 	// A message with NO payload is refused at the same chokepoint. Delivered,
 	// it completes a parked recv and is answered with the ordinary success
@@ -432,12 +432,12 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// relayed ApprovalRequest projection and its replies carry it), so only a
 	// message with neither is empty.
 	if strings.TrimSpace(body) == "" && len(structured) == 0 {
-		return "", false, fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
+		return "", fmt.Errorf("coordinator mail: refusing to queue an empty message from %q to %q (kind %q): "+
 			"it carries no text and no structured payload, so the recipient would be woken with nothing to act on "+
 			"(check the sender's message composition)", from, to, kind)
 	}
 	if !c.spoolDeliverTo(to) {
-		return "", false, fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
+		return "", fmt.Errorf("%w: %q (from %q, kind %q)", ErrNoSpoolReader, to, from, kind)
 	}
 	msg := Message{ID: msgID, From: from, To: to, Kind: kind, Body: body, Structured: structured, InReplyTo: inReplyTo}
 	// Write-and-ring is ONE operation (spoolcourier.go): the pairing used to be
@@ -446,9 +446,9 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 	// is nothing behind the file, so a write that failed is a message that
 	// does not exist and the sender must be told so.
 	if _, err := c.mailCourier().Send(msg); err != nil {
-		return "", false, err
+		return "", err
 	}
-	return msg.ID, false, nil
+	return msg.ID, nil
 }
 
 // mailCourier delivers coordinator mail into the RECIPIENT's inbound spool.
@@ -460,9 +460,26 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 		ring:    c.ringSpool,
 		onSent: func(to string, msg Message, ref spool.Ref) {
 			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
+			c.mu.Lock()
+			seam := c.afterMailWritten
+			c.mu.Unlock()
+			if seam != nil {
+				seam(to)
+			}
 		},
 		side: "coordinator",
 	}
+}
+
+// pendingCount reports how many messages could still be delivered to role —
+// the ended-child check: leftover mail triggers a resume, never strands. For
+// the owner it is the inbox's count (what a live receive already holds is
+// spoken for, not waiting).
+func (c *Coordinator) pendingCount(role string) int {
+	if c.ownerSpool(role) {
+		return c.inbox.pending(role)
+	}
+	return c.spoolPendingCount(role)
 }
 
 // spoolPendingCount counts role's UNDELIVERED spool mail — the file-backed
@@ -508,7 +525,7 @@ func (c *Coordinator) sweepSpoolDirNames(harp string, dir spool.Dir, why string)
 // sweepSpoolDirNames, parameterized on which spool primitive actually reads
 // the directory.
 func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, sweep func(spool.PathMapper, string, spool.Dir) (spool.SweepResult, error)) (spool.SweepResult, bool) {
-	mapper := spool.NewHomeMapper()
+	mapper := c.mapper
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: cannot resolve %s's %s spool (%s): %v", harp, dir, why, err)
@@ -601,7 +618,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
-	if _, _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
+	if _, _, err := c.peerSend(sender, msg.To, msg.Kind, msg.Body, msg.Structured, msg.InReplyTo); err != nil {
 		// The routing chokepoint refused it (closed kind vocabulary,
 		// hub-and-spoke, unknown recipient). The agent's local write already
 		// returned success, so the refusal is reported back the only way that
@@ -636,7 +653,7 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
-	failSpool(c.rep, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+	failSpool(c.rep, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
 }
 
 // failSpool moves ref out of its live directory into the failed/ sibling
@@ -644,8 +661,8 @@ func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
 // terminal-state move for a file a reader parsed but could not deliver or
 // route, on both sides and in both directions. A lost race (ErrAlreadyGone)
 // is the other path having won: nothing to strand, nothing to warn about.
-func failSpool(rep report.Reporter, side string, ref spool.Ref, why string, cause error) {
-	if err := spool.Fail(spool.NewHomeMapper(), ref); err != nil {
+func failSpool(rep report.Reporter, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
+	if err := spool.Fail(mapper, ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
 		}
@@ -661,7 +678,7 @@ func failSpool(rep report.Reporter, side string, ref spool.Ref, why string, caus
 // succeeded, and the refusal happens later in another process.
 func (c *Coordinator) replySpoolRefusal(role string, msg Message, cause error) {
 	body := fmt.Sprintf("your message to %q was not delivered: %v", msg.To, cause)
-	if _, _, err := c.queueMail(role, role, KindError, body); err != nil {
+	if _, err := c.queueMail(role, role, KindError, body); err != nil {
 		c.rep.Warnf("coordinator: could not tell %s that its message was refused (%v): %v", role, cause, err)
 	}
 }
@@ -710,7 +727,7 @@ func (c *Coordinator) noticeSpoolDrop(role string, e spool.Entry, cause error) {
 			"(spool file %s; its sender was told, but a session that has ended cannot read that reply)\n"+
 			"\n--- the message text, as %s wrote it ---\n%s",
 		kind, role, spoolAddressee(e), cause, e.Ref, role, body)
-	if _, _, err := c.queueMail(role, parent, KindError, notice); err != nil {
+	if _, err := c.queueMail(role, parent, KindError, notice); err != nil {
 		c.rep.Warnf("coordinator: dropped %s and could not tell %s about it: %v (the original cause was %v)", e.Ref, parent, err, cause)
 	}
 }
@@ -747,7 +764,7 @@ func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
 // race (ErrAlreadyGone) is the expected outcome of the other path having won
 // and is never reported as a failure.
 func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
-	done, err := spool.Consume(spool.NewHomeMapper(), ref)
+	done, err := spool.Consume(c.mapper, ref)
 	if err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
@@ -884,7 +901,7 @@ func (h *Home) sweepSpoolIn() {
 		// would consume it into a sink nothing reads.
 		return
 	}
-	mapper := spool.NewHomeMapper()
+	mapper := h.cfg.Mapper
 	path, err := spool.DirPath(mapper, h.Harp(), spool.DirIn)
 	if err != nil {
 		h.rep.Warnf("runner: cannot resolve this run's in/ spool: %v", err)
@@ -943,7 +960,7 @@ func (h *Home) sweepSpoolIn() {
 // three-way distinction a bare warning-and-retry cannot make.
 func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
 	h.spoolDeliveryCount.failed.Add(1)
-	failSpool(h.rep, "runner", e.Ref, why, cause)
+	failSpool(h.rep, h.cfg.Mapper, "runner", e.Ref, why, cause)
 }
 
 // rememberSpoolRef records which file a delivered id came from, so the
@@ -973,6 +990,12 @@ func (h *Home) takeSpoolRef(id string) (spool.Ref, bool) {
 // the engine accepted / after the next Recv) is a property of the CALLER, and
 // it is the property that keeps at-least-once true.
 func (h *Home) ackMailConsumed(ids []string) {
+	if h.exited.Load() {
+		// The run is over (Crash / Close / the engine's exit): the file is
+		// the next incarnation's to consume, and a rename now would create
+		// a directory under a root this run is done with.
+		return
+	}
 	for _, id := range ids {
 		ref, ok := h.takeSpoolRef(id)
 		if !ok {
@@ -984,7 +1007,7 @@ func (h *Home) ackMailConsumed(ids []string) {
 			h.spoolDeliveryCount.failed.Add(1)
 			continue
 		}
-		done, err := spool.Consume(spool.NewHomeMapper(), ref)
+		done, err := spool.Consume(h.cfg.Mapper, ref)
 		if err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
@@ -1032,37 +1055,22 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if send == nil {
 		return nil, false
 	}
-	to := send.GetToAgentId()
-	if role := send.GetToRole(); role != "" {
-		if to != "" {
-			return spoolSendErr(codes.InvalidArgument, "agent_send: set exactly one of to_agent_id / to_role, not both"), true
-		}
-		to = role
+	if h.Harp() == "" {
+		return spoolSendErr(codes.FailedPrecondition, "agent_send: "+ErrIdentityUnbound.Error()), true
 	}
-	if to == "" {
-		return spoolSendErr(codes.InvalidArgument, `agent_send: a recipient is required — to_agent_id (a child harp) or to_role: "parent"`), true
+	sr, err := sendRequestFromWire(send)
+	if err != nil {
+		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
-	if send.GetText() == "" {
-		return spoolSendErr(codes.InvalidArgument, "agent_send: text is required"), true
-	}
-	if send.GetInReplyTo() == "" {
-		if err := agentcoordpb.ValidateMessageKind(send.GetKind()); err != nil {
-			return spoolSendErr(codes.InvalidArgument, err.Error()), true
-		}
-	}
-	kind := agentcoordpb.LegacyKindName(send.GetKind())
-	var structured json.RawMessage
-	if s := send.GetStructured(); s != nil {
-		raw, err := protojson.Marshal(s)
-		if err != nil {
-			return spoolSendErr(codes.InvalidArgument,
-				fmt.Sprintf("agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", err)), true
-		}
-		structured = raw
+	// THE validation site — the same Validate the coordinator's Send verb
+	// runs, so a send refused here is refused for the reason the wire would
+	// have given, and a handler never re-checks a field.
+	if err := sr.Validate(); err != nil {
+		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
 	ref, err := h.writeOutbound(Message{
-		From: h.Harp(), To: to, Kind: kind,
-		Body: send.GetText(), Structured: structured, InReplyTo: send.GetInReplyTo(),
+		From: h.Harp(), To: sr.To, Kind: sr.Kind,
+		Body: sr.Body, Structured: sr.Structured, InReplyTo: sr.InReplyTo,
 	})
 	if err != nil {
 		h.spoolDeliveryCount.failed.Add(1)
@@ -1086,6 +1094,41 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 			Delivery:  agentcoordpb.PeerSendResult_DELIVERY_QUEUED,
 		}},
 	}, true
+}
+
+// sendRequestFromWire decodes the wire's PeerSendRequest into the verb's
+// request: exactly one of to_agent_id / to_role names the recipient, the
+// kind enum becomes its name, and the structured companion its JSON. Only
+// the DECODE refuses here (a frame that cannot mean a request); what the
+// request may say is Validate's.
+func sendRequestFromWire(send *agentcoordpb.PeerSendRequest) (SendRequest, error) {
+	to := send.GetToAgentId()
+	if role := send.GetToRole(); role != "" {
+		if to != "" {
+			return SendRequest{}, fmt.Errorf("%w: agent_send: set exactly one of to_agent_id / to_role, not both", ErrInvalidRequest)
+		}
+		to = role
+	}
+	sr := SendRequest{To: to, Body: send.GetText(), InReplyTo: send.GetInReplyTo()}
+	if k := send.GetKind(); k != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
+		// proto3 enums are OPEN on the wire: a number this build does not
+		// declare survives Unmarshal as itself, and it must be refused BY
+		// NUMBER here — never mapped to "" and then answered as "kind is
+		// required", which would hide which value was wrong.
+		sr.Kind = agentcoordpb.LegacyKindName(k)
+		if sr.Kind == "" {
+			return SendRequest{}, fmt.Errorf("%w: agent_send: kind %d is not a message kind this build knows; use one of: %s",
+				ErrInvalidRequest, int32(k), strings.Join(senderMailKinds, " | "))
+		}
+	}
+	if st := send.GetStructured(); st != nil {
+		raw, err := protojson.Marshal(st)
+		if err != nil {
+			return SendRequest{}, fmt.Errorf("%w: agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", ErrInvalidRequest, err)
+		}
+		sr.Structured = raw
+	}
+	return sr, nil
 }
 
 func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {

@@ -3,6 +3,8 @@ package mcpschema
 import (
 	"fmt"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // The agent_recv `wait` contract, advertised on two tool surfaces (the runner's
@@ -15,10 +17,9 @@ const (
 	// Never zero: that turns a park into a poll, and a polling child burns its
 	// execution slot instead of yielding it.
 	RecvWaitDefault = 60 * time.Second
-	// RecvWaitMax caps one recv's park. A parked child holds a coordination
-	// open; past this a child is expected to give up and finish, and a
-	// coordinator to decide whether to receive again.
-	RecvWaitMax = 10 * time.Minute
+	// RecvWaitMax caps one recv's park: the verb's own bound
+	// (coord.RecvWaitMax), which the shutdown drain shares.
+	RecvWaitMax = coord.RecvWaitMax
 )
 
 // RecvWaitDoc is the advertised description of the wait parameter, quoting the

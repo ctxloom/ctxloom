@@ -14,7 +14,7 @@ import (
 // A recv whose CLIENT went away (ctx cancelled) but which LOST the
 // race to a concurrent delivery consumed the message anyway. abandonPoll saw
 // p.done, waited for the delivery goroutine, and returned the message to a
-// caller that no longer exists — and the id stayed in c.delivered, where the
+// caller that no longer exists — and the id stayed in c.inbox.delivered, where the
 // next recv's cursor-ack (ackDelivered) journals a mail-consumed fact for it.
 // The message is then GONE: acked as delivered, never seen by anybody, and
 // undeliveredLocked filters it out forever.
@@ -26,7 +26,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	if _, _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m1", "parent", role, KindMessage, "do the thing", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: the message is deliverable") {
@@ -37,11 +37,11 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	// bare wake now (B2): deliverToPoll no longer reserves anything, so the
 	// message stays fully pending until something actually CLAIMS it.
 	p := &parkedPoll{ch: make(chan pollResult, 1)}
-	c.mu.Lock()
-	c.polls[role] = p
-	c.mu.Unlock()
+	c.inbox.mu.Lock()
+	c.inbox.polls[role] = p
+	c.inbox.mu.Unlock()
 
-	if !assert.True(t, c.deliverToPoll(role), "precondition: the wake reaches the parked poll") {
+	if !assert.True(t, c.inbox.wake(role), "precondition: the wake reaches the parked poll") {
 		return
 	}
 	if !assert.Equal(t, 1, c.pendingCount(role), "precondition: a bare wake does not reserve anything") {
@@ -49,7 +49,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	}
 
 	// ...and only now does the client's context die.
-	msgs, err := c.abandonPoll(role, p, context.Canceled, true)
+	msgs, err := c.inbox.abandon(role, p, context.Canceled, true)
 
 	assert.Empty(t, msgs, "nothing may be handed to a caller that is gone")
 	assert.ErrorIs(t, err, context.Canceled, "the cancellation must be reported, not masked by the delivery")
@@ -58,7 +58,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 			"recv's cursor-ack journals a consume for a message nobody ever received")
 
 	// And it really is deliverable again: a fresh recv returns it.
-	got, rerr := c.recvMail(context.Background(), role, 0)
+	got, rerr := c.inbox.recv(context.Background(), role, 0)
 	if !assert.NoError(t, rerr) {
 		return
 	}
@@ -88,22 +88,22 @@ func TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	role := ownerIdentity().Harp
-	if _, _, err := c.queueMailPayloadID("m9", "parent", role, KindMessage, "already yours", nil, ""); !assert.NoError(t, err) {
+	if _, err := c.queueMailPayloadID("m9", "parent", role, KindMessage, "already yours", nil, ""); !assert.NoError(t, err) {
 		return
 	}
 
 	p := &parkedPoll{ch: make(chan pollResult, 1)}
-	c.mu.Lock()
-	c.polls[role] = p
-	c.mu.Unlock()
+	c.inbox.mu.Lock()
+	c.inbox.polls[role] = p
+	c.inbox.mu.Unlock()
 
-	if !assert.True(t, c.deliverToPoll(role)) {
+	if !assert.True(t, c.inbox.wake(role)) {
 		return
 	}
 
 	// The timer fires AFTER the delivery claimed the poll (callerGone == false:
 	// the recv's own caller is still there waiting for an answer).
-	msgs, err := c.abandonPoll(role, p, ErrRecvTimeout, false)
+	msgs, err := c.inbox.abandon(role, p, ErrRecvTimeout, false)
 
 	assert.NoError(t, err, "a delivery that already won must not be reported as a timeout")
 	if !assert.Len(t, msgs, 1, "the reserved message must reach its recv, not be stranded by the timer") {

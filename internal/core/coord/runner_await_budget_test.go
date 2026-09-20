@@ -79,7 +79,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 		link, derr := DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 		if derr == nil {
-			t.Cleanup(link.cancel)
+			t.Cleanup(link.Abort)
 		}
 	}()
 
@@ -119,7 +119,7 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 		link, derr := DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 		if derr == nil {
-			t.Cleanup(link.cancel)
+			t.Cleanup(link.Abort)
 		}
 	}()
 

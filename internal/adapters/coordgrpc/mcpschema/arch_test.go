@@ -78,7 +78,9 @@ var handlerScopes = map[string]handlerScope{
 		funcs: []string{"../../../core/coord/runchannel.go:serveSpawnAgent"},
 	},
 	ToolAgentSend: {
-		funcs: []string{"../../../core/coord/spooldelivery.go:sendPeerViaSpool"},
+		// The frame is decoded into the verb's request (sendRequestFromWire)
+		// before the send runs; the decoder is where every wire field is read.
+		funcs: []string{"../../../core/coord/spooldelivery.go:sendRequestFromWire"},
 	},
 	ToolAgentStop: {
 		funcs: []string{"../../../core/coord/runchannel.go:serveStopRun"},

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/agentcoord/discover"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 )
 
 // servedCoordinator stands a coordinator's listeners up over stateDir.

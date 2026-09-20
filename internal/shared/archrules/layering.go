@@ -164,10 +164,9 @@ var LayeringRules = []LayeringRule{
 
 			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
 			// profiles).
-			"internal/core/coord -> internal/adapters/coordgrpc/pb":        "slice 10: every generated-type reference re-typed on Go values; the proto goes to adapters/coordgrpc",
-			"internal/core/coord -> internal/agentcoord/discover":          "slice 10: discover moves to adapters/coordgrpc",
-			"internal/core/coord -> internal/adapters/coordgrpc/mcpschema": "slice 10: mcpschema moves to adapters/coordgrpc",
-			"internal/core/coord -> internal/adapters/transcript":          "slice 14a: the engine-host files move to adapters/runner",
+			"internal/core/coord -> internal/adapters/coordgrpc/pb":       "slice 10 remainder: the gRPC/HTTP servers, channels and links leave core with their generated-type references",
+			"internal/core/coord -> internal/adapters/coordgrpc/discover": "slice 10 remainder: the endpoint file's writer (httpserver.go) leaves core with the servers",
+			"internal/core/coord -> internal/adapters/transcript":         "slice 14a: the engine-host files move to adapters/runner",
 
 			// coord/coordtest is the in-process runner double compiled into no binary;
 			// Part 1.0 does not mention it. It stands up the real runner half, so it
@@ -259,6 +258,8 @@ var LayeringRules = []LayeringRule{
 			// removes it where Part 1.1 names one
 			"internal/adapters/cli -> internal/adapters/agents":                         "slice 4: the adapters/configload split; the agent binding is read through operations.App's Snapshot (measured; Part 1.1 does not place agents)",
 			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
+			"internal/adapters/cli -> internal/adapters/coordgrpc/discover":             "slice 10 remainder: the endpoint file's reader (discover.List) becomes operations' when the servers leave core; doctor reads it through operations then",
+			"internal/adapters/operations -> internal/adapters/coordgrpc/discover":      "slice 10 remainder: the endpoint file's reader (discover.List) becomes operations' when the servers leave core",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
 			"internal/adapters/cli -> internal/adapters/coordgrpc":                      "slice 13: the CLI hands the Launch to the spawner and stops encoding the run-start message itself",
 			"internal/adapters/coordgrpc -> internal/lm/grpc":                           "slice 13: EncodeRunStart, the plugin arm's projection of the launch, is deleted with that arm",
@@ -418,8 +419,8 @@ var LayeringRules = []LayeringRule{
 		Allowed: map[string]string{
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
-			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10: every remaining generated-type reference in core/coord is re-typed on Go values",
-			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "slice 10: mcpschema moves into adapters/coordgrpc beside the proto",
+			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10 remainder: the servers, channels and links leave core with their generated-type references",
+			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "sanctioned: mcpschema projects the proto into the tool schemas, beside it under coordgrpc",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                 "slice 13: allowlisted until then per Part 1.0",

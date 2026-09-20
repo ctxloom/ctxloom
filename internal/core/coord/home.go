@@ -52,7 +52,13 @@ type Home struct {
 	unacked      []*agentcoordpb.AgentEvent
 	acked        uint64
 	ackCh        chan struct{} // closed + replaced on every ack advance
-	pending      map[string]*homeReq
+	// redial is closed and replaced by Redial: the kick a loop in its backoff
+	// wakes on (redialWake). Guarded by mu.
+	redial chan struct{}
+	// requests is the one bidiSession scaffold's correlation for the
+	// requests this Home issues over RunChannel (its send queue is unused:
+	// the stream reconnects, so frames are written directly under sendMu).
+	requests bidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse]
 
 	buffer   []*agentcoordpb.PeerMessage
 	consumed map[string]bool
@@ -161,14 +167,18 @@ type HomeConfig struct {
 	// caller wires it (llm_serve.go).
 	Engine RunnerRequestHandler
 	// Capabilities is this runner's Hello advertisement: what its hosted engine
-	// can actually execute (RunnerCapabilities). Empty advertises
-	// CapPeerMessaging alone — the mailbox surface every runner has.
+	// can actually execute (RunnerCapabilities). Empty advertises nothing —
+	// the mailbox surface every runner has is not a capability.
 	Capabilities []string
 	// Harp is set for the session owner's plugin-hosted runner ALONE: no
 	// StartRun ever reaches it, so its harp — the name of its spool — rides
 	// the process env and binds at dial, at depth 0. A hosted run leaves it
 	// empty and binds its identity from the Launch (BindIdentity).
 	Harp string
+	// Mapper resolves spool references to paths on this runner's side — the
+	// one mapper every spool read and write here goes through. Nil is the
+	// home-relative mapper.
+	Mapper spool.PathMapper
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
@@ -176,11 +186,6 @@ type HomeConfig struct {
 	// and terminal injector built on it raise; the runner's composition
 	// chooses the sink. Nil discards.
 	Reporter report.Sink
-}
-
-type homeReq struct {
-	req *agentcoordpb.AgentRequest
-	ch  chan *agentcoordpb.CoordinatorResponse
 }
 
 type homePark struct {
@@ -247,7 +252,8 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		cancel:      cancel,
 		conn:        conn,
 		ackCh:       make(chan struct{}),
-		pending:     make(map[string]*homeReq),
+		redial:      make(chan struct{}),
+		requests:    newBidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse](cancel, 0),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
 		acking:      make(map[string]bool),
@@ -257,7 +263,10 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	// still keyed by harp because spoolWriterCache is shared with the
 	// coordinator's half, which serves many; the writer id is the harp,
 	// stamped at bind.
-	h.spoolOut = newSpoolWriterCache(spool.NewHomeMapper(), spool.DirOut, "")
+	if h.cfg.Mapper == nil {
+		h.cfg.Mapper = spool.NewHomeMapper()
+	}
+	h.spoolOut = newSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
 	h.startSpoolReactor()
 	if cfg.Harp != "" {
@@ -267,6 +276,12 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	h.goTracked(h.runChannelLoop)
 	return h, nil
 }
+
+// ErrIdentityUnbound refuses a send from a runner whose identity is not yet
+// bound: it does not know whose spool it writes. In production the engine
+// that would send is started by the drive that binds, so this is a
+// protocol slip, not a state a healthy runner passes through.
+var ErrIdentityUnbound = errors.New("coord: this runner's identity is not bound yet; it cannot send")
 
 // BindIdentity binds this run's identity ONCE — the harp its spool is named
 // by, the depth its turn report is gated on — from the Launch the
@@ -321,6 +336,25 @@ func (h *Home) waitTracked() {
 	h.tracked.wait(homeCloseJoinBudget, "runner home close", "")
 }
 
+// Redial asks both channel loops to redial NOW rather than at the end of
+// their backoff: the caller knows the endpoint is back (a coordinator
+// restarted on the recorded endpoint; a rebind), and the runner's
+// re-adoption should not cost it the backoff.
+func (h *Home) Redial() {
+	h.mu.Lock()
+	close(h.redial)
+	h.redial = make(chan struct{})
+	h.mu.Unlock()
+}
+
+// redialWake is the pending kick: a channel closed and replaced by Redial,
+// which a loop in its backoff selects on beside the timer.
+func (h *Home) redialWake() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.redial
+}
+
 // runnerChannelLoop keeps the lifecycle RunnerChannel alive (Hello +
 // heartbeats + best-effort RunExited at Close).
 func (h *Home) runnerChannelLoop() {
@@ -331,6 +365,8 @@ func (h *Home) runnerChannelLoop() {
 			select {
 			case <-time.After(homeRedialBackoff):
 				continue
+			case <-h.redialWake():
+				continue
 			case <-h.ctx.Done():
 				return
 			}
@@ -340,12 +376,18 @@ func (h *Home) runnerChannelLoop() {
 		h.mu.Unlock()
 		select {
 		case <-link.Done():
+			// The dead link's connection is closed HERE, before the redial
+			// replaces it: Shutdown only ever reaches the link Close finds
+			// current, so an unreleased predecessor is a leaked ClientConn.
+			h.releaseLink(link)
 			select {
 			case <-time.After(homeRedialBackoff):
+			case <-h.redialWake():
 			case <-h.ctx.Done():
 				return
 			}
 		case <-h.ctx.Done():
+			h.releaseLink(link)
 			return
 		}
 	}
@@ -364,6 +406,7 @@ func (h *Home) runChannelLoop() {
 		}
 		select {
 		case <-time.After(homeRedialBackoff):
+		case <-h.redialWake():
 		case <-h.ctx.Done():
 			return
 		}
@@ -402,22 +445,22 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	// with their ORIGINAL request_ids, and a fresh park assertion when a
 	// recv is parked (park state is runtime state the coordinator forgot
 	// with the old stream).
+	h.sendMu.Lock()
 	h.mu.Lock()
 	h.stream = stream
 	h.everAttached = true
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
-	reqs := make([]*agentcoordpb.AgentRequest, 0, len(h.pending))
-	for _, hr := range h.pending {
-		reqs = append(reqs, hr.req)
-	}
 	parked := h.parked
 	h.mu.Unlock()
+	// The reissue batch holds sendMu so no fresh emit can interleave a
+	// higher seq into it (see emitEvent).
 	for _, ev := range events {
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
+		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
-	for _, r := range reqs {
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
+	for _, r := range h.requests.outstanding() {
+		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
 	}
+	h.sendMu.Unlock()
 	// RECONNECT SWEEP: every doorbell rung while this stream was down was
 	// dropped by design (the file was the truth, so nothing needed reissuing),
 	// and this is the moment that costs nothing to make good.
@@ -443,12 +486,8 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 }
 
 // helloCapabilities is this runner's advertisement, re-sent on every reconnect
-// because the coordinator forgets it with the old stream. A runner whose config
-// names none still advertises the mailbox surface it certainly has.
+// because the coordinator forgets it with the old stream.
 func (h *Home) helloCapabilities() []string {
-	if len(h.cfg.Capabilities) == 0 {
-		return []string{CapPeerMessaging}
-	}
 	return append([]string(nil), h.cfg.Capabilities...)
 }
 
@@ -465,14 +504,20 @@ func (h *Home) send(frame *agentcoordpb.AgentFrame) { _ = h.trySend(frame) }
 // must be able to count what it dropped instead of letting a permanently down
 // channel look like a permanently quiet one.
 func (h *Home) trySend(frame *agentcoordpb.AgentFrame) bool {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
+	return h.sendLocked(frame)
+}
+
+// sendLocked is trySend's body for a caller already holding sendMu — the
+// emitters that must pair a seq assignment with the write under one guard.
+func (h *Home) sendLocked(frame *agentcoordpb.AgentFrame) bool {
 	h.mu.Lock()
 	stream := h.stream
 	h.mu.Unlock()
 	if stream == nil {
 		return false
 	}
-	h.sendMu.Lock()
-	defer h.sendMu.Unlock()
 	if err := stream.Send(frame); err != nil {
 		// The receive loop observes the same failure and re-dials.
 		h.rep.WarnOncef("run channel send failed (reconnecting): %v", err)
@@ -487,13 +532,7 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 	case *agentcoordpb.CoordinatorFrame_Ack:
 		h.advanceAck(kind.Ack.GetCommittedSeq())
 	case *agentcoordpb.CoordinatorFrame_Response:
-		h.mu.Lock()
-		hr := h.pending[kind.Response.GetRequestId()]
-		delete(h.pending, kind.Response.GetRequestId())
-		h.mu.Unlock()
-		if hr != nil {
-			hr.ch <- kind.Response
-		}
+		h.requests.resolve(kind.Response.GetRequestId(), kind.Response)
 	case *agentcoordpb.CoordinatorFrame_Notice:
 		if sc := kind.Notice.GetSpoolChanged(); sc != nil {
 			h.handleSpoolChanged(sc)
@@ -613,6 +652,13 @@ func (h *Home) SetTerminalNudge(fn func()) {
 // time, so a burst that coalesces into one nudge reports the count as it
 // stands when the frame is actually written, not the count when the first
 // message of the burst arrived.
+// RecvParked reports whether a receive is currently parked on this Home.
+func (h *Home) RecvParked() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.parked
+}
+
 func (h *Home) BufferedMailCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -728,6 +774,20 @@ func (h *Home) AwaitMailAcked(ctx context.Context, ids []string) error {
 	}
 }
 
+// releaseLink aborts link and forgets it, if it is still the current one — a
+// Close that already took it (h.link nil) owns its graceful Shutdown instead.
+func (h *Home) releaseLink(link *RunnerLink) {
+	h.mu.Lock()
+	current := h.link == link
+	if current {
+		h.link = nil
+	}
+	h.mu.Unlock()
+	if current {
+		link.Abort()
+	}
+}
+
 // ReportRunExited sends a best-effort RunExited on the live lifecycle link
 // WITHOUT tearing the home down — the engine host's chat-ended signal (the
 // runner process itself stays up until the coordinator kills it; the
@@ -774,10 +834,10 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	if resp, handled := h.sendPeerViaSpool(req); handled {
 		return resp, nil
 	}
-	hr := &homeReq{req: req, ch: make(chan *agentcoordpb.CoordinatorResponse, 1)}
-	h.mu.Lock()
-	h.pending[req.GetRequestId()] = hr
-	h.mu.Unlock()
+	ch, ok := h.requests.register(req.GetRequestId(), req)
+	if !ok {
+		return nil, ErrCoordinatorUnreachable
+	}
 	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: req}})
 
 	if _, has := ctx.Deadline(); !has {
@@ -787,12 +847,10 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	}
 	started := time.Now()
 	select {
-	case resp := <-hr.ch:
+	case resp := <-ch:
 		return resp, nil
 	case <-ctx.Done():
-		h.mu.Lock()
-		delete(h.pending, req.GetRequestId())
-		h.mu.Unlock()
+		h.requests.withdraw(req.GetRequestId())
 		return nil, h.requestFailure(ctx, time.Since(started))
 	case <-h.ctx.Done():
 		return nil, ErrCoordinatorUnreachable
@@ -941,7 +999,17 @@ func (h *Home) emitCustomEvent(name string, value map[string]any) {
 
 // emitEvent assigns the next seq, buffers the event as unacked, and sends it
 // when the stream is live. Returns the assigned seq.
+//
+// Seq assignment and the stream write are ONE critical section (sendMu is
+// held across both). The coordinator's cumulative Ack dedupes by "seq at or
+// below the channel's watermark", so an event reaching the wire behind a
+// higher seq is dropped as a duplicate and acked past — and a Report waiting
+// on that ack returns with its fact never journaled. Concurrent emitters
+// (a Report on one goroutine, the engine host's park/turn events on another)
+// must therefore serialize the whole assign-then-write, not just the assign.
 func (h *Home) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
 	h.mu.Lock()
 	h.seq++
 	ev.Seq = h.seq
@@ -950,7 +1018,7 @@ func (h *Home) emitEvent(ev *agentcoordpb.AgentEvent) uint64 {
 	h.unacked = append(h.unacked, ev)
 	seq := h.seq
 	h.mu.Unlock()
-	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
+	h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	return seq
 }
 
@@ -1022,12 +1090,18 @@ const ackReissueInterval = 2 * time.Second
 // re-issuing is what resolves the two. It costs nothing: (run, seq) is the
 // coordinator's idempotency key, so a seq it already processed is re-acked
 // rather than re-journaled — the same reissue the post-Hello reattach performs.
+//
+// The whole batch goes out under sendMu: a fresh emit landing between two
+// reissued events would put its higher seq ahead of the rest of the batch,
+// and the coordinator would drop those as duplicates (see emitEvent).
 func (h *Home) reissueUnacked() {
+	h.sendMu.Lock()
+	defer h.sendMu.Unlock()
 	h.mu.Lock()
 	events := append([]*agentcoordpb.AgentEvent(nil), h.unacked...)
 	h.mu.Unlock()
 	for _, ev := range events {
-		h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
+		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
 }
 
@@ -1041,6 +1115,12 @@ func (h *Home) reissueUnacked() {
 // closeFn synchronously for exactly this reason), and closes the out/
 // writer LAST so nothing lands after the join.
 func (h *Home) Crash() {
+	// Torn down means nothing here can take a turn: the sweep and the
+	// consume-rename refuse from this point (a consume mkdirs its target,
+	// and a late one would recreate a spool under a root the run is done
+	// with). Marked BEFORE the join, so a caller the join gives up on still
+	// sees it.
+	h.exited.Store(true)
 	h.tracked.seal()
 	h.cancel()
 	_ = h.conn.Close()
@@ -1063,6 +1143,7 @@ func (h *Home) Crash() {
 // returning, mirroring crash().
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
+	h.exited.Store(true) // see Crash: nothing here takes a turn past this point
 	h.tracked.seal()
 	h.mu.Lock()
 	link := h.link

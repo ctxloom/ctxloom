@@ -159,3 +159,37 @@ func TestReplicationProvisioner_CanOnlyDeliverShared(t *testing.T) {
 	assert.False(t, p.Can(SharingUnset))
 	assert.Equal(t, DeliveryReplicated, p.Delivery())
 }
+
+// Bootstrap over an instance that ALREADY holds the host's bytes must not
+// rewrite it. Two runs in one session share one instance, so a second run's
+// preparation lands on a file the first run's engine may be reading, and an
+// in-place rewrite of identical bytes is a truncate-and-refill window bought
+// for nothing.
+func TestReplicationProvision_BootstrapLeavesAnIdenticalInstanceUntouched(t *testing.T) {
+	testsupport.Isolate(t)
+	hostDir, home := t.TempDir(), t.TempDir()
+	hostFile := filepath.Join(hostDir, "creds.json")
+	require.NoError(t, os.WriteFile(hostFile, []byte("token-1"), 0o600))
+	instFile := filepath.Join(home, ".claude", "creds.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(instFile), 0o700))
+	require.NoError(t, os.WriteFile(instFile, []byte("token-1"), 0o600))
+	before, err := os.Stat(instFile)
+	require.NoError(t, err)
+	// A modification time in the past, so a rewrite is visible even when the
+	// filesystem's timestamp resolution is coarse.
+	past := before.ModTime().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(instFile, past, past))
+
+	p := &replicationProvisioner{}
+	res, err := p.Provision(home, []Material{{Host: hostFile, DestRel: ".claude/creds.json", Sharing: SharingShared}})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = res.Close() })
+
+	after, err := os.Stat(instFile)
+	require.NoError(t, err)
+	assert.True(t, after.ModTime().Equal(past), "an instance already holding the host's bytes was rewritten")
+
+	// And the pair is live: a host change still reaches it.
+	require.NoError(t, os.WriteFile(hostFile, []byte("token-2"), 0o600))
+	eventuallyReads(t, instFile, "token-2")
+}

@@ -60,6 +60,10 @@ func LoaderOf(cat Catalog) *Loader {
 	return &Loader{cat: cat}
 }
 
+// VersionResolver is the pinned-version resolver this loader fetches
+// historical versions through; nil when it is version-unaware.
+func (l *Loader) VersionResolver() BundleVersionResolver { return l.versionResolver }
+
 // WithReporter names the sink the read-time diagnostics (stale local
 // signature, unresolved ref, ambiguous bare ask) go to, so the caller
 // renders them — or a test reads what the user would have been told. A

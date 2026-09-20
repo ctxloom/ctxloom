@@ -2,6 +2,8 @@ package operations
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -334,7 +336,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, read bundles.BundleRea
 		if !ok {
 			continue
 		}
-		item.CurrentContent = renderSkillSurface(skill.LLM, manifest)
+		item.CurrentContent = renderSkillSurface(skill.Exports, manifest)
 		out = append(out, item)
 	}
 	return out
@@ -615,14 +617,24 @@ func renderHookSurface(entry bundles.HookEntry) string {
 // removed, including a mode flip on a scripts/ entry (0644 -> 0755), not
 // merely "the skill changed".
 //
-// It takes the export config and the resolved EFFECTIVE manifest rather than
+// It takes the export blocks and the resolved EFFECTIVE manifest rather than
 // the entry so that what is displayed is exactly what the trust preimage
 // covers (bundles.BundleSkill.ContentPayload), for a synced and an unsynced
-// skill alike: the enablement is in the preimage, so a flip to disabled must
-// show in the diff rather than re-gate the skill with nothing visibly changed.
-func renderSkillSurface(exports bundles.SkillLLMExports, manifest bundles.SkillManifest) string {
+// skill alike: the blocks are in the preimage, so a flip to disabled must
+// show in the diff rather than re-gate the skill with nothing visibly
+// changed. A block is shown as the bytes the engine decodes — the reviewer
+// approves the block, not one field's reading of it.
+func renderSkillSurface(exports bundles.EngineBlocks, manifest bundles.SkillManifest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "claude-code: %s\n\n", enablementWord(exports.ClaudeCode.IsEnabled()))
+	if len(exports) == 0 {
+		b.WriteString("exports: none (offered to every engine)\n\n")
+	}
+	for _, engine := range slices.Sorted(maps.Keys(exports)) {
+		fmt.Fprintf(&b, "%s: %s\n", engine, exports[engine])
+	}
+	if len(exports) > 0 {
+		b.WriteString("\n")
+	}
 	if len(manifest) == 0 {
 		b.WriteString(emptySurfaceMarker)
 		return b.String()
@@ -631,11 +643,4 @@ func renderSkillSurface(exports bundles.SkillLLMExports, manifest bundles.SkillM
 		fmt.Fprintf(&b, "%s  %s  mode:%s\n", entry.Path, entry.SHA256, entry.Mode)
 	}
 	return b.String()
-}
-
-func enablementWord(enabled bool) string {
-	if enabled {
-		return "enabled"
-	}
-	return "disabled"
 }

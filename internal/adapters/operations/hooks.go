@@ -9,10 +9,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -167,12 +166,14 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		}
 	}
 
-	// MCP servers from profile bundles + prompts for command files, shared
-	// across backends. ApplyHooks writes the project's STATIC managed config
-	// (the `manage hooks install` path) for the configured DEFAULT profiles —
-	// there is no per-run `-p` selection here — so nil scopes to the defaults.
-	bundleMCP := freshCfg.ResolveBundleMCPServers(nil)
-	prompts := backends.LoadCommandExports(freshCfg, nil)
+	// The ONE package, for the configured DEFAULT profiles: ApplyHooks writes
+	// the project's STATIC managed config (the `manage hooks install` path)
+	// and there is no per-run `-p` selection here. Its servers, commands and
+	// deny list are what every backend below is written from.
+	pkg, err := AssemblePackage(ctx, freshCfg, PackageRequest{WorkDir: workDir})
+	if err != nil {
+		return nil, err
+	}
 
 	backendNames, err := hookBackendNames(freshCfg, backend)
 	if err != nil {
@@ -187,8 +188,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		contextHash:      contextHash,
 		assembledContext: assembledContext,
 		skipContext:      skipContext,
-		bundleMCP:        bundleMCP,
-		prompts:          prompts,
+		pkg:              pkg,
 		fs:               fs,
 	})
 	if err != nil {
@@ -518,9 +518,9 @@ type hookApplyParams struct {
 	// context surface at all — see ApplyHooks' skipContext doc for the two
 	// cases this covers (no-op request, genuine regen failure).
 	skipContext bool
-	bundleMCP   map[string]wire.MCPServer
-	prompts     []*bundles.LoadedContent
-	fs          afero.Fs
+	// pkg is the one package the surfaces are written from.
+	pkg composite.Package
+	fs  afero.Fs
 	// dryRun stops short of the single write, see ApplyHooksRequest.DryRun.
 	dryRun bool
 }
@@ -585,6 +585,10 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 	settings := p.freshCfg.GetSettings()
 
 	decl := backends.Declared(backendName)
+	exports, err := ExportsFor(p.pkg, backendName)
+	if err != nil {
+		return nil, err
+	}
 	inputs := agent.SurfaceInputs{
 		// Empty when context was not regenerated this round (assembledContext ==
 		// ""), which strips a native-file backend's managed context section —
@@ -592,11 +596,11 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 		// via the hook writes no native file), so it is safe to set for every
 		// backend.
 		Context:          p.assembledContext,
-		BundleMCP:        p.bundleMCP,
+		BundleMCP:        p.pkg.MCP,
 		Hooks:            hooksCfg,
 		ManageStatusline: settings.ShouldManageStatusline(),
-		Commands:         backends.CommandExportsFor(backendName, p.prompts),
-		DenyTools:        backends.AssembleManagedDenyTools(p.freshCfg, nil),
+		Commands:         CommandExportsOf(exports),
+		DenyTools:        p.pkg.DenyTools,
 	}
 
 	// Settings and MCP install through the route installRoute resolves — the
@@ -620,7 +624,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) (retracted []str
 		}
 		retractContextFile = !installedThroughProjectFile(decl, agent.SurfaceContext)
 	}
-	if len(p.prompts) > 0 {
+	if len(p.pkg.Commands) > 0 {
 		sel = sel.With(agent.SurfaceCommands, agent.ApproachUnsafeFile)
 	}
 	// The writes in this function start here. Everything above resolves;
@@ -783,119 +787,29 @@ func installedContextFile(ctx context.Context, cfg *config.Config) (string, erro
 	return asm.Context, nil
 }
 
-// regenerateContext loads fragments from default profiles and writes the context file.
+// regenerateContext writes the SessionStart-injected context file for the
+// default agent's profiles: the ONE package's fragments (AssemblePackage,
+// the same assembly `ctxloom run` delivers — a premised fragment held back
+// there is held back here, and the file carries no body the run would not),
+// written through the context-file writer. The name each fragment is written
+// under is its ref.
 func regenerateContext(cfg *config.Config, workDir string, opts ...agent.ContextFileOption) (string, error) {
-	// Load fragments from default profiles using bundles. This is an exposure
-	// surface (the SessionStart-injected context file), so it gates content the
-	// same way AssembleContext does (trust rework, TR5) — baseline-first, then
-	// withhold anything the cascade denies.
-	pipe, gate := exposurePipelineGated(cfg, cfg.LinkGrant(cfg.DefaultAgentProfiles()))
-
-	// Collect through the same path AssembleContext uses: collectProfileFragments
-	// emits tag-matched fragments under their canonical qualified names (so
-	// dedupeFragmentRefs actually collapses duplicates) and applies each
-	// profile's exclude_fragments to them. This function's output MUST match
-	// AssembleContext — any divergence ships a SessionStart-injected context
-	// that disagrees with what `ctxloom run` assembles. The default set is the
-	// default agent's composed profiles (resolveContextProfileNames reads the
-	// same DefaultAgentProfiles; profiles.defaults was retired).
-	allFragments, profileVars, _, _, err := collectProfileFragments(cfg, pipe.Loader(), cfg.DefaultAgentProfiles(), nil, true)
+	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{WorkDir: workDir})
 	if err != nil {
 		return "", err
 	}
-
-	// Dedupe and sort using bookend strategy
-	uniqueFragments := dedupeFragmentRefs(allFragments)
-	orderedRefs := sortFragmentsByPriority(uniqueFragments)
-
-	// The SAME premise filter AssembleContext applies. A premised fragment is
-	// CONDITIONAL: it is withheld from unconditional assembly and offered to
-	// the agent to ask for by name. Injecting it here would deliver, at
-	// SessionStart and unconditionally, the exact content the mechanism exists
-	// to hold back.
-	//
-	// Nothing is "requested" on this path -- it regenerates the default
-	// agent's context with no per-call selection -- so the explicit set is
-	// empty and every premised fragment is withheld. The index it builds has
-	// nowhere to go: this function returns a content HASH for a file, and the
-	// offer is structured data (AssembleContextResult.PremiseIndex) that the
-	// context file has no place to carry.
-	premises := newPremiseFilter(nil)
-
-	// The SAME ingest accumulator AssembleContext uses, for the same reason:
-	// this function has two routes into one context (loader-resolved here,
-	// injected builtins below) and only one of them may deliver a given piece
-	// of content. See contextIngest for the identity rule and the order/silence
-	// decisions.
-	ingest := newContextIngest()
-	for _, ref := range orderedRefs {
-		content, err := loadFragmentRef(pipe, ref)
-		if err != nil {
-			warnFragmentLoadFailure(ref, err)
-			continue
-		}
-		// Withheld is NOT a load failure and must not warn like one: it loaded
-		// fine and is conditional. Keyed on ref.Name, the canonical qualified
-		// ref, which is what AssembleContext withholds on too.
-		// nil body: this path never sets onWithheld, so no body is ever rendered.
-		if premises.withhold(ref.Name, content.Premise, nil) {
-			continue
-		}
-		// Ref is the canonical item ref (identity); Name is the reporting name
-		// this path has always written into the context file. They differ here
-		// and contextIngest keeps them apart on purpose.
-		ingest.add(ingestedFragment{
-			Ref:     ref.Name,
-			Name:    content.Name,
-			Content: substituteVariables(content.Content, profileVars, warnSubstitutionFor(content.Name)),
-		})
-	}
-
-	// Surface (content-free) any items the trust gate withheld while regenerating
-	// the SessionStart context, mirroring AssembleContext.
-	warnWithheld(gate)
-
-	// Built-in bundles inject their fragments unconditionally — the always-on
-	// counterpart to their hooks/MCP — so the SessionStart-injected context file
-	// matches AssembleContext. Skipped when the companion binary is absent.
-	// Gated through the SAME content gate as loader-resolved fragments
-	// (pipe.Authorizer()) so a rejected builtin fragment is withheld here too.
-	// Ingested AFTER the loader-resolved fragments so a builtin that was also
-	// selected by ref collapses into the selection, not the reverse.
-	for _, bf := range cfg.ResolveBuiltinBundleFragments(pipe.Authorizer()) {
-		// The SAME premise filter the loader-resolved loop above applies, for
-		// the same reason ingestBuiltinFragments applies it on the pull path:
-		// "always-on" describes not being profile-selected, never immunity
-		// from a premise. Without this a premised fragment was withheld from
-		// what AssembleContext returns and written into the SessionStart
-		// context file anyway — delivered twice, which is precisely the one
-		// coupling the pull and push layers must never break.
-		//
-		// nil body, as above: this path never sets onWithheld, and the index
-		// it builds has nowhere to go — regenerateContext returns a content
-		// hash for a file, not the structured offer AssembleContext returns.
-		if premises.withhold(bf.Name, bf.Premise, nil) {
-			continue
-		}
-		ingest.add(ingestedFragment{Ref: bf.Name, Name: bf.Name, Content: bf.Content})
-	}
-
 	var backendFrags []*agent.Fragment
-	for _, f := range ingest.fragments() {
-		backendFrags = append(backendFrags, &agent.Fragment{Name: f.Name, Content: f.Content})
+	for _, f := range pkg.Fragments {
+		backendFrags = append(backendFrags, &agent.Fragment{Name: f.Value.Name, Content: f.Value.Body})
 	}
 
 	if len(backendFrags) == 0 {
-		// This is NOT an error — regenerateContext
-		// legitimately produced nothing (an empty default profile set is a
-		// valid configuration) — but it silently reached the exact same
-		// downstream effect as a real failure (native-file backends strip
-		// their managed context to match) with zero diagnostic at all. Warn
-		// so a user is not left wondering why their AGENTS.md/steering file
-		// went empty; still return ("", nil) — a genuinely-empty context IS
-		// the honest current state (matching what `ctxloom run` would also
-		// assemble), so stripping to match it is correct, just no longer
-		// silent.
+		// This is NOT an error — the default profile set legitimately
+		// produced nothing — but it reaches the exact same downstream effect
+		// as a real failure (native-file backends strip their managed context
+		// to match), so warn rather than leave a user wondering why their
+		// AGENTS.md went empty; a genuinely-empty context IS the honest
+		// current state (matching what `ctxloom run` would also assemble).
 		clidiag.Warn("ctxloom", "context regeneration produced no fragments (default profiles resolved zero content) — any existing native-file managed context will be cleared to match; check your default profiles' fragment set if this is unexpected")
 		return "", nil
 	}

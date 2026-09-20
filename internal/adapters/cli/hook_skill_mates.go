@@ -15,8 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -109,8 +107,20 @@ func skillMatesOutput(cmd *cobra.Command) (claude.PostToolUseOutput, error) {
 	if err != nil {
 		return claude.PostToolUseOutput{}, fmt.Errorf("load project config: %w", err)
 	}
-	delivered := slices.DeleteFunc(backends.LoadSkillExports(cfg, cfg.DefaultAgentProfiles()),
-		func(s *bundles.LoadedSkill) bool { return !claudeengine.SkillEnabled(s) })
+	pkg, err := operations.AssemblePackage(cmd.Context(), cfg, operations.PackageRequest{})
+	if err != nil {
+		return claude.PostToolUseOutput{}, fmt.Errorf("assemble the delivered set: %w", err)
+	}
+	exports, err := operations.ExportsFor(pkg, claude.EngineName)
+	if err != nil {
+		return claude.PostToolUseOutput{}, err
+	}
+	enabled := map[string]bool{}
+	for _, s := range exports.Skills {
+		enabled[s.Name] = s.Enabled
+	}
+	delivered := slices.DeleteFunc(operations.LoadedSkills(pkg),
+		func(s *bundles.LoadedSkill) bool { return !enabled[s.Frontmatter.Name] })
 	return buildSkillMatesOutput(payload, delivered, evs), nil
 }
 

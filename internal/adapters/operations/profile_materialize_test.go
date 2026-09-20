@@ -73,13 +73,17 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 
-	// Render the "discover" builtin command exactly as materialize itself will (same
-	// LoadCommandExports/CommandExportsFor pipeline profile_materialize.go drives),
+	// Render the "discover" builtin command exactly as materialize itself will
+	// (the same package projection profile_materialize.go drives),
 	// and pre-seed a byte-identical copy into $HOME/.claude/commands — simulating
 	// a materializing host that has already installed its own commands (e.g. via
 	// `manage hooks install`), which the --target launch environment does NOT
 	// share.
-	exports := backends.CommandExportsFor("claude-code", backends.LoadCommandExports(cfg, []string{"reviewer"}))
+	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Profiles: []string{"reviewer"}})
+	require.NoError(t, err)
+	engineExports, err := ExportsFor(pkg, "claude-code")
+	require.NoError(t, err)
+	exports := CommandExportsOf(engineExports)
 	var seeded bool
 	for _, e := range exports {
 		if e.Name != "discover" {

@@ -162,7 +162,7 @@ func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stu
 	deps := launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
 		Engines:   backends.Engines(),
-		Assembler: assembler{pipe: pipe},
+		Assembler: &assembler{pipe: pipe},
 		Cells:     Cells{cfg: cfg},
 		Endpoints: endpointMinter{},
 		Sessions:  sessions.NewMemStore(),

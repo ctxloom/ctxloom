@@ -291,9 +291,9 @@ var LayeringRules = []LayeringRule{
 
 			// cli reaching past operations
 			"internal/adapters/cli -> internal/engines/claude":                   "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
-			"internal/adapters/cli -> internal/engines/claude/engine":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
 			"internal/adapters/cli -> internal/lm/backends":                      "slice 11b: lm/backends is deleted whole",
 			"internal/adapters/cli -> internal/engines":                          "slice 11b: engines.Build() is called by the composition root, cmd/*",
+			"internal/adapters/operations -> internal/engines":                   "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
 			"internal/adapters/cli -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
 			"internal/adapters/cli -> internal/adapters/isolation":               "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":                     "slice 9: the stdio MCP server is deleted; the endpoint lives in runner/mcp",
@@ -373,12 +373,10 @@ var LayeringRules = []LayeringRule{
 		Allowed: map[string]string{
 			"internal/engines/claude/engine -> internal/adapters/engineversion":                  "slice 11b: the version command is the engine's own, on the instance half of the port",
 			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "slice 11b: the reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",
-			"internal/engines/claude/engine -> internal/core/bundles":                            "slice 6: bundles.LLMExports become opaque; Exports(items engine.Items) imports only core/engine",
 			"internal/engines/claude -> internal/adapters/confpatch":                             "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the engine",
 			"internal/engines/claude -> internal/core/paths":                                     "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no paths",
 			"internal/lm/hosting -> internal/adapters/engineversion":                             "slice 11b: lm/hosting dies with lm/backends; the version command is the engine's own",
 			"internal/lm/hosting -> internal/adapters/transcript/vendorreader":                   "slice 11b: lm/hosting dies with lm/backends; the readers become engine.TranscriptReader values",
-			"internal/lm/hosting -> internal/core/bundles":                                       "slice 11b: lm/hosting dies with lm/backends; Exports(items engine.Items) imports only core/engine",
 			"internal/lm/backends -> internal/adapters/engineversion":                            "slice 11b: lm/backends is deleted whole",
 			"internal/lm/backends -> internal/adapters/isolation":                                "slice 11b: lm/backends is deleted whole",
 			"internal/lm/backends -> internal/adapters/remote":                                   "slice 11b: lm/backends is deleted whole",

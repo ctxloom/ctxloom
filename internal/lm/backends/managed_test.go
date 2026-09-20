@@ -6,12 +6,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // These cover the HOST side of the setup seam (config/profile/bundle resolution
@@ -129,51 +127,4 @@ func TestAssembleManagedHooks_CircularProfileIsWarnedNotMasked(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "inheritance",
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
-}
-
-func TestAssembleManagedDenyTools_CircularProfileIsWarnedNotMasked(t *testing.T) {
-	cfg := dirProfileCfg(t, []string{"loopy"}, map[string]string{
-		"loopy": "parents:\n  - loopy\n",
-	})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	AssembleManagedDenyTools(cfg, nil)
-
-	assert.Contains(t, buf.String(), "inheritance",
-		"the real cause (inheritance) must reach the warning: got %q", buf.String())
-}
-
-func TestAssembleManagedDenyTools_ExplicitProfileWarningOmitsDefault(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
-
-	var buf bytes.Buffer
-	restore := clidiag.SetSink(&buf)
-	defer restore()
-
-	AssembleManagedDenyTools(cfg, []string{"explicitly-selected-and-missing"})
-
-	assert.NotContains(t, buf.String(), "default profile",
-		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
-}
-
-// TestCommandExportsFor resolves each backend's per-prompt enablement + metadata
-// from the same bundle content, and returns nil for an unknown backend.
-func TestCommandExportsFor(t *testing.T) {
-	enabled := true
-	c := &bundles.LoadedContent{Name: "x", Content: "body"}
-	c.LLM.ClaudeCode.Enabled = &enabled
-	c.LLM.ClaudeCode.Description = "claude desc"
-	c.LLM.ClaudeCode.ArgumentHint = "hint"
-	prompts := []*bundles.LoadedContent{c}
-
-	claudeEx := CommandExportsFor("claude-code", prompts)
-	require.Len(t, claudeEx, 1)
-	assert.Equal(t, "claude desc", claudeEx[0].Description)
-	assert.Equal(t, "hint", claudeEx[0].ArgumentHint)
-	assert.True(t, claudeEx[0].Enabled)
-
-	assert.Nil(t, CommandExportsFor("unknown-backend", prompts))
 }

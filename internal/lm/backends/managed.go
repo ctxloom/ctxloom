@@ -79,134 +79,6 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 	return br, nil
 }
 
-// This file is the HOST side of the setup seam: ctxloom owns config and bundles
-// here, resolves them into the wire-typed agent.ManagedConfig, and ships that to
-// the backend over RunStart. The agent's Setup consumes only the result
-// (BaseLifecycle.MergeManaged), so the launch backends never import
-// config/bundles. The assembly that used to run plugin-side in each agent's
-// AssembleManagedConfig resolves the host-side setup payload for one target
-// backend against cfg — the generation the run was resolved from, never a
-// fresh read: the slash-command exports (mapped to that backend's enablement
-// + metadata), the config+default-profile+bundle hook set WITHOUT
-// context-injection (the agent appends that itself from its plugin-side
-// context hash), the merged config+default-profile MCP servers, and whether
-// ctxloom manages the statusline.
-//
-// The executable surfaces (bundle MCP servers + hooks + prompt exports)
-// decide with the generation's Trust (cfg.ExecutableTrustGate), which
-// ResolveBundleMCPServers / AssembleManagedHooks / LoadCommandExports each
-// consult at their own choke.
-//
-// profileNames is the run's SELECTED profile set (the same set AssembleContext
-// scoped context to), so the managed mcp/commands/hooks track the chosen profile
-// rather than always the configured defaults. An empty set falls back to the
-// defaults inside each resolver (scopedProfiles / resolveProfileScope).
-func AssembleManagedConfig(cfg *config.Config, backendName, workDir string, profileNames []string) *agent.ManagedConfig {
-	if cfg == nil {
-		return nil
-	}
-	return &agent.ManagedConfig{
-		Commands:         CommandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
-		Skills:           SkillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
-		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames).Wire(),
-		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
-		ManageStatusline: managedStatuslineEnabled(cfg),
-		DenyTools:        AssembleManagedDenyTools(cfg, profileNames),
-	}
-}
-
-// managedStatuslineEnabled reports whether ctxloom manages the HUD statusline,
-// via the config accessor (not the raw cfg.Settings field — ShouldManageStatusline
-// has a pointer receiver, so it needs a local, addressable copy of the
-// accessor's return value).
-func managedStatuslineEnabled(cfg *config.Config) bool {
-	settings := cfg.GetSettings()
-	return settings.ShouldManageStatusline()
-}
-
-// CommandExportsFor maps loaded bundle content to the named backend's command
-// exports (resolving that backend's per-prompt enablement + metadata), or nil
-// for a backend without slash-command export. Reads the descriptor table's
-// exports field — the same mapper WriteCommandFilesFor uses — so the two
-// paths can't diverge.
-func CommandExportsFor(backendName string, prompts []*bundles.LoadedContent) []agent.CommandExport {
-	d, ok := lookup(backendName)
-	if !ok {
-		return nil
-	}
-	exports, ok := d.CommandExports.Get()
-	if !ok {
-		return nil
-	}
-	return exports(prompts)
-}
-
-// SkillExportsFor maps loaded bundle skills to the named backend's Agent
-// Skill package exports (resolving that backend's per-skill enablement), or
-// nil for a backend without skill export. Reads the descriptor table's
-// skillExports field — the skills-surface analog of CommandExportsFor.
-func SkillExportsFor(backendName string, skills []*bundles.LoadedSkill) []agent.SkillExport {
-	d, ok := lookup(backendName)
-	if !ok {
-		return nil
-	}
-	exports, ok := d.SkillExports.Get()
-	if !ok {
-		return nil
-	}
-	return exports(skills)
-}
-
-// AssembleManagedDenyTools builds the union of deny_tools declared by the
-// config's default profile / the caller's selected profiles: config.yaml
-// inline profiles (config.ResolveProfile) or, when a name isn't inline, a
-// directory profile (cfg.GetProfileLoader().ResolveProfile) — the SAME
-// two-source resolution AssembleManagedHooks uses. Order is
-// deterministic (first-seen wins position) and entries dedup case-sensitively
-// on the exact tool identifier string.
-//
-// Unlike MCP servers and hooks, a deny_tools entry is never passed through
-// the executable trust gate: it names a tool identifier to BLOCK, not an
-// executable to run, so even a remote-sourced directory profile's
-// directly-declared deny_tools is safe to apply unconditionally — it can
-// only narrow what a launch may do.
-func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []string {
-	if cfg == nil {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var out []string
-	add := func(tools []string) {
-		for _, t := range tools {
-			if t == "" || seen[t] {
-				continue
-			}
-			seen[t] = true
-			out = append(out, t)
-		}
-	}
-	for _, profileName := range scopedProfiles(cfg, profileNames) {
-		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
-		if err != nil {
-			clidiag.Warn("ctxloom", "profile %q unresolved; its deny_tools omitted: %v", profileName, err)
-			continue
-		}
-		add(resolved.DenyTools)
-	}
-	return out
-}
-
-// scopedProfiles returns the caller's selected profiles, or the default agent's
-// composed profiles when none are passed — the host-side mirror of
-// config.resolveProfileScope (MUST stay byte-identical to it), so the
-// managed-config assembly scopes to the SAME set the bundle resolvers do.
-func scopedProfiles(cfg *config.Config, profileNames []string) []string {
-	if len(profileNames) > 0 {
-		return profileNames
-	}
-	return cfg.DefaultAgentProfiles()
-}
-
 // AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
 // writer of a backend settings file must produce identically: config-level
 // hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when
@@ -231,22 +103,27 @@ func scopedProfiles(cfg *config.Config, profileNames []string) []string {
 // ORDERING has to act on. Writers take the projection, ManagedHooks.Wire, which
 // is byte-for-byte the wire config this function used to return.
 func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *ManagedHooks {
+	if cfg == nil {
+		return newManagedHooks()
+	}
+	return AssembleManagedHooksFor(cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
+}
+
+// AssembleManagedHooksFor is AssembleManagedHooks over an already resolved
+// profile set — the one assembly resolved, so its faults are reported once.
+func AssembleManagedHooksFor(cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *ManagedHooks {
 	hooks := newManagedHooks()
 	if cfg == nil {
 		return hooks
 	}
-	// Selected-profile-shipped hooks (defaults when none are passed). A
-	// profile's directly-declared hooks pass the executable trust gate first —
-	// the SAME gate bundle hooks pass — since the profile may be remote-sourced.
-	// There is no ungated arm: every declared hook is evaluated.
+	// Selected-profile-shipped hooks. A profile's directly-declared hooks
+	// pass the executable trust gate first — the SAME gate bundle hooks pass
+	// — since the profile may be remote-sourced. There is no ungated arm:
+	// every declared hook is evaluated.
 	gate := cfg.ExecutableTrustGate()
-	profiles := scopedProfiles(cfg, profileNames)
-	for _, profileName := range profiles {
-		resolved, err := cfg.GetProfileLoader().ResolveProfile(profileName, nil)
-		if err != nil {
-			clidiag.Warn("ctxloom", "profile %q unresolved; its hooks omitted: %v", profileName, err)
-			continue
-		}
+	for i := range set {
+		resolved := &set[i]
+		profileName := resolved.Name
 		gated := gateProfileHooks(profileGateRefFor(cfg, resolved, profileName), resolved.Hooks, gate)
 		// Ref carries the ORIGIN BUNDLE for a bundle-shipped profile (empty for
 		// a genuinely local one) — the same distinction the gate keys on, so the
@@ -259,7 +136,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(hooks, cfg, workDir, contextHash, profiles)
+	appendManagedDynamicHooks(hooks, cfg, workDir, contextHash, set)
 	return hooks
 }
 
@@ -273,11 +150,11 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, contextHash string, profileNames []string) {
+func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
 	if m == nil || cfg == nil {
 		return
 	}
-	m.mergeUnified(cfg.ResolveBundleHooks(profileNames), bundleSource)
+	m.mergeUnified(cfg.ResolveBundleHooksFor(set), bundleSource)
 	// The PostToolUse reflect hook rides the same managed set as context
 	// injection, and for the same reason: it exists to keep the distilled
 	// essence honest, so it belongs to ctxloom rather than to any bundle.

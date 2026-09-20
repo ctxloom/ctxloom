@@ -203,8 +203,6 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 			_, hasWriter := d.SettingsWriter.Get()
 			assert.True(t, hasWriter, "backend must have a settings writer")
 			assert.NotEmpty(t, d.Surfaces, "backend must declare its surfaces")
-			_, hasExports := d.CommandExports.Get()
-			assert.True(t, hasExports, "backend must have a command-export mapper")
 		})
 	}
 }

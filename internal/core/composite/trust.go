@@ -73,6 +73,8 @@ var ErrTrustPortMissing = errors.New("composite: every trust port is required")
 // it yields is the spelling bundles.Decide withholds on loudly.
 type Trust struct {
 	gate *authorizer
+	// external is a gate built elsewhere (Gated); nil for a Trust built here.
+	external bundles.Authorizer
 }
 
 // NewTrust holds the three ports and decides with them. The cascade consults
@@ -90,9 +92,18 @@ func NewTrust(root TrustRoot, records ReviewRecords, retraction RetractionRecord
 // pending content to a human. The default everywhere else is WITHHOLD.
 func Ungated() Trust { return Trust{gate: &authorizer{ungated: true}} }
 
+// Gated is a Trust over a gate built elsewhere: the injected-stage seam,
+// for a caller holding a process stage whose gate it did not build here (a
+// test's pipeline over its own authorizer). It gates — Assemble accepts
+// it — and it withholds through the gate it was given.
+func Gated(auth bundles.Authorizer) Trust { return Trust{external: auth} }
+
 // Authorizer is the gate the resolvers consult. Nil for a zero Trust, which
 // bundles.Decide withholds on and names.
 func (t Trust) Authorizer() bundles.Authorizer {
+	if t.external != nil {
+		return t.external
+	}
 	if t.gate == nil {
 		return nil
 	}

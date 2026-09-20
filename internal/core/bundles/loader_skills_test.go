@@ -68,7 +68,7 @@ func TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles(t *testing.T) {
 	assert.Equal(t, "humanize", ls.Item)
 	assert.Equal(t, "humanize", ls.Frontmatter.Name)
 	assert.Equal(t, "Does a thing well.", ls.Frontmatter.Description)
-	assert.True(t, ls.LLM.ClaudeCode.IsEnabled())
+	assert.JSONEq(t, `{"enabled":true}`, string(ls.Exports["claude-code"]), "the authored block is carried through, opaque")
 
 	byPath := make(map[string]LoadedSkillFile, len(ls.Files))
 	for _, f := range ls.Files {
@@ -101,10 +101,9 @@ func TestSkillsFromBundleRef_VendorInvalidFrontmatterStillResolves(t *testing.T)
 }
 
 // TestSkillsFromBundleRef_PerEngineDisabledStillResolves proves a skill
-// disabled for claude-code still RESOLVES from the loader (enablement
-// filtering is the per-engine export mapper's job, backends.claudeSkillExports
-// — the loader always returns the full per-engine LLM struct so every engine's
-// mapper can make its own decision).
+// disabled for claude-code still RESOLVES from the loader: enablement is
+// decided by the engine that decodes its own block, so the loader carries
+// every block and withholds none.
 func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
@@ -113,7 +112,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 	loader := NewLoader(NewProjectReader(fsys, []string{bundlesDir}))
 	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
-	assert.False(t, got[0].LLM.ClaudeCode.IsEnabled(), "the bundle-authored disablement is carried through")
+	assert.JSONEq(t, `{"enabled":false}`, string(got[0].Exports["claude-code"]), "the bundle-authored block is carried through")
 }
 
 // TestSkillsFromBundleRef_TamperedManifestWithheld proves a skill whose

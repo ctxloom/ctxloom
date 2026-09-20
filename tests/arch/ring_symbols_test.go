@@ -334,13 +334,12 @@ var noEngineNameInCoreAllowed = map[string]string{
 	"internal/core/config/config_types.go":                "slice 11b: the mock doubles' names are config data the tests and lm/backends spell through these constants; they leave with lm/backends",
 	"internal/core/coord/spawner.go":                      "slice 11b: Instance.Resume(key) succeeds or refuses; Resolve invokes it for a one-shot or a resume, and the three name-keyed tables go",
 	"internal/adapters/operations/session_adopt.go":       "slice 11b: adopt scans the engine's own store through Engine.Transcripts(); the reader knows its own format",
-	"internal/core/bundles/tree_read.go":                  "slice 6: bundles.LLMExports become opaque map[string]json.RawMessage keyed by whatever the registry names; no engine key is spelled here",
+	"internal/core/bundles/bundles.go":                    "contract: signing.CommandPreimageContract canonicalises the claude-code block into the frozen preimage bytes (CommandSurface.ExportsPayload); leaves with a contract bump that re-signs every bundle, which is a human's call, not a slice's",
 	"internal/adapters/memory/compactor.go":               "slice 14a: memory.NewCompactor(entry, source, llm) is handed its engine; the compactor does not default one",
 	"internal/adapters/operations/profile_materialize.go": "slice 12: materialize takes the engine from the Target; no default is a literal in the application services",
 
 	// adapters choosing a default by name
-	"internal/adapters/content/convert/convert.go": "slice 6: the per-engine export fields become opaque; the converter keys on the registry's names",
-	"internal/adapters/tmuxhost/paneinject.go":     "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
+	"internal/adapters/tmuxhost/paneinject.go": "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
 
 	// the retiring plugin wire and the vendor readers
 	"internal/lm/grpc/mock_client.go": "slice 13: the go-plugin protocol is deleted whole",

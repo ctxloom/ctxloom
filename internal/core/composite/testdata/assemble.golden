@@ -1,0 +1,4239 @@
+== engine=claude-code profile=golden-auto consumer=live
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=claude-code profile=golden-auto consumer=materialized
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=claude-code profile=golden-auto managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "Review Deferred tasks and surface any whose revive trigger has fired",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "Discover and install profiles, bundles, and fragments",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": [
+        "Read",
+        "Grep"
+      ],
+      "ArgumentHint": "[path]",
+      "Content": "Review the staged diff.\n",
+      "Description": "Review the staged diff",
+      "Enabled": true,
+      "Model": "sonnet",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "Release (disabled for claude)",
+      "Enabled": false,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": null,
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=claude-code profile=golden-curated consumer=live
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=claude-code profile=golden-curated consumer=materialized
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=claude-code profile=golden-curated managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "Review Deferred tasks and surface any whose revive trigger has fired",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "Discover and install profiles, bundles, and fragments",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": [
+        "Read",
+        "Grep"
+      ],
+      "ArgumentHint": "[path]",
+      "Content": "Review the staged diff.\n",
+      "Description": "Review the staged diff",
+      "Enabled": true,
+      "Model": "sonnet",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "Release (disabled for claude)",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": [
+    "Task"
+  ],
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock profile=golden-auto consumer=live
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock profile=golden-auto consumer=materialized
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock profile=golden-auto managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": null,
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock profile=golden-curated consumer=live
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock profile=golden-curated consumer=materialized
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock profile=golden-curated managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": [
+    "Task"
+  ],
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock-launch profile=golden-auto consumer=live
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock-launch profile=golden-auto consumer=materialized
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock-launch profile=golden-auto managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": null,
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock-launch profile=golden-curated consumer=live
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock-launch profile=golden-curated consumer=materialized
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock-launch profile=golden-curated managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": [
+    "Task"
+  ],
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock-lossy profile=golden-auto consumer=live
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock-lossy profile=golden-auto consumer=materialized
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock-lossy profile=golden-auto managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": null,
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock-lossy profile=golden-curated consumer=live
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock-lossy profile=golden-curated consumer=materialized
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock-lossy profile=golden-curated managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": [
+    "Task"
+  ],
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": [
+    {
+      "Description": "Review a change against the project's review checklist.",
+      "Enabled": true,
+      "Files": [
+        {
+          "Content": "blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747",
+          "Mode": 436,
+          "RelPath": "SKILL.md"
+        },
+        {
+          "Content": "IyBDaGVja2xpc3QKCi0gRG9lcyBpdCBmYWlsIGxvdWRseT8K",
+          "Mode": 436,
+          "RelPath": "references/checklist.md"
+        },
+        {
+          "Content": "IyEvYmluL3NoCmVjaG8gInJldmlld2luZyIK",
+          "Mode": 493,
+          "RelPath": "scripts/run.sh"
+        }
+      ],
+      "Name": "code-reviewer"
+    }
+  ],
+  "Surfaces": null
+}
+== engine=mock-noskills profile=golden-auto consumer=live
+{
+  "context": "blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8",
+  "fragments_loaded": [
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    }
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock-noskills profile=golden-auto consumer=materialized
+{
+  "context": "blob:d90cecf6bbb091b22519f6f2babcd163fc746de4772823d202935ec8f82e34a4",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/turn-gates",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:premised#fragments/sometimes",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+    "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+    "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+    "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "profiles": [
+    "golden-auto"
+  ]
+}
+== engine=mock-noskills profile=golden-auto managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": null,
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": null,
+  "Surfaces": null
+}
+== engine=mock-noskills profile=golden-curated consumer=live
+{
+  "context": "blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "premise_index": [
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/turn-gates",
+      "premise": "blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+      "premise": "blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+      "premise": "blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+      "premise": "blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68"
+    },
+    {
+      "name": "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+      "premise": "blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9"
+    },
+    {
+      "name": "ctxloom+local:premised#fragments/sometimes",
+      "premise": "the agent is about to edit a signed bundle"
+    }
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock-noskills profile=golden-curated consumer=materialized
+{
+  "context": "blob:cbab914c38ff805a742ce6945c761036aa5d7bd8c4464e31ee827ea0dc73030a",
+  "fragments_loaded": [
+    "ctxloom+local:ctxloom-project#fragments/turn-gates",
+    "ctxloom+local:ctxloom-project#fragments/config-hierarchy",
+    "ctxloom+local:ctxloom-project#fragments/dind-in-agent-cells",
+    "ctxloom+local:ctxloom-project#fragments/fail-loud-launch",
+    "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
+    "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
+    "ctxloom+local:code-quality#fragments/solid",
+    "ctxloom+local:code-quality#fragments/tricky",
+    "ctxloom+local:premised#fragments/always",
+    "ctxloom+local:premised#fragments/sometimes",
+    "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
+    "ctxloom+builtin:isolation#fragments/isolation-axes"
+  ],
+  "profiles": [
+    "golden-curated"
+  ]
+}
+== engine=mock-noskills profile=golden-curated managed
+{
+  "BundleMCP": {
+    "ctxloom": {
+      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "args": [
+        "mcp",
+        "serve"
+      ],
+      "command": "ctxloom",
+      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+    },
+    "postgres": {
+      "_ctxloom": "bundle:ctxloom+local:code-quality",
+      "args": [
+        "--readonly"
+      ],
+      "command": "mcp-postgres",
+      "env": {
+        "PGDATABASE": "app",
+        "PGHOST": "localhost",
+        "PGPORT": "5432"
+      },
+      "installation": "brew install mcp-postgres",
+      "notes": "Read-only connection to the app database."
+    }
+  },
+  "Commands": [
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "check-triggers"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "ctxloom-init"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "discover"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Review the staged diff.\n",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "code-quality/review"
+    },
+    {
+      "AllowedTools": null,
+      "ArgumentHint": "",
+      "Content": "Prepare the release notes.",
+      "Description": "",
+      "Enabled": true,
+      "Model": "",
+      "Name": "premised/release"
+    }
+  ],
+  "DenyTools": [
+    "Task"
+  ],
+  "Hooks": {
+    "unified": {
+      "post_tool": [
+        {
+          "command": "'ctxloom' hook tool-reflect --min-output-bytes 2048",
+          "timeout": 5,
+          "type": "command"
+        },
+        {
+          "command": "'ctxloom' hook skill-mates",
+          "matcher": "Skill",
+          "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "pre_tool": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "async": true,
+          "command": "audit-log record",
+          "matcher": "Write",
+          "type": "command"
+        },
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "command": "ltk guard",
+          "matcher": "Bash",
+          "timeout": 30,
+          "type": "command"
+        }
+      ],
+      "session_start": [
+        {
+          "_ctxloom": "bundle:ctxloom+local:code-quality",
+          "pre_tool_fallback": true,
+          "prompt": "Load the project context.",
+          "type": "prompt"
+        }
+      ],
+      "turn_end": [
+        {
+          "command": "'ctxloom' hook next-step",
+          "timeout": 15,
+          "type": "command"
+        }
+      ]
+    }
+  },
+  "ManageStatusline": true,
+  "Skills": null,
+  "Surfaces": null
+}
+== blob:03f2404642a89e478b138fe20013c4e3452f476da8d569129c14ebdf62734abf
+
+Review the project's Deferred tasks and decide which ones their **revive
+trigger** says should come back now. A Deferred task is one parked on a named
+condition (the same idea as an ADR revive trigger): it stays out of the active
+list until that condition is met.
+
+## How to run it
+
+1. **List the Deferred tasks.** Call the `task_list` MCP tool with
+   `statuses: ["Deferred"]` (Deferred tasks are hidden from the default view, so
+   you must name the status). Each task carries a `trigger` field — the
+   free-text condition that should revive it. If there are none, say so and stop.
+
+2. **Get machine verdicts.** Call the `evaluate_triggers` MCP tool. It gathers
+   evidence (git history since each task was deferred, changed files, the
+   repository's current state, and the status of other tasks), batches every
+   Deferred task's trigger into one model call, and returns a verdict per
+   task: **fired**, **not-fired**, **needs-investigation**, or
+   **cannot-determine** — each with evidence and reasoning. For a
+   needs-investigation verdict, ctxloom may already have run one bounded
+   follow-up look (file existence, a targeted grep, recent commits on a path,
+   another task's status) before returning, so what you get back is often
+   already the settled answer. Do NOT re-derive your own judgement of whether
+   a trigger fired — this tool is the mechanism now; your job is to present
+   its output and get a decision.
+
+3. **Report — do not act yet.** Present the verdicts: for each task its harp
+   id, text, trigger, verdict, evidence, and reasoning. Lead with
+   **fired**. The evidence is the case for the verdict — cite it. Never
+   substitute your own sense of how likely a trigger is for what the evidence
+   shows; a verdict with thin evidence is thin, and should read that way. Explain what each outcome means for the decision ahead:
+   - **fired** — the evidence shows the condition occurred. Propose reviving it.
+   - **not-fired** — positive evidence shows the condition hasn't occurred yet. Leave it Deferred.
+   - **needs-investigation** — the evidence is suggestive but not conclusive, even after ctxloom's own follow-up look. Worth a closer look from you before deciding; leave it Deferred until then.
+   - **cannot-determine** — the trigger can't be judged from evidence available inside this system (e.g. it depends on something a person has to say). Treat it the same as "not yet" — never as fired. Leave it Deferred.
+
+   If `evaluate_triggers` reports `degraded: true`, say so plainly: the
+   verdicts it returned are a fallback (cannot-determine across the board),
+   not a real judgement, and nothing should be revived on their basis this
+   run.
+
+4. **Confirm before moving anything.** Ask the user which of the **fired**
+   tasks to revive. Only for the ones they confirm, call `task_set_status`
+   with `status: "To Do"` (no trigger needed — moving off Deferred preserves
+   the stored trigger). Leave every other task Deferred. Never move a task
+   back automatically; the transition is always the user's call.
+
+## Notes
+
+- `evaluate_triggers` proposes; it never changes a task's status itself —
+  this command is what turns a confirmed fired verdict into an actual status
+  change, and only after the user confirms.
+- Verdicts are cached against the evidence that produced them, so a repeat run
+  with nothing changed makes no further model calls. Pass `refresh: true` to
+  `evaluate_triggers` to force a fresh look regardless.
+- This is the read/decide half of the Deferred workflow. The defer half is
+  `task_set_status` with `status: "Deferred"` and a `trigger`, or `task_add`
+  with the same.
+
+== blob:19eded8a2af88b1215cbd3e6322c544983dcc8086e2f13e6b7cec5027006dfc1
+You are choosing which build, test, lint, or mutation command to run; interpreting an exit code or a suite's output; or deciding whether the gate you ran actually covers the claim you are making. For anyone deciding which command proves a change is done. This is about WHICH gate and how to read it, not about whether a passing test means anything.
+== blob:235fd9e4746922c1dbb12eaca3acf2420e5a14d24ebc209494c3f8bbc87b0747
+LS0tCm5hbWU6IGNvZGUtcmV2aWV3ZXIKZGVzY3JpcHRpb246IFJldmlldyBhIGNoYW5nZSBhZ2FpbnN0IHRoZSBwcm9qZWN0J3MgcmV2aWV3IGNoZWNrbGlzdC4KLS0tClJ1biBzY3JpcHRzL3J1bi5zaCwgdGhlbiBhcHBseSByZWZlcmVuY2VzL2NoZWNrbGlzdC5tZC4K
+== blob:250eb05176d8be60b056237eb4d1ccf42ef1492fa060c8b2db31b1349f23abb4
+
+Scan the current project and discover matching ctxloom content from configured remotes.
+
+## Surface (read this first)
+
+- **Discovery is the `search_library` MCP tool.** It searches every configured
+  remote by reading their local git clones (no network) and returns matching
+  bundles and profiles, each with a `pull_ref` you reference from a local profile.
+  - Search by tag: `tag:golang`, `tag:react`, `tag:docker`.
+  - Search by text: `security`, `testing`, `ci-cd`.
+  - Optionally pass `item_type` (`bundle` or `profile`) to narrow.
+- **`search_content` searches LOCAL content only** (bundles/profiles already
+  installed in this project's cache). It does NOT reach remotes — do not use it
+  to discover remote content.
+- **Listings are MCP resources.** Read `ctxloom://remotes` for the configured
+  remotes, and `ctxloom://profiles` / `ctxloom://fragments` / `ctxloom://prompts`
+  for what is already installed locally.
+- **Consumption is CLI and reference-only.** You author a local profile that
+  references remote content (`ctxloom profile create <name> --parent <ref>` for a
+  remote profile, or `-b <ref>` for a bundle), then `ctxloom deps pull` fetches
+  the referenced bundles/profiles and updates the lockfile.
+
+## Steps
+
+1. **Scan the project directory** for indicators like:
+   - go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
+   - Dockerfile, docker-compose.yml, Makefile, justfile
+   - .github/, .gitlab-ci.yml, and other CI/CD configs
+   - Framework-specific files (next.config.js, vite.config.ts, etc.)
+
+2. **(Optional) List configured remotes** by reading `ctxloom://remotes`.
+
+3. **Search the remotes** with the `search_library` MCP tool, using tags/text
+   derived from the stack you detected (e.g. `tag:golang`, `tag:docker`,
+   `python-development`, `web-frontend`). Each result's `pull_ref` (e.g.
+   `ctxloom-default/go-developer`) is the remote ref you reference from a local
+   profile.
+
+4. **Present your findings**:
+   - What project type/stack you detected
+   - Matching content grouped by remote:
+     - **Profiles**: Development workflow configurations
+     - **Bundles**: Collections of fragments (context) and prompts (reusable commands)
+   - Ask the user which items to reference
+
+5. **Reference selected items** from a local profile, then pull:
+   - Inherit a remote profile:
+     `ctxloom profile create <name> --parent <pull_ref>`
+     (e.g. `ctxloom profile create go-dev --parent ctxloom-default/go-developer`)
+   - Reference a remote bundle (or one fragment):
+     `ctxloom profile create <name> -b <pull_ref>` (optionally `#fragments/<frag>`)
+   - Run `ctxloom deps pull` afterward so every bundle/profile a profile
+     references is fetched into the cache and the lockfile is updated.
+   - To pin a specific content version, append a git tag or commit SHA to the
+     ref with `@`: `ctxloom-default/go-developer@v1.2.0`. Unpinned refs track
+     the remote's default branch.
+   - Make a profile the default context by binding it into an agent and pointing
+     `default_agent` at it (`ctxloom agent create dev --profiles <name>` then
+     `ctxloom agent default dev`), so a bare `ctxloom run` loads it automatically.
+     An agent's profiles are a list; each may be a local name or a remote ref.
+
+## Example workflow
+
+1. Read `ctxloom://remotes` -> `ctxloom-default` (and any personal remotes) are configured
+2. Detect go.mod + Dockerfile -> `search_library` with `tag:golang`, then `tag:docker`
+3. Spot the `go-developer` profile and `go-ai-practices`/`container` bundles in the results
+4. Present matches grouped by remote, let the user choose
+5. `ctxloom profile create go-dev --parent ctxloom-default/go-developer`, then run `ctxloom deps pull`
+
+If the user says "skip", acknowledge and let them know they can run `/discover` again later.
+
+== blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9
+ctxloom's own stdio MCP server. The command written into an engine's
+settings is the absolute path of the ctxloom binary that materialized
+that surface, so a session's MCP server can never diverge from the
+binary running it.
+
+== blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
+You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
+== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
+You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
+== blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06
+
+Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
+guidance whether this is a brand-new project (launched by `ctxloom init`
+directly into your engine's own CLI/TUI) or a reconfigure mid-project
+(invoked as `/ctxloom-init` in an ordinary working session). Five phases, in
+order:
+
+1. Orient + scan
+2. Companions (taskloom + ltk)
+3. Profiles + content
+4. Agents
+5. Close
+
+Work through them with the user conversationally. This is a **reconfigure**
+tool, not a from-scratch wizard: phase 1 tells you what already exists, and
+your standing rule for the rest of the interview is **reconfigure, don't
+re-scaffold** — never re-propose, overwrite, or re-explain something already
+in place unless the user actually wants to change it. If the user says
+"skip", acknowledge and move on — nothing below is mandatory.
+
+## Phase 1 — Open, orient, scan
+
+**Open the interview by orienting the user** — this is the first thing they
+see, and they may never have used ctxloom. Lead with this (say it in your own
+voice, but keep the substance and the specifics; deliver it briefly, don't
+belabor it):
+
+> I'll help you set ctxloom up for this project. ctxloom's primary interface
+> is its own **CLI/TUI** — `ctxloom run` drives your coding engine directly,
+> with **assembled context** as the difference from a bare engine: your
+> standards, tools, and commands as versioned, shareable *profiles* and
+> *bundles* composed into every session, not a hand-kept CLAUDE.md; **many
+> engines behind one interface** — bind different agents to different
+> engines and models and switch without relearning each vendor's CLI;
+> **per-agent isolation** — agents run in containers or git worktrees, so a
+> delegated agent can't reach your host or another agent's state;
+> **cross-engine delegation** — a coordinator agent spawns and collects work
+> from child agents, even ones on a different engine; and **signed,
+> trust-verified context** — bundles pulled from shared remotes carry
+> signatures from publishers you've chosen to trust.
+>
+> Setup takes a few minutes: we'll wire up companions, choose your profiles
+> and agents, and verify it all.
+
+Then lead straight into the scan — don't recite the phase list mechanically.
+
+**Scan the current directory** for project indicators:
+- go.mod, Cargo.toml, package.json, pyproject.toml, requirements.txt
+- Dockerfile, docker-compose.yml, Makefile, justfile
+- .github/ and other CI/CD configs
+- Framework-specific files (next.config.js, vite.config.ts, etc.)
+
+**Then check what ctxloom already has configured** — don't guess, enumerate:
+- `ctxloom doctor --deps` — confirm the system tools ctxloom depends on are
+  present (`git`, `ssh-keygen` for signing, a container runtime). A fresh
+  `ctxloom init` already checked this up front (init needs `git` to clone),
+  so this is mainly for the reconfigure path (`/ctxloom-init` in an existing
+  session, which skipped init) — worth re-confirming here, cheaply, before
+  anything below depends on them. (The FULL `ctxloom doctor` report — agents,
+  profiles, hooks, trust — comes at Close, phase 5, once there's real
+  configured state for it to describe; running it now would just be a wall
+  of "not set up yet" on a brand-new project.)
+- `ctxloom agent list` — existing agents (engine↔profile bindings)
+- `ctxloom profile list` — existing local profiles
+- `ctxloom llm list` — configured engines/models (the candidate `--engine`
+  values for anything you bind later)
+- `ctxloom container check` — whether containerized agents are viable here
+- `ctxloom manage check` — hooks/MCP/statusline wiring per backend, plus
+  which first-party companions (taskloom, ltk) are on PATH
+
+If the dep check reports something missing, surface it to the user and
+guide them to install it themselves (their own package manager, or the
+tool's docs) before continuing — later phases depend on these. `git` is the
+notable one: it's close to a hard prerequisite (worktrees, and the remote
+pulls phase 3 depends on), so a missing `git` is worth resolving before
+anything else here.
+
+Present a short summary: detected stack, what's already configured, what
+looks missing. That summary is what makes the rest of this interview a
+reconfigure instead of a re-scaffold — you now know what to leave alone.
+
+## Phase 2 — Companions: taskloom + ltk
+
+ctxloom ships alongside two first-party companion binaries that extend it
+without any ctxloom code change:
+
+- **taskloom** — per-project task tracking (the `task_list`/`task_add`/
+  `task_set_status`/`task_edit` MCP tools, plus the `taskloom` CLI).
+- **ltk** — a command-redirect pre-tool hook that intercepts risky shell
+  invocations before they run.
+
+**Detect:** check PATH yourself (`which taskloom`, `which ltk`) and/or run
+`ctxloom manage check`, which reports each companion's presence and what it
+enables (and what's disabled without it).
+
+**Explain + guide install** for anything missing — give the install command
+(e.g. `brew install ctxloom/tap/taskloom`, `brew install ctxloom/tap/ltk`),
+but the user runs it themselves; ctxloom never installs a binary for you.
+
+**Verify:** once a companion is on PATH, its loadout is picked up
+automatically (no separate registration step) — `ctxloom manage check`
+should now show it, and `ctxloom manage hooks check` should show its hooks
+applied to the backends in use. ltk self-installs its own pre-tool hook the
+first time it's invoked; taskloom's MCP tools ride the same `ctxloom manage
+hooks install` pass that wires ctxloom's own MCP server.
+
+## Phase 3 — Profiles + content
+
+Find and reference the context this project needs — profiles, fragments,
+commands — then move straight into phase 4 to bind the agents that use it;
+don't break the conversation between the two, profiles are only half the
+picture. Five beats, the same shape as phase 2:
+
+### 3a. Survey — the `default` set, plus what belongs to this project
+
+Two sources, and neither is your own guess about what they need:
+
+1. **Everything tagged `default`.** That tag is the probable-inclusion set —
+   content a curator has marked as wanted by most projects regardless of stack.
+   Present all of it.
+2. **What is logically part of, or shared with, THIS project** — its stack, and
+   anything the project or its organisation already references.
+
+Remotes are already cloned locally: read `ctxloom://remotes`, then
+`ctxloom://remotes/{name}/contents` per remote to see what is actually there;
+`search_library` takes a query (`tag:default`) and is the right tool for
+pulling the tagged set specifically. It cannot enumerate — an empty query is an
+error — so use the contents resource when you need to see the whole shape.
+
+**Treat the `default` set as probable inclusions: on unless the user says
+otherwise.** Present them as "these come as standard, tell me if you'd rather
+not" — not as an invitation to opt in.
+
+Why the tag exists, because the alternative was tried and is worse. This
+instruction used to say "present a short, relevant list", with relevance
+computed from the detected STACK — so anything whose value was a CAPABILITY
+rather than a language was never mentioned, and the user never learned it
+existed. A code-intelligence MCP that makes editing cleaner and cheaper in
+context (serena, tagged `mcp, code-intelligence, lsp`) is invisible to a search
+for `tag:golang` and useful to nearly every project. The fix is NOT for you to
+enumerate the entire catalog and make them sit through it — it is that
+`default` carries that judgment explicitly, made by whoever published the
+content. Trust the tag; do not re-derive relevance yourself, and do not silently
+drop something because it looks unrelated to the stack.
+
+Every item you present gets a decision: **silence is not exclusion**, and an
+item nobody was shown was not declined. Group and batch so it stays a
+conversation — capability tools, stack content, standards and process, commands
+and skills — and say what each thing is FOR in one line.
+
+Before leaving this phase, say back what was EXCLUDED and why, not just what
+was taken — a user who later wonders "why don't I have X" should have heard the
+answer once already. Say it; ctxloom has nowhere durable to keep it today, so
+do not imply it is saved anywhere and do not invent a file to put it in.
+
+### 3b. Reference
+
+Author a local profile that points at what they picked — you don't
+"install" remote content. `ctxloom profile create <name> --parent
+<pull_ref>` inherits a remote profile; `-b <pull_ref>` pulls in a bundle (or
+one fragment of it); a `@<tag-or-sha>` suffix on the ref pins a version. Then
+`ctxloom deps pull` so the reference actually resolves and the lockfile
+updates. `ctxloom profile create --help` has the exact flags.
+
+### 3c. Role profiles — one per job, not one for everything
+
+A profile is a composition for a JOB, and the jobs differ enough that one
+profile serving all of them serves none of them well. Author a profile per role
+the user actually wants, with them, and steer HARD away from a single
+do-everything profile — the same argument phase 4 makes about agents, one layer
+down.
+
+The roles worth naming, because they are the ones that exist whether or not
+anyone sets them up:
+
+- **the working profile** — whatever this project's actual development needs:
+  stack conventions, standards, process. The one a bare `ctxloom run` uses.
+- **reader / searcher** — for agents that go and find out and report back.
+  Wants domain vocabulary and navigation, and almost none of the behavioural
+  standards: a finder is not writing code, so a linter's rules are dead weight
+  in its context and dilute what it is actually for.
+- **triage** — for judging deferred tasks' revive conditions. Wants domain
+  context above all: whether "the v2 API ships" has fired is answerable only by
+  someone who knows what this project's terms mean.
+- **distiller** — for compressing sessions and content. Same instinct as
+  triage: domain vocabulary so a summary reads in the project's own terms, and
+  NOT behavioural guidance, which distorts a summariser rather than helping it.
+
+These are configurable, not fixed: the user decides what composes each, and can
+skip any they do not want. Explain what each is for and let them choose — but
+do offer all of them, because an agent whose profile nobody authored falls back
+to nothing, not to something sensible.
+
+Decide inclusion per profile, in each profile's own context, rather than once
+globally: an item turned down for the distiller may still belong in the working
+profile. Nothing durable records what a profile CONSIDERED and declined, so do
+not imply a declined item is remembered — ask again where it is relevant.
+
+### 3d. Default
+
+Bind the chosen profile(s) into an agent and point `default_agent` there
+(`ctxloom agent create dev --profiles <name>`, `ctxloom agent default dev`) so
+a bare `ctxloom run` picks it up — confirm the choice with the user.
+
+### 3e. Review
+
+Anything pulled from a remote the user hasn't seen before is held, not
+silently active. Run `ctxloom review` (`--list` for just the queue) and walk
+them through accept/reject — a standing surface, not a one-time setup step,
+so it's fine to point it out again on a later reconfigure too.
+
+## Phase 4 — Agents
+
+Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM
+backend/model) to one or more **profiles** and a **runtime**
+(host | container-rootless | container-rootful) — right after phase 3, same
+conversation. `ctxloom run
+--agent <name>` drives one directly; a running coordinator fans work across
+several by spawning them as children with the `agent_run` MCP tool. Agents
+live only in this project's `.ctxloom` — never shipped in bundles or
+remotes; engine choice is always the user's, you facilitate. (Workspace
+isolation is a separate, per-invocation choice — `--workspace worktree` on
+`run`, or the `workspace` field on an `agent_run` spawn — not an agent
+property.) Work this the same shape as phase 3: **SCAN → DISCUSS → SET**.
+
+**The runtime is asked per agent, and never assumed.** There is no container
+default and no host default: an agent created without `--runtime` inherits the
+project's `runtime:` key, and an inherited value is a default rather than a
+decision — exactly what the isolation guidance tells every agent not to rely
+on. So every agent you create in this interview carries an axis its author
+picked, out loud, at the moment it was created. See 4b-runtime below for the
+question; ask it for every agent, including the ones in 4d.
+
+### 4a. Scan
+
+Don't guess — you have this already from phase 1 (engines via `ctxloom llm
+list`, existing agents via `ctxloom agent list`, container viability via
+`ctxloom container check`) and phase 3 (profiles). If containers would
+degrade here, plan on `--runtime host` and say why. If they're viable and a
+bundle declares tooling needs, `ctxloom container tooling` shows the proposed
+Containerfile diff — apply only what's approved, then `ctxloom container
+build`.
+
+Two DIFFERENT things gate a container runtime, and you need both before you
+can ask 4b-runtime honestly:
+
+- **Is a container runtime reachable on this machine at all?** `ctxloom
+  container check`. If not, containers are unavailable here for every engine
+  — say so, and don't offer them.
+- **Can THIS engine authenticate inside a container?** Per engine, and not
+  every engine can: `ctxloom llm list` reports a `runtimes:` line per label
+  with exactly the values that engine may be given, plus a `no container
+  runtime:` line saying why when the container axes are absent. Read it; do
+  not carry your own list of "engines that support containers" and do not
+  guess from the engine's name. An engine with no container auth is REFUSED
+  by `agent create --runtime container-rootless` at write time, so offering
+  it would just collect a choice the next command throws away.
+
+### 4b. Discuss
+
+Lead with the standard trio, bound to the phase-3 profiles:
+- **coordinator** — the session the user drives, delegating to children via
+  `agent_run`. Most powerful engine.
+- **developer** — the implementer the coordinator delegates to. Powerful
+  engine, plus an escalation-discipline fragment
+  (ctxloom-default ships `agent-roles#fragments/developer-escalation`, or
+  author an equivalent) so structural/interface changes get escalated back
+  up rather than decided alone.
+- **finder** — cheap, parallel, terse: look something up and report
+  straight back, no elaboration. Cheap engine, the
+  `agent-roles#fragments/finder` fragment (or an equivalent).
+
+Then the open palette. **Code-review agents** are the notable one: build the
+ensemble THIS project needs now and persist it, so the coordinator can fan it
+out later via `agent_run`. The pattern is one tight, single-lens profile per
+lens × language present — composed from the code-review base fragment plus
+that lens's and that language's fragments (search_library surfaces the exact
+refs). Prefer many narrow lenses over one broad reviewer; the coordinator
+reads each child's `agent_report` back and synthesizes the findings itself —
+no separate reduce agent needed. Beyond that: docs writer, migration runner,
+test author, whatever the user wants — same pattern each time: tight scope, a
+composed profile, a fitting engine.
+
+Steer HARD toward tight, single-responsibility agents — many small focused
+children keep `agent_run` fan-out cheap and accurate; push back if the user
+proposes one big do-everything agent. As a rule of thumb: cheap engine →
+finders and breadth review; powerful → coordinator/developers; per-lens →
+code review (often cheaper than the developer).
+
+### 4b-runtime. Ask each agent's runtime, one agent at a time
+
+For EVERY agent you are about to create — the trio, the review ensemble, the
+open palette, and 4d's distiller and triage alike — ask where its engine
+process runs, and wait for an answer. Ask it as its own question, per agent,
+right where that agent is being decided: "same as the last one?" is fine as
+the user's ANSWER and never as your assumption.
+
+Name the agent, then ask this (your own voice, but keep every consequence
+below — each names a real cost the user cannot re-derive later):
+
+> Where should **<name>**'s engine process run?
+>
+> 1. **host** — runs directly on your machine, as you, with your logins, your
+>    PATH and your installed tools. Nothing to build, everything works
+>    immediately. It is **not an isolation boundary**: this agent can read
+>    anything you can, including your credentials and other agents' state, so
+>    "it only has the files it needs" is not true on host.
+> 2. **container-rootless** — runs inside a container owned by your own user
+>    account. A real boundary: the agent sees the workspace and what the image
+>    ships, and not your host. The costs are real too — it needs an image
+>    built for its engine (`ctxloom container build`), and tools you installed
+>    on the host are simply not in there unless the image carries them, so a
+>    container agent can fail at a command that works fine in your shell.
+> 3. **container-rootful** — the same boundary, on a root-owned container
+>    daemon. Pick this only if that is the container runtime you actually
+>    have; otherwise prefer rootless.
+>
+> There is no default here — I write down whichever you pick.
+
+Rules for asking it:
+
+- **Offer 2 and 3 only when they are really available for THAT agent's
+  engine**, per 4a: a reachable container runtime on this machine, AND that
+  engine's `runtimes:` line in `ctxloom llm list` listing them.
+- **When you cannot offer them, say why — do not quietly present a shorter
+  menu.** Give the reason back in the user's terms: "this engine has no way
+  to authenticate inside a container, so ctxloom would refuse a containerized
+  binding for it" (the `no container runtime:` line from `ctxloom llm list`
+  is that reason, verbatim enough to quote), or "no container runtime is
+  reachable on this machine at all". A user who is never told why a boundary
+  was unavailable will assume ctxloom chose not to offer one.
+- **Record the answer explicitly**: pass `--runtime <chosen>` on the `agent
+  create` for that agent, every time, including when the answer is `host`.
+  Never leave it off to "inherit the project default".
+- The common shape, offered as a suggestion and not applied for them: the
+  **coordinator** on `host` — it is the session the user drives and it needs
+  their own environment — and every agent it delegates to on
+  **container-rootless**, because those are the ones running work nobody is
+  watching. Say it, then still ask.
+- If a user declines to choose for a particular agent, don't invent one: skip
+  creating that agent and say it's skipped, or ask again with the trade-off
+  restated. An agent nobody chose a runtime for is the thing this question
+  exists to prevent.
+
+### 4c. Set
+
+Write what's agreed:
+
+```
+ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
+```
+
+`--runtime` is not optional in this interview: pass the value 4b-runtime
+collected for THAT agent, even when it is `host`. Omitting it writes no
+runtime key, which leaves the agent inheriting a project default nobody chose
+for it.
+
+(`ctxloom agent create --help` has the full flag list.) Worth knowing beyond
+the syntax: `--profiles` composes several into one context; a
+`--runtime container-*` value needs both a reachable container runtime and an
+engine that can authenticate inside one, else fall back to host and say why;
+change an existing one with `agent edit <name>`, drop one with
+`agent remove <name> --yes`. Confirm
+with `ctxloom agent list`, then tell the user how to use what they built
+(`ctxloom run --agent coordinator`, which fans the review ensemble out via
+`agent_run` when asked).
+
+### 4d. ctxloom's own agents — distiller and triage
+
+ctxloom itself calls an LLM: to distil sessions and bundle content, and to
+judge whether a deferred task's revive condition has fired. Those calls are
+ordinary runs, so they need ordinary agents — set them up here, with the user,
+the same as any other.
+
+Create a `distiller` and a `triage` agent. They take the same flags as
+anything above, and the two that matter are:
+
+- `--engine` — these run often and on cheap work, so a small fast model is
+  usually right; the user chooses, you explain the trade-off.
+- `--runtime` — they honour the runtime axis like any agent, so ask 4b-runtime
+  for each of them too rather than copying what the developer got. Say the
+  consequence plainly: if the user containerises their work agents and leaves
+  these on the host, ctxloom's OWN LLM calls — over session transcripts and
+  bundle content — run on the host with no boundary.
+
+Their `--profiles` are a real choice, not a formality. Behavioural guidance
+(write tests first, use this linter) is noise to a summariser and can distort
+it; domain guidance (the glossary, the architecture vocabulary, what this
+project's terms mean) is what makes a distillation or a trigger verdict
+sensible rather than generic. Steer toward the latter.
+
+Nothing falls back if these are missing: a project without them cannot distil
+or evaluate triggers, and the command says so rather than quietly using some
+built-in default. That is deliberate — a hidden default is how ctxloom's own
+LLM calls drifted out of the user's control in the first place.
+
+If they want to stop, that's fine — `/ctxloom-init` reconfigures any time.
+Don't write anything the user didn't agree to.
+
+## Phase 5 — Close
+
+Run `ctxloom doctor` and show the user its report. This is the full
+postcondition check — marker dir and config validity, the engine resolving
+and authenticating, seeded deps locked and context assembling, hooks/MCP
+registered, companions detected, and agents present with resolvable
+profiles. Now that phases 1–4 have built real configured state, `doctor`
+describes it end to end (unlike phase 1's scoped `--deps`, which only asked
+"are the system tools present"). Walk the user through any `warn` lines and
+help resolve them.
+
+Then tell the user, plainly:
+- **You have a working setup.** `ctxloom run` (or `ctxloom run --agent
+  <name>`) is the primary way to reach ctxloom from here — this vendor
+  CLI/TUI session was just the bootstrap door.
+- **`/ctxloom-init` reconfigures any time**, from any ordinary working
+  session — nothing here was a one-shot wizard; come back whenever something
+  needs to change (a new profile, a new agent, a new companion).
+
+== blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174
+# Say what you are looking for, and what you found
+
+Two short statements per tool call. They are not narration — they are the only
+part of a tool interaction that survives distillation.
+
+- BEFORE a tool call: what you are trying to learn or change.
+- AFTER the result: what you actually learned — including "nothing" and "not
+  what I expected", which are results.
+
+## Why this is a rule and not a style preference
+
+A session transcript is distilled into an essence that a later session resumes
+from, and tool RESULTS do not survive that. They are reduced to their shape —
+`[2,431 bytes, 47 lines]` — because a truncated fragment of a grep is neither
+the information nor a summary of it, and the content is re-derivable by asking
+again.
+
+What is NOT re-derivable is what you were trying to find out, and what the
+answer changed. Omit it and the essence records that a command ran and how many
+lines it printed, with the reasoning gone.
+
+Measured on this project's own transcripts: tool traffic is 50-69% of a
+session. Bash already enforces the first half — `description` is a required
+field, at 100% coverage across 1,286 calls. The second half is stated after
+12% of tool results. That gap is the entire cost.
+
+## What this looks like
+
+Weak: "Let me check the config."
+Strong: "Checking whether the byte cap applies per-argument or to the whole
+object — it decides whether eliding one key buys anything."
+
+Weak: "Done." (the result's shape already said that)
+Strong: "It caps the whole object, so eliding the payload should free budget
+for the path — but 210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+# Not all of this project's guidance is in your context
+
+Some fragments here are CONDITIONAL: each carries a PREMISE — the situation it
+applies to — and is deliberately not loaded at launch. You were given the
+unconditional ones. The rest exist, you do not have them, and nothing fires
+when one becomes relevant.
+
+This fragment carries no premise itself, which is why you can read it: it is
+the pointer to the ones you cannot see.
+
+## Why they are pulled rather than pushed
+
+Assembled context is delivered ONCE, at launch, into the session prompt, and an
+in-process subagent inherits it wholesale. There is no per-agent scoping, so a
+pushed index could be tailored to nobody and could never reach a child that
+ctxloom did not mediate. A catalog you ASK for has neither problem — and the
+moment you have something to match against is the only moment the answer means
+anything.
+
+The cost of that design is this: an agent who does not know to ask never learns
+those fragments exist.
+
+## Asking
+
+    ctxloom fragment premises
+
+lists every premised fragment, the condition it applies under, and the
+instruction for deciding between them. Over MCP the same menu is the
+`ctxloom://fragments` resource: each entry carries its premise and the qualified
+ref to quote back. Descriptions live there; bodies come from
+`ctxloom://fragments/{name}`, for the ones you chose.
+
+Do not select from the names. The premise is the thing to judge, and the
+listing ships the guidance for judging it — read what comes back rather than
+guessing from a title.
+
+## Loading what you chose
+
+    ctxloom fragment show <qualified-ref>
+
+or, over MCP, call `assemble_context` with the chosen names in its `bundles`
+argument.
+
+## When to ask
+
+Ask when you are about to ACT and this corpus might hold a rule about that
+action — not once at the start of a session, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
+on the default:
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`,
+  the agent binding's `runtime:`) isolates the PROCESS. There is
+  deliberately no "any container" value: rootless and rootful differ
+  in UID mapping, so a workload can genuinely require one.
+- **workspace** (`none`|`worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution. Asking for
+`container-rootful` where only rootless is reachable is a fatal
+ClassIsolation finding (exit 3), not a quiet downgrade to the other
+mode — and `--degraded` falls back to the HOST, never to the other
+ownership mode.
+
+They're independent: `container-rootless` can still mount the
+workspace at the SAME absolute path as the live project (process
+isolated, edits still land where the editor already looks); `worktree`
+still runs the engine on the host (the editor goes blind to that tree
+by design — results return via the delegated-agent merge flow, not
+live edits). Picking one says nothing about the other.
+
+Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
+default, not a decision. Host runtime is not a security boundary
+between agents: the coordinator credential is readable in the process
+environment of any same-uid process, and that token IS identity, so a
+host-runtime agent can read another host-runtime agent's credential and
+speak as that agent. Containers are the actual boundary: they make
+isolation a property of the runtime, not a request to the engine —
+some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only
+a stderr warning, discarding the runtime and permissions you asked for —
+confirm the name resolves before trusting the isolation you requested.
+== blob:bb4ca1d114a198e8dba4c1f2f765cd502408ca67dd2369db3824f31321ac3ca8
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+# Not all of this project's guidance is in your context
+
+Some fragments here are CONDITIONAL: each carries a PREMISE — the situation it
+applies to — and is deliberately not loaded at launch. You were given the
+unconditional ones. The rest exist, you do not have them, and nothing fires
+when one becomes relevant.
+
+This fragment carries no premise itself, which is why you can read it: it is
+the pointer to the ones you cannot see.
+
+## Why they are pulled rather than pushed
+
+Assembled context is delivered ONCE, at launch, into the session prompt, and an
+in-process subagent inherits it wholesale. There is no per-agent scoping, so a
+pushed index could be tailored to nobody and could never reach a child that
+ctxloom did not mediate. A catalog you ASK for has neither problem — and the
+moment you have something to match against is the only moment the answer means
+anything.
+
+The cost of that design is this: an agent who does not know to ask never learns
+those fragments exist.
+
+## Asking
+
+    ctxloom fragment premises
+
+lists every premised fragment, the condition it applies under, and the
+instruction for deciding between them. Over MCP the same menu is the
+`ctxloom://fragments` resource: each entry carries its premise and the qualified
+ref to quote back. Descriptions live there; bodies come from
+`ctxloom://fragments/{name}`, for the ones you chose.
+
+Do not select from the names. The premise is the thing to judge, and the
+listing ships the guidance for judging it — read what comes back rather than
+guessing from a title.
+
+## Loading what you chose
+
+    ctxloom fragment show <qualified-ref>
+
+or, over MCP, call `assemble_context` with the chosen names in its `bundles`
+argument.
+
+## When to ask
+
+Ask when you are about to ACT and this corpus might hold a rule about that
+action — not once at the start of a session, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call. They are not narration — they are the only
+part of a tool interaction that survives distillation.
+
+- BEFORE a tool call: what you are trying to learn or change.
+- AFTER the result: what you actually learned — including "nothing" and "not
+  what I expected", which are results.
+
+## Why this is a rule and not a style preference
+
+A session transcript is distilled into an essence that a later session resumes
+from, and tool RESULTS do not survive that. They are reduced to their shape —
+`[2,431 bytes, 47 lines]` — because a truncated fragment of a grep is neither
+the information nor a summary of it, and the content is re-derivable by asking
+again.
+
+What is NOT re-derivable is what you were trying to find out, and what the
+answer changed. Omit it and the essence records that a command ran and how many
+lines it printed, with the reasoning gone.
+
+Measured on this project's own transcripts: tool traffic is 50-69% of a
+session. Bash already enforces the first half — `description` is a required
+field, at 100% coverage across 1,286 calls. The second half is stated after
+12% of tool results. That gap is the entire cost.
+
+## What this looks like
+
+Weak: "Let me check the config."
+Strong: "Checking whether the byte cap applies per-argument or to the whole
+object — it decides whether eliding one key buys anything."
+
+Weak: "Done." (the result's shape already said that)
+Strong: "It caps the whole object, so eliding the payload should free budget
+for the path — but 210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
+on the default:
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`,
+  the agent binding's `runtime:`) isolates the PROCESS. There is
+  deliberately no "any container" value: rootless and rootful differ
+  in UID mapping, so a workload can genuinely require one.
+- **workspace** (`none`|`worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution. Asking for
+`container-rootful` where only rootless is reachable is a fatal
+ClassIsolation finding (exit 3), not a quiet downgrade to the other
+mode — and `--degraded` falls back to the HOST, never to the other
+ownership mode.
+
+They're independent: `container-rootless` can still mount the
+workspace at the SAME absolute path as the live project (process
+isolated, edits still land where the editor already looks); `worktree`
+still runs the engine on the host (the editor goes blind to that tree
+by design — results return via the delegated-agent merge flow, not
+live edits). Picking one says nothing about the other.
+
+Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
+default, not a decision. Host runtime is not a security boundary
+between agents: the coordinator credential is readable in the process
+environment of any same-uid process, and that token IS identity, so a
+host-runtime agent can read another host-runtime agent's credential and
+speak as that agent. Containers are the actual boundary: they make
+isolation a property of the runtime, not a request to the engine —
+some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only
+a stderr warning, discarding the runtime and permissions you asked for —
+confirm the name resolves before trusting the isolation you requested.
+== blob:c2fb29432ddfa1d328fd0cd45bea3efe473859f78d6f1e7884e05f16a5ea1a34
+You are about to give an agent docker access, ask for docker-in-docker for a cell, or work out why an ordinary build, test or lint recipe fails inside an agent container. For anyone reaching for a container runtime from inside a cell, however the moment is worded. This is about whether the cell needs docker AT ALL; turn-gates is about which gate proves a change.
+== blob:cbab914c38ff805a742ce6945c761036aa5d7bd8c4464e31ee827ea0dc73030a
+# Which gate is real in this repo, and how to read one
+
+Companion to green-is-not-passing, which says a test is not passing until a
+mutation dies. This says which command actually proves that here, and how to
+read what it tells you.
+
+## The gates, and what each one is worth
+
+    just build                    ~4s
+    just lint                    ~19s
+    just test-arch               ~20s   the architectural class gates, -tags arch
+    just test-integration        ~30s
+    just test-acceptance        ~510s   THE REAL GATE
+    just test-acceptance-focus features/<f>.feature   ~10-17s, one feature
+
+`just test` only COMPILES the integration suite. It is not the gate, and a green
+one proves far less than it looks like it does.
+
+Iterate on the narrow target; run `test-acceptance` before claiming anything is
+done. When you need a single acceptance scenario — hand-mutating one, say —
+`test-acceptance-focus` runs a whole feature in seconds, so acceptance mutation
+is cheap and there is no excuse for skipping it.
+
+## Read the EXIT CODE — and know where that is not enough
+
+Gate on the exit status, never on grepping output for "PASS" or "ok". Then know
+the three inversions, each of which reports success while telling you otherwise:
+
+- `gofmt -l` LISTS unformatted files and exits 0. Check whether the OUTPUT is
+  empty, not the status.
+- `go test -run <pattern>` whose pattern matches NOTHING exits 0 having run no
+  test. Confirm it actually ran.
+- a pipeline reports the LAST command's status, so `cmd | tail; echo $?` gives
+  tail's exit. Redirect to a file and check directly, or use PIPESTATUS.
+
+The shape to watch for throughout: exit 0, a success message, and zero bytes
+written.
+
+## Which mutation method reaches which code
+
+gremlins is COVERAGE-GATED: it mutates source and runs `go test`. The acceptance
+suite and the testenv integration tests exec a PRE-BUILT binary, and Go coverage
+does not cross an exec boundary — so those mutants report NOT COVERED and are
+never attempted. There, HAND mutation is the only real method, not a poor
+substitute.
+
+    unit-testable code      just test-mutation-diff <BASE>
+    anything via the CLI    hand mutation
+
+HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
+`just test-pkg` does not rebuild. Edit production code, run `just build`, THEN
+the gate. Skip the build and the mutation survives against the old binary — you
+will call a good test vacuous, or a vacuous one fine.
+
+When a mutation SURVIVES, suspect you aimed at the wrong layer before concluding
+the test is vacuous. The tell is that the mutated code is demonstrably live
+elsewhere: if breaking it reddens some other package's tests, the code is
+reachable, just not from the path under test. Find the reachable gate and kill
+that instead.
+
+## A fresh worktree cannot commit until it is built
+
+`just build` first, and make sure `bin/archlint` exists there. Without a built
+tree the pre-commit hook fails with an `archvocabulary: failed prerequisites`
+cascade that looks like a broken analyzer and is not.
+
+`test-pkg` takes a package PATTERN — `./internal/cli`, with the leading `./`.
+Without it you get a misleading "is not in std" error.
+
+---
+
+# Configuration precedence
+
+Every binary in the ctxloom family (ctxloom, taskloom, ltk) resolves
+configuration through one shared chain, owned by
+`internal/shared/confload`:
+
+    home config file  <  project config file  <  ENV VARS  <  --config-set FLAGS
+
+Later layers win. `confload` reads and deep-merges the file layers and
+resolves both override channels against the merged result, so there is
+exactly one place this ordering is implemented — do not re-derive it in
+a command.
+
+## The two override channels
+
+**Environment** — a dedicated namespace under the product's env prefix
+(`CTXLOOM_CONFIG_`), e.g. `CTXLOOM_CONFIG_LLM_DEFAULTS_PRIMARY=big`.
+
+**`--config-set`** — a repeatable root flag taking `<dotted.path>=<value>`,
+e.g. `--config-set agents.MyCoder.runtime=container`.
+
+## A command's own flags are NOT a config source
+
+`--config-set` is the ONLY flag channel. `confload` deliberately does not
+treat a changed flag's NAME as a config path, and this is load-bearing
+rather than stylistic — an earlier revision did exactly that, and it
+silently coupled every current and future flag name to the config schema.
+Two failures were confirmed in production:
+
+- `ctxloom agent set coder --runtime container` clobbered the project's
+  top-level `runtime` key, because `--runtime` resolved as a config path.
+- `--format json` on a structured-output command printed a warning line
+  into what a script expected to be pure JSON, because `--format`
+  resolved as "unrecognized config key, setting it anyway".
+
+So when you add a flag, it configures THAT invocation. If the value
+belongs in config, give it a schema path and let the chain resolve it;
+never bridge a flag name to a config key by convention.
+
+## Case handling diverges between the two channels, deliberately
+
+A shell destroys an env var name's case before Go sees it
+(`CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` cannot say whether the author
+wrote `MyCoder`, `mycoder`, or `MYCODER`). A `--config-set` value never
+passes through those rules, so it preserves exactly what was typed.
+
+Both resolve identically when the target already exists or is a fixed,
+canonically-cased schema field: case-insensitive match, adopting the
+existing casing. They diverge only at a dynamic level that nothing
+existing covers — an agent label, an LLM config label. There, env falls
+back to whatever the shell handed over, while `--config-set` preserves
+the typed case. That is why `--config-set` can mint a brand-new
+case-sensitive key (`agents.MyCoder.runtime=container`)
+and env fundamentally cannot.
+
+---
+
+# An agent cell is already the dev environment
+
+## The layering
+
+ctxloom agents run inside ctxloom's own containers, and this project's dev
+container sits ON TOP of that. A cell is therefore not a bare box waiting for
+tooling to be delivered to it — it already carries the toolchain the gates
+expect.
+
+That is the whole reason most agents need no docker access at all. Building or
+entering a container from in there constructs a second copy of the environment
+the agent is already running in.
+
+## DinD is not forbidden; it is rarely the answer
+
+Nothing here prohibits docker-in-docker, and some work genuinely needs a
+daemon — work whose SUBJECT is container behaviour: the isolation runtimes,
+image builds, the docker-gated tests. Ask for it there, deliberately, and say
+why.
+
+What is almost always wrong is reaching for it to make an ordinary build or
+test command work. That impulse is a symptom, not a fix, and the next section
+is what it is usually a symptom of.
+
+## The trap that manufactures the wrong fix
+
+The root justfile's recipes name dev-image as a PREREQUISITE, and dev-image
+shells straight out to a container build with no guard of its own. A just
+prerequisite runs BEFORE the recipe body — so inside a cell the dependency
+fails on the missing socket before `_run` is ever reached, and `_run` is the
+part that already dispatches to justfile.container whenever DEVCONTAINER, CI
+or GITHUB_ACTIONS is set.
+
+So the failure presents as "this cell needs docker" when the truth is that the
+dispatch is correct and merely unreachable. Granting the cell a daemon answers
+a question nobody asked: it spends a real isolation boundary to build an image
+the cell already is.
+
+## If you do drive the container justfile by hand, SAY WHICH ONE YOU RAN
+
+justfile.container is a SEPARATE recipe set, and it has silently diverged from
+the root justfile's package lists before — the recipes share a name, which is
+exactly what made the divergence invisible. An exit code from one is therefore
+not the same claim as an exit code from the other.
+
+An orchestrator deciding whether to merge is relying on that distinction, so
+name the recipe path you used when you report. "test-integration exit 0" with
+no path is an ambiguous claim, and the ambiguity always resolves in the
+optimistic direction.
+
+---
+
+# Refuse when something is amiss; `--degraded` is the way through
+
+**The default posture is REFUSE, not proceed.** When ctxloom finds something
+wrong at startup — broken config, an unresolvable profile or bundle, a failed
+hook apply, an invalid document — it ABORTS the launch and says what is wrong
+and how to fix it. It does not quietly launch something lesser.
+
+This is a deliberate pivot away from always-launch. Always-launch produced
+CONFIDENT WRONG WORK: a bad or missing agent name silently degraded to
+`host`+`none`, discarding the runtime and permissions that were asked for, with
+only a stderr warning nobody read. The agent then ran unisolated while everyone
+believed otherwise. A launch that succeeds without doing the thing is worse
+than one that refuses, because nothing downstream can tell the difference.
+
+## First, declare what you accept — in code, in one place
+
+A refusal is only meaningful against a DECLARATION. "Strict" that means
+"whatever this function happened to check" is not strict, it is arbitrary — and
+arbitrary drifts, because the next call site checks something slightly
+different and nothing notices.
+
+So before either mode below can exist, the acceptable shape of a value is
+WRITTEN IN CODE, in one place, as something the program can read: a schema, a
+typed parse, an enumerated set of names. Not a comment, not a doc page, not a
+validation function per call site. Both modes then consume that one
+declaration — the refusal names the declared set, the degraded path names the
+declared value it fell back to — and neither invents its own idea of valid.
+
+THE TEST, and it is one you can actually apply: point at the ONE thing a reader
+would change to add a new accepted value. If the answer is "the validator, and
+the error message, and the docs, and the schema", the declaration does not
+exist. Those are four copies, and copies drift — the error message goes on
+listing the old set with full authority while the validator has already
+accepted a new one.
+
+THIS IS NOT ONLY A LAUNCH CONCERN, and that is the trap. Everything below about
+`strictness` governs findings raised at STARTUP. An ordinary resolution
+function is not a launch check, raises no finding, and reaches none of that
+machinery — which is exactly where silent substitution survives. `ResolveLLM`
+misses on an unknown label and returns the built-in default with no error and
+no warning, so a typo'd `--llm` runs a model the caller did not ask for, at
+exit 0. The doc comment directly above it records fixing that same bug for the
+EMPTY-label case and leaving the unknown-label arm untouched. One arm of one
+conditional was made correct, because nothing declared what a valid label was.
+
+## `--degraded` always reaches a working LLM
+
+`--degraded` (and `CTXLOOM_DEGRADED=1`; the flag wins) lowers every finding
+from an error to a WARNING and continues. That is a promise, not a
+best-effort: **degraded mode always gets the user into a working LLM.** If a
+degraded run can still refuse to launch for an ordinary finding, degraded mode
+is broken.
+
+So the two modes divide cleanly:
+
+    default      refuse, and explain the remedy
+    --degraded   warn, and launch anyway
+
+## The one exception: launching is itself the danger
+
+Security findings where starting the LLM is the harm do NOT yield to
+`--degraded`. A breached trust or isolation boundary — credentials reachable
+that should not be, an ownership mismatch on the runtime axis, unverifiable
+content admitted to an execution surface — stays fatal in both modes.
+
+The test is not "is this serious?" but **"does launching cause the harm?"** A
+profile that fails to parse is serious and still degradable: the user gets a
+working LLM with less context. A container runtime that cannot provide the
+isolation it claimed is not degradable, because the launch IS the exposure.
+`--degraded` falls back to the HOST, never to a different ownership mode.
+
+## How to write one of these, mechanically
+
+Report the finding; let `strictness` decide its fatality:
+
+    strictness.FailOnce(strictness.ClassConfig, "<the remedy>", ...)
+
+`internal/profiles/profiles.go` already does exactly this for the
+empty-profile cases. `strictness` owns the fatal-vs-warn decision centrally and
+`SetDegraded` flips it process-wide, which is what makes the guarantee above
+hold everywhere at once.
+
+Therefore, at the site of a check:
+
+- **Do NOT branch on degraded state.** No `if strictness.Degraded()`, no
+  `strict bool` parameter, no per-call fatality argument. A check that decides
+  its own fatality is a second policy that will disagree with the first.
+- **Do state the REMEDY, not just the complaint.** The refusal is the entire
+  user interface for the failure. "invalid profile" is a dead end; "give the
+  profile something to select (parents, bundles, fragments, select_tags) or
+  delete it" is error correction. Write the sentence that ends the problem.
+- **Do make sure the remedy is followable.** A message advising an action the
+  caller cannot take — telling them to drop a flag they never passed — is
+  proof the check is firing outside its own design premise. Fix the premise,
+  not the wording.
+- **Report every problem, not the first.** `FailOnce` records and the startup
+  gate decides; a user fixing four things one launch at a time is paying for
+  our convenience.
+
+## Say what you are correcting TO — from the code that does the correcting
+
+A degraded message that names only the FAULT is half a message. It says what
+broke; it does not say what will now happen, and that is the only part that
+lets someone decide whether to let the run continue. Name the value being
+proceeded WITH:
+
+    engine_home "sesion": unknown value (known: host, session)
+      -> degraded: proceeding as "host"
+
+That second line must be produced BY THE CORRECTION ITSELF, never by a
+hand-written string standing beside it. The correction RETURNS the value it
+chose; the announcement FORMATS that returned value. One source, one truth.
+
+The moment the fallback's name is typed into a format string there are two
+statements of one decision, and the compiler sees only one of them. Change the
+fallback and nothing updates the sentence: it keeps its authority while lying,
+to the person already dealing with a fault.
+
+Measured, not hypothetical. A run here warned "this run uses the runtime's own
+config home instead" and then ABORTED on a fatal finding, having taken no such
+fallback. The prose and the behaviour were written separately and drifted
+apart, and the message was believed. The same rule governs the refusal arm: the
+valid set quoted in an error comes from the same declaration the validator
+checks against, never from a second list maintained by hand.
+
+## Outputs stay strict in both modes
+
+None of the above touches the output side. What ctxloom EMITS — files, wire
+messages, exit codes, generated config — is conservative always. Degraded mode
+tolerates a bad INPUT; it never emits a malformed output, a partial file, or a
+zero exit code over work that did not happen.
+
+## Testing it
+
+Pin BOTH arms, and mutate each. The same bad input must REFUSE by default
+(nonzero exit, nothing launched) and WARN-then-launch under `--degraded`. A
+test covering only the refusal lets degraded mode silently start refusing too,
+which breaks the guarantee for every existing user; a test covering only the
+degraded arm lets the refusal rot into a no-op. Assert the EFFECT — exit status
+and whether an engine actually started — never the message text alone.
+
+---
+
+# A test does not pass until a mutation dies
+
+A test is not passing because it is green. It is passing when it is
+green AND a mutation to the production code it names makes it FAIL.
+Green alone means the test ran. It does not mean the test looked.
+
+Apply it in both directions:
+
+- **Writing a test**: after it goes green, break the behaviour it
+  names — in `internal/` or `cmd/`, not in the test — and confirm it
+  goes red. Revert. If nothing you can break makes it fail, you have
+  written a tautology, and it is worse than no test because it
+  reports coverage you do not have.
+- **Trusting a test**: a suite's green tells you nothing about a
+  specific claim until someone has killed a mutation against it.
+  "It passes" is not evidence. "It failed when I broke X" is.
+
+## Why this is a rule here and not a preference
+
+An audit of this project's acceptance suite on 2026-08-04 read 380
+scenarios, ran 41 mutations, and found 25 assertions that passed
+while proving nothing. Not edge cases — one asserted that the output
+matched the regex `.` (any one character). Others asserted an
+argument the command had echoed back, or a MIME type that is a
+static field on the envelope, or the ABSENCE of something the
+fixture never created. Several were satisfied by the subject never
+running at all: a scenario titled "the same engines proceed" passed
+when the engine never launched, and one titled "a per-item
+acceptance and a rejection ARE RECORDED" passed with the record
+store neutered to write nothing.
+
+Every one of those had been green for as long as it had existed.
+
+## The shapes that produce a false green
+
+- asserting exit 0 without asserting the EFFECT (this project's
+  characteristic silent no-op: exit 0, a success message, zero bytes)
+- asserting a name, a header, or an argument the command echoes
+- asserting a file exists without asserting its content or mode
+- asserting the tool's REPORT of what it did instead of the state it
+  changed
+- absence-satisfies-absence: asserting something is missing in a
+  fixture where it was never present
+- a substring so generic it survives gutting the thing under test
+
+## Where the bar is already met, and worth copying
+
+`tests/acceptance/steps_skill.go` compares bytes with an explicit
+zero-length guard — "comparing two empty reads is trivially
+identical" — which is the line that stops a byte comparison from
+being vacuous. `j002600` asserts an exact file COUNT rather than
+existence. `run.feature`'s recorded-input assertion reads what the
+engine actually received rather than what the CLI said it sent.
+
+## Test against a FRESH BUILD, never the installed binary
+
+Any manual or agent-driven verification runs against a binary built
+from the tree under test — `just build`, then `./ctxloom` — never
+`ctxloom` from `$PATH`.
+
+The installed binary is a different program. On 2026-08-05 a check
+of whether a newly added fragment was delivered came back "missing";
+the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
+eight days and ~150 commits behind the tree, and dirty on top. Built
+from source, the same check passed. The measurement was wrong, not
+the code — and a wrong measurement that agrees with your fear is the
+expensive kind.
+
+`just test-acceptance` already does this correctly: it depends on
+`build` and drives the binary it just produced. The exposure is
+hand-run commands and agent verification, which reach for `$PATH`
+by default.
+
+The `$PATH` binary's currency may NOT be assumed in either direction. It
+may be current, stale, or dirty, and you cannot tell by looking -- which is
+exactly why verification drives the binary `just build` just produced rather
+than reasoning about which program answered. A stale binary plus an
+exit-code check agrees with anything.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call. They are not narration — they are the only
+part of a tool interaction that survives distillation.
+
+- BEFORE a tool call: what you are trying to learn or change.
+- AFTER the result: what you actually learned — including "nothing" and "not
+  what I expected", which are results.
+
+## Why this is a rule and not a style preference
+
+A session transcript is distilled into an essence that a later session resumes
+from, and tool RESULTS do not survive that. They are reduced to their shape —
+`[2,431 bytes, 47 lines]` — because a truncated fragment of a grep is neither
+the information nor a summary of it, and the content is re-derivable by asking
+again.
+
+What is NOT re-derivable is what you were trying to find out, and what the
+answer changed. Omit it and the essence records that a command ran and how many
+lines it printed, with the reasoning gone.
+
+Measured on this project's own transcripts: tool traffic is 50-69% of a
+session. Bash already enforces the first half — `description` is a required
+field, at 100% coverage across 1,286 calls. The second half is stated after
+12% of tool results. That gap is the entire cost.
+
+## What this looks like
+
+Weak: "Let me check the config."
+Strong: "Checking whether the byte cap applies per-argument or to the whole
+object — it decides whether eliding one key buys anything."
+
+Weak: "Done." (the result's shape already said that)
+Strong: "It caps the whole object, so eliding the payload should free budget
+for the path — but 210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+Do not edit a signed bundle in place.
+
+---
+
+# Not all of this project's guidance is in your context
+
+Some fragments here are CONDITIONAL: each carries a PREMISE — the situation it
+applies to — and is deliberately not loaded at launch. You were given the
+unconditional ones. The rest exist, you do not have them, and nothing fires
+when one becomes relevant.
+
+This fragment carries no premise itself, which is why you can read it: it is
+the pointer to the ones you cannot see.
+
+## Why they are pulled rather than pushed
+
+Assembled context is delivered ONCE, at launch, into the session prompt, and an
+in-process subagent inherits it wholesale. There is no per-agent scoping, so a
+pushed index could be tailored to nobody and could never reach a child that
+ctxloom did not mediate. A catalog you ASK for has neither problem — and the
+moment you have something to match against is the only moment the answer means
+anything.
+
+The cost of that design is this: an agent who does not know to ask never learns
+those fragments exist.
+
+## Asking
+
+    ctxloom fragment premises
+
+lists every premised fragment, the condition it applies under, and the
+instruction for deciding between them. Over MCP the same menu is the
+`ctxloom://fragments` resource: each entry carries its premise and the qualified
+ref to quote back. Descriptions live there; bodies come from
+`ctxloom://fragments/{name}`, for the ones you chose.
+
+Do not select from the names. The premise is the thing to judge, and the
+listing ships the guidance for judging it — read what comes back rather than
+guessing from a title.
+
+## Loading what you chose
+
+    ctxloom fragment show <qualified-ref>
+
+or, over MCP, call `assemble_context` with the chosen names in its `bundles`
+argument.
+
+## When to ask
+
+Ask when you are about to ACT and this corpus might hold a rule about that
+action — not once at the start of a session, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
+on the default:
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`,
+  the agent binding's `runtime:`) isolates the PROCESS. There is
+  deliberately no "any container" value: rootless and rootful differ
+  in UID mapping, so a workload can genuinely require one.
+- **workspace** (`none`|`worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution. Asking for
+`container-rootful` where only rootless is reachable is a fatal
+ClassIsolation finding (exit 3), not a quiet downgrade to the other
+mode — and `--degraded` falls back to the HOST, never to the other
+ownership mode.
+
+They're independent: `container-rootless` can still mount the
+workspace at the SAME absolute path as the live project (process
+isolated, edits still land where the editor already looks); `worktree`
+still runs the engine on the host (the editor goes blind to that tree
+by design — results return via the delegated-agent merge flow, not
+live edits). Picking one says nothing about the other.
+
+Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
+default, not a decision. Host runtime is not a security boundary
+between agents: the coordinator credential is readable in the process
+environment of any same-uid process, and that token IS identity, so a
+host-runtime agent can read another host-runtime agent's credential and
+speak as that agent. Containers are the actual boundary: they make
+isolation a property of the runtime, not a request to the engine —
+some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only
+a stderr warning, discarding the runtime and permissions you asked for —
+confirm the name resolves before trusting the isolation you requested.
+== blob:d28cc90cfc4ed760cbbd78c7e2d082609c60e6119a8ee3622d423a7ac1bb7f68
+You are writing a check that can find something wrong; writing code that accepts a configuration value, a file, or any input from outside the program; deciding what an unknown, malformed, or missing value should resolve to; or choosing between refusing and carrying on with less. For anyone deciding how loudly a failure should surface, and where the set of acceptable values is declared. This one also governs ordinary resolution code, not only launch-time findings.
+== blob:d90cecf6bbb091b22519f6f2babcd163fc746de4772823d202935ec8f82e34a4
+# Which gate is real in this repo, and how to read one
+
+Companion to green-is-not-passing, which says a test is not passing until a
+mutation dies. This says which command actually proves that here, and how to
+read what it tells you.
+
+## The gates, and what each one is worth
+
+    just build                    ~4s
+    just lint                    ~19s
+    just test-arch               ~20s   the architectural class gates, -tags arch
+    just test-integration        ~30s
+    just test-acceptance        ~510s   THE REAL GATE
+    just test-acceptance-focus features/<f>.feature   ~10-17s, one feature
+
+`just test` only COMPILES the integration suite. It is not the gate, and a green
+one proves far less than it looks like it does.
+
+Iterate on the narrow target; run `test-acceptance` before claiming anything is
+done. When you need a single acceptance scenario — hand-mutating one, say —
+`test-acceptance-focus` runs a whole feature in seconds, so acceptance mutation
+is cheap and there is no excuse for skipping it.
+
+## Read the EXIT CODE — and know where that is not enough
+
+Gate on the exit status, never on grepping output for "PASS" or "ok". Then know
+the three inversions, each of which reports success while telling you otherwise:
+
+- `gofmt -l` LISTS unformatted files and exits 0. Check whether the OUTPUT is
+  empty, not the status.
+- `go test -run <pattern>` whose pattern matches NOTHING exits 0 having run no
+  test. Confirm it actually ran.
+- a pipeline reports the LAST command's status, so `cmd | tail; echo $?` gives
+  tail's exit. Redirect to a file and check directly, or use PIPESTATUS.
+
+The shape to watch for throughout: exit 0, a success message, and zero bytes
+written.
+
+## Which mutation method reaches which code
+
+gremlins is COVERAGE-GATED: it mutates source and runs `go test`. The acceptance
+suite and the testenv integration tests exec a PRE-BUILT binary, and Go coverage
+does not cross an exec boundary — so those mutants report NOT COVERED and are
+never attempted. There, HAND mutation is the only real method, not a poor
+substitute.
+
+    unit-testable code      just test-mutation-diff <BASE>
+    anything via the CLI    hand mutation
+
+HAND MUTATION MUST REBUILD. Those suites exec a previously built binary and
+`just test-pkg` does not rebuild. Edit production code, run `just build`, THEN
+the gate. Skip the build and the mutation survives against the old binary — you
+will call a good test vacuous, or a vacuous one fine.
+
+When a mutation SURVIVES, suspect you aimed at the wrong layer before concluding
+the test is vacuous. The tell is that the mutated code is demonstrably live
+elsewhere: if breaking it reddens some other package's tests, the code is
+reachable, just not from the path under test. Find the reachable gate and kill
+that instead.
+
+## A fresh worktree cannot commit until it is built
+
+`just build` first, and make sure `bin/archlint` exists there. Without a built
+tree the pre-commit hook fails with an `archvocabulary: failed prerequisites`
+cascade that looks like a broken analyzer and is not.
+
+`test-pkg` takes a package PATTERN — `./internal/cli`, with the leading `./`.
+Without it you get a misleading "is not in std" error.
+
+---
+
+Body with a horizontal rule below.
+
+---
+
+And a literal mustache pair: {{not_a_template}} plus {{triple}}.
+
+---
+
+---
+
+Project golden: always on.
+
+---
+
+Do not edit a signed bundle in place.
+
+---
+
+# Not all of this project's guidance is in your context
+
+Some fragments here are CONDITIONAL: each carries a PREMISE — the situation it
+applies to — and is deliberately not loaded at launch. You were given the
+unconditional ones. The rest exist, you do not have them, and nothing fires
+when one becomes relevant.
+
+This fragment carries no premise itself, which is why you can read it: it is
+the pointer to the ones you cannot see.
+
+## Why they are pulled rather than pushed
+
+Assembled context is delivered ONCE, at launch, into the session prompt, and an
+in-process subagent inherits it wholesale. There is no per-agent scoping, so a
+pushed index could be tailored to nobody and could never reach a child that
+ctxloom did not mediate. A catalog you ASK for has neither problem — and the
+moment you have something to match against is the only moment the answer means
+anything.
+
+The cost of that design is this: an agent who does not know to ask never learns
+those fragments exist.
+
+## Asking
+
+    ctxloom fragment premises
+
+lists every premised fragment, the condition it applies under, and the
+instruction for deciding between them. Over MCP the same menu is the
+`ctxloom://fragments` resource: each entry carries its premise and the qualified
+ref to quote back. Descriptions live there; bodies come from
+`ctxloom://fragments/{name}`, for the ones you chose.
+
+Do not select from the names. The premise is the thing to judge, and the
+listing ships the guidance for judging it — read what comes back rather than
+guessing from a title.
+
+## Loading what you chose
+
+    ctxloom fragment show <qualified-ref>
+
+or, over MCP, call `assemble_context` with the chosen names in its `bundles`
+argument.
+
+## When to ask
+
+Ask when you are about to ACT and this corpus might hold a rule about that
+action — not once at the start of a session, and not against the conversation
+behind you. Ask again later in a long session: what you are about to do has
+changed, so the answer has too.
+
+---
+
+# Configuration precedence
+
+Every binary in the ctxloom family (ctxloom, taskloom, ltk) resolves
+configuration through one shared chain, owned by
+`internal/shared/confload`:
+
+    home config file  <  project config file  <  ENV VARS  <  --config-set FLAGS
+
+Later layers win. `confload` reads and deep-merges the file layers and
+resolves both override channels against the merged result, so there is
+exactly one place this ordering is implemented — do not re-derive it in
+a command.
+
+## The two override channels
+
+**Environment** — a dedicated namespace under the product's env prefix
+(`CTXLOOM_CONFIG_`), e.g. `CTXLOOM_CONFIG_LLM_DEFAULTS_PRIMARY=big`.
+
+**`--config-set`** — a repeatable root flag taking `<dotted.path>=<value>`,
+e.g. `--config-set agents.MyCoder.runtime=container`.
+
+## A command's own flags are NOT a config source
+
+`--config-set` is the ONLY flag channel. `confload` deliberately does not
+treat a changed flag's NAME as a config path, and this is load-bearing
+rather than stylistic — an earlier revision did exactly that, and it
+silently coupled every current and future flag name to the config schema.
+Two failures were confirmed in production:
+
+- `ctxloom agent set coder --runtime container` clobbered the project's
+  top-level `runtime` key, because `--runtime` resolved as a config path.
+- `--format json` on a structured-output command printed a warning line
+  into what a script expected to be pure JSON, because `--format`
+  resolved as "unrecognized config key, setting it anyway".
+
+So when you add a flag, it configures THAT invocation. If the value
+belongs in config, give it a schema path and let the chain resolve it;
+never bridge a flag name to a config key by convention.
+
+## Case handling diverges between the two channels, deliberately
+
+A shell destroys an env var name's case before Go sees it
+(`CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME` cannot say whether the author
+wrote `MyCoder`, `mycoder`, or `MYCODER`). A `--config-set` value never
+passes through those rules, so it preserves exactly what was typed.
+
+Both resolve identically when the target already exists or is a fixed,
+canonically-cased schema field: case-insensitive match, adopting the
+existing casing. They diverge only at a dynamic level that nothing
+existing covers — an agent label, an LLM config label. There, env falls
+back to whatever the shell handed over, while `--config-set` preserves
+the typed case. That is why `--config-set` can mint a brand-new
+case-sensitive key (`agents.MyCoder.runtime=container`)
+and env fundamentally cannot.
+
+---
+
+# An agent cell is already the dev environment
+
+## The layering
+
+ctxloom agents run inside ctxloom's own containers, and this project's dev
+container sits ON TOP of that. A cell is therefore not a bare box waiting for
+tooling to be delivered to it — it already carries the toolchain the gates
+expect.
+
+That is the whole reason most agents need no docker access at all. Building or
+entering a container from in there constructs a second copy of the environment
+the agent is already running in.
+
+## DinD is not forbidden; it is rarely the answer
+
+Nothing here prohibits docker-in-docker, and some work genuinely needs a
+daemon — work whose SUBJECT is container behaviour: the isolation runtimes,
+image builds, the docker-gated tests. Ask for it there, deliberately, and say
+why.
+
+What is almost always wrong is reaching for it to make an ordinary build or
+test command work. That impulse is a symptom, not a fix, and the next section
+is what it is usually a symptom of.
+
+## The trap that manufactures the wrong fix
+
+The root justfile's recipes name dev-image as a PREREQUISITE, and dev-image
+shells straight out to a container build with no guard of its own. A just
+prerequisite runs BEFORE the recipe body — so inside a cell the dependency
+fails on the missing socket before `_run` is ever reached, and `_run` is the
+part that already dispatches to justfile.container whenever DEVCONTAINER, CI
+or GITHUB_ACTIONS is set.
+
+So the failure presents as "this cell needs docker" when the truth is that the
+dispatch is correct and merely unreachable. Granting the cell a daemon answers
+a question nobody asked: it spends a real isolation boundary to build an image
+the cell already is.
+
+## If you do drive the container justfile by hand, SAY WHICH ONE YOU RAN
+
+justfile.container is a SEPARATE recipe set, and it has silently diverged from
+the root justfile's package lists before — the recipes share a name, which is
+exactly what made the divergence invisible. An exit code from one is therefore
+not the same claim as an exit code from the other.
+
+An orchestrator deciding whether to merge is relying on that distinction, so
+name the recipe path you used when you report. "test-integration exit 0" with
+no path is an ambiguous claim, and the ambiguity always resolves in the
+optimistic direction.
+
+---
+
+# Refuse when something is amiss; `--degraded` is the way through
+
+**The default posture is REFUSE, not proceed.** When ctxloom finds something
+wrong at startup — broken config, an unresolvable profile or bundle, a failed
+hook apply, an invalid document — it ABORTS the launch and says what is wrong
+and how to fix it. It does not quietly launch something lesser.
+
+This is a deliberate pivot away from always-launch. Always-launch produced
+CONFIDENT WRONG WORK: a bad or missing agent name silently degraded to
+`host`+`none`, discarding the runtime and permissions that were asked for, with
+only a stderr warning nobody read. The agent then ran unisolated while everyone
+believed otherwise. A launch that succeeds without doing the thing is worse
+than one that refuses, because nothing downstream can tell the difference.
+
+## First, declare what you accept — in code, in one place
+
+A refusal is only meaningful against a DECLARATION. "Strict" that means
+"whatever this function happened to check" is not strict, it is arbitrary — and
+arbitrary drifts, because the next call site checks something slightly
+different and nothing notices.
+
+So before either mode below can exist, the acceptable shape of a value is
+WRITTEN IN CODE, in one place, as something the program can read: a schema, a
+typed parse, an enumerated set of names. Not a comment, not a doc page, not a
+validation function per call site. Both modes then consume that one
+declaration — the refusal names the declared set, the degraded path names the
+declared value it fell back to — and neither invents its own idea of valid.
+
+THE TEST, and it is one you can actually apply: point at the ONE thing a reader
+would change to add a new accepted value. If the answer is "the validator, and
+the error message, and the docs, and the schema", the declaration does not
+exist. Those are four copies, and copies drift — the error message goes on
+listing the old set with full authority while the validator has already
+accepted a new one.
+
+THIS IS NOT ONLY A LAUNCH CONCERN, and that is the trap. Everything below about
+`strictness` governs findings raised at STARTUP. An ordinary resolution
+function is not a launch check, raises no finding, and reaches none of that
+machinery — which is exactly where silent substitution survives. `ResolveLLM`
+misses on an unknown label and returns the built-in default with no error and
+no warning, so a typo'd `--llm` runs a model the caller did not ask for, at
+exit 0. The doc comment directly above it records fixing that same bug for the
+EMPTY-label case and leaving the unknown-label arm untouched. One arm of one
+conditional was made correct, because nothing declared what a valid label was.
+
+## `--degraded` always reaches a working LLM
+
+`--degraded` (and `CTXLOOM_DEGRADED=1`; the flag wins) lowers every finding
+from an error to a WARNING and continues. That is a promise, not a
+best-effort: **degraded mode always gets the user into a working LLM.** If a
+degraded run can still refuse to launch for an ordinary finding, degraded mode
+is broken.
+
+So the two modes divide cleanly:
+
+    default      refuse, and explain the remedy
+    --degraded   warn, and launch anyway
+
+## The one exception: launching is itself the danger
+
+Security findings where starting the LLM is the harm do NOT yield to
+`--degraded`. A breached trust or isolation boundary — credentials reachable
+that should not be, an ownership mismatch on the runtime axis, unverifiable
+content admitted to an execution surface — stays fatal in both modes.
+
+The test is not "is this serious?" but **"does launching cause the harm?"** A
+profile that fails to parse is serious and still degradable: the user gets a
+working LLM with less context. A container runtime that cannot provide the
+isolation it claimed is not degradable, because the launch IS the exposure.
+`--degraded` falls back to the HOST, never to a different ownership mode.
+
+## How to write one of these, mechanically
+
+Report the finding; let `strictness` decide its fatality:
+
+    strictness.FailOnce(strictness.ClassConfig, "<the remedy>", ...)
+
+`internal/profiles/profiles.go` already does exactly this for the
+empty-profile cases. `strictness` owns the fatal-vs-warn decision centrally and
+`SetDegraded` flips it process-wide, which is what makes the guarantee above
+hold everywhere at once.
+
+Therefore, at the site of a check:
+
+- **Do NOT branch on degraded state.** No `if strictness.Degraded()`, no
+  `strict bool` parameter, no per-call fatality argument. A check that decides
+  its own fatality is a second policy that will disagree with the first.
+- **Do state the REMEDY, not just the complaint.** The refusal is the entire
+  user interface for the failure. "invalid profile" is a dead end; "give the
+  profile something to select (parents, bundles, fragments, select_tags) or
+  delete it" is error correction. Write the sentence that ends the problem.
+- **Do make sure the remedy is followable.** A message advising an action the
+  caller cannot take — telling them to drop a flag they never passed — is
+  proof the check is firing outside its own design premise. Fix the premise,
+  not the wording.
+- **Report every problem, not the first.** `FailOnce` records and the startup
+  gate decides; a user fixing four things one launch at a time is paying for
+  our convenience.
+
+## Say what you are correcting TO — from the code that does the correcting
+
+A degraded message that names only the FAULT is half a message. It says what
+broke; it does not say what will now happen, and that is the only part that
+lets someone decide whether to let the run continue. Name the value being
+proceeded WITH:
+
+    engine_home "sesion": unknown value (known: host, session)
+      -> degraded: proceeding as "host"
+
+That second line must be produced BY THE CORRECTION ITSELF, never by a
+hand-written string standing beside it. The correction RETURNS the value it
+chose; the announcement FORMATS that returned value. One source, one truth.
+
+The moment the fallback's name is typed into a format string there are two
+statements of one decision, and the compiler sees only one of them. Change the
+fallback and nothing updates the sentence: it keeps its authority while lying,
+to the person already dealing with a fault.
+
+Measured, not hypothetical. A run here warned "this run uses the runtime's own
+config home instead" and then ABORTED on a fatal finding, having taken no such
+fallback. The prose and the behaviour were written separately and drifted
+apart, and the message was believed. The same rule governs the refusal arm: the
+valid set quoted in an error comes from the same declaration the validator
+checks against, never from a second list maintained by hand.
+
+## Outputs stay strict in both modes
+
+None of the above touches the output side. What ctxloom EMITS — files, wire
+messages, exit codes, generated config — is conservative always. Degraded mode
+tolerates a bad INPUT; it never emits a malformed output, a partial file, or a
+zero exit code over work that did not happen.
+
+## Testing it
+
+Pin BOTH arms, and mutate each. The same bad input must REFUSE by default
+(nonzero exit, nothing launched) and WARN-then-launch under `--degraded`. A
+test covering only the refusal lets degraded mode silently start refusing too,
+which breaks the guarantee for every existing user; a test covering only the
+degraded arm lets the refusal rot into a no-op. Assert the EFFECT — exit status
+and whether an engine actually started — never the message text alone.
+
+---
+
+# A test does not pass until a mutation dies
+
+A test is not passing because it is green. It is passing when it is
+green AND a mutation to the production code it names makes it FAIL.
+Green alone means the test ran. It does not mean the test looked.
+
+Apply it in both directions:
+
+- **Writing a test**: after it goes green, break the behaviour it
+  names — in `internal/` or `cmd/`, not in the test — and confirm it
+  goes red. Revert. If nothing you can break makes it fail, you have
+  written a tautology, and it is worse than no test because it
+  reports coverage you do not have.
+- **Trusting a test**: a suite's green tells you nothing about a
+  specific claim until someone has killed a mutation against it.
+  "It passes" is not evidence. "It failed when I broke X" is.
+
+## Why this is a rule here and not a preference
+
+An audit of this project's acceptance suite on 2026-08-04 read 380
+scenarios, ran 41 mutations, and found 25 assertions that passed
+while proving nothing. Not edge cases — one asserted that the output
+matched the regex `.` (any one character). Others asserted an
+argument the command had echoed back, or a MIME type that is a
+static field on the envelope, or the ABSENCE of something the
+fixture never created. Several were satisfied by the subject never
+running at all: a scenario titled "the same engines proceed" passed
+when the engine never launched, and one titled "a per-item
+acceptance and a rejection ARE RECORDED" passed with the record
+store neutered to write nothing.
+
+Every one of those had been green for as long as it had existed.
+
+## The shapes that produce a false green
+
+- asserting exit 0 without asserting the EFFECT (this project's
+  characteristic silent no-op: exit 0, a success message, zero bytes)
+- asserting a name, a header, or an argument the command echoes
+- asserting a file exists without asserting its content or mode
+- asserting the tool's REPORT of what it did instead of the state it
+  changed
+- absence-satisfies-absence: asserting something is missing in a
+  fixture where it was never present
+- a substring so generic it survives gutting the thing under test
+
+## Where the bar is already met, and worth copying
+
+`tests/acceptance/steps_skill.go` compares bytes with an explicit
+zero-length guard — "comparing two empty reads is trivially
+identical" — which is the line that stops a byte comparison from
+being vacuous. `j002600` asserts an exact file COUNT rather than
+existence. `run.feature`'s recorded-input assertion reads what the
+engine actually received rather than what the CLI said it sent.
+
+## Test against a FRESH BUILD, never the installed binary
+
+Any manual or agent-driven verification runs against a binary built
+from the tree under test — `just build`, then `./ctxloom` — never
+`ctxloom` from `$PATH`.
+
+The installed binary is a different program. On 2026-08-05 a check
+of whether a newly added fragment was delivered came back "missing";
+the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
+eight days and ~150 commits behind the tree, and dirty on top. Built
+from source, the same check passed. The measurement was wrong, not
+the code — and a wrong measurement that agrees with your fear is the
+expensive kind.
+
+`just test-acceptance` already does this correctly: it depends on
+`build` and drives the binary it just produced. The exposure is
+hand-run commands and agent verification, which reach for `$PATH`
+by default.
+
+The `$PATH` binary's currency may NOT be assumed in either direction. It
+may be current, stale, or dirty, and you cannot tell by looking -- which is
+exactly why verification drives the binary `just build` just produced rather
+than reasoning about which program answered. A stale binary plus an
+exit-code check agrees with anything.
+
+---
+
+# Say what you are looking for, and what you found
+
+Two short statements per tool call. They are not narration — they are the only
+part of a tool interaction that survives distillation.
+
+- BEFORE a tool call: what you are trying to learn or change.
+- AFTER the result: what you actually learned — including "nothing" and "not
+  what I expected", which are results.
+
+## Why this is a rule and not a style preference
+
+A session transcript is distilled into an essence that a later session resumes
+from, and tool RESULTS do not survive that. They are reduced to their shape —
+`[2,431 bytes, 47 lines]` — because a truncated fragment of a grep is neither
+the information nor a summary of it, and the content is re-derivable by asking
+again.
+
+What is NOT re-derivable is what you were trying to find out, and what the
+answer changed. Omit it and the essence records that a command ran and how many
+lines it printed, with the reasoning gone.
+
+Measured on this project's own transcripts: tool traffic is 50-69% of a
+session. Bash already enforces the first half — `description` is a required
+field, at 100% coverage across 1,286 calls. The second half is stated after
+12% of tool results. That gap is the entire cost.
+
+## What this looks like
+
+Weak: "Let me check the config."
+Strong: "Checking whether the byte cap applies per-argument or to the whole
+object — it decides whether eliding one key buys anything."
+
+Weak: "Done." (the result's shape already said that)
+Strong: "It caps the whole object, so eliding the payload should free budget
+for the path — but 210 of 210 paths were already visible, so it does not."
+
+A finding that overturns what you expected is the most valuable thing you can
+write. Say it plainly and carry on.
+
+---
+
+SOLID: SRP, OCP, LSP, ISP, DIP.
+
+---
+
+## Isolation: specify both axes
+
+Creating, configuring, or delegating to a ctxloom agent (`ctxloom agent
+set`, `run --agent`, `agent_run`)? Set both axes explicitly — never rely
+on the default:
+
+- **runtime** (`host` | `container-rootless` | `container-rootful`,
+  the agent binding's `runtime:`) isolates the PROCESS. There is
+  deliberately no "any container" value: rootless and rootful differ
+  in UID mapping, so a workload can genuinely require one.
+- **workspace** (`none`|`worktree`, per-invocation `--workspace` /
+  `agent_run`'s `workspace`) isolates the FILES.
+
+An ownership mismatch is FATAL, never a substitution. Asking for
+`container-rootful` where only rootless is reachable is a fatal
+ClassIsolation finding (exit 3), not a quiet downgrade to the other
+mode — and `--degraded` falls back to the HOST, never to the other
+ownership mode.
+
+They're independent: `container-rootless` can still mount the
+workspace at the SAME absolute path as the live project (process
+isolated, edits still land where the editor already looks); `worktree`
+still runs the engine on the host (the editor goes blind to that tree
+by design — results return via the delegated-agent merge flow, not
+live edits). Picking one says nothing about the other.
+
+Unspecified means `host`+`none` — isolated on NEITHER axis. That's a
+default, not a decision. Host runtime is not a security boundary
+between agents: the coordinator credential is readable in the process
+environment of any same-uid process, and that token IS identity, so a
+host-runtime agent can read another host-runtime agent's credential and
+speak as that agent. Containers are the actual boundary: they make
+isolation a property of the runtime, not a request to the engine —
+some vendor CLIs ignore env-var isolation hints and write
+credentials/state to a global path regardless.
+
+A bad or missing agent name silently degrades to `host`+`none` with only
+a stderr warning, discarding the runtime and permissions you asked for —
+confirm the name resolves before trusting the isolation you requested.

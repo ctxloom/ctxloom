@@ -290,7 +290,7 @@ func itemContentPair(bundleFS afero.Fs, bundle *bundles.Bundle, tRef trust.Ref) 
 		if merr != nil {
 			return "", "", false
 		}
-		return renderSkillSurface(skill.LLM, manifest), "", true
+		return renderSkillSurface(skill.Exports, manifest), "", true
 	default:
 		return "", "", false
 	}

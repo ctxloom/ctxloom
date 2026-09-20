@@ -23,24 +23,6 @@ import (
 // (zip pack/unpack), signing/trust wiring, and per-engine materialization are
 // deliberately NOT here — those are B1b/B2/B3+.
 
-// SkillLLMExports holds per-engine enablement for a skill, keyed by backend
-// name. Unlike LLMExports (fragments/commands), a skill export carries only
-// Enabled — a skill's name and description are SKILL.md frontmatter, the
-// single source of truth, and never duplicated into bundle.yaml.
-type SkillLLMExports struct {
-	ClaudeCode SkillEngineExport `yaml:"claude-code"`
-}
-
-// SkillEngineExport is one engine's enablement setting for a skill.
-type SkillEngineExport struct {
-	Enabled *bool `yaml:"enabled"` // nil = true (opt-out model, mirrors ClaudeCodeConfig etc.)
-}
-
-// IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c SkillEngineExport) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
-}
-
 // DefaultMaxSkillPackageBytes is the total package size cap (Anthropic's
 // Skills-API upload constraint, <30MB) applied when ParseSkillPackage is
 // called with maxBytes<=0. Exceeding it fails LOUD at parse time; nothing here

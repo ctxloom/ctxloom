@@ -9,14 +9,15 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -100,7 +101,7 @@ func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, er
 	return launch.Deps{
 		Snapshot:  snap,
 		Engines:   backends.Engines(),
-		Assembler: assembler{},
+		Assembler: &assembler{},
 		Cells:     Cells{cfg: snap.Config, mode: mode},
 		Endpoints: endpointMinter{},
 		Sessions:  store,
@@ -125,46 +126,58 @@ func hostFacts() (launch.HostFacts, error) {
 	return launch.HostFacts{Home: home, CtxloomHome: ctxHome, Binary: binary}, nil
 }
 
-// assembler implements launch.Assembler over the profile assembly and the
-// managed-surface composition every launch path used to call for itself.
-// pipe is a test seam: a pre-configured process stage in place of the gated
+// assembler implements launch.Assembler over the ONE package: Assemble
+// assembles it (AssemblePackage → composite.Assemble, once) and Surfaces
+// projects the engine's managed surfaces off the same Package, so the
+// context a run delivers and the surfaces beside it are one assembly. pipe
+// is a test seam: a pre-configured process stage in place of the gated
 // exposure one.
-type assembler struct{ pipe *bundles.Pipeline }
+type assembler struct {
+	pipe *bundles.Pipeline
+	// pkg is the package Assemble assembled, for Surfaces; profiles is the
+	// profile set it was assembled for.
+	pkg      *composite.Package
+	profiles []string
+}
 
-func (a assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
-	res, err := AssembleContext(ctx, snap.Config, AssembleContextRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, Pipeline: a.pipe})
+func (a *assembler) Assemble(ctx context.Context, snap *config.Snapshot, sel launch.Selection) (launch.Assembled, error) {
+	req := PackageRequest{Profiles: sel.Profiles, Fragments: sel.Fragments, Tags: sel.Tags, Pipeline: a.pipe}
+	pkg, err := AssemblePackage(ctx, snap.Config, req)
 	if err != nil {
 		return launch.Assembled{}, fmt.Errorf("assemble context: %w", err)
 	}
-	// An explicit selection that matched nothing is refused: the caller
-	// asked for fragments by name or by tag and would get none. Checked via
-	// the misses — the always-on companion fragments mean the loaded list is
-	// never empty, so a bare count cannot see the miss.
-	if len(sel.Fragments) > 0 && len(res.MissingFragments) == len(sel.Fragments) {
-		return launch.Assembled{}, fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(res.MissingFragments, ", "))
+	res := contextResultOf(pkg)
+	if err := refuseEmptySelection(req, res); err != nil {
+		return launch.Assembled{}, err
 	}
-	if len(sel.Tags) > 0 && len(res.MissingTags) == len(sel.Tags) {
-		return launch.Assembled{}, fmt.Errorf("no fragments loaded: no fragment matches tag(s): %s", strings.Join(res.MissingTags, ", "))
-	}
+	a.pkg, a.profiles = &pkg, res.Profiles
 	return launch.Assembled{Context: res.Context, Profiles: res.Profiles, Fragments: res.FragmentsLoaded, ProfileLLM: res.ProfileLLM}, nil
 }
 
 // LabelEnv is the labeled entry's own request-borne environment.
-func (assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
+func (*assembler) LabelEnv(snap *config.Snapshot, label string) map[string]string {
 	return MockControlFor(snap.Config, label)
 }
 
-// Surfaces composes the managed surfaces for the engine, gated by the
-// generation's executable trust gate, scoped to the profiles the context
-// was assembled from; the binding's delivery preference is validated against
-// the engine and rides on the payload. A withheld executable is reported,
-// content-free, never silently.
-func (assembler) Surfaces(_ context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (launch.Surfaces, error) {
-	managed := backends.AssembleManagedConfig(snap.Config, string(eng), projectRoot, profiles)
-	WarnWithheldBy(snap.Config.ExecutableTrustGate())
-	if managed == nil {
-		return nil, nil
+// Surfaces projects the managed surfaces for the engine off the package
+// Assemble assembled for the same profile set — assembled here only when a
+// run selected no context at all; the binding's delivery preference is
+// validated against the engine and rides on the payload. A withheld
+// executable is reported, content-free, never silently.
+func (a *assembler) Surfaces(ctx context.Context, snap *config.Snapshot, eng engine.Name, projectRoot string, profiles []string, preference map[string]string) (launch.Surfaces, error) {
+	pkg := a.pkg
+	if pkg == nil || !slices.Equal(a.profiles, profiles) {
+		assembled, err := AssemblePackage(ctx, snap.Config, PackageRequest{Profiles: profiles, WorkDir: projectRoot, Pipeline: a.pipe})
+		if err != nil {
+			return nil, err
+		}
+		pkg = &assembled
 	}
+	managed, err := ManagedConfigOf(*pkg, string(eng))
+	if err != nil {
+		return nil, err
+	}
+	WarnWithheldBy(snap.Config.ExecutableTrustGate())
 	if len(preference) > 0 {
 		surfaces, err := ResolveAgentSurfaces(string(eng), preference)
 		if err != nil {

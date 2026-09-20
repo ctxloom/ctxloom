@@ -19,6 +19,7 @@ import (
 type stubKind struct{ engine.Base }
 
 func (stubKind) Instance(engine.Session) (engine.Instance, error) { return nil, nil }
+func (stubKind) Exports(engine.Items) (engine.Exports, error)     { return engine.Exports{}, nil }
 
 // registryOf composes stub kinds; the first named ships by default.
 func registryOf(names ...engine.Name) engine.Registry {

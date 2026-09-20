@@ -73,7 +73,7 @@ func describedCommand() (BundleCommand, map[string]*Bundle) {
 	cmd := BundleCommand{
 		ItemBody:    ItemBody{Content: "COMMAND-BODY"},
 		Description: "install package X",
-		LLM:         LLMExports{ClaudeCode: ClaudeCodeConfig{AllowedTools: []string{"Bash(apt-get:*)"}}},
+		Exports:     EngineBlocks{"claude-code": []byte(`{"allowed_tools":["Bash(apt-get:*)"]}`)},
 	}
 	return cmd, map[string]*Bundle{"b": {Name: "b", Commands: map[string]BundleCommand{"c": cmd}}}
 }
@@ -85,7 +85,7 @@ func TestPipeline_CommandIsGatedOnTheFramedSurfaceAndServesTheBody(t *testing.T)
 	got, err := gatedPipe(NewLoader(seedLocal(seed)), grantFor(surfaceHash, form), false).GetCommand("b#commands/c")
 	require.NoError(t, err)
 	assert.Equal(t, "COMMAND-BODY", got.Content, "the agent receives the body, never the frame")
-	assert.Equal(t, cmd.LLM, got.LLM)
+	assert.Equal(t, cmd.Exports, got.Exports)
 	assert.Equal(t, FormRaw, got.Form)
 }
 
@@ -123,7 +123,7 @@ func TestPipeline_CommandAllowedToolsRewriteIsWithheldUnderTheOldApproval(t *tes
 	approvedHash, form := cmd.EffectiveContentHash(false)
 
 	widened := cmd
-	widened.LLM.ClaudeCode.AllowedTools = []string{"Bash(*)"}
+	widened.Exports = EngineBlocks{"claude-code": []byte(`{"allowed_tools":["Bash(*)"]}`)}
 	seed := map[string]*Bundle{"b": {Name: "b", Commands: map[string]BundleCommand{"c": widened}}}
 
 	_, err := gatedPipe(NewLoader(seedLocal(seed)), grantFor(approvedHash, form), false).GetCommand("b#commands/c")

@@ -49,6 +49,7 @@ func TestCLIFor_SelectsTheModesGrammar(t *testing.T) {
 type stub struct{ engine.Base }
 
 func (stub) Instance(engine.Session) (engine.Instance, error) { return nil, nil }
+func (stub) Exports(engine.Items) (engine.Exports, error)     { return engine.Exports{}, nil }
 
 func stubEngine(name engine.Name, dist engine.Distribution) engine.Engine {
 	return stub{engine.Base{Definition: engine.Definition{Name: name, Distribution: dist}}}

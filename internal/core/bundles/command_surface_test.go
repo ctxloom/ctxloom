@@ -18,21 +18,21 @@ import (
 // the struct, never as a hand-written list of fields.
 
 func exportedCommand() BundleCommand {
-	enabled := true
 	return BundleCommand{
 		ItemBody: ItemBody{
 			Content:   "RAW-BYTES",
 			Distilled: "DISTILLED-BYTES",
 		},
 		Description: "install package X",
-		LLM: LLMExports{ClaudeCode: ClaudeCodeConfig{
-			Enabled:      &enabled,
-			Description:  "installs X for you",
-			ArgumentHint: "<package>",
-			AllowedTools: []string{"Bash(apt-get:*)"},
-			Model:        "claude-sonnet-5",
-		}},
+		Exports: EngineBlocks{"claude-code": []byte(
+			`{"enabled":true,"description":"installs X for you","argument_hint":"<package>","allowed_tools":["Bash(apt-get:*)"],"model":"claude-sonnet-5"}`)},
 	}
+}
+
+// withClaudeBlock returns the command with its claude-code block replaced.
+func withClaudeBlock(cmd BundleCommand, block string) BundleCommand {
+	cmd.Exports = EngineBlocks{"claude-code": []byte(block)}
+	return cmd
 }
 
 // The single preimage builder frames exactly the surface's presented values on
@@ -68,7 +68,7 @@ func TestCommandSurface_GettersAreWhatThePreimageFrames(t *testing.T) {
 	for _, prefer := range []bool{false, true} {
 		s := cmd.Surface(prefer)
 		assert.Equal(t, "install package X", s.Description())
-		assert.Equal(t, cmd.LLM, s.Exports())
+		assert.Equal(t, cmd.Exports, s.Exports())
 		assert.Equal(t, cmd.EffectiveContent(prefer), s.Body())
 		assert.Equal(t, signing.CommandPreimage(s.Description(), s.ExportsPayload(), []byte(s.Body())), s.Preimage())
 		payload, form := cmd.ContentPayload(prefer)
@@ -125,8 +125,8 @@ func TestBundleCommand_AllowedToolsRewriteInvalidatesEveryApprovalHash(t *testin
 	approvedRaw, _ := approvedCmd.EffectiveContentHash(false)
 	approvedDistilled, _ := approvedCmd.EffectiveContentHash(true)
 
-	widened := approvedCmd
-	widened.LLM.ClaudeCode.AllowedTools = []string{"Bash(*)"}
+	widened := withClaudeBlock(approvedCmd,
+		`{"enabled":true,"description":"installs X for you","argument_hint":"<package>","allowed_tools":["Bash(*)"],"model":"claude-sonnet-5"}`)
 
 	nowRaw, _ := widened.EffectiveContentHash(false)
 	nowDistilled, _ := widened.EffectiveContentHash(true)
@@ -140,16 +140,14 @@ func TestBundleCommand_EachExportFieldMovesThePreimage(t *testing.T) {
 	base := exportedCommand()
 	basePayload, _ := base.ContentPayload(false)
 
-	disabled := false
-	edits := map[string]func(c *ClaudeCodeConfig){
-		"Enabled":      func(c *ClaudeCodeConfig) { c.Enabled = &disabled },
-		"Description":  func(c *ClaudeCodeConfig) { c.Description = "something else" },
-		"ArgumentHint": func(c *ClaudeCodeConfig) { c.ArgumentHint = "<other>" },
-		"Model":        func(c *ClaudeCodeConfig) { c.Model = "claude-opus-5" },
+	edits := map[string]string{
+		"Enabled":      `{"enabled":false,"description":"installs X for you","argument_hint":"<package>","allowed_tools":["Bash(apt-get:*)"],"model":"claude-sonnet-5"}`,
+		"Description":  `{"enabled":true,"description":"something else","argument_hint":"<package>","allowed_tools":["Bash(apt-get:*)"],"model":"claude-sonnet-5"}`,
+		"ArgumentHint": `{"enabled":true,"description":"installs X for you","argument_hint":"<other>","allowed_tools":["Bash(apt-get:*)"],"model":"claude-sonnet-5"}`,
+		"Model":        `{"enabled":true,"description":"installs X for you","argument_hint":"<package>","allowed_tools":["Bash(apt-get:*)"],"model":"claude-opus-5"}`,
 	}
-	for name, edit := range edits {
-		edited := base
-		edit(&edited.LLM.ClaudeCode)
+	for name, block := range edits {
+		edited := withClaudeBlock(base, block)
 		payload, _ := edited.ContentPayload(false)
 		assert.NotEqual(t, string(basePayload), string(payload), "%s did not move the preimage", name)
 	}
@@ -188,13 +186,12 @@ func TestEveryCommandFieldIsClassified(t *testing.T) {
 // and its per-engine enablement; everything else on the entry must say why
 // the agent never sees it.
 func TestEverySkillFieldIsClassified(t *testing.T) {
-	enabled := true
 	base := BundleSkill{
-		Path:  "skills/custom",
-		Tags:  []string{"tag"},
-		Notes: "notes",
-		Files: map[string]SkillFileMeta{"SKILL.md": {SHA256: "sha256:a", Mode: "0644"}},
-		LLM:   SkillLLMExports{ClaudeCode: SkillEngineExport{Enabled: &enabled}},
+		Path:    "skills/custom",
+		Tags:    []string{"tag"},
+		Notes:   "notes",
+		Files:   map[string]SkillFileMeta{"SKILL.md": {SHA256: "sha256:a", Mode: "0644"}},
+		Exports: EngineBlocks{"claude-code": []byte(`{"enabled":true}`)},
 	}
 	assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
 		s := v.Interface().(BundleSkill)
@@ -251,8 +248,7 @@ func TestBundleSkill_DisablingAnEngineInvalidatesTheApprovalHash(t *testing.T) {
 	skill := BundleSkill{Files: map[string]SkillFileMeta{"SKILL.md": {SHA256: "sha256:a", Mode: "0644"}}}
 	approved := skill.ComputeContentHash(nil, "", "")
 
-	disabled := false
-	skill.LLM.ClaudeCode.Enabled = &disabled
+	skill.Exports = EngineBlocks{"claude-code": []byte(`{"enabled":false}`)}
 	assert.NotEqual(t, approved, skill.ComputeContentHash(nil, "", ""))
 }
 
@@ -271,4 +267,22 @@ func TestEveryKindsPreimageOpensWithItsOwnContract(t *testing.T) {
 	assert.True(t, strings.HasPrefix(string(cmd), signing.CommandPreimageContract+"\n"))
 	assert.True(t, strings.HasPrefix(string(mcp), `{"preimage":"`+signing.ExecPreimageContract+`"`))
 	assert.True(t, strings.HasPrefix(string(skill), `{"preimage":"`+signing.SkillPreimageContract+`"`))
+}
+
+// The frozen preimage contract canonicalises the contract block ONLY. A
+// block for another engine rides the item unsigned: it was dropped outright
+// before blocks were opaque, so nothing is newly exposed, but widening the
+// preimage over every block is a contract bump that re-signs every bundle —
+// a decision, not a slice. This pins the gap so it is a fact, not a
+// surprise.
+func TestCommandSurface_PreimageCoversTheContractBlockOnly(t *testing.T) {
+	base := exportedCommand()
+	basePayload, _ := base.ContentPayload(false)
+
+	foreign := base
+	foreign.Exports = base.Exports.Clone()
+	foreign.Exports["other-engine"] = []byte(`{"allowed_tools":["everything"]}`)
+	payload, _ := foreign.ContentPayload(false)
+	assert.Equal(t, string(basePayload), string(payload),
+		"a non-contract block is outside signing.CommandPreimageContract; when the contract is bumped, this assertion flips")
 }

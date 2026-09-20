@@ -240,6 +240,37 @@ func (c *mcpNameClaims) claim(name, sourceRef string) bool {
 // up automatically, tagged with SCM="bundle:ctxloom+builtin:<name>" so reconciliation
 // can identify it.
 func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer {
+	return c.ResolveBundleMCPServersFor(c.ResolveProfileSet(profileNames))
+}
+
+// ResolveProfileSet resolves the profile scope — the caller's selection, or
+// the configured defaults when none are passed — through the recursive
+// resolver, so bundles inherited from parent profiles are included. A
+// profile that does not resolve is reported once and skipped rather than
+// aborting the set, so one broken profile cannot silence the rest. With no
+// app paths there is nothing to read profiles from and the set is empty.
+func (c *Config) ResolveProfileSet(profileNames []string) []profiles.ResolvedProfile {
+	if len(c.appPaths) == 0 {
+		return nil
+	}
+	profileLoader := c.GetProfileLoader()
+	var set []profiles.ResolvedProfile
+	for _, profileName := range c.resolveProfileScope(profileNames) {
+		resolved, ok := resolveProfileOrReport(c.rep, profileLoader, profileName)
+		if !ok {
+			continue
+		}
+		p := *resolved
+		p.Name = profileName
+		set = append(set, p)
+	}
+	return set
+}
+
+// ResolveBundleMCPServersFor is ResolveBundleMCPServers over an already
+// resolved profile set — the one assembly resolved, so the set is resolved
+// and its faults reported once.
+func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[string]wire.MCPServer {
 	result := make(map[string]wire.MCPServer)
 
 	// Resolve the profile scope BEFORE any merge, because its exclude_mcp
@@ -262,25 +293,10 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// Scope: the caller's selected profiles (e.g. `run -p`); when none are
 	// passed, the configured defaults, so the `manage`/apply-hooks path keeps
 	// its project-default behavior.
-	var scopedProfiles []*profiles.ResolvedProfile
 	excluded := make(map[string]bool)
-	if len(c.appPaths) > 0 {
-		profileLoader := c.GetProfileLoader()
-		for _, profileName := range c.resolveProfileScope(profileNames) {
-			// Resolve through the recursive resolver so bundles inherited from
-			// parent profiles are included — a flat Load would only see this
-			// profile's direct Bundles, silently dropping MCP servers shipped by
-			// an inherited bundle (while the fragment path, which resolves
-			// recursively, still picks them up). See ResolveBundleHooks for the
-			// matching pattern.
-			resolved, ok := resolveProfileOrReport(c.rep, profileLoader, profileName)
-			if !ok {
-				continue
-			}
-			scopedProfiles = append(scopedProfiles, resolved)
-			for _, name := range resolved.ExcludeMCP {
-				excluded[name] = true
-			}
+	for _, resolved := range set {
+		for _, name := range resolved.ExcludeMCP {
+			excluded[name] = true
 		}
 	}
 
@@ -339,7 +355,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// that declares a name a builtin, a companion, or another profile bundle
 	// already claimed is a contest between two different refs, and
 	// mcpNameClaims withholds it loudly.
-	for _, resolved := range scopedProfiles {
+	for _, resolved := range set {
 		for _, bundleRef := range resolved.Bundles {
 			addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate()))
 		}
@@ -351,9 +367,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 // bundleSCM is the marker a resolved MCP server carries to name the bundle
 // that shipped it (wire.MCPServer.SCM). extractMCPFromBundle stamps it and
 // LinkGrant reads it back, so "granted from THIS bundle" is one spelling.
-func bundleSCM(src trust.BundleRef) string {
-	return "bundle:" + string(src.BundleIdentity())
-}
+func bundleSCM(src trust.BundleRef) string { return bundles.BundleSCM(src) }
 
 // LinkGrant answers the link-group question for a run over profileNames from
 // the run's OWN granted set — ResolveBundleMCPServers over the same profiles
@@ -380,6 +394,19 @@ func (c *Config) LinkGrant(profileNames []string) bundles.LinkGrant {
 	)
 	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
 		once.Do(func() { granted = c.ResolveBundleMCPServers(profileNames) })
+		srv, ok := granted[server]
+		return ok && srv.SCM == bundleSCM(read.SourceRef())
+	})
+}
+
+// LinkGrantFor is LinkGrant over an already resolved profile set.
+func (c *Config) LinkGrantFor(set []profiles.ResolvedProfile) bundles.LinkGrant {
+	var (
+		once    sync.Once
+		granted map[string]wire.MCPServer
+	)
+	return bundles.LinkGrantFunc(func(read bundles.BundleRead, server string) bool {
+		once.Do(func() { granted = c.ResolveBundleMCPServersFor(set) })
 		srv, ok := granted[server]
 		return ok && srv.SCM == bundleSCM(read.SourceRef())
 	})
@@ -498,13 +525,19 @@ func reportBundleRefLoadFailure(rep report.Reporter, bundleRef string, err error
 // emitted hook carries SCM source info so apply-hooks can identify
 // ctxloom-managed entries when reconciling the backend's settings.json.
 func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
+	return c.ResolveBundleHooksFor(c.ResolveProfileSet(profileNames))
+}
+
+// ResolveBundleHooksFor is ResolveBundleHooks over an already resolved
+// profile set.
+func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.UnifiedHooks {
 	var result wire.UnifiedHooks
 
 	// One link grant for every arm: the granted set it answers from holds
 	// builtin, companion and profile servers alike, so a hook linked to its
 	// server is delivered exactly when that server is, whichever arm shipped
 	// both. Lazy, so an assembly with no linked hook never resolves it.
-	links := c.LinkGrant(profileNames)
+	links := c.LinkGrantFor(set)
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality (session bind, plan-stamping). No profile
@@ -523,35 +556,18 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate(), links))
 	}
 
-	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
+	eachBundleRef(set, func(bundleRef string) {
 		result.Append(loadHooksFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate(), links))
 	})
 	return result
 }
 
-// eachProfileBundleRef calls fn with every bundle reference the selected
-// profiles carry — the caller's explicit selection when non-empty, else the
-// configured defaults — in profile order, then in the order each profile lists
-// them.
-//
-// Profiles resolve RECURSIVELY, so a bundle inherited from a parent profile is
-// visited like one the child names directly; a flat load would drop it. A
-// profile that does not resolve is reported and skipped rather than aborting
-// the walk, so one broken profile cannot silence the rest.
-//
-// With no profiles in scope, or no app paths to read them from, there is
-// nothing to walk and fn is never called.
-func (c *Config) eachProfileBundleRef(profileNames []string, fn func(bundleRef string)) {
-	profiles := c.resolveProfileScope(profileNames)
-	if len(profiles) == 0 || len(c.appPaths) == 0 {
-		return
-	}
-	profileLoader := c.GetProfileLoader()
-	for _, profileName := range profiles {
-		resolved, ok := resolveProfileOrReport(c.rep, profileLoader, profileName)
-		if !ok {
-			continue
-		}
+// eachBundleRef calls fn with every bundle reference the resolved profiles
+// carry, in profile order, then in the order each profile lists them. The
+// set resolved RECURSIVELY (ResolveProfileSet), so a bundle inherited from a
+// parent profile is visited like one the child names directly.
+func eachBundleRef(set []profiles.ResolvedProfile, fn func(bundleRef string)) {
+	for _, resolved := range set {
 		for _, bundleRef := range resolved.Bundles {
 			fn(bundleRef)
 		}
@@ -629,7 +645,7 @@ func (c *Config) ResolveBundleCommands(profileNames []string) []*bundles.LoadedC
 		out = append(out, prompt)
 	}
 
-	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
+	eachBundleRef(c.ResolveProfileSet(profileNames), func(bundleRef string) {
 		for _, prompt := range pipe.CommandsFromBundleRef(bundleRef) {
 			add(prompt)
 		}
@@ -665,7 +681,7 @@ func (c *Config) ResolveBundleSkills(profileNames []string) []*bundles.LoadedSki
 		out = append(out, skill)
 	}
 
-	c.eachProfileBundleRef(profileNames, func(bundleRef string) {
+	eachBundleRef(c.ResolveProfileSet(profileNames), func(bundleRef string) {
 		for _, skill := range pipe.SkillsFromBundleRef(bundleRef) {
 			add(skill)
 		}

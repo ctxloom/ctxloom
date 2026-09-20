@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -49,12 +48,6 @@ type Hosting struct {
 	// InstanceConfig constructs the engine-owned generator of its own
 	// top-level config file inside a config home ctxloom provisioned.
 	InstanceConfig agent.Declared[func(agent.SettingsOptions) agent.InstanceConfigWriter]
-	// CommandExports maps loaded bundle content to this engine's slash-command
-	// exports, resolving per-prompt enablement and metadata.
-	CommandExports agent.Declared[func([]*bundles.LoadedContent) []agent.CommandExport]
-	// SkillExports maps loaded bundle skills to this engine's Agent Skill
-	// package exports. Absent = the engine carries no skills surface.
-	SkillExports agent.Declared[func([]*bundles.LoadedSkill) []agent.SkillExport]
 	// HookGlobalScope is the project/global settings-path collision guard
 	// `manage hooks install` applies. Absent = audited, the global path never
 	// collapses onto the project path.
@@ -158,12 +151,6 @@ func (d Hosting) validateProvided() error {
 	}
 	if f, ok := d.InstanceConfig.Get(); ok && f == nil {
 		return errors.New("InstanceConfig is provided as nil")
-	}
-	if f, ok := d.CommandExports.Get(); ok && f == nil {
-		return errors.New("CommandExports is provided as nil")
-	}
-	if f, ok := d.SkillExports.Get(); ok && f == nil {
-		return errors.New("SkillExports is provided as nil")
 	}
 	if h, ok := d.HookGlobalScope.Get(); ok && (h.Paths == nil || h.Label == "") {
 		return errors.New("HookGlobalScope is provided without Paths or Label")

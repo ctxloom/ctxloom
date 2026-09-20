@@ -247,36 +247,6 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		return lines
 	}
 
-	// The same-ref arrival is asserted on the accumulator directly, not through
-	// AssembleContext, and that is a measurement rather than a convenience:
-	// dedupeFragmentRefs collapses two identical ref strings BEFORE ingest, so
-	// no assembly reachable today calls add twice with one ref. The branch is
-	// still live code and still has to be right — this is the ingest layer, and
-	// it may not assume a caller pre-deduped for it — so it is exercised where
-	// it can be reached. Routing this through AssembleContext instead would
-	// assert nothing at all: the drop would happen upstream and the silence
-	// would be an artefact, not a decision.
-	t.Run("same ref twice: dropped, and silent", func(t *testing.T) {
-		lines := captureIngestWarnings(t, func() {
-			in := newContextIngest()
-			require.True(t, in.add(ingestedFragment{Ref: "dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
-			require.False(t, in.add(ingestedFragment{Ref: "dev#fragments/rules", Name: "dev/rules", Content: "RULES"}),
-				"a re-ingest of the same ref is a duplicate and must be dropped")
-			assert.Equal(t, "RULES", in.join(), "and delivered once")
-		})
-		assert.Empty(t, lines, "re-selecting the same ref is unambiguous; it must not warn")
-	})
-
-	t.Run("two different refs, one item: dropped at the accumulator, and it says so", func(t *testing.T) {
-		lines := captureIngestWarnings(t, func() {
-			in := newContextIngest()
-			require.True(t, in.add(ingestedFragment{Ref: "ctxloom+local:dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
-			require.False(t, in.add(ingestedFragment{Ref: "ctxloom+builtin:dev#fragments/rules", Name: "builtin dev/rules", Content: "RULES"}))
-		})
-		require.Len(t, lines, 1)
-		assert.Contains(t, lines[0], "reached this context twice")
-	})
-
 	t.Run("two different refs, one item: warns and names both", func(t *testing.T) {
 		fs, _ := setupContextTestFS(t)
 		writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
@@ -330,49 +300,6 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	})
 	assert.NotContains(t, stderr, "contributed NO content",
 		"a profile whose fragment collapsed into an identical one is not gutted")
-}
-
-// TestIngestItemKey_IdentityIsSourceAgnosticAndSelectorBearing pins the exact
-// reduction the identity rule depends on, at the unit level: the builtin and
-// loader spellings of ONE item reduce to the same key, and every distinction
-// the rule must preserve survives the reduction.
-func TestIngestItemKey_IdentityIsSourceAgnosticAndSelectorBearing(t *testing.T) {
-	builtin := ingestItemKey("ctxloom+builtin:isolation#fragments/isolation-axes")
-	local := ingestItemKey("ctxloom:local@bundles/isolation#fragments/isolation-axes")
-	bare := ingestItemKey("isolation#fragments/isolation-axes")
-
-	assert.Equal(t, builtin, local, "the builtin and loader spellings of ONE item must reduce to one key")
-	assert.Equal(t, builtin, bare, "the bare local spelling must reduce to the same key too")
-
-	assert.NotEqual(t, builtin, ingestItemKey("ctxloom+builtin:isolation#fragments/other-axes"),
-		"a different item NAME is a different item")
-	assert.NotEqual(t, builtin, ingestItemKey("ctxloom+builtin:other-bundle#fragments/isolation-axes"),
-		"a different BUNDLE is a different item")
-	assert.NotEqual(t, builtin, ingestItemKey("ctxloom+builtin:isolation#commands/isolation-axes"),
-		"a different item KIND is a different item")
-
-	// A scheme-marked bundle half that does not parse is used VERBATIM rather
-	// than collapsed onto the bare name inside it: an unrecognized source must
-	// never dedup against a first-party one.
-	assert.Equal(t, "ctxloom:local@#fragments/x", ingestItemKey("ctxloom:local@#fragments/x"))
-
-	// A ref the grammar cannot parse is used verbatim, so it can only ever
-	// match a byte-identical spelling — never a different one.
-	assert.Equal(t, "not a ref", ingestItemKey("not a ref"))
-}
-
-// TestIngest_JoinOmitsBlankSectionsAndFragmentsKeepsThem pins the deliberate
-// split between the two readers of the accumulator: the assembled STRING must
-// not carry a "---" separator with nothing on one side of it, while the
-// fragment LIST must still report a blank fragment so a delivery path can tell
-// "no context was configured" from "everything configured resolved to nothing".
-func TestIngest_JoinOmitsBlankSectionsAndFragmentsKeepsThem(t *testing.T) {
-	in := newContextIngest()
-	require.True(t, in.add(ingestedFragment{Ref: "b#fragments/blank", Name: "b/blank", Content: "   \n "}))
-	require.True(t, in.add(ingestedFragment{Ref: "b#fragments/real", Name: "b/real", Content: "REAL"}))
-
-	assert.Equal(t, "REAL", in.join(), "a blank section must not be framed by a separator")
-	assert.Len(t, in.fragments(), 2, "the blank fragment is still an ingested fragment")
 }
 
 // indentYAML indents a block for embedding under a YAML literal scalar.

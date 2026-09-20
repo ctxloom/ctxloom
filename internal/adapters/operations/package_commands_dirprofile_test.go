@@ -7,7 +7,7 @@
 // directory default unions with an inline default. The directory path
 // reaches LoadCommandExports' curation point through profiles.ResolvedProfile
 // (the loader fallback in resolveProfilePromptRefs), not config's inline map.
-package backends
+package operations
 
 import (
 	"os"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
@@ -76,7 +77,7 @@ func TestLoadCommandExports_DirProfileCuratedSetExportsExactlyThose(t *testing.T
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review"}, bundlePromptItems(prompts),
 		"only the directory profile's listed prompt is exported; the globally-flagged 'hidden' is suppressed")
@@ -114,7 +115,7 @@ func TestLoadCommandExports_DirProfileUncuratedScopesToReferencedBundles(t *test
 		}},
 	}
 
-	prompts := LoadCommandExports(withSeed(t, cfg, seed), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, seed), nil)
 
 	items := bundlePromptItems(prompts)
 	assert.ElementsMatch(t, []string{"review", "explain"}, items,
@@ -132,7 +133,7 @@ func TestLoadCommandExports_DirProfileCurationUnionsParents(t *testing.T) {
 		"child": "parents:\n  - base\ncommands:\n  - \"dev-tools#commands/explain\"\n",
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review", "explain"}, bundlePromptItems(prompts),
 		"curated set unions the directory parent (review) + child (explain); 'hidden'/'commit' stay suppressed")
@@ -150,7 +151,7 @@ func TestLoadCommandExports_CurationUnionsAcrossDefaults(t *testing.T) {
 			"otherP": "commands:\n  - \"dev-tools#commands/review\"\n",
 		})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.ElementsMatch(t, []string{"review", "commit"}, bundlePromptItems(prompts),
 		"the curated set unions both defaults; taking only the first would yield one item")
@@ -177,13 +178,13 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 	// Gate granting exactly the review prompt's content hash → exported.
 	want := promptRawHash("REVIEW")
 	cfg.BindTrustForTesting(hashTrust(want))
-	prompts := LoadCommandExports(withSeed(t, cfg, seed), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, seed), nil)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts),
 		"a granted directory-curated prompt is exported")
 
 	// Gate denying → withheld (fail-closed); only builtins remain.
-	cfg.BindTrustForTesting(rejectingAll())
-	denied := LoadCommandExports(withSeed(t, cfg, seed), nil)
+	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
+	denied := commandsOf(t, withSeed(t, cfg, seed), nil)
 	assert.Empty(t, bundlePromptItems(denied),
 		"an un-granted directory-curated prompt must be withheld")
 }
@@ -201,7 +202,7 @@ func TestLoadCommandExports_DirProfileCuratedPinRoutedAndFailClosed(t *testing.T
 		"x": "commands:\n  - \"dev-tools#commands/review@c1\"\n",
 	})
 
-	prompts := LoadCommandExports(withSeed(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeed(t, cfg, devToolsSeed()), nil)
 
 	assert.Empty(t, bundlePromptItems(prompts),
 		"a curated @<commit> pin that can't be resolved is fail-closed, not silently downgraded to the unpinned HEAD")

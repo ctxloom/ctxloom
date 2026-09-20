@@ -139,9 +139,17 @@ func (o *Owner) reloadLocked(ctx context.Context) (*Snapshot, error) {
 }
 
 // build resolves the generation's Catalog and Trust from the sources and
-// binds both to cfg, so a consumer that reaches this generation through its
-// *Config sees the same catalog and gate the Snapshot carries.
-func (o *Owner) build(ctx context.Context, cfg *Config, warnings []Warning) (*Snapshot, error) {
+// binds both to the generation's OWN Config value, so a consumer that
+// reaches this generation through its *Config sees the same catalog and gate
+// the Snapshot carries — and a consumer still holding an earlier
+// generation's *Config keeps that generation's. The Config the source read
+// is copied here rather than bound in place: bindGeneration is never called
+// on a published value, and that must hold whatever the source returns (a
+// source that hands back one shared value on every read would otherwise
+// have a reload rebind a generation under a reader mid-assembly).
+func (o *Owner) build(ctx context.Context, read *Config, warnings []Warning) (*Snapshot, error) {
+	generation := *read
+	cfg := &generation
 	cfg.rep = o.rep
 	if o.engines != nil {
 		if err := cfg.Validate(*o.engines); err != nil {

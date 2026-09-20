@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	claudereader "github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader/claude"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/hosting"
 )
@@ -38,8 +37,6 @@ func Hosting() hosting.Hosting {
 		Surfaces:       claude.Declaration(),
 		SettingsWriter: agent.Provide(claude.NewWriter),
 		InstanceConfig: agent.Provide(claude.NewInstanceConfigWriter),
-		CommandExports: agent.Provide(CommandExports),
-		SkillExports:   agent.Provide(SkillExports),
 		// claude's project settings.json collapses onto its user-global one
 		// exactly when workDir == $HOME — found live (`manage hooks install`
 		// run from $HOME silently went global).
@@ -137,28 +134,4 @@ func containerAuthHint() string {
 // the version leads, the product name follows in parentheses.
 func parseVersion(output string) (string, error) {
 	return engineversion.TokenAt(output, 0)
-}
-
-// CommandExports resolves the per-prompt claude-code export config.
-func CommandExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return hosting.BuildCommandExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		cc := p.LLM.ClaudeCode
-		return agent.CommandExport{
-			Enabled:      cc.IsEnabled(),
-			Description:  cc.Description,
-			ArgumentHint: cc.ArgumentHint,
-			AllowedTools: cc.AllowedTools,
-			Model:        cc.Model,
-		}
-	})
-}
-
-// SkillEnabled is claude-code's per-skill enablement: the one pick both the
-// materializer (SkillExports) and the skill-mates hook read, so what the hook
-// names as a mate is a skill the engine actually has.
-func SkillEnabled(s *bundles.LoadedSkill) bool { return s.LLM.ClaudeCode.IsEnabled() }
-
-// SkillExports resolves claude-code's per-skill enablement.
-func SkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return hosting.BuildSkillExports(skills, SkillEnabled)
 }

@@ -46,7 +46,7 @@ func TestConfig_ResolveBundleSkills_FromDirectoryProfile(t *testing.T) {
 	require.Len(t, got, 1, "the profile's bundle-shipped skill resolves")
 	assert.Equal(t, "humanize", got[0].Frontmatter.Name)
 	assert.Equal(t, "Removes AI writing tells.", got[0].Frontmatter.Description)
-	assert.True(t, got[0].LLM.ClaudeCode.IsEnabled())
+	assert.JSONEq(t, `{"enabled":true}`, string(got[0].Exports["claude-code"]), "the authored block is carried through")
 
 	var sawScript bool
 	for _, f := range got[0].Files {

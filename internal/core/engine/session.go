@@ -64,20 +64,27 @@ type FragmentItem struct {
 	Premise string
 }
 
-// CommandItem is one command with this engine's opaque exports block.
+// CommandItem is one command with this engine's opaque exports block. A
+// Curated item was named by a profile explicitly: the engine exports it
+// even where its block opts out, because naming it is the ask.
 type CommandItem struct {
-	Ref     string
-	Name    string
-	Body    []byte
-	Exports json.RawMessage // decoded against Definition.ExportSchema
+	Ref         string
+	Name        string
+	Description string // the authored help text; an engine's block may override it
+	Body        []byte
+	Exports     json.RawMessage // decoded against Definition.ExportSchema
+	Curated     bool
 }
 
-// SkillItem is one skill package with this engine's opaque exports block.
+// SkillItem is one skill package with this engine's opaque exports block;
+// Name and Description are the package's own frontmatter, carried verbatim.
 type SkillItem struct {
-	Ref     string
-	Name    string
-	Files   []SkillFile
-	Exports json.RawMessage
+	Ref         string
+	Name        string
+	Description string
+	Files       []SkillFile
+	Exports     json.RawMessage
+	Curated     bool
 }
 
 // SkillFile is one file of a skill package.
@@ -85,6 +92,7 @@ type SkillFile struct {
 	Path   string
 	Digest string
 	Size   int64
+	Mode   uint32 // POSIX permission bits; the exec bit on a script is load-bearing
 	Bytes  []byte
 }
 
@@ -98,12 +106,17 @@ type Exports struct {
 	DenyTools []string
 }
 
-// CommandExport is one command in the engine's native slash-command shape.
+// CommandExport is one command in the engine's native slash-command shape:
+// the export-facing name, the body, whether this engine exports it, and the
+// help text and metadata it decoded from its own block.
 type CommandExport struct {
-	Name    string
-	Body    []byte
-	Enabled bool
-	Meta    map[string]string
+	Name         string
+	Body         []byte
+	Enabled      bool
+	Description  string
+	ArgumentHint string
+	AllowedTools []string
+	Model        string
 }
 
 // SkillExport is one skill package as the engine enables it. Name and

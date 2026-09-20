@@ -71,7 +71,7 @@ flowchart RL
   ENG["core/engine (born (slice 2): the vocabulary; the contract half arrives in 6b — today core/agent stands beside it)"]:::core
   BUN[core/bundles]:::core
   PROF[core/profiles]:::core
-  COMP["core/composite (Trust holder + the one cascade, landed 5; the package arrives in 6)"]:::core
+  COMP["core/composite (Trust holder + the one cascade, landed 5; Select/Assemble/Package/EngineItems/IndexOf, landed 6; Encode/Decode and the carriers arrive in 8)"]:::core
   CFG[core/config]:::core
   DELIV["core/delivery (born 12)"]:::later
   LAUNCH["core/launch (born (slice 2): the axes and Source; Resolve arrives in 7)"]:::core
@@ -123,7 +123,7 @@ flowchart TB
     SESS["sessions"]:::core
     ENG["engine (port + contract) — the vocabulary (slice 2) and the DECLARATIVE half (6b): Definition · Base · Registry · the typed approaches · conformance; the instance half (Exec, Exports, Home, Container, Transcripts) arrives in 11b; today: agent, the delivery seam, beside it"]:::core
     BP["bundles · profiles"]:::core
-    COMP["composite — Trust holder + the one cascade (landed 5); the package arrives in 6"]:::core
+    COMP["composite — Trust holder + the one cascade (landed 5); Select, Assemble, the Package, EngineItems, IndexOf (landed 6); Encode/Decode and the carriers arrive in 8"]:::core
     CFG["config"]:::core
     DELIV["delivery — born 12"]:::later
     LAUNCH["launch — born (slice 2): the axes and Source; Resolve arrives in 7"]:::core
@@ -3090,8 +3090,8 @@ flowchart LR
   end
   subgraph RL["RESOLVED LAUNCH (landed 7: Resolve, the Cells port, Route, the endpoint; 5, 8, 9, 11b, 12 remain)"]
     SNAP["config.Owner.Current() → *Snapshot{Config, Catalog(), Trust, Generation} — captured ONCE per operation; Reload after a pull, after a scaffold, once per spawn (landed 4)"]:::decide
-    PKG["Deps.Assembler.Assemble(snap, Selection) → Assembled; .Surfaces → Package{Context, Managed (opaque launch.Surfaces)} (landed 7 as a PORT over AssembleContext + AssembleManagedConfig; composite.Assemble → Package is 5's)"]:::decide
-    EXP["engine.Exports(pkg.EngineItems(name)) (11b; Launch.Exports declared, zero)"]:::decide
+    PKG["Deps.Assembler.Assemble(snap, Selection) → Assembled; .Surfaces → Package{Context, Managed (opaque launch.Surfaces)} (the port landed 7; behind it ONE composite.Assemble per launch, landed 6 — operations.AssemblePackage → composite.Package, Surfaces projected off the same Package)"]:::decide
+    EXP["engine.Exports(pkg.EngineItems(name)) (landed 6 on the port: claude decodes its block against ExportSchema, mock exports everything; Surfaces reads it; Launch.Exports itself is declared and zero until the runner reads it, 11b)"]:::decide
     CELL["launch.Cells.Prepare(CellRequest{Axes, Engine, Identity, ProjectRoot, SessionDir, DirtyTree, Image, Host, HomeMode, Env}) → Cell{Paths advised once, Env, Home, Container, Cleanup, Handle} (landed 7: operations.Cells over isolation.Prepare + the dirty tree + BindAgentHome)"]:::decide
     PLAN["delivery.Route(items, def, pref, cell roots) → Plan (routes) | ErrUncarried | Unrootable (landed 7 over engine.Items; AcceptLoss total until 12)"]:::decide
     ENC["composite.Encode(pkg) → Encoded; Resolve measures → Inline.Carry | ClaimCheck.Carry → Carrier (5)"]:::decide
@@ -3139,7 +3139,7 @@ sequenceDiagram
   OPS->>OPS: StartRun: MintIdentity (AssignHarp + the liveness lock) → Identity (landed 7; sessions.Mint and the run credential at mint are 2's/9's)
   OPS->>LR: Resolve(Deps{Snapshot, Engines, Assembler, Cells, Endpoints, Sessions, Host}, Source{Identity, …}) (landed 7)
   LR->>CELLS: Prepare(CellRequest{Axes{none,host}, Engine, Identity, ProjectRoot, SessionDir, HomeMode, Host}) → Cell (OnHost advice; the transport handle) (landed 7: operations.Cells)
-  LR->>LR: Select → Assemble (port) → engine+mode → axes → permission floored ONCE → surfaces → Route over the cell's roots → MintMCP once (BindMCP, BindEngine) (landed 7; Exports 11b, Encode/carry 5)
+  LR->>LR: Select → Assemble (composite.Assemble once, behind the port; landed 6) → engine+mode → axes → permission floored ONCE → surfaces (Engine.Exports over the same Package) → Route over the cell's roots → MintMCP once (BindMCP, BindEngine) (landed 7; Encode/carry 8)
   LR-->>OPS: Launch
   OPS-->>CLI: Launch → bindLaunch; hostCoordinator(harp, Axes.Runtime); EncodeLaunch(l) + the resumed transcript + the startup findings → today's RunStart (landed 7)
   CLI->>SP: today's transport over the cell's handle (go-plugin | docker-exec | the owned run) — StartRunner with a pty is 13's; ctx scopes prepare+attach only (9)
@@ -3189,9 +3189,9 @@ flowchart TB
   C["cache: <app>/cache/bundles/<name>@<pin> (SHA256SUMS + .sigs/ travel with it)"]:::s
   L["local tree: <project>/.ctxloom/local/bundles/<name> — manifest verified if present (landed 5); invalid ⇒ admitted-as-unsigned, ReasonStaleLocalSignature (locality is the boundary)"]:::s
   RD["bundles.Reader adapters → []BundleRead with facts (form, signer, retraction) → Catalog (a value in Snapshot)"]:::s
-  V2["VERIFY 2 (exposure): Snapshot.Trust — composite.NewTrust over TrustRoot · ReviewRecords · RetractionRecords (landed 5: the gate, its cascade, withhold-by-default; the readers still resolve inside core/bundles) — composite.Assemble arrives in 6; Ungated() cannot assemble"]:::v
-  P["Package{Items with Decision, Exports opaque per engine, Attestation}"]:::s
-  E["Engine.Exports(pkg.EngineItems(name)) — decodes its own block against Definition.ExportSchema (11b; today the hosting record's CommandExports/SkillExports project the bundle model)"]:::s
+  V2["VERIFY 2 (exposure): Snapshot.Trust — composite.NewTrust over TrustRoot · ReviewRecords · RetractionRecords (landed 5: the gate, its cascade, withhold-by-default; the readers still resolve inside core/bundles) — composite.Assemble decides at exposure (landed 6): the one constructor, over a Catalog, a Selection (composite.Select) and the Trust; Ungated() cannot assemble (ErrUngatedAssembly); a withheld required item refuses unless the caller accepts the loss"]:::v
+  P["composite.Package (landed 6): Items with Decision and Signer, Commands/Skills with Exports opaque per engine name (bundles.EngineBlocks), the Attestation (one row per delivered item + the withheld tally), Findings for the surface to voice"]:::s
+  E["Engine.Exports(pkg.EngineItems(name)) — decodes its own block against Definition.ExportSchema (landed 6: claude refuses a block its schema rejects, naming the engine; gen-schemas publishes engine-exports-<name>; core never reads inside a block — the one frozen exception is the exec preimage contract in core/bundles)"]:::s
   PL["delivery.Route → Plan (routes; losses)"]:::s
   ENC["Encode → Carrier (inline | claim in <harp>/persist/package/<digest>)"]:::s
   V3["VERIFY 3 (at rest, in the runner): Redeem → Decode checks the digest; skill files written from the decoded set; RequireDelivered asserts the bytes landed"]:::v

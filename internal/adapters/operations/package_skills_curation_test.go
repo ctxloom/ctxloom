@@ -9,14 +9,12 @@
 // tests build REAL on-disk directory-form bundles/profiles (like
 // operations.TestMaterializeProfile_WritesSkills) rather than seeding bare
 // in-memory bundle structs.
-package backends
+package operations
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	claudeengine "github.com/ctxloom/ctxloom/internal/engines/claude/engine"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +79,7 @@ func TestLoadSkillExports_CuratedSetExportsExactlyThoseAndSuppressesUncurated(t 
 	writeSkillProfile(t, appDir, "curated", "skills:\n  - skill-bundle#skills/shown\n")
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	skills := LoadSkillExports(cfg, []string{"curated"})
+	skills := skillsOf(t, cfg, []string{"curated"})
 
 	assert.ElementsMatch(t, []string{"shown"}, skillItemNames(skills),
 		"only the profile-curated skill exports; the bundle's other skill ('hidden') is suppressed by curation")
@@ -98,7 +96,7 @@ func TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills(t *testing.T) {
 	writeSkillProfile(t, appDir, "uncurated", "")
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	skills := LoadSkillExports(cfg, []string{"uncurated"})
+	skills := skillsOf(t, cfg, []string{"uncurated"})
 
 	assert.ElementsMatch(t, []string{"shown", "hidden"}, skillItemNames(skills),
 		"an uncurated profile exports every skill its bundles ship")
@@ -106,7 +104,7 @@ func TestLoadSkillExports_UncuratedProfileExportsAllBundleSkills(t *testing.T) {
 	// Per-engine opt-out is still respected on the UNCURATED path: "hidden"
 	// disabled claude-code at the bundle level must resolve disabled for
 	// claude-code, while "shown" (no opt-out) resolves enabled.
-	ex := claudeengine.SkillExports(skills)
+	ex := claudeSkillExportsOf(t, cfg, []string{"uncurated"})
 	byName := map[string]bool{}
 	for _, e := range ex {
 		byName[e.Name] = e.Enabled
@@ -129,10 +127,10 @@ func TestLoadSkillExports_CuratedForceEnablesBundleOptOut(t *testing.T) {
 	writeSkillProfile(t, appDir, "curated-hidden", "skills:\n  - skill-bundle#skills/hidden\n")
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-	skills := LoadSkillExports(cfg, []string{"curated-hidden"})
+	skills := skillsOf(t, cfg, []string{"curated-hidden"})
 	require.ElementsMatch(t, []string{"hidden"}, skillItemNames(skills))
 
-	ex := claudeengine.SkillExports(skills)
+	ex := claudeSkillExportsOf(t, cfg, []string{"curated-hidden"})
 	require.Len(t, ex, 1)
 	assert.True(t, ex[0].Enabled, "curating a skill force-enables it even though the bundle opted it out of claude-code")
 }

@@ -5,7 +5,7 @@
 // the identical trust decision every other companion surface goes through —
 // never the builtin nil-gate exemption. See internal/core/config/companion_loadout_test.go
 // for the sibling hooks/MCP/fragments proofs this mirrors.
-package backends
+package operations
 
 import (
 	"os"
@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
@@ -83,13 +84,13 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.BindTrustForTesting(admitting())
+	cfg.BindTrustForTesting(compositetest.Trust())
 
-	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
+	prompts := commandsOf(t, withCompanions(t, cfg), nil)
 	items := bundlePromptItems(prompts)
 	require.Contains(t, items, "task-runner", "ltk's companion command must export with no profile wiring")
 
-	ex := CommandExportsFor("claude-code", prompts)
+	ex := claudeExportsOf(t, withCompanions(t, cfg))
 	var found bool
 	for _, e := range ex {
 		if e.Name == "ltk/task-runner" {
@@ -121,9 +122,9 @@ func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExempt
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.BindTrustForTesting(rejectingAll())
+	cfg.BindTrustForTesting(compositetest.Trust(compositetest.RejectAll()))
 
-	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
+	prompts := commandsOf(t, withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
 		"an unsigned/withheld companion loadout must not export its commands as slash commands")
 }
@@ -140,7 +141,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.BindTrustForTesting(admitting())
+	cfg.BindTrustForTesting(compositetest.Trust())
 	appDir := cfg.GetAppPaths()[0]
 	require.NoError(t, os.MkdirAll(paths.ProfilesPath(appDir), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(paths.ProfilesPath(appDir), "p.yaml"),
@@ -150,9 +151,9 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"p"}}},
 	})
-	cfg.BindTrustForTesting(admitting())
+	cfg.BindTrustForTesting(compositetest.Trust())
 
-	prompts := LoadCommandExports(withSeedAndCompanions(t, cfg, devToolsSeed()), nil)
+	prompts := commandsOf(t, withSeedAndCompanions(t, cfg, devToolsSeed()), nil)
 	items := bundlePromptItems(prompts)
 	assert.Contains(t, items, "review", "the profile's curated command must still export")
 	assert.Contains(t, items, "task-runner", "the companion's command must ALSO export under curation, not be replaced by it")
@@ -166,9 +167,9 @@ func TestLoadCommandExports_NoCompanionOnPath_NoCommandExported(t *testing.T) {
 	cfg := companionCfg(t)
 	restoreLook := companions.SetLookPathForTesting(func(string) (string, error) { return "", os.ErrNotExist })
 	defer restoreLook()
-	cfg.BindTrustForTesting(admitting())
+	cfg.BindTrustForTesting(compositetest.Trust())
 
-	prompts := LoadCommandExports(withCompanions(t, cfg), nil)
+	prompts := commandsOf(t, withCompanions(t, cfg), nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
 		"absent from PATH, ltk contributes no command export")
 }

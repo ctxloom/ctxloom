@@ -105,6 +105,11 @@ type Engine interface {
 	// refuses LOUDLY (ErrUnsupported naming the kind) when a surface this
 	// engine requires to run the session is nil on its Definition.
 	Instance(s Session) (Instance, error)
+	// Exports maps a package's items to this engine's native export shapes,
+	// decoding each item's per-engine block against Definition.ExportSchema.
+	// A block the schema refuses is an error naming the engine and the
+	// item: the engine exports nothing on a guess.
+	Exports(items Items) (Exports, error)
 }
 
 // Instance is one engine kind bound to one session.

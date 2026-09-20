@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
@@ -66,8 +65,6 @@ func TestHosting_EveryCapabilityClaudeCarriesIsProvided(t *testing.T) {
 		"SettingsWriter":    d.SettingsWriter.Decided() && d.SettingsWriter.AbsentReason() == "",
 		"InstanceConfig":    d.InstanceConfig.Decided() && d.InstanceConfig.AbsentReason() == "",
 		"Provisioning":      d.Provisioning.Decided() && d.Provisioning.AbsentReason() == "",
-		"CommandExports":    d.CommandExports.Decided() && d.CommandExports.AbsentReason() == "",
-		"SkillExports":      d.SkillExports.Decided() && d.SkillExports.AbsentReason() == "",
 		"HookGlobalScope":   d.HookGlobalScope.Decided() && d.HookGlobalScope.AbsentReason() == "",
 		"VersionCommand":    d.VersionCommand.Decided() && d.VersionCommand.AbsentReason() == "",
 		"TranscriptReaders": d.TranscriptReaders.Decided() && d.TranscriptReaders.AbsentReason() == "",
@@ -83,27 +80,6 @@ func TestParseVersion_VersionLeadsNameFollows(t *testing.T) {
 	v, err := parseVersion("2.1.225 (Claude Code)\n")
 	require.NoError(t, err)
 	assert.Equal(t, "2.1.225", v)
-}
-
-func TestCommandExports_ProjectsTheClaudeCodeBlock(t *testing.T) {
-	off := false
-	ex := CommandExports([]*bundles.LoadedContent{{
-		Name: "p", Content: "body",
-		LLM: bundles.LLMExports{ClaudeCode: bundles.ClaudeCodeConfig{Enabled: &off, Description: "d", ArgumentHint: "h", AllowedTools: []string{"Read"}, Model: "m"}},
-	}})
-	require.Len(t, ex, 1)
-	assert.Equal(t, agent.CommandExport{Name: "p", Content: "body", Enabled: false, Description: "d", ArgumentHint: "h", AllowedTools: []string{"Read"}, Model: "m"}, ex[0])
-}
-
-func TestSkillExports_ReadsTheClaudeCodeEnablement(t *testing.T) {
-	off := false
-	ex := SkillExports([]*bundles.LoadedSkill{
-		{Frontmatter: bundles.SkillFrontmatter{Name: "on"}},
-		{Frontmatter: bundles.SkillFrontmatter{Name: "off"}, LLM: bundles.SkillLLMExports{ClaudeCode: bundles.SkillEngineExport{Enabled: &off}}},
-	})
-	require.Len(t, ex, 2)
-	assert.True(t, ex[0].Enabled)
-	assert.False(t, ex[1].Enabled)
 }
 
 // Claude's refresh token is single-use and rotating, so the ORDER is the

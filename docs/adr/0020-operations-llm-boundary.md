@@ -4,7 +4,8 @@
 
 ## Status
 
-Accepted.
+Accepted; amended 2026-09-19 (see "Amendment: per-engine exports are opaque
+blocks" below — the third clause of the Decision no longer holds).
 
 ## Context
 
@@ -85,3 +86,39 @@ to pretend otherwise behind a neutral-description indirection.
 - A third LM backend lands AND the per-backend description fan-out in
   `getBuiltinPrompts()` becomes a maintenance burden — at that point reconsider a
   neutral `LoadedContent.Description` with per-backend fallback.
+
+## Amendment (2026-09-19): per-engine exports are opaque blocks
+
+The typed per-backend export structs this ADR let operations populate are
+gone. A bundle item carries `exports: {<engine name>: <block>}` and the
+bundle package models it as `bundles.EngineBlocks` — one opaque JSON block
+per engine name. The boundary is now:
+
+- **Core never reads inside a block.** `core/bundles` carries blocks as
+  bytes; `core/composite` assembles a `Package` whose commands and skills
+  carry their blocks per engine name and hands an engine ITS block and
+  nothing of another's (`composite.Package.EngineItems`); `operations`
+  resolves the config and calls `composite.Assemble` once. None of them
+  spells an engine's field names.
+- **The engine decodes its own block** against its declared schema
+  (`engine.Definition.ExportSchema`, published per engine by `gen-schemas`
+  as `engine-exports-<name>`), through `engine.Engine.Exports(items)`. A
+  block the schema refuses is an error naming the engine and the item — the
+  engine exports nothing on a guess.
+- **A command's help text is neutral.** The authored `description:` rides
+  the item; an engine's block may override it. ctxloom's own embedded
+  commands carry their frontmatter description the same way, so the
+  per-backend fan-out this ADR once kept in operations does not exist.
+- **One frozen exception, in the bundle package.** The exec trust preimage
+  (`signing.CommandPreimageContract`) fixed its bytes as a canonicalisation
+  of the claude-code block's fields; `bundles.CommandSurface.ExportsPayload`
+  still reads that one block to produce them, so every existing
+  countersignature verifies. A block for another engine rides outside that
+  preimage. Widening it is a contract bump that re-signs every bundle, and
+  a human's call.
+
+The rejected alternative above — a neutral description with per-engine
+fallback — is what landed, because the typed schema it was weighed against
+no longer exists. The revive trigger about a third backend is superseded: a
+new engine needs no change to the bundle package, to composite, or to
+operations; it declares its schema and decodes its block.

@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ type LoadedContent struct {
 	Version      string   // Bundle version
 	Tags         []string // Combined tags
 	Content      string   // The actual content
+	Description  string   // A command's authored help text ("" for a fragment)
 	Installation string   // Setup/installation instructions for tooling
 	IsDistilled  bool     // Whether distilled version was used
 	DistilledBy  string   // Model that created distillation
@@ -36,8 +38,10 @@ type LoadedContent struct {
 	// ItemRead, which is where they originate.
 	TrustRef string
 	Signer   string
-	Exports  map[string]string // Exported variables (from generators)
-	LLM      LLMExports        // Per-LLM export settings (slash-command config)
+	Exports  EngineBlocks // per engine name, opaque; that engine decodes its block
+	// Curated marks an item a profile named explicitly; an engine exports
+	// it even where its block opts out, because naming it is the ask.
+	Curated bool
 	// Premise is the fragment's authored applicability condition, carried
 	// through delivery so the assembler can tell an unconditional fragment
 	// from one the acting agent must select. "" means unconditional — see
@@ -56,14 +60,15 @@ type LoadedContent struct {
 // a read result must not be able to reach a body that no gate has cleared and
 // no form has been chosen for. There is no such field to reach.
 type ItemRead struct {
-	Name         string     // Full name (bundle/item)
-	Bundle       string     // Owning bundle's loader name (canonical ref for remote bundles)
-	Item         string     // Bare fragment/command name within the bundle
-	Version      string     // Bundle version
-	Tags         []string   // Combined tags
-	Installation string     // Setup/installation instructions for tooling
-	DistilledBy  string     // Model that created the distillation, if any
-	LLM          LLMExports // Per-LLM export settings (slash-command config)
+	Name         string       // Full name (bundle/item)
+	Bundle       string       // Owning bundle's loader name (canonical ref for remote bundles)
+	Item         string       // Bare fragment/command name within the bundle
+	Version      string       // Bundle version
+	Tags         []string     // Combined tags
+	Description  string       // A command's authored help text ("" for a fragment)
+	Installation string       // Setup/installation instructions for tooling
+	DistilledBy  string       // Model that created the distillation, if any
+	Exports      EngineBlocks // per engine name, opaque; that engine decodes its block
 	// Premise is the read fact behind conditional delivery: the fragment's
 	// authored applicability condition, "" for an unconditional fragment.
 	// Commands never carry one. See BundleFragment.Premise.
@@ -121,12 +126,12 @@ func (c *LoadedContent) ExportName() string {
 	if c.Bundle == "" || c.Item == "" {
 		return c.Name
 	}
-	return exportBaseName(c.Bundle) + "/" + c.Item
+	return ExportBaseName(c.Bundle) + "/" + c.Item
 }
 
-// exportBaseName shortens a bundle loader name to its last path segment,
+// ExportBaseName shortens a bundle loader name to its last path segment,
 // stripping the canonical ref's "<url>@<type>/" prefix when present.
-func exportBaseName(bundleName string) string {
+func ExportBaseName(bundleName string) string {
 	base := bundleName
 	if i := strings.LastIndex(base, "@"); i >= 0 {
 		base = base[i+1:]
@@ -135,26 +140,6 @@ func exportBaseName(bundleName string) string {
 		base = base[i+1:]
 	}
 	return base
-}
-
-// ClaudeCodeConfig holds configuration for exporting prompts as Claude Code slash commands.
-type ClaudeCodeConfig struct {
-	Enabled      *bool    `yaml:"enabled"`       // nil = true (opt-out model)
-	Description  string   `yaml:"description"`   // For /help display
-	ArgumentHint string   `yaml:"argument_hint"` // Autocomplete hint
-	AllowedTools []string `yaml:"allowed_tools"` // Tool restrictions
-	Model        string   `yaml:"model"`         // Override model
-}
-
-// IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c ClaudeCodeConfig) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
-}
-
-// LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
-// surfaces as a slash command in each backend — keyed by backend name.
-type LLMExports struct {
-	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.
@@ -186,7 +171,10 @@ func (c Catalog) ListAllFragments() ([]ContentInfo, error) {
 	for _, read := range c.Reads() {
 		bundleInfo, bundle := read, read.Bundle
 
-		for name, frag := range bundle.Fragments {
+		// By name: a listing is what tag selection assembles context from,
+		// so its order is the context's order and must not be the map's.
+		for _, name := range slices.Sorted(maps.Keys(bundle.Fragments)) {
+			frag := bundle.Fragments[name]
 			// Use bundleInfo.Name (full path) instead of bundle.Name (just filename)
 			key := bundleInfo.DisplayName() + "/" + name
 			if seen.Has(key) {
@@ -223,7 +211,8 @@ func (c Catalog) ListAllCommands() ([]ContentInfo, error) {
 	for _, read := range c.Reads() {
 		bundleInfo, bundle := read, read.Bundle
 
-		for name, prompt := range bundle.Commands {
+		for _, name := range slices.Sorted(maps.Keys(bundle.Commands)) {
+			prompt := bundle.Commands[name]
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
 			key := bundleInfo.DisplayName() + "/" + name
 			if seen.Has(key) {
@@ -320,34 +309,44 @@ func ParseItemAsk(ask string) (ItemAsk, error) {
 	return ItemAsk{Bundle: base, Kind: kind, Item: item, Scoped: true}, nil
 }
 
-// fragmentRead builds the ItemRead for a fragment: every form the store holds
-// plus the trust facts the process stage decides on. TrustRef is minted from
-// the bundle's honest TYPED source ref (BundleRead.SourceRef) — canonical for
-// a cloned bundle so its text gates like an executable, the local name for a
-// project bundle so its text auto-trusts — through the canonical
+// itemRead builds the ItemRead every text kind shares: the item's identity
+// and the read facts the process stage decides on. TrustRef is minted from
+// the bundle's honest TYPED source ref (BundleRead.SourceRef) — canonical
+// for a cloned bundle so its text gates like an executable, the local name
+// for a project bundle so its text auto-trusts — through the canonical
 // bundle-reference grammar (ItemRefFor), not hand-concatenated from
 // Bundle.contentSourceRef's string. That is the SAME keying the exec gate
-// uses.
-func fragmentRead(read BundleRead, fragName string, frag BundleFragment) (*ItemRead, error) {
+// uses. What differs between the kinds — a fragment's premise, a command's
+// blocks — the caller sets on the result.
+func itemRead(read BundleRead, kind trust.ItemKind, name string, body ItemBody, resolve func(bool) ItemSurface) (*ItemRead, error) {
 	bundle := read.Bundle
-	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindFragment, fragName)
+	trustRef, err := ItemRefFor(read.SourceRef(), kind, name)
 	if err != nil {
-		return nil, fmt.Errorf("fragment %q in bundle %q: %w", fragName, bundle.Name, err)
+		return nil, fmt.Errorf("%s %q in bundle %q: %w", kind, name, bundle.Name, err)
 	}
 	return &ItemRead{
-		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
+		Name:         fmt.Sprintf("%s/%s", bundle.Name, name),
 		Bundle:       bundle.Name,
-		Item:         fragName,
+		Item:         name,
 		Version:      bundle.Version,
-		Tags:         slices.Concat(bundle.Tags, frag.Tags),
-		Installation: frag.Installation,
-		DistilledBy:  frag.DistilledBy,
-		Premise:      frag.Premise,
-		Resolve:      frag.Resolve,
+		Tags:         slices.Concat(bundle.Tags, body.Tags),
+		Installation: body.Installation,
+		DistilledBy:  body.DistilledBy,
+		Resolve:      resolve,
 		TrustRef:     trustRef,
 		Signer:       bundle.Signer(),
 		Read:         read,
 	}, nil
+}
+
+// fragmentRead is itemRead for a fragment, carrying its premise.
+func fragmentRead(read BundleRead, fragName string, frag BundleFragment) (*ItemRead, error) {
+	r, err := itemRead(read, trust.KindFragment, fragName, frag.ItemBody, frag.Resolve)
+	if err != nil {
+		return nil, err
+	}
+	r.Premise = frag.Premise
+	return r, nil
 }
 
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
@@ -456,31 +455,18 @@ func (c Catalog) ReadCommand(name string) ([]*ItemRead, error) {
 	return c.commandFromBundle(ask.Bundle, ask.Item)
 }
 
-// commandRead builds the ItemRead for a command. See fragmentRead — the same
-// read facts, minted the same way (ItemRefFor over the typed SourceRef).
-// TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir() is
-// "prompts") even though the load selector is "#commands/", so the item-kind
-// rename does not invalidate existing trust grants.
+// commandRead is itemRead for a command, carrying its per-engine blocks.
+// TrustRef keeps the "prompts" kind segment (trust.KindPrompt, whose Dir()
+// is "prompts") even though the load selector is "#commands/", so the
+// item-kind rename does not invalidate existing trust grants.
 func commandRead(read BundleRead, promptName string, prompt BundleCommand) (*ItemRead, error) {
-	bundle := read.Bundle
-	trustRef, err := ItemRefFor(read.SourceRef(), trust.KindPrompt, promptName)
+	r, err := itemRead(read, trust.KindPrompt, promptName, prompt.ItemBody, prompt.Resolve)
 	if err != nil {
-		return nil, fmt.Errorf("command %q in bundle %q: %w", promptName, bundle.Name, err)
+		return nil, err
 	}
-	return &ItemRead{
-		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
-		Bundle:       bundle.Name,
-		Item:         promptName,
-		Version:      bundle.Version,
-		Tags:         slices.Concat(bundle.Tags, prompt.Tags),
-		Installation: prompt.Installation,
-		DistilledBy:  prompt.DistilledBy,
-		LLM:          prompt.LLM,
-		Resolve:      prompt.Resolve,
-		TrustRef:     trustRef,
-		Signer:       bundle.Signer(),
-		Read:         read,
-	}, nil
+	r.Description = prompt.Description
+	r.Exports = prompt.Exports
+	return r, nil
 }
 
 // ReadBundleCommands reports every command shipped by the bundle at bundleRef

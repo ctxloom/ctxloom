@@ -1207,6 +1207,11 @@ func (c *Config) BundleLoader() *bundles.Loader {
 	return loader
 }
 
+// VersionResolver is the generation's pinned-version resolver: how an ask
+// carrying "@<commit>" reaches that historical version. nil when the
+// generation cannot fetch one.
+func (c *Config) VersionResolver() bundles.BundleVersionResolver { return c.versionResolver }
+
 // GetConfigFilePath returns the path to the primary config file.
 // Uses the closest project .ctxloom directory.
 func (c *Config) GetConfigFilePath() (string, error) {

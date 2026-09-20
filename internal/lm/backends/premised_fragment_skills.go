@@ -8,22 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
-// SupportsSkills reports whether backendName has an Agent Skills surface.
-//
-// It reads the SAME descriptor field SkillExportsFor gates on, deliberately: a
-// caller that BRANCHES on skills support and then emits through SkillExportsFor
-// must not be able to disagree with it about what that support is. A second
-// source here — a Declaration lookup, say — would be a second policy, and
-// the two would diverge the first time either changed.
-func SupportsSkills(backendName string) bool {
-	d, ok := lookup(backendName)
-	if !ok {
-		return false
-	}
-	_, provided := d.SkillExports.Get()
-	return provided
-}
-
 // PremisedFragment is one fragment a STATIC assembly withheld: its qualified
 // ref, the premise it applies under, and its already-gated body.
 type PremisedFragment struct {

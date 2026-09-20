@@ -195,13 +195,14 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		Version:      r.Version,
 		Tags:         r.Tags,
 		Content:      string(s.Body),
+		Description:  r.Description,
 		Installation: r.Installation,
 		// From the form Resolve actually chose, never re-derived: a
 		// re-derivation drops terms (no_distill) and describes bytes that were
 		// never served.
 		IsDistilled: s.Form == FormDistilled,
 		DistilledBy: r.DistilledBy,
-		LLM:         r.LLM,
+		Exports:     r.Exports,
 		Form:        s.Form,
 		TrustRef:    r.TrustRef,
 		Signer:      r.Signer,

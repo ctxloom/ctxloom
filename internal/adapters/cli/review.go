@@ -143,35 +143,25 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	return nil
 }
 
-// resolveReviewSigner resolves the key `ctxloom review` will countersign
-// with, via the unified zero-config discovery chain (internal/adapters/signing/agentkey:
-// explicit key, then `git config user.signingkey`, then the sole ssh-agent
-// identity — spec §7A.4).
-//
-// explicitKey is the caller's merged --key/sign.key value, exactly as
-// `ctxloom sign` supplies it. Review used to pass "" here, so sign.key
-// disambiguated signing but NOT approving: with several ssh-agent identities
-// and no git user.signingkey, sign worked, `ctxloom doctor`'s SIGNKEY-k1
-// check reported ok — and review still failed ambiguous (trim-gloss). "Unified
-// chain" means the same inputs, not just the same function.
-//
-// project=true hard-errors when no key is available —
-// spec §9.5: "ctxloom review --project therefore requires a key and refuses to
-// run without one" — because an unsigned record in the COMMITTABLE store would
-// be a forgery primitive with a friendly name. Otherwise a missing key
-// degrades to (nil, true, nil): the caller offers the unsigned path.
+// resolveReviewSigner is `ctxloom review`'s rendering over
+// operations.ResolveLocalSigner — the one signing-key decision every signing
+// surface shares. explicitKey is the merged --key/sign.key value, exactly as
+// `ctxloom sign` supplies it. The frontend adds two things and decides
+// nothing: the remedy prose for a refused --project run, and the candidate
+// listing when discovery was ambiguous (which is how the unsigned path is
+// offered).
 func resolveReviewSigner(ctx context.Context, discoverer *agentkey.Discoverer, explicitKey string, project bool) (signer ssh.Signer, unsigned bool, err error) {
-	discovered, agentErr := discoverer.Discover(ctx, explicitKey)
-	if agentErr == nil {
-		return discovered.Signer, false, nil
-	}
-	if project {
+	resolved, err := operations.ResolveLocalSigner(ctx, discoverer, explicitKey, project)
+	var refused *operations.NoSigningKeyError
+	if errors.As(err, &refused) {
 		return nil, false, fmt.Errorf(
 			"no signing key available (%w) — 'ctxloom review --project' requires one; "+
-				"run 'ssh-add ~/.ssh/id_ed25519' and try again, or review without --project", agentErr)
+				"run 'ssh-add ~/.ssh/id_ed25519' and try again, or review without --project", refused.Cause)
 	}
-	var ambiguous *agentkey.AmbiguousKeyError
-	if errors.As(agentErr, &ambiguous) {
+	if err != nil {
+		return nil, false, err
+	}
+	if resolved.Ambiguous != nil {
 		// The event and the candidate listing belong to agentkey, which owns
 		// both the error and what identifies a candidate. Re-authoring the
 		// loop here is how this surface came to print fingerprint and key type
@@ -179,16 +169,12 @@ func resolveReviewSigner(ctx context.Context, discoverer *agentkey.Discoverer, e
 		// nothing to tell them apart. Only the closing line is review's own:
 		// it is the surface that offers the unsigned path.
 		fmt.Fprintln(os.Stderr, agentkey.AmbiguousKeyHeader)
-		for _, line := range ambiguous.CandidateLines() {
+		for _, line := range resolved.Ambiguous.CandidateLines() {
 			fmt.Fprintln(os.Stderr, line)
 		}
 		fmt.Fprintln(os.Stderr, "Pick one and re-run with SSH_AUTH_SOCK pointed at a single-identity agent, or continue unsigned below.")
 	}
-	// A *agentkey.NoKeyError (or any other discovery failure) also lands
-	// here: no key anywhere in the chain degrades to the unsigned path,
-	// same as the ambiguous case — only --project treats "cannot resolve a
-	// key" as fatal.
-	return nil, true, nil
+	return resolved.Signer, resolved.Unsigned, nil
 }
 
 // confirmUnsignedReview is the spec §9.5 degraded-path confirmation: it names

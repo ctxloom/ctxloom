@@ -138,16 +138,17 @@ func resolveSignerOrUnsigned(cfg *config.Config, injected ssh.Signer, project bo
 	if err != nil {
 		return nil, false, err
 	}
-	discovered, agentErr := discoverer.Discover(context.Background(), explicitKey)
-	if agentErr == nil {
-		return discovered.Signer, false, nil
-	}
-	if project {
-		return nil, false, fmt.Errorf(
+	resolved, err := ResolveLocalSigner(context.Background(), discoverer, explicitKey, project)
+	var refused *NoSigningKeyError
+	if errors.As(err, &refused) {
+		return nil, false, remedyf(refused,
 			"no signing key available (%w) — the project store requires a signed countersignature; "+
-				"run 'ssh-add' and try again, or record this decision in the personal store instead", agentErr)
+				"run 'ssh-add' and try again, or record this decision in the personal store instead")
 	}
-	return nil, true, nil
+	if err != nil {
+		return nil, false, err
+	}
+	return resolved.Signer, resolved.Unsigned, nil
 }
 
 // reviewTrustRoot resolves the trust root a review MUTATION authorizes its

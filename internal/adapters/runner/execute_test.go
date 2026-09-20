@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	lmgrpc "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
@@ -66,7 +67,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "mock",
+		Kind:   mock.New(),
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: childEngine, Surfaces: operations.ResolveAgentSurfaces, Driver: drive,
 	}, wire)
@@ -110,7 +111,7 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "mock", Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: backends.NewMock(), Surfaces: operations.ResolveAgentSurfaces, Driver: drive,
 	}, l)
 	require.NoError(t, err)
@@ -130,13 +131,74 @@ func TestExecute_RefusesALaunchForAnotherEngine(t *testing.T) {
 	require.NoError(t, err)
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "other", Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Kind: mock.NewNamed("other"), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: backends.NewMock(), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, runner.ErrWrongEngine)
 	require.Empty(t, drive.turns)
 	require.Empty(t, treeOf(t, l.Cell.Workspace), "nothing was delivered")
 }
+
+// TestExecute_BindsTheInstanceBeforeDelivery: the runner asks the engine
+// KIND for the session's Instance before anything is delivered, so
+// requiredness is refused HERE, by the engine, by name — a kind whose
+// Definition lacks the context surface the session needs refuses the
+// launch and nothing is written or driven.
+func TestExecute_BindsTheInstanceBeforeDelivery(t *testing.T) {
+	env := newDeliveryEnv(t)
+	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: env.mint(t, 1, "run-5"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+	})
+	require.NoError(t, err)
+	drive := &recordingDriver{}
+	_, err = runner.Execute(context.Background(), runner.Deps{
+		Kind: mock.New(mock.Without(present.Context)), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: backends.NewMock(), Driver: drive,
+	}, l)
+	var unsupported engine.ErrUnsupported
+	require.ErrorAs(t, err, &unsupported)
+	require.Equal(t, "context", unsupported.Capability)
+	require.Equal(t, engine.Name("mock"), unsupported.Engine)
+	require.Empty(t, drive.turns)
+	require.Empty(t, treeOf(t, l.Cell.Workspace), "nothing was delivered")
+}
+
+// TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive: a Structured
+// launch on an Instance with no driver is refused with
+// ErrUnsupported{Capability: "drive"} before delivery.
+func TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive(t *testing.T) {
+	env := newDeliveryEnv(t)
+	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: env.mint(t, 1, "run-6"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+	})
+	require.NoError(t, err)
+	drive := &recordingDriver{}
+	_, err = runner.Execute(context.Background(), runner.Deps{
+		Kind: driverless{mock.New()}, Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: backends.NewMock(), Driver: drive,
+	}, l)
+	var unsupported engine.ErrUnsupported
+	require.ErrorAs(t, err, &unsupported)
+	require.Equal(t, "drive", unsupported.Capability)
+	require.Empty(t, drive.turns)
+}
+
+// driverless is the mock kind whose instances carry no structured driver.
+type driverless struct{ engine.Engine }
+
+func (d driverless) Instance(s engine.Session) (engine.Instance, error) {
+	inst, err := d.Engine.Instance(s)
+	if err != nil {
+		return nil, err
+	}
+	return noDrivers{inst}, nil
+}
+
+type noDrivers struct{ engine.Instance }
+
+func (noDrivers) Drivers() []engine.StructuredDriver { return nil }
 
 // TestExecute_ATamperedClaimIsRefusedBeforeDelivery: a claim whose stored
 // bytes were altered never reaches the writers.
@@ -152,7 +214,7 @@ func TestExecute_ATamperedClaimIsRefusedBeforeDelivery(t *testing.T) {
 	env.store[l.Package.Claim.Location] = []byte("tampered")
 	drive := &recordingDriver{}
 	_, err = runner.Execute(context.Background(), runner.Deps{
-		Engine: "mock", Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: backends.NewMock(), Driver: drive,
 	}, l)
 	require.ErrorIs(t, err, composite.ErrDigestMismatch)

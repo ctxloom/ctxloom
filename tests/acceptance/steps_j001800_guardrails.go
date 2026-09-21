@@ -61,9 +61,10 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -112,22 +113,23 @@ func j001800LtkLoadoutYAML() (string, error) {
 	return string(data), nil
 }
 
-// j001800InstallFakeCompanion signs bundleYAML with a fresh throwaway test signer,
-// trusts it project-scoped (so it flows through the real trust gate exactly
-// like a remote bundle — companions.go: "flows through the UNCHANGED trust
-// gate"), and installs bin as a fake companion emitting that envelope for
-// `loadout --format json` and versionJSON for `version --format json` —
+// j001800InstallFakeCompanion signs loadoutYAML — a loadout DOCUMENT
+// (bundles.ParseLoadout's input: run: + typed init:; wrap a bare bundle with
+// testsupport.RunLoadout) — with a fresh throwaway test signer, trusts it
+// project-scoped (so it flows through the real trust gate exactly like a
+// remote bundle), and installs bin as a fake companion emitting that envelope
+// for `loadout --format json` and versionJSON for `version --format json` —
 // mirrors steps_j000800_onboarding.go's reprise fixture, generalized to any bin.
-func j001800InstallFakeCompanion(w *World, bin, principal, bundleYAML, versionJSON string) error {
+func j001800InstallFakeCompanion(w *World, bin, principal, loadoutYAML, versionJSON string) error {
 	signer, err := testenv.GenerateTestSigner()
 	if err != nil {
 		return fmt.Errorf("generate %s signer: %w", bin, err)
 	}
-	sig, err := signing.Sign([]byte(bundleYAML), signer.Signer, signing.NamespacePublish)
+	sig, err := signing.Sign([]byte(loadoutYAML), signer.Signer, signing.NamespacePublish)
 	if err != nil {
 		return fmt.Errorf("sign %s loadout: %w", bin, err)
 	}
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), sig, principal)
+	envelope, err := signing.EncodeLoadoutEnvelope([]byte(loadoutYAML), sig, principal)
 	if err != nil {
 		return fmt.Errorf("encode %s loadout envelope: %w", bin, err)
 	}
@@ -191,18 +193,13 @@ func j001800LtkShippedPreToolMatcher() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var doc struct {
-		Hooks struct {
-			PreTool []struct {
-				Command string `yaml:"command"`
-				Matcher string `yaml:"matcher"`
-			} `yaml:"pre_tool"`
-		} `yaml:"hooks"`
-	}
-	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+	// The canonical parser, not a hand-shaped unmarshal: the loadout is a
+	// document (run: + init:), and the hook lives in its RUN bundle.
+	lo, err := bundles.ParseLoadout([]byte(raw))
+	if err != nil {
 		return "", fmt.Errorf("parse ltk's loadout.yaml: %w", err)
 	}
-	for _, h := range doc.Hooks.PreTool {
+	for _, h := range lo.Run.Hooks.PreTool {
 		if h.Command == "ltk evaluate" {
 			return h.Matcher, nil
 		}
@@ -246,7 +243,7 @@ func registerJ001800Steps(ctx *godog.ScenarioContext) {
 		if err := j001800InstallFakeCompanion(w, "ltk", j001800LtkPrincipal, ltkYAML, `{"name":"ltk","version":"v0.0.0-j001800-fake"}`); err != nil {
 			return err
 		}
-		repriseYAML := fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  reuse-discipline:\n    content: %q\n", j001800ReuseMarker)
+		repriseYAML := string(testsupport.RunLoadout(fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  reuse-discipline:\n    content: %q\n", j001800ReuseMarker)))
 		return j001800InstallFakeCompanion(w, "reprise", j001800RepriseCoPrincipal, repriseYAML, `{"name":"reprise","version":"v0.0.0-j001800-fake"}`)
 	})
 

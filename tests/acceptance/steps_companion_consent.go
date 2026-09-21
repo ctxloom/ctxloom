@@ -31,6 +31,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // companionWitnessName is the file the fake companion appends to when it runs.
@@ -93,7 +94,7 @@ hooks:
       command: echo HOOK-FROM-COMPANION-%s
 `, bin, event, bin)
 		version := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
-		return j001800InstallFakeCompanion(w, bin, "fixture-companion@testenv.invalid", bundle, version)
+		return j001800InstallFakeCompanion(w, bin, "fixture-companion@testenv.invalid", string(testsupport.RunLoadout(bundle)), version)
 	})
 
 	ctx.Step(`^the companion "([^"]*)" was never executed$`, func(c context.Context, bin string) error {

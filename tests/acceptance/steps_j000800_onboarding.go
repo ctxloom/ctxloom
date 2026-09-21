@@ -28,6 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -445,12 +446,12 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("generate reprise signer: %w", err)
 		}
-		bundleYAML := j000700FragmentBundleYAML(j000800RepriseMarker)
-		sig, err := signing.Sign([]byte(bundleYAML), signer.Signer, signing.NamespacePublish)
+		loadoutYAML := testsupport.RunLoadout(j000700FragmentBundleYAML(j000800RepriseMarker))
+		sig, err := signing.Sign(loadoutYAML, signer.Signer, signing.NamespacePublish)
 		if err != nil {
-			return fmt.Errorf("sign reprise loadout bundle: %w", err)
+			return fmt.Errorf("sign reprise loadout: %w", err)
 		}
-		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), sig, j000800ReprisePrincipal)
+		envelope, err := signing.EncodeLoadoutEnvelope(loadoutYAML, sig, j000800ReprisePrincipal)
 		if err != nil {
 			return fmt.Errorf("encode reprise loadout envelope: %w", err)
 		}
@@ -458,12 +459,11 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		j000800.repriseVersionJSON = `{"name":"reprise","version":"9.9.9-j000800-fake"}`
 		// The TEAM (not Bob individually) already trusts reprise's publisher
 		// key, project-scoped and committed — so whenever a teammate DOES have
-		// reprise installed, its self-advertised loadout content (S8 —
-		// config.ProbeCompanionLoadouts, unconditionally injected into
-		// assembled context by AssembleContext's appendBuiltinFragments,
-		// independent of profile membership) reaches them without any
-		// per-teammate review, exactly as "the team's context includes
-		// guidance for reprise" describes.
+		// reprise installed, its self-advertised loadout content (probed by
+		// companions.ProbeCompanionLoadouts, delivered unconditionally by
+		// composite assembly from the catalog, independent of profile
+		// membership) reaches them without any per-teammate review, exactly
+		// as "the team's context includes guidance for reprise" describes.
 		if err := w.env.TrustSigner(signer, j000800ReprisePrincipal, true); err != nil {
 			return fmt.Errorf("trust reprise signer: %w", err)
 		}

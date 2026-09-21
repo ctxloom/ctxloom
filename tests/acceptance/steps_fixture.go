@@ -8,10 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"strings"
+
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"strings"
 
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"

@@ -18,12 +18,13 @@ package acceptance
 import (
 	"fmt"
 
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )

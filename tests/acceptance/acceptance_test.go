@@ -5,11 +5,12 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/colors"

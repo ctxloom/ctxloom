@@ -26,7 +26,7 @@ import (
 type HookOutput = claude.SessionStartOutput
 
 // HookSpecificOutput contains hook-specific data to inject.
-type HookSpecificOutput = claude.SessionStartSpecificOutput
+type HookSpecificOutput = claude.AdditionalContextOutput
 
 var injectContextProject string
 var injectContextPart int

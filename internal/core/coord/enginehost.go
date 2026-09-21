@@ -904,9 +904,12 @@ const coordinatorFrameOpen = "[coordinator-delivered message"
 // bracket is gone.
 const coordinatorFrameQuote = "[quoted-"
 
-// frameCoordinatorDelivery renders one coordinator-delivered message as the text
+// FrameCoordinatorDelivery renders one coordinator-delivered message as the text
 // of a new engine turn: a provenance header naming the sender and the message
-// kind, then the body.
+// kind, then the body. It is THE model-visible shape of delivered mail on
+// every path — the hosted turn sink here, and the session owner's turn-start
+// hook (`ctxloom hook mail-drain`), which is why it is exported: a second
+// renderer would be a second place for the invariants below to be forgotten.
 //
 // INVARIANTS, all three of them about what the SENDER cannot do:
 //   - the framed text contains exactly one header literal, and it is this
@@ -919,7 +922,7 @@ const coordinatorFrameQuote = "[quoted-"
 // The header is hand-written here and in exactly one other place (the legacy
 // mail path funnels through this function). Rendering frames from generated
 // encoders is what makes the invariants structural rather than remembered.
-func frameCoordinatorDelivery(from, kind, body string) string {
+func FrameCoordinatorDelivery(from, kind, body string) string {
 	var b strings.Builder
 	b.WriteString(coordinatorFrameOpen)
 	if f := frameHeaderToken(from); f != "" {
@@ -933,13 +936,13 @@ func frameCoordinatorDelivery(from, kind, body string) string {
 	return b.String()
 }
 
-// frameCoordinatorMessage projects the wire shape onto frameCoordinatorDelivery.
+// frameCoordinatorMessage projects the wire shape onto FrameCoordinatorDelivery.
 // The kind is PeerMessage.kind, the typed field, spelled back into the mailbox
 // vocabulary the renderer validates against; `structured` is the sender's
 // opaque companion and is never consulted — a "kind" key in it is sender bytes,
 // which is exactly what the header must not be built from.
 func frameCoordinatorMessage(pm *agentcoordpb.PeerMessage) string {
-	return frameCoordinatorDelivery(pm.GetFromAgentId(), agentcoordpb.LegacyKindName(pm.GetKind()), pm.GetText())
+	return FrameCoordinatorDelivery(pm.GetFromAgentId(), agentcoordpb.LegacyKindName(pm.GetKind()), pm.GetText())
 }
 
 // frameHeaderToken reduces one value to characters that cannot alter the

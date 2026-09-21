@@ -151,6 +151,33 @@ func NewNextStepHook() wire.Hook {
 	}
 }
 
+// MailDrainTimeout is the timeout, in seconds, for the turn_start mail-drain
+// hook. It reads and renames a handful of files and nothing else; a slow one
+// would sit between the human's Enter and the model's turn.
+const MailDrainTimeout = 5
+
+// NewMailDrainHook creates the turn_start hook that hands the session owner
+// its pending mail as the starting turn's context.
+//
+// turn_start is the seam because the owner is prompt-driven: the only moment
+// anything can be put in front of it is the moment a turn starts, and the
+// human's own Enter is that moment as much as any wake is. The hook is the
+// owner's only spool reader, so it is declared HERE — ctxloom's own hook
+// management, unconditionally, on every engine that carries the event — and
+// not in any bundle a profile may or may not select: mail delivery is not
+// optional content.
+//
+// No arguments, for the reason NewNextStepHook gives: the installed command
+// outlives the session that wrote it, so the owner's harp is resolved from
+// the environment at fire time.
+func NewMailDrainHook() wire.Hook {
+	return wire.Hook{
+		Command: fmt.Sprintf("%s hook mail-drain", shellSingleQuote(CtxloomCommand())),
+		Type:    "command",
+		Timeout: MailDrainTimeout,
+	}
+}
+
 // NewContextInjectionHooks returns the SessionStart context-injection hook(s)
 // for the given content hash. It reads the (content-addressed, immutable)
 // context file to decide the split: content that fits in one sub-cap chunk —

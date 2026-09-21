@@ -200,7 +200,7 @@ func TestSpoolDelivery_CoordinatorMailRidesTheFileAndIsConsumed(t *testing.T) {
 	require.NotEmpty(t, msgID)
 
 	// It reached the engine as a turn, framed with its provenance exactly as
-	// a mailbox delivery is (frameCoordinatorDelivery) — the cutover changes
+	// a mailbox delivery is (FrameCoordinatorDelivery) — the cutover changes
 	// the carrier, never what the model sees.
 	turns := awaitChatText(t, sp, 0, "second task")
 	var delivered string

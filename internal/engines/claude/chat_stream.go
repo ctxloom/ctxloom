@@ -246,8 +246,11 @@ func pickGeneratingModel(m map[string]sjModelUse) (string, sjModelUse) {
 // both result parsers use to name the generating model: the CLI may route a large
 // read through an ancillary fast model (high input, tiny output) while the
 // requested model does the real generation, so output — not input — marks the
-// working model. parseClaudeJSONResult (JSON envelope) and pickGeneratingModel
-// (stream-json modelUsage) both build on it.
+// working model. pickGeneratingModel (stream-json modelUsage) builds on it.
+// The JSON-envelope parser's own copy of this rule (maxOutputModel) was
+// deleted with claude's minimal form; this is the one remaining site, not a
+// twin left behind.
+// reprise:accept-drift
 func pickByMaxOutput[T any](m map[string]T, out func(T) int) (string, T) {
 	ids := make([]string, 0, len(m))
 	for id := range m {

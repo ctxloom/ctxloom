@@ -160,6 +160,10 @@ func applyValueConstraints(schema *tagschema.Schema, get func(string) *tagSchema
 // sortedTargetDocs flattens the per-target accumulator into the resource's
 // payload order: target name ascending, so the document a client caches is
 // stable across calls rather than following Go's map iteration.
+// A test helper of the same shape (claude's argv parity envLine) was
+// deleted with the launch-parity golden it rendered; this is the one
+// remaining site, not a twin left behind.
+// reprise:accept-drift
 func sortedTargetDocs(entries map[string]*tagSchemaTargetDoc) []tagSchemaTargetDoc {
 	names := make([]string, 0, len(entries))
 	for name := range entries {

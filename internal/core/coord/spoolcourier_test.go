@@ -14,18 +14,18 @@ import (
 // ring that RECORDS instead of sending. The recording is the point: the
 // guarantee under test is that a write is accompanied by a ring, and the only
 // way to assert that is to watch the ring.
-func courierUnderTest(t *testing.T) (*spoolCourier, *[]spool.Ref) {
+func courierUnderTest(t *testing.T) (*SpoolCourier, *[]spool.Ref) {
 	t.Helper()
 	testsupport.Isolate(t)
 	var rung []spool.Ref
-	return &spoolCourier{
-		writers: newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, "test"),
-		keyFor:  func(to string) string { return to },
-		ring: func(_ string, ref spool.Ref) error {
+	return &SpoolCourier{
+		Writers: NewSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, "test"),
+		KeyFor:  func(to string) string { return to },
+		Ring: func(_ string, ref spool.Ref) error {
 			rung = append(rung, ref)
 			return nil
 		},
-		side: "test",
+		Side: "test",
 	}, &rung
 }
 
@@ -87,11 +87,11 @@ func TestSpoolCourier_AnnounceRingsAnAlreadyCommittedMutation(t *testing.T) {
 // the exact inversion of the contract.
 func TestSpoolCourier_AFailedRingDoesNotFailTheSend(t *testing.T) {
 	testsupport.Isolate(t)
-	x := &spoolCourier{
-		writers: newSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, "test"),
-		keyFor:  func(to string) string { return to },
-		ring:    func(string, spool.Ref) error { return assert.AnError },
-		side:    "test",
+	x := &SpoolCourier{
+		Writers: NewSpoolWriterCache(spool.NewHomeMapper(), spool.DirIn, "test"),
+		KeyFor:  func(to string) string { return to },
+		Ring:    func(string, spool.Ref) error { return assert.AnError },
+		Side:    "test",
 	}
 
 	ref, err := x.Send(Message{

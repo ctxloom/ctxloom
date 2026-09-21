@@ -74,27 +74,28 @@ type handlerScope struct {
 }
 
 var handlerScopes = map[string]handlerScope{
+	// The plane-2 tools are decoded ONCE, in the codec (AgentRequestFromWire
+	// and the decoders it calls); the verb never sees a wire field, so the
+	// decoder is where every wire field is read.
 	ToolAgentRun: {
-		funcs: []string{"../../../core/coord/runchannel.go:serveSpawnAgent"},
+		funcs: []string{"../codec.go:AgentRequestFromWire"},
 	},
 	ToolAgentSend: {
-		// The frame is decoded into the verb's request (sendRequestFromWire)
-		// before the send runs; the decoder is where every wire field is read.
-		funcs: []string{"../../../core/coord/spooldelivery.go:sendRequestFromWire"},
+		funcs: []string{"../codec.go:SendRequestFromWire"},
 	},
 	ToolAgentStop: {
-		funcs: []string{"../../../core/coord/runchannel.go:serveStopRun"},
+		funcs: []string{"../codec.go:AgentRequestFromWire"},
 	},
 	ToolRoster: {
-		funcs: []string{"../../../core/coord/runchannel.go:serveListRuns"},
+		funcs: []string{"../codec.go:AgentRequestFromWire"},
 	},
 	ToolAgentReport: {
 		// agent_report's Summary is consumed in two places: the runner-side
-		// handler (validation + plan-manifest stamping) and the coordinator's
-		// journal fold.
+		// handler (validation + plan-manifest stamping) and the codec's
+		// decode into the coordinator's Summary.
 		funcs: []string{
 			"../../runner/mcp/server.go:reportHandler",
-			"../../../core/coord/reports.go:recordSummary",
+			"../codec.go:SummaryFromWire",
 		},
 	},
 	ToolAgentRecv: {
@@ -103,22 +104,22 @@ var handlerScopes = map[string]handlerScope{
 	ToolAgentFetchArtifact: {
 		funcs: []string{"../../runner/mcp/server.go:fetchArtifactHandler"},
 	},
-	// The five control tools share one wire server: each arm's fields are
-	// read in its case of serveControlRun.
+	// The five control tools share one decoder: each arm's fields are read
+	// in its case of controlRequestFromWire.
 	ToolAgentSteer: {
-		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentAsk: {
-		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentSummarize: {
-		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentPause: {
-		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentResume: {
-		funcs: []string{"../../../core/coord/controlwire.go:serveControlRun"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 }
 

@@ -45,17 +45,17 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	// (joined once coordinator-side).
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
-		return sc != nil && len(sc.recordedTexts()) == 1
+		return sc != nil && len(sc.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond, "the StartRun path must deliver the briefing as the first turn")
-	first := sp.chat(0).recordedTexts()[0]
+	first := sp.chat(0).RecordedTexts()[0]
 	assert.True(t, strings.HasPrefix(first, "FRAG-ONE\n\n"), "the composed context leads the first turn: %q", first)
 	assert.Contains(t, first, "do the thing")
 
 	// The chat request the engine saw carries the decoded HarnessSpec.
 	sc := sp.chat(0)
-	sc.mu.Lock()
-	req := sc.requests[0]
-	sc.mu.Unlock()
+	sc.Mu.Lock()
+	req := sc.Requests[0]
+	sc.Mu.Unlock()
 	assert.Equal(t, "test-model", req.Model, "the resolved model rides HarnessSpec.model")
 	assert.Empty(t, req.ResumeSessionID, "a fresh spawn resumes nothing")
 
@@ -124,9 +124,7 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 		if h == nil {
 			return false
 		}
-		h.mu.Lock()
-		last := h.seq
-		h.mu.Unlock()
+		last := h.EmittedSeq()
 		c.mu.Lock()
 		ch := c.chans[harp]
 		var flushed uint64
@@ -174,9 +172,9 @@ func TestStartRun_BackendParity(t *testing.T) {
 
 			require.Eventually(t, func() bool {
 				sc := sp.chat(0)
-				return sc != nil && len(sc.recordedTexts()) == 1
+				return sc != nil && len(sc.RecordedTexts()) == 1
 			}, conformanceWait, 10*time.Millisecond, "backend %q must deliver the briefing via StartRun", backend)
-			assert.Contains(t, sp.chat(0).recordedTexts()[0], "do the thing")
+			assert.Contains(t, sp.chat(0).RecordedTexts()[0], "do the thing")
 
 			require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
@@ -213,9 +211,9 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
-		return sc != nil && len(sc.recordedTexts()) == 2
+		return sc != nil && len(sc.RecordedTexts()) == 2
 	}, conformanceWait, 10*time.Millisecond, "the send must start a new turn on the idle child")
-	turn := sp.chat(0).recordedTexts()[1]
+	turn := sp.chat(0).RecordedTexts()[1]
 	assert.Contains(t, turn, "second task")
 	assert.Contains(t, turn, "kind="+KindMessage, "the kind survives as frame text, from the closed vocabulary (manly-grant (6))")
 	assert.Contains(t, turn, "coordinator-harp", "the sender survives as frame text")
@@ -237,14 +235,14 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
-		return sc != nil && len(sc.recordedTexts()) == 1
+		return sc != nil && len(sc.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
 	second, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task two", "", "")
@@ -324,19 +322,19 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 		if sc == nil {
 			return false
 		}
-		sc.mu.Lock()
-		defer sc.mu.Unlock()
-		return len(sc.requests) == 1
+		sc.Mu.Lock()
+		defer sc.Mu.Unlock()
+		return len(sc.Requests) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	sc := sp.chat(1)
-	sc.mu.Lock()
-	resumed := sc.requests[0].ResumeSessionID
-	sc.mu.Unlock()
+	sc.Mu.Lock()
+	resumed := sc.Requests[0].ResumeSessionID
+	sc.Mu.Unlock()
 	assert.Equal(t, "native-sess-42", resumed, "resume must ride the journaled harness_session_id")
 
 	// And the queued message arrives as the resumed engine's next turn.
 	require.Eventually(t, func() bool {
-		return len(sp.chat(1).recordedTexts()) == 1
+		return len(sp.chat(1).RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
-	assert.Contains(t, sp.chat(1).recordedTexts()[0], "carry on")
+	assert.Contains(t, sp.chat(1).RecordedTexts()[0], "carry on")
 }

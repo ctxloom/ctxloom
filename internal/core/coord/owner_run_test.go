@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -38,8 +37,9 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
 		*started = true
 		sctx, cancel := context.WithCancel(ctx)
-		host := newTestEngineHost(sctx, sc, backend, spawnEnv[EnvRunID])
-		home, err := NewHome(sctx, HomeConfig{
+		host := runnerHooks.NewEngineHost(sctx, nil, sc, backend, spawnEnv[EnvRunID])
+		runnerHooks.BindTestRunner(host, nil)
+		home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 			Reporter: termSink(),
 			URL:      spawnEnv[EnvCoordURL],
 			Token:    spawnEnv[EnvCoordCred],
@@ -60,24 +60,24 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 
 // collectFinalDeltas drains events for wait, concatenating every FINAL-channel
 // MessageDelta text for runID (the payload the host renders over Transport 2).
-func collectFinalDeltas(events <-chan *agentcoordpb.AgentEvent, runID string, wait time.Duration) string {
+func collectFinalDeltas(events <-chan Event, runID string, wait time.Duration) string {
 	deadline := time.After(wait)
 	final := map[string]bool{}
 	var out string
 	for {
 		select {
 		case ev := <-events:
-			if ev.GetRunId() != runID {
+			if ev.RunID != runID {
 				continue
 			}
-			switch p := ev.GetPayload().(type) {
-			case *agentcoordpb.AgentEvent_MessageStarted:
-				if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
-					final[p.MessageStarted.GetMessageId()] = true
+			switch p := ev.Payload.(type) {
+			case MessageStarted:
+				if p.Channel == ChannelFinal {
+					final[p.MessageID] = true
 				}
-			case *agentcoordpb.AgentEvent_MessageDelta:
-				if final[p.MessageDelta.GetMessageId()] {
-					out += p.MessageDelta.GetText()
+			case MessageDelta:
+				if final[p.MessageID] {
+					out += p.Text
 				}
 			}
 		case <-deadline:
@@ -118,14 +118,14 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	require.NotEmpty(t, outcome.RunID)
 
 	// Parent-less, owner-owned: ParentRunID is empty on the roster projection.
-	var found *agentcoordpb.ListRunsResult_RunInfo
-	for _, r := range c.ListRuns(true, "").GetRuns() {
-		if r.GetRunId() == outcome.RunID {
-			found = r
+	var found *RunInfo
+	for _, r := range c.ListRuns(true, "").Runs {
+		if r.RunID == outcome.RunID {
+			found = &r
 		}
 	}
 	require.NotNil(t, found, "the owner-owned run must appear in the roster")
-	assert.Equal(t, "", found.GetParentRunId(), "an owner-owned run is parent-less")
+	assert.Equal(t, "", found.ParentRunID, "an owner-owned run is parent-less")
 
 	// PAYLOAD over Transport 2: the scriptedChat echoes the first-turn prompt.
 	got := collectFinalDeltas(events, outcome.RunID, 10*time.Second)
@@ -217,11 +217,11 @@ func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
 	// (each completed turn re-queued as a new turn), so an exact 2 is the
 	// no-collision, no-self-loop proof.
 	require.Eventually(t, func() bool {
-		return len(sc.recordedTexts()) == 2
+		return len(sc.RecordedTexts()) == 2
 	}, 10*time.Second, 50*time.Millisecond, "exactly the two sent turns reach the engine")
 	// And it never grows past two (no self-loop) over a further window.
 	time.Sleep(500 * time.Millisecond)
-	assert.Len(t, sc.recordedTexts(), 2, "no extra turns — the owner-owned run does not self-report into its own mailbox")
+	assert.Len(t, sc.RecordedTexts(), 2, "no extra turns — the owner-owned run does not self-report into its own mailbox")
 
 	// The owner's own mailbox never accumulated a bridged "result": the bridge
 	// is suppressed for an owner-owned run (nothing to report to — the host

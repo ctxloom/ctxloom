@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -16,14 +15,17 @@ import (
 // the shared assertion body for the two tests below.
 func containerNameFromRoster(t *testing.T, c *Coordinator, runID string) string {
 	t.Helper()
-	var found *agentcoordpb.ListRunsResult_RunInfo
-	for _, r := range c.ListRuns(true, "").GetRuns() {
-		if r.GetRunId() == runID {
-			found = r
+	var found *RunInfo
+	for _, r := range c.ListRuns(true, "").Runs {
+		if r.RunID == runID {
+			found = &r
 		}
 	}
 	require.NotNil(t, found, "the run must appear in the roster")
-	return found.GetAgent().GetContainerName()
+	if found.Agent == nil {
+		return ""
+	}
+	return found.Agent.ContainerName
 }
 
 // TestStartOwnedRun_SurfacesContainerNameOnRoster pins fragile-volatile: a

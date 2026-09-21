@@ -1,8 +1,6 @@
 package coord
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/testsupport/spooltest"
 )
 
 // Shared spool test helpers, and the projection's exhaustiveness pin.
@@ -19,53 +18,18 @@ import (
 // would write its fixtures into the developer's real session store and pass —
 // the residue only surfacing later as a spool full of "child-harp-1".
 
-// teeHome gives THIS test a private HOME and returns it. Every spool path
-// hangs off HOME, and the owner's harp is a constant across tests, so two
-// tests sharing a HOME would read each other's owner spool — the second one
-// receiving results the first one's children wrote. It is idempotent per
-// test (the constructors call it, and a test that wants the path calls it
-// too): a second call returns the HOME the first minted rather than
-// switching the test to a directory it has already been told about.
-//
-// The marker is a key t.Setenv restores at the test's end, so it can never
-// name another test; it is kept outside the CTXLOOM_* namespace because
-// testsupport.Isolate clears that whole namespace.
-func teeHome(t *testing.T) string {
-	t.Helper()
-	const marker = "COORD_TEST_HOME_OWNER"
-	if os.Getenv(marker) == t.Name() {
-		return os.Getenv("HOME")
-	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(marker, t.Name())
-	return home
-}
+// teeHome is spooltest.TeeHome, named the way this suite has always called it.
+func teeHome(t *testing.T) string { return spooltest.TeeHome(t) }
 
-// spoolEntries sweeps a spool directory, treating "the directory does not
-// exist" as "no messages" rather than as an error.
-//
-// The distinction matters for the failure tests: a tee that could not build
-// its writer never created the directory, and the assertion those tests make
-// is about the ABSENCE of files, which a sweep error would mask as a different
-// failure entirely.
+// spoolEntries is spooltest.Entries.
 func spoolEntries(t *testing.T, harp string, dir spool.Dir) []spool.Entry {
-	t.Helper()
-	path, err := spool.DirPath(spool.NewHomeMapper(), harp, dir)
-	require.NoError(t, err)
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return nil
-	}
-	res, err := spool.Sweep(spool.NewHomeMapper(), harp, dir)
-	require.NoError(t, err)
-	require.NoError(t, res.ProblemErr())
-	return res.Entries
+	return spooltest.Entries(t, harp, dir)
 }
 
 // awaitRunnerHome waits for the migrated path's runner half to exist. AgentRun
 // returns once the run is ENQUEUED; the runner is spawned and dials home
 // afterwards, so reaching for it immediately finds nothing.
-func awaitRunnerHome(t *testing.T, c *Coordinator, sp *fakeSpawner, harp string) *Home {
+func awaitRunnerHome(t *testing.T, c *Coordinator, sp *fakeSpawner, harp string) TestHome {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return sp.engineHome(0) != nil && rosterState(c, harp) == StateIdle
@@ -111,38 +75,14 @@ func TestSpoolKindMapping_IsExhaustive(t *testing.T) {
 	require.Error(t, err)
 }
 
-// spoolDirsUnder lists every directory named "spool" anywhere below root — the
-// evidence for "the disabled tee touched nothing".
-func spoolDirsUnder(t *testing.T, root string) []string {
-	t.Helper()
-	var found []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			// A vanished temp entry is not evidence either way; a real
-			// failure is, so it is returned rather than swallowed.
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
-		}
-		if d.IsDir() && d.Name() == spool.SpoolDirName {
-			found = append(found, path)
-		}
-		return nil
-	})
-	require.NoError(t, err, "walking %s", root)
-	return found
-}
+// spoolDirsUnder is spooltest.DirsUnder.
+func spoolDirsUnder(t *testing.T, root string) []string { return spooltest.DirsUnder(t, root) }
 
-// writeSpoolMail puts one message file straight into harp's in/ spool, the way
-// the coordinator's courier would, without a coordinator: for a test whose
-// premise is "mail is waiting for this harp" and nothing more.
+// writeSpoolMail puts one message file straight into harp's in/ spool the way
+// the coordinator's courier would, spelling the mailbox kind for the file.
 func writeSpoolMail(t *testing.T, harp, from, kind, body string) {
 	t.Helper()
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
-	require.NoError(t, err)
 	spoolKind, err := SpoolKindForMail(kind)
 	require.NoError(t, err)
-	_, err = w.Write(&spool.Message{Kind: spoolKind, FromHarp: from, To: harp, Body: body})
-	require.NoError(t, err)
+	spooltest.WriteMail(t, harp, from, spoolKind, body, spoolWriterIDCoordinator)
 }

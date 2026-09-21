@@ -5,10 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/structpb"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -27,22 +24,16 @@ func TestHandleCustomEvent_MalformedEventsAreReported(t *testing.T) {
 		sp := newFakeSpawner(nil, nil)
 		c := newTestCoordinator(t, sp, nil)
 		role := "child-malformed"
-		ch := &runChan{
+		ch := &RunChannel{
 			role:        role,
 			id:          Identity{Harp: role, RunID: "run-malformed"},
-			bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 4),
+			BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 4),
 			completed:   make(chan struct{}),
-		}
-		var val *structpb.Struct
-		if value != nil {
-			var err error
-			val, err = structpb.NewStruct(value)
-			require.NoError(t, err)
 		}
 		var buf bytes.Buffer
 		restore := clidiag.SetSink(&buf)
 		defer restore()
-		c.handleCustomEvent(ch, &agentcoordpb.CustomEvent{Name: name, Value: val})
+		c.handleCustomEvent(ch, CustomEvent{Name: name, Value: value})
 		return buf.String(), c, role
 	}
 

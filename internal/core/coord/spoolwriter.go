@@ -19,7 +19,7 @@ import (
 // every filename claim the wrong author.
 const spoolWriterIDCoordinator = "coord"
 
-// spoolWriterCache lends one spool.Writer per harp for ONE direction.
+// SpoolWriterCache lends one spool.Writer per harp for ONE direction.
 //
 // Writers are cached rather than made per message because spool.NewWriter
 // re-seeds its sequence by reading the whole direction plus its consumed and
@@ -27,7 +27,7 @@ const spoolWriterIDCoordinator = "coord"
 // writers for one directory would also each hold their own sequence counter
 // and could mint the same filename inside one nanosecond. One writer per
 // (harp, direction) is what makes spool.Writer's own mutex sufficient.
-type spoolWriterCache struct {
+type SpoolWriterCache struct {
 	mapper spool.PathMapper
 	dir    spool.Dir
 	id     string
@@ -52,14 +52,14 @@ type spoolWriterCache struct {
 // errStoreClosed.
 var errSpoolClosed = errors.New("coord: spool closed")
 
-func newSpoolWriterCache(m spool.PathMapper, dir spool.Dir, writerID string) *spoolWriterCache {
-	return &spoolWriterCache{mapper: m, dir: dir, id: writerID, writers: map[string]*spool.Writer{}}
+func NewSpoolWriterCache(m spool.PathMapper, dir spool.Dir, writerID string) *SpoolWriterCache {
+	return &SpoolWriterCache{mapper: m, dir: dir, id: writerID, writers: map[string]*spool.Writer{}}
 }
 
-// setWriterID names the writer once the runner knows which run it is (the
+// SetWriterID names the writer once the runner knows which run it is (the
 // harp bound from the Launch); a writer built before is impossible, since
 // nothing writes a spool for an unbound run.
-func (c *spoolWriterCache) setWriterID(id string) {
+func (c *SpoolWriterCache) SetWriterID(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.id = id
@@ -71,7 +71,7 @@ func (c *spoolWriterCache) setWriterID(id string) {
 // construction — which does filesystem work — deliberately: it happens once
 // per harp, and letting two callers race to build writers for one directory
 // is how the duplicate sequence counter above gets created.
-func (c *spoolWriterCache) writerFor(harp string) (*spool.Writer, func(), error) {
+func (c *SpoolWriterCache) writerFor(harp string) (*spool.Writer, func(), error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
@@ -91,10 +91,10 @@ func (c *spoolWriterCache) writerFor(harp string) (*spool.Writer, func(), error)
 	return w, func() { once.Do(c.inflight.Done) }, nil
 }
 
-// close refuses every later writerFor and waits for every write already
+// Close refuses every later writerFor and waits for every write already
 // leased. Cached writers are plain handles with nothing to flush; the point
 // is the refusal and the join.
-func (c *spoolWriterCache) close() {
+func (c *SpoolWriterCache) Close() {
 	if c == nil {
 		return
 	}

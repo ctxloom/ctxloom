@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
@@ -82,7 +83,7 @@ func serveAckDroppingCoordinator(t *testing.T) (*ackDroppingCoordinator, string)
 	agentcoordpb.RegisterCoordinatorServiceServer(srv, fake)
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(srv.Stop)
-	return fake, "http://" + ln.Addr().String() + MCPPath
+	return fake, "http://" + ln.Addr().String() + discover.MCPPath
 }
 
 // TestReport_SurvivesADroppedAck: a report the coordinator has durably
@@ -95,7 +96,7 @@ func serveAckDroppingCoordinator(t *testing.T) (*ackDroppingCoordinator, string)
 func TestReport_SurvivesADroppedAck(t *testing.T) {
 	fake, url := serveAckDroppingCoordinator(t)
 
-	h, err := NewHome(context.Background(), HomeConfig{Reporter: termSink(), URL: url, Token: "t", Harness: "mock", Version: "test", Harp: "child-harp-1"})
+	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{Reporter: termSink(), URL: url, Token: "t", Harness: "mock", Version: "test", Harp: "child-harp-1"})
 	require.NoError(t, err)
 	t.Cleanup(func() { h.Close(0, "") })
 	require.Eventually(t, h.Attached, 10*time.Second, 10*time.Millisecond, "the run channel must attach")

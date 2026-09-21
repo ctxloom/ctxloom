@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // TestCaptureRunFailure_ReadsTerminalStatusAsAnAllowList pins the second half
@@ -18,25 +16,19 @@ import (
 func TestCaptureRunFailure_ReadsTerminalStatusAsAnAllowList(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		status  agentcoordpb.Result_RunStatus
+		status  RunStatus
 		capture bool
 	}{
-		{"succeeded", agentcoordpb.Result_RUN_STATUS_SUCCEEDED, false},
-		{"cancelled", agentcoordpb.Result_RUN_STATUS_CANCELLED, false},
-		{"failed", agentcoordpb.Result_RUN_STATUS_FAILED, true},
-		{"unspecified (the zero value)", agentcoordpb.Result_RUN_STATUS_UNSPECIFIED, true},
-		{"timed_out", agentcoordpb.Result_RUN_STATUS_TIMED_OUT, true},
-		{"budget_exceeded", agentcoordpb.Result_RUN_STATUS_BUDGET_EXCEEDED, true},
+		{"succeeded", RunStatusSucceeded, false},
+		{"cancelled", RunStatusCancelled, false},
+		{"failed", RunStatusFailed, true},
+		{"unspecified (the zero value)", RunStatusUnspecified, true},
+		{"timed_out", RunStatusTimedOut, true},
+		{"budget_exceeded", RunStatusBudgetExceeded, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &Coordinator{byHarp: map[string]*childRt{"kid": {}}}
-			c.captureRunFailure("kid", &agentcoordpb.AgentEvent{
-				Payload: &agentcoordpb.AgentEvent_RunCompleted{
-					RunCompleted: &agentcoordpb.RunCompleted{
-						Result: &agentcoordpb.Result{Status: tc.status, Text: "the adapter died"},
-					},
-				},
-			})
+			c.captureRunFailure("kid", Event{Payload: RunCompleted{Result: &Result{Status: tc.status, Text: "the adapter died"}}})
 			got := c.byHarp["kid"].runFailure
 			if tc.capture {
 				assert.Equal(t, "the adapter died", got, "terminal status %v must have its reason recorded", tc.status)

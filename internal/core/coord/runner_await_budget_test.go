@@ -63,7 +63,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -77,7 +77,7 @@ func TestIssueStartRun_ToleratesSlowRunnerDialHomeWithinBudget(t *testing.T) {
 	// but still inside the 300ms budget this coordinator was given.
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		link, derr := DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+		link, derr := runnerHooks.DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 		if derr == nil {
 			t.Cleanup(link.Abort)
 		}
@@ -107,7 +107,7 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -117,7 +117,7 @@ func TestIssueStartRun_TooTightBudgetFailsTheSameSlowDialHome(t *testing.T) {
 
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		link, derr := DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+		link, derr := runnerHooks.DialRunner(context.Background(), nil, env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 		if derr == nil {
 			t.Cleanup(link.Abort)
 		}

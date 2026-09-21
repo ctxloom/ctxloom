@@ -2,10 +2,11 @@ package coord
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,7 +50,7 @@ func controlFrame(t *testing.T, verb any) *agentcoordpb.AgentRequest {
 }
 
 // controlRun sends one ControlRun on home and returns the response.
-func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorResponse {
+func controlRun(t *testing.T, home TestHome, verb any) *agentcoordpb.CoordinatorResponse {
 	t.Helper()
 	resp, err := home.Request(context.Background(), controlFrame(t, verb))
 	require.NoError(t, err)
@@ -60,14 +61,14 @@ func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorRes
 // ask): the wire call runs on its own goroutine and the response — or the
 // transport error — lands on the returned channel, so no assertion runs off
 // the test goroutine.
-func controlRunAsync(t *testing.T, home *Home, verb any) <-chan *agentcoordpb.CoordinatorResponse {
+func controlRunAsync(t *testing.T, home TestHome, verb any) <-chan *agentcoordpb.CoordinatorResponse {
 	t.Helper()
 	frame := controlFrame(t, verb)
 	out := make(chan *agentcoordpb.CoordinatorResponse, 1)
 	go func() {
 		resp, err := home.Request(context.Background(), frame)
 		if err != nil {
-			resp = &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unavailable, "transport: "+err.Error())}
+			resp = &agentcoordpb.CoordinatorResponse{Status: &rpcstatus.Status{Code: int32(codes.Unavailable), Message: "transport: " + err.Error()}}
 		}
 		out <- resp
 	}()
@@ -92,7 +93,7 @@ func TestControlRun_ChildSteersItsOwnGrandchild(t *testing.T) {
 		SpoolSweepInterval: 0,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	child, childH := awaitCutoverChild(t, c, sp, "delegate this")
 
@@ -353,24 +354,4 @@ func TestControlRun_ArgumentEdge(t *testing.T) {
 		})
 	}
 	assert.Empty(t, spoolEntries(t, out.Harp, spool.DirIn), "a refused argument must deliver nothing")
-}
-
-// TestControlStatus_MapsTypedCausesOnly pins the code each typed cause earns,
-// and that an untyped error is INTERNAL rather than guessed at from prose.
-func TestControlStatus_MapsTypedCausesOnly(t *testing.T) {
-	for _, tc := range []struct {
-		err  error
-		code codes.Code
-	}{
-		{ErrControlRefused, codes.PermissionDenied},
-		{ErrNotInjectable, codes.NotFound},
-		{ErrCapabilityUnavailable, codes.FailedPrecondition},
-		{ErrAskUnavailable, codes.FailedPrecondition},
-		{ErrAskTimeout, codes.DeadlineExceeded},
-		{errors.New("permission denied: something that only SAYS so"), codes.Internal},
-	} {
-		st := controlStatus("agent_x", errors.Join(tc.err))
-		assert.EqualValues(t, tc.code, st.GetCode(), tc.err.Error())
-		assert.True(t, strings.HasPrefix(st.GetMessage(), "agent_x: "), "the tool names itself in the message")
-	}
 }

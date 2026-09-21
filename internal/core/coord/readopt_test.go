@@ -17,11 +17,11 @@ import (
 // Close is the graceful path and kills children first; a crash does neither.
 func crashCoordinator(c *Coordinator) {
 	c.closeOnce.Do(func() {
-		c.tracked.seal()
+		c.tracked.Seal()
 		c.closePartial() // journals and the owner lock go FIRST: nothing lands after this
 		c.cancel()
-		if srv := c.srv.Load(); srv != nil {
-			srv.close()
+		if t := c.takeTransport(); t != nil {
+			t.Close()
 		}
 	})
 }
@@ -39,7 +39,7 @@ func newTestCoordinatorOver(t *testing.T, stateDir string, sp Spawner) *Coordina
 		Reporter:   termSink(),
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	return c
 }
@@ -74,7 +74,7 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	second := newTestCoordinatorOver(t, stateDir, sp)
 	// The endpoint is back: the runner is told to redial NOW rather than at
 	// the end of its backoff (a dial that landed before Serve costs another
-	// homeRedialBackoff, and two of them outrun the window under load). The
+	// runnerHooks.HomeRedialBackoff, and two of them outrun the window under load). The
 	// Hello then lands on the re-bound endpoint and names the run.
 	sp.engineHome(0).Redial()
 	require.Eventually(t, func() bool { return second.runnerConnected(out.RunID) }, conformanceWait, 10*time.Millisecond,

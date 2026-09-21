@@ -25,6 +25,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/plans"
@@ -59,7 +60,7 @@ type LocalSurface interface {
 // infer it has children and stall waiting on notifications that never
 // arrive. It is the launch identity's Leaf, decided by the coordinator that
 // minted it — the runner holds no config to compute it from.
-func NewServer(rep report.Reporter, home *coord.Home, harp, cwd string, leaf bool, local LocalSurface) (*mcp.Server, error) {
+func NewServer(rep report.Reporter, home *runner.Home, harp, cwd string, leaf bool, local LocalSurface) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
 		Title:   harp,
@@ -127,7 +128,7 @@ func routeName(r mcpschema.Route) string {
 // returns the names it registered. Each carries the typed input and the
 // description operations declares as the tool's contract, so this endpoint
 // and the stdio server cannot describe one tool two ways.
-func registerHostRelays(server *mcp.Server, home *coord.Home) []string {
+func registerHostRelays(server *mcp.Server, home *runner.Home) []string {
 	return []string{
 		addHostRelay[operations.CompactSessionInput](server, home, "compact_session", operations.CompactSessionDesc),
 		addHostRelay[operations.LoadSessionInput](server, home, "load_session", operations.LoadSessionDesc),
@@ -142,7 +143,7 @@ func registerHostRelays(server *mcp.Server, home *coord.Home) []string {
 // addHostRelay registers one host-resident tool and returns its name, so the
 // name is written once per tool rather than once in the registration and again
 // in a classification list.
-func addHostRelay[In any](server *mcp.Server, home *coord.Home, name, desc string) string {
+func addHostRelay[In any](server *mcp.Server, home *runner.Home, name, desc string) string {
 	mcp.AddTool(server, &mcp.Tool{Name: name, Description: desc}, relayTyped[In](home, name))
 	return name
 }
@@ -150,7 +151,7 @@ func addHostRelay[In any](server *mcp.Server, home *coord.Home, name, desc strin
 // registerGeneratedTools adds the proto-canonical tools: coordination frames
 // AND artifact-fetch both draw their schemas from mcpschema.Tools() and differ
 // only in which handler builder serves them (Binding.Route).
-func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *coord.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
+func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *runner.Home, harp, cwd string, leaf bool, routes map[string]mcpschema.Route, registered map[string]bool) error {
 	tools, err := mcpschema.Tools()
 	if err != nil {
 		return err
@@ -198,7 +199,7 @@ func registerGeneratedTools(rep report.Reporter, server *mcp.Server, home *coord
 
 // generatedToolHandler picks the handler builder one generated tool's route
 // names. An unclassified tool is a startup error, never a silent fallthrough.
-func generatedToolHandler(rep report.Reporter, home *coord.Home, harp, cwd string, route mcpschema.Route, name string, leaf bool) (mcp.ToolHandler, error) {
+func generatedToolHandler(rep report.Reporter, home *runner.Home, harp, cwd string, route mcpschema.Route, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch route {
 	case mcpschema.RouteCoordination:
 		return coordinationHandler(rep, home, harp, cwd, name, leaf)
@@ -213,7 +214,7 @@ func generatedToolHandler(rep report.Reporter, home *coord.Home, harp, cwd strin
 // CustomRequest{ctxloom/<tool>} with the SAME typed input the stdio server
 // registers (identical advertised schema), handing the coordinator's Struct
 // result back as the tool's structured content.
-func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, map[string]any] {
+func relayTyped[In any](home *runner.Home, name string) mcp.ToolHandlerFor[In, map[string]any] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, map[string]any, error) {
 		raw, err := json.Marshal(in)
 		if err != nil {
@@ -259,7 +260,7 @@ func relayTyped[In any](home *coord.Home, name string) mcp.ToolHandlerFor[In, ma
 // tool: protojson-decode the args into the bound contract message (both
 // snake_case and camelCase accepted), run the plane-2 exchange (or the
 // runner-local recv/report), and project the result back with proto names.
-func coordinationHandler(rep report.Reporter, home *coord.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
+func coordinationHandler(rep report.Reporter, home *runner.Home, harp, cwd, name string, leaf bool) (mcp.ToolHandler, error) {
 	switch name {
 	case mcpschema.ToolAgentRun:
 		return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -360,7 +361,7 @@ func coordinationHandler(rep report.Reporter, home *coord.Home, harp, cwd, name 
 func controlToolHandler[M any, PM interface {
 	*M
 	proto.Message
-}](home *coord.Home, name string, arm func(PM) *agentcoordpb.ControlRun, pick func(*agentcoordpb.ControlRunResult) proto.Message) mcp.ToolHandler {
+}](home *runner.Home, name string, arm func(PM) *agentcoordpb.ControlRun, pick func(*agentcoordpb.ControlRunResult) proto.Message) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		m := PM(new(M))
 		if err := unmarshalArgs(req, m); err != nil {
@@ -450,7 +451,7 @@ func protoIsNil(m proto.Message) bool {
 // hook to ack on; a crash before the ack re-delivers (at-least-once).
 // leaf selects the timeout verdict (see recvOutcome): a child gets an error
 // telling it to finish, a coordinator a successful empty receive.
-func RecvHandler(rep report.Reporter, home *coord.Home, leaf bool) mcp.ToolHandler {
+func RecvHandler(rep report.Reporter, home *runner.Home, leaf bool) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var in struct {
 			Wait int `json:"wait"`
@@ -516,7 +517,7 @@ func RecvHandler(rep report.Reporter, home *coord.Home, leaf bool) mcp.ToolHandl
 // bytes are UPLOADED via ArtifactTransferService BEFORE the manifest fact is
 // filed — the ArtifactProduced fact carries upload_id (+ sha256), path stays
 // a label, never the transfer mechanism (manifests can no longer dangle).
-func reportHandler(rep report.Reporter, home *coord.Home, harp, cwd string) mcp.ToolHandler {
+func reportHandler(rep report.Reporter, home *runner.Home, harp, cwd string) mcp.ToolHandler {
 	stamper := &artifactStamper{harp: harp}
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var summary agentcoordpb.Summary
@@ -690,7 +691,7 @@ func (p *artifactStamper) planCandidates() ([]artifactCandidate, error) {
 // case on every report after the first). seen is committed ONLY after a
 // successful upload, so a failed attempt is retried on the next call rather
 // than silently wedged as "already seen".
-func (p *artifactStamper) publish(ctx context.Context, home *coord.Home, c artifactCandidate) (*agentcoordpb.ArtifactProduced, error) {
+func (p *artifactStamper) publish(ctx context.Context, home *runner.Home, c artifactCandidate) (*agentcoordpb.ArtifactProduced, error) {
 	raw, err := os.ReadFile(c.absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", c.absPath, err)
@@ -784,7 +785,7 @@ func resolveCellPath(root, rel string) (string, error) {
 // artifactFetchHandler builds the handler for one generated
 // RouteArtifactFetch tool — the mirror of coordinationHandler for the
 // artifact-transfer route.
-func artifactFetchHandler(home *coord.Home, cwd, name string) (mcp.ToolHandler, error) {
+func artifactFetchHandler(home *runner.Home, cwd, name string) (mcp.ToolHandler, error) {
 	switch name {
 	case mcpschema.ToolAgentFetchArtifact:
 		return fetchArtifactHandler(home, cwd), nil
@@ -798,7 +799,7 @@ func artifactFetchHandler(home *coord.Home, cwd, name string) (mcp.ToolHandler, 
 // manifest header first, verifies the received content against it BEFORE
 // placing the file, and hard-fails on a mismatch (E1e) — never a partial or
 // corrupted file at dest_path.
-func fetchArtifactHandler(home *coord.Home, cwd string) mcp.ToolHandler {
+func fetchArtifactHandler(home *runner.Home, cwd string) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var m agentcoordpb.FetchArtifactRequest
 		if err := unmarshalArgs(req, &m); err != nil {

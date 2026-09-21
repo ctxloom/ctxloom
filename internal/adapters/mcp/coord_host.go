@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -64,7 +65,7 @@ func HostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Serve(); err != nil {
+	if err := coordgrpc.Serve(c); err != nil {
 		c.Close()
 		return nil, err
 	}

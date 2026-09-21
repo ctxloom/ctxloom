@@ -1,33 +1,43 @@
 # Transport — gRPC server, RunChannel, Home, EngineHost
 
 The transport layer carries the bytes between the coordinator process and the runner
-process and mints the durability guarantee at the coordinator end. It owns: the h2c
-listener set and its endpoint file (`httpserver.go`), the gRPC server plus its
-consumer-denial auth interceptors and the runner-liveness watchdog (`grpcserver.go`),
-the per-run bidirectional stream and its plane-2 verb handlers (`runchannel.go`), the
-runner-side clients (`home.go`, `runnerlink.go`, `homeartifacts.go`), the launch
-as ONE typed message on `StartRun` (`coordgrpc.EncodeLaunch`/`DecodeLaunch`,
-`internal/adapters/coordgrpc`), the runner tail that redeems, decodes and delivers
-it (`runner.Execute`, `internal/adapters/runner`), and the runner-side engine host
-that drives a backend's `StructuredChat` in-process (`enginehost.go`).
+process and mints the durability guarantee at the coordinator end. It is split over
+three packages by the ring rule (`core/coord` imports neither adapter;
+`TestArch_CoordLinksNoAdapter` pins it link-side). `internal/adapters/coordgrpc`
+owns the wire: the h2c listener set and its endpoint file (`httpserver.go`,
+`coordgrpc.Serve` binds it to the coordinator as its `coord.Transport`), the gRPC
+server plus its consumer-denial auth interceptors (`grpcserver.go`), the per-run
+bidirectional stream's frame handler (`runchannel.go`, decode → verb), the codec both
+ways (`codec.go`) and the launch as ONE typed message on `StartRun`
+(`coordgrpc.EncodeLaunch`/`DecodeLaunch`). `internal/core/coord` owns what the wire
+is decoded INTO: the runner session and run channel over `BidiSession`
+(`runnersession.go`, `runchannel.go` — the runner-liveness watchdog, the plane-2 verb
+dispatch, the ack discipline), typed without the proto. `internal/adapters/runner`
+owns the runner side: the clients (`home.go`, `runnerlink.go`, `homeartifacts.go`),
+the tail that redeems, decodes and delivers the launch (`runner.Execute`) and the
+engine host that drives a backend's `StructuredChat` in-process (`enginehost.go`).
 
 ```mermaid
 flowchart TD
   subgraph coordinator["coordinator process"]
-    SRV["coordServing<br/>loopback always · wide on demand"]
-    EP[("endpoint.json<br/>ports + consumer cred")]
-    GS["grpcServer<br/>auth interceptors (D1 read-only enforcement)"]
-    CS["coordService"]
-    RSESS["runnerSession (bidiSession)<br/>credHash → queue · pending · lastBeat"]
-    WD["runnerWatchdog → checkRunnerLiveness"]
-    CH["runChan (bidiSession)<br/>role · queue · ackSeq/flushedSeq/items"]
-    HAF["handleAgentFrame"]
-    HAE["handleAgentEvent"]
-    HCE["handleCustomEvent"]
-    HAR["handleAgentRequest + reqTrack[reqKey]"]
-    SAR["serveAgentRequest"]
-    VERBS["servePeerSend · serveSpawnAgent<br/>serveListRuns · serveStopRun<br/>serveApproval · serveHost → Coordinator.Host → HostApp"]
-    ITEMS["bufferItem / flushItems<br/>items.go — group fsync on Ack"]
+    subgraph cgrpc["adapters/coordgrpc — the wire"]
+      SRV["coordgrpc.Serve → coordServing (coord.Transport)<br/>loopback always · wide on demand"]
+      EP[("endpoint.json<br/>ports + consumer cred")]
+      GS["grpcServer<br/>auth interceptors (consumer read-only enforcement)"]
+      CS["coordService"]
+      HAF["handleAgentFrame<br/>EventFromWire · AgentRequestFromWire · StatusFromErr"]
+    end
+    subgraph ccore["core/coord — what the wire decodes into"]
+      RSESS["RunnerSession (BidiSession)<br/>credHash → queue · pending · lastBeat"]
+      WD["runnerWatchdog → checkRunnerLiveness"]
+      CH["RunChannel (BidiSession)<br/>role · queue · ackSeq/flushedSeq/items"]
+      HAE["Coordinator.HandleEvent"]
+      HCE["handleCustomEvent"]
+      HAR["Coordinator.HandleRequest + reqTrack"]
+      SAR["serveAgentRequest"]
+      VERBS["Spawn → spawnDisposition · serveRoster<br/>serveStopRun · Control<br/>Host → HostApp"]
+      ITEMS["bufferItem / flushItems<br/>items.go — group fsync on Ack"]
+    end
     SRV --> EP
     SRV --> GS --> CS
     CS --> RSESS
@@ -36,7 +46,7 @@ flowchart TD
     HAF --> HAR --> SAR --> VERBS
     WD --> RSESS
   end
-  subgraph runner["runner process (ctxloom llm host)"]
+  subgraph runner["runner process (ctxloom llm host) — adapters/runner"]
     HOME["Home<br/>4 planes + connection manager<br/>identity bound ONCE from the Launch (BindIdentity)"]
     RL["RunnerLink<br/>hello · heartbeat · request dispatch"]
     EH["EngineHost<br/>MaxConcurrentRuns = 1<br/>startRun → Runner.Execute → Drive"]
@@ -62,21 +72,22 @@ flowchart TD
 | --- | --- |
 | `coordServing` | the listener set: loopback always, container-reachable ("wide") on demand |
 | `endpointState` | the on-disk `endpoint.json`: `LoopbackPort`, `WidePort`, `ConsumerCred` — a viewer's one discovery point for both |
-| `Coordinator.Serve` | stands up the h2c listener, mints the consumer credential, saves `endpoint.json` (0600) |
+| `coordgrpc.Serve` | stands up the h2c listener, mints the consumer credential, saves `endpoint.json` (0600), and binds the result to the coordinator through `Coordinator.BindTransport` (atomic with `Close`; a second bind is refused) |
 | `bindPreferring` | binds the recorded port, falls back to ephemeral — the fallback *is* the error handling |
-| `Coordinator.ReachURL` / `reachURL` | loopback for a host child, the widened endpoint for a container child; "listeners are not up" is actionable |
+| `Coordinator.ReachURL` → `coordServing.ReachURL` | loopback for a host child, the widened endpoint for a container child; `coord.ErrNotServing` when no transport is bound |
 | `coordServing.ensureWide` | resolves and binds the container-reachable endpoint once; both no-candidate and no-bind fail loudly |
 | `advertiseHostFor` / `preferredContainerRuntime` / `containerReachIPs` / `primaryOutboundIP` | the per-OS magic hostname, docker-vs-podman guess, bridge-gateway probing, outbound-IP trick |
-| `coordServing.close` | `grpcSrv.Stop()` **before** shutting the listeners — `GracefulStop` caused a confirmed process-crashing panic |
+| `coordServing.Close` | `grpcSrv.Stop()` **before** shutting the listeners — `GracefulStop` caused a confirmed process-crashing panic |
 | `discover.List` | out-of-process discovery: glob `~/.ctxloom/coord/*/endpoint.json`, sort by mtime newest-first, return `(URL, Cred)` pairs |
 
-`internal/adapters/coordgrpc/discover` is a deliberate **leaf**: `coord` imports
-`internal/adapters/operations`, so `operations` cannot import `coord`. `discover` therefore
-re-declares four things by hand — the state-dir name (`coord/statedir.go`), the MCP
-path (`coord/httpserver.go`), the `endpoint.json` shape (`coord/httpserver.go`)
-and the URL format (`coord/httpserver.go`) — with no compiler link. A third copy of
-the same workaround exists at `operations/sessionfeed.go` (`bearerToken` mirrors
-`coord/runnerlink.go`'s `bearerCreds`).
+`internal/adapters/coordgrpc/discover` is a deliberate **leaf** for consumers that
+have no coordinator in their own process: it owns the `endpoint.json` shape
+(`discover.State`, which `coordgrpc/httpserver.go` writes as `endpointState`) and the
+MCP path (`discover.MCPPath`, re-exported by `coordgrpc`), and re-declares the
+state-dir name by hand. `operations/sessionfeed.go` is such a consumer — a wire
+client of another process's coordinator — so its `bearerToken` mirrors
+`runner/runnerlink.go`'s `bearerCreds` rather than sharing a type with a server it
+never links.
 
 ## gRPC server and runner sessions
 

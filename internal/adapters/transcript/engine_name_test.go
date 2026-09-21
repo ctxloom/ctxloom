@@ -17,7 +17,7 @@ import (
 // registeredClaudeBackendName is the literal internal/engines/claude/claudecode.go
 // hands agent.NewBaseBackend, and therefore the literal that reaches
 // NewRecorder in production: GRPCClient.openRecorder passes the plugin's own
-// LLMInfo.Name (internal/lm/grpc/chat.go), and coord.EngineHost passes the
+// LLMInfo.Name (internal/lm/grpc/chat.go), and runner.EngineHost passes the
 // backend name RunnerHello advertised (enginehost.go). Neither normalizes.
 const registeredClaudeBackendName = "claude-code"
 

@@ -7,7 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// spoolCourier pairs a spool WRITE with its DOORBELL so that neither can be
+// SpoolCourier pairs a spool WRITE with its DOORBELL so that neither can be
 // performed without the other.
 //
 // THE STANDARD IT ENFORCES: file is truth, wire is doorbell. A message's
@@ -30,23 +30,23 @@ import (
 // which writer set they own, which harp keys that writer, how they ring, and
 // whether the send is audited. Everything else was identical prose in two
 // files.
-type spoolCourier struct {
-	rep report.Reporter
-	// writers is this end's writer cache. Writers are per-harp and cached
-	// because two writers for one directory can mint the same filename twice.
-	writers *spoolWriterCache
-	// keyFor maps a recipient onto the harp whose spool is written. The
+type SpoolCourier struct {
+	Rep report.Reporter
+	// Writers is this end's writer cache. Writers are per-harp and cached
+	// because two Writers for one directory can mint the same filename twice.
+	Writers *SpoolWriterCache
+	// KeyFor maps a recipient onto the harp whose spool is written. The
 	// coordinator writes into the RECIPIENT's spool; a runner always writes
 	// into its OWN, whoever the message is addressed to.
-	keyFor func(to string) string
-	// ring delivers the doorbell. It reports its own drops (WarnOnce + a
+	KeyFor func(to string) string
+	// Ring delivers the doorbell. It reports its own drops (WarnOnce + a
 	// counter) and returns nil for a drop: a doorbell that cannot go out is
 	// not an error, because the file is already truth.
-	ring func(to string, ref spool.Ref) error
-	// onSent records the send where an end audits it. May be nil.
-	onSent func(to string, msg Message, ref spool.Ref)
-	// side names this end in diagnostics ("coordinator" / "runner").
-	side string
+	Ring func(to string, ref spool.Ref) error
+	// OnSent records the send where an end audits it. May be nil.
+	OnSent func(to string, msg Message, ref spool.Ref)
+	// Side names this end in diagnostics ("coordinator" / "runner").
+	Side string
 }
 
 // Send writes msg into the spool and rings its doorbell, in that order.
@@ -56,17 +56,17 @@ type spoolCourier struct {
 // at-least-once floor, so the only cost is one sweep interval. A WRITE that
 // fails DOES fail, because nothing was delivered and nobody has been told
 // otherwise.
-func (x *spoolCourier) Send(msg Message) (spool.Ref, error) {
+func (x *SpoolCourier) Send(msg Message) (spool.Ref, error) {
 	sm, err := spoolMessageForMail(msg, msg.To)
 	if err != nil {
-		return spool.Ref{}, fmt.Errorf("%s: cannot project message %s for %s onto the spool: %w", x.side, msg.ID, msg.To, err)
+		return spool.Ref{}, fmt.Errorf("%s: cannot project message %s for %s onto the spool: %w", x.Side, msg.ID, msg.To, err)
 	}
 	ref, err := x.SendProjected(msg.To, sm)
 	if err != nil {
 		return spool.Ref{}, err
 	}
-	if x.onSent != nil {
-		x.onSent(msg.To, msg, ref)
+	if x.OnSent != nil {
+		x.OnSent(msg.To, msg, ref)
 	}
 	return ref, nil
 }
@@ -77,20 +77,20 @@ func (x *spoolCourier) Send(msg Message) (spool.Ref, error) {
 // failure reporting. They still must not be able to write without ringing, so
 // the pairing lives here and they compose on top rather than reaching past
 // it.
-func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, error) {
-	w, release, err := x.writers.writerFor(x.keyFor(to))
+func (x *SpoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, error) {
+	w, release, err := x.Writers.writerFor(x.KeyFor(to))
 	if err != nil {
-		return spool.Ref{}, fmt.Errorf("%s: cannot open the spool for %s: %w", x.side, to, err)
+		return spool.Ref{}, fmt.Errorf("%s: cannot open the spool for %s: %w", x.Side, to, err)
 	}
 	ref, err := w.Write(sm)
 	release() // the file is on disk (or refused): the lease ends before the ring
 	if err != nil {
-		return spool.Ref{}, fmt.Errorf("%s: writing into %s's spool: %w", x.side, to, err)
+		return spool.Ref{}, fmt.Errorf("%s: writing into %s's spool: %w", x.Side, to, err)
 	}
 	// Unconditional, and unreachable from outside: a caller holding a courier
 	// cannot obtain the ref without this having run.
-	if rerr := x.ring(to, ref); rerr != nil {
-		x.rep.Warnf("%s: wrote %s for %s but could not ring it: %v (it will be swept)", x.side, ref, to, rerr)
+	if rerr := x.Ring(to, ref); rerr != nil {
+		x.Rep.Warnf("%s: wrote %s for %s but could not ring it: %v (it will be swept)", x.Side, ref, to, rerr)
 	}
 	return ref, nil
 }
@@ -107,8 +107,8 @@ func (x *spoolCourier) SendProjected(to string, sm *spool.Message) (spool.Ref, e
 //
 // what names the transition for the diagnostic, so a dropped announcement says
 // which one was lost rather than only that something was.
-func (x *spoolCourier) Announce(to string, ref spool.Ref, what string) {
-	if rerr := x.ring(to, ref); rerr != nil {
-		x.rep.Warnf("%s: %s %s but could not announce it: %v", x.side, what, ref, rerr)
+func (x *SpoolCourier) Announce(to string, ref spool.Ref, what string) {
+	if rerr := x.Ring(to, ref); rerr != nil {
+		x.Rep.Warnf("%s: %s %s but could not announce it: %v", x.Side, what, ref, rerr)
 	}
 }

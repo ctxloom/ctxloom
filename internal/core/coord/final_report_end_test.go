@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -27,8 +26,8 @@ import (
 // than opening a second termination path.
 
 // finalSummary is the completion contract as an agent files it.
-func finalSummary(text string) *agentcoordpb.Summary {
-	return &agentcoordpb.Summary{Scope: agentcoordpb.Summary_SCOPE_FINAL, Text: text}
+func finalSummary(text string) Summary {
+	return Summary{Scope: ScopeFinal, Text: text}
 }
 
 // runTerminalDetail reads a run's terminal DETAIL off the fold ("" while
@@ -101,7 +100,7 @@ func firstIndexOfKind(msgs []Message, kind string) int {
 func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -159,8 +158,8 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, &agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "still working",
 	})
 
@@ -187,7 +186,7 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -256,7 +255,7 @@ func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true, turnGate: gate} })
+	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{Resumable: true, TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")

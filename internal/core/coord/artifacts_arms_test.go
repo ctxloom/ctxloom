@@ -33,7 +33,7 @@ func TestUploadArtifact_RejectsAnOversizedChunk(t *testing.T) {
 	env := waitForChildEnv(t, c, out.RunID)
 	client := dialArtifactClient(t, c, env[EnvCoordCred])
 
-	data := make([]byte, artifactChunkCap+1)
+	data := make([]byte, ArtifactChunkCap+1)
 	sum := sha256.Sum256(data)
 	_, err := uploadRaw(t, client, out.RunID, "big/chunk", data, sum[:], len(data))
 	require.Error(t, err)
@@ -55,7 +55,7 @@ func TestUploadArtifact_RejectsADeclaredSizeOverTheCap(t *testing.T) {
 		ArtifactId: "big/declared",
 		Name:       "big",
 		MediaType:  "application/octet-stream",
-		SizeBytes:  artifactUploadSizeCap + 1,
+		SizeBytes:  ArtifactUploadSizeCap + 1,
 	}}}))
 	_, err = stream.CloseAndRecv()
 	require.Error(t, err)

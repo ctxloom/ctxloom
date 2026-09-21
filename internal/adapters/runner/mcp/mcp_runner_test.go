@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -21,7 +21,7 @@ import (
 // newTestServer is NewServer over an empty loadout and a discarding
 // reporter: registration is what these tests observe, and it reads no
 // package bytes.
-func newTestServer(harp string, home *coord.Home, leaf bool, cwd string) (*mcp.Server, error) {
+func newTestServer(harp string, home *runner.Home, leaf bool, cwd string) (*mcp.Server, error) {
 	if cwd == "" {
 		cwd = "/work"
 	}
@@ -57,9 +57,9 @@ func listServerTools(t *testing.T, server *mcp.Server) map[string]*mcp.Tool {
 
 // testHome builds a Home against a dead loopback endpoint — registration
 // needs the value, not a live coordinator.
-func testHome(t *testing.T) *coord.Home {
+func testHome(t *testing.T) *runner.Home {
 	t.Helper()
-	h, err := coord.NewHome(context.Background(), coord.HomeConfig{
+	h, err := runner.NewHome(context.Background(), runner.HomeConfig{
 		URL:     "http://127.0.0.1:1/mcp",
 		Token:   "t",
 		RunID:   "run-x",

@@ -16,14 +16,14 @@ import (
 // pin that nothing is returned alongside an error.
 
 func TestDialRunner_UnparseableURLIsRefusedBeforeAnyDial(t *testing.T) {
-	link, err := DialRunner(context.Background(), nil, "://not-a-url", "tok", "run-1", "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(context.Background(), nil, "://not-a-url", "tok", "run-1", "mock", "test", nil)
 	assert.Nil(t, link, "a failed dial hands back no link")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), EnvCoordURL, "the message must name the variable that carried the bad URL")
 }
 
 func TestDialRunner_URLWithoutAHostIsRefused(t *testing.T) {
-	link, err := DialRunner(context.Background(), nil, "http:///mcp", "tok", "run-1", "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(context.Background(), nil, "http:///mcp", "tok", "run-1", "mock", "test", nil)
 	assert.Nil(t, link)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "has no host")
@@ -37,7 +37,7 @@ func TestDialRunner_HelloAgainstNoListenerFailsAndReturnsNoLink(t *testing.T) {
 	defer cancel()
 
 	// Port 1 on loopback: reserved, never bound by a test coordinator.
-	link, err := DialRunner(ctx, nil, "http://127.0.0.1:1/mcp", "tok", "run-1", "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(ctx, nil, "http://127.0.0.1:1/mcp", "tok", "run-1", "mock", "test", nil)
 	assert.Nil(t, link, "a failed handshake hands back no link, so nothing can Shutdown a torn-down conn")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "coord: ", "every dial failure is attributed to the coordinator link")
@@ -54,7 +54,7 @@ func TestDialRunner_HelloClaimingAnUnownedRunIsRejected(t *testing.T) {
 	// A run id this credential does not own: the ownership check rejects the
 	// Hello, which unwinds through the ack-rejected path rather than a
 	// transport error — the redial loop treats the two differently.
-	link, err := DialRunner(context.Background(), nil, c.LoopbackURL(), token, "run-nobody-owns", "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(context.Background(), nil, c.LoopbackURL(), token, "run-nobody-owns", "mock", "test", nil)
 	assert.Nil(t, link, "a rejected Hello hands back no link")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "coord: ", "every dial failure is attributed to the coordinator link")

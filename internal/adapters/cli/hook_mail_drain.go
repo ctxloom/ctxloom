@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -90,7 +90,7 @@ func drainMail(cmd *cobra.Command, harp string) error {
 	}
 	frames := make([]string, 0, len(res.Entries))
 	for _, e := range res.Entries {
-		frames = append(frames, coord.FrameCoordinatorDelivery(e.Message.FromHarp, e.Message.Kind, e.Message.Body))
+		frames = append(frames, runner.FrameCoordinatorDelivery(e.Message.FromHarp, e.Message.Kind, e.Message.Body))
 	}
 	out := claude.UserPromptSubmitOutput{HookSpecificOutput: &claude.AdditionalContextOutput{
 		HookEventName:     claude.HookEventUserPromptSubmit,

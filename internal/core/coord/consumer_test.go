@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
@@ -29,13 +29,7 @@ import (
 // runner/run channels); ConsumerService is a third, independent client.
 func dialConsumer(t *testing.T, coordURL, token string) (agentcoordpb.ConsumerServiceClient, *grpc.ClientConn) {
 	t.Helper()
-	target, err := grpcTarget(coordURL)
-	require.NoError(t, err)
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(token)),
-	)
-	require.NoError(t, err)
+	conn := dialCoordinator(t, coordURL, token)
 	t.Cleanup(func() { _ = conn.Close() })
 	return agentcoordpb.NewConsumerServiceClient(conn), conn
 }
@@ -116,11 +110,8 @@ func TestConsumerService_WatchRuns_SnapshotThenLiveDeltaText(t *testing.T) {
 
 // customFillEvent is one cheap, non-terminal AgentEvent for filling a
 // watchHub subscriber's ring without needing a real run.
-func customFillEvent(seq uint64) *agentcoordpb.AgentEvent {
-	return &agentcoordpb.AgentEvent{
-		Seq: seq, RunId: "r",
-		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
-	}
+func customFillEvent(seq uint64) Event {
+	return Event{Seq: seq, RunID: "r", Payload: CustomEvent{Name: "fill"}}
 }
 
 // TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent is the
@@ -159,28 +150,28 @@ func TestWatchHub_Broadcast_FullRingLossIsReportedBeforeTheNextEvent(t *testing.
 
 	// The reader frees one slot — not enough for marker + event, so the next
 	// broadcast is lost too rather than arriving without its marker.
-	require.Equal(t, uint64(1), (<-ch).GetSeq())
+	require.Equal(t, uint64(1), (<-ch).Seq)
 	h.broadcast(customFillEvent(uint64(watchRingSize + 5)))
 	assert.Len(t, ch, watchRingSize-1, "with one free slot the marker cannot precede the event, so the event joins the loss")
 
 	// Two free slots: the marker and the next event go in, in that order.
-	require.Equal(t, uint64(2), (<-ch).GetSeq())
+	require.Equal(t, uint64(2), (<-ch).Seq)
 	h.broadcast(customFillEvent(uint64(watchRingSize + 6)))
 	require.Len(t, ch, watchRingSize, "marker + event fill the two freed slots")
 
 	for seq := 3; seq <= watchRingSize; seq++ {
-		require.Equal(t, uint64(seq), (<-ch).GetSeq(), "the ring's own contents arrive intact, in order")
+		require.Equal(t, uint64(seq), (<-ch).Seq, "the ring's own contents arrive intact, in order")
 	}
 	marker := <-ch
-	lost, ok := marker.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
-	require.True(t, ok, "the first event after the ring's contents must be the EventsLost marker, got %T", marker.GetPayload())
-	require.Len(t, lost.EventsLost.GetLost(), 1, "one run lost one contiguous range")
-	r := lost.EventsLost.GetLost()[0]
-	assert.Equal(t, "r", r.GetRunId())
-	assert.Equal(t, uint64(watchRingSize+1), r.GetFirstSeq(), "the gap starts at the first event the full ring refused")
-	assert.Equal(t, uint64(watchRingSize+5), r.GetLastSeq(), "the gap ends at the last event lost before room appeared")
-	assert.Equal(t, uint64(0), marker.GetSeq(), "the marker is synthetic: it carries no seq of its own")
-	assert.Equal(t, uint64(watchRingSize+6), (<-ch).GetSeq(), "the event that ended the loss episode follows its marker")
+	lost, ok := marker.Payload.(EventsLost)
+	require.True(t, ok, "the first event after the ring's contents must be the EventsLost marker, got %T", marker.Payload)
+	require.Len(t, lost.Lost, 1, "one run lost one contiguous range")
+	r := lost.Lost[0]
+	assert.Equal(t, "r", r.RunID)
+	assert.Equal(t, uint64(watchRingSize+1), r.FirstSeq, "the gap starts at the first event the full ring refused")
+	assert.Equal(t, uint64(watchRingSize+5), r.LastSeq, "the gap ends at the last event lost before room appeared")
+	assert.Equal(t, uint64(0), marker.Seq, "the marker is synthetic: it carries no seq of its own")
+	assert.Equal(t, uint64(watchRingSize+6), (<-ch).Seq, "the event that ended the loss episode follows its marker")
 }
 
 // TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker pins
@@ -198,10 +189,7 @@ func TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker(t *testi
 	}
 	h.broadcast(customFillEvent(uint64(watchRingSize + 1))) // refused: the ring is full
 
-	term := &agentcoordpb.AgentEvent{
-		Seq: uint64(watchRingSize + 2), RunId: "r",
-		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}},
-	}
+	term := Event{Seq: uint64(watchRingSize + 2), RunID: "r", Payload: RunCompleted{}}
 	termDone := make(chan struct{})
 	go func() {
 		h.broadcast(term)
@@ -216,19 +204,19 @@ func TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker(t *testi
 
 	// seq 1 and 2 were evicted (oldest first); 3..256 survive; then the marker; then the terminal.
 	for seq := 3; seq <= watchRingSize; seq++ {
-		require.Equal(t, uint64(seq), (<-ch).GetSeq())
+		require.Equal(t, uint64(seq), (<-ch).Seq)
 	}
 	marker := <-ch
-	lost, ok := marker.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
-	require.True(t, ok, "the marker must precede the terminal, got %T", marker.GetPayload())
+	lost, ok := marker.Payload.(EventsLost)
+	require.True(t, ok, "the marker must precede the terminal, got %T", marker.Payload)
 	var ranges [][2]uint64
-	for _, r := range lost.EventsLost.GetLost() {
-		assert.Equal(t, "r", r.GetRunId())
-		ranges = append(ranges, [2]uint64{r.GetFirstSeq(), r.GetLastSeq()})
+	for _, r := range lost.Lost {
+		assert.Equal(t, "r", r.RunID)
+		ranges = append(ranges, [2]uint64{r.FirstSeq, r.LastSeq})
 	}
 	assert.Equal(t, [][2]uint64{{uint64(watchRingSize + 1), uint64(watchRingSize + 1)}, {1, 2}}, ranges,
 		"the marker names the refused event AND the two evicted ones, each run-contiguous run of seqs as one range")
-	assert.Same(t, term, <-ch, "the terminal lands right after its marker")
+	assert.Equal(t, term, <-ch, "the terminal lands right after its marker")
 }
 
 // TestWatchSub_NoteLost_CoalescesContiguousSeqsPerRun pins the marker's
@@ -236,7 +224,7 @@ func TestWatchHub_Broadcast_TerminalOnFullRingIsPrecededByItsLossMarker(t *testi
 // seqs of one run fold into one range even with another run's events
 // between them, so the marker stays bounded by runs, not by events lost.
 func TestWatchSub_NoteLost_CoalescesContiguousSeqsPerRun(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent, 1)}
+	sub := &watchSub{ch: make(chan Event, 1)}
 	sub.noteLost(nonTerminalEvent(7, "a"))
 	sub.noteLost(nonTerminalEvent(1, "b"))
 	sub.noteLost(nonTerminalEvent(8, "a"))
@@ -244,12 +232,12 @@ func TestWatchSub_NoteLost_CoalescesContiguousSeqsPerRun(t *testing.T) {
 	sub.noteLost(nonTerminalEvent(3, "a")) // a's evicted tail: not contiguous with 8, a new range
 
 	require.Len(t, sub.lost, 3)
-	assert.Equal(t, "a", sub.lost[0].GetRunId())
-	assert.Equal(t, [2]uint64{7, 8}, [2]uint64{sub.lost[0].GetFirstSeq(), sub.lost[0].GetLastSeq()})
-	assert.Equal(t, "b", sub.lost[1].GetRunId())
-	assert.Equal(t, [2]uint64{1, 2}, [2]uint64{sub.lost[1].GetFirstSeq(), sub.lost[1].GetLastSeq()})
-	assert.Equal(t, "a", sub.lost[2].GetRunId())
-	assert.Equal(t, [2]uint64{3, 3}, [2]uint64{sub.lost[2].GetFirstSeq(), sub.lost[2].GetLastSeq()})
+	assert.Equal(t, "a", sub.lost[0].RunID)
+	assert.Equal(t, [2]uint64{7, 8}, [2]uint64{sub.lost[0].FirstSeq, sub.lost[0].LastSeq})
+	assert.Equal(t, "b", sub.lost[1].RunID)
+	assert.Equal(t, [2]uint64{1, 2}, [2]uint64{sub.lost[1].FirstSeq, sub.lost[1].LastSeq})
+	assert.Equal(t, "a", sub.lost[2].RunID)
+	assert.Equal(t, [2]uint64{3, 3}, [2]uint64{sub.lost[2].FirstSeq, sub.lost[2].LastSeq})
 }
 
 // TestSendTerminal_EvictsOldestWhenFull is a focused unit test on the
@@ -258,7 +246,7 @@ func TestWatchSub_NoteLost_CoalescesContiguousSeqsPerRun(t *testing.T) {
 // loss the subscriber must hear about, the terminal lands right after the
 // marker naming them — two evictions, well inside terminalEvictAttempts.
 func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent, 2)}
+	sub := &watchSub{ch: make(chan Event, 2)}
 	sub.ch <- nonTerminalEvent(1, "r")
 	sub.ch <- nonTerminalEvent(2, "r")
 	term := terminalEvent(3, "r")
@@ -267,12 +255,12 @@ func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
 
 	require.Len(t, sub.ch, 2, "sendTerminal must not grow the ring — evict, then place")
 	got := <-sub.ch
-	lost, ok := got.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
-	require.True(t, ok, "the evicted events must be reported by a marker ahead of the terminal, got %T", got.GetPayload())
-	require.Len(t, lost.EventsLost.GetLost(), 1)
-	assert.Equal(t, uint64(1), lost.EventsLost.GetLost()[0].GetFirstSeq())
-	assert.Equal(t, uint64(2), lost.EventsLost.GetLost()[0].GetLastSeq())
-	assert.Same(t, term, <-sub.ch, "the terminal event must be the one placed")
+	lost, ok := got.Payload.(EventsLost)
+	require.True(t, ok, "the evicted events must be reported by a marker ahead of the terminal, got %T", got.Payload)
+	require.Len(t, lost.Lost, 1)
+	assert.Equal(t, uint64(1), lost.Lost[0].FirstSeq)
+	assert.Equal(t, uint64(2), lost.Lost[0].LastSeq)
+	assert.Equal(t, term, <-sub.ch, "the terminal event must be the one placed")
 	assert.Nil(t, sub.lost, "flushing the marker clears the pending loss")
 }
 
@@ -282,7 +270,7 @@ func TestSendTerminal_EvictsOldestWhenFull(t *testing.T) {
 // marker stays pending — dropping the terminal would hang the watcher,
 // deferring the marker does not.
 func TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent, 2)}
+	sub := &watchSub{ch: make(chan Event, 2)}
 	sub.ch <- terminalEvent(1, "other")
 	sub.ch <- nonTerminalEvent(5, "r")
 	term := terminalEvent(6, "r")
@@ -290,10 +278,10 @@ func TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed(t *testing.T) {
 	sendTerminal(termRep(), sub, term)
 
 	require.Len(t, sub.ch, 2)
-	assert.Equal(t, "other", (<-sub.ch).GetRunId(), "the other run's terminal survives")
-	assert.Same(t, term, <-sub.ch, "the terminal takes the one slot the eviction freed")
+	assert.Equal(t, "other", (<-sub.ch).RunID, "the other run's terminal survives")
+	assert.Equal(t, term, <-sub.ch, "the terminal takes the one slot the eviction freed")
 	require.Len(t, sub.lost, 1, "the evicted event stays a pending loss for the next flush")
-	assert.Equal(t, uint64(5), sub.lost[0].GetFirstSeq())
+	assert.Equal(t, uint64(5), sub.lost[0].FirstSeq)
 }
 
 // TestSendTerminal_NeverBlocksWhenChannelIsWedged proves the bounded give-up
@@ -302,8 +290,8 @@ func TestSendTerminal_TerminalWinsWhenOnlyOneSlotCanBeFreed(t *testing.T) {
 // blocking forever, matching consumer.go's never-block invariant even for
 // the terminal-delivery exception.
 func TestSendTerminal_NeverBlocksWhenChannelIsWedged(t *testing.T) {
-	sub := &watchSub{ch: make(chan *agentcoordpb.AgentEvent)} // unbuffered; nothing ever sends or receives concurrently
-	term := &agentcoordpb.AgentEvent{Seq: 1, Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}
+	sub := &watchSub{ch: make(chan Event)} // unbuffered; nothing ever sends or receives concurrently
+	term := Event{Seq: 1, Payload: RunCompleted{}}
 	done := make(chan struct{})
 	go func() {
 		sendTerminal(termRep(), sub, term)
@@ -345,11 +333,11 @@ func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, startRunSpawner(nil), nil)
 	// Five distinct values so a field crossed with any other is caught.
-	c.spoolDeliveryCount.delivered.Add(11)
-	c.spoolDeliveryCount.consumed.Add(12)
-	c.spoolDeliveryCount.failed.Add(13)
-	c.spoolDoorbell.dropped.Add(14)
-	c.spoolDoorbell.rejected.Add(15)
+	c.spoolDeliveryCount.Delivered.Add(11)
+	c.spoolDeliveryCount.Consumed.Add(12)
+	c.spoolDeliveryCount.Failed.Add(13)
+	c.spoolDoorbell.Dropped.Add(14)
+	c.spoolDoorbell.Rejected.Add(15)
 
 	client, _ := dialConsumer(t, c.LoopbackURL(), c.consumerCreds.token())
 	res, err := client.SpoolStats(context.Background(), &agentcoordpb.SpoolStatsRequest{})
@@ -384,13 +372,7 @@ func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	token := c.consumerCreds.token()
 	require.NotEmpty(t, token)
 
-	target, err := grpcTarget(c.LoopbackURL())
-	require.NoError(t, err)
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(token)),
-	)
-	require.NoError(t, err)
+	conn := dialCoordinator(t, c.LoopbackURL(), token)
 	t.Cleanup(func() { _ = conn.Close() })
 	coordClient := agentcoordpb.NewCoordinatorServiceClient(conn)
 
@@ -430,7 +412,7 @@ func TestConsumer_CredentialPersistedInEndpointFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "endpoint.json must stay 0600 — it now carries a credential")
 
-	var ep endpointState
+	var ep discover.State
 	require.NoError(t, json.Unmarshal(raw, &ep))
 	assert.NotEmpty(t, ep.ConsumerCred)
 	assert.Equal(t, c.consumerCreds.token(), ep.ConsumerCred)

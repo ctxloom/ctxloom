@@ -36,7 +36,7 @@ func TestEndpointFile_ServeWritesWhatDiscoverReads(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 
 	endpoints, skipped := discover.List()
 	assert.Empty(t, skipped, "a freshly served coordinator must not look like a corrupt candidate")

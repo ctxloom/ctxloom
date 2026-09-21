@@ -25,12 +25,13 @@ func TestArch_SpoolWrite_HappensOnlyInTheCourier(t *testing.T) {
 // TestArch_RingSpool_ReachedOnlyThroughTheCourier is the other half. ringSpool
 // is fire-and-forget on both peers, so a ring raised beside a write (rather
 // than by the courier that just wrote) is indistinguishable from a correct one
-// until a message goes missing. The two files below do not CALL it: each
-// installs it as a courier's ring field, which is the whole point.
+// until a message goes missing. The file below does not CALL it: it installs
+// it as the coordinator's courier's ring field, which is the whole point (the
+// runner's peer, Home.RingSpool, is held to the same rule by its own suite).
 func TestArch_RingSpool_ReachedOnlyThroughTheCourier(t *testing.T) {
 	got := referencingFiles(t, packageDir(t), "ringSpool", false)
-	assert.Equal(t, []string{"spooldelivery.go", "spoolturnresult.go"}, got,
-		"ringSpool belongs to the courier: these two files may only hand it to one as its ring. "+
+	assert.Equal(t, []string{"spooldelivery.go"}, got,
+		"ringSpool belongs to the courier: this file may only hand it to one as its ring. "+
 			"A new file here means someone rings without writing through the courier — "+
-			"make it go through spoolCourier.SendProjected (or Announce for a ring with no write).")
+			"make it go through SpoolCourier.SendProjected (or Announce for a ring with no write).")
 }

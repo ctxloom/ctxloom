@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 			})
 
 			want := spool.Ref{Harp: doorbellHarp, Dir: dir, Name: doorbellName}
-			require.NoError(t, h.ringSpool(want))
+			require.NoError(t, h.RingSpool(want))
 
 			assert.Equal(t, want, waitRef(t, got),
 				"the doorbell must arrive as the IDENTICAL ref: every field is a coordinate the receiver joins into a path, so a lost or altered one resolves somewhere else")
@@ -102,170 +103,43 @@ func TestSpoolDoorbell_CoordinatorToRunnerRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSpoolDoorbell_EnumExhaustiveBothDirections is the drift alarm. The two
-// closed vocabularies — spool.Dir and the wire enum — are declared in different
-// languages in different files, and the ONLY thing keeping them in step is the
-// table in spooldoorbell.go. Adding a sixth spool directory, or a sixth enum
-// value, must fail HERE rather than silently not map: an unmapped directory
-// means a doorbell that cannot be rung (mail that only ever arrives by sweep,
-// i.e. slower with no error anywhere), and an unmapped enum value means an
-// inbound doorbell refused as invalid.
-func TestSpoolDoorbell_EnumExhaustiveBothDirections(t *testing.T) {
-	dirs := spool.Dirs()
+// TestSpoolDoorbell_RefusedRefIsCountedAndNamed is the security pin's
+// coordinator half: a doorbell the wire could not decode into a valid ref
+// (the decode's own cases are pinned in the wire adapter's suite) reaches
+// RefuseSpoolChanged, which COUNTS it and reports it naming the sender and
+// the fault — and never hands anything to the consumer, because the
+// consumer's whole job is to resolve the ref into a filesystem path.
+func TestSpoolDoorbell_RefusedRefIsCountedAndNamed(t *testing.T) {
+	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
+	_ = dialHome(t, c, doorbellHarp) // the child's channel is what the doorbell arrives on
 
-	// Every wire enum value except UNSPECIFIED must have a spool.Dir, and the
-	// counts must match: this is what catches a value added on ONE side only.
-	wireValues := make([]agentcoordpb.SpoolDir, 0, len(agentcoordpb.SpoolDir_name))
-	for num := range agentcoordpb.SpoolDir_name {
-		if v := agentcoordpb.SpoolDir(num); v != agentcoordpb.SpoolDir_SPOOL_DIR_UNSPECIFIED {
-			wireValues = append(wireValues, v)
-		}
+	fired := make(chan spool.Ref, 1)
+	c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { fired <- ref })
+
+	var buf syncBuf
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	c.mu.Lock()
+	ch := c.chans[doorbellHarp]
+	c.mu.Unlock()
+	require.NotNil(t, ch)
+	c.RefuseSpoolChanged(ch, errors.New("unknown wire spool directory SPOOL_DIR_UNSPECIFIED (0)"))
+
+	require.Eventually(t, func() bool {
+		return c.SpoolDoorbellStats().Rejected == 1
+	}, 10*time.Second, 10*time.Millisecond,
+		"the refusal must be COUNTED: an invisible rejection makes a broken sender look like a quiet one forever")
+
+	select {
+	case ref := <-fired:
+		t.Fatalf("the consumer was handed %s — an unvalidated ref reached the code that resolves it to a path", ref)
+	default:
 	}
-	assert.Len(t, wireValues, len(dirs),
-		"the wire enum and spool.Dir must have the same number of live values; a value added to one side alone has no mapping")
-
-	t.Run("spool.Dir -> wire -> spool.Dir", func(t *testing.T) {
-		seen := map[agentcoordpb.SpoolDir]spool.Dir{}
-		for _, d := range dirs {
-			w, err := SpoolDirToWire(d)
-			require.NoError(t, err, "spool directory %q has no wire representation", d)
-			assert.NotEqual(t, agentcoordpb.SpoolDir_SPOOL_DIR_UNSPECIFIED, w,
-				"%q must not encode as the unspecified value, which is invalid at every consumer", d)
-			if prev, dup := seen[w]; dup {
-				t.Fatalf("%q and %q both encode as %s: two spool directories collapsed onto one wire value, so a consume-rename could be read out of the wrong directory", prev, d, w)
-			}
-			seen[w] = d
-
-			back, err := SpoolDirFromWire(w)
-			require.NoError(t, err)
-			assert.Equal(t, d, back, "the round trip must return the ORIGINAL directory")
-		}
-	})
-
-	t.Run("wire -> spool.Dir -> wire", func(t *testing.T) {
-		for _, w := range wireValues {
-			d, err := SpoolDirFromWire(w)
-			require.NoError(t, err, "wire value %s has no spool.Dir", w)
-			assert.NoError(t, d.Validate(), "%s decoded to %q, which is not in spool's closed set", w, d)
-
-			back, err := SpoolDirToWire(d)
-			require.NoError(t, err)
-			assert.Equal(t, w, back, "the round trip must return the ORIGINAL wire value")
-		}
-	})
-
-	t.Run("unspecified and unknown are refused, never defaulted", func(t *testing.T) {
-		_, err := SpoolDirFromWire(agentcoordpb.SpoolDir_SPOOL_DIR_UNSPECIFIED)
-		assert.Error(t, err, "the zero value must not be a way to arrive unclassified")
-		_, err = SpoolDirFromWire(agentcoordpb.SpoolDir(9999))
-		assert.Error(t, err, "a value from a future build must fail loudly, not guess a directory")
-		_, err = SpoolDirToWire(spool.Dir("in/somewhere-new"))
-		assert.Error(t, err, "an unmappable directory must not encode as UNSPECIFIED and become the receiver's problem")
-	})
-}
-
-// TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint is the security pin.
-// Every field of a doorbell arrives from a less-trusted peer, and each of these
-// frames is one a hostile or broken runner can put on the wire. None may reach
-// the consumer, because the consumer's whole job is to resolve the ref into a
-// filesystem path.
-//
-// Sending goes through h.send, NOT h.RingSpool: RingSpool validates at the
-// writer, which is right but would mean this test never exercised the receive
-// chokepoint at all.
-func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
-	cases := []struct {
-		name string
-		msg  *agentcoordpb.SpoolChanged
-		want string
-	}{
-		{
-			name: "traversal in the file name",
-			msg:  &agentcoordpb.SpoolChanged{Harp: doorbellHarp, Dir: agentcoordpb.SpoolDir_SPOOL_DIR_IN, Name: "../../../etc/passwd"},
-			want: "path separator",
-		},
-		{
-			name: "bare dot-dot as the file name",
-			msg:  &agentcoordpb.SpoolChanged{Harp: doorbellHarp, Dir: agentcoordpb.SpoolDir_SPOOL_DIR_IN, Name: ".."},
-			want: "names a directory",
-		},
-		{
-			name: "unspecified directory",
-			msg:  &agentcoordpb.SpoolChanged{Harp: doorbellHarp, Dir: agentcoordpb.SpoolDir_SPOOL_DIR_UNSPECIFIED, Name: doorbellName},
-			want: "unknown wire spool directory",
-		},
-		{
-			name: "directory value from a future build",
-			msg:  &agentcoordpb.SpoolChanged{Harp: doorbellHarp, Dir: agentcoordpb.SpoolDir(77), Name: doorbellName},
-			want: "unknown wire spool directory",
-		},
-		{
-			name: "harp carrying a path separator",
-			msg:  &agentcoordpb.SpoolChanged{Harp: "../sibling", Dir: agentcoordpb.SpoolDir_SPOOL_DIR_OUT, Name: doorbellName},
-			want: "invalid ref harp",
-		},
-		{
-			name: "empty harp",
-			msg:  &agentcoordpb.SpoolChanged{Harp: "", Dir: agentcoordpb.SpoolDir_SPOOL_DIR_OUT, Name: doorbellName},
-			want: "invalid ref harp",
-		},
-		{
-			name: "empty name",
-			msg:  &agentcoordpb.SpoolChanged{Harp: doorbellHarp, Dir: agentcoordpb.SpoolDir_SPOOL_DIR_OUT, Name: ""},
-			want: "file name is required",
-		},
-		{
-			name: "no reference at all",
-			msg:  nil,
-			want: "",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-			h := dialHome(t, c, doorbellHarp)
-
-			fired := make(chan spool.Ref, 1)
-			c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { fired <- ref })
-
-			// A LOCKED sink: the refusal is written on the server's own
-			// receive goroutine while this one polls the counter.
-			var buf syncBuf
-			restore := clidiag.SetSink(&buf)
-			defer restore()
-
-			// A nil payload cannot travel inside a set oneof arm, so that case
-			// exercises the chokepoint directly; the rest go over the wire.
-			if tc.msg == nil {
-				c.mu.Lock()
-				ch := c.chans[doorbellHarp]
-				c.mu.Unlock()
-				require.NotNil(t, ch)
-				c.handleSpoolChanged(ch, nil)
-			} else {
-				h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: tc.msg}})
-			}
-
-			require.Eventually(t, func() bool {
-				return c.SpoolDoorbellStats().Rejected == 1
-			}, 10*time.Second, 10*time.Millisecond,
-				"the refusal must be COUNTED: an invisible rejection makes a broken sender look like a quiet one forever")
-
-			select {
-			case ref := <-fired:
-				t.Fatalf("the consumer was handed %s — an unvalidated ref reached the code that resolves it to a path", ref)
-			default:
-			}
-
-			assert.Contains(t, buf.String(), "refusing an invalid spool doorbell",
-				"the refusal must also be reported, naming the sender")
-			if tc.want != "" {
-				assert.Contains(t, buf.String(), tc.want,
-					"the report must name WHICH field was wrong, or an operator cannot tell a broken mapper from a probe")
-			}
-		})
-	}
+	assert.Contains(t, buf.String(), "refusing an invalid spool doorbell",
+		"the refusal must also be reported, naming the sender")
+	assert.Contains(t, buf.String(), "unknown wire spool directory",
+		"the report must name WHICH field was wrong, or an operator cannot tell a broken mapper from a probe")
 }
 
 // TestSpoolDoorbell_ForgedHarpIsRefused is the isolation fence. A child can
@@ -278,7 +152,7 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 // latency (see TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep).
 func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	h := dialHome(t, c, doorbellHarp)
+	_ = dialHome(t, c, doorbellHarp) // the child's channel is what the doorbell arrives on
 
 	got := make(chan spool.Ref, 1)
 	c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { got <- ref })
@@ -287,14 +161,13 @@ func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	// Syntactically perfect, and about somebody else's spool.
-	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{
-		SpoolChanged: &agentcoordpb.SpoolChanged{
-			Harp: "innocent-sibling-session",
-			Dir:  agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
-			Name: doorbellName,
-		},
-	}})
+	// Syntactically perfect, and about somebody else's spool — arriving on
+	// the child's own channel, the way the runner would send it.
+	c.mu.Lock()
+	ch := c.chans[doorbellHarp]
+	c.mu.Unlock()
+	require.NotNil(t, ch)
+	c.HandleSpoolChanged(ch, spool.Ref{Harp: "innocent-sibling-session", Dir: spool.DirOut, Name: doorbellName})
 
 	require.Eventually(t, func() bool {
 		return c.SpoolDoorbellStats().Rejected == 1
@@ -361,9 +234,9 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 	c.mu.Unlock()
 	require.NotNil(t, ch, "the child's run channel must be attached for the doorbell to have a role")
 	before := c.SpoolDoorbellStats().Rejected
-	c.handleSpoolChanged(ch, &agentcoordpb.SpoolChanged{
+	c.HandleSpoolChanged(ch, spool.Ref{
 		Harp: "innocent-sibling-session",
-		Dir:  agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
+		Dir:  spool.DirOut,
 		Name: ref.Name,
 	})
 	assert.Equal(t, before+1, c.SpoolDoorbellStats().Rejected, "the forged doorbell must be counted as refused")
@@ -400,12 +273,12 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		// directly rather than by wedging a live dial's pump: the pump reads
 		// ch.send off-lock by design, so swapping it under a live channel
 		// races the very goroutine the test is trying to stall.
-		ch := &runChan{
+		ch := &RunChannel{
 			role:        doorbellHarp,
-			bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 1),
+			BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 1),
 			completed:   make(chan struct{}),
 		}
-		ch.send <- &agentcoordpb.CoordinatorFrame{}
+		ch.send <- OutFrame{}
 		c.mu.Lock()
 		c.chans[doorbellHarp] = ch
 		c.mu.Unlock()
@@ -428,7 +301,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		h.Close(0, "")
 
 		done := make(chan error, 1)
-		go func() { done <- h.ringSpool(ref) }()
+		go func() { done <- h.RingSpool(ref) }()
 		select {
 		case err := <-done:
 			assert.NoError(t, err)
@@ -455,7 +328,7 @@ func TestSpoolDoorbell_InvalidRefNeverReachesTheWire(t *testing.T) {
 	}
 	for _, ref := range bad {
 		assert.Error(t, c.ringSpool(doorbellHarp, ref), "coordinator must refuse to ring about %s", ref)
-		assert.Error(t, h.ringSpool(ref), "runner must refuse to ring about %s", ref)
+		assert.Error(t, h.RingSpool(ref), "runner must refuse to ring about %s", ref)
 	}
 	assert.Zero(t, c.SpoolDoorbellStats().Dropped,
 		"a refused ref was never a doorbell, so it is not a DROP — conflating the two would hide real drops in the count")
@@ -480,7 +353,7 @@ func TestSpoolDoorbell_CarriesNothingButTheReference(t *testing.T) {
 // dialHome stands up a REAL runner Home against c, attached as harp,
 // advertising exactly caps. The end-to-end dial is the point: only a real
 // Hello attaches a real run channel on both sides.
-func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
+func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) TestHome {
 	t.Helper()
 	url, err := c.ReachURL("host")
 	require.NoError(t, err)
@@ -489,7 +362,7 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	h, err := NewHome(ctx, HomeConfig{
+	h, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      url, Token: token, Harness: "test", Version: "test",
 		Capabilities: caps,
@@ -511,10 +384,6 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 	// arm) — silently, because fire-and-forget is the design. That is a
 	// fixture defect, not a product one: it turns "the doorbell arrived" into
 	// a race against the scheduler, lost whenever the box is busy.
-	require.Eventually(t, func() bool {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		return h.stream != nil
-	}, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
+	require.Eventually(t, h.Attached, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
 	return h
 }

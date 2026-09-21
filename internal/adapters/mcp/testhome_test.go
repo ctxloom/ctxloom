@@ -4,16 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // testHome builds a Home against a dead loopback endpoint — registration
 // needs the value, not a live coordinator.
-func testHome(t *testing.T) *coord.Home {
+func testHome(t *testing.T) *runner.Home {
 	t.Helper()
-	h, err := coord.NewHome(context.Background(), coord.HomeConfig{
+	h, err := runner.NewHome(context.Background(), runner.HomeConfig{
 		URL:     "http://127.0.0.1:1/mcp",
 		Token:   "t",
 		RunID:   "run-x",

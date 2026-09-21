@@ -161,19 +161,6 @@ var LayeringRules = []LayeringRule{
 			// config carries (the edge above); it leaves with config's.
 			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
 
-			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
-			// profiles).
-			"internal/core/coord -> internal/adapters/coordgrpc/pb":       "slice 10 remainder: the gRPC/HTTP servers, channels and links leave core with their generated-type references",
-			"internal/core/coord -> internal/adapters/coordgrpc/discover": "slice 10 remainder: the endpoint file's writer (httpserver.go) leaves core with the servers",
-			"internal/core/coord -> internal/adapters/transcript":         "slice 14a: the engine-host files move to adapters/runner",
-
-			// coord/coordtest is the in-process runner double compiled into no binary;
-			// Part 1.0 does not mention it. It stands up the real runner half, so it
-			// imports what the runner imports until the runner is a package of its own.
-			"internal/core/coord/coordtest -> internal/lm/backends":        "slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest)",
-			"internal/core/coord/coordtest -> internal/adapters/isolation": "slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest)",
-			"internal/core/coord/coordtest -> internal/adapters/runner":    "slice 14a: the double moves beside the runner it stands up (measured; Part 1.0 does not mention coordtest)",
-
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
 			// excepted, so those two are not violations.
@@ -250,6 +237,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/content/remotetree -> internal/adapters/content":                             "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/coordgrpc/mcpschema/gen -> internal/adapters/coordgrpc/mcpschema":            "sanctioned: a package's own parent tree (coordgrpc/*)",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb":                       "sanctioned: the proto is coordgrpc's own subpackage (slice 10 folds mcpschema into coordgrpc)",
+			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/discover":                           "sanctioned: a package's own subpackage — the servers record the endpoint they bound in the file discover reads",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 13: the stdio server dies with the plugin arm; until then it classifies its tools by the same routing table",
@@ -343,7 +331,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
 			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
 			"internal/adapters/spawn -> internal/adapters/agents":     "measured: agents.DrivingMode/ValidateDriving on the binding; leaves when config's own agents edge does",
-			"internal/adapters/spawn -> internal/adapters/coordgrpc":  "slice 10: RunnerTransport.StartRun takes the launch.Launch and the coordgrpc adapter encodes it; spawn stops projecting the wire form itself",
 
 			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
 			// contract and the shared DTOs it advertises live in operations
@@ -352,7 +339,12 @@ var LayeringRules = []LayeringRule{
 			// the stdio server and the plugin-hosted owner arm reach the endpoint's
 			// surface for the one server they still build (ServeRunnerMCP)
 			"internal/adapters/mcp -> internal/adapters/runner/mcp": "slice 13: the owner arm's socket endpoint and the stdio server die with the plugin protocol",
-			"internal/adapters/cli -> internal/adapters/runner/mcp": "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/mcp -> internal/adapters/runner":     "slice 13: the owner arm's socket endpoint holds the runner's Home; it dies with the plugin protocol",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc":  "slice 13: the hosted coordinator's wire is served by the stdio server's host arm; it dies with the plugin protocol",
+			// runner/mcp is the runner's own subpackage: the endpoint serves over
+			// the Home the runner owns
+			"internal/adapters/runner/mcp -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
+			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
 
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
@@ -361,6 +353,17 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/mcp -> internal/adapters/memory":       "slice 14a: memory off the plugin; the compactor is an operation",
 			"internal/adapters/mcp -> internal/adapters/operations":   "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
 			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
+			// the engine host records the canonical transcript through
+			// adapters/transcript's recorder; the composition hands the runner a
+			// recorder port instead when runner.Main is composed under cmd/*
+			"internal/adapters/runner -> internal/adapters/transcript": "slice 13: the transcript recorder is a port runner.Deps carries, injected at cmd/*; until then the engine host opens it",
+
+			// runner/coordtest is the in-process runner double compiled into no
+			// binary (PATH A's stdio-server tests stand it up); it imports what
+			// the runner it stands up imports, and dies with those tests.
+			"internal/adapters/runner/coordtest -> internal/adapters/runner":    "sanctioned: a package's own parent tree (runner/*)",
+			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "slice 13: the double dies with the stdio server's tests (measured)",
+			"internal/adapters/runner/coordtest -> internal/lm/backends":        "slice 13: the double dies with the stdio server's tests (measured)",
 
 			// isolation, memory, and the leaf adapters
 			"internal/adapters/isolation -> internal/lm/grpc":                             "slice 13: the go-plugin protocol is deleted whole",
@@ -420,7 +423,6 @@ var LayeringRules = []LayeringRule{
 		Allowed: map[string]string{
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
-			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10 remainder: the servers, channels and links leave core with their generated-type references",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "sanctioned: mcpschema projects the proto into the tool schemas, beside it under coordgrpc",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",

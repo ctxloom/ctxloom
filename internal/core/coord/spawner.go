@@ -3,7 +3,6 @@ package coord
 import (
 	"context"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -96,12 +95,11 @@ type SpawnStart struct {
 	Rebind bool
 }
 
-// Resolved is a resolved launch beside its wire form: the Launch the
-// coordinator journals and reads, and the SAME launch as StartRun carries it,
-// projected once by the codec beside the process it is issued to.
+// Resolved is a resolved launch: the Launch the coordinator journals, reads
+// and hands the runner in StartRun. Its wire form is the adapter's, projected
+// once by the codec beside the stream it is issued on.
 type Resolved struct {
 	Launch launch.Launch
-	Wire   *agentcoordpb.Launch
 }
 
 // Spawner is the coordinator's launch seam: adapters/spawn selects,

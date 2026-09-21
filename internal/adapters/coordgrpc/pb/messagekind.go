@@ -49,8 +49,8 @@ func (k MessageKind) IsSenderAllowed() bool { return senderAllowedKinds[k] }
 
 // IsCoordinatorReserved reports whether only the coordinator may mint this
 // kind. UNSPECIFIED is neither reserved nor allowed — it is INVALID, which is a
-// third thing: no spelling maps to it, so a decode refuses it (coord's
-// sendRequestFromWire).
+// third thing: no spelling maps to it, so a decode refuses it (coordgrpc's
+// SendRequestFromWire).
 func (k MessageKind) IsCoordinatorReserved() bool {
 	return k != MessageKind_MESSAGE_KIND_UNSPECIFIED && !k.IsSenderAllowed() && k.recognised()
 }

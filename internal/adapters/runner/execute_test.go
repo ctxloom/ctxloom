@@ -20,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -330,9 +329,9 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 
 // recordingDriver is the Driver double: it records what the runner asked
 // it to drive.
-type recordingDriver struct{ turns []coord.Turn }
+type recordingDriver struct{ turns []runner.Turn }
 
-func (d *recordingDriver) Drive(_ context.Context, t coord.Turn) error {
+func (d *recordingDriver) Drive(_ context.Context, t runner.Turn) error {
 	d.turns = append(d.turns, t)
 	return nil
 }

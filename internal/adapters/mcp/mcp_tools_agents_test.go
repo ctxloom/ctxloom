@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/coordtest"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/coord/coordtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
@@ -40,7 +41,7 @@ func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.C
 	t.Cleanup(runners.Close)
 	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 	return cfg, c, runners
 }
@@ -162,7 +163,7 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	t.Cleanup(spawns.Close)
 	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, spawns.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
 	s := &ctxServer{
@@ -234,7 +235,7 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 	t.Cleanup(spawns.Close)
 	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, spawns.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
 	s := &ctxServer{
@@ -254,12 +255,16 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 	var runs []*agentRunInfoWant
 	require.Eventually(t, func() bool {
 		result := c.ListRuns(true, "")
-		if len(result.GetRuns()) != 2 {
+		if len(result.Runs) != 2 {
 			return false
 		}
 		runs = nil
-		for _, r := range result.GetRuns() {
-			runs = append(runs, &agentRunInfoWant{role: r.GetAgent().GetRole(), perm: r.GetPermissionMode(), servers: r.GetMcpServers()})
+		for _, r := range result.Runs {
+			role := ""
+			if r.Agent != nil {
+				role = r.Agent.Role
+			}
+			runs = append(runs, &agentRunInfoWant{role: role, perm: r.PermissionMode, servers: r.MCPServers})
 		}
 		return true
 	}, 5*time.Second, 5*time.Millisecond, "roster never surfaced both spawned children")

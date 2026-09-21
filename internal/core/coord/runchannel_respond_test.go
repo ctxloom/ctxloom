@@ -6,9 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // respond blocked its CALLER for up to five seconds on a full send
@@ -24,11 +21,11 @@ func TestRespond_FullPumpDoesNotStallTheCaller(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil)
 
 	// Unbuffered and never read: the pump is as saturated as it gets.
-	ch := &runChan{role: "child-slow", id: Identity{Harp: "child-slow", RunID: "run-slow"},
-		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 0), completed: make(chan struct{})}
+	ch := &RunChannel{role: "child-slow", id: Identity{Harp: "child-slow", RunID: "run-slow"},
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 0), completed: make(chan struct{})}
 
 	start := time.Now()
-	c.respond(ch, &agentcoordpb.CoordinatorResponse{Status: okStatus("")})
+	c.respond(ch, AgentReply{})
 	elapsed := time.Since(start)
 
 	assert.Less(t, elapsed, time.Second,
@@ -42,19 +39,19 @@ func TestRespond_ResponseIsDeliveredOnceTheFullPumpDrains(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	ch := &runChan{role: "child-drain", id: Identity{Harp: "child-drain", RunID: "run-drain"},
-		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 1),
+	ch := &RunChannel{role: "child-drain", id: Identity{Harp: "child-drain", RunID: "run-drain"},
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 1),
 		completed:   make(chan struct{})}
 	send := ch.send
-	send <- &agentcoordpb.CoordinatorFrame{} // occupy the only slot
+	send <- OutFrame{} // occupy the only slot
 
-	c.respond(ch, &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "the payload")})
+	c.respond(ch, AgentReply{Err: Refusal(ErrInvalidRequest, "the payload")})
 
 	<-send // the writer pump catches up
 	select {
 	case frame := <-send:
-		require.NotNil(t, frame.GetResponse(), "the queued frame must be the response, not a placeholder")
-		assert.Equal(t, "the payload", frame.GetResponse().GetStatus().GetMessage())
+		require.NotNil(t, frame.Reply, "the queued frame must be the response, not a placeholder")
+		assert.Equal(t, "the payload", frame.Reply.Err.Error())
 	case <-time.After(2 * time.Second):
 		t.Fatal("the response was never delivered after the pump drained")
 	}
@@ -69,17 +66,17 @@ func TestHandleAgentRequest_CachedRedeliveryDoesNotStallOnAFullPump(t *testing.T
 	c := newTestCoordinator(t, sp, nil)
 
 	role := "child-reissue"
-	ch := &runChan{role: role, id: Identity{Harp: role, RunID: "run-reissue"},
-		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 0), completed: make(chan struct{})}
+	ch := &RunChannel{role: role, id: Identity{Harp: role, RunID: "run-reissue"},
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 0), completed: make(chan struct{})}
 	c.mu.Lock()
 	c.chans[role] = ch
 	c.reqTrack = map[reqKey]*inflightReq{
-		{role: role, reqID: "req-1"}: {resp: &agentcoordpb.CoordinatorResponse{RequestId: "req-1", Status: okStatus("already answered")}},
+		{role: role, reqID: "req-1"}: {reply: &AgentReply{RequestID: "req-1", Message: "already answered"}},
 	}
 	c.mu.Unlock()
 
 	start := time.Now()
-	c.handleAgentRequest(ch, &agentcoordpb.AgentRequest{RequestId: "req-1"})
+	c.HandleRequest(ch, AgentRequest{RequestID: "req-1"})
 	assert.Less(t, time.Since(start), time.Second,
 		"a reissue whose answer is already cached must not block the receive loop on a full pump")
 }

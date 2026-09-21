@@ -8,16 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 const (
-	kindHuman       = agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN
-	kindAgent       = agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_AGENT
-	kindUnspecified = agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_UNSPECIFIED
+	kindHuman       = InitiatorHuman
+	kindAgent       = InitiatorAgent
+	kindUnspecified = InitiatorUnspecified
 )
 
 // humanInitiator is the viewer/terminal's initiator, spelled once.
@@ -38,7 +34,7 @@ func TestControlInitiator_Validate(t *testing.T) {
 		{"agent naming itself", ControlInitiator{Kind: kindAgent, Harp: "parent"}, true},
 		{"agent without a harp cannot be ownership-checked", ControlInitiator{Kind: kindAgent}, false},
 		{"unspecified is not an initiator", ControlInitiator{Kind: kindUnspecified}, false},
-		{"a kind this build does not know", ControlInitiator{Kind: agentcoordpb.ControlInitiatorKind(99)}, false},
+		{"a kind this build does not know", ControlInitiator{Kind: ControlInitiatorKind("99")}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.in.Validate()
@@ -97,7 +93,7 @@ func TestControlSteer_RefusesUnrecognisedInitiator(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: agentcoordpb.ControlInitiatorKind(99), Harp: "x"}, out.Harp, "who am I")
+	_, err = c.ControlSteer(context.Background(), ControlInitiator{Kind: ControlInitiatorKind("99"), Harp: "x"}, out.Harp, "who am I")
 	require.Error(t, err)
 	assert.Zero(t, c.pendingCount(out.Harp),
 		"an initiator this build does not recognise must not fall into the human branch and deliver anyway")
@@ -107,10 +103,10 @@ func TestControlSteer_RefusesUnrecognisedInitiator(t *testing.T) {
 // callers at once — a wire caller reading a gRPC code, and an in-process caller
 // routing on the cause. Matching on the code alone cannot distinguish a
 // capability gap from the other FAILED_PRECONDITIONs, and matching on prose is
-// not a contract.
-func TestCapUnavailable_IsBothAStatusAndACause(t *testing.T) {
+// not a contract. The code is the wire adapter's (coordgrpc.StatusFromErr,
+// pinned by its own table); the cause is the error's own.
+func TestCapUnavailable_IsACause(t *testing.T) {
 	err := capUnavailable("run %q does not offer %q", "child-a", "pause")
-	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	assert.True(t, errors.Is(err, ErrCapabilityUnavailable))
 	assert.False(t, errors.Is(err, ErrRecvTimeout))
 	assert.Contains(t, err.Error(), "pause")

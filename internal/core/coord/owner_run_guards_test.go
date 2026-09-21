@@ -68,7 +68,7 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

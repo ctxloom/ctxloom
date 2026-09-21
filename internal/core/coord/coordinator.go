@@ -14,7 +14,6 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -29,12 +28,12 @@ import (
 var ErrNotInjectable = errors.New("inject: target is not a child this coordinator holds or can resume")
 
 // ErrDraining is returned by every admission site (AgentRun, StartOwnedRun,
-// coordService.RunnerChannel's Hello for a runner with nothing already in
-// flight, Serve) once BeginDrain has been called: the coordinator refuses
-// new work, though already-admitted runs continue to completion. Mapped to
-// codes.Unavailable wherever a site answers over gRPC (statusFromErr,
-// runchannel.go) — the refusal is recoverable (retry against a coordinator
-// that isn't draining), never a permanent failure.
+// RunnerHello for a runner with nothing already in flight, BindTransport)
+// once BeginDrain has been called: the coordinator refuses new work, though
+// already-admitted runs continue to completion. The wire adapter maps it to
+// codes.Unavailable (coordgrpc.StatusFromErr) — the refusal is recoverable
+// (retry against a coordinator that isn't draining), never a permanent
+// failure.
 var ErrDraining = errors.New("coordinator is draining: refusing new work (already-admitted runs continue to completion)")
 
 // ErrClosed refuses a Serve that lands after Close has begun: the listeners
@@ -232,7 +231,7 @@ type Coordinator struct {
 	// retry (spooldoorbell.go). Atomics, not mu-guarded: a counter that
 	// needed the coordinator lock would put contention on the exact path
 	// whose whole point is to cost nothing when it fails.
-	spoolDoorbell spoolDoorbellCounters
+	spoolDoorbell SpoolDoorbellCounters
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
@@ -245,20 +244,20 @@ type Coordinator struct {
 	// group first (a handler arriving later is refused at enter) and joins
 	// it after the server is down, or a shutdown races its own last
 	// terminals against whatever removes the state dir next.
-	streams trackedGroup
+	streams TrackedGroup
 	// spoolIn lends the per-child in/ writers. The writers themselves are
 	// lazy (one per child, on its first message), so a run that never sends
 	// never gets a spool directory.
-	spoolIn *spoolWriterCache
+	spoolIn *SpoolWriterCache
 	// spoolReactor serialises the coordinator's own spool reading (out/ and
 	// in/consumed sweeps) — see its type.
-	spoolReactor *spoolReactor
+	spoolReactor *SpoolReactor
 	// spoolSweepInterval overrides the reconciliation cadence
 	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a
 	// missed-doorbell test has to prove the sweep RECOVERS delivery, and the
 	// only honest way to do that is to let the sweep actually run.
 	spoolSweepInterval time.Duration
-	spoolDeliveryCount spoolDeliveryCounters
+	spoolDeliveryCount SpoolDeliveryCounters
 	// spoolSeen remembers which in/consumed entries have already been credited
 	// as progress, per role. consumed/ is an audit trail nothing prunes yet, so
 	// without this every sweep would re-credit the whole history.
@@ -271,16 +270,16 @@ type Coordinator struct {
 	// inbox is the owner's ONE inbox: the parked receive and the spool
 	// reader behind agent_recv (spoolinbox.go).
 	inbox   *spoolInbox
-	runners map[string]*runnerSession // credHash → connected runner
+	runners map[string]*RunnerSession // credHash → connected runner
 	// graceExpire fires the runner-loss grace windows adopt armed for the
 	// runs it found live at startup, ahead of their clock — the test seam
 	// expireRunnerGrace drains; each closure is idempotent with its timer.
 	graceExpire []func()
 	runnerReady map[string]chan struct{} // credHash → closed on Hello registration (awaitRunner)
-	chans       map[string]*runChan      // role harp → live RunChannel
+	chans       map[string]*RunChannel   // role harp → live RunChannel
 	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
 	// reconnect, keyed by (role, request_id). It replaces the per-connection
-	// runChan.reqCache/inflight (reset to empty on every dial): a request the
+	// RunChannel.reqCache/inflight (reset to empty on every dial): a request the
 	// runner reissues with the same request_id on a fresh channel (home.go)
 	// must reuse the in-flight dispatch, never start a second one — a
 	// duplicate dispatch would run the request's effect twice, and the
@@ -340,28 +339,28 @@ type Coordinator struct {
 	// RunnerChannel pumps). Close() joins it BEFORE closing the journals and
 	// removing an ephemeral state dir — see trackedGroup for why an unjoined
 	// goroutine racing that teardown is this package's worst flake class.
-	tracked trackedGroup
+	tracked TrackedGroup
 
-	// srv is the listener set (httpserver.go), nil until Serve. ATOMIC, not
-	// mu-guarded: Serve publishes it while the spawn path (ReachURL, building
-	// a child's env) and Close read it from other goroutines, and those
-	// readers must not have to take the coordinator's big lock — nor can they
-	// be allowed to observe a half-published coordServing.
-	srv atomic.Pointer[coordServing]
+	// transport is the bound wire (Transport), nil until the adapter serves.
+	// Its own lock, not mu: BindTransport publishes it while the spawn path
+	// (ReachURL, building a child's env) and Close read it from other
+	// goroutines, and those readers must not have to take the coordinator's
+	// big lock.
+	transportMu sync.Mutex
+	transport   Transport
 
 	// admissionClosed is the application-layer DRAIN flag (task
 	// definite-phoniness): BeginDrain sets it once, and every admission
 	// site (AgentRun, StartOwnedRun, RunnerChannel's Hello for a runner
 	// with nothing already in flight, Serve) checks it and returns
 	// ErrDraining instead of admitting new work. It does NOT touch
-	// c.baseCtx, c.srv, or any live attachment — an already-admitted run
+	// c.baseCtx, the transport, or any live attachment — an already-admitted run
 	// keeps running exactly as it would without a drain in progress — and
 	// it is deliberately not consulted by Close(), which is the hard,
 	// immediate teardown (see its own doc): the caller flips this first,
 	// waits for nothing to be left in flight (Roster/WatchRuns), and only
-	// then calls Close(). ATOMIC, not mu-guarded, for the same reason srv
-	// is: every admission site must be able to check it without taking
-	// c.mu.
+	// then calls Close(). ATOMIC, not mu-guarded: every admission site must
+	// be able to check it without taking c.mu.
 	admissionClosed atomic.Bool
 	// drainBound is how long BeginDrain waits on a child's PROCESS before
 	// forcing it — resolved at construction (tunables.drainBound) from
@@ -436,8 +435,8 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	c := &Coordinator{
 		rep:                rep,
-		tracked:            trackedGroup{rep: rep},
-		streams:            trackedGroup{rep: rep},
+		tracked:            TrackedGroup{rep: rep},
+		streams:            TrackedGroup{rep: rep},
 		projectDir:         opts.ProjectDir,
 		stateDir:           claim.dir,
 		ephemeral:          claim.ephemeral,
@@ -461,15 +460,15 @@ func New(opts Options) (*Coordinator, error) {
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
 		byHarp:             make(map[string]*childRt),
-		runners:            make(map[string]*runnerSession),
+		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
-		chans:              make(map[string]*runChan),
+		chans:              make(map[string]*RunChannel),
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
 		ownerHarp:          opts.OwnerHarp,
 		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            newSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            NewSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.onRolePark, c.onRoleUnpark)
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
@@ -661,7 +660,22 @@ func (c *Coordinator) openJournals() error {
 // tearing the journals and state dir down. EVERY bare `go` in this package whose
 // goroutine can outlive its spawning call must ride its owner's equivalent — see
 // trackedGroup.
-func (c *Coordinator) goTracked(fn func()) { c.tracked.dispatch(fn) }
+func (c *Coordinator) goTracked(fn func()) { c.tracked.Dispatch(fn) }
+
+// every runs sweep on a ticker until the coordinator's base context ends —
+// the one loop shape under the runner watchdog and the idle reaper.
+func (c *Coordinator) every(interval time.Duration, sweep func()) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			sweep()
+		case <-c.baseCtx.Done():
+			return
+		}
+	}
+}
 
 // closeJoinBudget bounds Close's wait for tracked goroutines: generous headroom
 // above the ctx-aware waits every tracked loop selects on (slot acquisition,
@@ -673,7 +687,7 @@ const closeJoinBudget = 5 * time.Second
 
 // waitTracked joins every c.goTracked goroutine, with a bounded escape.
 func (c *Coordinator) waitTracked() {
-	c.tracked.wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
+	c.tracked.Wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
 }
 
 // adopt reconciles state read from disk with the fresh process: queued mail
@@ -747,8 +761,8 @@ func (c *Coordinator) adopt() {
 // lists it so the park cannot be forgotten.
 //
 // This is deliberately an APPLICATION-layer drain, not a transport-level
-// one: coordServing.close's doc explains why grpc-go's GracefulStop cannot
-// be used on this server — its only transport (h2c via ServeHTTP) wraps
+// one: the wire adapter's Transport.Close explains why grpc-go's
+// GracefulStop cannot be used on this server — its only transport (h2c via ServeHTTP) wraps
 // every connection in a serverHandlerTransport whose Drain() is an
 // unconditional panic, and RunChannel/RunnerChannel are perpetual streams
 // a transport-level drain would never resolve against even without that
@@ -806,8 +820,8 @@ func (c *Coordinator) Draining() bool {
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
-		c.tracked.seal()
-		c.streams.seal()
+		c.tracked.Seal()
+		c.streams.Seal()
 		c.cancel()
 		c.mu.Lock()
 		attachments := make([]*childRt, 0, len(c.attach))
@@ -823,13 +837,13 @@ func (c *Coordinator) Close() {
 				closeFn()
 			}
 		}
-		if srv := c.srv.Swap(nil); srv != nil {
-			srv.close()
+		if t := c.takeTransport(); t != nil {
+			t.Close()
 		}
 		// The stream handlers' deferred terminals run AFTER Stop returns;
 		// join them before the writers close so a runner dropped by the
 		// shutdown still gets its terminal recorded, not raced.
-		c.streams.wait(closeJoinBudget, "coordinator close: stream handlers", "a late terminal may still touch the state dir")
+		c.streams.Wait(closeJoinBudget, "coordinator close: stream handlers", "a late terminal may still touch the state dir")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
@@ -845,7 +859,7 @@ func (c *Coordinator) Close() {
 		//
 		// Raising closeJoinBudget instead would be tuning a threshold until a
 		// gate goes quiet, which measures nothing.
-		c.spoolIn.close()
+		c.spoolIn.Close()
 		c.waitTracked()
 		c.closePartial()
 		if c.ephemeral {
@@ -875,7 +889,7 @@ func (c *Coordinator) closePartial() {
 	shut("runs.jsonl", c.runs)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
-	c.spoolIn.close() // idempotent: Close already closed it before the join
+	c.spoolIn.Close() // idempotent: Close already closed it before the join
 	if len(errs) > 0 {
 		c.rep.Warnf("coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}
@@ -1000,7 +1014,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	// cooperative reply there is — this project's characteristic defect, newly
 	// installed. Only the writer knows whether the agent chose to send, so the
 	// writer marks it and this chokepoint reads the mark.
-	if inReplyTo != "" && !isAutoReport(structured) {
+	if inReplyTo != "" && !IsAutoReport(structured) {
 		// The CORRELATED ASK's answer (spoolcontrol.go): a reply to a
 		// coordinator question/summarize resolves the parked ask and does NOT
 		// also become mail — the asker is this coordinator, not a mailbox, and
@@ -1177,7 +1191,7 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 // child never diverges without a trace.
 func (c *Coordinator) Inject(harp, text string) (string, error) {
 	out, err := c.ControlSteer(context.Background(), ControlInitiator{
-		Kind: agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN,
+		Kind: InitiatorHuman,
 	}, harp, text)
 	if err != nil {
 		// ErrNotInjectable is the TUI's typed refusal and must survive the

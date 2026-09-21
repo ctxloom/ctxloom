@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // TestTerminateRun_DrainsInFlightRunCompleted is D4's deterministic
@@ -28,7 +26,7 @@ import (
 func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -91,12 +89,10 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 		c.mu.Lock()
 		seq := ch.ackSeq + 1
 		c.mu.Unlock()
-		c.handleAgentEvent(ch, &agentcoordpb.AgentEvent{
-			RunId: out.RunID,
-			Seq:   seq,
-			Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
-				Result: &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED},
-			}},
+		c.HandleEvent(ch, Event{
+			RunID:   out.RunID,
+			Seq:     seq,
+			Payload: RunCompleted{Result: &Result{Status: RunStatusSucceeded}},
 		})
 		// ch.completed closes exactly when a run_completed item is journaled
 		// on this channel, so it is the one unambiguous receipt.
@@ -112,10 +108,7 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	// entirely: this is the coordinator-side handler the RunnerChannel recv
 	// loop calls, driven directly so the race is deterministic, not a real
 	// scheduler gamble.
-	c.handleRunExited(credHash, &agentcoordpb.RunExited{
-		RunId:             out.RunID,
-		TerminalEventSeen: true,
-	})
+	c.RunnerExited(credHash, RunExited{RunID: out.RunID, TerminalEventSeen: true})
 
 	select {
 	case <-hookFired:

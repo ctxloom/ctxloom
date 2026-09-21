@@ -1,12 +1,16 @@
 # agentcoord — overview
 
-`internal/adapters/coordgrpc/pb` is the **agent-delegation subsystem**: the wire contract
-(`agentcoord.v1` in `coordination.proto` / `artifacts.proto`, plus `seqwatch.go` and
-`messagekind.go`), the runtime (`coord` — both the coordinator half and the runner
-half compile from this one package), the file substrate messages live in (`spool`),
-the MCP tool surface the delegating LLM sees (`mcpschema`), and out-of-process
-endpoint discovery for consumers with no coordinator of their own (`discover`). It
-owns one contract: *a session can spawn other agent sessions as children, exchange
+The **agent-delegation subsystem** is four packages on one contract: the wire
+(`internal/adapters/coordgrpc` — `coordgrpc.Serve` terminates `agentcoord.v1` from
+`coordination.proto` / `artifacts.proto` in `coordgrpc/pb`, plus `seqwatch.go` and
+`messagekind.go`; the codec both ways; `mcpschema`, the MCP tool surface the
+delegating LLM sees; `discover`, out-of-process endpoint discovery for consumers with
+no coordinator of their own), the coordinator half of the runtime
+(`internal/core/coord` — `Coordinator`, `Verbs`, the domain vocabulary typed
+without the proto), the runner half (`internal/adapters/runner` — `Home`,
+`EngineHost`, `RunnerLink`; it dials the coordinator and speaks the wire through
+`coordgrpc`'s codec), and the file substrate messages live in (`internal/core/spool`).
+The contract: *a session can spawn other agent sessions as children, exchange
 durable messages with them, receive their reports, and fetch their work products —
 across process, container and worktree boundaries — with every state change
 recorded as an append-only fact or an on-disk file.*
@@ -30,11 +34,10 @@ consumption is the rename that moves it into `consumed/`.
 
 ## Package topology
 
-Copied from the audit's delegation/layer graph
-(`docs/architecture/audit-2026-09-18/04-coordination-bus.md` §3). Solid arrows are
-imports the stated layering expects (README package map, `tests/arch`
-`layering_test.go`, `coord/doc.go`); dashed red are imports against or past a layer;
-dotted are hidden couplings through the environment or the filesystem.
+Solid arrows are imports the layering expects (README package map, `tests/arch`
+`layering_test.go`, `coord/doc.go`); the crossed dotted arrows are the two imports
+the ring forbids and `TestArch_CoordLinksNoAdapter` pins absent; dotted arrows are
+hidden couplings through the environment or the filesystem.
 
 ```mermaid
 flowchart TD
@@ -43,7 +46,9 @@ flowchart TD
   MCP["internal/adapters/mcp<br/>(the stdio server; owner_socket.go the plugin arm's socket;<br/>coord_host.go HostCoordinator)"]
   RMCP["internal/adapters/runner/mcp<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
   SPAWN["internal/adapters/spawn<br/>(coord.Spawner: Resolve/ResolveLaunch/Start/Adopt;<br/>StartRunner and its context contract)"]
-  COORD["internal/core/coord"]
+  COORD["internal/core/coord<br/>(Coordinator, Verbs, Transport port, Event + frames — no proto)"]
+  CGRPC["internal/adapters/coordgrpc<br/>(Serve: the h2c listener + coordService/consumerService/artifactService;<br/>the codec; StatusFromErr)"]
+  RUNNER["internal/adapters/runner<br/>(Home, EngineHost, RunnerLink; coordtest)"]
   PROTO["internal/adapters/coordgrpc/pb (proto, seqwatch, messagekind)"]
   SCHEMA["internal/adapters/coordgrpc/mcpschema"]
   SPOOL["internal/core/spool"]
@@ -58,12 +63,17 @@ flowchart TD
   ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]
 
   CLI --> COORD
+  CLI --> CGRPC
+  CLI --> RUNNER
   CLI --> RMCP
   TUI --> COORD
   MCP --> COORD
+  MCP --> CGRPC
+  MCP --> RUNNER
   MCP --> SCHEMA
   MCP --> RMCP
   RMCP --> COORD
+  RMCP --> RUNNER
   RMCP --> PROTO
   RMCP --> SCHEMA
   RMCP --> OPS
@@ -71,20 +81,21 @@ flowchart TD
   SPAWN --> OPS
   SPAWN --> ISO
   SPAWN --> AGENTS
-  COORD --> PROTO
+  CGRPC --> COORD
+  CGRPC --> PROTO
+  CGRPC --> DISC
+  RUNNER --> COORD
+  RUNNER --> CGRPC
+  RUNNER --> PROTO
+  RUNNER --> TRANS
   COORD --> SPOOL
-  COORD --> DISC
   COORD --> LIVE
   COORD --> PATHS
   SCHEMA --> PROTO
   SPOOL --> PATHS
   DISC --> PATHS
-  OPS -.->|"must not import coord (ok)"| COORD
-
-  COORD -->|"transcript.Recorder in EngineHost —<br/>RUNNER-side concern living in the coordinator package (14a)"| TRANS
-  linkStyle 23 stroke:#c00,stroke-dasharray:5
-  COORD -->|"mcpschema.RecvWaitMax (runtime importing the LLM-facing schema; 10)"| SCHEMA
-  linkStyle 24 stroke:#c00,stroke-dasharray:5
+  COORD -. "imports neither adapter: TestArch_CoordLinksNoAdapter (go list -deps)" .-x CGRPC
+  COORD -. "imports neither adapter: TestArch_CoordLinksNoAdapter (go list -deps)" .-x RUNNER
   COORD -. "9 × spool.NewHomeMapper() per call; root re-resolved from $HOME at write time" .-> FS
   COORD -. "OwnerRunnerEnv / sessions.EncodeReach write; consumeCoordinatorReachBack / selfIdentityFromEnv / os.Getenv(EnvMCPSocket) read" .-> ENV
   MCP -. "selfIdentityFromEnv(cwd)" .-> ENV
@@ -96,25 +107,27 @@ Two processes per run, joined by gRPC and by the filesystem.
 
 **The coordinator process** (the session owner, `ctxloom run`) constructs one
 `coord.Coordinator` (`coord.New`) which owns the journals, the state-dir lock, the
-`in/` spool writers, and the h2c listener (`coordServing`, `httpserver.go`) that
-serves `coordService`, `consumerService` and `artifactService` (`grpcserver.go`).
+`in/` spool writers, and binds its `coord.Transport` — the h2c listener
+(`coordgrpc.Serve`, `coordServing`, `httpserver.go`) that serves `coordService`,
+`consumerService` and `artifactService` (`grpcserver.go`, all `adapters/coordgrpc`).
 Its long-lived goroutines are `runnerWatchdog`, `livenessWatchdog` and the
-coordinator-side `spoolReactor`. Every LLM-facing verb lands on one of
+coordinator-side `SpoolReactor`. Every LLM-facing verb lands on one of
 `Coordinator.AgentRun`, `AgentSend`, `AgentRecv`, `AgentStop`, `StopChildren`,
 `Roster`/`ListRuns` — whether it arrived in-process (the coordinator-local MCP
-surface, `mcp.HostCoordinator` over the composition's constructor) or over the wire (`handleAgentRequest →
-serveSpawnAgent / serveListRuns / serveStopRun`).
+surface, `mcp.HostCoordinator` over the composition's constructor) or over the wire (`coordgrpc`'s `handleAgentFrame` decodes
+`AgentRequestFromWire` → `Coordinator.HandleRequest → serveAgentRequest` →
+`spawnDisposition` / `serveRoster` / `serveStopRun`).
 
 **The runner process** (`ctxloom llm serve|host|turn`, one per run;
-`llm_runner_common.go`) constructs a `coord.Home` which dials two streams —
+`llm_runner_common.go`) constructs a `runner.Home` which dials two streams —
 `RunnerChannel` (lifecycle, one per credential, via `DialRunner` / `RunnerLink`) and
 `RunChannel` (one per run) — and hosts the engine in-process through
-`coord.EngineHost` (`agent.StructuredChat`). It also serves the runner-hosted MCP
+`runner.EngineHost` (`agent.StructuredChat`). It also serves the runner-hosted MCP
 socket (`mcp.ServeRunnerMCP`) the engine's stdio shim forwards to; that surface is
 generated from `mcpschema` and dispatches to `mcp.coordinationHandler`,
 `recvHandler` and `reportHandler`, which call `Home.Request`, `Home.Recv` and
 `Home.Report`. Its goroutines are `Home.runnerChannelLoop`, `runChannelLoop`, the
-runner-side `spoolReactor`, `RunnerLink.heartbeatLoop`/`receiveLoop`, `Home.turnPump`
+runner-side `SpoolReactor`, `RunnerLink.heartbeatLoop`/`receiveLoop`, `Home.turnPump`
 and `EngineHost.adapt`.
 
 **Read-only consumers** (`internal/adapters/operations`' session feed, `ctxloom session

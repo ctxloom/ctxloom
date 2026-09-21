@@ -121,12 +121,12 @@ func TestListRuns_SurfacesPermissionAndMCPServerNames(t *testing.T) {
 	var result = c.ListRuns(true, "")
 	require.Eventually(t, func() bool {
 		result = c.ListRuns(true, "")
-		return len(result.GetRuns()) == 1
+		return len(result.Runs) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
-	info := result.GetRuns()[0]
-	assert.Equal(t, "plan", info.GetPermissionMode())
-	assert.Equal(t, []string{"server-a"}, info.GetMcpServers())
+	info := result.Runs[0]
+	assert.Equal(t, "plan", info.PermissionMode)
+	assert.Equal(t, []string{"server-a"}, info.MCPServers)
 }
 
 // TestRunsFold_OldEntryMissingPrivilegeFields_LoadsWithoutError is the
@@ -204,7 +204,7 @@ func TestEnqueueRun_JournalCarriesNamesOnly_NeverCommandOrArgs(t *testing.T) {
 	teeHome(t)
 	c, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

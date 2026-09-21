@@ -40,7 +40,7 @@ func awaitParentNotice(t *testing.T, c *Coordinator, want string) Message {
 // reconciliation pass for the life of the process.
 func assertNoSecondNotice(t *testing.T, c *Coordinator, harp, want string) {
 	t.Helper()
-	c.spoolReactor.mark(harp)
+	c.spoolReactor.Mark(harp)
 	deadline := time.Now().Add(250 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		msgs, err := recvOwner(c)
@@ -128,7 +128,7 @@ func TestSpoolDrop_UnmappableKindTellsTheParentAndCarriesTheText(t *testing.T) {
 		Body:     finding,
 	})
 	require.NoError(t, err)
-	c.spoolReactor.mark(out.Harp)
+	c.spoolReactor.Mark(out.Harp)
 
 	notice := awaitParentNotice(t, c, finding)
 	assert.Equal(t, KindError, notice.Kind, "an undelivered-message notice is an error, not a result")
@@ -166,7 +166,7 @@ func TestSpoolDrop_RefusedRoutingTellsTheParentNotOnlyTheSender(t *testing.T) {
 		Body: finding,
 	})
 	require.NoError(t, err)
-	c.spoolReactor.mark(out.Harp)
+	c.spoolReactor.Mark(out.Harp)
 
 	notice := awaitParentNotice(t, c, finding)
 	assert.Equal(t, KindError, notice.Kind)

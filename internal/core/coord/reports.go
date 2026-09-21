@@ -2,13 +2,10 @@ package coord
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"slices"
 	"strings"
 	"unicode/utf8"
-
-	"google.golang.org/protobuf/encoding/protojson"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -137,7 +134,7 @@ func (f *reportsFold) apply(fact Fact) {
 			f.seq[k] = p.Seq
 		}
 		f.latest[p.Harp] = p
-		if p.Scope == agentcoordpb.Summary_SCOPE_CHECKPOINT.String() {
+		if p.Scope == string(ScopeCheckpoint) {
 			f.checkpoint[p.Harp] = p
 		}
 	case factArtifact:
@@ -221,7 +218,7 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 // fact).
 //
 // A JOURNAL FAILURE LOSES THE REPORT. The runner's Ack advances on the event
-// regardless (handleAgentEvent raises ch.ackSeq before dispatching here, and
+// regardless (HandleEvent raises ch.ackSeq before dispatching here, and
 // the flush that follows acks through it), so the runner will not re-emit it and
 // nothing else re-sends it — there is no retry buffer on this path, unlike the
 // item path's flushItems, which restores its facts and holds the watermark
@@ -230,10 +227,10 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 // otherwise record a report the reports journal does not contain) and no
 // checkpoint snapshot (whose contract is that the report it compacts to is
 // already durable).
-func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoordpb.Summary) {
+func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s Summary) {
 	structured := ""
-	if st := s.GetStructured(); st != nil {
-		if raw, err := protojson.Marshal(st); err == nil {
+	if s.Structured != nil {
+		if raw, err := json.Marshal(s.Structured); err == nil {
 			structured = string(raw)
 		}
 	}
@@ -245,19 +242,19 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 			Harp:          harp,
 			RunID:         runID,
 			Seq:           seq,
-			Scope:         s.GetScope().String(),
-			StepID:        s.GetStepId(),
-			Text:          s.GetText(),
+			Scope:         string(s.Scope),
+			StepID:        s.StepID,
+			Text:          s.Text,
 			Structured:    structured,
-			CoversThrough: s.GetCoversThroughSeq(),
-			ArtifactIDs:   s.GetArtifactIds(),
+			CoversThrough: s.CoversThroughSeq,
+			ArtifactIDs:   s.ArtifactIDs,
 		})}, nil
 	}); err != nil {
 		c.rep.Warnf("coordinator: journal report for %s: %v — the report is LOST "+
 			"(the runner's ack has already advanced past it and nothing re-sends it)", harp, err)
 		return
 	}
-	c.audit("agent_report", harp, map[string]string{"scope": s.GetScope().String()})
+	c.audit("agent_report", harp, map[string]string{"scope": string(s.Scope)})
 	c.notifyParentOfFinalReport(harp, s)
 	// FINAL IS A COMPLETION CONTRACT, SO ACT ON IT: the child has said it is
 	// finished, and the coordinator ends its run rather than leaving it idle
@@ -269,7 +266,7 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 	// STRICTLY AFTER notifyParentOfFinalReport, and that ordering is the
 	// contract: the report is queued to the parent BEFORE the run can end, so
 	// a parent can never receive EXITED before the report that explains it.
-	if s.GetScope() == agentcoordpb.Summary_SCOPE_FINAL {
+	if s.Scope == ScopeFinal {
 		c.endOnFinalReport(harp)
 	}
 	// D4: a SCOPE_CHECKPOINT report is the natural compaction point — see
@@ -303,8 +300,8 @@ func (c *Coordinator) recordSummary(harp, runID string, seq uint64, s *agentcoor
 // REPORT. A failure warns rather than propagating, for the same reason — the
 // report already exists and nothing downstream should be skipped because the
 // doorbell did not go out.
-func (c *Coordinator) notifyParentOfFinalReport(harp string, s *agentcoordpb.Summary) {
-	if s.GetScope() != agentcoordpb.Summary_SCOPE_FINAL {
+func (c *Coordinator) notifyParentOfFinalReport(harp string, s Summary) {
+	if s.Scope != ScopeFinal {
 		return
 	}
 	rec := c.runsF.currentRun(harp)
@@ -313,7 +310,7 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s *agentcoordpb.Sum
 	if rec == nil || rec.ParentHarp == "" {
 		return
 	}
-	if _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.GetText()); err != nil {
+	if _, err := c.queueMail(harp, rec.ParentHarp, KindReport, s.Text); err != nil {
 		c.rep.Warnf("coordinator: %s's FINAL report is journaled but could not be queued to %s: %v "+
 			"(the report is intact in the reports fold; its parent will not be woken by it)", harp, rec.ParentHarp, err)
 	}
@@ -322,12 +319,12 @@ func (c *Coordinator) notifyParentOfFinalReport(harp string, s *agentcoordpb.Sum
 // recordArtifact journals one artifact manifest, assigning the monotonic
 // revision inside the journal's serialized window (the producer sends 0; an
 // unchanged sha256 is not a new revision).
-func (c *Coordinator) recordArtifact(harp string, a *agentcoordpb.ArtifactProduced) {
-	sha := hex.EncodeToString(a.GetSha256())
+func (c *Coordinator) recordArtifact(harp string, a ArtifactProduced) {
+	sha := hex.EncodeToString(a.SHA256)
 	if err := c.runs.Exec(func() ([]Fact, error) {
-		rev := a.GetRevision()
+		rev := a.Revision
 		if rev == 0 {
-			next, changed := c.reportsF.nextRevision(harp, a.GetArtifactId(), sha)
+			next, changed := c.reportsF.nextRevision(harp, a.ArtifactID, sha)
 			if !changed {
 				return nil, nil
 			}
@@ -335,15 +332,15 @@ func (c *Coordinator) recordArtifact(harp string, a *agentcoordpb.ArtifactProduc
 		}
 		return []Fact{factAt(factArtifact, c.now(), artifactFact{
 			Harp:       harp,
-			ArtifactID: a.GetArtifactId(),
+			ArtifactID: a.ArtifactID,
 			Revision:   rev,
-			Kind:       a.GetKind().String(),
-			Name:       a.GetName(),
-			MediaType:  a.GetMediaType(),
-			SizeBytes:  a.GetSizeBytes(),
+			Kind:       string(a.Kind),
+			Name:       a.Name,
+			MediaType:  a.MediaType,
+			SizeBytes:  a.SizeBytes,
 			SHA256:     sha,
-			Path:       a.GetLabels()["path"],
-			UploadID:   a.GetUploadId(),
+			Path:       a.Labels["path"],
+			UploadID:   a.UploadID,
 		})}, nil
 	}); err != nil {
 		c.rep.Warnf("coordinator: journal artifact manifest for %s: %v — the manifest is LOST, "+

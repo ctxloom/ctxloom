@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -38,9 +38,9 @@ func freePort(t *testing.T) int {
 // deadHome is a runner Home whose coordinator is never reachable: enough for
 // the endpoint's coordination tools to be REGISTERED (the surface the
 // exhaustiveness check vouches for), and never dialed by these tests.
-func deadHome(t *testing.T) *coord.Home {
+func deadHome(t *testing.T) *runner.Home {
 	t.Helper()
-	home, err := coord.NewHome(context.Background(), coord.HomeConfig{
+	home, err := runner.NewHome(context.Background(), runner.HomeConfig{
 		URL: "http://127.0.0.1:1/mcp", Token: "unused", Harness: "test", Version: "test", Harp: "h",
 	})
 	require.NoError(t, err)

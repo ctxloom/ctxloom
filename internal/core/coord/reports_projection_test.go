@@ -108,10 +108,10 @@ func TestArtifacts_ReturnsAStableOrder(t *testing.T) {
 
 	ids := []string{"zeta", "mu", "alpha", "omega", "beta", "kappa", "delta", "sigma"}
 	for _, id := range ids {
-		c.recordArtifact("child-a", &agentcoordpb.ArtifactProduced{
-			ArtifactId: id,
+		c.recordArtifact("child-a", ArtifactProduced{
+			ArtifactID: id,
 			Name:       id,
-			Sha256:     []byte(id),
+			SHA256:     []byte(id),
 		})
 	}
 

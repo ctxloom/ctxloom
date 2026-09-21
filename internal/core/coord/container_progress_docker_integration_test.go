@@ -57,7 +57,7 @@
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/core/coord/... -tags docker_integration -run CoordContainerProgress
-package coord
+package coord_test
 
 import (
 	"context"
@@ -68,6 +68,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,12 +121,12 @@ type progressSpawner struct {
 	cells      map[string]preparedContainerCell
 }
 
-func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, error) {
+func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.SpawnPlan, error) {
 	if agentName != progressAgentName {
 		return nil, &unknownAgentError{agentName}
 	}
 	perm := agent.PermissionBypass
-	return &SpawnPlan{
+	return &coord.SpawnPlan{
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
@@ -144,21 +146,21 @@ func (s *progressSpawner) AssignSession(projectDir, backend string) (string, err
 	return entry.HarpName, nil
 }
 
-func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
+func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
 	if s.mode == progressSpawnDark {
-		l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
+		l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
 		l.Cell.Env = env
 		plan.Launch = l
-		return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+		return coord.Resolved{Launch: l}, nil
 	}
 	rt := isolation.ProbeRuntime("docker")
 	// Auth keys on the plan's engine, never on plan.AgentName — see
 	// containerAuthBackend.
-	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
+	pol := isolation.NewContainerFor(rt, coord.ContainerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
-		return Resolved{}, err
+		return coord.Resolved{}, err
 	}
 	s.mu.Lock()
 	if s.cells == nil {
@@ -166,13 +168,13 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, st
 	}
 	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
 	plan.Launch = l
-	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return coord.Resolved{Launch: l}, nil
 }
 
-func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	if s.mode == progressSpawnDark {
 		return s.startDark(ctx)
@@ -191,10 +193,12 @@ func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, reach sess
 		_ = cell.ws.Cleanup()
 	})
 	s.record(handle.Name, kill)
-	return &EngineSpawn{Kill: kill}, nil
+	return &coord.EngineSpawn{Kill: kill}, nil
 }
 
-func (s *progressSpawner) Adopt(context.Context, RunRecord) (func() error, error) { return nil, nil }
+func (s *progressSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {
+	return nil, nil
+}
 
 // startDark launches a live container from the SAME image that never runs the
 // runner — the injected fault. Hand-rolled `docker run` is correct here
@@ -202,8 +206,8 @@ func (s *progressSpawner) Adopt(context.Context, RunRecord) (func() error, error
 // it is meant to break it in the one way the shipped defect broke it, while
 // keeping every cheap signal (a spawn that returns success, a container in
 // `docker ps`) truthful-looking.
-func (s *progressSpawner) startDark(ctx context.Context) (*EngineSpawn, error) {
-	name := "ctxloom-progress-dark-" + randID("", 8)
+func (s *progressSpawner) startDark(ctx context.Context) (*coord.EngineSpawn, error) {
+	name := "ctxloom-progress-dark-" + coord.RandID("", 8)
 	run := exec.CommandContext(ctx, "docker", "run", "-d", "--name", name, s.image, "sleep", "300")
 	if out, err := run.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("start dark container: %v\n%s", err, out)
@@ -212,7 +216,7 @@ func (s *progressSpawner) startDark(ctx context.Context) (*EngineSpawn, error) {
 		_ = exec.Command("docker", "rm", "-f", name).Run()
 	})
 	s.record(name, kill)
-	return &EngineSpawn{Kill: kill}, nil
+	return &coord.EngineSpawn{Kill: kill}, nil
 }
 
 func (s *progressSpawner) record(name string, kill func()) {
@@ -293,15 +297,15 @@ var progressTightThresholds = liveness.Thresholds{
 // The feed keeps its job (payload round-trip) in the tests that already use it;
 // this one asks a different question and reads a different surface.
 func pollProgress(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time,
-	until func(progressVerdict) bool) (progressVerdict, bool, error) {
+	until func(coord.ProgressVerdict) bool) (coord.ProgressVerdict, bool, error) {
 	path, err := paths.HarpCanonicalTranscriptPath(harp)
 	if err != nil {
-		return progressVerdict{}, false, fmt.Errorf("resolve canonical transcript path for %s: %w", harp, err)
+		return coord.ProgressVerdict{}, false, fmt.Errorf("resolve canonical transcript path for %s: %w", harp, err)
 	}
 	mon := liveness.New(liveness.Options{Thresholds: thr})
 	deadline := time.Now().Add(timeout)
 	for {
-		v := assessTranscriptProgress(mon, harp, path, startedAt)
+		v := coord.AssessTranscriptProgress(mon, harp, path, startedAt)
 		if until(v) {
 			return v, true, nil
 		}
@@ -315,8 +319,8 @@ func pollProgress(harp string, timeout time.Duration, thr liveness.Thresholds, s
 // awaitTranscriptProgress is the GREEN direction: wait for liveness to reach a
 // positive HEALTHY verdict. An expired budget is an error carrying the final
 // verdict's full reason, so a failure is always auditable.
-func awaitTranscriptProgress(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time) (progressVerdict, error) {
-	v, ok, err := pollProgress(harp, timeout, thr, startedAt, progressVerdict.progressing)
+func awaitTranscriptProgress(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time) (coord.ProgressVerdict, error) {
+	v, ok, err := pollProgress(harp, timeout, thr, startedAt, coord.ProgressVerdict.Progressing)
 	switch {
 	case err != nil:
 		return v, err
@@ -329,8 +333,8 @@ func awaitTranscriptProgress(harp string, timeout time.Duration, thr liveness.Th
 // awaitTranscriptStall is the RED direction: wait for liveness to FIRE. Same
 // monitor, same rules, opposite question — a monitor that never fires is the
 // defect these tests exist to catch, so "it did not fire" is the error here.
-func awaitTranscriptStall(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time) (progressVerdict, error) {
-	v, ok, err := pollProgress(harp, timeout, thr, startedAt, progressVerdict.stalled)
+func awaitTranscriptStall(harp string, timeout time.Duration, thr liveness.Thresholds, startedAt time.Time) (coord.ProgressVerdict, error) {
+	v, ok, err := pollProgress(harp, timeout, thr, startedAt, coord.ProgressVerdict.Stalled)
 	switch {
 	case err != nil:
 		return v, err
@@ -347,7 +351,7 @@ func awaitTranscriptStall(harp string, timeout time.Duration, thr liveness.Thres
 func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.Duration, prompt string) (string, time.Time, *progressSpawner) {
 	t.Helper()
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the container-progress integration test")
-	resetStrictness(t)
+	coord.ResetStrictness(t)
 	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
 	// mock's container-auth declaration (Vendorless) resolves
 	// unconditionally because mock authenticates against no vendor. Needing a
@@ -361,16 +365,16 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	sp := &progressSpawner{image: image, projectDir: projectDir, mode: mode}
 	t.Cleanup(sp.cleanup)
 
-	teeHome(t)
-	c, err := New(Options{
+	coord.TeeHome(t)
+	c, err := coord.New(coord.Options{
 		ProjectDir:         projectDir,
 		ProjectKey:         "progress-itest",
 		Spawner:            sp,
 		RunnerAwaitTimeout: awaitBudget,
-		OwnerHarp:          ownerIdentity().Harp,
+		OwnerHarp:          coord.OwnerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
 	t.Cleanup(func() {
@@ -387,7 +391,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	defer cancel()
 
 	startedAt := time.Now()
-	out, err := c.AgentRun(ctx, ownerIdentity(), progressAgentName, prompt, "", "")
+	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), progressAgentName, prompt, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
 	require.Equal(t, "container", out.Runtime)
@@ -406,7 +410,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 // satisfied only by {user, assistant} would pass against a stub too weak to
 // exercise it, which is the same blind spot one level up.
 func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
-	seed := "PROGRESS-SEED-" + randID("", 6)
+	seed := "PROGRESS-SEED-" + coord.RandID("", 6)
 	harp, startedAt, sp := startProgressChild(t, progressSpawnReal, 0, "TOOLS "+seed)
 
 	// A real container is up (the cheap signal — necessary, never sufficient).
@@ -425,13 +429,13 @@ func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
 
 	// Pin the individual signals so a future weakening of the definition is a
 	// visible diff, not a quietly-passing test.
-	assert.True(t, v.present(), "the transcript file must exist")
-	assert.Greater(t, v.maxSeq(), 0, "seq must advance past 0")
-	assert.False(t, v.stalled())
-	assert.Positive(t, v.assistantEntries(), "at least one assistant entry")
-	assert.Greater(t, len(v.entryTypes()), 1, "entry-type variety")
+	assert.True(t, v.Present(), "the transcript file must exist")
+	assert.Greater(t, v.MaxSeq(), 0, "seq must advance past 0")
+	assert.False(t, v.Stalled())
+	assert.Positive(t, v.AssistantEntries(), "at least one assistant entry")
+	assert.Greater(t, len(v.EntryTypes()), 1, "entry-type variety")
 	for _, want := range []string{"user", "thinking", "tool_use", "tool_result", "assistant"} {
-		assert.Contains(t, v.entryTypes(), want,
+		assert.Contains(t, v.EntryTypes(), want,
 			"the full entry vocabulary must survive the container round trip; missing %q in:\n%s", want, v)
 	}
 	// The payload itself, so this is never a shape-only assertion.
@@ -452,7 +456,7 @@ func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
 // measured on a compressed clock, and the package comment for why the silence
 // gate is REQUIRED rather than incidental).
 func TestCoordContainerProgress_CatchesStalledEngine(t *testing.T) {
-	seed := "STALL-SEED-" + randID("", 6)
+	seed := "STALL-SEED-" + coord.RandID("", 6)
 	harp, startedAt, _ := startProgressChild(t, progressSpawnReal, 0, "HANG "+seed)
 
 	// The transcript must first EXIST — otherwise this would be testing the
@@ -465,11 +469,11 @@ func TestCoordContainerProgress_CatchesStalledEngine(t *testing.T) {
 
 	v, err := awaitTranscriptStall(harp, 60*time.Second, progressTightThresholds, startedAt)
 	require.NoError(t, err, "a stalled engine must be caught; verdict was:\n%s", v)
-	assert.True(t, v.stalled())
-	assert.True(t, v.present(), "the file exists — this is the silent-engine signature, not the missing-file one")
-	assert.Equal(t, 0, v.maxSeq(), "seq pinned at 0 is the signature failure")
-	assert.Zero(t, v.assistantEntries(), "no assistant turn was ever produced")
-	assert.Contains(t, v.reason(), "zero assistant turns")
+	assert.True(t, v.Stalled())
+	assert.True(t, v.Present(), "the file exists — this is the silent-engine signature, not the missing-file one")
+	assert.Equal(t, 0, v.MaxSeq(), "seq pinned at 0 is the signature failure")
+	assert.Zero(t, v.AssistantEntries(), "no assistant turn was ever produced")
+	assert.Contains(t, v.Reason(), "zero assistant turns")
 
 	// And the GREEN test's own entry point must refuse the same agent — a
 	// verdict that fires but still reads as progress would be no verdict at all.
@@ -487,7 +491,7 @@ func TestCoordContainerProgress_CatchesStalledEngine(t *testing.T) {
 // Every cheap signal here is green. Only the progress question is red, and only
 // because a missing transcript is treated as a VERDICT rather than an error.
 func TestCoordContainerProgress_CatchesContainerThatNeverDialsHome(t *testing.T) {
-	seed := "DARK-SEED-" + randID("", 6)
+	seed := "DARK-SEED-" + coord.RandID("", 6)
 	// A deliberately tiny dial-home budget: the fault is permanent, so waiting
 	// out the production 5-minute budget would only make the test slow.
 	harp, startedAt, sp := startProgressChild(t, progressSpawnDark, 15*time.Second, "TOOLS "+seed)
@@ -504,10 +508,10 @@ func TestCoordContainerProgress_CatchesContainerThatNeverDialsHome(t *testing.T)
 
 	v, err := awaitTranscriptStall(harp, 60*time.Second, progressTightThresholds, startedAt)
 	require.NoError(t, err, "a container that never dials home must be caught; verdict was:\n%s", v)
-	assert.False(t, v.present(), "no transcript file at all — the recorder opens lazily on the first event")
-	assert.True(t, v.stalled())
-	assert.Zero(t, v.records())
-	assert.Contains(t, v.reason(), "no canonical transcript exists")
+	assert.False(t, v.Present(), "no transcript file at all — the recorder opens lazily on the first event")
+	assert.True(t, v.Stalled())
+	assert.Zero(t, v.Records())
+	assert.Contains(t, v.Reason(), "no canonical transcript exists")
 
 	// And the GREEN test's own entry point must refuse it too.
 	pv, perr := awaitTranscriptProgress(harp, 2*time.Second, progressTightThresholds, startedAt)

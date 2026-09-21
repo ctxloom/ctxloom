@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -34,14 +36,14 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	handler := func(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
 		received <- req
 		return &agentcoordpb.RunnerResponse{
-			Status: okStatus("started"),
+			Status: &rpcstatus.Status{Message: "started"},
 			Kind: &agentcoordpb.RunnerResponse_StartRun{StartRun: &agentcoordpb.StartRunResult{
 				HarnessSessionId: "native-sess-1",
 				Pid:              4242,
 			}},
 		}
 	}
-	link, err := DialRunner(context.Background(), termSink(), c.LoopbackURL(), token, "", "mock", "test", handler)
+	link, err := runnerHooks.DialRunner(context.Background(), termSink(), c.LoopbackURL(), token, "", "mock", "test", handler)
 	require.NoError(t, err)
 	t.Cleanup(link.Abort)
 
@@ -52,30 +54,24 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	_, err = c.awaitRunner(ctx, credHash)
 	require.NoError(t, err)
 
-	req := &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
-		RunId: "run-under-test",
-		Harness: &agentcoordpb.HarnessSpec{
-			Harness: "mock",
-			Model:   "test-model",
-		},
-	}}}
+	req := RunnerRequest{Kind: StartRun{RunID: "run-under-test"}}
 	resp, err := c.requestRunner(ctx, credHash, req)
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.RequestId, "requestRunner mints a request_id when the caller left it blank")
+	require.NotEmpty(t, resp.RequestID, "requestRunner mints a request_id when the caller left it blank")
 
 	select {
 	case got := <-received:
-		assert.Equal(t, resp.RequestId, got.RequestId, "the runner sees the SAME request_id requestRunner minted")
+		assert.Equal(t, resp.RequestID, got.RequestId, "the runner sees the SAME request_id requestRunner minted")
 		assert.Equal(t, "run-under-test", got.GetStartRun().GetRunId())
 	case <-time.After(conformanceWait):
 		t.Fatal("runner never received the RunnerRequest")
 	}
 
-	require.Equal(t, int32(0), resp.Status.Code, "OK status")
-	sr := resp.GetStartRun()
-	require.NotNil(t, sr)
-	assert.Equal(t, "native-sess-1", sr.HarnessSessionId)
-	assert.Equal(t, int64(4242), sr.Pid)
+	require.NoError(t, resp.Err, "OK status")
+	sr, ok := resp.Kind.(StartRunResult)
+	require.True(t, ok)
+	assert.Equal(t, "native-sess-1", sr.HarnessSessionID)
+	assert.Equal(t, int64(4242), sr.PID)
 }
 
 // TestRequestRunner_NoConnectedRunner reports a clear error rather than
@@ -87,7 +83,7 @@ func TestRequestRunner_NoConnectedRunner(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err := c.requestRunner(ctx, "no-such-cred-hash", &agentcoordpb.RunnerRequest{})
+	_, err := c.requestRunner(ctx, "no-such-cred-hash", RunnerRequest{})
 	require.Error(t, err)
 }
 
@@ -98,7 +94,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -117,7 +113,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	// Give the waiter a moment to register before the runner dials in.
 	time.Sleep(20 * time.Millisecond)
 
-	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err)
 	t.Cleanup(link.Abort)
 

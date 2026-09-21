@@ -52,7 +52,7 @@ import (
 type spoolInbox struct {
 	rep      report.Reporter
 	mapper   spool.PathMapper
-	counters *spoolDeliveryCounters
+	counters *SpoolDeliveryCounters
 	// onPark / onUnpark tie a parked receive to the coordinator's slot
 	// accounting (onRolePark / onRoleUnpark).
 	onPark, onUnpark func(role string)
@@ -66,7 +66,7 @@ type spoolInbox struct {
 	handed map[string][]string
 }
 
-func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *spoolDeliveryCounters, onPark, onUnpark func(string)) *spoolInbox {
+func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *SpoolDeliveryCounters, onPark, onUnpark func(string)) *spoolInbox {
 	return &spoolInbox{
 		rep: rep, mapper: mapper, counters: counters, onPark: onPark, onUnpark: onUnpark,
 		polls:  make(map[string]*parkedPoll),
@@ -238,22 +238,22 @@ func (in *spoolInbox) claim(role string) ([]Message, bool) {
 	res, err := spool.Claim(in.mapper, role)
 	if err != nil {
 		in.rep.Warnf("coordinator: claiming the session owner's inbox: %v", err)
-		in.counters.failed.Add(1)
+		in.counters.Failed.Add(1)
 		return nil, false
 	}
 	for _, p := range res.Problems {
 		in.rep.Warnf("coordinator: a file in the owner's in/ spool is not a message and will not be delivered: %v", p.Error())
-		in.counters.failed.Add(1)
+		in.counters.Failed.Add(1)
 	}
 	var (
 		out   []Message
 		names []string
 	)
 	for _, e := range res.Entries {
-		msg, err := mailFromSpool(e, e.Message.FromHarp)
+		msg, err := MailFromSpool(e, e.Message.FromHarp)
 		if err != nil {
-			in.counters.failed.Add(1)
-			failSpool(in.rep, in.mapper, "coordinator", e.Ref, "refusing an undeliverable message in the owner's in/ spool", err)
+			in.counters.Failed.Add(1)
+			FailSpool(in.rep, in.mapper, "coordinator", e.Ref, "refusing an undeliverable message in the owner's in/ spool", err)
 			continue
 		}
 		names = append(names, e.Ref.Name)
@@ -265,7 +265,7 @@ func (in *spoolInbox) claim(role string) ([]Message, bool) {
 	in.mu.Lock()
 	in.handed[role] = append(in.handed[role], names...)
 	in.mu.Unlock()
-	in.counters.delivered.Add(uint64(len(out)))
+	in.counters.Delivered.Add(uint64(len(out)))
 	return out, true
 }
 
@@ -289,10 +289,10 @@ func (in *spoolInbox) ack(role string) {
 				continue
 			}
 			in.rep.Warnf("coordinator: the owner received %s but it could not be acknowledged: %v (it will be delivered again on the next receive)", name, err)
-			in.counters.failed.Add(1)
+			in.counters.Failed.Add(1)
 			continue
 		}
 		consumed++
 	}
-	in.counters.consumed.Add(consumed)
+	in.counters.Consumed.Add(consumed)
 }

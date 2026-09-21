@@ -11,10 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/encoding/protojson"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -80,7 +76,7 @@ import (
 // already bound every case where a doorbell could be missed for longer.
 const spoolSweepInterval = 30 * time.Second
 
-// spoolReactor serialises one side's spool reading.
+// SpoolReactor serialises one side's spool reading.
 //
 // Serialisation is not an optimisation, it is the in-process arbiter: a
 // doorbell and a timer sweep that ran concurrently could both read the same
@@ -92,7 +88,7 @@ const spoolSweepInterval = 30 * time.Second
 // It is a set, never a queue: pending roles collapse, because a doorbell says
 // "look at this spool", not "process this message", so N doorbells for one
 // role are one unit of work.
-type spoolReactor struct {
+type SpoolReactor struct {
 	// sweep does one role's worth of reading. It runs on the reactor
 	// goroutine and may block for as long as it needs to.
 	sweep func(role string)
@@ -106,11 +102,11 @@ type spoolReactor struct {
 	wake    chan struct{}
 }
 
-func newSpoolReactor(sweep func(role string), roles func() []string, tick time.Duration) *spoolReactor {
+func NewSpoolReactor(sweep func(role string), roles func() []string, tick time.Duration) *SpoolReactor {
 	if tick <= 0 {
 		tick = spoolSweepInterval
 	}
-	return &spoolReactor{
+	return &SpoolReactor{
 		sweep:   sweep,
 		roles:   roles,
 		tick:    tick,
@@ -119,10 +115,10 @@ func newSpoolReactor(sweep func(role string), roles func() []string, tick time.D
 	}
 }
 
-// mark schedules roles for a sweep. It never blocks: the wake channel holds
+// Mark schedules roles for a sweep. It never blocks: the wake channel holds
 // one slot, and a full one already means "there is work", which is the only
 // fact the loop needs.
-func (r *spoolReactor) mark(roles ...string) {
+func (r *SpoolReactor) Mark(roles ...string) {
 	if r == nil {
 		return
 	}
@@ -144,16 +140,16 @@ func (r *spoolReactor) mark(roles ...string) {
 }
 
 // markAll schedules every role the reconciliation set knows about.
-func (r *spoolReactor) markAll() {
+func (r *SpoolReactor) markAll() {
 	if r == nil {
 		return
 	}
-	r.mark(r.roles()...)
+	r.Mark(r.roles()...)
 }
 
-// run is the reactor loop. It sweeps FIRST and waits second, so the startup
+// Run is the reactor loop. It sweeps FIRST and waits second, so the startup
 // pass happens before anything can ring — the cold-start delivery path.
-func (r *spoolReactor) run(ctx context.Context) {
+func (r *SpoolReactor) Run(ctx context.Context) {
 	r.markAll()
 	t := time.NewTicker(r.tick)
 	defer t.Stop()
@@ -172,7 +168,7 @@ func (r *spoolReactor) run(ctx context.Context) {
 // drain sweeps every pending role, repeating until the set is empty: a
 // doorbell that arrives while a sweep is running must not be lost to the
 // snapshot it missed.
-func (r *spoolReactor) drain(ctx context.Context) {
+func (r *SpoolReactor) drain(ctx context.Context) {
 	for {
 		if ctx.Err() != nil {
 			return
@@ -284,7 +280,7 @@ func clip(s string) string {
 	return s[:max] + "..."
 }
 
-// deliverableStructured normalises a spool payload for the PeerMessage WIRE
+// DeliverableStructured normalises a spool payload for the PeerMessage WIRE
 // shape, which is a protobuf Struct and therefore always an object.
 //
 // A bare array or scalar has nowhere to sit in a Struct. The file already
@@ -292,7 +288,7 @@ func clip(s string) string {
 // engine's turn sees; wrapping it under the SAME marker key the file uses
 // (spoolRawJSONKey) delivers the message with its payload legible instead of
 // stranding it, and keeps one spelling of the wrapper rather than two.
-func deliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
+func DeliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 	head, err := spoolStructured(raw)
 	if err != nil {
 		return nil, err
@@ -307,7 +303,7 @@ func deliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 	return out, nil
 }
 
-// mailFromSpool recovers the mailbox Message one spool file carries.
+// MailFromSpool recovers the mailbox Message one spool file carries.
 //
 // The message ID is origin_id when the producer had one (the coordinator mints
 // a mailbox id before it writes, so correlation registered by relayApproval
@@ -315,7 +311,7 @@ func deliverableStructured(raw json.RawMessage) (json.RawMessage, error) {
 // the spool's own identity and the one every reader can agree on. It is the
 // dedupe key on both sides, so getting it from anywhere else would break
 // at-least-once into at-least-twice.
-func mailFromSpool(e spool.Entry, from string) (Message, error) {
+func MailFromSpool(e spool.Entry, from string) (Message, error) {
 	if e.Message == nil {
 		return Message{}, fmt.Errorf("coord: spool entry %s carries no message", e.Ref)
 	}
@@ -452,13 +448,13 @@ func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, str
 }
 
 // mailCourier delivers coordinator mail into the RECIPIENT's inbound spool.
-func (c *Coordinator) mailCourier() *spoolCourier {
-	return &spoolCourier{
-		rep:     c.rep,
-		writers: c.spoolIn,
-		keyFor:  func(to string) string { return to },
-		ring:    c.ringSpool,
-		onSent: func(to string, msg Message, ref spool.Ref) {
+func (c *Coordinator) mailCourier() *SpoolCourier {
+	return &SpoolCourier{
+		Rep:     c.rep,
+		Writers: c.spoolIn,
+		KeyFor:  func(to string) string { return to },
+		Ring:    c.ringSpool,
+		OnSent: func(to string, msg Message, ref spool.Ref) {
 			c.audit("spool_mail_out", to, map[string]string{"message_id": msg.ID, "kind": msg.Kind, "ref": ref.String()})
 			c.mu.Lock()
 			seam := c.afterMailWritten
@@ -467,7 +463,7 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 				seam(to)
 			}
 		},
-		side: "coordinator",
+		Side: "coordinator",
 	}
 }
 
@@ -527,7 +523,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	path, err := spool.DirPath(mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: cannot resolve %s's %s spool (%s): %v", harp, dir, why, err)
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 		return spool.SweepResult{}, false
 	}
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
@@ -536,7 +532,7 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 	res, err := sweep(mapper, harp, dir)
 	if err != nil {
 		c.rep.Warnf("coordinator: sweeping %s's %s spool (%s): %v", harp, dir, why, err)
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 		return spool.SweepResult{}, false
 	}
 	return res, true
@@ -545,13 +541,13 @@ func (c *Coordinator) sweepSpoolDirWith(harp string, dir spool.Dir, why string, 
 // startSpoolReactor brings up the coordinator's spool reader.
 func (c *Coordinator) startSpoolReactor() {
 	c.spoolSeen = map[string]map[string]bool{}
-	c.spoolReactor = newSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
+	c.spoolReactor = NewSpoolReactor(c.sweepChildSpool, c.spoolRoles, c.spoolSweepInterval)
 	// The reactor is registered AS the doorbell's consumer rather than being
 	// called beside it. One seam: a second consumer cannot be added without
 	// visibly replacing this one, and a nil handler stays a real fault rather
 	// than becoming a second, silent delivery path.
-	c.SetSpoolDoorbellHandler(func(role string, _ spool.Ref) { c.spoolReactor.mark(role) })
-	c.goTracked(func() { c.spoolReactor.run(c.baseCtx) })
+	c.SetSpoolDoorbellHandler(func(role string, _ spool.Ref) { c.spoolReactor.Mark(role) })
+	c.goTracked(func() { c.spoolReactor.Run(c.baseCtx) })
 }
 
 // spoolRoles is the reconciliation set: every harp this coordinator has a run
@@ -586,7 +582,7 @@ func (c *Coordinator) sweepChildOut(role string) {
 	}
 	for _, p := range res.Problems {
 		c.rep.Warnf("coordinator: %s wrote a spool file that is not a message and will not be routed: %v", role, p.Error())
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 	}
 	for _, e := range res.Entries {
 		c.routeSpoolOut(role, e)
@@ -605,13 +601,13 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 	sender, ok := c.spoolSenderIdentity(role)
 	if !ok {
 		c.rep.Warnf("coordinator: %s's spool holds an outbound message but that harp has no run record; leaving %s in place", role, e.Ref)
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 		return
 	}
-	msg, err := mailFromSpool(e, role)
+	msg, err := MailFromSpool(e, role)
 	if err != nil {
 		c.rep.Warnf("coordinator: refusing an unroutable message from %s: %v", role, err)
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 		c.noticeSpoolDrop(role, e, err)
 		c.failSpoolOut(role, e.Ref, err)
 		return
@@ -622,13 +618,13 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 		// returned success, so the refusal is reported back the only way that
 		// still reaches it: as mail.
 		c.rep.Warnf("coordinator: refusing %s's spool message %s: %v", role, e.Ref, err)
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 		c.replySpoolRefusal(role, msg, err)
 		c.noticeSpoolDrop(role, e, err)
 		c.failSpoolOut(role, e.Ref, err)
 		return
 	}
-	c.spoolDeliveryCount.delivered.Add(1)
+	c.spoolDeliveryCount.Delivered.Add(1)
 	c.consumeSpool(role, e.Ref)
 }
 
@@ -651,15 +647,15 @@ func (c *Coordinator) routeSpoolOut(role string, e spool.Entry) {
 // the process while later entries delivered around it, which is the
 // silent-skip this project treats as its characteristic defect.
 func (c *Coordinator) failSpoolOut(role string, ref spool.Ref, cause error) {
-	failSpool(c.rep, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
+	FailSpool(c.rep, c.mapper, "coordinator", ref, fmt.Sprintf("could not route %s's message", role), cause)
 }
 
-// failSpool moves ref out of its live directory into the failed/ sibling
+// FailSpool moves ref out of its live directory into the failed/ sibling
 // (spool.Fail picks which) and reports the outcome either way — the ONE
 // terminal-state move for a file a reader parsed but could not deliver or
 // route, on both sides and in both directions. A lost race (ErrAlreadyGone)
 // is the other path having won: nothing to strand, nothing to warn about.
-func failSpool(rep report.Reporter, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
+func FailSpool(rep report.Reporter, mapper spool.PathMapper, side string, ref spool.Ref, why string, cause error) {
 	if err := spool.Fail(mapper, ref); err != nil {
 		if errors.Is(err, spool.ErrAlreadyGone) {
 			return
@@ -768,7 +764,7 @@ func (c *Coordinator) consumeSpool(role string, ref spool.Ref) {
 			return
 		}
 		c.rep.Warnf("coordinator: routed %s but could not mark it consumed: %v (it will be routed again on the next sweep)", ref, err)
-		c.spoolDeliveryCount.failed.Add(1)
+		c.spoolDeliveryCount.Failed.Add(1)
 		return
 	}
 	_ = done
@@ -806,13 +802,13 @@ func (c *Coordinator) sweepChildConsumed(role string) {
 	if fresh == 0 {
 		return
 	}
-	c.spoolDeliveryCount.consumed.Add(uint64(fresh))
+	c.spoolDeliveryCount.Consumed.Add(uint64(fresh))
 	c.noteMailConsumed(role) // real progress: the relaunch budget is forgiven
 }
 
 // SpoolDeliveryStats reports this coordinator's cumulative file-plane
 // outcomes.
-func (c *Coordinator) SpoolDeliveryStats() SpoolDeliveryStats { return c.spoolDeliveryCount.stats() }
+func (c *Coordinator) SpoolDeliveryStats() SpoolDeliveryStats { return c.spoolDeliveryCount.Stats() }
 
 // SpoolDeliveryStats reports what the file mail plane did and could not do.
 // Every counter is cumulative for the process's lifetime.
@@ -828,310 +824,21 @@ type SpoolDeliveryStats struct {
 	Failed uint64
 }
 
-type spoolDeliveryCounters struct {
-	delivered atomic.Uint64
-	consumed  atomic.Uint64
-	failed    atomic.Uint64
+type SpoolDeliveryCounters struct {
+	Delivered atomic.Uint64
+	Consumed  atomic.Uint64
+	Failed    atomic.Uint64
 }
 
-func (s *spoolDeliveryCounters) stats() SpoolDeliveryStats {
+func (s *SpoolDeliveryCounters) Stats() SpoolDeliveryStats {
 	return SpoolDeliveryStats{
-		Delivered: s.delivered.Load(),
-		Consumed:  s.consumed.Load(),
-		Failed:    s.failed.Load(),
+		Delivered: s.Delivered.Load(),
+		Consumed:  s.Consumed.Load(),
+		Failed:    s.Failed.Load(),
 	}
 }
 
 // ---- runner side -------------------------------------------------------
-
-// SpoolDeliveryStats reports this runner's cumulative file-plane outcomes.
-func (h *Home) SpoolDeliveryStats() SpoolDeliveryStats { return h.spoolDeliveryCount.stats() }
-
-// startSpoolReactor brings up the runner's own in/ reader. Its reconciliation
-// set is a single role — a runner has exactly one spool — but it is the same
-// machinery as the coordinator's on purpose: the startup pass, the collapse of
-// concurrent wakes, and the serialisation that keeps two triggers from
-// delivering one file twice are all properties this side needs identically.
-func (h *Home) startSpoolReactor() {
-	h.spoolIn = newSpoolReactor(
-		func(string) { h.sweepSpoolIn() },
-		func() []string {
-			// No role until the identity is bound: an unbound run has no
-			// spool to reconcile.
-			if harp := h.Harp(); harp != "" {
-				return []string{harp}
-			}
-			return nil
-		},
-		h.cfg.SpoolSweepInterval,
-	)
-	// Same one-seam rule as the coordinator's, and it lands on SweepSpoolIn so
-	// the doorbell joins the other triggers at the single funnel that call
-	// already documents.
-	h.SetSpoolDoorbellHandler(func(string, spool.Ref) { h.SweepSpoolIn() })
-	h.goTracked(func() { h.spoolIn.run(h.ctx) })
-}
-
-// SweepSpoolIn asks for a reconciliation sweep of this run's in/ spool. It is
-// the one call every trigger funnels through — turn boundary, run-channel
-// reattach, doorbell — so a new trigger cannot accidentally introduce a second
-// way of reading the same directory.
-func (h *Home) SweepSpoolIn() {
-	if harp := h.Harp(); harp != "" {
-		h.spoolIn.mark(harp)
-	}
-}
-
-// sweepSpoolIn delivers everything currently in this run's in/ spool, oldest
-// first, through the SAME delivery-by-state seam a pushed mailbox notice uses
-// (deliverNotice): a parked recv completes, a live engine gets a new turn,
-// and anything arriving before the engine exists waits in the buffer.
-//
-// Delivery is where the file's journey through this process starts, not where
-// it ends: the consume-rename happens later, at the moment the delivery is
-// proven (the engine accepted the turn, or a subsequent Recv proved the
-// harness took the batch). deliverNotice's own dedupe on message id is what
-// makes a doorbell and a sweep that race resolve to one delivery.
-func (h *Home) sweepSpoolIn() {
-	if h.exited.Load() {
-		// The engine has exited (Home.exited): a file swept now belongs to
-		// the run the coordinator launches next, and delivering it here
-		// would consume it into a sink nothing reads.
-		return
-	}
-	mapper := h.cfg.Mapper
-	path, err := spool.DirPath(mapper, h.Harp(), spool.DirIn)
-	if err != nil {
-		h.rep.Warnf("runner: cannot resolve this run's in/ spool: %v", err)
-		h.spoolDeliveryCount.failed.Add(1)
-		return
-	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return // nothing has ever been written for this run
-	}
-	res, err := spool.Sweep(mapper, h.Harp(), spool.DirIn)
-	if err != nil {
-		h.rep.Warnf("runner: sweeping this run's in/ spool: %v", err)
-		h.spoolDeliveryCount.failed.Add(1)
-		return
-	}
-	for _, p := range res.Problems {
-		h.rep.Warnf("runner: a file in this run's in/ spool is not a message and will not be delivered: %v", p.Error())
-		h.spoolDeliveryCount.failed.Add(1)
-	}
-	for _, e := range res.Entries {
-		msg, err := mailFromSpool(e, e.Message.FromHarp)
-		if err != nil {
-			h.failSpoolEntry(e, "refusing an undeliverable spool message", err)
-			continue
-		}
-		wire, err := deliverableStructured(msg.Structured)
-		if err != nil {
-			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s's payload onto the delivery seam", e.Ref), err)
-			continue
-		}
-		msg.Structured = wire
-		pm, err := peerMessageProto(msg)
-		if err != nil {
-			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s onto the delivery seam", e.Ref), err)
-			continue
-		}
-		h.rememberSpoolRef(msg.ID, e.Ref)
-		h.spoolDeliveryCount.delivered.Add(1)
-		h.deliverNotice(pm)
-	}
-}
-
-// failSpoolEntry is the terminal outcome for an in/ entry this reader parsed
-// as a message but could not classify or project onto the delivery seam: an
-// unknown or future mailbox kind, or a structured payload that will not
-// decode above the parse layer. A bare continue here — the defect this
-// function replaces — left the file in in/ to be re-read, re-warned about,
-// and re-skipped on every sweep forever, while later entries in the same
-// directory kept delivering around it: exactly the silent-skip this project
-// treats as its characteristic defect.
-//
-// Instead the file is moved OUT of in/ into the local in/failed/ terminal
-// directory (spool.Fail): present on disk, unreadable, and never swept
-// again — a state an operator can tell apart from "never arrived" (nothing
-// in any directory) and from "delivered" (in/consumed/), which is the
-// three-way distinction a bare warning-and-retry cannot make.
-func (h *Home) failSpoolEntry(e spool.Entry, why string, cause error) {
-	h.spoolDeliveryCount.failed.Add(1)
-	failSpool(h.rep, h.cfg.Mapper, "runner", e.Ref, why, cause)
-}
-
-// rememberSpoolRef records which file a delivered id came from, so the
-// consume-rename can find it at the acknowledgement moment.
-func (h *Home) rememberSpoolRef(id string, ref spool.Ref) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.spoolRefs == nil {
-		h.spoolRefs = map[string]spool.Ref{}
-	}
-	h.spoolRefs[id] = ref
-}
-
-// takeSpoolRef claims the file behind id exactly once.
-func (h *Home) takeSpoolRef(id string) (spool.Ref, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	ref, ok := h.spoolRefs[id]
-	if ok {
-		delete(h.spoolRefs, id)
-	}
-	return ref, ok
-}
-
-// ackMailConsumed is the ONE acknowledgement point for delivered mail: the
-// consume-rename plus the doorbell that announces it. The ack timing (after
-// the engine accepted / after the next Recv) is a property of the CALLER, and
-// it is the property that keeps at-least-once true.
-func (h *Home) ackMailConsumed(ids []string) {
-	if h.exited.Load() {
-		// The run is over (Crash / Close / the engine's exit): the file is
-		// the next incarnation's to consume, and a rename now would create
-		// a directory under a root this run is done with.
-		return
-	}
-	for _, id := range ids {
-		ref, ok := h.takeSpoolRef(id)
-		if !ok {
-			// Every delivery is a file, so an id with no file behind it is a
-			// delivery this reader never made. Said loudly rather than
-			// swallowed: an ack that matches nothing is a bookkeeping fault,
-			// not a no-op.
-			h.rep.Warnf("runner: asked to acknowledge message %s, which no spool file delivered", id)
-			h.spoolDeliveryCount.failed.Add(1)
-			continue
-		}
-		done, err := spool.Consume(h.cfg.Mapper, ref)
-		if err != nil {
-			if errors.Is(err, spool.ErrAlreadyGone) {
-				continue
-			}
-			h.rep.Warnf("runner: delivered %s but could not mark it consumed: %v (the coordinator will see it as still pending)", ref, err)
-			h.spoolDeliveryCount.failed.Add(1)
-			continue
-		}
-		h.spoolDeliveryCount.consumed.Add(1)
-		// The consume-rename IS the delivery ack, and this ring is how the
-		// coordinator learns of it without polling.
-		h.outboundCourier().Announce("", done, "consumed")
-	}
-}
-
-// sendPeerViaSpool is agent_send: a LOCAL, durable file write into this
-// run's out/ plus a doorbell, with no coordinator round trip at all.
-// handled=false leaves a non-PeerSend request to the ordinary plane-2 path.
-//
-// The guards duplicated from servePeerSend (a recipient, some text, a kind
-// from the closed sender vocabulary — read the SAME way, off the typed
-// req.GetKind() field, never structured["kind"]) are duplicated ON PURPOSE:
-// they are the refusals an agent can still be told about synchronously, and
-// losing them to "the coordinator will complain later, by mail" would make a
-// mistyped or absent kind a silently-dropped message instead of an immediate
-// error.
-//
-// The kind check is skipped entirely when InReplyTo is set. This path has no
-// coordinator round trip, so — unlike servePeerSend, which can defer an unset
-// kind to peerSend's post-correlation SenderMailKind check — it cannot ask
-// "does this actually correlate to a pending approval/ask" before deciding
-// whether to write the file: that state lives coordinator-side and this is a
-// local write. A reply to a relayed approval_request never needs a kind
-// (peerSend: "kind rides alongside the decision and is ignored"), so refusing
-// one here would break every cutover approval answer
-// (TestSpoolApproval_RelayRidesFilesAndAuditsIdentically). The cost is
-// narrower than it sounds: an unset-kind send whose in_reply_to turns out NOT
-// to correlate to anything still gets refused — just one hop later, when the
-// coordinator's sweep reads the file (routeSpoolOut's peerSend call) and
-// mails the refusal back (replySpoolRefusal), which is the EXISTING, already
-// tested fallback this file's own doc comment names for exactly this
-// asymmetry ("the coordinator will complain later, by mail").
-func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, bool) {
-	send := req.GetPeerSend()
-	if send == nil {
-		return nil, false
-	}
-	if h.Harp() == "" {
-		return spoolSendErr(codes.FailedPrecondition, "agent_send: "+ErrIdentityUnbound.Error()), true
-	}
-	sr, err := sendRequestFromWire(send)
-	if err != nil {
-		return spoolSendErr(codes.InvalidArgument, err.Error()), true
-	}
-	// THE validation site — the same Validate the coordinator's Send verb
-	// runs, so a send refused here is refused for the reason the wire would
-	// have given, and a handler never re-checks a field.
-	if err := sr.Validate(); err != nil {
-		return spoolSendErr(codes.InvalidArgument, err.Error()), true
-	}
-	ref, err := h.writeOutbound(Message{
-		From: h.Harp(), To: sr.To, Kind: sr.Kind,
-		Body: sr.Body, Structured: sr.Structured, InReplyTo: sr.InReplyTo,
-	})
-	if err != nil {
-		h.spoolDeliveryCount.failed.Add(1)
-		return spoolSendErr(codes.Internal, fmt.Sprintf("agent_send: %v", err)), true
-	}
-	h.spoolDeliveryCount.delivered.Add(1)
-	// NO DOUBLE DELIVERY (spoolturnresult.go): this run has now reported to its
-	// parent in its own words, so the automatic turn report must not repeat the
-	// same turn. Marked HERE, at the one place an accepted send exists, which
-	// is the runner-side twin of the coordinator's noteChildReported.
-	h.noteSelfReported()
-	return &agentcoordpb.CoordinatorResponse{
-		RequestId: req.GetRequestId(),
-		Status:    okStatus("written to this session's outbound spool"),
-		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
-			// The FILENAME STEM is the message id, because the file is the
-			// message: there is no coordinator-minted id to quote, and an id
-			// the recipient could not resolve back to a file would make every
-			// in_reply_to written against it dangling.
-			MessageId: strings.TrimSuffix(ref.Name, spool.MessageFileExt),
-			Delivery:  agentcoordpb.PeerSendResult_DELIVERY_QUEUED,
-		}},
-	}, true
-}
-
-// sendRequestFromWire decodes the wire's PeerSendRequest into the verb's
-// request: exactly one of to_agent_id / to_role names the recipient, the
-// kind enum becomes its name, and the structured companion its JSON. Only
-// the DECODE refuses here (a frame that cannot mean a request); what the
-// request may say is Validate's.
-func sendRequestFromWire(send *agentcoordpb.PeerSendRequest) (SendRequest, error) {
-	to := send.GetToAgentId()
-	if role := send.GetToRole(); role != "" {
-		if to != "" {
-			return SendRequest{}, fmt.Errorf("%w: agent_send: set exactly one of to_agent_id / to_role, not both", ErrInvalidRequest)
-		}
-		to = role
-	}
-	sr := SendRequest{To: to, Body: send.GetText(), InReplyTo: send.GetInReplyTo()}
-	if k := send.GetKind(); k != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
-		// proto3 enums are OPEN on the wire: a number this build does not
-		// declare survives Unmarshal as itself, and it must be refused BY
-		// NUMBER here — never mapped to "" and then answered as "kind is
-		// required", which would hide which value was wrong.
-		sr.Kind = agentcoordpb.LegacyKindName(k)
-		if sr.Kind == "" {
-			return SendRequest{}, fmt.Errorf("%w: agent_send: kind %d is not a message kind this build knows; use one of: %s",
-				ErrInvalidRequest, int32(k), strings.Join(senderMailKinds, " | "))
-		}
-	}
-	if st := send.GetStructured(); st != nil {
-		raw, err := protojson.Marshal(st)
-		if err != nil {
-			return SendRequest{}, fmt.Errorf("%w: agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", ErrInvalidRequest, err)
-		}
-		sr.Structured = raw
-	}
-	return sr, nil
-}
-
-func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {
-	return &agentcoordpb.CoordinatorResponse{Status: statusErr(code, msg)}
-}
 
 // ErrNeedsOwner refuses a coordinator that was not told whose inbox it drains
 // (Options.OwnerHarp): every child->parent message is a file in the owner's

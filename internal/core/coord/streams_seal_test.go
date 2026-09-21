@@ -20,11 +20,11 @@ func TestRunnerChannel_RefusedOnceTheCoordinatorSeals(t *testing.T) {
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 
-	c.streams.seal()
+	c.streams.Seal()
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	link, err := DialRunner(ctx, termSink(), c.LoopbackURL(), token, "", "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(ctx, termSink(), c.LoopbackURL(), token, "", "mock", "test", nil)
 	if link != nil {
 		t.Cleanup(link.Abort)
 	}

@@ -27,7 +27,7 @@ func newUnservedCoordinator(t *testing.T) *Coordinator {
 }
 
 // TestCoordinator_ServeIsRaceFreeAgainstURLReaders pins that the listener set
-// is published safely. Serve writes c.srv; ReachURL reads it from the spawn
+// is published safely. Serve binds the transport; ReachURL reads it from the spawn
 // path (children.go builds a child's env from it) and Close reads it during
 // teardown — all on other goroutines. Unsynchronised, that is a data race on a
 // pointer field, and the reader could observe a half-initialised coordServing.
@@ -52,7 +52,7 @@ func TestCoordinator_ServeIsRaceFreeAgainstURLReaders(t *testing.T) {
 		}
 	}()
 
-	serveErr := c.Serve()
+	serveErr := runnerHooks.Serve(c)
 	close(stop)
 	wg.Wait()
 
@@ -70,7 +70,7 @@ func TestCoordinator_CloseIsRaceFreeAgainstServe(t *testing.T) {
 	var serveErr error
 	go func() {
 		defer wg.Done()
-		serveErr = c.Serve()
+		serveErr = runnerHooks.Serve(c)
 	}()
 	c.Close()
 	wg.Wait()
@@ -81,6 +81,6 @@ func TestCoordinator_CloseIsRaceFreeAgainstServe(t *testing.T) {
 	if serveErr != nil {
 		assert.ErrorIs(t, serveErr, ErrClosed)
 	}
-	assert.Nil(t, c.srv.Load(), "no listener set may survive a Close, whichever order the two ran in")
+	assert.False(t, c.Serving(), "no listener set may survive a Close, whichever order the two ran in")
 	c.Close() // idempotent
 }

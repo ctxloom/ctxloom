@@ -123,7 +123,7 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	// runner's in-memory state is gone and only the directories remain.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	fresh, err := NewHome(ctx, HomeConfig{
+	fresh, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh-steer",
 		Harness: "mock", Harp: out.Harp,
@@ -177,7 +177,7 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 // answerAsk replies to a delivered ask from the CHILD's own runner — an
 // ordinary agent_send quoting the ask's id, which under the cutover is a local
 // write into the child's out/ spool.
-func answerAsk(t *testing.T, home *Home, askID, text string, structured *structpb.Struct) {
+func answerAsk(t *testing.T, home TestHome, askID, text string, structured *structpb.Struct) {
 	t.Helper()
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
@@ -519,13 +519,11 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	resp, err := c.requestRunner(ctx, credHash, &agentcoordpb.RunnerRequest{
-		Kind: &agentcoordpb.RunnerRequest_PauseRun{PauseRun: &agentcoordpb.PauseRun{RunId: "some-other-run"}},
-	})
+	resp, err := c.requestRunner(ctx, credHash, RunnerRequest{Kind: PauseRun{RunID: "some-other-run"}})
 	require.NoError(t, err)
-	assert.NotEqualValues(t, 0, resp.GetStatus().GetCode(),
+	require.Error(t, resp.Err,
 		"a pause naming another run must be refused, not applied to the run that happens to be hosted here")
-	assert.Contains(t, resp.GetStatus().GetMessage(), "A9 correlation")
+	assert.Contains(t, resp.Err.Error(), "A9 correlation")
 
 	// And the refusal left the run RUNNING: mail still lands.
 	_, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")

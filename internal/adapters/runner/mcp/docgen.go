@@ -8,7 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
@@ -27,7 +27,7 @@ import (
 // tools/resources via an in-memory MCP client (the SDK exposes no direct
 // ListTools accessor on the server).
 //
-// The returned closer releases the coord.Home standing behind the surface. That
+// The returned closer releases the runner.Home standing behind the surface. That
 // Home is NOT inert: constructing one opens a gRPC client and dispatches two
 // background loops that go on redialling the dead endpoint, so a caller that
 // never closes it leaks a connection and two goroutines for the life of the
@@ -38,7 +38,7 @@ import (
 // both callers already report errors, and a panic in a completeness gate takes
 // the whole test binary down instead of failing one assertion with a message.
 func NewDocServer() (server *mcp.Server, closeHome func(), err error) {
-	home, err := coord.NewHome(context.Background(), coord.HomeConfig{
+	home, err := runner.NewHome(context.Background(), runner.HomeConfig{
 		URL:     "http://127.0.0.1:1/mcp", // never dialed successfully; docgen only reads registrations
 		Token:   "docgen",
 		Harness: "docgen",

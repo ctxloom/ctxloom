@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // recordSummary/recordArtifact warn on a journal failure and carry
@@ -33,7 +31,7 @@ func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T)
 	teeHome(t)
 	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	// Break the append path the way a shutdown does.
@@ -41,8 +39,8 @@ func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T)
 		return
 	}
 
-	c.recordSummary("child-a", "run-1", 1, &agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_CHECKPOINT,
+	c.recordSummary("child-a", "run-1", 1, Summary{
+		Scope: ScopeCheckpoint,
 		Text:  "everything up to seq 40",
 	})
 
@@ -70,11 +68,11 @@ func TestRecordSummary_SuccessStillAuditsAndCheckpoints(t *testing.T) {
 	teeHome(t)
 	c, err := New(Options{ProjectDir: dir, StateDir: dir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
-	c.recordSummary("child-a", "run-1", 1, &agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_CHECKPOINT,
+	c.recordSummary("child-a", "run-1", 1, Summary{
+		Scope: ScopeCheckpoint,
 		Text:  "everything up to seq 40",
 	})
 

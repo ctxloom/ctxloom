@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -39,7 +40,7 @@ type RunnerMCP struct {
 // binds the unix socket and starts serving. It returns only with the socket
 // LISTENING — the runner controls the engine spawn, and the socket exists
 // before it (assert, don't race).
-func ServeRunnerMCP(rep report.Sink, cfg *config.Config, harp string, home *coord.Home) (*RunnerMCP, error) {
+func ServeRunnerMCP(rep report.Sink, cfg *config.Config, harp string, home *runner.Home) (*RunnerMCP, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."

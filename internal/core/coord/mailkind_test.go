@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -60,8 +61,8 @@ func childSpoolSend(t *testing.T, req *agentcoordpb.PeerSendRequest) (*Coordinat
 	sp := cutoverSpawner(0)
 	c := newTestCoordinator(t, sp, nil)
 	out, home := awaitCutoverChild(t, c, sp, "do the thing")
-	resp, handled := home.sendPeerViaSpool(&agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: req}})
-	require.True(t, handled, "every agent_send is handled locally")
+	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: req}})
+	require.NoError(t, err, "every agent_send is handled locally")
 	return c, out, resp
 }
 
@@ -225,7 +226,7 @@ func TestMailKinds_AgreeWithTheWireEnum(t *testing.T) {
 			continue
 		}
 		spelling := agentcoordpb.LegacyKindName(wire)
-		assert.True(t, knownMailKind(spelling), "wire member %s (%q) is not a mailbox kind; the vocabularies must agree 1:1", name, spelling)
+		assert.True(t, KnownMailKind(spelling), "wire member %s (%q) is not a mailbox kind; the vocabularies must agree 1:1", name, spelling)
 		assert.Equal(t, spelling, seen[wire], "wire member %s must be reached from its mailbox spelling", name)
 	}
 
@@ -255,7 +256,7 @@ func TestReservedMailKinds_AreTheEnumsReservedMembers(t *testing.T) {
 		err := SenderMailKind(kind)
 		require.Error(t, err, "kind %q is coordinator-reserved on the wire and must be refused from a sender", kind)
 		assert.Contains(t, err.Error(), "reserved", "the refusal for %q must say reserved, not merely invalid", kind)
-		assert.True(t, knownMailKind(kind), "reserved kind %q must be renderable as a header name", kind)
+		assert.True(t, KnownMailKind(kind), "reserved kind %q must be renderable as a header name", kind)
 	}
 	assert.Contains(t, reservedMailKinds, KindUserControl)
 }

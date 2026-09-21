@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/coordtest"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/coord/coordtest"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 
@@ -34,7 +35,7 @@ func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 		OwnerHarp: "coordinator-harp",
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 	owner := coord.Identity{Harp: "coordinator-harp", Depth: 0}
 

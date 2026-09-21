@@ -2,10 +2,11 @@ package cli
 
 import (
 	"fmt"
-	"github.com/spf13/afero"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/afero"
 
 	"github.com/spf13/cobra"
 
@@ -34,8 +35,8 @@ import (
 // home/engineHost are nil when the coordinator trio was absent (an
 // unconfigured/top-level serve, or a `llm host` launched with no reach-back).
 type runnerStandup struct {
-	home          *coord.Home
-	engineHost    *coord.EngineHost
+	home          *runner.Home
+	engineHost    *runner.EngineHost
 	endpointClose func()
 }
 
@@ -84,7 +85,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	// surface alone.
 	homeCfg.Capabilities = coord.RunnerCapabilities(false)
 	homeCfg.Reporter = App().Reporter
-	h, herr := coord.NewHome(cmd.Context(), homeCfg)
+	h, herr := runner.NewHome(cmd.Context(), homeCfg)
 	if herr != nil {
 		clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
 		return standup, nil
@@ -102,16 +103,16 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 // standUpHostedRunner is the hosted-run arm: the engine host for the ONE run
 // this runner was spawned for, the dial-home, and the runner tail whose
 // Dynamic port binds the Launch's endpoint. No config is read.
-func standUpHostedRunner(cmd *cobra.Command, standup *runnerStandup, backend agent.Backend, backendName string, homeCfg coord.HomeConfig) (*runnerStandup, error) {
+func standUpHostedRunner(cmd *cobra.Command, standup *runnerStandup, backend agent.Backend, backendName string, homeCfg runner.HomeConfig) (*runnerStandup, error) {
 	sc, ok := backend.(agent.StructuredChat)
 	if !ok {
 		return nil, fmt.Errorf("runner: backend %q cannot host run %s: it drives no structured chat", backendName, homeCfg.RunID)
 	}
-	standup.engineHost = coord.NewEngineHost(cmd.Context(), App().Reporter, sc, backendName, homeCfg.RunID)
+	standup.engineHost = runner.NewEngineHost(cmd.Context(), App().Reporter, sc, backendName, homeCfg.RunID)
 	homeCfg.Engine = standup.engineHost.Handle
 	homeCfg.Capabilities = coord.RunnerCapabilities(true)
 	homeCfg.Reporter = App().Reporter
-	h, herr := coord.NewHome(cmd.Context(), homeCfg)
+	h, herr := runner.NewHome(cmd.Context(), homeCfg)
 	if herr != nil {
 		clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
 		return standup, nil
@@ -133,7 +134,7 @@ func standUpHostedRunner(cmd *cobra.Command, standup *runnerStandup, backend age
 // static writer over the home-rooted ownership record, the runner MCP
 // standup as the dynamic half, the engine's configure seam over the label
 // body the Launch carries, and the engine host as the driver.
-func runnerDepsFor(backend agent.Backend, backendName string, host *coord.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
+func runnerDepsFor(backend agent.Backend, backendName string, host *runner.EngineHost, dynamic delivery.Dynamic) (runner.Deps, error) {
 	ctxHome, err := paths.HomeConfigDir()
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
@@ -198,7 +199,7 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 // CTXLOOM_MCP_SOCKET; the arm dies with the plugin protocol. Without a hosted
 // run there is nothing to refuse for and the shim's own local fallback is
 // correct, so a failed endpoint degrades with a warning.
-func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *coord.Home, harp string) error {
+func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *runner.Home, harp string) error {
 	endpoint, merr := mcp.ServeRunnerMCP(App().Reporter, cfg, harp, h)
 	if merr == nil {
 		// The shim reads CTXLOOM_MCP_SOCKET from THIS process's env (every
@@ -223,7 +224,7 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *coord.Home, 
 // run's identity — harp, depth, whether it is one-shot, the cell it runs in
 // — arrives ONCE on the Launch and is never read from the environment.
 type coordinatorReachBack struct {
-	home coord.HomeConfig
+	home runner.HomeConfig
 	// harp is the plugin-hosted owner's own harp (OwnerRunnerEnv stamps it;
 	// no Launch ever reaches that runner); empty for a hosted run.
 	harp string
@@ -253,7 +254,7 @@ var coordinatorEnvKeys = []string{
 // makes the invariant testable at all.
 func consumeCoordinatorReachBack(backendName string, getenv func(string) string, unset func(string) error) (coordinatorReachBack, error) {
 	reach := coordinatorReachBack{
-		home: coord.HomeConfig{
+		home: runner.HomeConfig{
 			URL:     getenv(coord.EnvCoordURL),
 			Token:   getenv(coord.EnvCoordCred),
 			RunID:   getenv(coord.EnvRunID),

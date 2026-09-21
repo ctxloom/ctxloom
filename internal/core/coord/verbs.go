@@ -256,6 +256,7 @@ func (r ControlRequest) Validate() error {
 // of a steer, the answer to a question or summarize, or whether a pause or
 // resume changed anything.
 type ControlResult struct {
+	Verb      string
 	Delivery  string
 	MessageID string
 	Answer    *AskAnswer

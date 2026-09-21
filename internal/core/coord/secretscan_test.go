@@ -25,7 +25,7 @@ func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	ownerToken, err := c.RegisterSessionOwner(ownerIdentity().Harp)
@@ -54,7 +54,7 @@ func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 
 	// And the ENGINE env (what a harness could write into its own files)
 	// carries no token either — the runner spawn env is the only carrier.
-	env := c.spawner.(*fakeSpawner).chat(0).env()
+	env := c.spawner.(*fakeSpawner).chat(0).Env()
 	for k, v := range env {
 		for _, secret := range secrets {
 			require.NotEqual(t, secret, v, "engine env %s carries a raw credential", k)

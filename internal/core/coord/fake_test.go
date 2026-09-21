@@ -8,14 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/testsupport/scriptedchat"
 )
 
 // fakeSpawner is the hermetic Spawner: no config, no engines, no isolation.
@@ -70,7 +71,7 @@ type fakeSpawner struct {
 	// engineHomes records each StartEngine call's runner-side Home, in spawn
 	// order — the seam a plane-2 test needs to drain the runner-LOCAL
 	// agent_recv a control body is parked in.
-	engineHomes []*Home
+	engineHomes []TestHome
 	// engineStderrTail, when set, is threaded onto each EngineSpawn.StderrTail
 	// — the runner's captured stderr tail. It stands in for a docker-direct
 	// runner's ring (the container's streamed stderr): a runner-loss test uses
@@ -273,7 +274,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	s.mu.Lock()
 	s.launches = append(s.launches, l)
 	s.mu.Unlock()
-	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return Resolved{Launch: l}, nil
 }
 
 // Start spawns the runner half for real: an in-process Home dialing the
@@ -296,10 +297,10 @@ func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.E
 			mk = func() *scriptedChat { return &scriptedChat{} }
 		}
 		sc := mk()
-		sc.mu.Lock()
-		sc.gotEnv = l.Cell.Env
-		sc.gotRunnerEnv = runnerEnv
-		sc.mu.Unlock()
+		sc.Mu.Lock()
+		sc.GotEnv = l.Cell.Env
+		sc.GotRunnerEnv = runnerEnv
+		sc.Mu.Unlock()
 		s.chats = append(s.chats, sc)
 		backend = sc
 	}
@@ -308,9 +309,9 @@ func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.E
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(context.Background())
-	host := newTestEngineHost(sctx, backend, string(l.Engine), runnerEnv[EnvRunID])
-	host.BindRunner(testRunner{eh: host, refuse: s.refuseBind})
-	home, err := NewHome(sctx, HomeConfig{
+	host := runnerHooks.NewEngineHost(sctx, nil, backend, string(l.Engine), runnerEnv[EnvRunID])
+	runnerHooks.BindTestRunner(host, s.refuseBind)
+	home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 		Reporter:     termSink(),
 		URL:          runnerEnv[EnvCoordURL],
 		Token:        runnerEnv[EnvCoordCred],
@@ -409,7 +410,7 @@ func (s *fakeSpawner) adoptReleased() []string {
 }
 
 // engineHome returns the i-th spawned runner-side Home, nil if unspawned.
-func (s *fakeSpawner) engineHome(i int) *Home {
+func (s *fakeSpawner) engineHome(i int) TestHome {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if i >= len(s.engineHomes) {
@@ -594,7 +595,7 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)
 	}
-	if err := c.Serve(); err != nil {
+	if err := runnerHooks.Serve(c); err != nil {
 		t.Fatalf("serve coordinator: %v", err)
 	}
 	t.Cleanup(func() {
@@ -609,8 +610,10 @@ func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, co
 			fs.mu.Lock()
 			defer fs.mu.Unlock()
 			for i, h := range fs.engineHomes {
-				if h.ctx.Err() == nil {
-					t.Errorf("runner half %d (run %s) is still alive after Coordinator.Close: nothing killed it", i, h.cfg.RunID)
+				select {
+				case <-h.Done():
+				default:
+					t.Errorf("runner half %d (run %s) is still alive after Coordinator.Close: nothing killed it", i, h.RunID())
 				}
 			}
 		}
@@ -729,27 +732,15 @@ func childRecv(t *testing.T, c *Coordinator, runID string, wait time.Duration) (
 // ownerLaunch is the test's resolved owner launch: the fields StartOwnedRun
 // reads off it, and nothing a resolver would decide.
 func ownerLaunch(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
-	enc, err := composite.Encode(composite.Package{})
-	if err != nil {
-		panic(err)
-	}
-	carrier, err := composite.Inline{}.Carry(context.Background(), enc)
-	if err != nil {
-		panic(err)
-	}
-	return launch.Launch{
-		Identity:   sessions.Identity{Harp: harp},
-		Engine:     engine.Name(backend),
-		Label:      engine.LabelConfig{Label: label, Model: model},
-		Mode:       engine.Structured,
-		Permission: perm,
-		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Cleanup: func() error { return nil }},
-		Package:    carrier,
-	}
+	return launchtest.Structured(harp, backend, label, model, workDir, perm)
 }
 
 // ownerRun is the owner-owned run over l: the launch, its wire form, and
 // whether it is the --print single turn.
 func ownerRun(l launch.Launch, oneShot bool) OwnerRun {
-	return OwnerRun{Launch: l, Wire: coordgrpc.EncodeLaunch(l), OneShot: oneShot}
+	return OwnerRun{Launch: l, OneShot: oneShot}
 }
+
+// scriptedChat is the shared scripted engine double, under the name this
+// suite has always used for it.
+type scriptedChat = scriptedchat.Chat

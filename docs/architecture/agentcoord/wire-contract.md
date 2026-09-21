@@ -28,8 +28,8 @@ flowchart TD
     DL["DownloadArtifact → stream"]
   end
   MCP[["mcpschema/schemas/*.json<br/>LLM-facing tool surface"]]
-  COORD[["coord/runchannel.go serve* handlers"]]
-  RUNNER[["coord/enginehost.go · adapters/runner · adapters/coordgrpc"]]
+  COORD[["coordgrpc/runchannel.go handleAgentFrame → coord/runchannel.go HandleRequest / serve*"]]
+  RUNNER[["adapters/runner (Home, EngineHost, RunnerLink) · adapters/coordgrpc (the codec)"]]
   VIEW[["operations/sessionfeed.go · cli/run_owned.go"]]
   P2U --> COORD
   P1 --> VIEW
@@ -45,12 +45,12 @@ flowchart TD
 
 | Service / RPC | Contract | Implementation |
 | --- | --- | --- |
-| `CoordinatorService.RunnerChannel` | bidi; runner lifecycle keyed by credential hash | server `coord/grpcserver.go`, client `coord/runnerlink.go` |
-| `CoordinatorService.RunChannel` | bidi; ONE run's three planes | server `coord/runchannel.go`, client `coord/home.go` |
-| `ConsumerService.WatchRuns` | snapshot frame, then live events | `coord/consumer.go`; client `operations/sessionfeed.go` |
-| `ConsumerService.ListRuns` | roster poll | `coord/consumer.go` |
-| `ArtifactTransferService.UploadArtifact` | chunked upload, server-hashed | `coord/artifacts.go`; client `coord/homeartifacts.go` |
-| `ArtifactTransferService.DownloadArtifact` | header-first stream | `coord/artifacts.go`; client `coord/homeartifacts.go` |
+| `CoordinatorService.RunnerChannel` | bidi; runner lifecycle keyed by credential hash | server `coordgrpc/grpcserver.go` over `coord/runnersession.go`, client `runner/runnerlink.go` |
+| `CoordinatorService.RunChannel` | bidi; ONE run's three planes | server `coordgrpc/runchannel.go` over `coord/runchannel.go`, client `runner/home.go` |
+| `ConsumerService.WatchRuns` | snapshot frame, then live events | `coordgrpc/consumer.go` over `coord/consumer.go`; client `operations/sessionfeed.go` |
+| `ConsumerService.ListRuns` | roster poll | `coordgrpc/consumer.go` over `coord.Coordinator.ListRuns` |
+| `ArtifactTransferService.UploadArtifact` | chunked upload, server-hashed | `coordgrpc/artifacts.go` over `coord.ReceiveArtifact`; client `runner/homeartifacts.go` |
+| `ArtifactTransferService.DownloadArtifact` | header-first stream | `coordgrpc/artifacts.go` over `coord.OpenArtifact`; client `runner/homeartifacts.go` |
 
 `CoordinatorService` carries no unary RPC: events reach the journal only over
 `RunnerChannel`, and there was never a non-test client for an at-least-once

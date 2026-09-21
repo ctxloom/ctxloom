@@ -6,8 +6,6 @@ import (
 	"io"
 	"strings"
 	"time"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // The Coordinator implements Verbs. Each verb validates its request FIRST
@@ -89,11 +87,11 @@ func (c *Coordinator) Report(_ context.Context, caller Identity, req ReportReque
 	if err := req.Validate(); err != nil {
 		return err
 	}
-	scope, ok := agentcoordpb.Summary_Scope_value["SCOPE_"+strings.ToUpper(req.Scope)]
+	scope, ok := ParseSummaryScope("SCOPE_" + strings.ToUpper(req.Scope))
 	if !ok {
 		return fmt.Errorf("%w: report: unknown scope %q", ErrInvalidRequest, req.Scope)
 	}
-	c.recordSummary(caller.Harp, caller.RunID, 0, &agentcoordpb.Summary{Scope: agentcoordpb.Summary_Scope(scope), Text: req.Body})
+	c.recordSummary(caller.Harp, caller.RunID, 0, Summary{Scope: scope, Text: req.Body})
 	return nil
 }
 
@@ -133,25 +131,25 @@ func (c *Coordinator) Control(ctx context.Context, by ControlInitiator, req Cont
 		if err != nil {
 			return ControlResult{}, err
 		}
-		return ControlResult{Delivery: out.Delivery, MessageID: out.MessageID}, nil
+		return ControlResult{Verb: req.Verb, Delivery: out.Delivery, MessageID: out.MessageID}, nil
 	case ControlVerbQuestion:
 		ans, err := c.ControlQuestion(ctx, by, req.Harp, req.Body)
 		if err != nil {
 			return ControlResult{}, err
 		}
-		return ControlResult{Answer: &ans}, nil
+		return ControlResult{Verb: req.Verb, Answer: &ans}, nil
 	case ControlVerbSummarize:
 		ans, err := c.ControlSummarize(ctx, by, req.Harp, req.Body)
 		if err != nil {
 			return ControlResult{}, err
 		}
-		return ControlResult{Answer: &ans}, nil
+		return ControlResult{Verb: req.Verb, Answer: &ans}, nil
 	case ControlVerbPause:
 		changed, err := c.ControlPause(ctx, by, req.Harp, req.Body)
-		return ControlResult{Changed: changed}, err
+		return ControlResult{Verb: req.Verb, Changed: changed}, err
 	case ControlVerbResume:
 		changed, err := c.ControlResume(ctx, by, req.Harp)
-		return ControlResult{Changed: changed}, err
+		return ControlResult{Verb: req.Verb, Changed: changed}, err
 	}
 	return ControlResult{}, fmt.Errorf("%w: control: unknown verb %q", ErrInvalidRequest, req.Verb)
 }

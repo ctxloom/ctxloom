@@ -16,7 +16,7 @@
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/core/coord/... -tags docker_integration -run CoordContainerDirect
-package coord
+package coord_test
 
 import (
 	"os"

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
@@ -35,7 +34,7 @@ const engineDeathTail = "acp: connection closed (engine stderr tail: SyntaxError
 func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -71,20 +70,15 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	seq := ch.ackSeq + 1
 	c.mu.Unlock()
 	require.NotNil(t, ch)
-	c.handleAgentEvent(ch, &agentcoordpb.AgentEvent{
-		RunId: out.RunID,
-		Seq:   seq,
-		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
-			Result: &agentcoordpb.Result{
-				Status: agentcoordpb.Result_RUN_STATUS_FAILED,
-				Text:   engineDeathTail,
-			},
-		}},
+	c.HandleEvent(ch, Event{
+		RunID:   out.RunID,
+		Seq:     seq,
+		Payload: RunCompleted{Result: &Result{Status: RunStatusFailed, Text: engineDeathTail}},
 	})
 
 	// The runner then reports the process-level exit (CauseRunnerExit), which
 	// terminates the run and mails the parent.
-	c.handleRunExited(credHash, &agentcoordpb.RunExited{RunId: out.RunID, TerminalEventSeen: true})
+	c.RunnerExited(credHash, RunExited{RunID: out.RunID, TerminalEventSeen: true})
 
 	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
 	require.NoError(t, err)
@@ -110,7 +104,7 @@ func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
 	const containerTail = "FATAL: node: bad option: --nonsense (container entrypoint died)"
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	sp.engineStderrTail = func() string { return containerTail }
 	c := newTestCoordinator(t, sp, nil)
 
@@ -239,7 +233,7 @@ func assertDeadRunnerIsReportedPromptly(t *testing.T, exitErr error, wantReason 
 		OwnerHarp:          ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")

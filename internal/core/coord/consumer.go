@@ -1,24 +1,18 @@
 package coord
 
 import (
-	"context"
 	"sync"
-
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// D1 — the consumer watch API: read-only observation for viewers (the TUI,
-// ACP frontends' D3 push, a parent watching a child live) over a NEW,
-// additive ConsumerService. Two pieces live here: the credential class
-// (consumerCreds) and the live event fan-out (watchHub); the gRPC surface
-// itself (consumerService) is the thin server adapter at the bottom.
+// The consumer watch API: read-only observation for viewers (the TUI, a
+// parent watching a child live). Two pieces live here: the credential class
+// (consumerCreds) and the live event fan-out (watchHub); the wire surface
+// (ConsumerService) is the adapter's, projecting WatchRuns/ListRuns/SpoolStats.
 
-// consumerCreds mints and verifies the D1 read-only credential class: a
+// consumerCreds mints and verifies the read-only consumer credential class: a
 // SINGLE token per coordinator process lifetime (not per-watcher — every
 // consumer of one coordinator shares it, discovered via endpoint.json,
 // 0600, host-local). Deliberately NOT journaled: a viewer's ability to
@@ -79,15 +73,11 @@ func (cc *consumerCreds) verify(presented string) bool {
 // silently shorted.
 const watchRingSize = 256
 
-// watchHub is the D1 live consumer broadcast: every AgentEvent
-// handleAgentEvent processes on ANY live RunChannel is teed here for
-// ConsumerService.WatchRuns subscribers, full payload (including delta
-// text) — the durable journal stays counts-only for deltas (items.go); this
-// is a separate, additive read path, never the source of truth. Because it
-// covers the RunChannel uniformly (StartRun-migrated children included),
-// wiring it into handleAgentEvent is also the Recon #1 fix: a migrated
-// child's live activity becomes observable again, independent of the
-// legacy agentbus TapHub this hub does not replace until D2.
+// watchHub is the live consumer broadcast: every Event HandleEvent
+// processes on ANY live RunChannel is teed here for WatchRuns subscribers,
+// full payload (including delta text) — the durable journal stays
+// counts-only for deltas (items.go); this is a separate, additive read
+// path, never the source of truth.
 type watchHub struct {
 	rep  report.Reporter
 	mu   sync.Mutex
@@ -99,8 +89,8 @@ func newWatchHub(rep report.Reporter) *watchHub {
 }
 
 // watchSub is one WatchRuns call's subscription. runIDs nil/empty means
-// "every run visible to this credential" (D1 does not yet scope visibility
-// below the whole project — a consumer credential sees the whole
+// "every run visible to this credential" (visibility is not scoped below
+// the whole project — a consumer credential sees the whole
 // coordinator, matching its loopback-only, host-local trust boundary).
 //
 // lost is non-nil while this subscriber is LAGGED: events were not queued
@@ -110,8 +100,8 @@ func newWatchHub(rep report.Reporter) *watchHub {
 // precedes the first event delivered after the loss. Guarded by watchHub.mu.
 type watchSub struct {
 	runIDs map[string]bool
-	ch     chan *agentcoordpb.AgentEvent
-	lost   []*agentcoordpb.EventsLost_Range
+	ch     chan Event
+	lost   []LostRange
 }
 
 // subscribe registers a subscriber and returns its event channel, a cancel
@@ -124,8 +114,8 @@ type watchSub struct {
 // remaining, near-entire lifetime instead of forever. narrow is safe to
 // discard — a caller that never needs it (one that legitimately wants every
 // run in the project) can simply ignore it.
-func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordpb.AgentEvent, cancel func(), narrow func(runID string)) {
-	sub := &watchSub{runIDs: runIDs, ch: make(chan *agentcoordpb.AgentEvent, watchRingSize)}
+func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan Event, cancel func(), narrow func(runID string)) {
+	sub := &watchSub{runIDs: runIDs, ch: make(chan Event, watchRingSize)}
 	h.mu.Lock()
 	h.subs[sub] = struct{}{}
 	h.mu.Unlock()
@@ -142,15 +132,15 @@ func (h *watchHub) subscribe(runIDs map[string]bool) (events <-chan *agentcoordp
 	return sub.ch, cancel, narrow
 }
 
-func isTerminal(ev *agentcoordpb.AgentEvent) bool {
-	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
+func isTerminal(ev Event) bool {
+	_, ok := ev.Payload.(RunCompleted)
 	return ok
 }
 
 // isLossMarker reports whether ev is a synthetic EventsLost marker — the
 // hub's own, never a runner's.
-func isLossMarker(ev *agentcoordpb.AgentEvent) bool {
-	_, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_EventsLost)
+func isLossMarker(ev Event) bool {
+	_, ok := ev.Payload.(EventsLost)
 	return ok
 }
 
@@ -158,7 +148,7 @@ func isLossMarker(ev *agentcoordpb.AgentEvent) bool {
 // sacrifice: a terminal (its loss is unrecoverable — no seq gap ever reveals
 // it, and a watcher waits on it forever) and a loss marker (evicting the
 // notice of a loss is the silent drop this hub exists to rule out).
-func isEvictable(ev *agentcoordpb.AgentEvent) bool {
+func isEvictable(ev Event) bool {
 	return !isTerminal(ev) && !isLossMarker(ev)
 }
 
@@ -166,7 +156,7 @@ func isEvictable(ev *agentcoordpb.AgentEvent) bool {
 // this function, and both are load-bearing:
 //
 //  1. NEVER block the caller. This runs synchronously inside
-//     handleAgentEvent, on the goroutine that services a live RunChannel's
+//     HandleEvent, on the goroutine that services a live RunChannel's
 //     recv loop (runchannel.go) — stalling here stalls that runner's
 //     liveness. A full subscriber ring therefore loses ev for that
 //     subscriber only — but NEVER silently: the loss is recorded on the
@@ -186,11 +176,11 @@ func isEvictable(ev *agentcoordpb.AgentEvent) bool {
 //     invariant 1 away even for this one event. Each evicted event is a loss
 //     like any other and is reported in the marker the terminal is preceded
 //     by.
-func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
+func (h *watchHub) broadcast(ev Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for sub := range h.subs {
-		if len(sub.runIDs) > 0 && !sub.runIDs[ev.GetRunId()] {
+		if len(sub.runIDs) > 0 && !sub.runIDs[ev.RunID] {
 			continue
 		}
 		if isTerminal(ev) {
@@ -207,7 +197,7 @@ func (h *watchHub) broadcast(ev *agentcoordpb.AgentEvent) {
 // with fewer, ev joins the pending loss. Runs under watchHub.mu, so the only
 // concurrent actor is the reader draining sub.ch, which can only ADD room:
 // a slot counted free here stays free through the send.
-func deliver(sub *watchSub, ev *agentcoordpb.AgentEvent) {
+func deliver(sub *watchSub, ev Event) {
 	if sub.room() < sub.need() {
 		sub.noteLost(ev)
 		return
@@ -232,21 +222,19 @@ func (sub *watchSub) need() int {
 // run coalesce into one range; per loss episode a run can therefore
 // contribute at most two ranges (its newest events, not queued; its oldest,
 // evicted for a terminal), so the slice is bounded by the runs on the ring.
-func (sub *watchSub) noteLost(ev *agentcoordpb.AgentEvent) {
+func (sub *watchSub) noteLost(ev Event) {
 	for i := len(sub.lost) - 1; i >= 0; i-- {
-		r := sub.lost[i]
-		if r.GetRunId() != ev.GetRunId() {
+		r := &sub.lost[i]
+		if r.RunID != ev.RunID {
 			continue
 		}
-		if r.GetLastSeq()+1 == ev.GetSeq() {
-			r.LastSeq = ev.GetSeq()
+		if r.LastSeq+1 == ev.Seq {
+			r.LastSeq = ev.Seq
 			return
 		}
 		break
 	}
-	sub.lost = append(sub.lost, &agentcoordpb.EventsLost_Range{
-		RunId: ev.GetRunId(), FirstSeq: ev.GetSeq(), LastSeq: ev.GetSeq(),
-	})
+	sub.lost = append(sub.lost, LostRange{RunID: ev.RunID, FirstSeq: ev.Seq, LastSeq: ev.Seq})
 }
 
 // flushLost queues sub's pending loss as one EventsLost marker and clears
@@ -255,10 +243,7 @@ func (sub *watchSub) flushLost() {
 	if sub.lost == nil {
 		return
 	}
-	sub.ch <- &agentcoordpb.AgentEvent{
-		OccurredAt: timestamppb.Now(),
-		Payload:    &agentcoordpb.AgentEvent_EventsLost{EventsLost: &agentcoordpb.EventsLost{Lost: sub.lost}},
-	}
+	sub.ch <- Event{OccurredAt: time.Now(), Payload: EventsLost{Lost: sub.lost}}
 	sub.lost = nil
 }
 
@@ -277,15 +262,15 @@ const terminalEvictAttempts = 4
 // pending for the next flush: dropping the terminal hangs the watcher,
 // deferring the marker does not. Never blocks: this races only the serving
 // loop draining sub.ch from the other end, which can only free slots.
-func sendTerminal(rep report.Reporter, sub *watchSub, ev *agentcoordpb.AgentEvent) {
+func sendTerminal(rep report.Reporter, sub *watchSub, ev Event) {
 	for attempt := 0; attempt < terminalEvictAttempts; attempt++ {
 		if sub.room() >= sub.need() {
 			sub.flushLost()
 			sub.ch <- ev
 			return
 		}
-		evicted := evictOneEvictable(sub.ch)
-		if evicted == nil {
+		evicted, ok := evictOneEvictable(sub.ch)
+		if !ok {
 			break // nothing left to sacrifice; another pass would find the same
 		}
 		sub.noteLost(evicted)
@@ -300,11 +285,11 @@ func sendTerminal(rep report.Reporter, sub *watchSub, ev *agentcoordpb.AgentEven
 	// stop listening for: name the run whose terminal was lost so a hung
 	// viewer is diagnosable from the coordinator's logs.
 	rep.Warnf("consumer watch: dropped terminal event for run %q after %d evict attempts on a full ring — a watcher on that run may hang until its own timeout",
-		ev.GetRunId(), terminalEvictAttempts)
+		ev.RunID, terminalEvictAttempts)
 }
 
 // evictOneEvictable frees one slot in ch by removing its OLDEST evictable
-// event (isEvictable) and returns it, or nil when every queued event is a
+// event (isEvictable) and returns it, or false when every queued event is a
 // terminal or a loss marker. It drains events until it finds one to
 // sacrifice, holding any protected events it must drain past and re-queuing
 // them in order, so only a seq-recoverable event is removed. Stays
@@ -312,27 +297,27 @@ func sendTerminal(rep report.Reporter, sub *watchSub, ev *agentcoordpb.AgentEven
 // invariant), and runs under watchHub.mu so no concurrent broadcast races
 // the drain — only the serving loop drains ch too, which is safe (it
 // delivers, never loses).
-func evictOneEvictable(ch chan *agentcoordpb.AgentEvent) *agentcoordpb.AgentEvent {
-	var held []*agentcoordpb.AgentEvent
+func evictOneEvictable(ch chan Event) (Event, bool) {
+	var held []Event
 	for {
-		var e *agentcoordpb.AgentEvent
+		var e Event
 		select {
 		case e = <-ch:
 		default:
 			// Ring drained without an evictable event: put the protected
 			// ones back (in order) and let the retry bound decide.
 			requeue(ch, held)
-			return nil
+			return Event{}, false
 		}
 		if isEvictable(e) {
 			requeue(ch, held)
-			return e
+			return e, true
 		}
 		held = append(held, e)
 	}
 }
 
-func requeue(ch chan *agentcoordpb.AgentEvent, evs []*agentcoordpb.AgentEvent) {
+func requeue(ch chan Event, evs []Event) {
 	for _, e := range evs {
 		select {
 		case ch <- e:
@@ -343,11 +328,10 @@ func requeue(ch chan *agentcoordpb.AgentEvent, evs []*agentcoordpb.AgentEvent) {
 }
 
 // listRunsSnapshot is the roster projection shared by every caller of the
-// roster (the plane-2 agent_run ListRuns handler, runchannel.go, and D1's
-// ConsumerService ListRuns/WatchRuns snapshot below) — single state, N
-// transports.
-func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
-	result := &agentcoordpb.ListRunsResult{}
+// roster (the plane-2 roster request, serveRoster, and the consumer plane's
+// ListRuns/WatchRuns snapshot below) — single state, N transports.
+func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) RunsSnapshot {
+	result := RunsSnapshot{}
 	c.runs.View(func() {
 		for _, e := range c.rosterF.snapshot() {
 			if !includeTerminal && e.State == StateEnded {
@@ -360,10 +344,10 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 			if role != "" && rec.Agent != role {
 				continue
 			}
-			result.Runs = append(result.Runs, &agentcoordpb.ListRunsResult_RunInfo{
-				RunId: rec.RunID,
-				Agent: &agentcoordpb.AgentIdentity{
-					AgentId: e.Harp,
+			result.Runs = append(result.Runs, RunInfo{
+				RunID: rec.RunID,
+				Agent: &AgentIdentity{
+					AgentID: e.Harp,
 					Role:    rec.Agent,
 					// rec.ContainerName is set only once a container-runtime
 					// run's StartRunner returns (factRunContainer) — empty
@@ -374,13 +358,13 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 				},
 				Phase:         e.State,
 				LatestSummary: c.reportsF.latestSummary(e.Harp),
-				ParentRunId:   rec.ParentRunID,
+				ParentRunID:   rec.ParentRunID,
 				// F1: the run's resolved permission mode and MCP server
 				// NAMES ONLY (rec.Permission/MCPServers, fixed at enqueue) —
 				// the roster consumer's only black-box view onto the
 				// delegation privilege-scoping guarantee.
 				PermissionMode: rec.Permission,
-				McpServers:     rec.MCPServers,
+				MCPServers:     rec.MCPServers,
 			})
 		}
 	})
@@ -397,7 +381,7 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 // moment it learns that ID — see watchHub.subscribe's doc. A caller that
 // already knows its run IDs, or genuinely wants every run, can simply
 // discard it.
-func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRunsResult, events <-chan *agentcoordpb.AgentEvent, cancel func(), narrow func(runID string)) {
+func (c *Coordinator) WatchRuns(runIDs []string) (snapshot RunsSnapshot, events <-chan Event, cancel func(), narrow func(runID string)) {
 	var filter map[string]bool
 	if len(runIDs) > 0 {
 		filter = make(map[string]bool, len(runIDs))
@@ -413,82 +397,26 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRun
 // ListRuns is the in-process form of ConsumerService.ListRuns.
 //
 // test-only: no production caller — production reaches
-// listRunsSnapshot directly (consumerService.ListRuns, serveListRuns). This
+// listRunsSnapshot directly (the roster verb; the wire's ConsumerService). This
 // was deleted once in this wave and reverted: repointing its in-package test
 // call sites at listRunsSnapshot compiled fine, but
 // internal/adapters/mcp/mcp_tools_agents_test.go (a different package) also calls it
 // via require.Eventually to poll for a roster change — `go vet ./...`, not a
 // package-scoped vet, is what caught that. Kept for that cross-package test
 // caller, the same reason as LoopbackURL.
-func (c *Coordinator) ListRuns(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
+func (c *Coordinator) ListRuns(includeTerminal bool, role string) RunsSnapshot {
 	return c.listRunsSnapshot(includeTerminal, role)
 }
 
-// consumerService implements agentcoord.v1.ConsumerService (D1): additive,
-// read-only, no change to CoordinatorService. Both RPCs also work called
-// in-process (no gRPC hop) via the Coordinator methods below — D3's acp
-// session loop, hosting the coordinator library itself, uses that path.
-type consumerService struct {
-	agentcoordpb.UnimplementedConsumerServiceServer
-	c *Coordinator
-}
-
-func (s *consumerService) ListRuns(_ context.Context, req *agentcoordpb.ListRunsRequest) (*agentcoordpb.ListRunsResult, error) {
-	return s.c.listRunsSnapshot(req.GetIncludeTerminal(), req.GetRole()), nil
-}
-
-// SpoolStats is the unary read of the coordinator's process-lifetime spool
-// counters — the three in-process accessors (SpoolDeliveryStats,
-// SpoolDoorbellStats, PushUnavailableCount) projected onto one wire message.
-// No journal fact records any of these (they are outcome tallies, not
-// state), so this RPC is the ONLY way a process that does not host the
-// coordinator can see them.
-func (s *consumerService) SpoolStats(context.Context, *agentcoordpb.SpoolStatsRequest) (*agentcoordpb.SpoolStatsResult, error) {
-	return s.c.spoolStatsSnapshot(), nil
-}
-
-// spoolStatsSnapshot projects the live counters onto the wire shape.
-func (c *Coordinator) spoolStatsSnapshot() *agentcoordpb.SpoolStatsResult {
+// SpoolStats is the spool counters snapshot the consumer plane reports.
+func (c *Coordinator) SpoolStats() SpoolStats {
 	delivery := c.SpoolDeliveryStats()
 	doorbell := c.SpoolDoorbellStats()
-	return &agentcoordpb.SpoolStatsResult{
+	return SpoolStats{
 		Delivered:        delivery.Delivered,
 		Consumed:         delivery.Consumed,
 		Failed:           delivery.Failed,
 		DoorbellDropped:  doorbell.Dropped,
 		DoorbellRejected: doorbell.Rejected,
-	}
-}
-
-// WatchRuns serves the stream: snapshot first, then live AgentEvents
-// (subscribe BEFORE building the snapshot so nothing published in the gap
-// between subscribing and sending is missed — it simply arrives, correctly
-// ordered, right after the snapshot frame instead of before).
-func (s *consumerService) WatchRuns(req *agentcoordpb.WatchRunsRequest, stream grpc.ServerStreamingServer[agentcoordpb.WatchEvent]) error {
-	c := s.c
-	var filter map[string]bool
-	if ids := req.GetRunIds(); len(ids) > 0 {
-		filter = make(map[string]bool, len(ids))
-		for _, id := range ids {
-			filter[id] = true
-		}
-	}
-	events, cancel, _ := c.watch.subscribe(filter)
-	defer cancel()
-
-	snap := c.listRunsSnapshot(true, "")
-	if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Snapshot{Snapshot: &agentcoordpb.RosterSnapshot{Runs: snap.GetRuns()}}}); err != nil {
-		return err
-	}
-	ctx := stream.Context()
-	for {
-		select {
-		case ev := <-events:
-			if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Event{Event: ev}}); err != nil {
-				return err
-			}
-		case <-ctx.Done():
-			return ctx.Err()
-		}
 	}
 }

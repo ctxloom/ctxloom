@@ -199,7 +199,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 //
 // wrapStreams, when non-nil, replaces an interactive turn's stdin/stdout with
 // the pair it returns immediately before Execute — the seam a session-owner's
-// terminal wake injects into (coord.NewTerminalInjector, wired in by
+// terminal wake injects into (runner.NewTerminalInjector, wired in by
 // llm_serve.go). It is a plain func value rather than a Backend decorator
 // specifically so it cannot erase an optional capability interface
 // (agent.StructuredChat, agent.StateReader, agent.EngineCLIProvider) that impl

@@ -15,7 +15,7 @@
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/core/coord/... -tags docker_integration -run CoordContainerDirect
-package coord
+package coord_test
 
 import (
 	"context"
@@ -25,6 +25,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,12 +59,12 @@ type directBusSpawner struct {
 	cells      map[string]preparedContainerCell
 }
 
-func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*SpawnPlan, error) {
+func (s *directBusSpawner) Resolve(_ context.Context, agentName string) (*coord.SpawnPlan, error) {
 	if agentName != directAgentName {
 		return nil, assertUnknownAgent(agentName)
 	}
 	perm := agent.PermissionBypass
-	return &SpawnPlan{
+	return &coord.SpawnPlan{
 		AgentName:  agentName,
 		Backend:    "mock",
 		Label:      "fast",
@@ -92,17 +94,17 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 // isolation.StarterForWorkspace → Container.StartRunner (docker-direct
 // `ctxloom llm host mock`). The session harp on env drives the session-state
 // mounts (transcript survival).
-func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start SpawnStart) (Resolved, error) {
+func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
 	rt := isolation.ProbeRuntime("docker")
 	// Container auth keys on the ENGINE, resolved PER CALL from the plan
 	// (containerAuthBackend — the same Backend field StarterForWorkspace below
 	// already reads). The harness image is unrelated to the engine, so it is
 	// named separately via WithImage.
-	pol := isolation.NewContainerFor(rt, containerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
+	pol := isolation.NewContainerFor(rt, coord.ContainerAuthBackend(plan)).WithImage(s.image).WithSessionState(isolation.SessionStateFromEnv(env))
 	ws, err := pol.PrepareWorkspace(ctx, s.projectDir, plan.AgentName)
 	if err != nil {
-		return Resolved{}, err
+		return coord.Resolved{}, err
 	}
 	s.mu.Lock()
 	if s.cells == nil {
@@ -110,13 +112,13 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, s
 	}
 	s.cells[start.Identity.Harp] = preparedContainerCell{pol: pol, ws: ws, backend: plan.Backend, label: plan.Label}
 	s.mu.Unlock()
-	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
+	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
 	plan.Launch = l
-	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return coord.Resolved{Launch: l}, nil
 }
 
-func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*coord.EngineSpawn, error) {
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
 	cell := s.cells[l.Identity.Harp]
@@ -135,10 +137,12 @@ func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach ses
 	s.containers = append(s.containers, handle.Name)
 	s.cleanups = append(s.cleanups, kill)
 	s.mu.Unlock()
-	return &EngineSpawn{Kill: kill}, nil
+	return &coord.EngineSpawn{Kill: kill}, nil
 }
 
-func (s *directBusSpawner) Adopt(context.Context, RunRecord) (func() error, error) { return nil, nil }
+func (s *directBusSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {
+	return nil, nil
+}
 
 // preparedContainerCell is what ResolveLaunch prepared for one harp and
 // Start launches into.
@@ -173,7 +177,7 @@ func (s *directBusSpawner) containerNames() []string {
 //     direct mauve-state negative: no in-container plugin listener exists.
 func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the docker-direct delegated-spawn integration test")
-	resetStrictness(t)
+	coord.ResetStrictness(t)
 	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
 	// mock's container-auth declaration (Vendorless) resolves
 	// unconditionally because mock authenticates against no vendor. Needing a
@@ -185,10 +189,10 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	projectDir := testsupport.ProjectDir(t) // isolated HOME + cwd; never the real ~/.ctxloom
 
 	sp := &directBusSpawner{image: image, projectDir: projectDir}
-	teeHome(t)
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp, OwnerHarp: ownerIdentity().Harp})
+	coord.TeeHome(t)
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp, OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
@@ -204,8 +208,8 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 		}
 	})
 
-	owner := ownerIdentity()
-	seedPayload := "DIRECT-SEED-" + randID("", 6)
+	owner := coord.OwnerIdentity()
+	seedPayload := "DIRECT-SEED-" + coord.RandID("", 6)
 	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)

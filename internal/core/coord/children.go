@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"google.golang.org/grpc/codes"
 	"reflect"
 	"slices"
 	"sort"
@@ -14,7 +13,6 @@ import (
 
 	"go.uber.org/zap"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -180,7 +178,7 @@ type childRt struct {
 	// would otherwise learn only "exited (runner-exit)" with no cause — the
 	// exact silent dead-end the 49-minute incident was. terminateRun folds
 	// this into the parent's terminal notice so a dead engine can say WHY.
-	// Captured on the RunChannel receive path (handleAgentEvent), read once
+	// Captured on the RunChannel receive path (HandleEvent), read once
 	// at terminal.
 	runFailure string
 	// stderrTail reads the runner's bounded stderr tail (the container's
@@ -213,7 +211,7 @@ type childRt struct {
 }
 
 // newRunID mints a run attempt id (UUID-shaped; retries get a fresh one).
-func newRunID() string { return randID("run-", 16) }
+func newRunID() string { return RandID("run-", 16) }
 
 // RunOutcome is agent_run's return payload, fixed at enqueue.
 type RunOutcome struct {
@@ -288,7 +286,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// separate steps below can block for an unbounded time (agent
 	// resolution, the session-index flock inside AssignSession, the
 	// reach-back endpoint). Measured once at 6m59s, against a caller budget
-	// of defaultRequestTimeout: the caller times out, sees nothing anywhere,
+	// of DefaultRequestTimeout: the caller times out, sees nothing anywhere,
 	// concludes the spawn never happened, and retries — which is how one
 	// brief came to be executed by three concurrent children in one checkout
 	// (task affected-yearly).
@@ -395,7 +393,7 @@ func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
-// run before it reports itself. Well inside defaultRequestTimeout, the
+// run before it reports itself. Well inside DefaultRequestTimeout, the
 // caller's own budget: the point is that a notice exists BEFORE the caller
 // gives up and starts deciding whether to retry, not after.
 const defaultSpawnNoticeAfter = 15 * time.Second
@@ -844,7 +842,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 	rt.workDir = l.Cell.Workspace
 	c.mu.Unlock()
 
-	err = c.issueStartRun(ctx, rt, hashToken(token), resolved.Wire, l.Prompt, l.Label.Model, start.ResumeKey, true)
+	err = c.issueStartRun(ctx, rt, hashToken(token), resolved.Launch, l.Prompt, l.Label.Model, start.ResumeKey, true)
 	if !errors.Is(err, errEndpointUnavailable) {
 		return
 	}
@@ -862,7 +860,7 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		return
 	}
 	c.audit("endpoint_rebind", rt.harp, map[string]string{"run_id": rt.runID})
-	_ = c.issueStartRun(ctx, rt, hashToken(token), rebound.Wire, rebound.Launch.Prompt, rebound.Launch.Label.Model, start.ResumeKey, false)
+	_ = c.issueStartRun(ctx, rt, hashToken(token), rebound.Launch, rebound.Launch.Prompt, rebound.Launch.Label.Model, start.ResumeKey, false)
 }
 
 // errEndpointUnavailable is issueStartRun's report that the runner refused
@@ -915,7 +913,7 @@ func (c *Coordinator) startRunPayloadErr(rt *childRt, first, resumeSessionID str
 		rt.agentName, rt.harp)
 }
 
-func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, wire *agentcoordpb.Launch, first, model, resumeSessionID string, mayRebind bool) error {
+func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash string, l launch.Launch, first, model, resumeSessionID string, mayRebind bool) error {
 	actx, acancel := context.WithTimeout(ctx, c.runnerAwaitTimeout)
 	// The standup RACE: readiness (awaitRunner, a push the runner's Hello
 	// closes) against DEATH (the runner process exiting). Without the second
@@ -949,29 +947,24 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// dies only on coordinator shutdown, so binding the request to it left a
 	// stop issued after the dial-home wait — the runner is up, StartRun is on
 	// the wire, the engine has not answered — with nothing to cancel: the
-	// coordinator stayed parked for the whole defaultRequestTimeout while the
+	// coordinator stayed parked for the whole DefaultRequestTimeout while the
 	// operator's stop reported success.
-	rctx, rcancel := context.WithTimeout(ctx, defaultRequestTimeout)
-	resp, err := c.requestRunner(rctx, credHash, &agentcoordpb.RunnerRequest{
-		Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
-			RunId:  rt.runID,
-			Launch: wire,
-		}},
-	})
+	rctx, rcancel := context.WithTimeout(ctx, DefaultRequestTimeout)
+	resp, err := c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l}})
 	rcancel()
 	if err != nil {
 		err = fmt.Errorf("StartRun never completed: %w", err)
 		c.failChild(rt, err)
 		return err
 	}
-	if code := resp.GetStatus().GetCode(); code != 0 {
-		if mayRebind && code == int32(codes.Unavailable) {
+	if resp.Err != nil {
+		if mayRebind && errors.Is(resp.Err, ErrRunnerUnavailable) {
 			// The runner could not bind the recorded endpoint: the caller
 			// answers with ONE rebind on this same runner, so the child is
 			// not failed here.
-			return fmt.Errorf("%w: %s", errEndpointUnavailable, resp.GetStatus().GetMessage())
+			return fmt.Errorf("%w: %s", errEndpointUnavailable, resp.Err.Error())
 		}
-		err = fmt.Errorf("StartRun refused: %s", resp.GetStatus().GetMessage())
+		err = fmt.Errorf("StartRun refused: %s", resp.Err.Error())
 		c.failChild(rt, err)
 		return err
 	}
@@ -982,8 +975,8 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 		"run_id": rt.runID, "harness": rt.plan.Backend, "model": model,
 		"resume_session_id": resumeSessionID,
 	})
-	if sid := resp.GetStartRun().GetHarnessSessionId(); sid != "" {
-		c.recordHarnessSession(rt.runID, sid)
+	if res, ok := resp.Kind.(StartRunResult); ok && res.HarnessSessionID != "" {
+		c.recordHarnessSession(rt.runID, res.HarnessSessionID)
 	}
 	// Mail written while the engine was coming up is the runner's own
 	// startup sweep's to deliver, as turns.
@@ -1179,23 +1172,23 @@ func (c *Coordinator) onTurnStarted(role string) {
 // CANCELLED is captured when its text is non-empty: those two are not
 // failures to explain, and an empty text carries nothing (this project's
 // silent no-op — never surfaced as a reason).
-func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent) {
-	rc, ok := ev.GetPayload().(*agentcoordpb.AgentEvent_RunCompleted)
-	if !ok {
+func (c *Coordinator) captureRunFailure(role string, ev Event) {
+	rc, ok := ev.Payload.(RunCompleted)
+	if !ok || rc.Result == nil {
 		return
 	}
-	res := rc.RunCompleted.GetResult()
+	res := rc.Result
 	// SUCCESS IS AN ALLOW-LIST. This used to test
 	// `!= RUN_STATUS_FAILED`, so a run that ended on the enum's ZERO value —
 	// what an engine that never set a status produces — or on TIMED_OUT /
 	// BUDGET_EXCEEDED had its dying words silently dropped and the parent got
 	// no reason at all. CANCELLED stays excluded deliberately: a deliberate
 	// stop is not a failure to explain.
-	switch res.GetStatus() {
-	case agentcoordpb.Result_RUN_STATUS_SUCCEEDED, agentcoordpb.Result_RUN_STATUS_CANCELLED:
+	switch res.Status {
+	case RunStatusSucceeded, RunStatusCancelled:
 		return
 	}
-	text := strings.TrimSpace(res.GetText())
+	text := strings.TrimSpace(res.Text)
 	if text == "" {
 		return
 	}

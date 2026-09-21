@@ -61,9 +61,8 @@ type ctxServer struct {
 	compactorFactory func(memory.CompactionConfig) (*memory.Compactor, error)
 	// hosts yields the coordinator an internal one-shot this server starts
 	// (a distill, a triage) runs on: the session's own, on the coordinator's
-	// relay (HostApp). Nil on a bare stdio server, which then refuses the
-	// one-shot (operations.ErrNoRunHost) rather than hosting a coordinator
-	// of its own.
+	// relay (HostApp); the command's own on the stdio server (ServeStdio is
+	// handed it). Nil refuses the one-shot (operations.ErrNoRunHost).
 	hosts operations.RunHosts
 }
 
@@ -75,6 +74,9 @@ func (s *ctxServer) hostsFor() operations.RunHosts { return s.hosts }
 // detection, local startup, and the stdio SDK server. The cobra command in
 // internal/adapters/cli is wiring onto this and nothing more — it owns only the
 // signal-aware context, the cwd, and the fail-loud gate.
+//
+// hosts yields the coordinator an internal one-shot a served tool starts (a
+// distill, a triage) runs on — the command's own, hosted on first use.
 //
 // gate is the caller's fail-loudly check, run after startup and immediately
 // before serving. It exists as a callback because the check constructs
@@ -95,7 +97,7 @@ func (s *ctxServer) strictness() strictness.Mode {
 	return s.app.Strictness
 }
 
-func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func() error, dryRun bool) error {
+func ServeStdio(ctx context.Context, app *operations.App, cwd string, hosts operations.RunHosts, gate func() error, dryRun bool) error {
 	// FORWARD MODE: when the engine-inherited env names the plugin-hosted
 	// owner arm's runner socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the runner
@@ -108,7 +110,7 @@ func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func(
 		}
 	}
 
-	s := &ctxServer{app: app, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
+	s := &ctxServer{app: app, self: selfIdentityFromEnv(cwd), dryRun: dryRun, hosts: hosts}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is

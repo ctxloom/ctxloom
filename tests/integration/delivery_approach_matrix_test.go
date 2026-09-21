@@ -299,8 +299,8 @@ var matrixSpecs = map[string]deliverySpec{
 	// and slotHook's ABSENCE in
 	// TestDeliveryApproach_HookCarriageMatchesDeclaration is what separates
 	// "honoured the declaration" from "carried nothing at all".
-	"mock-lossy/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool},
-	"mock-lossy/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"mock-lossy/settings/unsafe-file":  {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool},
+	"mock-lossy/commands/unsafe-file":  {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"mock-lossy/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
 	"mock-lossy/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
 	"mock-lossy/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
@@ -337,11 +337,11 @@ var matrixSpecs = map[string]deliverySpec{
 	// operations.TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext.
 	// A reader who expects a missing surface here will look for one and not find
 	// it.
-	"mock-noskills/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock-noskills/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
-	"mock-noskills/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
-	"mock-noskills/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"mock-noskills/skills/unsafe-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	"mock-noskills/context/unsafe-file":   {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock-noskills/mcp/unsafe-file":       {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
+	"mock-noskills/settings/unsafe-file":  {wantFile: ".mock/settings.json", wantSlot: slotHook},
+	"mock-noskills/commands/unsafe-file":  {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"mock-noskills/skills/unsafe-file":    {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 	"mock-noskills/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
 	"mock-noskills/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
 	"mock-noskills/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHook, underScratch: true},

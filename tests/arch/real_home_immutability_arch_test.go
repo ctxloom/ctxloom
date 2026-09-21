@@ -220,22 +220,37 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 		t.Fatalf("claude's credential never reached the instance (%v); the provisioning must have happened for this gate to mean anything", err)
 	}
 
-	// A PROJECTION, and the projection is claude's own precedent (its
-	// session seeding copies the credential with the refresh token stripped,
-	// 2.1.278). The refresh token is single-use: a copy that could refresh
-	// would consume the host's grant and revoke the human's own login. So
-	// the instance holds the access half only, and the host's rotations
-	// reach it through the replicator — the refresh half must be ABSENT, and
-	// its presence would mean the projection was dropped and the instance
-	// can revoke the host again.
+	// THE ROOT'S COPY IS WHOLE (ruled 2026-09-21): this resolution names no
+	// orchestrator, so it is the orchestrator's own — the single ctxloom-side
+	// refresher, two-way with the host file through the replicator. The
+	// refresh half must be PRESENT here.
 	//
 	// The byte-identity gate below is what holds the other half honest:
 	// ctxloom itself writes nothing into the real home.
-	if s := string(credential); strings.Contains(s, "host-refresh") {
-		t.Errorf("claude's instance credential carries the host's refresh token; a copy that can refresh revokes the host's login.\nplaced: %s", s)
+	if s := string(credential); !strings.Contains(s, "host-refresh") {
+		t.Errorf("the orchestrator's instance credential lost its refresh token; the root is the one refresher and must hold the whole credential.\nplaced: %s", s)
 	}
 	if !strings.Contains(string(credential), "host-token") {
 		t.Errorf("claude's instance credential lost its access token; it must still authenticate.\nplaced: %s", string(credential))
+	}
+
+	// AN AGENT'S COPY IS A PROJECTION of the orchestrator's: read from the
+	// root's session home just resolved, never from the real home, with the
+	// single-use refresh token withheld — so no agent can consume the host's
+	// grant and revoke the human's login.
+	child := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
+		Backend: "claude-code", Cwd: workDir, Harp: "brave-warm-otter", HomeMode: agents.HomeModeSession, Orchestrator: harp,
+	})
+	if child.Absent != "" {
+		t.Fatalf("an agent under the root must be handed a home, got absent: %s", child.Absent)
+	}
+	t.Cleanup(func() { _ = child.Release() })
+	projected, err := os.ReadFile(filepath.Join(child.Root.Host, ".credentials.json"))
+	if err != nil {
+		t.Fatalf("the agent's credential never reached its instance: %v", err)
+	}
+	if s := string(projected); strings.Contains(s, "host-refresh") || !strings.Contains(s, "host-token") {
+		t.Errorf("the agent's credential must be the orchestrator's access half only.\nplaced: %s", s)
 	}
 
 	// Drive a real Setup against the instance the contribution just named, so

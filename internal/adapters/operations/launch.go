@@ -332,10 +332,11 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
 	env := isolation.WorkspaceEnv(ws)
 	home := BindAgentHome(ws, InTreeAgentHome{
-		Backend:  backend,
-		Cwd:      ws.Dir(),
-		Harp:     harp,
-		HomeMode: homeMode,
+		Backend:      backend,
+		Cwd:          ws.Dir(),
+		Harp:         harp,
+		HomeMode:     homeMode,
+		Orchestrator: req.Orchestrator,
 	})
 	// The cell's teardown, in the order the run's end needs: the home is
 	// released FIRST — its credential replicator stops writing into the

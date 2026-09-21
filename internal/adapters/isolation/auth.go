@@ -159,20 +159,18 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 }
 
 // credentialFileMounts builds the bind mounts that put an engine's declared
-// host credential FILES into the container HOME: each is the REAL host file,
-// mounted DIRECTLY with NO intervening copy, at the mode the engine declared.
+// host credential FILES into the container's own, UNRELOCATED $HOME: each is
+// the REAL host file, mounted DIRECTLY with NO intervening copy, at the mode
+// the engine declared.
 //
-// The no-copy shape is RULED, and the reason is claude's: it refreshes its
-// OAuth token in place, and that refresh token is SINGLE-USE and ROTATING —
-// any COPY that refreshes mints a new token and INVALIDATES every other
-// holder, including the host's own login. Mounting the ONE real file means the
-// container's refresh lands in the single source of truth. An engine whose
-// non-interactive mode never refreshes declares its file ReadOnly instead.
-// The host+worktree axes now reach the SAME conclusion by a different
-// mechanism: hostCredentialSeed provisions the instance home with the host's
-// own material — mounted, or kept in step by replication — rather than the
-// access-token-only copy it used to write. There is one rotating token on
-// every axis. See docs/architecture/engines/isolation.md.
+// THIS IS THE UNSAFE SELECTION'S MOUNT, and nothing else's (ruled
+// 2026-09-21). A container run whose binding selected `engine_home: host`
+// keeps the container's fresh $HOME and authenticates from the real file
+// through it — the run IS the human's real home, by selection. Every other
+// container run relocates its home to its session home, and MountEngineHome
+// drops these mounts the moment it does: the session home is then the only
+// credential source (the orchestrator's whole copy, or an agent's read-only
+// projection), and the real host file is never a mount source.
 //
 // The ctxloom-never-writes-real-home invariant HOLDS: ctxloom only DECLARES
 // the bind mount; the engine binary writes through it exactly as it writes
@@ -182,41 +180,39 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // deny-list; claude's descriptor says why it lists .credentials.json and not
 // .claude.json. ok=false when any listed host file is absent (a bind mount of
 // a missing file would create a directory in its place). ContainerRelHome is
-// a CONTAINER path, joined with forward slashes whatever the host separator.
-//
-// This is relocatedCredentialMounts' (enginespec.go) twin, and the two are
-// NOT merged: they mount onto different ROOTS. containerHome here is the
-// container's REAL, UNRELOCATED $HOME, so ContainerRelHome's full relative
-// path (e.g. ".claude/.credentials.json") is exactly where the engine looks
-// with no relocation — joined WHOLE, never trimmed to a leaf. The relocated
-// twin's engineHome, by contrast, already IS the relocated subdirectory an
-// engine's home var points at (e.g. what CLAUDE_CONFIG_DIR resolves to), so
-// joining the same full ContainerRelHome there would double the subdir; it
-// must join only the file's leaf — and that leaf has its OWN source of
-// truth (engine.SeedFile.DestName, the name the seeded copy actually landed
-// under), which need not equal ContainerRelHome's leaf if the engine renames
-// on seed. One shared helper parameterized on "which root" would hide that
-// the roots aren't just different strings but different semantics — the
-// unrelocated case needs no seed at all, and consulting one would be reading
-// a declaration that has no bearing on the answer.
+// a CONTAINER path, joined with forward slashes whatever the host separator,
+// and it is the file's place in the UNRELOCATED $HOME layout — joined WHOLE,
+// never trimmed to a leaf.
 func credentialFileMounts(files []engine.CredentialFile, containerHome string) ([]Mount, bool) {
 	home, err := hostHomeDir()
 	if err != nil || home == "" {
 		return nil, false
 	}
-	mounts := make([]Mount, 0, len(files))
+	wanted := make([]Mount, 0, len(files))
 	for _, f := range files {
-		host := filepath.Join(home, filepath.FromSlash(f.HostRelHome))
-		if !fileExists(host) {
-			return nil, false
-		}
-		mounts = append(mounts, Mount{
-			Host:      host,
+		wanted = append(wanted, Mount{
+			Host:      filepath.Join(home, filepath.FromSlash(f.HostRelHome)),
 			Container: path.Join(containerHome, f.ContainerRelHome),
 			ReadOnly:  f.ReadOnly,
 		})
 	}
-	return mounts, true
+	mounts, missing := bindFiles(wanted)
+	return mounts, len(missing) == 0
+}
+
+// bindFiles keeps the mounts whose host file exists and reports, by host
+// path, the ones whose file does not — a bind mount of a missing file would
+// create a directory in its place, so the caller decides whether an absence
+// refuses the whole set or is merely said out loud.
+func bindFiles(wanted []Mount) (mounts []Mount, missing []string) {
+	for _, m := range wanted {
+		if fileExists(m.Host) {
+			mounts = append(mounts, m)
+		} else {
+			missing = append(missing, m.Host)
+		}
+	}
+	return mounts, missing
 }
 
 // fileExists reports whether path is an existing regular file (not a directory).

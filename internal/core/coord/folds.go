@@ -76,6 +76,11 @@ type RunRecord struct {
 	WorkDir  string
 	Engine   string
 	HomeMode string
+	// Orchestrator is the root session the run's credential is projected
+	// from — the coordinator's own — stamped by the coordinator on the
+	// record it hands Adopt; never journaled, since every run this
+	// coordinator re-adopts has the same one.
+	Orchestrator string
 }
 
 // runsFold is the RUN REGISTRY fold: every run attempt by run_id, the

@@ -158,12 +158,36 @@ func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 	assert.Nil(t, res.Mount)
 }
 
-// t1 — an in-tree AGENT run for claude-code is handed CLAUDE_CONFIG_DIR at the
-// session home, and the host credential is really there, owner-only, as
-// claude's own seeding precedent shapes it: the access half, with the
-// single-use refresh token WITHHELD, so the session can never consume the
-// host's grant and revoke the human's login; the host's rotations reach it
-// through the replicator instead.
+// An AGENT's home holds a read-only PROJECTION of the orchestrator's
+// credential — read from the orchestrator's session home, never the host
+// file — with the single-use refresh token withheld, so no agent can
+// consume the host's grant and revoke the human's login.
+func TestResolveInTreeAgentHome_AnAgentGetsAProjectionOfTheOrchestrators(t *testing.T) {
+	resetEngineHomeStrictness(t)
+	fakeHostHome(t, hostCredentialFixture)
+	workDir := t.TempDir()
+	orchestrator := mustClaudeInstance(t, workDir, harpB)
+	require.NoError(t, os.MkdirAll(orchestrator, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(orchestrator, ".credentials.json"),
+		[]byte(`{"claudeAiOauth":{"accessToken":"orchestrator-token","refreshToken":"orchestrator-refresh"}}`), 0o600))
+
+	in := projectHome(workDir, harpA)
+	in.Orchestrator = harpB
+	res := resolveHome(t, in)
+	requireResolutionInvariant(t, res)
+
+	seeded, err := os.ReadFile(filepath.Join(mustClaudeInstance(t, workDir, harpA), ".credentials.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(seeded), "orchestrator-token", "the agent projects the ORCHESTRATOR's credential")
+	assert.NotContains(t, string(seeded), "seed-fixture-token", "…never the host's")
+	assert.NotContains(t, string(seeded), "refreshToken", "…with the refresh token withheld")
+}
+
+// t1 — the ROOT session's run for claude-code is handed CLAUDE_CONFIG_DIR at
+// the session home, and the host credential is really there, owner-only and
+// WHOLE: the root is the orchestrator, the one ctxloom-side refresher, and
+// its copy is two-way with the host file (ruled 2026-09-21). An AGENT's
+// home (the sibling test below) holds a projection of THIS credential.
 //
 // The env var alone would be a half-truth: a controlled home claude cannot
 // authenticate against is worse than no relocation at all.
@@ -182,9 +206,8 @@ func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	require.NoError(t, err, "the controlled home must actually carry the seeded credential")
 	require.NotEmpty(t, seeded, "empty-source guard: the fixture must carry bytes")
 	assert.Contains(t, string(seeded), "seed-fixture-token", "the access token is seeded so the home authenticates")
-	assert.NotContains(t, string(seeded), "seed-fixture-refresh",
-		"the refresh token is WITHHELD: a session that could refresh would revoke the host's login")
-	assert.NotContains(t, string(seeded), "refreshToken")
+	assert.Contains(t, string(seeded), "seed-fixture-refresh",
+		"the ROOT's copy is whole: it is the orchestrator, the single refresher, two-way with the host")
 
 	info, err := os.Stat(filepath.Join(want, ".credentials.json"))
 	require.NoError(t, err)

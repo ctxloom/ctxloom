@@ -99,7 +99,7 @@ func TestEngineContainerSpecFor_Vendorless(t *testing.T) {
 	assert.Equal(t, "cat --version", p.validate)
 	assert.Equal(t, []string{".mock", ctxloomCacheOverlayDir}, p.overlayDirs)
 	assert.Empty(t, p.transcriptStoreRel)
-	assert.Nil(t, p.relocatedCredentialMounts, "no credential files, nothing to overlay on a relocated home")
+	assert.Nil(t, p.projectedCredentialMounts, "no credential files, nothing to pin on a relocated home")
 
 	// The hint is read only when resolveAuth answers !ok, which a vendorless
 	// resolver never does, so the ONE string the field can carry here is a
@@ -244,11 +244,11 @@ const renamingCredentialFixtureHostRel = "fixture/creds.json"
 const renamingCredentialFixtureDestName = "renamed-creds.json"
 
 // registerRenamingCredentialFixture registers an engine whose credential
-// SEED (the copy path, engine.CredentialSeed.Files) and whose container AUTH
-// (the mount path, engine.ContainerAuth.CredentialFiles) declare the SAME
-// host file via the shared HostRelHome, but where the seed renames it on
-// copy: DestName differs from ContainerRelHome's own leaf. This is the case
-// relocatedCredentialMounts must resolve by reading the declared DestName —
+// SEED (engine.CredentialSeed.Files) and whose container AUTH
+// (engine.ContainerAuth.CredentialFiles) declare the SAME host file via the
+// shared HostRelHome, but where the seed renames it on copy: DestName
+// differs from ContainerRelHome's own leaf. This is the case
+// projectedCredentialMounts must resolve by reading the declared DestName —
 // path.Base(ContainerRelHome) alone gives the WRONG answer here.
 func registerRenamingCredentialFixture(t *testing.T, name string) {
 	t.Helper()
@@ -276,18 +276,15 @@ func registerRenamingCredentialFixture(t *testing.T, name string) {
 	})
 }
 
-// TestRelocatedCredentialMounts_UsesDeclaredDestNameNotContainerRelHomeLeaf is
-// the renaming fixture splendid-lasso asked for: with an engine whose seed
-// RENAMES the file on copy, the relocated-home mount must land at the
-// DECLARED DestName, not at a re-derived path.Base(ContainerRelHome). Every
-// shipped engine's two declarations happen to agree on that leaf (claude's
-// do), so only a fixture that deliberately disagrees can tell "read the
-// declaration" apart from "re-derive it" — this is that fixture.
-//
-// Reverting the fix (path.Base(f.ContainerRelHome) instead of the
-// seededLeafFor lookup) turns this red: it computes "creds.json" here, not
-// the declared "renamed-creds.json".
-func TestRelocatedCredentialMounts_UsesDeclaredDestNameNotContainerRelHomeLeaf(t *testing.T) {
+// TestProjectedCredentialMounts_PinsTheSeededCopyAtItsDeclaredName: with an
+// engine whose seed RENAMES the file on copy, the read-only pin must land at
+// the DECLARED DestName under the agent's session home, not at a re-derived
+// path.Base(ContainerRelHome) — and its source is the seeded copy in the
+// session home, never the host file. Every shipped engine's two
+// declarations happen to agree on that leaf (claude's do), so only a
+// fixture that deliberately disagrees can tell "read the declaration" apart
+// from "re-derive it".
+func TestProjectedCredentialMounts_PinsTheSeededCopyAtItsDeclaredName(t *testing.T) {
 	home := testsupport.Isolate(t)
 	const name = "renaming-credential-fixture"
 	registerRenamingCredentialFixture(t, name)
@@ -295,23 +292,27 @@ func TestRelocatedCredentialMounts_UsesDeclaredDestNameNotContainerRelHomeLeaf(t
 	hostFile := filepath.Join(home, filepath.FromSlash(renamingCredentialFixtureHostRel))
 	require.NoError(t, os.MkdirAll(filepath.Dir(hostFile), 0o755))
 	require.NoError(t, os.WriteFile(hostFile, []byte("secret"), 0o600))
+	sessionHome := t.TempDir()
+	seeded := filepath.Join(sessionHome, renamingCredentialFixtureDestName)
+	require.NoError(t, os.WriteFile(seeded, []byte("projected"), 0o600))
 
 	spec := engineContainerSpecFor(name)
-	require.NotNil(t, spec.relocatedCredentialMounts,
-		"guard: the fixture must wire a relocated-mount func, or the assertions below are vacuous")
+	require.NotNil(t, spec.projectedCredentialMounts,
+		"guard: the fixture must wire a projected-mount func, or the assertions below are vacuous")
 
 	const engineHome = "/relocated/fixture-home"
-	mounts, ok := spec.relocatedCredentialMounts(engineHome)
-	require.True(t, ok, "the host file exists, so the mount must resolve")
+	mounts, missing := spec.projectedCredentialMounts(sessionHome, engineHome)
+	require.Empty(t, missing)
 	require.Len(t, mounts, 1)
 
 	derivedLeaf := path.Base(renamingCredentialFixtureHostRel)
 	require.NotEqual(t, renamingCredentialFixtureDestName, derivedLeaf,
 		"guard: the fixture's declared DestName must actually differ from Base(ContainerRelHome), or this test cannot observe the bug at all")
 
-	assert.Equal(t, path.Join(engineHome, renamingCredentialFixtureDestName), mounts[0].Container,
-		"the mount must land at the seeded copy's ACTUAL name (the declared SeedFile.DestName)")
-	assert.NotEqual(t, path.Join(engineHome, derivedLeaf), mounts[0].Container,
-		"the mount must NOT land at a re-derived Base(ContainerRelHome) leaf — that is the pre-fix bug: the mount would miss the seeded copy and the engine would authenticate from a stale credential")
-	assert.Equal(t, hostFile, mounts[0].Host)
+	assert.Equal(t, Mount{Host: seeded, Container: path.Join(engineHome, renamingCredentialFixtureDestName), ReadOnly: true}, mounts[0],
+		"the pin lands at the seeded copy's ACTUAL name, sourced from the session home, read-only")
+	assert.NotEqual(t, hostFile, mounts[0].Host, "the real host file is never an agent's mount source")
+
+	_, missing = spec.projectedCredentialMounts(t.TempDir(), engineHome)
+	assert.Equal(t, []string{renamingCredentialFixtureDestName}, missing, "a required file the seed did not place is reported, not mounted")
 }

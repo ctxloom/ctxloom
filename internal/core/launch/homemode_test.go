@@ -76,7 +76,7 @@ func TestResolve_EngineHome_UnparseableSpellingIsRefused(t *testing.T) {
 // under; a child with none is refused, because an agent with no
 // orchestrator has no credential to project.
 func TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts(t *testing.T) {
-	env := launchtest.Deps(t)
+	env := launchtest.Deps(t, launchtest.WithAgent("child", launchtest.Permissions("bypass")))
 	root, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
 		Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
 	})
@@ -87,14 +87,14 @@ func TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts(t *testing.T) {
 	child := env.Identity
 	child.Depth = 1
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: child, Agent: "setup", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Orchestrator: "root-harp",
+		Identity: child, Agent: "child", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Orchestrator: "root-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 	require.Equal(t, "root-harp", env.LastCellRequest().Orchestrator, "an agent's cell projects the orchestrator's credential")
 
 	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: child, Agent: "setup", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
+		Identity: child, Agent: "child", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
 	})
 	require.ErrorIs(t, err, launch.ErrNoOrchestrator)
 }

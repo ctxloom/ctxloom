@@ -103,6 +103,13 @@ type AmbientRequest struct {
 	// be keyed to the directory the run actually uses. Empty is tolerated (the
 	// engine skips its per-project half and says so).
 	WorkDir string
+	// Orchestrator is the harp of the ROOT session this instance is an
+	// agent of: its credential is projected from the orchestrator's session
+	// home (read-only, refresh token withheld) and kept in step with it.
+	// Empty means THIS instance is the orchestrator's own: it is seeded
+	// WHOLE from the host credential and kept two-way with it — the one
+	// ctxloom-side refresher.
+	Orchestrator string
 }
 
 // AmbientCopyReport is what one CopyAmbient call did.
@@ -221,7 +228,7 @@ func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSe
 	var rep AmbientCopyReport
 
 	if seed, ok := declared.Get(); ok {
-		result, provisioned, err := hostCredentialSeed(name, seed, req.InstanceHome)
+		result, provisioned, err := hostCredentialSeed(name, seed, req.InstanceHome, req.Orchestrator)
 		if err != nil {
 			return rep, err
 		}
@@ -232,13 +239,13 @@ func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSe
 			rep.SkippedEnv = true
 		case seedNoSource:
 			rep.NoSource = true
-			rep.NoSourceReason = noAmbientSourceReason(seed)
+			rep.NoSourceReason = noAmbientSourceReason(seed, req.Orchestrator)
 			// Nothing to authenticate with: do NOT generate a config for an
 			// instance the caller is about to refuse. Reporting the decision is
 			// this call's whole remaining job.
 			return rep, nil
 		case seedOK:
-			rep.Copied, rep.MissingOptional = ambientCopyCounts(seed)
+			rep.Copied, rep.MissingOptional = ambientCopyCounts(seed, req.Orchestrator)
 		}
 	}
 
@@ -266,16 +273,17 @@ func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSe
 	return rep, nil
 }
 
-// ambientCopyCounts reports how many of seed's ambient files were present on
-// the host and how many OPTIONAL ones were absent, after a successful seed.
-// Recomputed from the same declaration the seed used rather than threaded
-// back out of it, so the counting cannot claim a copy the seed did not make.
-func ambientCopyCounts(seed engine.CredentialSeed) (copied, missingOptional int) {
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
+// ambientCopyCounts reports how many of seed's ambient files were present at
+// the source and how many OPTIONAL ones were absent, after a successful
+// seed. Recomputed from the same declaration the seed used rather than
+// threaded back out of it, so the counting cannot claim a copy the seed did
+// not make.
+func ambientCopyCounts(seed engine.CredentialSeed, orchestrator string) (copied, missingOptional int) {
+	files, ok, err := seedSources("", seed, orchestrator)
+	if err != nil || !ok {
 		return 0, 0
 	}
-	for _, f := range resolveSeedFiles(seed, home) {
+	for _, f := range files {
 		switch {
 		case fileExists(f.host):
 			copied++
@@ -295,7 +303,13 @@ func ambientCopyCounts(seed engine.CredentialSeed) (copied, missingOptional int)
 // strictness finding, never by the code that surfaces this string, and an
 // error naming an escape hatch that does not exist sends the user round a
 // loop that cannot terminate.
-func noAmbientSourceReason(seed engine.CredentialSeed) string {
+func noAmbientSourceReason(seed engine.CredentialSeed, orchestrator string) string {
+	if orchestrator != "" {
+		// An agent's only source is its orchestrator's session home; the
+		// host file is never consulted for it, so no login remedy applies.
+		return fmt.Sprintf("the orchestrator session %s holds no %s credential to project into this agent; the orchestrator's own session home must be seeded first",
+			orchestrator, seed.Subdir)
+	}
 	var b strings.Builder
 	for _, v := range seed.EnvTriggers {
 		fmt.Fprintf(&b, "no %s, ", v)

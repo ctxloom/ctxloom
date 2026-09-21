@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -49,16 +50,22 @@ func CredentialSeedEngineNames() []string {
 	return factNames()
 }
 
-// seedFile is one host file a seed copies, resolved against the host HOME.
+// seedFile is one file a seed places, resolved against its source: the
+// host HOME for the orchestrator, the orchestrator's session home for an
+// agent.
 type seedFile struct {
-	host     string // absolute host source path
+	host     string // absolute source path
 	destName string // filename under the destination directory
 	required bool
-	project  func(host []byte) ([]byte, error) // the engine's projection, or nil
+	// projected says the instance holds the engine's projection of the
+	// source, read-only: true for an agent, false for the orchestrator,
+	// whose copy is whole and two-way.
+	projected bool
+	project   func(host []byte) ([]byte, error) // the engine's projection, applied when projected
 }
 
-// resolveSeedFiles resolves seed's declared files against hostHome, in copy
-// order.
+// resolveSeedFiles resolves seed's declared files against the host HOME, in
+// copy order — the ORCHESTRATOR's shape: whole, two-way, no projection.
 func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 	out := make([]seedFile, 0, len(seed.Files))
 	for _, f := range seed.Files {
@@ -66,10 +73,52 @@ func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 			host:     filepath.Join(hostHome, filepath.FromSlash(f.HostRelHome)),
 			destName: f.DestName,
 			required: f.Required,
-			project:  f.Project,
 		})
 	}
 	return out
+}
+
+// orchestratorSeedFiles resolves seed's declared files against the
+// ORCHESTRATOR's session home — where the orchestrator's own seed placed
+// them, under the engine's leaf at the declared destination names — in
+// copy order, each projected and read-only: the AGENT's shape.
+func orchestratorSeedFiles(seed engine.CredentialSeed, orchestrator string) ([]seedFile, error) {
+	home, err := paths.HarpSessionHome(orchestrator)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]seedFile, 0, len(seed.Files))
+	for _, f := range seed.Files {
+		out = append(out, seedFile{
+			host:      filepath.Join(home, seed.Subdir, f.DestName),
+			destName:  f.DestName,
+			required:  f.Required,
+			projected: true,
+			project:   f.Project,
+		})
+	}
+	return out, nil
+}
+
+// seedSources resolves the files this instance seeds from and whether there
+// is anything seedable: the host HOME for the orchestrator (hostSeedSources),
+// the orchestrator's session home for an agent. An agent never falls back to
+// the host file: its orchestrator is its only source.
+func seedSources(name string, seed engine.CredentialSeed, orchestrator string) ([]seedFile, bool, error) {
+	if orchestrator == "" {
+		files, ok := hostSeedSources(name, seed)
+		return files, ok, nil
+	}
+	files, err := orchestratorSeedFiles(seed, orchestrator)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s credential seed: resolve the orchestrator %s's session home: %w", name, orchestrator, err)
+	}
+	for _, f := range files {
+		if f.required && !fileExists(f.host) {
+			return nil, false, nil
+		}
+	}
+	return files, true, nil
 }
 
 // seedResult is hostCredentialSeed's decision, returned instead of a bare
@@ -108,25 +157,35 @@ const (
 // replicator's watchers). It is returned rather than closed here because the
 // replication has to outlive this call: it is what carries the host's
 // refreshes into the instance for as long as the engine runs.
-func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome string) (seedResult, Result, error) {
+func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome, orchestrator string) (seedResult, Result, error) {
 	if envTriggered(seed) {
 		return seedSkippedEnv, Result{}, nil
 	}
+	destDir := filepath.Join(configHome, seed.Subdir)
 	if seed.Keychain != nil && keychainPlatform() {
 		// macOS: the store is the Keychain, and the session's item is keyed
 		// by the config dir the engine is told — so the dir is made first,
 		// and the seed is an item, never a file.
-		destDir := filepath.Join(configHome, seed.Subdir)
 		if err := prepareSeedDir(name, destDir); err != nil {
 			return seedNoSource, Result{}, err
 		}
-		return provisionKeychainSeed(name, *seed.Keychain, destDir)
+		orchestratorDir := ""
+		if orchestrator != "" {
+			home, err := paths.HarpSessionHome(orchestrator)
+			if err != nil {
+				return seedNoSource, Result{}, fmt.Errorf("%s credential seed: resolve the orchestrator %s's session home: %w", name, orchestrator, err)
+			}
+			orchestratorDir = filepath.Join(home, seed.Subdir)
+		}
+		return provisionKeychainSeed(name, *seed.Keychain, destDir, orchestratorDir)
 	}
-	files, ok := hostSeedSources(name, seed)
+	files, ok, err := seedSources(name, seed, orchestrator)
+	if err != nil {
+		return seedNoSource, Result{}, err
+	}
 	if !ok {
 		return seedNoSource, Result{}, nil
 	}
-	destDir := filepath.Join(configHome, seed.Subdir)
 	if err := prepareSeedDir(name, destDir); err != nil {
 		return seedNoSource, Result{}, err
 	}
@@ -161,7 +220,7 @@ func provisionSeedFiles(name string, seed engine.CredentialSeed, files []seedFil
 			// on placement must be served at the name it actually reads.
 			DestRel:  path.Join(seed.Subdir, f.destName),
 			Sharing:  SharingShared,
-			ReadOnly: f.project != nil,
+			ReadOnly: f.projected,
 			Project:  f.project,
 		})
 	}

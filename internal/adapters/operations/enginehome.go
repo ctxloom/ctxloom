@@ -46,6 +46,11 @@ type InTreeAgentHome struct {
 	// and is treated as the default by the parser every caller runs it
 	// through (agents.ParseHomeMode).
 	HomeMode agents.HomeMode
+	// Orchestrator is the root session this run projects its credential
+	// from (launch.CellRequest.Orchestrator): "" for the root itself, whose
+	// home is seeded WHOLE and two-way with the host; an agent's home holds
+	// a read-only projection of the orchestrator's credential instead.
+	Orchestrator string
 	// ContainerHome is the runtime axis's half: the FIXED in-container root a
 	// relocated home is mounted under when the engine runs in a container
 	// (isolation.ContainerInstanceHome), or "" when it runs on the host and
@@ -179,7 +184,7 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	var release func() error
 	if spec.Prepare != nil {
 		var err error
-		release, err = spec.Prepare(in.Cwd)
+		release, err = spec.Prepare(in.Cwd, in.Orchestrator)
 		if err != nil {
 			// NON-DEGRADABLE. The fallback is not "less isolation", it is the
 			// SHARED host config home — the agent would read and write the
@@ -233,7 +238,7 @@ func BindAgentHome(ws isolation.Workspace, in InTreeAgentHome) AgentHomeResoluti
 	if res.Mount == nil {
 		return res
 	}
-	if err := isolation.MountEngineHome(ws, *res.Mount); err != nil {
+	if err := isolation.MountEngineHome(ws, *res.Mount, in.Orchestrator != ""); err != nil {
 		strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
 			"in-tree agent home for %s: %v; this run uses the runtime's own config home instead", in.Backend, err)
 		return res.releasedAbsent("%v", err)

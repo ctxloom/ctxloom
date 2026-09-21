@@ -18,8 +18,9 @@ import (
 
 // The claude arm of session-only delivery (ruled 2026-09-21): a default
 // binding runs claude against the SESSION home — CLAUDE_CONFIG_DIR under
-// ~/.ctxloom/sessions/<harp>/home — seeded from the host's credential with
-// the refresh token withheld, the project and the real home untouched; a
+// ~/.ctxloom/sessions/<harp>/home — seeded whole from the host's credential
+// (a bare run is the orchestrator; its agents get projections, pinned in
+// the isolation package), the project and the real home untouched; a
 // host with nothing seedable is refused by name; `engine_home: host` is the
 // unsafe selection and is rendered as such. No live claude: a fake `claude`
 // on PATH captures the launch (its env and argv) and answers the stream-json
@@ -89,8 +90,9 @@ func capturedEnv(t *testing.T, capturePath string) map[string]string {
 
 // TestRun_ClaudeDefaultBindingRunsInTheSessionHome: claude is told the
 // session home as CLAUDE_CONFIG_DIR; that home carries the seeded credential
-// WITHOUT the refresh token and a .claude.json with the account identity;
-// the project tree and the real home are byte-identical before and after.
+// WHOLE (this run is the root — the orchestrator, the single refresher) and
+// a .claude.json with the account identity; the project tree and the real
+// home are byte-identical before and after.
 func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
 	env, capture := setupClaudeSessionProject(t)
 	writeHostClaudeCredential(t, env)
@@ -117,8 +119,8 @@ func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
 	var cred map[string]map[string]any
 	require.NoError(t, json.Unmarshal(seeded, &cred))
 	assert.Equal(t, "host-access", cred["claudeAiOauth"]["accessToken"])
-	assert.NotContains(t, cred["claudeAiOauth"], "refreshToken", "the seed carries no refresh token")
-	assert.NotContains(t, cred["claudeAiOauth"], "refreshTokenExpiresAt")
+	assert.Equal(t, "host-refresh", cred["claudeAiOauth"]["refreshToken"],
+		"a bare `ctxloom run` is the ORCHESTRATOR: its session home holds the whole credential, two-way with the host — it is the one refresher; only its agents hold projections")
 	info, err := os.Lstat(filepath.Join(configDir, ".credentials.json"))
 	require.NoError(t, err)
 	assert.True(t, info.Mode().IsRegular())

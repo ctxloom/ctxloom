@@ -143,11 +143,6 @@ func (k *keychainSeed) readItem(service string) (data []byte, found bool, err er
 	return bytes.TrimSuffix(out, []byte("\n")), true, nil
 }
 
-// readDefault reads the store's default item — the user's own credential.
-func (k *keychainSeed) readDefault() ([]byte, bool, error) {
-	return k.readItem(k.store.Service)
-}
-
 // write creates or updates the session's item. -U updates in place; -X
 // carries the bytes as hex, which is how the CLI itself writes them.
 func (k *keychainSeed) write(data []byte) error {
@@ -177,23 +172,39 @@ func (k *keychainSeed) view(host []byte) ([]byte, error) {
 	return out, nil
 }
 
-// provisionKeychainSeed is the keychain arm of hostCredentialSeed: reads the
-// default item (none is "nothing seedable"), writes the session's item
-// projected, and starts the poller that keeps it in step. The Result's
-// Close stops the poller and — when THIS call created the item — deletes
-// it. A second run of the same session finds the item already there and
-// leaves it: the creator deletes at its own end, and the reaper deletes
-// whatever a crashed creator left.
-func provisionKeychainSeed(name string, store engine.KeychainStore, configDir string) (seedResult, Result, error) {
+// provisionKeychainSeed is the keychain arm of hostCredentialSeed.
+//
+// For the ORCHESTRATOR (orchestratorDir == ""): reads the default item (none
+// is "nothing seedable"), writes the session's item WHOLE, and starts the
+// poller that keeps the two in step BOTH ways — the default item's change
+// is re-read into the session's; the session's change (the engine's own
+// refresh) is written back to the default item. Between exactly these two
+// holders.
+//
+// For an AGENT (orchestratorDir is the orchestrator's config dir): reads
+// the ORCHESTRATOR's item — never the default one — writes the session's
+// item projected, and polls the orchestrator's item, re-projecting on
+// change; the agent's own item is overwritten when it drifts, never written
+// anywhere.
+//
+// The Result's Close stops the poller and — when THIS call created the item
+// — deletes it. A second run of the same session finds the item already
+// there and leaves it: the creator deletes at its own end, and the reaper
+// deletes whatever a crashed creator left.
+func provisionKeychainSeed(name string, store engine.KeychainStore, configDir, orchestratorDir string) (seedResult, Result, error) {
 	k := newKeychainSeed(name, store, configDir)
-	host, found, err := k.readDefault()
+	src := &keychainSource{seed: k, service: store.Service, twoWay: true}
+	if orchestratorDir != "" {
+		src = &keychainSource{seed: k, service: keychainService(store.Service, orchestratorDir), projected: true}
+	}
+	host, found, err := k.readItem(src.service)
 	if err != nil {
 		return seedNoSource, Result{}, fmt.Errorf("keychain seed for %s: %w", name, err)
 	}
 	if !found {
 		return seedNoSource, Result{}, nil
 	}
-	want, err := k.view(host)
+	want, err := src.view(host)
 	if err != nil {
 		return seedNoSource, Result{}, err
 	}
@@ -204,14 +215,36 @@ func provisionKeychainSeed(name string, store engine.KeychainStore, configDir st
 	if err := k.write(want); err != nil {
 		return seedNoSource, Result{}, fmt.Errorf("keychain seed for %s: %w", name, err)
 	}
-	p := newKeychainPoller(k, sha256.Sum256(host), !existed)
+	p := newKeychainPoller(src, sha256.Sum256(host), sha256.Sum256(want), !existed)
 	return seedOK, Result{Delivery: DeliveryReplicated, Mechanism: keychainMechanism, stop: p.Close}, nil
 }
 
-// keychainPoller re-reads the default item on keychainPollInterval and
-// rewrites the session's item when it changed.
+// keychainSource is what a session's item is kept in step with: the default
+// item for the orchestrator (two-way), the orchestrator's item for an agent
+// (projected, one-way).
+type keychainSource struct {
+	seed *keychainSeed
+	// service is the source item's service.
+	service string
+	// projected applies the store's projection on every placement.
+	projected bool
+	// twoWay writes the session item's own change back to the source.
+	twoWay bool
+}
+
+// view is what the session's item holds for source bytes.
+func (s *keychainSource) view(host []byte) ([]byte, error) {
+	if !s.projected {
+		return host, nil
+	}
+	return s.seed.view(host)
+}
+
+// keychainPoller re-reads the source item on keychainPollInterval and
+// rewrites the session's item when the source changed — and, for a two-way
+// source, writes the session's own change back to it.
 type keychainPoller struct {
-	seed   *keychainSeed
+	src    *keychainSource
 	owner  bool
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -219,9 +252,10 @@ type keychainPoller struct {
 	err    error
 }
 
-func newKeychainPoller(k *keychainSeed, lastHost [sha256.Size]byte, owner bool) *keychainPoller {
+func newKeychainPoller(src *keychainSource, lastSource, lastInst [sha256.Size]byte, owner bool) *keychainPoller {
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &keychainPoller{seed: k, owner: owner, cancel: cancel}
+	p := &keychainPoller{src: src, owner: owner, cancel: cancel}
+	k := src.seed
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
@@ -233,27 +267,56 @@ func newKeychainPoller(k *keychainSeed, lastHost [sha256.Size]byte, owner bool) 
 				return
 			case <-ticker.C:
 			}
-			host, found, err := k.readDefault()
+			source, found, err := k.readItem(src.service)
 			if err != nil || !found {
-				// A missing or unreadable default item is the host's
+				// A missing or unreadable source item is its holder's
 				// concern (the user logged out); the session keeps what it
 				// has until the item returns.
 				continue
 			}
-			sum := sha256.Sum256(host)
-			if sum == lastHost {
-				continue
-			}
-			want, err := k.view(host)
+			inst, instFound, err := k.readItem(k.service)
 			if err != nil {
-				clidiag.Warn("ctxloom", "keychain replication for %s: %v", k.engine, err)
 				continue
 			}
-			if err := k.write(want); err != nil {
-				clidiag.Warn("ctxloom", "keychain replication for %s: %v", k.engine, err)
-				continue
+			sourceSum := sha256.Sum256(source)
+			instSum := sha256.Sum256(inst)
+			switch {
+			case sourceSum != lastSource:
+				// The source moved: the session follows it, whatever the
+				// session itself did meanwhile (the source's holder is what
+				// every other holder also reads).
+				want, err := src.view(source)
+				if err != nil {
+					clidiag.Warn("ctxloom", "keychain replication for %s: %v", k.engine, err)
+					continue
+				}
+				if err := k.write(want); err != nil {
+					clidiag.Warn("ctxloom", "keychain replication for %s: %v", k.engine, err)
+					continue
+				}
+				lastSource, lastInst = sourceSum, sha256.Sum256(want)
+			case instFound && instSum != lastInst:
+				if src.twoWay {
+					// The orchestrator's engine refreshed: the default
+					// item follows it.
+					if _, err := k.security("add-generic-password", "-U", "-a", k.account, "-s", src.service, "-X", hex.EncodeToString(inst)); err != nil {
+						clidiag.Warn("ctxloom", "keychain replication for %s: %v", k.engine, err)
+						continue
+					}
+					lastSource, lastInst = instSum, instSum
+					continue
+				}
+				// An agent's item drifted: restored to the projection.
+				want, err := src.view(source)
+				if err != nil {
+					continue
+				}
+				if err := k.write(want); err != nil {
+					clidiag.Warn("ctxloom", "keychain replication for %s: %v", k.engine, err)
+					continue
+				}
+				lastInst = sha256.Sum256(want)
 			}
-			lastHost = sum
 		}
 	}()
 	return p
@@ -266,7 +329,7 @@ func (p *keychainPoller) Close() error {
 		p.cancel()
 		p.wg.Wait()
 		if p.owner {
-			p.err = p.seed.delete()
+			p.err = p.src.seed.delete()
 		}
 	})
 	return p.err

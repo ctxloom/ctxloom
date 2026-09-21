@@ -37,14 +37,14 @@ type InTreeAgentHome struct {
 	// instance, and falling back to a project-wide path would recreate the
 	// durable per-project engine home the per-session model retired.
 	Harp string
-	// HomeMode is the run's resolved agent binding's EFFECTIVE config-home
-	// policy — agents.HomeModeSession or agents.HomeModeHost when a
-	// binding was resolved (operations.ResolvedAgent.HomeMode, already
-	// defaulted), or "" when this run has NO agent binding at all. It is THE
-	// scoping condition; see ResolveInTreeAgentHome's doc. Only
-	// agents.HomeModeSession gets a home — "" (no binding) and
-	// agents.HomeModeHost (an undeclared or explicitly host-declared
-	// binding) both mean "keep the home the runtime gives you".
+	// HomeMode is the run's EFFECTIVE engine-home policy —
+	// agents.HomeModeSession (the default, whether or not a binding said
+	// so) or agents.HomeModeHost (a binding's explicit, unsafe selection).
+	// It is THE scoping condition; see ResolveInTreeAgentHome's doc. Only
+	// agents.HomeModeSession gets a home; agents.HomeModeHost means "keep
+	// the home the runtime gives you". The zero value is nobody's decision
+	// and is treated as the default by the parser every caller runs it
+	// through (agents.ParseHomeMode).
 	HomeMode agents.HomeMode
 	// ContainerHome is the runtime axis's half: the FIXED in-container root a
 	// relocated home is mounted under when the engine runs in a container
@@ -100,15 +100,16 @@ func absent(format string, args ...any) AgentHomeResolution {
 	return AgentHomeResolution{Absent: fmt.Sprintf(format, args...)}
 }
 
-// inTreeAgentHomeFixIt is the fix-it on the one finding this file records. It
-// names authentication rather than a runtime, and it names --degraded
-// truthfully: under --degraded nothing is contributed, so the run falls back
-// to the home its runtime gives it.
-// It names no flag: the finding is non-degradable (see ResolveInTreeAgentHome),
-// because the fallback it used to offer is the SHARED host config home — the
-// one thing a per-session engine home exists to avoid. Both routes named here
-// end with the private home actually working.
-const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude login`) or set its API-key env var so the per-session home has credentials to seed, or set `engine_home:` to something other than `session` if this agent should share the runtime's own config home"
+// inTreeAgentHomeFixIt is the fix-it on the one finding this file records.
+// The engine-specific remedies — its login command, its env tokens — ride
+// the error the seed produced (isolation.noAmbientSourceReason); this names
+// the shape: credentials the session home can be seeded from, or the
+// binding's explicit, unsafe selection of the real home. It names no
+// --degraded: the finding is non-degradable (see ResolveInTreeAgentHome),
+// because the only fallback would be the SHARED host home — the one thing
+// the session home exists to keep a run off, and a thing only the binding
+// may select.
+const inTreeAgentHomeFixIt = "give the session home credentials to seed (authenticate the engine on this host, or set one of its env tokens), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
@@ -117,33 +118,20 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // effect, so a present result always names a directory that exists and (for
 // an engine with copyable credentials) can authenticate.
 //
-// THE SCOPING RULE, and the reason this is not simply "every agent run":
+// THE SCOPING RULE (ruled 2026-09-21):
 //
-//	A run resolved through an agent binding whose EFFECTIVE engine_home is
-//	"session" gets a controlled home. Every other run — no binding at all, an
-//	undeclared binding, or one that declares "host" — keeps the home its
-//	runtime gives it: the REAL host home on the host, a fresh $HOME in a
-//	container.
+//	Every run gets the controlled per-session home — a bare run, a `run
+//	--agent`, a delegated child, a fan-out member, a profile-set launch with
+//	no binding at all. Only a binding whose engine_home SELECTS "host" keeps
+//	the home its runtime gives it: the REAL host home on the host, a fresh
+//	$HOME in a container.
 //
-// The controlled-home behaviour is strictly OPT-IN: a binding that never
-// mentions engine_home resolves to agents.HomeModeHost
-// (agents.ParseHomeMode), so declaring the binding at all is not
-// enough on its own — an agent that wants its runs kept off the human's real
-// ~/.claude must say `engine_home: session`. A delegated child, a fan-out
-// member, a `run --agent` — these ARE ctxloom's processes, and pointing an
-// unopted one at the human's ~/.claude hands it the human's memory, plugins,
+// The real home is the UNSAFE selection, never a default: pointing a run at
+// the human's ~/.claude hands it the human's credentials, memory, plugins,
 // personal MCP registrations, global agents and steering, and lets it write
-// session state and settings edits back into them; that is the pollution
-// `engine_home: session` exists to let a binding opt out of. But nothing takes
-// that on by default — a project that wants it asks for it by name, on the
-// binding that wants it.
-//
-// The human's own interactive session (no agent binding resolved at all —
-// no --agent, no default_agent) has no HomeMode to read in the first
-// place and always keeps the real home: relocating a human's own working
-// environment out from under their interactive session would be a
-// regression dressed as isolation, and there is no binding through which
-// they could even opt in.
+// session state and settings edits back into them. A binding that wants
+// that asks for it by name, and the plan and the launch banner name the
+// selection unsafe wherever they show it.
 //
 // THE HOME IS ORTHOGONAL TO THE CELL. Nothing here reads which workspace or
 // runtime the run chose: a host run, a worktree run and a container run with
@@ -163,18 +151,19 @@ const inTreeAgentHomeFixIt = "authenticate the engine on this host (e.g. `claude
 // which inherits the harp on req.Env) deliberately share one instance.
 //
 // ABSENT is never silent about a home that was ASKED for. When HomeMode is
-// not "session" the reason is recorded and nothing else happens — that is the
-// documented default. When it IS "session" and the run still gets no home
+// "host" the reason is recorded and nothing else happens — that is the
+// binding's selection. When it is "session" and the run still gets no home
 // (no session name, an engine with no relocatable home, an instance that
-// cannot be created), the reason is also said out loud, and an engine whose
-// credentials cannot be seeded (no API key and no host credential file) is
-// FAIL-LOUD: a ClassIsolation finding for the caller's choke gate. Handing the
-// engine an empty home it cannot authenticate against would trade a working
-// run for a mysterious 401; falling back to the runtime's home is what
-// --degraded then actually does.
+// cannot be created), the reason is said out loud, and an engine whose
+// credentials cannot be seeded (none of its env tokens and no host
+// credential) is FAIL-LOUD: a ClassIsolation finding, FailAlways, for the
+// caller's choke gate, naming the remedies. Handing the engine an empty home
+// it cannot authenticate against would trade a working run for a mysterious
+// 401, and falling back to the real home would hand it what only the
+// binding may select.
 func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
-	if in.HomeMode != agents.HomeModeSession {
-		return absent("engine_home is %q, not %q: the engine keeps the home its runtime gives it", in.HomeMode, agents.HomeModeSession)
+	if in.HomeMode == agents.HomeModeHost {
+		return absent("engine_home is %q: the binding selected the home its runtime gives the engine", in.HomeMode)
 	}
 	if in.Harp == "" {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)

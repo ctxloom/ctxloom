@@ -79,19 +79,19 @@ func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 type seedResult int
 
 const (
-	// seedSkippedEnv: the engine's EnvTrigger is set — auth rides the env,
-	// nothing to seed. Not an error.
+	// seedSkippedEnv: one of the engine's EnvTriggers is set — auth rides
+	// the env, nothing to seed. Not an error.
 	seedSkippedEnv seedResult = iota
 	// seedOK: at least the primary (required) credential file was copied.
 	seedOK
 	// seedNoSource: the engine DOES honour its isolation var for credentials,
-	// no EnvTrigger is set, and the primary host credential file is absent —
+	// none of its EnvTriggers is set, and the primary host credential file is absent —
 	// nothing seedable. The caller fails loud (ClassIsolation).
 	seedNoSource
 )
 
 // hostCredentialSeed places the host credential material seed declares for
-// engine into configHome/<seed.Subdir>, gated on seed.EnvTrigger exactly as
+// engine into configHome/<seed.Subdir>, gated on seed.EnvTriggers exactly as
 // the container resolver gates its mount.
 //
 // It does not copy. It reads the engine's DECLARED provisioning policy and
@@ -109,7 +109,7 @@ const (
 // replication has to outlive this call: it is what carries the host's
 // refreshes into the instance for as long as the engine runs.
 func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome string) (seedResult, Result, error) {
-	if seed.EnvTrigger != "" && os.Getenv(seed.EnvTrigger) != "" {
+	if envTriggered(seed) {
 		return seedSkippedEnv, Result{}, nil
 	}
 	files, ok := hostSeedSources(name, seed)
@@ -190,6 +190,17 @@ func selectSeedProvisioner(name string, seed engine.CredentialSeed) (Provisioner
 // stripped copy, and a refusal that cannot be provoked is a claim nobody has
 // checked. Production never replaces it.
 var seedProvisionOptions = func() []ProvisionOption { return nil }
+
+// envTriggered reports whether any of seed's env bypasses is set: auth rides
+// the env and nothing is seeded.
+func envTriggered(seed engine.CredentialSeed) bool {
+	for _, v := range seed.EnvTriggers {
+		if os.Getenv(v) != "" {
+			return true
+		}
+	}
+	return false
+}
 
 // tightenSeedDestinations restates owner-only on any destination that ALREADY
 // EXISTS, before live credential bytes are placed into it.

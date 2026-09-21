@@ -5,14 +5,17 @@ import (
 	"io"
 
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // The launch's delivery plan, rendered for a human: which root each surface
-// lands under. A route onto the project root or the working directory is
-// named UNSAFE wherever it is shown — the dry-run plan and the launch banner
-// — because it is the one thing a run can do to the shared tree, and it is
-// reached only by the binding's roots: selection (ruled 2026-09-21).
+// lands under, and which home the engine runs against. A route onto the
+// project root or the working directory, and the real engine home, are named
+// UNSAFE wherever they are shown — the dry-run plan and the launch banner —
+// because they are the two ways a run writes outside its session, and each
+// is reached only by the binding's selection (roots:, engine_home: host;
+// ruled 2026-09-21).
 
 // routeJSON is one static route of the plan on the wire.
 type routeJSON struct {
@@ -49,6 +52,44 @@ func unsafeRouteLabels(plan delivery.Plan) []string {
 		}
 	}
 	return out
+}
+
+// engineHomeLabel is the engine-home selection as the banner and the plan
+// name it.
+const engineHomeLabel = "engine-home"
+
+// unsafeLabels names everything a launch does outside its session: the
+// plan's unsafe routes and, when the binding selected the real engine
+// home, that selection. Empty for a launch that stays in its session.
+func unsafeLabels(l launch.Launch) []string {
+	out := unsafeRouteLabels(l.Plan)
+	if l.HomeMode == launch.HomeModeHost {
+		out = append(out, fmt.Sprintf("%s → %s", engineHomeLabel, l.HomeMode))
+	}
+	return out
+}
+
+// engineHomeJSON is the launch's engine-home selection on the wire.
+type engineHomeJSON struct {
+	Mode string `json:"mode"`
+	// Unsafe marks the real engine home: selected on the binding, never a
+	// default.
+	Unsafe bool `json:"unsafe"`
+}
+
+// engineHomeRoute is the engine-home selection as the dry-run reports it.
+func engineHomeRoute(mode launch.HomeMode) engineHomeJSON {
+	return engineHomeJSON{Mode: string(mode), Unsafe: mode == launch.HomeModeHost}
+}
+
+// printEngineHome renders the engine-home selection as the dry-run's text
+// form, beside the routes.
+func printEngineHome(w io.Writer, eh engineHomeJSON) {
+	if eh.Unsafe {
+		fmt.Fprintf(w, "  %s → %s  (unsafe: the binding's engine_home: host selection shares your real engine home)\n", engineHomeLabel, eh.Mode)
+		return
+	}
+	fmt.Fprintf(w, "  %s → %s\n", engineHomeLabel, eh.Mode)
 }
 
 // printDeliveryRoutes renders the plan's routes as the dry-run's text form.

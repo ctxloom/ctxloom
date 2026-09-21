@@ -2,10 +2,12 @@ package isolation
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/gofrs/flock"
 
@@ -112,12 +114,12 @@ type AmbientCopyReport struct {
 	// MissingOptional counts allow-listed, non-Required files absent from the
 	// host.
 	MissingOptional int
-	// SkippedEnv reports that the engine's EnvTrigger already carries usable
-	// auth, so there was nothing to copy. Not an error; the caller still
+	// SkippedEnv reports that one of the engine's EnvTriggers already carries
+	// usable auth, so there was nothing to copy. Not an error; the caller still
 	// points the engine at the instance.
 	SkippedEnv bool
 	// NoSource reports the FAIL-LOUD case: this engine relocates credentials
-	// with its home var, no EnvTrigger is set, and the required host
+	// with its home var, none of its EnvTriggers is set, and the required host
 	// credential is absent — an engine launched at this instance would start
 	// logged out. It is returned as a DECISION rather than a Go error so the
 	// caller can refuse the relocation in its own words (a fail-loud finding
@@ -285,16 +287,25 @@ func ambientCopyCounts(seed engine.CredentialSeed) (copied, missingOptional int)
 }
 
 // noAmbientSourceReason builds the fail-loud message for "nothing seedable":
-// no API-key env var and no host credential file. It names ONLY fixes that
-// work — authenticating the engine, or setting its key — and deliberately not
-// "(or pass --degraded)": on the in-tree path that flag is consulted by the
-// CALLER's strictness finding, never by the code that surfaces this string, and
-// an error naming an escape hatch that does not exist sends the user round a
+// none of the engine's env bypasses set and no host credential file. It
+// names the remedies that work — authenticating the engine, setting one of
+// its env tokens, or selecting the real home on the binding (`engine_home:
+// host`, the unsafe selection) — and deliberately not "(or pass
+// --degraded)": on the in-tree path that flag is consulted by the CALLER's
+// strictness finding, never by the code that surfaces this string, and an
+// error naming an escape hatch that does not exist sends the user round a
 // loop that cannot terminate.
 func noAmbientSourceReason(seed engine.CredentialSeed) string {
-	return fmt.Sprintf(
-		"no %s and no host ~/%s credentials found to authenticate this run — run `%s` or set %s",
-		seed.EnvTrigger, primaryAmbientHostRel(seed), seed.LoginHint, seed.EnvTrigger)
+	var b strings.Builder
+	for _, v := range seed.EnvTriggers {
+		fmt.Fprintf(&b, "no %s, ", v)
+	}
+	fmt.Fprintf(&b, "no host ~/%s credentials found to authenticate this run — run `%s`", primaryAmbientHostRel(seed), seed.LoginHint)
+	if len(seed.EnvTriggers) > 0 {
+		fmt.Fprintf(&b, ", set %s", strings.Join(seed.EnvTriggers, " or "))
+	}
+	b.WriteString(", or select the real home on the binding with `engine_home: host` (unsafe: the run then shares your own engine home)")
+	return b.String()
 }
 
 // primaryAmbientHostRel is the slash-separated, home-relative path of seed's

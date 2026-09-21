@@ -54,9 +54,12 @@ func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
 		Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir:     HomeLeaf,
-			EnvTrigger: "ANTHROPIC_API_KEY",
-			LoginHint:  "claude login",
+			Subdir: HomeLeaf,
+			// CLAUDE_CODE_OAUTH_TOKEN is an access token in the env: it
+			// outranks every credential store and needs no file (2.1.278),
+			// so it is the first bypass a refusal names.
+			EnvTriggers: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
+			LoginHint:   "claude login",
 			Files: []engine.SeedFile{{
 				HostRelHome: credentialRelHome(),
 				DestName:    CredentialsFileName,

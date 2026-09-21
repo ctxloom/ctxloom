@@ -159,16 +159,14 @@ func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 }
 
 // t1 — an in-tree AGENT run for claude-code is handed CLAUDE_CONFIG_DIR at the
-// project-scoped state home, and the host credential is really there,
-// owner-only, WHOLE. The refresh token survives, and that is the point: a
-// credential stripped of it works until the access token expires and then that
-// instance is stuck, which is the defect the provisioner replaced. Material now
-// reaches the home by a delivery the engine DECLARED it accepts — mounted or
-// replicated — and both can renew.
+// session home, and the host credential is really there, owner-only, as
+// claude's own seeding precedent shapes it: the access half, with the
+// single-use refresh token WITHHELD, so the session can never consume the
+// host's grant and revoke the human's login; the host's rotations reach it
+// through the replicator instead.
 //
 // The env var alone would be a half-truth: a controlled home claude cannot
-// authenticate against is worse than no relocation at all. A home whose
-// credential cannot RENEW is the same half-truth on a timer.
+// authenticate against is worse than no relocation at all.
 func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
@@ -184,10 +182,9 @@ func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	require.NoError(t, err, "the controlled home must actually carry the seeded credential")
 	require.NotEmpty(t, seeded, "empty-source guard: the fixture must carry bytes")
 	assert.Contains(t, string(seeded), "seed-fixture-token", "the access token is seeded so the home authenticates")
-	assert.Contains(t, string(seeded), "seed-fixture-refresh",
-		"the refresh token SURVIVES: a delivered credential must be able to renew, and stripping it was the defect the copy path carried")
-	assert.Contains(t, string(seeded), "refreshToken",
-		"the refresh-token field is present; nothing projects it away any more")
+	assert.NotContains(t, string(seeded), "seed-fixture-refresh",
+		"the refresh token is WITHHELD: a session that could refresh would revoke the host's login")
+	assert.NotContains(t, string(seeded), "refreshToken")
 
 	info, err := os.Stat(filepath.Join(want, ".credentials.json"))
 	require.NoError(t, err)
@@ -218,36 +215,37 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 	assert.Len(t, entries, 1, "seeding added files to the human's own ~/.claude")
 }
 
-// THE SCOPING RULE. A run with no agent binding at all (HomeMode == "", the
-// human's own session), an AGENT-BOUND run whose binding never declares
-// engine_home (agents.ParseHomeMode's default), and a binding that EXPLICITLY
-// declares host all keep the REAL host home — and each says so. The three are
-// pinned separately: MUTATION TARGET m1 flips agents.ParseHomeMode's default to
-// project (the undeclared case goes red alone); m2 ignores a declared host
-// value (the declared case goes red alone).
-func TestResolveInTreeAgentHome_NotProjectKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
+// THE SCOPING RULE. Only a binding that EXPLICITLY selects host keeps the
+// REAL host home — and says so. An undeclared binding (agents.ParseHomeMode's
+// default) and the zero value nobody parsed both get the session home: the
+// zero value must never silently mean the real home. MUTATION TARGET m1
+// flips agents.ParseHomeMode's default to host (the undeclared case goes
+// red); m2 ignores a declared host value (the declared case goes red).
+func TestResolveInTreeAgentHome_OnlyTheHostSelectionKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, hostCredentialFixture)
 	workDir := t.TempDir()
 
+	in := projectHome(workDir, harpA)
+	in.HomeMode = agents.HomeModeHost
+	res := resolveHome(t, in)
+	requireResolutionInvariant(t, res)
+	assert.Empty(t, res.Env, "declared host: must be handed no config-home override")
+	assert.Contains(t, res.Absent, "engine_home", "declared host: the reason names the policy that declined")
+	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
+		"a declined run must not even create the instance root")
+
 	undeclared, err := agents.ParseHomeMode("")
 	require.NoError(t, err)
-
-	cases := map[string]agents.HomeMode{
-		"no binding":    "",
-		"undeclared":    undeclared,
-		"declared host": agents.HomeModeHost,
-	}
-	for name, ch := range cases {
+	for name, ch := range map[string]agents.HomeMode{"undeclared": undeclared, "zero value": ""} {
 		in := projectHome(workDir, harpA)
 		in.HomeMode = ch
 		res := resolveHome(t, in)
+		t.Cleanup(func() { _ = res.Release() })
 		requireResolutionInvariant(t, res)
-		assert.Empty(t, res.Env, "%s: must be handed no config-home override", name)
-		assert.Contains(t, res.Absent, "engine_home", "%s: the reason names the policy that declined", name)
+		assert.NotEmpty(t, res.Env, "%s: gets the session home", name)
+		assert.Empty(t, res.Absent, name)
 	}
-	assert.NoDirExists(t, filepath.Join(workDir, ".ctxloom", "state"),
-		"a declined run must not even create the instance root")
 }
 
 // An engine that declares no relocatable home cannot be given one, on any

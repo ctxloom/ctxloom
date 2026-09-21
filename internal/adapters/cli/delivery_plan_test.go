@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -45,4 +46,37 @@ func TestPrintDeliveryRoutes_NamesTheUnsafeRoute(t *testing.T) {
 	buf.Reset()
 	printDeliveryRoutes(&buf, nil)
 	assert.Contains(t, buf.String(), "(nothing to deliver)")
+}
+
+// TestUnsafeLabels_TheHostHomeSelectionIsUnsafe: a launch whose binding
+// selected the real engine home (`engine_home: host`) is named unsafe
+// beside any project route — the two selections are the two ways a run
+// writes outside its session, and neither is a default.
+func TestUnsafeLabels_TheHostHomeSelectionIsUnsafe(t *testing.T) {
+	assert.Equal(t, []string{"mcp → project-root", "engine-home → host"},
+		unsafeLabels(launch.Launch{Plan: twoRoutePlan(), HomeMode: launch.HomeModeHost}))
+	assert.Equal(t, []string{"engine-home → host"},
+		unsafeLabels(launch.Launch{HomeMode: launch.HomeModeHost}))
+	assert.Empty(t, unsafeLabels(launch.Launch{
+		Plan:     delivery.Plan{Static: []delivery.StaticItem{{Kind: present.Context, Root: present.RootSessionHome}}},
+		HomeMode: launch.HomeModeSession,
+	}))
+}
+
+// TestEngineHomeRoute_And_PrintNamesTheHostSelectionUnsafe: the dry-run's
+// engine-home line on the wire and in text — "session" plain, "host"
+// unsafe, and the text form says so once.
+func TestEngineHomeRoute_And_PrintNamesTheHostSelectionUnsafe(t *testing.T) {
+	assert.Equal(t, engineHomeJSON{Mode: "session", Unsafe: false}, engineHomeRoute(launch.HomeModeSession))
+	assert.Equal(t, engineHomeJSON{Mode: "host", Unsafe: true}, engineHomeRoute(launch.HomeModeHost))
+
+	var buf bytes.Buffer
+	printEngineHome(&buf, engineHomeRoute(launch.HomeModeHost))
+	assert.Contains(t, buf.String(), "engine-home → host  (unsafe")
+	assert.Equal(t, 1, bytes.Count(buf.Bytes(), []byte("unsafe")))
+
+	buf.Reset()
+	printEngineHome(&buf, engineHomeRoute(launch.HomeModeSession))
+	assert.Contains(t, buf.String(), "engine-home → session\n")
+	assert.NotContains(t, buf.String(), "unsafe")
 }

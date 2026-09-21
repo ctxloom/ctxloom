@@ -98,6 +98,11 @@ func Permissions(p string) AgentOption {
 	return func(d *agentDecl) { d.binding.Permissions = p }
 }
 
+// EngineHome sets the binding's `engine_home:` declaration, unparsed.
+func EngineHome(s string) AgentOption {
+	return func(d *agentDecl) { d.binding.HomeMode = s }
+}
+
 // NoStructuredDrive makes the fixture engine declare Interactive only, so a
 // Structured Source is refused at Definition.Modes.
 func NoStructuredDrive() AgentOption {

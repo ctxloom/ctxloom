@@ -146,11 +146,13 @@ type Agent struct {
 	// default_agent — has no HomeMode to read and always keeps the real
 	// host home).
 	//
-	// Empty (undeclared) DEFAULTS TO HomeModeHost: nothing gets a
-	// controlled home until a binding explicitly opts in with "session". An
-	// unconfigured binding therefore behaves exactly like no binding at all
-	// on this one axis — the controlled-home behaviour is strictly opt-in,
-	// never assumed.
+	// Empty (undeclared) DEFAULTS TO HomeModeSession (ruled 2026-09-21):
+	// a run gets the controlled per-session home unless the binding SELECTS
+	// the real one with "host" — and that selection is the UNSAFE one,
+	// rendered as such in the plan and the launch banner, because it hands
+	// the engine the human's own credentials, memory and registrations and
+	// lets it write them back. Nothing reaches the real home by default; a
+	// binding that wants it asks for it by name.
 	//
 	// The policy is ORTHOGONAL to the run's isolation cell: whether a run has
 	// a controlled home is decided here alone, and which workspace or runtime
@@ -162,15 +164,15 @@ type Agent struct {
 	// into the EFFECTIVE HomeMode: validated against HomeModeNames when
 	// WRITTEN (operations.SetAgent, same treatment as Surfaces — an unknown
 	// value is refused, naming the two valid ones); a value that fails that
-	// same check at RESOLVE time warns and falls back to HomeModeHost
-	// rather than blocking the launch.
+	// same check at RESOLVE time warns and falls back to HomeModeSession
+	// rather than blocking the launch — never onto the real home, which a
+	// typo must not select.
 	HomeMode string `yaml:"engine_home,omitempty"`
 }
 
 // HomeMode is the EFFECTIVE engine-home policy a declaration parses to: one
-// of the two constants below. A run with NO agent binding carries the zero
-// value, which reads exactly like HomeModeHost everywhere it is consulted —
-// there is no binding through which such a run could opt in.
+// of the two constants below. The zero value is nobody's declaration and
+// parses to the default (HomeModeSession) wherever it is consulted.
 //
 // Deliberately NOT named EngineHome: that name is the resolved PATH (the
 // present package's Root, engine.HomeSpec and its kin). This is the policy
@@ -192,27 +194,27 @@ func HomeModeNames() []string {
 
 // ParseHomeMode validates and normalizes a binding's DECLARED
 // Agent.HomeMode into its always-non-empty EFFECTIVE value: the declared
-// value when it is one of HomeModeNames, else HomeModeHost — undeclared
-// (empty) and unrecognized both default to the runtime's own home, so the
-// controlled home stays strictly opt-in.
+// value when it is one of HomeModeNames, else HomeModeSession — undeclared
+// (empty) and unrecognized both default to the controlled session home, so
+// the real home is reached only by an explicit "host".
 //
 // One function, two callers, deliberately — the SAME shape ValidateDriving
 // has for the same reason. The agent WRITE path (operations.SetAgent) calls
 // it so a typo is refused by the command that set it and nothing is
 // persisted; the RESOLVE path (operations.resolveAgentBinding) calls it so a
-// hand-edited config.yaml degrades to the safe default (host) with a warning
-// rather than blocking the launch — unlike the write path, an unresolvable
-// value here is not fatal, because by the time a run reaches this call the
-// binding already exists and refusing to launch over it would be a
-// regression, not a safety net.
+// hand-edited config.yaml degrades to the safe default (session) with a
+// warning rather than blocking the launch — unlike the write path, an
+// unresolvable value here is not fatal, because by the time a run reaches
+// this call the binding already exists and refusing to launch over it would
+// be a regression, not a safety net.
 func ParseHomeMode(declared string) (HomeMode, error) {
 	switch HomeMode(declared) {
 	case "":
-		return HomeModeHost, nil
+		return HomeModeSession, nil
 	case HomeModeHost, HomeModeSession:
 		return HomeMode(declared), nil
 	default:
-		return HomeModeHost, fmt.Errorf("engine_home %q: unknown value (known: %s)",
+		return HomeModeSession, fmt.Errorf("engine_home %q: unknown value (known: %s)",
 			declared, strings.Join(HomeModeNames(), ", "))
 	}
 }

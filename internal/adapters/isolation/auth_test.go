@@ -225,7 +225,7 @@ func TestCredentialSeed_ClaudeDeclarationReachesTheSeam(t *testing.T) {
 	seed := claudeSeed(t)
 	assert.Contains(t, CredentialSeedEngineNames(), claude.EngineName)
 	assert.Equal(t, claude.HomeLeaf, seed.Subdir)
-	assert.Equal(t, "ANTHROPIC_API_KEY", seed.EnvTrigger)
+	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}, seed.EnvTriggers)
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →

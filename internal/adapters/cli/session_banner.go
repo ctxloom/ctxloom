@@ -28,9 +28,10 @@ type StartSessionInfo struct {
 	Profiles  []string
 	Fragments []string
 	Tokens    int
-	// Unsafe names the plan's routes onto the shared project tree ("context
-	// → project-root"): the binding's roots: selection, never a default.
-	// Empty when every surface lands in the session home.
+	// Unsafe names what this launch does outside its session: the plan's
+	// routes onto the shared project tree ("context → project-root") and
+	// the real engine home ("engine-home → host") — each the binding's own
+	// selection, never a default. Empty when the run stays in its session.
 	Unsafe []string
 	// Previous is the project's prior session, or nil when there is none
 	// (first run in this project). Informational only — startup no longer
@@ -68,7 +69,7 @@ func PrintStartSessionBanner(w io.Writer, info StartSessionInfo) {
 		fmt.Fprintf(w, "  context: ~%d tokens\n", info.Tokens)
 	}
 	if len(info.Unsafe) > 0 {
-		fmt.Fprintf(w, "  unsafe: %s — the binding's roots: selection writes the shared project tree\n", strings.Join(info.Unsafe, ", "))
+		fmt.Fprintf(w, "  unsafe: %s — selected on the binding, never a default; the run writes outside its session home\n", strings.Join(info.Unsafe, ", "))
 	}
 	if info.Previous != nil && info.Previous.Harp != "" {
 		fmt.Fprintf(w, "  previous session: %s — bring it back in-session with the \"resume\" skill\n", info.Previous.Harp)

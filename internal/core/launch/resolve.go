@@ -40,6 +40,13 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
+	if sel.homeMode == "" {
+		// A launch with no binding (a profile set, an internal one-shot, a
+		// degraded bare launch) has no engine_home to read: it gets the
+		// default, the session home. The real home is only ever a
+		// binding's explicit selection.
+		sel.homeMode = HomeModeSession
+	}
 	// A selection with no profiles is context-free BY DECLARATION (an
 	// internal one-shot, a binding that composes nothing): nothing is
 	// assembled, so no default can be composed in its place. Naming a
@@ -155,6 +162,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		Permission: perm,
 		Declared:   declared,
 		Axes:       axes,
+		HomeMode:   sel.homeMode,
 		Cell:       cell,
 		Home:       cell.Home,
 		Package:    carrier,
@@ -215,7 +223,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		if !degraded {
 			return selection{}, fmt.Errorf("agent %q: %w", name, err)
 		}
-		home = HomeModeHost
+		home = HomeModeSession
 	}
 	return selection{
 		agent:       name,
@@ -230,13 +238,14 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 }
 
 // parseHomeMode is the one conversion of the binding's `engine_home`
-// spelling; empty is the host default, an unknown spelling is refused.
+// spelling; empty is the session default, "host" is the unsafe selection
+// of the real home, an unknown spelling is refused.
 func parseHomeMode(s string) (HomeMode, error) {
 	switch HomeMode(strings.TrimSpace(s)) {
-	case "", HomeModeHost:
-		return HomeModeHost, nil
-	case HomeModeSession:
+	case "", HomeModeSession:
 		return HomeModeSession, nil
+	case HomeModeHost:
+		return HomeModeHost, nil
 	default:
 		return "", fmt.Errorf("unknown engine_home %q (known: %s|%s)", s, HomeModeHost, HomeModeSession)
 	}

@@ -94,9 +94,11 @@ type Cells interface {
 	Prepare(ctx context.Context, req CellRequest) (Cell, error)
 }
 
-// HomeMode is the binding's engine-home policy: keep the home the runtime
-// gives the engine, or give it this session's controlled home. It rides
-// CellRequest until Engine.Home() is the engine's own declaration.
+// HomeMode is the binding's engine-home policy: this session's controlled
+// home (the default), or the home the runtime gives the engine — the
+// binding's unsafe selection, rendered as such wherever the launch is
+// shown. It rides CellRequest until Engine.Home() is the engine's own
+// declaration.
 type HomeMode string
 
 const (
@@ -161,6 +163,10 @@ type Launch struct {
 	// default happens to be.
 	Declared Axes
 	Axes     Axes
+	// HomeMode is the engine-home policy the launch settled: the session
+	// home, or the real one the binding selected (the unsafe selection a
+	// plan and a banner name).
+	HomeMode HomeMode
 	Cell     Cell
 	Home     []engine.HomeBinding
 	Package  composite.Carrier // encoded then carried (inline or claim); both consumers redeem then Decode

@@ -55,17 +55,19 @@ func (h HomeSpec) Relocates() bool { return len(h.Vars) > 0 }
 
 // CredentialSeed is the host credential material copied into a session
 // home, the deliveries the engine ACCEPTS for it, and the two facts a
-// fail-loud "nothing to seed" message needs: the env var that carries usable
-// auth instead (EnvTrigger — seeding is skipped when it is set), and the
+// fail-loud "nothing to seed" message needs: the env vars that carry usable
+// auth instead (EnvTriggers — seeding is skipped when any is set), and the
 // command that makes the credential file exist (LoginHint).
 type CredentialSeed struct {
 	// Subdir is the home subdirectory the seed lands in. It must be a Subdir
 	// one of the spec's Vars names, or the seed lands where the engine never
 	// looks.
 	Subdir string
-	// EnvTrigger, when set in the process env, means auth rides the env and
-	// nothing is seeded. "" when the engine has no such bypass.
-	EnvTrigger string
+	// EnvTriggers are the env vars any one of which, set in the process
+	// env, means auth rides the env and nothing is seeded — in the order the
+	// engine consults them, which is the order a refusal names them. Empty
+	// when the engine has no such bypass.
+	EnvTriggers []string
 	// LoginHint is the command that creates the credential file
 	// (e.g. "claude login") — the fix a "nothing seedable" refusal names.
 	LoginHint string

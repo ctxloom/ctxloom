@@ -616,8 +616,8 @@ func engineAuthFixHint(engine string) string {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
 	fix := fmt.Sprintf("run `%s`", seed.LoginHint)
-	if seed.EnvTrigger != "" {
-		fix += fmt.Sprintf(" (or set %s)", seed.EnvTrigger)
+	if len(seed.EnvTriggers) > 0 {
+		fix += fmt.Sprintf(" (or set %s)", strings.Join(seed.EnvTriggers, " or "))
 	}
 	return fix
 }

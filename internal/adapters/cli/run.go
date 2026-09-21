@@ -100,6 +100,9 @@ type dryRunJSON struct {
 	// Delivery is the plan's static routes: each surface's root, the
 	// project-root and work-dir routes marked unsafe.
 	Delivery []routeJSON `json:"delivery"`
+	// EngineHome is the home the engine runs against: "session", or the
+	// binding's unsafe "host" selection.
+	EngineHome engineHomeJSON `json:"engine_home"`
 	// Tokens is the estimated token count of the assembled Context, computed by
 	// the backend (internal/tokens) so a client previewing a profile reads one
 	// authoritative estimate instead of re-deriving its own chars/token guess.
@@ -862,18 +865,19 @@ func (st *runState) emitDryRun() error {
 		})
 	}
 	payload := dryRunJSON{
-		Agent:     runAgent,
-		Workspace: string(l.Declared.Workspace),
-		Runtime:   string(l.Declared.Runtime),
-		Resolved:  axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
-		LLM:       l.Label.Label,
-		Backend:   string(l.Engine),
-		Profiles:  orEmpty(pkg.Selection.Profiles),
-		Fragments: orEmpty(pkg.Loaded),
-		Context:   context,
-		Delivery:  deliveryRoutes(l.Plan),
-		Tokens:    tokens.Estimate(context),
-		Prompt:    st.prompt,
+		Agent:      runAgent,
+		Workspace:  string(l.Declared.Workspace),
+		Runtime:    string(l.Declared.Runtime),
+		Resolved:   axesJSON{Workspace: string(l.Axes.Workspace), Runtime: string(l.Axes.Runtime)},
+		LLM:        l.Label.Label,
+		Backend:    string(l.Engine),
+		Profiles:   orEmpty(pkg.Selection.Profiles),
+		Fragments:  orEmpty(pkg.Loaded),
+		Context:    context,
+		Delivery:   deliveryRoutes(l.Plan),
+		EngineHome: engineHomeRoute(l.HomeMode),
+		Tokens:     tokens.Estimate(context),
+		Prompt:     st.prompt,
 	}
 	return emit(st.cmd, payload, func() error {
 		if runAgent != "" {
@@ -899,6 +903,7 @@ func (st *runState) emitDryRun() error {
 			fmt.Println("(no fragments)")
 		}
 		printDeliveryRoutes(os.Stdout, payload.Delivery)
+		printEngineHome(os.Stdout, payload.EngineHome)
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
 		if context != "" {
 			fmt.Println(context)
@@ -979,7 +984,7 @@ func (st *runState) openSessionBanner() func() {
 		Profiles:  st.opened.Package.Selection.Profiles,
 		Fragments: st.opened.Package.Loaded,
 		Tokens:    tokens.Estimate(st.opened.Package.Context.Text),
-		Unsafe:    unsafeRouteLabels(st.launch.Plan),
+		Unsafe:    unsafeLabels(st.launch),
 		Previous:  previous,
 	})
 

@@ -29,7 +29,7 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	seed, ok := home.Credentials.Get()
 	require.True(t, ok, "claude relocates credentials with its home var")
 	assert.Equal(t, HomeLeaf, seed.Subdir)
-	assert.Equal(t, "ANTHROPIC_API_KEY", seed.EnvTrigger)
+	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}, seed.EnvTriggers)
 	assert.Equal(t, "claude login", seed.LoginHint)
 	require.Len(t, seed.Files, 1, "only .credentials.json crosses — never .claude.json (the user's whole config)")
 	assert.Equal(t, filepath.ToSlash(filepath.Join(ConfigDirName, CredentialsFileName)), seed.Files[0].HostRelHome)

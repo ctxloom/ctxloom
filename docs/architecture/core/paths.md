@@ -242,7 +242,12 @@ whole derivation here removed the need for that copy entirely.
    lifetime, and whether a container must reach it); `ClassifyMember` is the one
    predicate over it, `IdentityMember` the row that makes a directory a session, and
    `MountedLocations` what the isolation adapter mounts. `sessions.Layout` derives every
-   session-dir path from it.
+   session-dir path from it, and the ONE reaper (`sessions.Reap`) removes members by the
+   table's `Lifetime` axis alone — `sessions.ReapPolicy.Members` is the Ephemeral rows,
+   plus the persist store under a human's `--include-persist` — judging age by the one
+   clock (`sessions.ActivityTime`: the newest mtime under the session dir, the dir's own
+   mtime and every symlink's excluded). `TestArch_ReaperMemberNamesAreTableRows` keeps
+   every member constant the reap, purge and clean code names a row of the table.
 8. **No writes.** Nothing in this package creates a directory or a file.
 
 ## Boundaries

@@ -334,8 +334,12 @@ func TestSpoolOwner_TheOwnersRunnerSendReachesTheChild(t *testing.T) {
 	assert.Equal(t, ownerIdentity().Harp, got[0].GetFromAgentId(), "the message is authored by the owner — the identity of the spool it was found in")
 
 	// AND THE ROUTE: the owner's out/ file was routed and consumed, not left
-	// in place for a sweep that never comes.
-	_, pending := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirOut, body)
-	assert.False(t, pending, "the routed message must not remain in the owner's out/")
+	// in place for a sweep that never comes. Deliver-then-consume is the
+	// coordinator's ordering (routeSpoolOut), so the child can see the
+	// message a moment before the rename lands.
+	require.Eventually(t, func() bool {
+		_, pending := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirOut, body)
+		return !pending
+	}, conformanceWait, 20*time.Millisecond, "the routed message must not remain in the owner's out/")
 	assertNoMailboxJournal(t, c)
 }

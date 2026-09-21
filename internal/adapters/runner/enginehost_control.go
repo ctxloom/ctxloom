@@ -17,6 +17,13 @@ import (
 // so the turn boundary can correlate the report to the delivery that started
 // it) and the pause gate every turn waits on (RunnerRequest pause/resume).
 
+// turnOutcome is what a Turn frame waiting on a turn receives at its
+// boundary: the result, or the error the turn ended with.
+type turnOutcome struct {
+	res engine.TurnResult
+	err error
+}
+
 // turnTag attributes one locally-originated turn to what asked for it. The zero
 // value means "ordinary": the briefing, or an engine continuing on its own.
 type turnTag struct {
@@ -34,7 +41,7 @@ type turnTag struct {
 	// done, when non-nil, receives this turn's result at its boundary — a
 	// Turn frame's caller is waiting on it. Buffered by its maker so the
 	// adapt loop never blocks on a caller that went away.
-	done chan engine.TurnResult
+	done chan turnOutcome
 }
 
 // enqueueTurn is the ONE funnel for every locally-originated turn — the
@@ -221,12 +228,18 @@ func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerRespon
 	if t.GetPrompt() == "" {
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.InvalidArgument, "turn: a turn needs a prompt")}
 	}
-	done := make(chan engine.TurnResult, 1)
+	done := make(chan turnOutcome, 1)
 	if err := eh.enqueueTurn(eh.baseCtx, turnTag{done: done}, t.GetPrompt()); err != nil {
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, "turn: "+err.Error())}
 	}
 	select {
-	case res := <-done:
+	case out := <-done:
+		if out.err != nil {
+			// The engine's own account of the failed turn answers the frame,
+			// so the coordinator's caller renders WHY — the run ends after.
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Aborted, "turn: "+out.err.Error())}
+		}
+		res := out.res
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
 	case <-eh.baseCtx.Done():
 		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Canceled, "turn: the runner is shutting down")}

@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -159,8 +160,11 @@ func (c *Coordinator) RunnerExited(credHash string, exited RunExited) {
 	}
 	c.recordHarnessSession(runID, exited.HarnessSessionID)
 	detail := ""
-	if exited.Signal != "" {
+	switch {
+	case exited.Signal != "":
 		detail = "signal " + exited.Signal
+	case exited.ExitCode != 0:
+		detail = fmt.Sprintf("exit status %d", exited.ExitCode)
 	}
 	c.terminateRun(runID, CauseRunnerExit, detail)
 }

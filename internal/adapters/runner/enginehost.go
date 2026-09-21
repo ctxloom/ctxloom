@@ -626,10 +626,13 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 		eh.announceSession(home, res.NativeKey)
 	}
 	if err != nil || ctx.Err() != nil {
-		// The run's terminal: a Turn frame waiting on this turn is released
-		// with nothing, then the run ends.
+		// The run's terminal: a Turn frame waiting on this turn is answered
+		// with the turn's error, then the run ends.
 		if tag.done != nil {
-			tag.done <- engine.TurnResult{NativeKey: nativeKey}
+			if err == nil {
+				err = ctx.Err()
+			}
+			tag.done <- turnOutcome{res: engine.TurnResult{NativeKey: nativeKey}, err: err}
 		}
 		eh.finish(home, err, ctx.Err())
 		close(busy)
@@ -649,7 +652,7 @@ func (eh *EngineHost) runTurn(busy chan struct{}, text string, key string) {
 	if tag.done != nil {
 		// A Turn frame is waiting on this turn: answer it with the turn's
 		// final text and the key the next turn resumes by.
-		tag.done <- engine.TurnResult{NativeKey: nativeKey, Answer: final}
+		tag.done <- turnOutcome{res: engine.TurnResult{NativeKey: nativeKey, Answer: final}}
 	}
 	stop := ""
 	if lastMeta != nil {

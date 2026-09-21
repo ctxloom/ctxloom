@@ -98,4 +98,5 @@ Feature: Distilling authored content — does the compression happen, is it kept
     When I run "ctxloom fragment distill lore#fragments/rules -f"
     Then the command succeeds
     And the fragment "rules" in bundle "lore" has no distilled rendering
-    And the output contains "failed: LLM exited with code 1"
+    And the output contains "failed: agent run:"
+    And the output contains "the engine process exited 1"

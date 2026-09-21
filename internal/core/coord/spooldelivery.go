@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
@@ -931,7 +930,7 @@ func (h *Home) sweepSpoolIn() {
 			continue
 		}
 		msg.Structured = wire
-		pm, err := peerMessageProto(msg)
+		pm, err := PeerMessageToWire(msg)
 		if err != nil {
 			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s onto the delivery seam", e.Ref), err)
 			continue
@@ -1056,7 +1055,7 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if h.Harp() == "" {
 		return spoolSendErr(codes.FailedPrecondition, "agent_send: "+ErrIdentityUnbound.Error()), true
 	}
-	sr, err := sendRequestFromWire(send)
+	sr, err := SendRequestFromWire(send)
 	if err != nil {
 		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
@@ -1082,7 +1081,7 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	h.noteSelfReported()
 	return &agentcoordpb.CoordinatorResponse{
 		RequestId: req.GetRequestId(),
-		Status:    okStatus("written to this session's outbound spool"),
+		Status:    OKStatus("written to this session's outbound spool"),
 		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
 			// The FILENAME STEM is the message id, because the file is the
 			// message: there is no coordinator-minted id to quote, and an id
@@ -1094,43 +1093,10 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	}, true
 }
 
-// sendRequestFromWire decodes the wire's PeerSendRequest into the verb's
-// request: exactly one of to_agent_id / to_role names the recipient, the
-// kind enum becomes its name, and the structured companion its JSON. Only
-// the DECODE refuses here (a frame that cannot mean a request); what the
-// request may say is Validate's.
-func sendRequestFromWire(send *agentcoordpb.PeerSendRequest) (SendRequest, error) {
-	to := send.GetToAgentId()
-	if role := send.GetToRole(); role != "" {
-		if to != "" {
-			return SendRequest{}, fmt.Errorf("%w: agent_send: set exactly one of to_agent_id / to_role, not both", ErrInvalidRequest)
-		}
-		to = role
-	}
-	sr := SendRequest{To: to, Body: send.GetText(), InReplyTo: send.GetInReplyTo()}
-	if k := send.GetKind(); k != agentcoordpb.MessageKind_MESSAGE_KIND_UNSPECIFIED {
-		// proto3 enums are OPEN on the wire: a number this build does not
-		// declare survives Unmarshal as itself, and it must be refused BY
-		// NUMBER here — never mapped to "" and then answered as "kind is
-		// required", which would hide which value was wrong.
-		sr.Kind = agentcoordpb.LegacyKindName(k)
-		if sr.Kind == "" {
-			return SendRequest{}, fmt.Errorf("%w: agent_send: kind %d is not a message kind this build knows; use one of: %s",
-				ErrInvalidRequest, int32(k), strings.Join(senderMailKinds, " | "))
-		}
-	}
-	if st := send.GetStructured(); st != nil {
-		raw, err := protojson.Marshal(st)
-		if err != nil {
-			return SendRequest{}, fmt.Errorf("%w: agent_send: structured payload cannot be encoded, refusing to send it stripped: %v", ErrInvalidRequest, err)
-		}
-		sr.Structured = raw
-	}
-	return sr, nil
-}
-
+// spoolSendErr is the runner-local agent_send's refusal, shaped as the
+// plane-2 answer the tool reads.
 func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {
-	return &agentcoordpb.CoordinatorResponse{Status: statusErr(code, msg)}
+	return &agentcoordpb.CoordinatorResponse{Status: StatusErr(code, msg)}
 }
 
 // ErrNeedsOwner refuses a coordinator that was not told whose inbox it drains

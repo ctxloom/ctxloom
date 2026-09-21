@@ -9,14 +9,6 @@ import (
 	"sync"
 	"time"
 
-	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/structpb"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -114,27 +106,29 @@ func (c *Coordinator) Host(ctx context.Context, caller Identity, req HostRequest
 	return res, nil
 }
 
-// runChan is one live RunChannel: the coordinator side of a runner's
-// plane-1/2/3 stream for a single run (or the owning session itself — a
-// depth-0 credential attaches with an empty run_id), on the one bidiSession
-// scaffold (this side issues no requests over it: the runner's requests
-// arrive and are answered inline). All mutable fields are guarded by
-// Coordinator.mu; frames go out through the scaffold's single writer pump.
-type runChan struct {
-	bidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame]
+// RunChannel is one live run channel as the coordinator holds it: the
+// coordinator side of a runner's plane-1/2/3 stream for a single run (or
+// the owning session itself — a depth-0 credential attaches with an empty
+// run_id), on the one BidiSession scaffold. The wire adapter opens it
+// (AttachRun), pumps its outbound frames onto the stream (Pump) and hands
+// every inbound frame to the Handle* methods; this side issues no requests
+// over it (the runner's requests arrive and are answered inline). All
+// mutable fields are guarded by Coordinator.mu.
+type RunChannel struct {
+	BidiSession[OutFrame, OutFrame, OutFrame]
 	role string // the harp this channel serves (child harp, or owner harp)
 	id   Identity
 
-	// caps is this run's Hello advertisement (coordination.proto's
-	// Hello.capabilities), captured at serve. It is per-CHANNEL because it is
-	// per-run: a resumed harp gets a fresh channel from a fresh runner and may
-	// advertise differently, so nothing may cache it against the harp.
+	// caps is this run's Hello advertisement, captured at attach. It is
+	// per-CHANNEL because it is per-run: a resumed harp gets a fresh channel
+	// from a fresh runner and may advertise differently, so nothing may
+	// cache it against the harp.
 	caps map[string]bool
 
 	// Plane-2 request idempotency does NOT live here: it must survive this
 	// channel's death so a request reissued on the NEXT dial (same request_id)
 	// reuses the in-flight dispatch instead of starting a second one. It lives
-	// on Coordinator.reqTrack, keyed (role, request_id) — see handleAgentRequest.
+	// on Coordinator.reqTrack, keyed (role, request_id) — see HandleRequest.
 
 	// ackSeq is the highest event seq processed on this channel; the
 	// cumulative plane-3 Ack advances only through flushedSeq — the highest
@@ -148,70 +142,37 @@ type runChan struct {
 	// completed closes exactly once, the moment this channel's run_completed
 	// item has been FLUSHED (durably journaled) — D4's terminal-tail drain
 	// race fix waits on it before severing the channel.
-	// completedOnce guards the close (handleAgentEvent runs on this
-	// channel's single recv goroutine, but drainTerminalTail's safety-net
-	// timeout path must never double-close on a concurrent late arrival).
+	// completedOnce guards the close (HandleEvent runs on this channel's
+	// single recv goroutine, but drainTerminalTail's safety-net timeout path
+	// must never double-close on a concurrent late arrival).
 	completed     chan struct{}
 	completedOnce sync.Once
 }
 
-// RunChannel is the run-level stream: opened by the runner for each run it
-// hosts (and by the session owner's runner with an empty run_id). All agent
-// traffic — plane-2 requests, plane-1 events, plane-3 notices — multiplexes
-// here; identity derives from the connection credential.
-func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]) error {
-	c := s.c
-	done, ok := c.streams.enter()
-	if !ok {
-		return status.Error(codes.Unavailable, "coordinator is closing")
-	}
-	defer done() // registered FIRST so it runs LAST, after the teardown below
-	id, ok := c.Identify(mdToken(stream.Context()))
-	if !ok {
-		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
-	}
-	first, err := stream.Recv()
-	if err != nil {
-		return err
-	}
-	hello := first.GetHello()
-	if hello == nil {
-		return status.Error(codes.InvalidArgument, "first AgentFrame must be Hello")
-	}
-	// Ownership: the presented run_id must be the one this credential was
-	// minted for; a depth-0 (session-owner) credential attaches with an
-	// empty run_id — the channel then serves the owning session itself.
-	if hello.GetRunId() != id.RunID {
-		reject := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_HelloAck{
-			HelloAck: &agentcoordpb.HelloAck{Accepted: false, RejectReason: &rpcstatus.Status{
-				Code:    int32(codes.PermissionDenied),
-				Message: fmt.Sprintf("run %q was not issued to this credential", hello.GetRunId()),
-			}},
-		}}
-		_ = stream.Send(reject)
-		return status.Errorf(codes.PermissionDenied, "run %q was not issued to this credential", hello.GetRunId())
-	}
-	if err := stream.Send(&agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_HelloAck{
-		HelloAck: &agentcoordpb.HelloAck{
-			Accepted: true,
-			// NOT an independent watermark: the coordinator keeps no durable
-			// event log, so it echoes the runner's own claim back. The proto
-			// says so at Hello.resume_from_seq / HelloAck.committed_seq's
-			// doc — nobody should build a client that trusts this as
-			// confirmation.
-			CommittedSeq: hello.GetResumeFromSeq(),
-		},
-	}}); err != nil {
-		return err
-	}
+// Role is the harp this channel serves.
+func (ch *RunChannel) Role() string { return ch.role }
 
-	streamCtx, cancel := context.WithCancel(stream.Context())
-	caps := make(map[string]bool, len(hello.GetCapabilities()))
-	for _, cap := range hello.GetCapabilities() {
+// Identity is the credential-derived identity the channel was attached
+// under.
+func (ch *RunChannel) Identity() Identity { return ch.id }
+
+// AttachRun registers a run channel for the identity's harp once the wire
+// adapter has verified the handshake: the presented run_id must be the one
+// this credential was minted for (a depth-0 session-owner credential
+// attaches with an empty run_id — the channel then serves the owning
+// session itself); one channel per role, newest wins (reconnect). cancel is
+// the stream context's, so the coordinator can sever the channel (severChan,
+// a reconnect, the terminal path).
+func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.CancelFunc) (*RunChannel, error) {
+	if hello.RunID != id.RunID {
+		return nil, fmt.Errorf("%w: run %q", ErrRunNotIssued, hello.RunID)
+	}
+	caps := make(map[string]bool, len(hello.Capabilities))
+	for _, cap := range hello.Capabilities {
 		caps[cap] = true
 	}
-	ch := &runChan{
-		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](cancel, 64),
+	ch := &RunChannel{
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](cancel, 64),
 		role:        id.Harp,
 		id:          id,
 		completed:   make(chan struct{}),
@@ -229,7 +190,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	// control request was refused.
 	c.audit("run_channel", id.Harp, map[string]string{
 		"run_id":       id.RunID,
-		"capabilities": strings.Join(hello.GetCapabilities(), ","),
+		"capabilities": strings.Join(hello.Capabilities, ","),
 	})
 	// PER-CHILD ATTACH SWEEP: the coordinator's own half of the same
 	// reconnect reconciliation the runner does on its side — anything this
@@ -237,67 +198,22 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	// rather than at the slow timer. (The runner's own startup sweep is what
 	// delivers mail written for it before it dialed home.)
 	c.spoolReactor.mark(id.Harp)
-
-	defer c.releaseRunChan(id.Harp, ch)
-
-	// Single writer pump: everything outbound funnels through ch.send.
-	// goTracked terminates once streamCtx is
-	// cancelled — either locally (a newer reconnect, or this func's own
-	// deferred cancel()) or when srv.close()'s GracefulStop/Stop tears the
-	// underlying gRPC transport down (streamCtx derives from the STREAM's
-	// context, not c.baseCtx, so only the server actually cutting the
-	// transport unblocks a still-live channel — see Coordinator.Close's doc).
-	c.goTracked(func() { ch.pump(streamCtx, stream.Send) })
-
-	recvErr := make(chan error, 1)
-	c.goTracked(func() {
-		for {
-			frame, rerr := stream.Recv()
-			if rerr != nil {
-				recvErr <- rerr
-				return
-			}
-			c.handleAgentFrame(ch, frame)
-		}
-	})
-
-	select {
-	case err := <-recvErr:
-		return err
-	case <-streamCtx.Done():
-		return status.Error(codes.Canceled, "run channel closed")
-	}
+	return ch, nil
 }
 
-// handleAgentFrame dispatches one inbound frame.
-func (c *Coordinator) handleAgentFrame(ch *runChan, frame *agentcoordpb.AgentFrame) {
-	switch kind := frame.GetKind().(type) {
-	case *agentcoordpb.AgentFrame_Event:
-		c.handleAgentEvent(ch, kind.Event)
-	case *agentcoordpb.AgentFrame_Request:
-		c.handleAgentRequest(ch, kind.Request)
-	case *agentcoordpb.AgentFrame_Heartbeat:
-		// Plane-3 liveness; RunnerChannel owns loss detection.
-	case *agentcoordpb.AgentFrame_Hello:
-		// Duplicate hello on a live stream: tolerated.
-	case *agentcoordpb.AgentFrame_SpoolChanged:
-		c.handleSpoolChanged(ch, kind.SpoolChanged)
-	}
-}
-
-// handleAgentEvent processes plane-1 events: the ctxloom custom events
+// HandleEvent processes plane-1 events: the ctxloom custom events
 // (mail consumption, park/turn state, harness session), the report kinds
-// (Summary, ArtifactProduced — their own reports journal), and — since C1 —
+// (Summary, ArtifactProduced — their own reports journal), and
 // ITEM events (message/tool-call/run lifecycle), journaled with group-fsync
 // on the Ack watermark (items.go): deltas buffer; any boundary event
 // flushes; the cumulative Ack advances only through durable seqs. Dedupe is
 // (run, seq) against the channel's watermark (and the items fold's own,
-// which survives a channel reattach). D1: every NEW (non-duplicate) event is
-// also teed live, full payload, to consumer.go's watchHub — independent of
-// the durable/counts-only journal path below.
-func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent) {
+// which survives a channel reattach). Every NEW (non-duplicate) event is
+// also teed live, full payload, to the watch hub — independent of the
+// durable/counts-only journal path below.
+func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 	c.mu.Lock()
-	if seq := ev.GetSeq(); seq != 0 {
+	if seq := ev.Seq; seq != 0 {
 		if seq <= ch.ackSeq {
 			flushed := ch.flushedSeq
 			c.mu.Unlock()
@@ -319,15 +235,15 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 	}
 	c.watch.broadcast(ev)
 
-	switch payload := ev.GetPayload().(type) {
-	case *agentcoordpb.AgentEvent_Custom:
-		c.handleCustomEvent(ch, payload.Custom)
+	switch payload := ev.Payload.(type) {
+	case CustomEvent:
+		c.handleCustomEvent(ch, payload)
 		c.flushItems(ch)
-	case *agentcoordpb.AgentEvent_Summary:
-		c.recordSummary(ch.role, ch.id.RunID, ev.GetSeq(), payload.Summary)
+	case Summary:
+		c.recordSummary(ch.role, ch.id.RunID, ev.Seq, payload)
 		c.flushItems(ch)
-	case *agentcoordpb.AgentEvent_ArtifactProduced:
-		c.recordArtifact(ch.role, payload.ArtifactProduced)
+	case ArtifactProduced:
+		c.recordArtifact(ch.role, payload)
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {
@@ -351,36 +267,29 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 // ackThrough emits the cumulative plane-3 Ack watermark (non-blocking: the
 // send pump has buffer; a full buffer drops the ack — cumulative acks make
 // that safe).
-func (c *Coordinator) ackThrough(ch *runChan, seq uint64) {
-	frame := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Ack{
-		Ack: &agentcoordpb.Ack{CommittedSeq: seq},
-	}}
+func (c *Coordinator) ackThrough(ch *RunChannel, seq uint64) {
 	select {
-	case ch.send <- frame:
+	case ch.send <- OutFrame{Ack: &Ack{CommittedSeq: seq}}:
 	default:
 	}
 }
 
 // handleCustomEvent serves the ctxloom/* custom event vocabulary.
-func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEvent) {
-	switch ev.GetName() {
+func (c *Coordinator) handleCustomEvent(ch *RunChannel, ev CustomEvent) {
+	switch ev.Name {
 	case CustomRecvParked:
 		c.onRolePark(ch.role)
 	case CustomRecvUnparked:
 		c.onRoleUnpark(ch.role)
 	case CustomHarnessSession:
-		s := ev.GetValue()
-		sid := ""
-		if v, ok := s.GetFields()["session_id"]; ok {
-			sid = v.GetStringValue()
-		}
+		sid, _ := ev.Value["session_id"].(string)
 		if sid == "" {
 			// The harness-native session id is the run's ONLY resume handle: a
 			// child killed mid-run respawns through Launch.Resume.NativeKey,
 			// and a one-shot runner will not park its engine without one.
-			// recordHarnessSession drops an empty id, so
-			// losing it here used to leave no trace at all — the run simply
-			// stopped being resumable and nothing said why.
+			// recordHarnessSession drops an empty id, so losing it here would
+			// leave no trace at all — the run simply stops being resumable and
+			// nothing says why.
 			c.rep.Warnf("coordinator: %s from %s carried no session_id; run %s has no resume handle, so it cannot be resumed by native session key",
 				CustomHarnessSession, ch.role, ch.id.RunID)
 			return
@@ -388,8 +297,8 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 		c.recordHarnessSession(ch.id.RunID, sid)
 		// The engine's live loadSession capability (the one-shot gate's
 		// live half) rides the SAME custom event as the session id.
-		if v, ok := s.GetFields()["resumable"]; ok {
-			c.recordResumable(ch.id.RunID, v.GetBoolValue())
+		if v, ok := ev.Value["resumable"].(bool); ok {
+			c.recordResumable(ch.id.RunID, v)
 		}
 	case CustomTurnStarted:
 		c.onTurnStarted(ch.role)
@@ -398,61 +307,17 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 	}
 }
 
-// peerMessageProto projects a mailbox message onto the wire shape. Kind rides
-// the typed PeerMessage.kind field, spelled from the mailbox vocabulary; a kind
-// outside that vocabulary is an ERROR rather than UNSPECIFIED, so a message
-// nobody mapped cannot reach a recipient as "unset". Structured is the caller's
-// companion (e.g. an escalation ladder's relayed ApprovalRequest projection)
-// carried verbatim — no key is merged into it, and the receive side reads no
-// kind out of it, so a "kind" key a caller put there is inert.
-//
-// A payload that cannot be carried is an ERROR, not an empty result.
-// Both failures were previously swallowed — the json.Unmarshal error by an
-// `if err == nil` with no else, structpb.NewStruct's by assignment to `_` — and
-// each produced a PeerMessage with the caller's payload silently missing. For a
-// relayed ApprovalRequest that is the entire message: the recipient gets an
-// approval notice with no request in it and nothing reports a fault. The
-// caller (the runner's in/ sweep) moves such a file to in/failed/ rather than
-// delivering a hollow message.
-func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
-	kind, err := agentcoordpb.MessageKindForLegacyName(m.Kind)
-	if err != nil {
-		return nil, err
-	}
-	pm := &agentcoordpb.PeerMessage{
-		MessageId:   m.ID,
-		FromAgentId: m.From,
-		Text:        m.Body,
-		InReplyTo:   m.InReplyTo,
-		Kind:        kind,
-	}
-	if len(m.Structured) > 0 {
-		var fields map[string]any
-		if err := json.Unmarshal(m.Structured, &fields); err != nil {
-			return nil, fmt.Errorf("decode structured payload: %w", err)
-		}
-		if len(fields) > 0 {
-			s, err := structpb.NewStruct(fields)
-			if err != nil {
-				return nil, fmt.Errorf("encode structured payload: %w", err)
-			}
-			pm.Structured = s
-		}
-	}
-	return pm, nil
-}
-
-// releaseRunChan is the RunChannel handler's teardown: deregister the channel
-// and cancel its context.
+// ReleaseRun is the run channel's teardown: deregister the channel and
+// cancel its context.
 //
 // Deregistration is conditional — only this channel's own registration may
 // be removed, never a successor's. A reconnect registers the new channel and
 // cancels its predecessor inside one c.mu window, so the OLD handler's
 // teardown always observes the successor.
-func (c *Coordinator) releaseRunChan(harp string, ch *runChan) {
+func (c *Coordinator) ReleaseRun(ch *RunChannel) {
 	c.mu.Lock()
-	if c.chans[harp] == ch {
-		delete(c.chans, harp)
+	if c.chans[ch.role] == ch {
+		delete(c.chans, ch.role)
 	}
 	c.mu.Unlock()
 	ch.cancel()
@@ -469,8 +334,7 @@ const terminalDrainWindow = 500 * time.Millisecond
 
 // drainTerminalTail closes the terminal-tail race (D4): the
 // runner emits a normal exit's final run_completed item on the RunChannel
-// and reports RunExited on the SEPARATE RunnerChannel back-to-back (see
-// enginehost.go's adapt: emitEvent(RunCompleted) then ReportRunExited) — two
+// and reports RunExited on the SEPARATE RunnerChannel back-to-back — two
 // different streams, no ordering guarantee between them. Cancelling the
 // RunChannel's context (severChan) the instant RunExited lands can discard
 // an already-in-flight-but-not-yet-processed run_completed frame (a
@@ -483,8 +347,8 @@ const terminalDrainWindow = 500 * time.Millisecond
 // costs nothing.
 //
 // Scope: only CauseRunnerExit termination calls this — the ONLY cause whose
-// production emitter (enginehost.go's adapt) is contractually guaranteed to
-// have just attempted a run_completed. CauseStopped (agent_stop / KillRun)
+// production emitter (the engine host's adapt) is contractually guaranteed
+// to have just attempted a run_completed. CauseStopped (agent_stop / KillRun)
 // and CauseRunnerLoss (disconnect/heartbeat silence — the runner and its
 // harness died together) have no such guarantee and must not pay this
 // wait for no benefit.
@@ -521,37 +385,37 @@ func (c *Coordinator) severChan(role string) {
 
 // reqKey identifies a plane-2 request for idempotency that must SURVIVE a
 // RunChannel reconnect. Keyed by (role, request_id): the runner reissues an
-// outstanding request with its ORIGINAL request_id on the fresh channel
-// (home.go), and the role (child harp) is stable across the reconnect.
+// outstanding request with its ORIGINAL request_id on the fresh channel,
+// and the role (child harp) is stable across the reconnect.
 type reqKey struct {
 	role  string
 	reqID string
 }
 
 // inflightReq tracks one plane-2 request's SINGLE in-progress dispatch and its
-// eventual response, off the per-connection runChan so it outlives a reconnect.
-// resp==nil means the dispatch is still running: a reissue that finds it must
-// NOT start a second dispatch — the running one answers on whichever channel is
-// current when it completes (respondRole). This is the trust-critical case: an
-// approval relay parks for minutes waiting on a human, and a reconnect in that
-// window must not mint a second relay + ladder walk that races the first (a
-// human ACCEPT then answered on the dead channel while the live channel bottoms
-// out at DECLINE — fix/approval-reconnect-race).
+// eventual reply, off the per-connection RunChannel so it outlives a
+// reconnect. reply==nil means the dispatch is still running: a reissue that
+// finds it must NOT start a second dispatch — the running one answers on
+// whichever channel is current when it completes (respondRole). This is the
+// trust-critical case: an approval relay parks for minutes waiting on a
+// human, and a reconnect in that window must not mint a second relay +
+// ladder walk that races the first (a human ACCEPT then answered on the dead
+// channel while the live channel bottoms out at DECLINE).
 type inflightReq struct {
-	resp *agentcoordpb.CoordinatorResponse
+	reply *AgentReply
 }
 
-// handleAgentRequest serves one plane-2 request. request_id is the
+// HandleRequest serves one plane-2 request. request_id is the
 // responder-side idempotency key, scoped (role, request_id) on Coordinator so
-// it survives a reconnect: a completed request re-delivers its SAME response on
+// it survives a reconnect: a completed request re-delivers its SAME reply on
 // the current channel; an in-flight one is NOT re-dispatched — the original
 // dispatch answers on whichever channel is live when it finishes. Handlers run
 // on their own goroutine — a spawn (or a human-facing approval relay) can take
 // seconds to minutes and must not block the stream's recv loop.
-func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentRequest) {
-	reqID := req.GetRequestId()
+func (c *Coordinator) HandleRequest(ch *RunChannel, req AgentRequest) {
+	reqID := req.RequestID
 	if reqID == "" {
-		c.respond(ch, &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, "request_id is required")})
+		c.respond(ch, AgentReply{Err: fmt.Errorf("%w: request_id is required", ErrInvalidRequest)})
 		return
 	}
 	key := reqKey{role: ch.role, reqID: reqID}
@@ -560,15 +424,15 @@ func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentReq
 		c.reqTrack = make(map[reqKey]*inflightReq)
 	}
 	if tr := c.reqTrack[key]; tr != nil {
-		resp := tr.resp
+		reply := tr.reply
 		c.mu.Unlock()
-		if resp != nil {
-			// Already answered: re-deliver the SAME response on the CURRENT
+		if reply != nil {
+			// Already answered: re-deliver the SAME reply on the CURRENT
 			// channel (a reconnect dropped the original, or a duplicate frame
 			// arrived on one live stream). Idempotent by construction.
-			c.respondRole(ch.role, resp)
+			c.respondRole(ch.role, *reply)
 		}
-		// resp==nil: the original dispatch is still in flight (e.g. an approval
+		// reply==nil: the original dispatch is still in flight (e.g. an approval
 		// relay awaiting a human). It owns the answer and delivers it on the
 		// then-current channel — do NOT start a second dispatch.
 		return
@@ -578,47 +442,54 @@ func (c *Coordinator) handleAgentRequest(ch *runChan, req *agentcoordpb.AgentReq
 	c.mu.Unlock()
 
 	// ch.id is the role's stable identity (same credential across reconnect);
-	// the response is routed to whatever channel is CURRENT at completion, not
+	// the reply is routed to whatever channel is CURRENT at completion, not
 	// this ch, which may have died mid-dispatch.
 	id := ch.id
 	role := ch.role
 	c.goTracked(func() {
-		resp := c.serveAgentRequest(id, req)
-		resp.RequestId = reqID
+		reply := c.serveAgentRequest(id, req)
+		reply.RequestID = reqID
 		c.mu.Lock()
-		tr.resp = resp
+		tr.reply = &reply
 		c.mu.Unlock()
-		c.respondRole(role, resp)
+		c.respondRole(role, reply)
 	})
 }
 
-// responseQueueWindow bounds how long a plane-2 response waits for room on a
+// RefuseRequest answers a request the wire could not decode: the refusal is
+// correlated to the request id like any reply, but never dispatched and never
+// tracked — a frame that cannot mean a request has nothing to reissue.
+func (c *Coordinator) RefuseRequest(ch *RunChannel, requestID string, err error) {
+	c.respond(ch, AgentReply{RequestID: requestID, Err: err})
+}
+
+// responseQueueWindow bounds how long a plane-2 reply waits for room on a
 // saturated writer pump before it is given up on. The wait itself never runs on
 // the channel's receive goroutine — see respond.
 const responseQueueWindow = 5 * time.Second
 
-// respond queues one response frame on the channel's writer pump.
+// respond queues one reply frame on the channel's writer pump.
 //
 // A saturated pump must NOT block the caller. respond runs on the
 // channel's own RECEIVE goroutine for two paths — a request arriving with no
-// request_id, and re-delivery of an already-cached response to a reissue — and
+// request_id, and re-delivery of an already-cached reply to a reissue — and
 // waiting there stalls every inbound frame on that channel behind one slow
 // writer: acks, mail-consumption facts, park and turn-state transitions. The
 // bounded wait is therefore handed to a tracked goroutine, which is also what
 // makes the wait worth anything: a pump that drains inside the window now
-// DELIVERS the response instead of dropping it after five seconds of holding
+// DELIVERS the reply instead of dropping it after five seconds of holding
 // the receive loop still.
 //
-// Ordering is not a casualty: every response is correlated by request_id
+// Ordering is not a casualty: every reply is correlated by request_id
 // (reqTrack), so one that is overtaken while its pump was full is still matched
 // to its own request.
 //
-// The give-up notice states what actually happens, which the old wording did
-// not: the runner does not reissue on a live channel — Home.Request is bounded
-// by its own defaultRequestTimeout and fails the call — and only a RECONNECT
-// reissues, at which point reqTrack re-delivers the cached response.
-func (c *Coordinator) respond(ch *runChan, resp *agentcoordpb.CoordinatorResponse) {
-	frame := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Response{Response: resp}}
+// The give-up notice states what actually happens: the runner does not
+// reissue on a live channel — its request is bounded by its own timeout and
+// fails the call — and only a RECONNECT reissues, at which point reqTrack
+// re-delivers the cached reply.
+func (c *Coordinator) respond(ch *RunChannel, reply AgentReply) {
+	frame := OutFrame{Reply: &reply}
 	select {
 	case ch.send <- frame:
 		return
@@ -636,20 +507,20 @@ func (c *Coordinator) respond(ch *runChan, resp *agentcoordpb.CoordinatorRespons
 	})
 }
 
-// respondRole queues a response on the role's CURRENT live channel — the
+// respondRole queues a reply on the role's CURRENT live channel — the
 // reconnect-safe sibling of respond. A dispatch that outlived the channel it
 // arrived on (an approval relay that waited minutes for a human, across a
 // reconnect) must answer on whatever channel is live NOW, never the dead one it
 // started on. No live channel: drop it — the runner reissues on its next
-// reconnect and reqTrack re-delivers the cached response then.
-func (c *Coordinator) respondRole(role string, resp *agentcoordpb.CoordinatorResponse) {
+// reconnect and reqTrack re-delivers the cached reply then.
+func (c *Coordinator) respondRole(role string, reply AgentReply) {
 	c.mu.Lock()
 	ch := c.chans[role]
 	c.mu.Unlock()
 	if ch == nil {
 		return
 	}
-	c.respond(ch, resp)
+	c.respond(ch, reply)
 }
 
 // clearReqTrack drops a role's plane-2 idempotency records at the terminal
@@ -666,82 +537,38 @@ func (c *Coordinator) clearReqTrack(role string) {
 	c.mu.Unlock()
 }
 
-// serveAgentRequest maps plane-2 request kinds onto the EXISTING B1 stores —
-// thin translation, the stores do not change.
-func (c *Coordinator) serveAgentRequest(caller Identity, req *agentcoordpb.AgentRequest) *agentcoordpb.CoordinatorResponse {
-	switch kind := req.GetKind().(type) {
-	case *agentcoordpb.AgentRequest_PeerSend:
-		// agent_send never reaches the wire: it is a LOCAL file write in the
-		// runner (Home.sendPeerViaSpool), routed when the coordinator sweeps.
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented,
-			"agent_send is a local spool write at the runner and is never served here; a runner that sent it over the wire is older than this coordinator")}
-	case *agentcoordpb.AgentRequest_SpawnAgent:
-		return c.serveSpawnAgent(caller, kind.SpawnAgent)
-	case *agentcoordpb.AgentRequest_ListRuns:
-		return c.serveListRuns(caller, kind.ListRuns)
-	case *agentcoordpb.AgentRequest_StopRun:
+// serveAgentRequest dispatches one plane-2 request kind onto its verb — thin
+// translation; the verbs do not change.
+func (c *Coordinator) serveAgentRequest(caller Identity, req AgentRequest) AgentReply {
+	switch kind := req.Kind.(type) {
+	case SpawnRequest:
+		out, err := c.Spawn(c.baseCtx, caller, kind)
+		if err != nil {
+			return AgentReply{Err: err}
+		}
+		return AgentReply{Message: out.Disposition, Result: out}
+	case RosterRequest:
+		return c.serveRoster(caller, kind)
+	case StopRun:
 		// The bulk shape waits on the drain, bounded; baseCtx is the only
 		// ctx a plane-2 dispatch has, and Close settles the drain anyway.
-		return c.serveStopRun(c.baseCtx, caller, kind.StopRun)
-	case *agentcoordpb.AgentRequest_ControlRun:
+		return c.serveStopRun(c.baseCtx, caller, kind)
+	case ControlRequest:
 		// Same ctx reasoning: each verb applies its own budget to baseCtx.
-		return c.serveControlRun(c.baseCtx, caller, kind.ControlRun)
-	case *agentcoordpb.AgentRequest_Host:
-		return c.serveHost(caller, kind.Host)
-	default:
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, "request kind not offered in this window")}
-	}
-}
-
-// spawnInputString reads a STRING value out of agent_run's free-form input
-// Struct. A key that is absent yields "" — the caller said nothing, and every
-// consumer treats that as "defer to the configured default".
-//
-// A key that is PRESENT but carries a non-string JSON value is an ERROR.
-// structpb.Value.GetStringValue() answers "" for every other kind, which
-// makes `{"dirty_tree_handler": 4}` indistinguishable from omitting the key —
-// and these keys select postures whose unset path has a default that writes
-// to the user's repository. Unset and unusable are different inputs and get
-// different answers.
-func spawnInputString(in *structpb.Struct, key string) (string, error) {
-	v, ok := in.GetFields()[key]
-	if !ok {
-		return "", nil
-	}
-	sv, ok := v.GetKind().(*structpb.Value_StringValue)
-	if !ok {
-		return "", fmt.Errorf("agent_run: input.%s must be a string (got %s)", key, v.String())
-	}
-	return sv.StringValue, nil
-}
-
-// serveSpawnAgent is agent_run on the wire: the frame decodes into a
-// SpawnRequest (role = the agent, input.prompt = the briefing, and the
-// optional per-call axis overrides input.workspace / input.dirty_tree_handler
-// riding the same free-form Struct), and the Spawn verb validates it — the
-// one site. This handler only DECODES: a Struct value of the wrong JSON kind
-// is the transport's refusal, since the verb never sees a Struct.
-func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAgentRequest) *agentcoordpb.CoordinatorResponse {
-	sr := SpawnRequest{Agent: req.GetRole()}
-	if in := req.GetInput(); in != nil {
-		for key, dst := range map[string]*string{"prompt": &sr.Prompt, "workspace": &sr.Workspace, "dirty_tree_handler": &sr.DirtyTree} {
-			v, err := spawnInputString(in, key)
-			if err != nil {
-				return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, err.Error())}
-			}
-			*dst = v
+		by := ControlInitiator{Kind: InitiatorAgent, Harp: caller.Harp}
+		out, err := c.Control(c.baseCtx, by, kind)
+		if err != nil {
+			return AgentReply{Err: fmt.Errorf("%s: %w", ControlToolName(kind.Verb), err)}
 		}
-	}
-	out, err := c.Spawn(c.baseCtx, caller, sr)
-	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
-	}
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(out.Disposition),
-		Kind: &agentcoordpb.CoordinatorResponse_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentResult{
-			ChildRunId:   out.RunID,
-			ChildAgentId: out.Harp,
-		}},
+		return AgentReply{Message: controlDisposition(kind, out), Result: out}
+	case HostRequest:
+		res, err := c.Host(c.baseCtx, caller, kind)
+		if err != nil {
+			return AgentReply{Err: err}
+		}
+		return AgentReply{Result: res}
+	default:
+		return AgentReply{Err: ErrUnsupportedRequest}
 	}
 }
 
@@ -785,28 +612,24 @@ func (c *Coordinator) settledFailureCause(runID string) string {
 	return cause
 }
 
-// serveListRuns is the roster: the caller's children from the roster/runs
+// serveRoster is the roster: the caller's children from the roster/runs
 // folds (single state, N transports — consumer.go's listRunsSnapshot is the
-// shared projection; D1's ConsumerService is a fourth transport onto the
+// shared projection; the ConsumerService is a further transport onto the
 // same state).
-func (c *Coordinator) serveListRuns(caller Identity, req *agentcoordpb.ListRunsRequest) *agentcoordpb.CoordinatorResponse {
+func (c *Coordinator) serveRoster(caller Identity, req RosterRequest) AgentReply {
 	if caller.IsChild() {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, "roster: only the coordinating session may list its children")}
+		return AgentReply{Err: ErrRosterIsTheOwners}
 	}
-	result := c.listRunsSnapshot(req.GetIncludeTerminal(), req.GetRole())
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(""),
-		Kind:   &agentcoordpb.CoordinatorResponse_ListRuns{ListRuns: result},
-	}
+	return AgentReply{Result: c.listRunsSnapshot(req.IncludeTerminal, req.Role)}
 }
 
 // serveStopRun is agent_stop on the wire, in its two shapes. With a run_id
 // the target is resolved to its harp and ownership-checked against the
 // REQUESTER's lineage — only the run's parent may stop it. With NO run_id it
 // is the bulk sweep, whose reason the Stop verb requires.
-func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req *agentcoordpb.StopRun) *agentcoordpb.CoordinatorResponse {
-	sr := StopRequest{Reason: req.GetReason()}
-	if runID := req.GetRunId(); runID != "" {
+func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req StopRun) AgentReply {
+	sr := StopRequest{Reason: req.Reason}
+	if runID := req.RunID; runID != "" {
 		var rec *RunRecord
 		c.runs.View(func() {
 			if r := c.runsF.run(runID); r != nil {
@@ -815,77 +638,13 @@ func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req *ag
 			}
 		})
 		if rec == nil || rec.ParentHarp != caller.Harp {
-			return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
+			return AgentReply{Err: refusal(ErrNotAChild, "agent_stop: run %q is not a child of this session", runID)}
 		}
 		sr.Harp = rec.Harp
 	}
 	out, err := c.Stop(ctx, caller, sr)
 	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
+		return AgentReply{Err: err}
 	}
-	result := &agentcoordpb.StopRunResult{}
-	for _, sc := range out.Children {
-		result.Children = append(result.Children, &agentcoordpb.StopRunResult_Child{
-			Harp: sc.Harp, RunId: sc.RunID, Agent: sc.Agent, Outcome: sc.Outcome, Detail: sc.Detail,
-		})
-	}
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(out.Disposition),
-		Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: result},
-	}
-}
-
-// serveCustom relays a host-resident tool to its coordinator-side handler,
-// under the 4MiB response-size watch.
-// serveHost decodes the typed host frame, runs the Host verb and encodes
-// the answer; the frame's Struct halves are the tool's own JSON objects.
-func (c *Coordinator) serveHost(caller Identity, req *agentcoordpb.HostRequest) *agentcoordpb.CoordinatorResponse {
-	args, err := protojson.Marshal(req.GetArgs())
-	if err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.InvalidArgument, fmt.Sprintf("%s: decode args: %v", req.GetTool(), err))}
-	}
-	res, err := c.Host(c.baseCtx, caller, HostRequest{Tool: req.GetTool(), Args: args})
-	switch {
-	case errors.Is(err, ErrNoHostApp), errors.Is(err, ErrUnknownHostTool):
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unimplemented, err.Error())}
-	case errors.Is(err, ErrHostAnswerTooLarge):
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.ResourceExhausted, err.Error())}
-	case err != nil:
-		return &agentcoordpb.CoordinatorResponse{Status: statusFromErr(err)}
-	}
-	body := &structpb.Struct{}
-	if err := protojson.Unmarshal(res.Body, body); err != nil {
-		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Internal, fmt.Sprintf("%s: encode result: %v", req.GetTool(), err))}
-	}
-	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(""),
-		Kind:   &agentcoordpb.CoordinatorResponse_Host{Host: &agentcoordpb.HostResult{Body: body}},
-	}
-}
-
-// --- small helpers -----------------------------------------------------------
-
-func okStatus(msg string) *rpcstatus.Status {
-	return &rpcstatus.Status{Code: int32(codes.OK), Message: msg}
-}
-
-func statusErr(code codes.Code, msg string) *rpcstatus.Status {
-	return &rpcstatus.Status{Code: int32(code), Message: msg}
-}
-
-// statusFromErr maps a store/verb error onto a plane-2 status. Typed mailbox
-// errors keep their vocabulary; everything else is INTERNAL with the message.
-func statusFromErr(err error) *rpcstatus.Status {
-	code := codes.Internal
-	switch {
-	case errors.Is(err, ErrPeerRouting):
-		code = codes.PermissionDenied
-	case errors.Is(err, ErrRecvTimeout):
-		code = codes.DeadlineExceeded
-	case errors.Is(err, ErrSenderMailKind), errors.Is(err, ErrInvalidRequest):
-		code = codes.InvalidArgument
-	case errors.Is(err, ErrDraining):
-		code = codes.Unavailable
-	}
-	return statusErr(code, err.Error())
+	return AgentReply{Message: out.Disposition, Result: out}
 }

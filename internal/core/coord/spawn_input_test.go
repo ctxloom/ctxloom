@@ -44,10 +44,10 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 	// SPELLING and not of some unrelated precondition.
 	t.Run("control: a declared member reaches the spawned plan", func(t *testing.T) {
 		sp, c := newWorker(t)
-		resp := c.serveSpawnAgent(ownerIdentity(), &agentcoordpb.SpawnAgentRequest{
+		resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{
 			Role:  "worker",
 			Input: spawnInput(t, map[string]any{"prompt": "task", "dirty_tree_handler": "stale"}),
-		})
+		}}})
 		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 		assert.Equal(t, launch.DirtyTreeHandlerStale, sp.lastDirtyTreeHandler())
@@ -55,10 +55,10 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 
 	t.Run("a typo is refused at the verb and spawns nothing", func(t *testing.T) {
 		sp, c := newWorker(t)
-		resp := c.serveSpawnAgent(ownerIdentity(), &agentcoordpb.SpawnAgentRequest{
+		resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{
 			Role:  "worker",
 			Input: spawnInput(t, map[string]any{"prompt": "task", "dirty_tree_handler": "fial"}),
-		})
+		}}})
 		assert.EqualValues(t, codes.InvalidArgument, resp.GetStatus().GetCode())
 		assert.Contains(t, resp.GetStatus().GetMessage(), "fial", "the refusal quotes what the caller typed")
 		assert.Contains(t, resp.GetStatus().GetMessage(), "commit|copy|stale|fail", "and names the legal values")
@@ -70,10 +70,10 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 	// the default that commits. Present-but-wrong-type is its own input.
 	t.Run("a non-string value is refused rather than read as unset", func(t *testing.T) {
 		sp, c := newWorker(t)
-		resp := c.serveSpawnAgent(ownerIdentity(), &agentcoordpb.SpawnAgentRequest{
+		resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{
 			Role:  "worker",
 			Input: spawnInput(t, map[string]any{"prompt": "task", "dirty_tree_handler": true}),
-		})
+		}}})
 		assert.EqualValues(t, codes.InvalidArgument, resp.GetStatus().GetCode())
 		assert.Contains(t, resp.GetStatus().GetMessage(), "must be a string")
 		assert.Equal(t, 0, sp.spawnCount())
@@ -84,10 +84,10 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 	// typo is reported as a child that died rather than as a bad argument.
 	t.Run("a typo'd workspace is refused at the verb too", func(t *testing.T) {
 		sp, c := newWorker(t)
-		resp := c.serveSpawnAgent(ownerIdentity(), &agentcoordpb.SpawnAgentRequest{
+		resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{
 			Role:  "worker",
 			Input: spawnInput(t, map[string]any{"prompt": "task", "workspace": "wroktree"}),
-		})
+		}}})
 		assert.EqualValues(t, codes.InvalidArgument, resp.GetStatus().GetCode())
 		assert.Contains(t, resp.GetStatus().GetMessage(), "wroktree")
 		assert.Contains(t, resp.GetStatus().GetMessage(), "none|worktree")
@@ -98,10 +98,10 @@ func TestServeSpawnAgent_DirtyTreeHandlerParsedAtTheVerb(t *testing.T) {
 	// override, and the project default still decides downstream.
 	t.Run("omitting the key still carries no override", func(t *testing.T) {
 		sp, c := newWorker(t)
-		resp := c.serveSpawnAgent(ownerIdentity(), &agentcoordpb.SpawnAgentRequest{
+		resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_SpawnAgent{SpawnAgent: &agentcoordpb.SpawnAgentRequest{
 			Role:  "worker",
 			Input: spawnInput(t, map[string]any{"prompt": "task"}),
-		})
+		}}})
 		require.EqualValues(t, codes.OK, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 		require.Eventually(t, func() bool { return sp.spawnCount() == 1 }, conformanceWait, 10*time.Millisecond)
 		assert.Empty(t, sp.lastDirtyTreeHandler())

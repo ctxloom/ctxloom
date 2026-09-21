@@ -178,7 +178,7 @@ func (eh *EngineHost) pauseRun(req *agentcoordpb.PauseRun) *agentcoordpb.RunnerR
 	}
 	eh.mu.Unlock()
 	return &agentcoordpb.RunnerResponse{
-		Status: okStatus(""),
+		Status: OKStatus(""),
 		Kind:   &agentcoordpb.RunnerResponse_PauseRun{PauseRun: &agentcoordpb.PauseRunResult{NewlyPaused: newly}},
 	}
 }
@@ -200,7 +200,7 @@ func (eh *EngineHost) resumeRun(req *agentcoordpb.ResumeRun) *agentcoordpb.Runne
 		close(gate)
 	}
 	return &agentcoordpb.RunnerResponse{
-		Status: okStatus(""),
+		Status: OKStatus(""),
 		Kind:   &agentcoordpb.RunnerResponse_ResumeRun{ResumeRun: &agentcoordpb.ResumeRunResult{NewlyResumed: gate != nil}},
 	}
 }
@@ -213,7 +213,7 @@ func (eh *EngineHost) checkRunID(runID, what string) *agentcoordpb.RunnerRespons
 	if runID == eh.runID {
 		return nil
 	}
-	return &agentcoordpb.RunnerResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf(
+	return &agentcoordpb.RunnerResponse{Status: StatusErr(codes.PermissionDenied, fmt.Sprintf(
 		"%s named run %s, but this runner hosts run %s (A9 correlation)", what, runID, eh.runID))}
 }
 
@@ -230,19 +230,19 @@ func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerRespon
 	}
 	eh.mu.Unlock()
 	if !started {
-		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.FailedPrecondition, "turn: no run is driven on this runner yet")}
+		return &agentcoordpb.RunnerResponse{Status: StatusErr(codes.FailedPrecondition, "turn: no run is driven on this runner yet")}
 	}
 	if t.GetPrompt() == "" {
-		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.InvalidArgument, "turn: a turn needs a prompt")}
+		return &agentcoordpb.RunnerResponse{Status: StatusErr(codes.InvalidArgument, "turn: a turn needs a prompt")}
 	}
 	done := make(chan engine.TurnResult, 1)
 	if err := eh.enqueueTurn(eh.baseCtx, turnTag{done: done}, t.GetPrompt()); err != nil {
-		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Unavailable, "turn: "+err.Error())}
+		return &agentcoordpb.RunnerResponse{Status: StatusErr(codes.Unavailable, "turn: "+err.Error())}
 	}
 	select {
 	case res := <-done:
-		return &agentcoordpb.RunnerResponse{Status: okStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
+		return &agentcoordpb.RunnerResponse{Status: OKStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
 	case <-eh.baseCtx.Done():
-		return &agentcoordpb.RunnerResponse{Status: statusErr(codes.Canceled, "turn: the runner is shutting down")}
+		return &agentcoordpb.RunnerResponse{Status: StatusErr(codes.Canceled, "turn: the runner is shutting down")}
 	}
 }

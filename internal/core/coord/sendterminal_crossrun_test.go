@@ -5,22 +5,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
-func terminalEvent(seq uint64, runID string) *agentcoordpb.AgentEvent {
-	return &agentcoordpb.AgentEvent{
-		Seq: seq, RunId: runID,
-		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}},
-	}
+func terminalEvent(seq uint64, runID string) Event {
+	return Event{Seq: seq, RunID: runID, Payload: RunCompleted{}}
 }
 
-func nonTerminalEvent(seq uint64, runID string) *agentcoordpb.AgentEvent {
-	return &agentcoordpb.AgentEvent{
-		Seq: seq, RunId: runID,
-		Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{Name: "fill"}},
-	}
+func nonTerminalEvent(seq uint64, runID string) Event {
+	return Event{Seq: seq, RunID: runID, Payload: CustomEvent{Name: "fill"}}
 }
 
 // sendTerminal's eviction was payload-blind (`case <-ch:` with no inspection).
@@ -34,7 +26,7 @@ func nonTerminalEvent(seq uint64, runID string) *agentcoordpb.AgentEvent {
 // The eviction must sacrifice only a recoverable NON-terminal, never another
 // run's terminal.
 func TestSendTerminal_EvictionNeverConsumesAnotherRunsTerminal(t *testing.T) {
-	ch := make(chan *agentcoordpb.AgentEvent, 2)
+	ch := make(chan Event, 2)
 	// Head is run B's terminal (the event the blind eviction used to destroy),
 	// followed by a recoverable non-terminal. The ring is now full.
 	ch <- terminalEvent(1, "run-B")
@@ -50,7 +42,7 @@ func TestSendTerminal_EvictionNeverConsumesAnotherRunsTerminal(t *testing.T) {
 	for len(ch) > 0 {
 		ev := <-ch
 		if isTerminal(ev) {
-			terminals = append(terminals, ev.GetRunId())
+			terminals = append(terminals, ev.RunID)
 		}
 	}
 	assert.Contains(t, terminals, "run-B",
@@ -63,7 +55,7 @@ func TestSendTerminal_EvictionNeverConsumesAnotherRunsTerminal(t *testing.T) {
 // evict, it — and only it — is sacrificed, so cross-run terminal protection
 // does not come at the cost of never making room.
 func TestSendTerminal_EvictsTheNonTerminalNotTheTerminal(t *testing.T) {
-	ch := make(chan *agentcoordpb.AgentEvent, 2)
+	ch := make(chan Event, 2)
 	ch <- terminalEvent(1, "run-B") // must survive
 	ch <- nonTerminalEvent(2, "run-A")
 
@@ -73,7 +65,7 @@ func TestSendTerminal_EvictsTheNonTerminalNotTheTerminal(t *testing.T) {
 	// non-terminal (seq 2) is the one that was dropped.
 	seqs := map[uint64]bool{}
 	for len(ch) > 0 {
-		seqs[(<-ch).GetSeq()] = true
+		seqs[(<-ch).Seq] = true
 	}
 	assert.False(t, seqs[2], "the recoverable non-terminal (seq 2) must be the evicted one")
 	assert.True(t, seqs[1], "run B's terminal (seq 1) must survive")

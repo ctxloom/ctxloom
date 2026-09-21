@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -317,7 +316,7 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 		return coord.Resolved{}, err
 	}
 	plan.Launch = l
-	return coord.Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return coord.Resolved{Launch: l}, nil
 }
 
 // Start starts the runner for a resolved launch through StartRunner over the

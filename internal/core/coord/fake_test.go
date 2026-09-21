@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -273,7 +272,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 	s.mu.Lock()
 	s.launches = append(s.launches, l)
 	s.mu.Unlock()
-	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return Resolved{Launch: l}, nil
 }
 
 // Start spawns the runner half for real: an in-process Home dialing the
@@ -751,5 +750,5 @@ func ownerLaunch(harp, backend, label, model, workDir string, perm agent.Permiss
 // ownerRun is the owner-owned run over l: the launch, its wire form, and
 // whether it is the --print single turn.
 func ownerRun(l launch.Launch, oneShot bool) OwnerRun {
-	return OwnerRun{Launch: l, Wire: coordgrpc.EncodeLaunch(l), OneShot: oneShot}
+	return OwnerRun{Launch: l, OneShot: oneShot}
 }

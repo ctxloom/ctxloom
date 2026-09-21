@@ -58,7 +58,7 @@ type Home struct {
 	// requests is the one bidiSession scaffold's correlation for the
 	// requests this Home issues over RunChannel (its send queue is unused:
 	// the stream reconnects, so frames are written directly under sendMu).
-	requests bidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse]
+	requests BidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse]
 
 	buffer   []*agentcoordpb.PeerMessage
 	consumed map[string]bool
@@ -253,7 +253,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 		conn:        conn,
 		ackCh:       make(chan struct{}),
 		redial:      make(chan struct{}),
-		requests:    newBidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse](cancel, 0),
+		requests:    NewBidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse](cancel, 0),
 		consumed:    make(map[string]bool),
 		turnPending: make(map[string]bool),
 		acking:      make(map[string]bool),
@@ -457,7 +457,7 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 	for _, ev := range events {
 		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Event{Event: ev}})
 	}
-	for _, r := range h.requests.outstanding() {
+	for _, r := range h.requests.Outstanding() {
 		h.sendLocked(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_Request{Request: r}})
 	}
 	h.sendMu.Unlock()
@@ -532,7 +532,7 @@ func (h *Home) handleCoordinatorFrame(frame *agentcoordpb.CoordinatorFrame) {
 	case *agentcoordpb.CoordinatorFrame_Ack:
 		h.advanceAck(kind.Ack.GetCommittedSeq())
 	case *agentcoordpb.CoordinatorFrame_Response:
-		h.requests.resolve(kind.Response.GetRequestId(), kind.Response)
+		h.requests.Resolve(kind.Response.GetRequestId(), kind.Response)
 	case *agentcoordpb.CoordinatorFrame_Notice:
 		if sc := kind.Notice.GetSpoolChanged(); sc != nil {
 			h.handleSpoolChanged(sc)
@@ -834,7 +834,7 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	if resp, handled := h.sendPeerViaSpool(req); handled {
 		return resp, nil
 	}
-	ch, ok := h.requests.register(req.GetRequestId(), req)
+	ch, ok := h.requests.Register(req.GetRequestId(), req)
 	if !ok {
 		return nil, ErrCoordinatorUnreachable
 	}
@@ -850,7 +850,7 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 	case resp := <-ch:
 		return resp, nil
 	case <-ctx.Done():
-		h.requests.withdraw(req.GetRequestId())
+		h.requests.Withdraw(req.GetRequestId())
 		return nil, h.requestFailure(ctx, time.Since(started))
 	case <-h.ctx.Done():
 		return nil, ErrCoordinatorUnreachable

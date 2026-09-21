@@ -71,7 +71,7 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	seq := ch.ackSeq + 1
 	c.mu.Unlock()
 	require.NotNil(t, ch)
-	c.handleAgentEvent(ch, &agentcoordpb.AgentEvent{
+	c.HandleEvent(ch, EventFromWire(&agentcoordpb.AgentEvent{
 		RunId: out.RunID,
 		Seq:   seq,
 		Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
@@ -80,11 +80,11 @@ func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 				Text:   engineDeathTail,
 			},
 		}},
-	})
+	}))
 
 	// The runner then reports the process-level exit (CauseRunnerExit), which
 	// terminates the run and mails the parent.
-	c.handleRunExited(credHash, &agentcoordpb.RunExited{RunId: out.RunID, TerminalEventSeen: true})
+	c.RunnerExited(credHash, RunExitedFromWire(&agentcoordpb.RunExited{RunId: out.RunID, TerminalEventSeen: true}))
 
 	msgs, err := c.AgentRecv(context.Background(), ownerIdentity(), 2*time.Second)
 	require.NoError(t, err)

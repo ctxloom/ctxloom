@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -49,32 +46,19 @@ func (c *Coordinator) Turn(ctx context.Context, runID string, t engine.Turn) (en
 	if !live {
 		return engine.TurnResult{}, fmt.Errorf("%w: %s", ErrNoLiveRun, runID)
 	}
-	resp, err := c.requestRunner(ctx, credHash, &agentcoordpb.RunnerRequest{
-		Kind: &agentcoordpb.RunnerRequest_Turn{Turn: &agentcoordpb.Turn{Prompt: t.Prompt, Resume: t.Resume}},
-	})
+	resp, err := c.requestRunner(ctx, credHash, RunnerRequest{Kind: TurnRequest{Turn: t}})
 	if err != nil {
 		return engine.TurnResult{}, fmt.Errorf("turn %s: %w", runID, err)
 	}
-	if st := resp.GetStatus(); st.GetCode() != int32(codes.OK) {
-		return engine.TurnResult{}, fmt.Errorf("turn %s refused: %s", runID, st.GetMessage())
+	if resp.Err != nil {
+		return engine.TurnResult{}, fmt.Errorf("turn %s refused: %s", runID, resp.Err.Error())
 	}
-	res := resp.GetTurn()
-	return engine.TurnResult{NativeKey: res.GetNativeKey(), Answer: res.GetAnswer()}, nil
+	res, _ := resp.Kind.(TurnResult)
+	return res.Result, nil
 }
 
 // idleReaper sweeps every idleReapInterval until the coordinator closes.
-func (c *Coordinator) idleReaper() {
-	t := time.NewTicker(idleReapInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
-			c.reapIdleRuns()
-		case <-c.baseCtx.Done():
-			return
-		}
-	}
-}
+func (c *Coordinator) idleReaper() { c.every(idleReapInterval, c.reapIdleRuns) }
 
 // reapIdleRuns is the idle reaper's sweep: every live run whose runner has
 // sat idle (a turn boundary passed, no turn since) for idleTimeout is ended

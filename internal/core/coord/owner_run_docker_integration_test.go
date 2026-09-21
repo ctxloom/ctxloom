@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -161,14 +160,14 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	require.Equal(t, ownerHarp, outcome.Harp)
 
 	// (2) Parent-less, owner-owned.
-	var info *agentcoordpb.ListRunsResult_RunInfo
-	for _, r := range c.ListRuns(true, "").GetRuns() {
-		if r.GetRunId() == outcome.RunID {
-			info = r
+	var info *RunInfo
+	for _, r := range c.ListRuns(true, "").Runs {
+		if r.RunID == outcome.RunID {
+			info = &r
 		}
 	}
 	require.NotNil(t, info)
-	assert.Equal(t, "", info.GetParentRunId(), "a top-level owner-owned run is parent-less")
+	assert.Equal(t, "", info.ParentRunID, "a top-level owner-owned run is parent-less")
 
 	// (1) PAYLOAD: the first-turn mock echo crosses back over Transport 2.
 	wantFirst := "mock chat: " + seed
@@ -293,7 +292,7 @@ type deltaCollector struct {
 	cancel chan struct{}
 }
 
-func newDeltaCollector(events <-chan *agentcoordpb.AgentEvent) *deltaCollector {
+func newDeltaCollector(events <-chan Event) *deltaCollector {
 	dc := &deltaCollector{byRun: map[string]*strings.Builder{}, final: map[string]bool{}, cancel: make(chan struct{})}
 	go func() {
 		for {
@@ -311,24 +310,24 @@ func newDeltaCollector(events <-chan *agentcoordpb.AgentEvent) *deltaCollector {
 	return dc
 }
 
-func (dc *deltaCollector) consume(ev *agentcoordpb.AgentEvent) {
+func (dc *deltaCollector) consume(ev Event) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-	switch p := ev.GetPayload().(type) {
-	case *agentcoordpb.AgentEvent_MessageStarted:
-		if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
-			dc.final[p.MessageStarted.GetMessageId()] = true
+	switch p := ev.Payload.(type) {
+	case MessageStarted:
+		if p.Channel == ChannelFinal {
+			dc.final[p.MessageID] = true
 		}
-	case *agentcoordpb.AgentEvent_MessageDelta:
-		if !dc.final[p.MessageDelta.GetMessageId()] {
+	case MessageDelta:
+		if !dc.final[p.MessageID] {
 			return
 		}
-		b := dc.byRun[ev.GetRunId()]
+		b := dc.byRun[ev.RunID]
 		if b == nil {
 			b = &strings.Builder{}
-			dc.byRun[ev.GetRunId()] = b
+			dc.byRun[ev.RunID] = b
 		}
-		b.WriteString(p.MessageDelta.GetText())
+		b.WriteString(p.Text)
 	}
 }
 

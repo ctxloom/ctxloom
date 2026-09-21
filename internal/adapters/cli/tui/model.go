@@ -867,7 +867,7 @@ func (m Model) approvalLines(height int) []string {
 	if sel, ok := m.selectedApproval(); ok {
 		lines = append(lines, "")
 		lines = append(lines, "harp: "+sel.Harp)
-		lines = append(lines, "kind: "+sel.Kind.String())
+		lines = append(lines, "kind: "+string(sel.Kind))
 		lines = append(lines, "title: "+sel.Title)
 		lines = append(lines, "expires in "+formatExpiresIn(sel.Deadline, m.src.now()))
 		lines = append(lines, "payload:")

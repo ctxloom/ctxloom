@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -97,8 +96,8 @@ func loadItemsSnapshot(rep report.Reporter, stateDir string) (snap itemsSnapshot
 // SCOPE_CHECKPOINT report — called from recordSummary AFTER the summary
 // fact itself is durably journaled (the checkpoint's own record must exist
 // before the snapshot that references it as the compaction point).
-func (c *Coordinator) maybeCheckpointOnSummary(s *agentcoordpb.Summary) {
-	if s.GetScope() != agentcoordpb.Summary_SCOPE_CHECKPOINT {
+func (c *Coordinator) maybeCheckpointOnSummary(s Summary) {
+	if s.Scope != ScopeCheckpoint {
 		return
 	}
 	c.writeItemsSnapshot()

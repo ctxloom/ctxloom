@@ -42,7 +42,7 @@ func TestItemKind_CoversEveryPayloadCase(t *testing.T) {
 		{"", nil},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, itemKind(tc.ev), "payload %T", tc.ev.GetPayload())
+		assert.Equal(t, tc.want, itemKind(EventFromWire(tc.ev)), "payload %T", tc.ev.GetPayload())
 	}
 }
 

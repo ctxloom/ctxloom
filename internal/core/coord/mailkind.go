@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // The mailbox `kind` vocabulary. It is CLOSED and split in two: kinds a SENDER
@@ -73,16 +71,24 @@ const (
 )
 
 // senderMailKinds is the vocabulary agent_send documents and accepts — the
-// enum's sender-allowed members in their mailbox spelling. Derived, not
-// listed: the wire enum is the single vocabulary and coord keeps no literal
-// of its own beside it.
-var senderMailKinds = agentcoordpb.LegacySenderKindNames()
+// sender-allowed members, in their mailbox spelling. This table is the
+// vocabulary's owner: the wire enum is a projection of it, and the wire
+// adapter's parity test holds the enum's sender-allowed members to exactly
+// this list, in this order.
+var senderMailKinds = []string{KindMessage, KindResult, KindError, KindQuestion}
 
 // reservedMailKinds are constructed by the coordinator only. Every one of them
 // asks the recipient to trust its provenance, so accepting one from a sender
-// would let the sender borrow the coordinator's authority. Derived from the
-// enum for the same reason senderMailKinds is.
-var reservedMailKinds = agentcoordpb.LegacyReservedKindNames()
+// would let the sender borrow the coordinator's authority. Owned here for the
+// same reason senderMailKinds is; the wire enum's reserved members are held
+// to this list.
+var reservedMailKinds = []string{KindApprovalRequest, KindUserInjected, KindUserControl, KindExited, KindSteer, KindReport, KindSummarize}
+
+// SenderMailKinds is the sender-allowed vocabulary, in wire order.
+func SenderMailKinds() []string { return append([]string(nil), senderMailKinds...) }
+
+// ReservedMailKinds is the coordinator-reserved vocabulary, in wire order.
+func ReservedMailKinds() []string { return append([]string(nil), reservedMailKinds...) }
 
 // ErrSenderMailKind rejects a sender-supplied mail kind outside the
 // sender-allowed vocabulary — including an absent one. Typed so the plane-2

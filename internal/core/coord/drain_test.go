@@ -91,13 +91,13 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 		c.mu.Lock()
 		seq := ch.ackSeq + 1
 		c.mu.Unlock()
-		c.handleAgentEvent(ch, &agentcoordpb.AgentEvent{
+		c.HandleEvent(ch, EventFromWire(&agentcoordpb.AgentEvent{
 			RunId: out.RunID,
 			Seq:   seq,
 			Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{
 				Result: &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED},
 			}},
-		})
+		}))
 		// ch.completed closes exactly when a run_completed item is journaled
 		// on this channel, so it is the one unambiguous receipt.
 		select {
@@ -112,10 +112,10 @@ func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	// entirely: this is the coordinator-side handler the RunnerChannel recv
 	// loop calls, driven directly so the race is deterministic, not a real
 	// scheduler gamble.
-	c.handleRunExited(credHash, &agentcoordpb.RunExited{
+	c.RunnerExited(credHash, RunExitedFromWire(&agentcoordpb.RunExited{
 		RunId:             out.RunID,
 		TerminalEventSeen: true,
-	})
+	}))
 
 	select {
 	case <-hookFired:

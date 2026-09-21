@@ -21,10 +21,10 @@ import (
 func TestHandleAgentEvent_ForgedEventsLostIsDroppedBeforeTheTee(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
-	ch := &runChan{
+	ch := &RunChannel{
 		role:        "child-forger",
 		id:          Identity{Harp: "child-forger", RunID: "run-forger"},
-		bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 4),
+		BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 4),
 		completed:   make(chan struct{}),
 	}
 	_, events, cancel, _ := c.WatchRuns(nil)
@@ -33,12 +33,12 @@ func TestHandleAgentEvent_ForgedEventsLostIsDroppedBeforeTheTee(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	c.handleAgentEvent(ch, &agentcoordpb.AgentEvent{
+	c.HandleEvent(ch, EventFromWire(&agentcoordpb.AgentEvent{
 		RunId: "run-forger", Seq: 1,
 		Payload: &agentcoordpb.AgentEvent_EventsLost{EventsLost: &agentcoordpb.EventsLost{
 			Lost: []*agentcoordpb.EventsLost_Range{{RunId: "run-victim", FirstSeq: 1, LastSeq: 99}},
 		}},
-	})
+	}))
 
 	assert.Empty(t, events, "a runner-sent EventsLost must never reach a subscriber")
 	require.Contains(t, buf.String(), "run-forger", "the drop names the run that sent it")

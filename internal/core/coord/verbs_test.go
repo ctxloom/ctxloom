@@ -87,11 +87,11 @@ func TestSendRequestFromWire_KindIngress(t *testing.T) {
 	var unknown agentcoordpb.PeerSendRequest
 	require.NoError(t, proto.Unmarshal([]byte{7 << 3, 99}, &unknown), "field 7 (kind), varint 99")
 	require.EqualValues(t, 99, unknown.GetKind(), "proto3 keeps the unrecognised number")
-	_, err := sendRequestFromWire(&unknown)
+	_, err := SendRequestFromWire(&unknown)
 	require.ErrorIs(t, err, ErrInvalidRequest)
 	assert.Contains(t, err.Error(), "99", "the refusal names the offending value")
 
-	sr, err := sendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x"})
+	sr, err := SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x"})
 	require.NoError(t, err)
 	assert.ErrorContains(t, sr.Validate(), "kind is required")
 
@@ -102,7 +102,7 @@ func TestSendRequestFromWire_KindIngress(t *testing.T) {
 		agentcoordpb.MessageKind_MESSAGE_KIND_EXITED,
 		agentcoordpb.MessageKind_MESSAGE_KIND_STEER,
 	} {
-		sr, err := sendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x", Kind: k})
+		sr, err := SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x", Kind: k})
 		require.NoError(t, err)
 		err = sr.Validate()
 		require.ErrorIs(t, err, ErrInvalidRequest, "%v", k)
@@ -114,10 +114,10 @@ func TestSendRequestFromWire_KindIngress(t *testing.T) {
 		agentcoordpb.MessageKind_MESSAGE_KIND_ERROR,
 		agentcoordpb.MessageKind_MESSAGE_KIND_QUESTION,
 	} {
-		sr, err := sendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x", Kind: k})
+		sr, err := SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x", Kind: k})
 		require.NoError(t, err)
 		assert.NoError(t, sr.Validate(), "%v", k)
 	}
-	_, err = sendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", ToRole: ParentAddress, Text: "x"})
+	_, err = SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", ToRole: ParentAddress, Text: "x"})
 	assert.ErrorContains(t, err, "exactly one of")
 }

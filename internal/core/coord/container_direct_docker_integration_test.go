@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -113,7 +112,7 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, s
 	l := ownerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
 	plan.Launch = l
-	return Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return Resolved{Launch: l}, nil
 }
 
 func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {

@@ -41,10 +41,10 @@ func TestRecordSummary_JournalFailureDoesNotClaimTheReportWasFiled(t *testing.T)
 		return
 	}
 
-	c.recordSummary("child-a", "run-1", 1, &agentcoordpb.Summary{
+	c.recordSummary("child-a", "run-1", 1, SummaryFromWire(&agentcoordpb.Summary{
 		Scope: agentcoordpb.Summary_SCOPE_CHECKPOINT,
 		Text:  "everything up to seq 40",
-	})
+	}))
 
 	assert.Empty(t, c.LatestReport("child-a"), "precondition: nothing was journaled")
 
@@ -73,10 +73,10 @@ func TestRecordSummary_SuccessStillAuditsAndCheckpoints(t *testing.T) {
 	require.NoError(t, c.Serve())
 	t.Cleanup(c.Close)
 
-	c.recordSummary("child-a", "run-1", 1, &agentcoordpb.Summary{
+	c.recordSummary("child-a", "run-1", 1, SummaryFromWire(&agentcoordpb.Summary{
 		Scope: agentcoordpb.Summary_SCOPE_CHECKPOINT,
 		Text:  "everything up to seq 40",
-	})
+	}))
 
 	if !assert.Contains(t, c.LatestReport("child-a"), "everything up to seq 40") {
 		return

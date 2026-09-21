@@ -519,13 +519,11 @@ func TestSpoolControl_PauseRefusesAnotherRunsId(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	resp, err := c.requestRunner(ctx, credHash, &agentcoordpb.RunnerRequest{
-		Kind: &agentcoordpb.RunnerRequest_PauseRun{PauseRun: &agentcoordpb.PauseRun{RunId: "some-other-run"}},
-	})
+	resp, err := c.requestRunner(ctx, credHash, RunnerRequest{Kind: PauseRun{RunID: "some-other-run"}})
 	require.NoError(t, err)
-	assert.NotEqualValues(t, 0, resp.GetStatus().GetCode(),
+	require.Error(t, resp.Err,
 		"a pause naming another run must be refused, not applied to the run that happens to be hosted here")
-	assert.Contains(t, resp.GetStatus().GetMessage(), "A9 correlation")
+	assert.Contains(t, resp.Err.Error(), "A9 correlation")
 
 	// And the refusal left the run RUNNING: mail still lands.
 	_, _, err = c.peerSend(ownerIdentity(), out.Harp, KindMessage, "still running", nil, "")

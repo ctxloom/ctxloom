@@ -1,11 +1,5 @@
 package coord
 
-import (
-	"google.golang.org/protobuf/reflect/protoreflect"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-)
-
 // Plane-1 ITEM journaling (Wave C1, per the pre-made journaling decision):
 // item events — message/tool-call lifecycle, run started/completed, status —
 // are contract-durable and journaled (items.jsonl), but with GROUP-FSYNC on
@@ -33,14 +27,14 @@ type itemFact struct {
 // unacked re-emission window).
 const itemFlushThreshold = 32
 
-// itemPayloadKinds is the set of AgentEvent payload oneof fields that ARE item
-// facts, named by their proto field name — which is also the kind string the
-// journal records, so the vocabulary cannot drift from the schema. An
-// ALLOWLIST, deliberately: the payloads left out are the ones with their own
-// durability/handling (custom, summary, artifact_produced), and a payload case
-// added to the proto later must be decided about rather than silently start
-// being journaled as an item.
-var itemPayloadKinds = map[protoreflect.Name]bool{
+// itemPayloadKinds is the set of event payload kinds that ARE item facts,
+// named by the kind string the journal records (Event.Kind — the wire's own
+// spelling of the payload case, so the vocabulary cannot drift from the
+// schema). An ALLOWLIST, deliberately: the payloads left out are the ones
+// with their own durability/handling (custom, summary, artifact_produced),
+// and a payload case added to the vocabulary later must be decided about
+// rather than silently start being journaled as an item.
+var itemPayloadKinds = map[string]bool{
 	"run_started":          true,
 	"step_started":         true,
 	"step_completed":       true,
@@ -56,20 +50,14 @@ var itemPayloadKinds = map[protoreflect.Name]bool{
 	"raw":                  true,
 }
 
-// agentEventPayload is AgentEvent's payload oneof descriptor, resolved once.
-var agentEventPayload = (&agentcoordpb.AgentEvent{}).ProtoReflect().Descriptor().Oneofs().ByName("payload")
-
-// itemKind names an AgentEvent's payload case — the fold's count key. "" marks
+// itemKind names an event's payload case — the fold's count key. "" marks
 // the payloads that are not item facts and the unknown/foreign ones.
-func itemKind(ev *agentcoordpb.AgentEvent) string {
-	if ev.GetPayload() == nil {
+func itemKind(ev Event) string {
+	kind := ev.Kind()
+	if !itemPayloadKinds[kind] {
 		return ""
 	}
-	set := ev.ProtoReflect().WhichOneof(agentEventPayload)
-	if set == nil || !itemPayloadKinds[set.Name()] {
-		return ""
-	}
-	return string(set.Name())
+	return kind
 }
 
 // itemIsDelta marks the storm kinds that buffer without forcing a flush.
@@ -78,12 +66,12 @@ func itemIsDelta(kind string) bool {
 }
 
 // itemChars measures a delta's size — the counted-not-materialized figure.
-func itemChars(ev *agentcoordpb.AgentEvent) int {
-	switch p := ev.GetPayload().(type) {
-	case *agentcoordpb.AgentEvent_MessageDelta:
-		return len(p.MessageDelta.GetText())
-	case *agentcoordpb.AgentEvent_ToolCallArgsDelta:
-		return len(p.ToolCallArgsDelta.GetArgsJsonFragment())
+func itemChars(ev Event) int {
+	switch p := ev.Payload.(type) {
+	case MessageDelta:
+		return len(p.Text)
+	case ToolCallArgsDelta:
+		return len(p.ArgsJSONFragment)
 	default:
 		return 0
 	}
@@ -91,10 +79,10 @@ func itemChars(ev *agentcoordpb.AgentEvent) int {
 
 // bufferItem appends one item fact to the channel's group-fsync buffer,
 // flushing at a boundary kind or a full buffer.
-func (c *Coordinator) bufferItem(ch *runChan, ev *agentcoordpb.AgentEvent, kind string) {
+func (c *Coordinator) bufferItem(ch *RunChannel, ev Event, kind string) {
 	fact := factAt(factItem, c.now(), itemFact{
 		RunID: ch.id.RunID,
-		Seq:   ev.GetSeq(),
+		Seq:   ev.Seq,
 		Kind:  kind,
 		Chars: itemChars(ev),
 	})
@@ -111,7 +99,7 @@ func (c *Coordinator) bufferItem(ch *runChan, ev *agentcoordpb.AgentEvent, kind 
 // window (the group-fsync), then advances the cumulative Ack through the
 // highest processed seq. A failed append advances nothing: the runner keeps
 // the events unacked and re-emits them on reconnect (the fold dedupes).
-func (c *Coordinator) flushItems(ch *runChan) {
+func (c *Coordinator) flushItems(ch *RunChannel) {
 	c.mu.Lock()
 	facts := ch.items
 	ch.items = nil

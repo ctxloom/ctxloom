@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,20 +46,21 @@ func TestIssueStartRun_CancelAbortsTheRoundTrip(t *testing.T) {
 	c.runners[credHash] = rs
 	c.mu.Unlock()
 
-	wire := coordgrpc.EncodeLaunch(ownerLaunch(rt.harp, plan.Backend, "fast", "test-model", t.TempDir(), agent.PermissionBypass))
+	l := ownerLaunch(rt.harp, plan.Backend, "fast", "test-model", t.TempDir(), agent.PermissionBypass)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- c.issueStartRun(ctx, rt, credHash, wire, "the first turn", "test-model", "", false) }()
+	go func() { done <- c.issueStartRun(ctx, rt, credHash, l, "the first turn", "test-model", "", false) }()
 
 	// Past the dial-home wait: the StartRun frame is on the runner's send
 	// queue, so the coordinator is parked on the RESPONSE — which is the
 	// exact window agent_stop could not reach.
 	select {
 	case frame := <-rs.send:
-		require.NotNil(t, frame.GetRequest().GetStartRun(), "the frame on the wire must be the StartRun")
-		assert.Equal(t, rt.runID, frame.GetRequest().GetStartRun().GetRunId())
+		sr, ok := frame.Kind.(StartRun)
+		require.True(t, ok, "the frame on the wire must be the StartRun")
+		assert.Equal(t, rt.runID, sr.RunID)
 	case <-time.After(startRunAbortBudget):
 		t.Fatal("StartRun was never issued, so this test never reached the window it is about")
 	}

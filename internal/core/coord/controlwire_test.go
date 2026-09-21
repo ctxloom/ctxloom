@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +68,7 @@ func controlRunAsync(t *testing.T, home *Home, verb any) <-chan *agentcoordpb.Co
 	go func() {
 		resp, err := home.Request(context.Background(), frame)
 		if err != nil {
-			resp = &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.Unavailable, "transport: "+err.Error())}
+			resp = &agentcoordpb.CoordinatorResponse{Status: StatusErr(codes.Unavailable, "transport: "+err.Error())}
 		}
 		out <- resp
 	}()
@@ -369,7 +370,7 @@ func TestControlStatus_MapsTypedCausesOnly(t *testing.T) {
 		{ErrAskTimeout, codes.DeadlineExceeded},
 		{errors.New("permission denied: something that only SAYS so"), codes.Internal},
 	} {
-		st := controlStatus("agent_x", errors.Join(tc.err))
+		st := StatusFromErr(fmt.Errorf("agent_x: %w", errors.Join(tc.err)))
 		assert.EqualValues(t, tc.code, st.GetCode(), tc.err.Error())
 		assert.True(t, strings.HasPrefix(st.GetMessage(), "agent_x: "), "the tool names itself in the message")
 	}

@@ -1,7 +1,6 @@
 package coord
 
 import (
-	"fmt"
 	"sync/atomic"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -67,96 +66,6 @@ func (s *spoolDoorbellCounters) stats() SpoolDoorbellStats {
 	return SpoolDoorbellStats{Dropped: s.dropped.Load(), Rejected: s.rejected.Load()}
 }
 
-// spoolDirToWire is the ONE table mapping the closed spool.Dir set onto the
-// closed wire enum. It is a map rather than a switch so that the inverse can be
-// derived from it (below) instead of hand-written — two hand-kept tables are
-// two chances to disagree, and a disagreement here silently routes a message
-// into the wrong directory.
-var spoolDirToWire = map[spool.Dir]agentcoordpb.SpoolDir{
-	spool.DirIn:          agentcoordpb.SpoolDir_SPOOL_DIR_IN,
-	spool.DirOut:         agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
-	spool.DirInConsumed:  agentcoordpb.SpoolDir_SPOOL_DIR_IN_CONSUMED,
-	spool.DirOutConsumed: agentcoordpb.SpoolDir_SPOOL_DIR_OUT_CONSUMED,
-	spool.DirInWithdrawn: agentcoordpb.SpoolDir_SPOOL_DIR_IN_WITHDRAWN,
-}
-
-// spoolDirFromWire inverts spoolDirToWire, built once at init so the two
-// directions cannot drift. A duplicate on the wire side would collapse two
-// spool directories into one and is a build-time panic: it is a table typo,
-// not a runtime condition, and the first symptom in production would be mail
-// consumed out of the wrong directory.
-var spoolDirFromWire = func() map[agentcoordpb.SpoolDir]spool.Dir {
-	inv := make(map[agentcoordpb.SpoolDir]spool.Dir, len(spoolDirToWire))
-	for d, w := range spoolDirToWire {
-		if prev, dup := inv[w]; dup {
-			panic(fmt.Sprintf("coord: spool dir table maps %q and %q onto the same wire value %s", prev, d, w))
-		}
-		inv[w] = d
-	}
-	return inv
-}()
-
-// SpoolDirToWire projects a spool directory onto the wire enum. An unknown
-// directory is an error, never SPOOL_DIR_UNSPECIFIED: the zero value is
-// invalid at every consumer, so encoding an unmappable directory as it would
-// turn a sender-side table gap into a receiver-side rejection far from the
-// cause.
-func SpoolDirToWire(d spool.Dir) (agentcoordpb.SpoolDir, error) {
-	w, ok := spoolDirToWire[d]
-	if !ok {
-		return agentcoordpb.SpoolDir_SPOOL_DIR_UNSPECIFIED,
-			fmt.Errorf("coord: spool directory %q has no wire representation", string(d))
-	}
-	return w, nil
-}
-
-// SpoolDirFromWire resolves a wire enum value to a spool directory.
-// SPOOL_DIR_UNSPECIFIED and any value this build does not know are errors —
-// forward compatibility for a doorbell means the receiver refuses it loudly,
-// not that it guesses a directory.
-func SpoolDirFromWire(w agentcoordpb.SpoolDir) (spool.Dir, error) {
-	d, ok := spoolDirFromWire[w]
-	if !ok {
-		return "", fmt.Errorf("coord: unknown wire spool directory %s (%d)", w, int32(w))
-	}
-	return d, nil
-}
-
-// SpoolChangedProto projects a Ref onto the doorbell frame. The ref is
-// validated first: a sender that rings about a name it could not itself
-// resolve is a bug worth failing at the writer, where the stack still says who
-// did it.
-func SpoolChangedProto(ref spool.Ref) (*agentcoordpb.SpoolChanged, error) {
-	if err := ref.Validate(); err != nil {
-		return nil, err
-	}
-	dir, err := SpoolDirToWire(ref.Dir)
-	if err != nil {
-		return nil, err
-	}
-	return &agentcoordpb.SpoolChanged{Harp: ref.Harp, Dir: dir, Name: ref.Name}, nil
-}
-
-// SpoolRefFromProto is THE receive chokepoint: it turns a wire doorbell into a
-// Ref, or refuses it. Everything it accepts has passed spool.Ref.Validate —
-// harp grammar, closed directory, bare-filename grammar — so no caller
-// downstream has to re-check before resolving a path, and no unvalidated ref
-// can reach a path join.
-func SpoolRefFromProto(msg *agentcoordpb.SpoolChanged) (spool.Ref, error) {
-	if msg == nil {
-		return spool.Ref{}, fmt.Errorf("coord: spool doorbell carried no reference")
-	}
-	dir, err := SpoolDirFromWire(msg.GetDir())
-	if err != nil {
-		return spool.Ref{}, err
-	}
-	ref := spool.Ref{Harp: msg.GetHarp(), Dir: dir, Name: msg.GetName()}
-	if err := ref.Validate(); err != nil {
-		return spool.Ref{}, err
-	}
-	return ref, nil
-}
-
 // SpoolDoorbellHandler is what a consumer registers to be told about validated
 // spool changes. The coordinator's form carries the ROLE the doorbell arrived
 // from, which is the authoritative harp; the runner's form carries the ref
@@ -180,15 +89,10 @@ type SpoolDoorbellHandler func(role string, ref spool.Ref)
 // exactly the machinery the file-is-the-truth design exists to delete. The
 // receiver's sweep already covers it.
 func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
-	msg, err := SpoolChangedProto(ref)
-	if err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
-	frame := &agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_Notice{
-		Notice: &agentcoordpb.CoordinatorNotice{Kind: &agentcoordpb.CoordinatorNotice_SpoolChanged{
-			SpoolChanged: msg,
-		}},
-	}}
+	frame := OutFrame{Notice: &Notice{SpoolChanged: &ref}}
 
 	c.mu.Lock()
 	ch := c.chans[role]
@@ -238,23 +142,23 @@ func (c *Coordinator) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 	c.spoolHandler = fn
 }
 
-// handleSpoolChanged is the coordinator's receive chokepoint for a doorbell
-// arriving on ch.
+// RefuseSpoolChanged counts a doorbell the wire could not decode into a
+// valid ref: a ref that does not parse is a fault worth refusing whole.
+// Report, then count — see noteSpoolDrop.
+func (c *Coordinator) RefuseSpoolChanged(ch *RunChannel, err error) {
+	c.rep.Warnf("coordinator: refusing an invalid spool doorbell from %s: %v", ch.role, err)
+	c.spoolDoorbell.rejected.Add(1)
+}
+
+// HandleSpoolChanged is the coordinator's receive chokepoint for a validated
+// doorbell arriving on ch.
 //
-// The claimed harp is validated (a ref that does not parse is a fault worth
-// refusing whole) and then checked against ch.role. That check is the
-// isolation fence: the coordinator watches a channel's own spool, never a
-// spool the peer on that channel names — and a ref naming any other harp is
-// REFUSED, not re-aimed. The handler therefore only ever sees a ref whose
-// harp is the role it arrived from.
-func (c *Coordinator) handleSpoolChanged(ch *runChan, msg *agentcoordpb.SpoolChanged) {
-	ref, err := SpoolRefFromProto(msg)
-	if err != nil {
-		// Report, then count — see noteSpoolDrop.
-		c.rep.Warnf("coordinator: refusing an invalid spool doorbell from %s: %v", ch.role, err)
-		c.spoolDoorbell.rejected.Add(1)
-		return
-	}
+// The claimed harp is checked against ch.role. That check is the isolation
+// fence: the coordinator watches a channel's own spool, never a spool the
+// peer on that channel names — and a ref naming any other harp is REFUSED,
+// not re-aimed. The handler therefore only ever sees a ref whose harp is the
+// role it arrived from.
+func (c *Coordinator) HandleSpoolChanged(ch *RunChannel, ref spool.Ref) {
 	if ref.Harp != ch.role {
 		// A runner that names someone else's harp is either broken or
 		// probing, and both deserve a trace AND a count: a warn line alone

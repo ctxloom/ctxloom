@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -117,7 +117,6 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	// the prompt; the prompt alone rides the launch.
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRun{
 		Launch:     spec.Launch,
-		Wire:       coordgrpc.EncodeLaunch(spec.Launch),
 		MCPServers: spec.MCPServers,
 		OneShot:    spec.Launch.Mode == engine.Structured,
 	}, starter, spec.Launch.Prompt)
@@ -126,7 +125,10 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 		return handle, nil, err
 	}
 	narrow(outcome.RunID)
-	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel}, nil
+	stop := make(chan struct{})
+	var stopOnce sync.Once
+	end := func() { stopOnce.Do(func() { cancel(); close(stop) }) }
+	return handle, &ownedRunSession{coord: c, outcome: outcome, events: wireEvents(events, stop), cancel: end}, nil
 }
 
 // runOneshotViaCoord drives a --print container oneshot over Transport 2: it
@@ -316,4 +318,30 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 			return answer.String(), ctx.Err()
 		}
 	}
+}
+
+// wireEvents projects the coordinator's in-process watch onto the wire's
+// event shape the owned-run renderer reads: the host's interactive arm still
+// renders the proto (the same frames a remote viewer receives over
+// ConsumerService.WatchRuns). The hub never closes a subscriber's channel —
+// cancel only deregisters it — so the projection ends on stop, which the
+// session's cancel closes.
+func wireEvents(events <-chan coord.Event, stop <-chan struct{}) <-chan *agentcoordpb.AgentEvent {
+	out := make(chan *agentcoordpb.AgentEvent, cap(events))
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case ev := <-events:
+				select {
+				case out <- coord.EventToWire(ev):
+				case <-stop:
+					return
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return out
 }

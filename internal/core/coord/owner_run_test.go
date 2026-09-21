@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -60,24 +59,24 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 
 // collectFinalDeltas drains events for wait, concatenating every FINAL-channel
 // MessageDelta text for runID (the payload the host renders over Transport 2).
-func collectFinalDeltas(events <-chan *agentcoordpb.AgentEvent, runID string, wait time.Duration) string {
+func collectFinalDeltas(events <-chan Event, runID string, wait time.Duration) string {
 	deadline := time.After(wait)
 	final := map[string]bool{}
 	var out string
 	for {
 		select {
 		case ev := <-events:
-			if ev.GetRunId() != runID {
+			if ev.RunID != runID {
 				continue
 			}
-			switch p := ev.GetPayload().(type) {
-			case *agentcoordpb.AgentEvent_MessageStarted:
-				if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
-					final[p.MessageStarted.GetMessageId()] = true
+			switch p := ev.Payload.(type) {
+			case MessageStarted:
+				if p.Channel == ChannelFinal {
+					final[p.MessageID] = true
 				}
-			case *agentcoordpb.AgentEvent_MessageDelta:
-				if final[p.MessageDelta.GetMessageId()] {
-					out += p.MessageDelta.GetText()
+			case MessageDelta:
+				if final[p.MessageID] {
+					out += p.Text
 				}
 			}
 		case <-deadline:
@@ -118,14 +117,14 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	require.NotEmpty(t, outcome.RunID)
 
 	// Parent-less, owner-owned: ParentRunID is empty on the roster projection.
-	var found *agentcoordpb.ListRunsResult_RunInfo
-	for _, r := range c.ListRuns(true, "").GetRuns() {
-		if r.GetRunId() == outcome.RunID {
-			found = r
+	var found *RunInfo
+	for _, r := range c.ListRuns(true, "").Runs {
+		if r.RunID == outcome.RunID {
+			found = &r
 		}
 	}
 	require.NotNil(t, found, "the owner-owned run must appear in the roster")
-	assert.Equal(t, "", found.GetParentRunId(), "an owner-owned run is parent-less")
+	assert.Equal(t, "", found.ParentRunID, "an owner-owned run is parent-less")
 
 	// PAYLOAD over Transport 2: the scriptedChat echoes the first-turn prompt.
 	got := collectFinalDeltas(events, outcome.RunID, 10*time.Second)

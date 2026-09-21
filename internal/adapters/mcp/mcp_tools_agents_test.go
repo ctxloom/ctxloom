@@ -254,12 +254,16 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 	var runs []*agentRunInfoWant
 	require.Eventually(t, func() bool {
 		result := c.ListRuns(true, "")
-		if len(result.GetRuns()) != 2 {
+		if len(result.Runs) != 2 {
 			return false
 		}
 		runs = nil
-		for _, r := range result.GetRuns() {
-			runs = append(runs, &agentRunInfoWant{role: r.GetAgent().GetRole(), perm: r.GetPermissionMode(), servers: r.GetMcpServers()})
+		for _, r := range result.Runs {
+			role := ""
+			if r.Agent != nil {
+				role = r.Agent.Role
+			}
+			runs = append(runs, &agentRunInfoWant{role: role, perm: r.PermissionMode, servers: r.MCPServers})
 		}
 		return true
 	}, 5*time.Second, 5*time.Millisecond, "roster never surfaced both spawned children")

@@ -3,8 +3,6 @@ package coord
 import (
 	"encoding/json"
 	"time"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // PendingApproval is the shape the terminal UI's approvals pane reads.
@@ -20,7 +18,7 @@ import (
 type PendingApproval struct {
 	MessageID string
 	Harp      string // the run asking
-	Kind      agentcoordpb.ApprovalRequest_ApprovalKind
+	Kind      ApprovalKind
 	Title     string // the tool name
 	Payload   json.RawMessage
 	Since     time.Time

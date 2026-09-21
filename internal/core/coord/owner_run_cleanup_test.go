@@ -70,8 +70,8 @@ func TestStartOwnedRun_CleansUpOnIssueStartRunFailure(t *testing.T) {
 	// (b) The roster must not retain the run as live/executing forever — the
 	// observable symptom a user actually hits (agent stuck "executing").
 	require.Eventually(t, func() bool {
-		for _, r := range c.ListRuns(false, "").GetRuns() {
-			if r.GetAgent().GetAgentId() == ownerHarp {
+		for _, r := range c.ListRuns(false, "").Runs {
+			if r.Agent != nil && r.Agent.AgentID == ownerHarp {
 				return false // still present in the LIVE roster: leaked
 			}
 		}

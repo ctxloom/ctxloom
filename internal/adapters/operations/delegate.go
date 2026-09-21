@@ -12,8 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -26,9 +24,6 @@ import (
 // but not yet attached. Readiness (the dial-home) is the coordinator's;
 // this is the spawn half.
 type EngineProcess struct {
-	// Wire is the launch as the coordinator's StartRun carries it, projected
-	// ONCE by the codec beside the process it is issued to.
-	Wire *pb.Launch
 	// Kill tears the runner process and its cell down (idempotent).
 	Kill func()
 	// StderrTail reads the runner's bounded stderr tail without reaping it —
@@ -63,7 +58,6 @@ func StartEngine(ctx context.Context, l launch.Launch, runnerEnv map[string]stri
 	}
 	var once sync.Once
 	return &EngineProcess{
-		Wire:       coordgrpc.EncodeLaunch(l),
 		StderrTail: func() string { return isolation.StderrTailOf(handle) },
 		Wait:       isolation.WaitOf(handle),
 		Kill: func() {

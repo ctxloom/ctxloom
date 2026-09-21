@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -26,7 +25,7 @@ func TestSendTerminal_DropAfterExhaustion_LogsTheDroppedRun(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	ch := make(chan *agentcoordpb.AgentEvent, 1)
+	ch := make(chan Event, 1)
 	ch <- terminalEvent(1, "run-other") // a terminal that must not be evicted → no slot ever frees
 
 	sendTerminal(termRep(), &watchSub{ch: ch}, terminalEvent(2, "run-dropped"))
@@ -41,5 +40,5 @@ func TestSendTerminal_DropAfterExhaustion_LogsTheDroppedRun(t *testing.T) {
 
 	// The pre-existing terminal was preserved, not consumed (F09 holds here too).
 	require.Len(t, ch, 1)
-	assert.Equal(t, "run-other", (<-ch).GetRunId())
+	assert.Equal(t, "run-other", (<-ch).RunID)
 }

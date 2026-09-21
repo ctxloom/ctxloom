@@ -131,6 +131,6 @@ func TestHost_AnOversizedAnswerIsRefusedUnderTheFrameCap(t *testing.T) {
 		return HostResult{Body: json.RawMessage(`{"blob":"` + string(big) + `"}`)}, nil
 	}}
 	c := newTestCoordinatorWithHost(t, newFakeSpawner(nil, nil), app)
-	resp := c.serveHost(ownerIdentity(), &agentcoordpb.HostRequest{Tool: "list_sessions"})
+	resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "list_sessions"}}})
 	assert.EqualValues(t, codes.ResourceExhausted, resp.GetStatus().GetCode())
 }

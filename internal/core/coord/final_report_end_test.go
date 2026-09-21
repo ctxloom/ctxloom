@@ -27,8 +27,8 @@ import (
 // than opening a second termination path.
 
 // finalSummary is the completion contract as an agent files it.
-func finalSummary(text string) *agentcoordpb.Summary {
-	return &agentcoordpb.Summary{Scope: agentcoordpb.Summary_SCOPE_FINAL, Text: text}
+func finalSummary(text string) Summary {
+	return Summary{Scope: ScopeFinal, Text: text}
 }
 
 // runTerminalDetail reads a run's terminal DETAIL off the fold ("" while
@@ -159,10 +159,10 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, &agentcoordpb.Summary{
+	c.recordSummary(out.Harp, out.RunID, 1, SummaryFromWire(&agentcoordpb.Summary{
 		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
 		Text:  "still working",
-	})
+	}))
 
 	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"only FINAL is the completion contract; a heartbeat must never end a working agent")

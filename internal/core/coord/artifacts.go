@@ -6,58 +6,98 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"time"
 )
 
-// E1 — artifact transfer (agentcoord.v1.ArtifactTransferService,
-// artifacts.proto). Server-side upload/download; the content-addressed store
-// itself lives in artifactstore.go. Both RPCs re-derive identity from the
-// connection credential per call (never a cached principal — the same
-// discipline grpcServer's auth interceptor documents for RunnerChannel/
-// RunChannel).
+// Artifact transfer, the coordinator's half: the upload is a declared header
+// and a body stream the store writes atomically under its content address;
+// the download is an authorized manifest lookup and the stored blob. The
+// chunked wire shape is the adapter's; the content-addressed store itself
+// lives in artifactstore.go.
 
-// artifactChunkCap bounds one upload/download chunk (E1a: "each <= 1 MiB"),
-// well under the 4 MiB default gRPC frame cap.
-const artifactChunkCap = 1 << 20
+// ArtifactChunkCap bounds one upload/download chunk, well under the 4 MiB
+// default gRPC frame cap.
+const ArtifactChunkCap = 1 << 20
 
-// artifactUploadSizeCap bounds one artifact's total size — "runner-read,
-// size-capped sanely" (E1c's generic publish case). 64 MiB comfortably
-// covers plan/report/dataset artifacts without risking runaway memory/disk
-// from a misbehaving caller; revisit if a real consumer needs more.
-const artifactUploadSizeCap = 64 << 20
+// ArtifactUploadSizeCap bounds one artifact's total size — runner-read,
+// size-capped sanely. 64 MiB comfortably covers plan/report/dataset
+// artifacts without risking runaway memory/disk from a misbehaving caller.
+const ArtifactUploadSizeCap = 64 << 20
 
-// artifactService implements agentcoord.v1.ArtifactTransferService.
-type artifactService struct {
-	agentcoordpb.UnimplementedArtifactTransferServiceServer
-	c *Coordinator
+// ArtifactUpload is an upload's declared header: the run it belongs to (must
+// be the uploading credential's), the artifact's identity and its declared
+// size and digest, which the store verifies against the bytes received.
+type ArtifactUpload struct {
+	RunID      string
+	ArtifactID string
+	Name       string
+	MediaType  string
+	SizeBytes  uint64
+	SHA256     []byte
 }
 
-// authorizeArtifactUpload: a caller may only upload bytes for ITS OWN
-// current run (or, for a session-owner/depth-0 caller with no run_id, an
-// empty header.run_id) — never another identity's. header.run_id is a
-// CLAIM asserted against the credential-derived caller.RunID, never trusted
-// by itself (A1's identity discipline).
-func authorizeArtifactUpload(caller Identity, headerRunID string) error {
+// ArtifactReceipt is a stored upload: the id later manifests reference
+// (UploadID = hex(sha256)), the server-computed digest and size.
+type ArtifactReceipt struct {
+	UploadID  string
+	SHA256    []byte
+	SizeBytes uint64
+	StoredAt  time.Time
+}
+
+// ErrArtifactSHAMismatch refuses an upload whose bytes do not hash to the
+// declared sha256.
+var ErrArtifactSHAMismatch = errArtifactSHAMismatch
+
+// ErrArtifactSizeMismatch refuses an upload whose bytes do not add up to the
+// declared size.
+var ErrArtifactSizeMismatch = errArtifactSizeMismatch
+
+// ReceiveArtifact stores one uploaded artifact body under its content
+// address. The caller's credential must own the run the header names and
+// must not be a read-only consumer (ErrForbidden); the declared size must be
+// within the cap and non-zero (ErrInvalidRequest — an empty artifact is a
+// receipt for nothing). body is read to EOF; a body that does not match the
+// declared digest or size is refused after the read (ErrArtifactSHAMismatch,
+// ErrArtifactSizeMismatch — both ErrInvalidRequest too).
+func (c *Coordinator) ReceiveArtifact(caller Identity, h ArtifactUpload, body io.Reader) (ArtifactReceipt, error) {
+	if h.ArtifactID == "" {
+		return ArtifactReceipt{}, refusal(ErrInvalidRequest, "upload: artifact_id is required")
+	}
 	if caller.Consumer {
-		return status.Error(codes.PermissionDenied, "upload: a read-only consumer credential cannot upload")
+		return ArtifactReceipt{}, refusal(ErrForbidden, "upload: a read-only consumer credential cannot upload")
 	}
-	if caller.RunID != headerRunID {
-		return status.Errorf(codes.PermissionDenied, "upload: run_id %q does not match this connection's credential", headerRunID)
+	if caller.RunID != h.RunID {
+		return ArtifactReceipt{}, refusal(ErrForbidden, "upload: run_id %q does not match this connection's credential", h.RunID)
 	}
-	return nil
+	if h.SizeBytes > ArtifactUploadSizeCap {
+		return ArtifactReceipt{}, refusal(ErrInvalidRequest, "upload: declared size %d exceeds the %d-byte cap", h.SizeBytes, ArtifactUploadSizeCap)
+	}
+	if h.SizeBytes == 0 {
+		return ArtifactReceipt{}, refusal(ErrInvalidRequest, "upload: declared size is 0 — an empty artifact is a receipt for nothing, refusing it")
+	}
+	shaHex, size, err := c.artifacts.writeAtomic(body, h.SHA256, h.SizeBytes)
+	if err != nil {
+		switch {
+		case errors.Is(err, errArtifactSHAMismatch):
+			return ArtifactReceipt{}, refusal(ErrArtifactSHAMismatch, "upload: received content (sha256 %s) does not match the declared sha256", shaHex)
+		case errors.Is(err, errArtifactSizeMismatch):
+			return ArtifactReceipt{}, refusal(ErrArtifactSizeMismatch, "upload: declared size %d does not match the bytes actually received", h.SizeBytes)
+		}
+		return ArtifactReceipt{}, fmt.Errorf("upload: %w", err)
+	}
+	c.audit("artifact.uploaded", caller.Harp, map[string]string{
+		"run_id":      h.RunID,
+		"artifact_id": h.ArtifactID,
+		"sha256":      shaHex,
+		"size_bytes":  fmt.Sprint(size),
+	})
+	shaBytes, _ := hex.DecodeString(shaHex) // shaHex is our own hex.EncodeToString output
+	return ArtifactReceipt{UploadID: shaHex, SHA256: shaBytes, SizeBytes: uint64(size), StoredAt: c.now()}, nil
 }
 
-// authorizeArtifactDownload mirrors serveStopRun's ownership pattern
-// (runchannel.go): the record's own harp (fetch your own artifact), its
-// DIRECT PARENT (lineage — a parent fetching its child's), or any
-// consumer-class credential (read-only, project-wide, matching
-// ConsumerService's existing trust boundary).
+// authorizeArtifactDownload allows the owner, its parent, and any consumer
+// credential (read-only viewers may read).
 func (c *Coordinator) authorizeArtifactDownload(caller Identity, ownerHarp string) error {
 	if caller.Consumer || caller.Harp == ownerHarp {
 		return nil
@@ -71,309 +111,46 @@ func (c *Coordinator) authorizeArtifactDownload(caller Identity, ownerHarp strin
 	if allowed {
 		return nil
 	}
-	return status.Errorf(codes.PermissionDenied, "download: %q is not this session, its child, or a consumer credential", ownerHarp)
+	return refusal(ErrForbidden, "download: %q is not this session, its child, or a consumer credential", ownerHarp)
 }
 
-// recvUploadHeader reads the stream's mandatory first frame and applies
-// every check that can be made before a single content byte is accepted:
-// shape, the required artifact_id, the caller's ownership of the run it
-// claims, and the declared-size cap and floor.
-func recvUploadHeader(stream grpc.ClientStreamingServer[agentcoordpb.ArtifactUploadRequest, agentcoordpb.ArtifactReceipt], caller Identity) (*agentcoordpb.ArtifactUploadHeader, error) {
-	first, err := stream.Recv()
-	if err != nil {
-		return nil, err
-	}
-	header := first.GetHeader()
-	if header == nil {
-		return nil, status.Error(codes.InvalidArgument, "upload: first ArtifactUploadRequest must be header")
-	}
-	if header.GetArtifactId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "upload: artifact_id is required")
-	}
-	if err := authorizeArtifactUpload(caller, header.GetRunId()); err != nil {
-		return nil, err
-	}
-	if header.GetSizeBytes() > artifactUploadSizeCap {
-		return nil, status.Errorf(codes.InvalidArgument, "upload: declared size %d exceeds the %d-byte cap", header.GetSizeBytes(), artifactUploadSizeCap)
-	}
-	// A floor as well as a cap. Only the maximum was ever checked, so a
-	// 0-byte artifact uploaded, journaled, and returned a success receipt
-	// with a content-addressed id — a receipt for nothing. The runner
-	// refuses first (mcp_runner.go's artifactStamper.publish); this is the
-	// server's own guard, because the transfer service is a credentialed
-	// surface any runner reaches, not just ours.
-	if header.GetSizeBytes() == 0 {
-		return nil, status.Error(codes.InvalidArgument, "upload: declared size is 0 — an empty artifact is a receipt for nothing, refusing it")
-	}
-	return header, nil
-}
-
-// uploadFailure resolves the two independent failure reports one upload can
-// produce — the chunk goroutine's and the store's — into the ONE status the
-// caller is told, or nil when the upload stands.
-//
-// Which is the CAUSE: a chunk-shape or transport error closed the pipe with
-// ITSELF as the reason, so the store's failure is downstream of it and the
-// chunk error is authoritative. But the handler's own pr.Close() ALSO makes
-// the goroutine observe io.ErrClosedPipe, and that one is this handler
-// unwinding a failed store write — never a cause. Preferring it
-// unconditionally answered a full disk with "upload: io: read/write on
-// closed pipe".
-func uploadFailure(cerr, werr error, header *agentcoordpb.ArtifactUploadHeader, shaHex string) error {
-	if cerr != nil && (werr == nil || !errors.Is(cerr, io.ErrClosedPipe)) {
-		if se, ok := status.FromError(cerr); ok {
-			return se.Err()
-		}
-		return status.Errorf(codes.Internal, "upload: %v", cerr)
-	}
-	switch {
-	case werr == nil:
-		return nil
-	case errors.Is(werr, errArtifactSHAMismatch):
-		return status.Errorf(codes.InvalidArgument, "upload: received content (sha256 %s) does not match the declared sha256", shaHex)
-	case errors.Is(werr, errArtifactSizeMismatch):
-		// The declared-size floor only catches a DECLARED size of
-		// 0. A client that declares a non-zero size_bytes but delivers fewer
-		// bytes (in the limit, none) sails past both the cap and the floor —
-		// sha256 is optional by design (writeAtomic's own hash is
-		// authoritative), so this is the only thing standing between a
-		// truncated delivery and a receipt that silently contradicts the
-		// caller's own declared size. Checked inside writeAtomic, before
-		// publish, so a mismatched upload never earns a name in the
-		// content-addressed store.
-		return status.Errorf(codes.InvalidArgument, "upload: declared size %d does not match the bytes actually received", header.GetSizeBytes())
-	default:
-		return status.Errorf(codes.Internal, "upload: %v", werr)
-	}
-}
-
-// UploadArtifact receives header+chunks (offset-contiguous, <= 1 MiB each),
-// hashes the stream independently of the header's declared sha256, and
-// rejects a mismatch with INVALID_ARGUMENT (E1e) — the coordinator's own
-// hash is authoritative. A chunk-shape violation (out-of-order offset, an
-// oversized chunk, a chunk before the header) is also INVALID_ARGUMENT.
-func (s *artifactService) UploadArtifact(stream grpc.ClientStreamingServer[agentcoordpb.ArtifactUploadRequest, agentcoordpb.ArtifactReceipt]) error {
-	c := s.c
-	id, ok := c.Identify(mdToken(stream.Context()))
-	if !ok {
-		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
-	}
-
-	header, err := recvUploadHeader(stream, id)
-	if err != nil {
-		return err
-	}
-
-	// Bridge the push-based Recv loop onto an io.Reader writeAtomic can
-	// drain: io.Pipe is synchronous (unbuffered), so chunk arrival and the
-	// store write stay backpressured to each other — no unbounded buffering
-	// of a large or slow upload.
-	pr, pw := io.Pipe()
-	chunkErrCh := make(chan error, 1)
-	go func() {
-		var wantOffset, total uint64
-		for {
-			req, rerr := stream.Recv()
-			if rerr == io.EOF {
-				_ = pw.Close()
-				chunkErrCh <- nil
-				return
-			}
-			if rerr != nil {
-				_ = pw.CloseWithError(rerr)
-				chunkErrCh <- rerr
-				return
-			}
-			chunk := req.GetChunk()
-			if chunk == nil {
-				cerr := status.Error(codes.InvalidArgument, "upload: expected a chunk after the header")
-				_ = pw.CloseWithError(cerr)
-				chunkErrCh <- cerr
-				return
-			}
-			if chunk.GetOffset() != wantOffset {
-				cerr := status.Errorf(codes.InvalidArgument, "upload: out-of-order chunk (want offset %d, got %d)", wantOffset, chunk.GetOffset())
-				_ = pw.CloseWithError(cerr)
-				chunkErrCh <- cerr
-				return
-			}
-			data := chunk.GetData()
-			if len(data) > artifactChunkCap {
-				cerr := status.Errorf(codes.InvalidArgument, "upload: chunk of %d bytes exceeds the %d-byte cap", len(data), artifactChunkCap)
-				_ = pw.CloseWithError(cerr)
-				chunkErrCh <- cerr
-				return
-			}
-			total += uint64(len(data))
-			if total > artifactUploadSizeCap {
-				cerr := status.Errorf(codes.InvalidArgument, "upload: total size exceeds the %d-byte cap", artifactUploadSizeCap)
-				_ = pw.CloseWithError(cerr)
-				chunkErrCh <- cerr
-				return
-			}
-			if len(data) > 0 {
-				if _, werr := pw.Write(data); werr != nil {
-					chunkErrCh <- werr
-					return
-				}
-			}
-			wantOffset += uint64(len(data))
-		}
-	}()
-
-	shaHex, size, werr := c.artifacts.writeAtomic(pr, header.GetSha256(), header.GetSizeBytes())
-	_ = pr.Close()
-	if err := uploadFailure(<-chunkErrCh, werr, header, shaHex); err != nil {
-		return err
-	}
-
-	c.audit("artifact.uploaded", id.Harp, map[string]string{
-		"run_id":      header.GetRunId(),
-		"artifact_id": header.GetArtifactId(),
-		"sha256":      shaHex,
-		"size_bytes":  fmt.Sprint(size),
-	})
-
-	shaBytes, _ := hex.DecodeString(shaHex) // shaHex is our own hex.EncodeToString output
-	return stream.SendAndClose(&agentcoordpb.ArtifactReceipt{
-		UploadId:  shaHex,
-		Sha256:    shaBytes,
-		SizeBytes: uint64(size),
-		StoredAt:  timestamppb.New(c.now()),
-	})
-}
-
-// DownloadArtifact resolves (agent_id, artifact_id) against the reports
-// fold's latest-revision manifest, sends its header FIRST (the receiver
-// verifies against it BEFORE placing any bytes — E1e), then streams the
-// stored content in <= 1 MiB chunks from req.offset.
-func (s *artifactService) DownloadArtifact(req *agentcoordpb.ArtifactDownloadRequest, stream grpc.ServerStreamingServer[agentcoordpb.ArtifactDownloadFrame]) error {
-	c := s.c
-	id, ok := c.Identify(mdToken(stream.Context()))
-	if !ok {
-		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
-	}
-	rec, err := c.resolveDownload(id, req)
-	if err != nil {
-		return err
-	}
-	f, shaBytes, err := c.openDownloadBlob(rec, req.GetArtifactId())
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	if err := stream.Send(downloadHeaderFrame(rec, shaBytes)); err != nil {
-		return err
-	}
-	return streamArtifactBody(f, req.GetOffset(), stream)
-}
-
-// resolveDownload applies every check that stands between a download request
-// and the manifest it names: both identifiers present, the caller entitled to
-// the owner's artifacts, and a record actually existing.
-func (c *Coordinator) resolveDownload(caller Identity, req *agentcoordpb.ArtifactDownloadRequest) (ArtifactRecord, error) {
-	ownerHarp := req.GetAgentId()
+// OpenArtifact resolves and opens one stored artifact for download: the
+// manifest (latest revision) and the blob, positioned at offset. Refusals:
+// ErrInvalidRequest (a missing id, an offset past the end), ErrForbidden (the
+// caller may not read ownerHarp's artifacts), ErrNotFound (no such manifest,
+// or its content is gone). The caller closes the blob.
+func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string, offset uint64) (ArtifactRecord, *os.File, error) {
 	if ownerHarp == "" {
-		return ArtifactRecord{}, status.Error(codes.InvalidArgument, "download: agent_id is required")
+		return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: agent_id is required")
 	}
-	if req.GetArtifactId() == "" {
-		return ArtifactRecord{}, status.Error(codes.InvalidArgument, "download: artifact_id is required")
+	if artifactID == "" {
+		return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: artifact_id is required")
 	}
 	if err := c.authorizeArtifactDownload(caller, ownerHarp); err != nil {
-		return ArtifactRecord{}, err
+		return ArtifactRecord{}, nil, err
 	}
-	rec, ok := c.artifactRecord(ownerHarp, req.GetArtifactId())
+	rec, ok := c.artifactRecord(ownerHarp, artifactID)
 	if !ok {
-		return ArtifactRecord{}, status.Errorf(codes.NotFound, "download: no artifact %q for %q", req.GetArtifactId(), ownerHarp)
+		return ArtifactRecord{}, nil, refusal(ErrNotFound, "download: no artifact %q for %q", artifactID, ownerHarp)
 	}
-	// An unsatisfiable resume range is refused HERE rather than at the seek:
-	// seeking past EOF succeeds, so the request would otherwise be answered
-	// with a header describing the whole artifact and no chunks at all — a
-	// success carrying zero bytes, which a receiver cannot distinguish from
-	// an empty artifact. offset == size is unsatisfiable too: it names the
-	// byte after the last one.
-	if off := req.GetOffset(); off > 0 && off >= rec.SizeBytes {
-		return ArtifactRecord{}, status.Errorf(codes.InvalidArgument,
-			"download: offset %d is past the end of %q (%d bytes)", off, req.GetArtifactId(), rec.SizeBytes)
+	if offset > 0 && offset >= rec.SizeBytes {
+		return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: offset %d is past the end of %q (%d bytes)", offset, artifactID, rec.SizeBytes)
 	}
-	return rec, nil
-}
-
-// openDownloadBlob opens the record's stored content and returns the raw
-// sha256 the header will carry.
-//
-// The manifest's own sha is validated BEFORE it is used as a file name: a
-// name that is not a content hash is a corrupt manifest, and answering that
-// with "stored content missing" would send the reader looking for a blob
-// rather than at the record that named it.
-func (c *Coordinator) openDownloadBlob(rec ArtifactRecord, artifactID string) (*os.File, []byte, error) {
-	shaBytes, err := hex.DecodeString(rec.SHA256)
-	if err != nil {
-		return nil, nil, status.Errorf(codes.Internal, "download: corrupt manifest sha256 for %q: %v", artifactID, err)
+	if _, err := hex.DecodeString(rec.SHA256); err != nil {
+		return ArtifactRecord{}, nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
 	}
 	f, err := c.artifacts.open(rec.SHA256)
 	if err != nil {
 		if errors.Is(err, errArtifactBadName) {
-			return nil, nil, status.Errorf(codes.Internal, "download: corrupt manifest sha256 for %q: %v", artifactID, err)
+			return ArtifactRecord{}, nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
 		}
-		return nil, nil, status.Errorf(codes.NotFound, "download: stored content missing for %q: %v", artifactID, err)
+		return ArtifactRecord{}, nil, refusal(ErrNotFound, "download: stored content missing for %q: %v", artifactID, err)
 	}
-	return f, shaBytes, nil
-}
-
-// downloadHeaderFrame projects a manifest record onto the header frame the
-// receiver verifies the streamed bytes against. A kind name the wire enum
-// does not know degrades to UNSPECIFIED rather than failing the transfer.
-func downloadHeaderFrame(rec ArtifactRecord, shaBytes []byte) *agentcoordpb.ArtifactDownloadFrame {
-	kind := agentcoordpb.ArtifactKind_ARTIFACT_KIND_UNSPECIFIED
-	if v, ok := agentcoordpb.ArtifactKind_value[rec.Kind]; ok {
-		kind = agentcoordpb.ArtifactKind(v)
-	}
-	return &agentcoordpb.ArtifactDownloadFrame{Kind: &agentcoordpb.ArtifactDownloadFrame_Header{Header: &agentcoordpb.ArtifactDownloadHeader{
-		ArtifactId: rec.ArtifactID,
-		Revision:   rec.Revision,
-		Kind:       kind,
-		Name:       rec.Name,
-		MediaType:  rec.MediaType,
-		SizeBytes:  rec.SizeBytes,
-		Sha256:     shaBytes,
-	}}}
-}
-
-// streamArtifactBody sends f's content from offset in <= 1 MiB chunks, each
-// stamped with its absolute offset so a receiver can place bytes without
-// tracking its own cursor.
-func streamArtifactBody(f *os.File, offset uint64, stream grpc.ServerStreamingServer[agentcoordpb.ArtifactDownloadFrame]) error {
 	if offset > 0 {
-		if serr := seekToOffset(f, offset); serr != nil {
-			return serr
+		if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
+			_ = f.Close()
+			return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: seek to offset %d: %v", offset, err)
 		}
 	}
-	buf := make([]byte, artifactChunkCap)
-	for {
-		n, rerr := f.Read(buf)
-		if n > 0 {
-			if serr := stream.Send(&agentcoordpb.ArtifactDownloadFrame{Kind: &agentcoordpb.ArtifactDownloadFrame_Chunk{Chunk: &agentcoordpb.ArtifactChunk{
-				Offset: offset,
-				Data:   append([]byte(nil), buf[:n]...),
-			}}}); serr != nil {
-				return serr
-			}
-			offset += uint64(n)
-		}
-		if rerr == io.EOF {
-			return nil
-		}
-		if rerr != nil {
-			return status.Errorf(codes.Internal, "download: read stored content: %v", rerr)
-		}
-	}
-}
-
-func seekToOffset(f *os.File, offset uint64) error {
-	if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
-		return status.Errorf(codes.InvalidArgument, "download: seek to offset %d: %v", offset, err)
-	}
-	return nil
+	return rec, f, nil
 }

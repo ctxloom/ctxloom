@@ -27,7 +27,7 @@ func TestFlushItems_JournalFailure_RestoresFactsAndDoesNotAdvanceAck(t *testing.
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	ch := &runChan{role: "child-a", ackSeq: 5}
+	ch := &RunChannel{role: "child-a", ackSeq: 5}
 	fact := factAt(factItem, time.Now(), itemFact{RunID: "run-a", Seq: 1, Kind: "message_delta", Chars: 3})
 	ch.items = []Fact{fact}
 
@@ -50,7 +50,7 @@ func TestFlushItems_JournalFailure_PrependsAheadOfNewerBuffered(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 
-	ch := &runChan{role: "child-a", ackSeq: 5}
+	ch := &RunChannel{role: "child-a", ackSeq: 5}
 	older := factAt(factItem, time.Now(), itemFact{RunID: "run-a", Seq: 1, Kind: "message_delta", Chars: 3})
 	newer := factAt(factItem, time.Now(), itemFact{RunID: "run-a", Seq: 2, Kind: "message_delta", Chars: 4})
 	ch.items = []Fact{older}

@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
@@ -202,7 +201,7 @@ func (s *liveTapSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPla
 		Prompt:     start.Prompt,
 	}
 	plan.Launch = l
-	return coord.Resolved{Launch: l, Wire: coordgrpc.EncodeLaunch(l)}, nil
+	return coord.Resolved{Launch: l}, nil
 }
 
 // Start bridges the coordinator's own RunChannel to liveTapChat, mirroring

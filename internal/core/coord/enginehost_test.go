@@ -70,7 +70,7 @@ func (f *fakeEngineHome) Request(_ context.Context, req *agentcoordpb.AgentReque
 		return fn(req)
 	}
 	return &agentcoordpb.CoordinatorResponse{
-		Status: okStatus(""),
+		Status: OKStatus(""),
 		Kind: &agentcoordpb.CoordinatorResponse_Approval{Approval: &agentcoordpb.ApprovalDecision{
 			Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, Note: "fakeEngineHome default",
 		}},
@@ -189,7 +189,7 @@ func (f *fakeEngineHome) payloadKinds() []string {
 	defer f.mu.Unlock()
 	var out []string
 	for _, ev := range f.events {
-		out = append(out, itemKind(ev))
+		out = append(out, itemKind(EventFromWire(ev)))
 	}
 	return out
 }

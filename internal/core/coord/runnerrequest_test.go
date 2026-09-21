@@ -34,7 +34,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	handler := func(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
 		received <- req
 		return &agentcoordpb.RunnerResponse{
-			Status: okStatus("started"),
+			Status: OKStatus("started"),
 			Kind: &agentcoordpb.RunnerResponse_StartRun{StartRun: &agentcoordpb.StartRunResult{
 				HarnessSessionId: "native-sess-1",
 				Pid:              4242,
@@ -52,30 +52,24 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	_, err = c.awaitRunner(ctx, credHash)
 	require.NoError(t, err)
 
-	req := &agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: &agentcoordpb.StartRun{
-		RunId: "run-under-test",
-		Harness: &agentcoordpb.HarnessSpec{
-			Harness: "mock",
-			Model:   "test-model",
-		},
-	}}}
+	req := RunnerRequest{Kind: StartRun{RunID: "run-under-test"}}
 	resp, err := c.requestRunner(ctx, credHash, req)
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.RequestId, "requestRunner mints a request_id when the caller left it blank")
+	require.NotEmpty(t, resp.RequestID, "requestRunner mints a request_id when the caller left it blank")
 
 	select {
 	case got := <-received:
-		assert.Equal(t, resp.RequestId, got.RequestId, "the runner sees the SAME request_id requestRunner minted")
+		assert.Equal(t, resp.RequestID, got.RequestId, "the runner sees the SAME request_id requestRunner minted")
 		assert.Equal(t, "run-under-test", got.GetStartRun().GetRunId())
 	case <-time.After(conformanceWait):
 		t.Fatal("runner never received the RunnerRequest")
 	}
 
-	require.Equal(t, int32(0), resp.Status.Code, "OK status")
-	sr := resp.GetStartRun()
-	require.NotNil(t, sr)
-	assert.Equal(t, "native-sess-1", sr.HarnessSessionId)
-	assert.Equal(t, int64(4242), sr.Pid)
+	require.NoError(t, resp.Err, "OK status")
+	sr, ok := resp.Kind.(StartRunResult)
+	require.True(t, ok)
+	assert.Equal(t, "native-sess-1", sr.HarnessSessionID)
+	assert.Equal(t, int64(4242), sr.PID)
 }
 
 // TestRequestRunner_NoConnectedRunner reports a clear error rather than
@@ -87,7 +81,7 @@ func TestRequestRunner_NoConnectedRunner(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err := c.requestRunner(ctx, "no-such-cred-hash", &agentcoordpb.RunnerRequest{})
+	_, err := c.requestRunner(ctx, "no-such-cred-hash", RunnerRequest{})
 	require.Error(t, err)
 }
 

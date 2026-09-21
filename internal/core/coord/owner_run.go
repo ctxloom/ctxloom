@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/protobuf/proto"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
@@ -50,7 +47,6 @@ const ownerRunRuntime = launch.RuntimeRootless
 // wait mode.
 type OwnerRun struct {
 	Launch     launch.Launch
-	Wire       *agentcoordpb.Launch
 	MCPServers []agent.ChatMCPServer
 	OneShot    bool
 }
@@ -87,9 +83,6 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	}
 	if spec.Launch.Engine == "" {
 		return nil, errors.New("owner run: the launch names no engine")
-	}
-	if spec.Wire == nil {
-		return nil, errors.New("owner run: the launch's wire form is required (the runner delivers what StartRun carries)")
 	}
 	if start == nil {
 		return nil, errors.New("owner run: a runner starter is required")
@@ -188,11 +181,10 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// handled. Pinned by TestStartOwnedRun_CleansUpOnIssueStartRunFailure
 	// (owner_run_cleanup_test.go): rt.close fires and the run leaves the
 	// live roster without any cleanup call at this call site.
-	wire := proto.Clone(spec.Wire).(*agentcoordpb.Launch)
-	wire.Prompt = prompt
+	l.Prompt = prompt
 	// No rebind arm: an owner run is container-only, and a container's
 	// loopback address is private to its netns — nothing can have taken it.
-	if err := c.issueStartRun(ctx, rt, hashToken(token), wire, prompt, l.Label.Model, "", false); err != nil {
+	if err := c.issueStartRun(ctx, rt, hashToken(token), l, prompt, l.Label.Model, "", false); err != nil {
 		return nil, err
 	}
 

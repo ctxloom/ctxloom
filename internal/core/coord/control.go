@@ -5,11 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // Coordinator→agent CONTROL (steer, question, summarize, pause, resume): the
@@ -25,7 +20,7 @@ import (
 // control a run the coordinator holds, so an unrecognised initiator must fail
 // closed rather than fall into whichever branch a bool happened to select.
 type ControlInitiator struct {
-	Kind agentcoordpb.ControlInitiatorKind
+	Kind ControlInitiatorKind
 	// Harp MUST be set iff Kind == AGENT, and MUST be empty otherwise. The
 	// human has no harp; an agent that does not name itself cannot be
 	// ownership-checked.
@@ -36,27 +31,27 @@ type ControlInitiator struct {
 // made representable cannot be constructed silently.
 func (i ControlInitiator) Validate() error {
 	switch i.Kind {
-	case agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN:
+	case InitiatorHuman:
 		if i.Harp != "" {
 			return fmt.Errorf("control initiator: HUMAN carries no harp, but %q was set", i.Harp)
 		}
 		return nil
-	case agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_AGENT:
+	case InitiatorAgent:
 		if i.Harp == "" {
 			return errors.New("control initiator: AGENT must name the initiating harp (it is the ownership check's whole input)")
 		}
 		return nil
-	case agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_UNSPECIFIED:
+	case InitiatorUnspecified:
 		return errors.New("control initiator: UNSPECIFIED is not an initiator; a control action must say who asked for it")
 	default:
-		return fmt.Errorf("control initiator: unrecognised kind %d — refused rather than defaulted, "+
-			"because an initiator this build does not know must not inherit another's privileges", int32(i.Kind))
+		return fmt.Errorf("control initiator: unrecognised kind %q — refused rather than defaulted, "+
+			"because an initiator this build does not know must not inherit another's privileges", string(i.Kind))
 	}
 }
 
 // auditName is the identity a control action is journaled under.
 func (i ControlInitiator) auditName() string {
-	if i.Kind == agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_AGENT {
+	if i.Kind == InitiatorAgent {
 		return i.Harp
 	}
 	return UserSender
@@ -83,17 +78,13 @@ type SteerOutcome struct {
 // matching on prose is not a contract.
 var ErrCapabilityUnavailable = errors.New("the target run does not advertise a capability this request requires")
 
-// capUnavailableError is a capability refusal that is BOTH a gRPC status (so a
-// wire caller keeps FAILED_PRECONDITION and the prose naming the gap and the
-// advertisement) and errors.Is-able against ErrCapabilityUnavailable (so an
-// in-process caller with a fallback routes on the cause, not on the code).
-type capUnavailableError struct{ st *status.Status }
-
-func (e capUnavailableError) Error() string              { return e.st.Message() }
-func (e capUnavailableError) GRPCStatus() *status.Status { return e.st }
-func (e capUnavailableError) Is(target error) bool       { return target == ErrCapabilityUnavailable }
-func capUnavailable(format string, a ...any) capUnavailableError {
-	return capUnavailableError{st: status.Newf(codes.FailedPrecondition, format, a...)}
+// capUnavailable is a capability refusal: errors.Is-able against
+// ErrCapabilityUnavailable (so an in-process caller with a fallback routes on
+// the cause, not on the code) with the prose naming the gap and the
+// advertisement as its whole message (so the wire adapter's status carries it
+// verbatim under FAILED_PRECONDITION — StatusFromErr's table).
+func capUnavailable(format string, a ...any) error {
+	return refusal(ErrCapabilityUnavailable, format, a...)
 }
 
 // ErrControlRefused marks every ownership refusal a control verb makes: the
@@ -142,15 +133,15 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 	// narrower branch's privileges. A future initiator whose policy has not
 	// been designed would otherwise inherit child-control by default.
 	switch by.Kind {
-	case agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN:
+	case InitiatorHuman:
 		// The human may control any run this coordinator holds — Inject's
 		// existing rule, unchanged.
-	case agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_AGENT:
+	case InitiatorAgent:
 		if rec.ParentHarp != by.Harp {
 			return nil, fmt.Errorf("%w: %q is not the parent of %q; a coordinating agent controls only its own children", ErrControlRefused, by.Harp, harp)
 		}
 	default:
-		return nil, fmt.Errorf("%w: initiator kind %d is refused", ErrControlRefused, int32(by.Kind))
+		return nil, fmt.Errorf("%w: initiator kind %q is refused", ErrControlRefused, string(by.Kind))
 	}
 	return rec, nil
 }
@@ -177,7 +168,7 @@ func (c *Coordinator) ControlSteer(ctx context.Context, by ControlInitiator, har
 	// target's parent, so a coordinator's picture of its child never diverges
 	// without a trace. An AGENT initiator gets no mirror — the parent IS the
 	// initiator.
-	if by.Kind == agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN {
+	if by.Kind == InitiatorHuman {
 		if _, merr := c.queueMail(harp, rec.ParentHarp, KindUserInjected, injectDigest(text)); merr != nil {
 			c.rep.Warnf("steer %s: mirror notice: %v", harp, merr)
 		}
@@ -198,4 +189,32 @@ func (c *Coordinator) steerAsMail(sender, harp, kind, text string) (msgID string
 	}
 	mode, _ := deliveryDisposition(observed)
 	return msgID, SteerOutcome{Delivery: mode}, nil
+}
+
+// controlDisposition words an accepted control request's answer, per verb:
+// the text a wire caller reads beside the typed result.
+func controlDisposition(req ControlRequest, out ControlResult) string {
+	switch req.Verb {
+	case ControlVerbSteer:
+		return fmt.Sprintf("steered %s (%s)", req.Harp, out.Delivery)
+	case ControlVerbQuestion:
+		if out.Answer != nil {
+			return fmt.Sprintf("%s answered", out.Answer.From)
+		}
+	case ControlVerbSummarize:
+		if out.Answer != nil {
+			return fmt.Sprintf("%s summarized", out.Answer.From)
+		}
+	case ControlVerbPause:
+		if out.Changed {
+			return fmt.Sprintf("paused %s: its current turn finishes, nothing new is handed to it until agent_resume", req.Harp)
+		}
+		return fmt.Sprintf("%s was already paused", req.Harp)
+	case ControlVerbResume:
+		if out.Changed {
+			return fmt.Sprintf("resumed %s: turns held at its gate are handed to it in arrival order", req.Harp)
+		}
+		return fmt.Sprintf("%s was not paused", req.Harp)
+	}
+	return ""
 }

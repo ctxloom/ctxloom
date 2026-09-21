@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // TestRequestRunner_FailsFastOnASessionThatAlreadyFailedItsPending pins the
@@ -30,7 +28,7 @@ func TestRequestRunner_FailsFastOnASessionThatAlreadyFailedItsPending(t *testing
 	done := make(chan error, 1)
 	go func() {
 		_, err := c.requestRunner(context.Background(), "cred-hash-dead",
-			&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_KillRun{KillRun: &agentcoordpb.KillRun{RunId: "run-dead"}}})
+			RunnerRequest{Kind: PauseRun{RunID: "run-dead"}})
 		done <- err
 	}()
 
@@ -54,10 +52,10 @@ func TestFailPending_ResolvesWaitersRegisteredBeforeIt(t *testing.T) {
 	c.runners["cred-hash-live"] = rs
 	c.mu.Unlock()
 
-	done := make(chan *agentcoordpb.RunnerResponse, 1)
+	done := make(chan RunnerResponse, 1)
 	go func() {
 		resp, _ := c.requestRunner(context.Background(), "cred-hash-live",
-			&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_KillRun{KillRun: &agentcoordpb.KillRun{RunId: "run-live"}}})
+			RunnerRequest{Kind: PauseRun{RunID: "run-live"}})
 		done <- resp
 	}()
 
@@ -70,8 +68,7 @@ func TestFailPending_ResolvesWaitersRegisteredBeforeIt(t *testing.T) {
 
 	select {
 	case resp := <-done:
-		require.NotNil(t, resp)
-		assert.Equal(t, int32(14), resp.GetStatus().GetCode(), "UNAVAILABLE answers a session that ended mid-request")
+		require.ErrorIs(t, resp.Err, ErrRunnerSessionEnded, "the session's end answers a request that was mid-flight")
 	case <-time.After(3 * time.Second):
 		t.Fatal("a waiter registered before failPending was never resolved")
 	}

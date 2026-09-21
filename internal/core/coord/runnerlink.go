@@ -290,7 +290,7 @@ func (l *RunnerLink) serveRequest(req *agentcoordpb.RunnerRequest) {
 		resp = l.handler(req)
 	}
 	if resp == nil {
-		resp = &agentcoordpb.RunnerResponse{Status: statusErr(codes.Unimplemented, "runner has no handler for this request")}
+		resp = &agentcoordpb.RunnerResponse{Status: StatusErr(codes.Unimplemented, "runner has no handler for this request")}
 	}
 	resp.RequestId = req.GetRequestId()
 	if err := l.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Response{Response: resp}}); err != nil {

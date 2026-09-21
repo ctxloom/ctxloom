@@ -242,7 +242,7 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 				ch := c.chans[doorbellHarp]
 				c.mu.Unlock()
 				require.NotNil(t, ch)
-				c.handleSpoolChanged(ch, nil)
+				handleAgentFrame(c, ch, &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: nil}})
 			} else {
 				h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: tc.msg}})
 			}
@@ -361,9 +361,9 @@ func TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep(t *testing.T) {
 	c.mu.Unlock()
 	require.NotNil(t, ch, "the child's run channel must be attached for the doorbell to have a role")
 	before := c.SpoolDoorbellStats().Rejected
-	c.handleSpoolChanged(ch, &agentcoordpb.SpoolChanged{
+	c.HandleSpoolChanged(ch, spool.Ref{
 		Harp: "innocent-sibling-session",
-		Dir:  agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
+		Dir:  spool.DirOut,
 		Name: ref.Name,
 	})
 	assert.Equal(t, before+1, c.SpoolDoorbellStats().Rejected, "the forged doorbell must be counted as refused")
@@ -400,12 +400,12 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		// directly rather than by wedging a live dial's pump: the pump reads
 		// ch.send off-lock by design, so swapping it under a live channel
 		// races the very goroutine the test is trying to stall.
-		ch := &runChan{
+		ch := &RunChannel{
 			role:        doorbellHarp,
-			bidiSession: newBidiSession[*agentcoordpb.CoordinatorFrame, *agentcoordpb.CoordinatorFrame, *agentcoordpb.AgentFrame](func() {}, 1),
+			BidiSession: NewBidiSession[OutFrame, OutFrame, OutFrame](func() {}, 1),
 			completed:   make(chan struct{}),
 		}
-		ch.send <- &agentcoordpb.CoordinatorFrame{}
+		ch.send <- OutFrame{}
 		c.mu.Lock()
 		c.chans[doorbellHarp] = ch
 		c.mu.Unlock()

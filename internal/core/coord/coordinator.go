@@ -14,7 +14,6 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	livenesspkg "github.com/ctxloom/ctxloom/internal/shared/liveness"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -271,16 +270,16 @@ type Coordinator struct {
 	// inbox is the owner's ONE inbox: the parked receive and the spool
 	// reader behind agent_recv (spoolinbox.go).
 	inbox   *spoolInbox
-	runners map[string]*runnerSession // credHash → connected runner
+	runners map[string]*RunnerSession // credHash → connected runner
 	// graceExpire fires the runner-loss grace windows adopt armed for the
 	// runs it found live at startup, ahead of their clock — the test seam
 	// expireRunnerGrace drains; each closure is idempotent with its timer.
 	graceExpire []func()
 	runnerReady map[string]chan struct{} // credHash → closed on Hello registration (awaitRunner)
-	chans       map[string]*runChan      // role harp → live RunChannel
+	chans       map[string]*RunChannel   // role harp → live RunChannel
 	// reqTrack is plane-2 request idempotency that SURVIVES a RunChannel
 	// reconnect, keyed by (role, request_id). It replaces the per-connection
-	// runChan.reqCache/inflight (reset to empty on every dial): a request the
+	// RunChannel.reqCache/inflight (reset to empty on every dial): a request the
 	// runner reissues with the same request_id on a fresh channel (home.go)
 	// must reuse the in-flight dispatch, never start a second one — a
 	// duplicate dispatch would run the request's effect twice, and the
@@ -461,9 +460,9 @@ func New(opts Options) (*Coordinator, error) {
 		consumerCreds:      &consumerCreds{},
 		attach:             make(map[string]*childRt),
 		byHarp:             make(map[string]*childRt),
-		runners:            make(map[string]*runnerSession),
+		runners:            make(map[string]*RunnerSession),
 		runnerReady:        make(map[string]chan struct{}),
-		chans:              make(map[string]*runChan),
+		chans:              make(map[string]*RunChannel),
 		launchArmed:        make(map[string][]chan struct{}),
 		launches:           make(map[string]*launchState),
 		ownerHarp:          opts.OwnerHarp,
@@ -662,6 +661,21 @@ func (c *Coordinator) openJournals() error {
 // goroutine can outlive its spawning call must ride its owner's equivalent — see
 // trackedGroup.
 func (c *Coordinator) goTracked(fn func()) { c.tracked.dispatch(fn) }
+
+// every runs sweep on a ticker until the coordinator's base context ends —
+// the one loop shape under the runner watchdog and the idle reaper.
+func (c *Coordinator) every(interval time.Duration, sweep func()) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			sweep()
+		case <-c.baseCtx.Done():
+			return
+		}
+	}
+}
 
 // closeJoinBudget bounds Close's wait for tracked goroutines: generous headroom
 // above the ctx-aware waits every tracked loop selects on (slot acquisition,
@@ -1177,7 +1191,7 @@ func (c *Coordinator) stopRun(caller Identity, rec *RunRecord, reason string) st
 // child never diverges without a trace.
 func (c *Coordinator) Inject(harp, text string) (string, error) {
 	out, err := c.ControlSteer(context.Background(), ControlInitiator{
-		Kind: agentcoordpb.ControlInitiatorKind_CONTROL_INITIATOR_KIND_HUMAN,
+		Kind: InitiatorHuman,
 	}, harp, text)
 	if err != nil {
 		// ErrNotInjectable is the TUI's typed refusal and must survive the

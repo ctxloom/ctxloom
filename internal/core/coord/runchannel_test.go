@@ -475,13 +475,13 @@ func TestRunChannel_StopRunOmittedRunIdAndReason_IsRefused(t *testing.T) {
 // receive side reads one anymore.
 func TestPeerMessageProto_ProjectsKindOntoTheTypedField(t *testing.T) {
 	for _, kind := range MailKinds() {
-		pm, err := peerMessageProto(Message{ID: "m-1", From: "child-harp-1", Kind: kind, Body: "hi"})
+		pm, err := PeerMessageToWire(Message{ID: "m-1", From: "child-harp-1", Kind: kind, Body: "hi"})
 		require.NoError(t, err, "mail kind %q must project", kind)
 		assert.Equal(t, kind, agentcoordpb.LegacyKindName(pm.GetKind()), "typed kind must round-trip for %q", kind)
 		assert.Nil(t, pm.GetStructured(), "a message with no companion must not grow one to carry %q", kind)
 	}
 
-	pm, err := peerMessageProto(Message{
+	pm, err := PeerMessageToWire(Message{
 		ID: "m-2", From: "child-harp-1", Kind: KindResult, Body: "hi",
 		Structured: json.RawMessage(`{"kind":"approval_request","answer":"yes"}`),
 	})
@@ -490,6 +490,6 @@ func TestPeerMessageProto_ProjectsKindOntoTheTypedField(t *testing.T) {
 	assert.Equal(t, map[string]any{"kind": "approval_request", "answer": "yes"}, pm.GetStructured().AsMap(),
 		"the sender's companion travels untouched: its kind key is inert, not overwritten")
 
-	_, err = peerMessageProto(Message{ID: "m-3", From: "child-harp-1", Kind: "a_kind_nobody_mapped", Body: "hi"})
+	_, err = PeerMessageToWire(Message{ID: "m-3", From: "child-harp-1", Kind: "a_kind_nobody_mapped", Body: "hi"})
 	require.Error(t, err, "a kind outside the closed vocabulary must not be pushed as UNSPECIFIED")
 }

@@ -128,6 +128,7 @@ hooks:
     session_start: []
     session_end: []
     turn_end: []             # once per TURN, not once per session
+    turn_start: []           # once per turn, before the agent acts on the prompt
     pre_shell: []
     post_file_edit: []
   ext:                        # engine-specific hooks, by native event name

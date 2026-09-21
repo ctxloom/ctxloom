@@ -643,6 +643,10 @@
         "post_file_edit": {
           "$ref": "#/$defs/hookArray",
           "description": "After file edit"
+        },
+        "turn_start": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When a prompt is submitted, before the agent acts on it — once per turn; a command hook's stdout becomes that turn's context"
         }
       },
       "additionalProperties": false

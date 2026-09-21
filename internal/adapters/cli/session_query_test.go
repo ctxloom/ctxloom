@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -35,7 +36,7 @@ func TestAllWordsMatch(t *testing.T) {
 func TestSessionMetadataHaystack(t *testing.T) {
 	started := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	ended := started.Add(time.Hour)
-	e := &sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Fixed the harp bind race", StartedAt: started, EndedAt: &ended}
+	e := operations.ViewSession(sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Fixed the harp bind race", StartedAt: started, EndedAt: &ended})
 
 	got := sessionMetadataHaystack(e)
 
@@ -52,9 +53,9 @@ func TestSessionMetadataHaystack(t *testing.T) {
 // harp/summary never needs to touch the essence file at all (no EssencePath
 // resolution is even attempted for an entry with no HarpName-backed dir).
 func TestSessionMatchesQuery_MetadataHit(t *testing.T) {
-	e := &sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Fixed the harp bind race"}
-	assert.True(t, sessionMatchesQuery(e, []string{"bind"}, ""))
-	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}, ""))
+	e := operations.ViewSession(sessions.Entry{HarpName: "swift-amber-falcon", Summary: "Fixed the harp bind race"})
+	assert.True(t, sessionMatchesQuery(e, []string{"bind"}))
+	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}))
 }
 
 // TestSessionMatchesQuery_EssenceFallback covers the content-search leg: a
@@ -71,10 +72,10 @@ func TestSessionMatchesQuery_EssenceFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(essencePath, []byte("## Open Items\n\nInvestigate the retry backoff overflow.\n"), 0o644))
 
-	e := &sessions.Entry{HarpName: harp, Summary: "Session wrap-up"} // summary carries no hint of "backoff"
+	e := operations.ViewSession(sessions.Entry{HarpName: harp, Summary: "Session wrap-up"}) // summary carries no hint of "backoff"
 
-	assert.True(t, sessionMatchesQuery(e, []string{"backoff"}, ""), "a word only in the essence body still matches")
-	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}, ""), "a word in neither metadata nor essence doesn't match")
+	assert.True(t, sessionMatchesQuery(e, []string{"backoff"}), "a word only in the essence body still matches")
+	assert.False(t, sessionMatchesQuery(e, []string{"nonexistent-word"}), "a word in neither metadata nor essence doesn't match")
 }
 
 // TestSessionMatchesQuery_NotDistilled_NoFallback covers a pending session
@@ -82,8 +83,8 @@ func TestSessionMatchesQuery_EssenceFallback(t *testing.T) {
 // match" rather than erroring on a missing file.
 func TestSessionMatchesQuery_NotDistilled_NoFallback(t *testing.T) {
 	testsupport.Isolate(t)
-	e := &sessions.Entry{HarpName: "never-distilled-harp", Summary: "still running"}
-	assert.False(t, sessionMatchesQuery(e, []string{"backoff"}, ""))
+	e := operations.ViewSession(sessions.Entry{HarpName: "never-distilled-harp", Summary: "still running"})
+	assert.False(t, sessionMatchesQuery(e, []string{"backoff"}))
 }
 
 // TestRunSessionQuery_Integration drives the real cobra command tree

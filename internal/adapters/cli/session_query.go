@@ -67,19 +67,14 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	appDir := ""
-	if cfg, cErr := GetConfig(); cErr == nil {
-		appDir = cfg.GetAppDir()
-	}
-
-	matched := make([]sessions.Entry, 0, len(entries))
-	for i := range entries {
-		e := &entries[i]
-		if sessionMatchesQuery(e, args, appDir) {
-			matched = append(matched, *e)
+	views := operations.ViewSessions(entries)
+	matched := make([]operations.SessionView, 0, len(views))
+	for _, v := range views {
+		if sessionMatchesQuery(v, args) {
+			matched = append(matched, v)
 		}
 	}
-	return emitSessionRows(cmd, matched, sessionQueryFull, appDir)
+	return emitSessionRows(cmd, matched, sessionQueryFull)
 }
 
 // sessionMatchesQuery reports whether every word in words is found
@@ -89,11 +84,11 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 // already matches, or one that was never distilled, never pays the cost of
 // reading an essence file off disk; only the entries that genuinely need
 // the content fallback do.
-func sessionMatchesQuery(e *sessions.Entry, words []string, appDir string) bool {
-	if allWordsMatch(sessionMetadataHaystack(e), words) {
+func sessionMatchesQuery(v operations.SessionView, words []string) bool {
+	if allWordsMatch(sessionMetadataHaystack(v), words) {
 		return true
 	}
-	body, ok := readEssenceForQuery(e, appDir)
+	body, ok := readEssenceForQuery(v)
 	if !ok {
 		return false
 	}
@@ -104,33 +99,30 @@ func sessionMatchesQuery(e *sessions.Entry, words []string, appDir string) bool 
 // metadata words against: harp name, summary, and the same start/end
 // formatting SessionRow renders, so a query for a date fragment behaves
 // like a query against what the user can actually see in the row.
-func sessionMetadataHaystack(e *sessions.Entry) string {
+func sessionMetadataHaystack(v operations.SessionView) string {
 	var b strings.Builder
-	b.WriteString(e.HarpName)
+	b.WriteString(v.Harp)
 	b.WriteByte(' ')
-	b.WriteString(e.Summary)
+	b.WriteString(v.Summary)
 	b.WriteByte(' ')
-	b.WriteString(sessionTime(e.StartedAt).String())
-	if e.EndedAt != nil {
+	b.WriteString(sessionTime(v.StartedAt).String())
+	if v.EndedAt != nil {
 		b.WriteByte(' ')
-		b.WriteString(sessionTime(*e.EndedAt).String())
+		b.WriteString(sessionTime(*v.EndedAt).String())
 	}
 	return strings.ToLower(b.String())
 }
 
 // readEssenceForQuery reads a session's distilled essence body for the
-// content-search fallback, resolving it the same way `session show` does
-// (operations.SessionEssenceInfo: harp-dir layout first, then the legacy
-// <sessionsDir>/<sessionID>.md path). ok is false when the session was never
-// distilled or the file can't be read — the query fallback is best-effort,
-// never an error, matching this codebase's fault-tolerance convention (a
-// dead or unreadable essence just doesn't contribute a content match).
-func readEssenceForQuery(e *sessions.Entry, appDir string) (string, bool) {
-	path, distilled := operations.SessionEssenceInfo(e.HarpName, e)
-	if !distilled {
+// content-search fallback, from the path the view resolved. ok is false
+// when the session was never distilled or the file can't be read — the
+// query fallback is best-effort, never an error (a dead or unreadable
+// essence just doesn't contribute a content match).
+func readEssenceForQuery(v operations.SessionView) (string, bool) {
+	if !v.Distilled {
 		return "", false
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(v.EssencePath)
 	if err != nil {
 		return "", false
 	}

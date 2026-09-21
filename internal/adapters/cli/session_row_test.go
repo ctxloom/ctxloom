@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -36,13 +37,13 @@ func TestSessionTime_TextVsJSON(t *testing.T) {
 // the text renderer, so they show up in every --format.
 func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
 	t.Run("no summary falls back to placeholder", func(t *testing.T) {
-		row := newSessionRow(sessions.Entry{HarpName: "swift-amber-falcon"}, "")
+		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: "swift-amber-falcon"}))
 		assert.Equal(t, "(no summary)", row.Summary)
 		assert.Equal(t, "swift-amber-falcon", row.Harp)
 	})
 
 	t.Run("summary carried through untouched when fresh", func(t *testing.T) {
-		row := newSessionRow(sessions.Entry{HarpName: "h", Summary: "Fixed the bug"}, "")
+		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: "h", Summary: "Fixed the bug"}))
 		assert.Equal(t, "Fixed the bug", row.Summary)
 	})
 
@@ -52,12 +53,12 @@ func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
 		require.NoError(t, os.WriteFile(transcript, []byte(
 			`{"v":1,"harp":"h","engine":"mock","seq":0,"ts":"2026-01-01T00:00:00Z","kind":"entry","entry":{"type":"user","content":"a"}}`+"\n"+
 				`{"v":1,"harp":"h","engine":"mock","seq":1,"ts":"2026-01-01T00:00:01Z","kind":"entry","entry":{"type":"assistant","content":"b"}}`+"\n"), 0o644))
-		row := newSessionRow(sessions.Entry{
+		row := newSessionRow(operations.ViewSession(sessions.Entry{
 			HarpName:       "h",
 			Summary:        "Fixed the bug",
 			TranscriptPath: transcript,
 			SourceEntries:  1, // essence was stamped at one entry; a second has arrived since
-		}, "")
+		}))
 		assert.Contains(t, row.Summary, "out of date")
 	})
 }
@@ -66,13 +67,13 @@ func TestNewSessionRow_SummaryFallbackAndStaleBadge(t *testing.T) {
 // in-progress session, populated for one that has ended.
 func TestNewSessionRow_EndedAt(t *testing.T) {
 	t.Run("no end for an in-progress session", func(t *testing.T) {
-		row := newSessionRow(sessions.Entry{HarpName: "h"}, "")
+		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: "h"}))
 		assert.Nil(t, row.End)
 	})
 
 	t.Run("end populated once the session has ended", func(t *testing.T) {
 		ended := time.Date(2026, 7, 17, 18, 0, 0, 0, time.UTC)
-		row := newSessionRow(sessions.Entry{HarpName: "h", EndedAt: &ended}, "")
+		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: "h", EndedAt: &ended}))
 		require.NotNil(t, row.End)
 		assert.True(t, time.Time(*row.End).Equal(ended))
 	})
@@ -86,11 +87,11 @@ func TestNewSessionRow_EndedAt(t *testing.T) {
 // part of this shape — a present/absent essence_path already carries that.
 func TestSessionRow_JSONShape(t *testing.T) {
 	t.Run("undistilled session omits essence_path", func(t *testing.T) {
-		row := newSessionRow(sessions.Entry{
+		row := newSessionRow(operations.ViewSession(sessions.Entry{
 			HarpName:  "swift-amber-falcon",
 			Summary:   "Designed the picker",
 			StartedAt: time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC),
-		}, "")
+		}))
 
 		b, err := json.Marshal(row)
 		require.NoError(t, err)
@@ -114,7 +115,7 @@ func TestSessionRow_JSONShape(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(essencePath, []byte("## Summary\n\ndone\n"), 0o644))
 
-		row := newSessionRow(sessions.Entry{HarpName: harp, Summary: "Session wrap-up"}, "")
+		row := newSessionRow(operations.ViewSession(sessions.Entry{HarpName: harp, Summary: "Session wrap-up"}))
 
 		assert.Equal(t, essencePath, row.EssencePath)
 

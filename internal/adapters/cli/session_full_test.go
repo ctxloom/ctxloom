@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -40,14 +41,14 @@ func TestNewSessionFullRow_CarriesEssenceBody(t *testing.T) {
 		body := "## Summary\n\nRoot-caused the flaky retry-backoff-overflow test.\n"
 		essencePath := seedDistilledEssence(t, "plump-loose-sash", body)
 
-		row := newSessionFullRow(sessions.Entry{HarpName: "plump-loose-sash", Summary: "wrap-up"}, "")
+		row := newSessionFullRow(operations.ViewSession(sessions.Entry{HarpName: "plump-loose-sash", Summary: "wrap-up"}))
 
 		assert.Equal(t, body, row.Essence, "the FULL row must carry the essence file's actual content, not a summary or excerpt")
 		assert.Equal(t, essencePath, row.EssencePath)
 	})
 
 	t.Run("undistilled session has empty essence and path", func(t *testing.T) {
-		row := newSessionFullRow(sessions.Entry{HarpName: "never-distilled-harp"}, "")
+		row := newSessionFullRow(operations.ViewSession(sessions.Entry{HarpName: "never-distilled-harp"}))
 		assert.Empty(t, row.Essence)
 		assert.Empty(t, row.EssencePath)
 	})
@@ -215,7 +216,7 @@ func TestNewSessionFullRow_EssenceAndPathAgree(t *testing.T) {
 	seedRotationEssence(t, harp, "sess-9", "rotation body\n")
 	e := sessions.Entry{HarpName: harp, SessionID: "sess-9"}
 
-	row := newSessionFullRow(e, "")
+	row := newSessionFullRow(operations.ViewSession(e))
 
 	if row.Essence != "" {
 		assert.NotEmpty(t, row.EssencePath,

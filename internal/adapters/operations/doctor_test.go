@@ -436,17 +436,22 @@ func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
-	assert.Contains(t, check.Detail, "hooks/MCP registered for: claude-code")
+	assert.Contains(t, check.Detail, "also registered in the project (the explicit `manage hooks install` door) for: claude-code")
 }
 
-func TestDoctorCheckHooksTrust_WrongState_NotInstalled(t *testing.T) {
+// TestDoctorCheckHooksTrust_SessionDelivery_IsTheHealthyDefault: absent
+// project-side hooks are the correct state of every project — a session
+// carries its own — so the check reports that posture as ok, never as a
+// fault (ruled 2026-09-21).
+func TestDoctorCheckHooksTrust_SessionDelivery_IsTheHealthyDefault(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	t.Chdir(root) // no ApplyHooks call: hooks were never installed
+	t.Chdir(root) // no ApplyHooks call: nothing project-side
 
 	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
-	assert.Equal(t, DoctorWarn, check.Status)
-	assert.Contains(t, check.Detail, "NOT registered")
+	assert.Equal(t, DoctorOK, check.Status)
+	assert.Contains(t, check.Detail, "delivered per session")
 	assert.Contains(t, check.Detail, "claude-code")
+	assert.NotContains(t, check.Detail, "NOT")
 }
 
 func TestDoctorCheckHooksTrust_NoEnginesConfigured(t *testing.T) {

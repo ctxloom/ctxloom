@@ -55,3 +55,16 @@ func TestPrintStartSessionBanner_TokensWithNoFragments(t *testing.T) {
 	PrintStartSessionBanner(&buf, StartSessionInfo{Harp: "h", Tokens: 100})
 	assert.Contains(t, buf.String(), "context: ~100 tokens")
 }
+
+// TestPrintStartSessionBanner_NamesUnsafeRoutes: a plan routing a surface
+// onto the project tree is announced as unsafe before the engine spawns;
+// a session-only plan says nothing.
+func TestPrintStartSessionBanner_NamesUnsafeRoutes(t *testing.T) {
+	var buf bytes.Buffer
+	PrintStartSessionBanner(&buf, StartSessionInfo{Harp: "swift-amber-falcon", Unsafe: []string{"context → project-root"}})
+	assert.Contains(t, buf.String(), "unsafe: context → project-root")
+
+	buf.Reset()
+	PrintStartSessionBanner(&buf, StartSessionInfo{Harp: "swift-amber-falcon"})
+	assert.NotContains(t, buf.String(), "unsafe")
+}

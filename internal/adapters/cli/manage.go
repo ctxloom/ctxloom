@@ -536,9 +536,21 @@ var (
 
 var manageHooksInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Apply ctxloom hooks and regenerate context into backend config",
-	Args:  cobra.NoArgs,
-	RunE:  runManageHooksInstall,
+	Short: "UNSAFE: write ctxloom's hooks, MCP, commands and context into the project's engine files",
+	Long: `Write ctxloom's engine files into the PROJECT tree: each configured
+engine's settings (hooks, statusline), MCP registration, command files and
+regenerated context, at the well-known paths the engine reads from the
+project.
+
+This is the UNSAFE door, and the only one on the default path. A
+'ctxloom run' session delivers the same surfaces into its own session home
+and never writes the project or your real home; nothing here happens unless
+you run this command (or select a project root on an agent binding's
+roots:). What it writes is shared by every session and every person using
+this checkout, and it is not locked against them. 'ctxloom manage uninstall'
+removes it.`,
+	Args: cobra.NoArgs,
+	RunE: runManageHooksInstall,
 }
 
 func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
@@ -577,7 +589,7 @@ func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 		Errors:      result.Errors,
 	}
 	if err := emit(cmd, out, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v (project root: %s)\n", result.Status, result.Backends, workDir)
+		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v (project root: %s) — unsafe: written into the shared project tree; a 'ctxloom run' session carries its own\n", result.Status, result.Backends, workDir)
 		return nil
 	}); err != nil {
 		return err

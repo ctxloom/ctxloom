@@ -9,7 +9,22 @@ This page is generated from `ctxloom manage hooks install --help`.
 
 ## ctxloom manage hooks install
 
-Apply ctxloom hooks and regenerate context into backend config
+UNSAFE: write ctxloom's hooks, MCP, commands and context into the project's engine files
+
+### Synopsis
+
+Write ctxloom's engine files into the PROJECT tree: each configured
+engine's settings (hooks, statusline), MCP registration, command files and
+regenerated context, at the well-known paths the engine reads from the
+project.
+
+This is the UNSAFE door, and the only one on the default path. A
+'ctxloom run' session delivers the same surfaces into its own session home
+and never writes the project or your real home; nothing here happens unless
+you run this command (or select a project root on an agent binding's
+roots:). What it writes is shared by every session and every person using
+this checkout, and it is not locked against them. 'ctxloom manage uninstall'
+removes it.
 
 ```
 ctxloom manage hooks install [flags]

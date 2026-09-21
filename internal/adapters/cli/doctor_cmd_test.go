@@ -290,13 +290,18 @@ func startFakeSSHAgent(t *testing.T, comments ...string) string {
 
 func TestDoctorCmd_AlwaysExitsCleanEvenWhenMisconfigured(t *testing.T) {
 	root, _ := setupProject(t, "claude-code")
-	// Hooks were never applied — a real misconfiguration `doctor` DOES flag
-	// (as a "warn" line) — but the command itself stays diagnostic-only per
-	// its documented contract: always exits 0, never blocks.
+	// The default agent's seed profile is gone — a real misconfiguration
+	// `doctor` DOES flag (as a "warn" line) — but the command itself stays
+	// diagnostic-only per its documented contract: always exits 0, never
+	// blocks. (Absent project-side hooks are NOT a misconfiguration: a
+	// session carries its own, so HOOKS-TRUST reports that posture as ok.)
+	require.NoError(t, os.Remove(filepath.Join(root, ".ctxloom", "profiles", operations.SeedProfileName+".yaml")))
 	out, err := runDoctor(t, root)
 	require.NoError(t, err, "`ctxloom doctor` must never fail the process even when it finds a misconfiguration")
-	assert.Equal(t, operations.DoctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4").Status,
+	assert.Equal(t, operations.DoctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-AGENTS-b2").Status,
 		"the misconfiguration must still be VISIBLE in the report:\n"+out)
+	assert.Equal(t, operations.DoctorOK, doctorCheckNamed(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4").Status,
+		"nothing project-side is the healthy delivery posture, never a warn:\n"+out)
 }
 
 func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
@@ -519,15 +524,16 @@ func TestDoctorCmd_ReadOnly(t *testing.T) {
 	after := hashTree(t, root)
 	assert.Equal(t, before, after, "`doctor` on a healthy project must not change a single byte on disk")
 
-	// Also across the WARN path: remove hooks so a real check fails, and
-	// confirm the failure report itself still writes nothing.
-	require.NoError(t, os.RemoveAll(filepath.Join(root, ".claude")))
+	// Also across the WARN path: remove the default agent's seed profile so
+	// a real check fails, and confirm the failure report itself still writes
+	// nothing.
+	require.NoError(t, os.Remove(filepath.Join(root, ".ctxloom", "profiles", operations.SeedProfileName+".yaml")))
 	before2 := hashTree(t, root)
 	out, err := runDoctor(t, root)
 	require.NoError(t, err)
 	// the misconfiguration IS detected — named, not merely "something warned",
 	// so a doctor that lost this check cannot satisfy the precondition...
-	assert.Equal(t, operations.DoctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4").Status, out)
+	assert.Equal(t, operations.DoctorWarn, doctorCheckNamed(t, out, "DOCTOR-CHECK-AGENTS-b2").Status, out)
 	after2 := hashTree(t, root)
 	assert.Equal(t, before2, after2, "...but detecting it must not itself write anything")
 }

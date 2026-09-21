@@ -124,7 +124,7 @@ func runDepsList(cmd *cobra.Command, _ []string) error {
 // away the one answer that still works when everything else is broken. The
 // rows fall back to their URL.
 func loadDepsListing(ctx context.Context, cfg *config.Config) (*depsListing, error) {
-	lockfile, err := remote.NewLockfileManager(projectAppDir(cfg)).Load()
+	lockfile, err := remote.NewLockfileManager(operations.ProjectAppDir(cfg)).Load()
 	if err != nil {
 		return nil, err
 	}

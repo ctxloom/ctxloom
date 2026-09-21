@@ -20,9 +20,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
-// getBaseDir returns the ctxloom directory from config, defaulting to ".ctxloom".
-func getBaseDir(cfg *config.Config) string {
-	if cfg != nil && len(cfg.GetAppPaths()) > 0 {
+// ProjectAppDir returns the project's .ctxloom directory for lockfile and
+// registry paths — cfg.AppPaths[0] is the directory the reader discovered by
+// walking up from cwd to the project root, so a command works from
+// subdirectories — defaulting to the bare relative ".ctxloom" only when
+// discovery found nothing.
+func ProjectAppDir(cfg *config.Config) string {
+	if cfg != nil && len(cfg.GetAppPaths()) > 0 && cfg.GetAppPaths()[0] != "" {
 		return cfg.GetAppPaths()[0]
 	}
 	return ".ctxloom"
@@ -30,7 +34,7 @@ func getBaseDir(cfg *config.Config) string {
 
 // getRegistry creates a registry using the config's ctxloom path.
 func getRegistry(cfg *config.Config, opts ...remote.RegistryOption) (*remote.Registry, error) {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	return remote.NewRegistry(paths.RemotesPath(baseDir), opts...)
 }
 
@@ -454,7 +458,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 		return nil, fmt.Errorf("unsupported discovery source %q: only \"github\" is searchable", req.Source)
 	}
 
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 
 	fetcher := req.GitHubFetcher

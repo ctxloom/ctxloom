@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 )
 
@@ -193,7 +194,7 @@ func TestDepsList_ReadsAnInstalledClosureFromTheLockfile(t *testing.T) {
 		demoRef  = "https://github.com/alice/ctxloom@bundles/demo"
 		guardRef = "https://github.com/alice/ctxloom@bundles/guardrails"
 	)
-	manager := remote.NewLockfileManager(projectAppDir(cfg))
+	manager := remote.NewLockfileManager(operations.ProjectAppDir(cfg))
 	lockfile, err := manager.Load()
 	require.NoError(t, err)
 	lockfile.AddEntry(remote.ItemTypeBundle, demoRef, remote.LockEntry{

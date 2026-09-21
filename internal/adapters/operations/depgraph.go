@@ -166,7 +166,7 @@ func configDefaultsRoot(cfg *config.Config) *profiles.Profile {
 // lock-mode resolver.
 func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profiles.Loader, roots []*profiles.Profile) ([]PinnedRef, []DependencyConflict, []string) {
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
-	auth := remote.LoadAuth(getBaseDir(cfg))
+	auth := remote.LoadAuth(ProjectAppDir(cfg))
 	// The active lock anchors resolution: a held or unchanged-constraint entry is
 	// carried forward (stability), and a resolution failure falls back to its last
 	// known SHA rather than dropping the item. Lock mode (reResolve=false).
@@ -182,7 +182,7 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// PERSISTED downstream by Save's unreadable-file refusal rather
 	// than by anything decidable here. A nil lockfile resolves as no anchor,
 	// which is exactly the empty-lock behaviour of a first-ever lock.
-	active, _ := remote.NewLockfileManager(getBaseDir(cfg)).Load()
+	active, _ := remote.NewLockfileManager(ProjectAppDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
 	return flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve)
 }

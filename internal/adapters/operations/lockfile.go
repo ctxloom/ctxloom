@@ -43,7 +43,7 @@ type LockDependenciesResult struct {
 // dropped so startup is never blocked (CLAUDE.md).
 func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenciesRequest) (*LockDependenciesResult, error) {
 	fs := getFS(req.FS)
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 
 	// Run sync first so the clones the closure walk reads are present.
 	pins, conflicts, unexpanded := FlattenDependencies(ctx, cfg, nil)

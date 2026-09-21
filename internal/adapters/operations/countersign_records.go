@@ -31,7 +31,7 @@ func buildCountersignRecords(cfg *config.Config, fs afero.Fs, injectedUser, inje
 	}
 	project := injectedProject
 	if project == nil {
-		project = countersign.NewStore(paths.ApprovalsPath(getBaseDir(cfg)), f)
+		project = countersign.NewStore(paths.ApprovalsPath(ProjectAppDir(cfg)), f)
 	}
 	return countersign.NewRecords(user, project, reviewTrustRoot(cfg, injectedRoot), fault)
 }

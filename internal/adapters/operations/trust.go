@@ -97,7 +97,7 @@ func resolveCountersignStore(cfg *config.Config, fs afero.Fs, project bool, inje
 		if injectedProject != nil {
 			return injectedProject, "project", nil
 		}
-		return countersign.NewStore(paths.ApprovalsPath(getBaseDir(cfg)), f), "project", nil
+		return countersign.NewStore(paths.ApprovalsPath(ProjectAppDir(cfg)), f), "project", nil
 	}
 	if injectedUser != nil {
 		return injectedUser, "user", nil
@@ -742,7 +742,7 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 // lockfile, over r.
 func trustOverRecords(cfg *config.Config, r composite.ReviewRecords, fs afero.Fs) composite.Trust {
 	root := reviewTrustRoot(cfg, nil)
-	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(getBaseDir(cfg), remote.WithLockfileFS(getFS(fs))))
+	retraction := remote.NewLockfileRetraction(remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(getFS(fs))))
 	tr, err := composite.NewTrust(root, r, retraction)
 	if err != nil {
 		panic(err) // every port is supplied above

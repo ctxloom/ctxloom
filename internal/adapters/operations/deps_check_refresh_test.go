@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func requireDetectForgeStillFails(t *testing.T) {
 //     escaped clone looks like from appDir's point of view, so the appDir check
 //     alone stays vacuous in exactly the case that matters. When this file's
 //     premise rotted, a real clone ran and landed in a RELATIVE ".ctxloom" —
-//     operations.getBaseDir falls back to that literal when the config carries
+//     ProjectAppDir falls back to that literal when the config carries
 //     no app paths — writing into the source tree while both tests reported
 //     success. Only a repo-wide post-run guard noticed.
 //

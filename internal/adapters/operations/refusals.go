@@ -217,7 +217,7 @@ func LiveRefusedAdvances(cfg *config.Config) ([]RefusalRecord, error) {
 // carries no type: only bundles are ever refused (verifyAdvance returns early
 // for anything else), and a ref is unique across the lock regardless.
 func lockedSHAsByRef(cfg *config.Config) (map[string]string, error) {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(getFS(cfg.FS()))).Load()
 	if err != nil {
 		return nil, fmt.Errorf("read the lockfile a refusal record is checked against: %w", err)

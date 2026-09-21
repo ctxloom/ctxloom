@@ -75,7 +75,7 @@ func TestCheckDependencies_EmptySHAEntriesAreSkippedAndCounted(t *testing.T) {
 // message for the same input whichever frontend asks.
 func TestCheckDependencies_SingleRef_RejectsAReferenceWithNoRepositoryURL(t *testing.T) {
 	app := depsCheckApp(t, nil)
-	_, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{Ref: "just-a-bundle"})
+	_, err := CheckDependencies(context.Background(), app, CheckDependenciesRequest{Ref: "ctxloom:local@bundles/x"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reference has no repository URL")
 }

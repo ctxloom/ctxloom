@@ -280,7 +280,7 @@ func parseBundleBytes(data []byte) error {
 func ConfiguredCorpus(cfg *config.Config) ([]CorpusRemote, error) {
 	registry, err := getRegistry(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("read the remotes registry %s: %w", paths.RemotesPath(getBaseDir(cfg)), err)
+		return nil, fmt.Errorf("read the remotes registry %s: %w", paths.RemotesPath(ProjectAppDir(cfg)), err)
 	}
 	entries := registry.List()
 	corpus := make([]CorpusRemote, 0, len(entries))
@@ -307,7 +307,7 @@ func CheckConfiguredCorpus(ctx context.Context, cfg *config.Config) (CorpusRepor
 		return CorpusReport{}, err
 	}
 	factory := NewCachedFetcherFactory(cfg)
-	auth := remote.LoadAuth(getBaseDir(cfg))
+	auth := remote.LoadAuth(ProjectAppDir(cfg))
 	open := func(repoURL string) (remote.Fetcher, error) { return factory(repoURL, auth) }
 	return CheckCorpus(ctx, corpus, open, parseBundleBytes), nil
 }

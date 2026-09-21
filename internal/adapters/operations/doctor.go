@@ -669,7 +669,7 @@ func doctorTrustStoreDetail(signers []SignerListing, err error) (detail string, 
 // here: doctor's OWN pre-existing checks already covered that ground, they
 // just needed a stricter (WARN, not INFO) reading of the empty/missing case.
 
-// doctorAppDir mirrors getBaseDir's fallback (unexported there,
+// doctorAppDir mirrors ProjectAppDir's fallback (unexported there,
 // remotes.go): the .ctxloom directory the reader already resolved, or ""
 // when it found none (callers use this to short-circuit rather than probe a
 // directory that was never located).

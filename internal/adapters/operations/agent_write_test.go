@@ -829,9 +829,9 @@ func TestSetAgent_RefusesARootTheApproachDoesNotOffer(t *testing.T) {
 	_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 		Name:  "scout",
 		LLM:   ptr("claude-code"),
-		Roots: map[string]string{"commands": "session-home"},
+		Roots: map[string]string{"commands": "work-dir"},
 	})
-	require.Error(t, err, "claude's commands approach offers the project root only")
+	require.Error(t, err, "claude's commands approach offers the session home and the project root, never the work dir")
 	assert.Contains(t, err.Error(), "project-root", "the refusal names what the approach offers")
 
 	_, err = SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{

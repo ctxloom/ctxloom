@@ -58,8 +58,12 @@ func WithTranscripts(readers ...engine.TranscriptReader) Option {
 // once.
 func Build(opts ...Option) (engine.Engine, error) {
 	home := []present.RootKind{present.RootSessionHome}
+	// Every static surface roots under the session home FIRST — the engine's
+	// config home for the session (ConfigDirEnv), where claude reads its
+	// user-level settings, commands and skills — and offers the project root
+	// SECOND, reached only when the binding's `roots:` selects it. No default
+	// names the project or the user's real home (ruled 2026-09-21).
 	shared := []present.RootKind{present.RootSessionHome, present.RootProjectRoot}
-	project := []present.RootKind{present.RootProjectRoot}
 	var cli []engine.CLIGrammar
 	for _, c := range ClaudeEngineCLIs() {
 		cli = append(cli, agent.GrammarOf(c))
@@ -78,10 +82,10 @@ func Build(opts ...Option) (engine.Engine, error) {
 		},
 		Context:  &contextApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelArgv}}},
 		MCP:      &mcpApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
-		Settings: &settingsApproach{traits{present.Traits{Roots: []present.RootKind{present.RootProjectRoot, present.RootSessionHome}, Channel: present.ChannelFile}}},
-		Hooks:    &hooksApproach{traits{present.Traits{Roots: []present.RootKind{present.RootProjectRoot, present.RootSessionHome}, Channel: present.ChannelFile}}},
-		Commands: &commandsApproach{traits{present.Traits{Roots: project, Channel: present.ChannelFile, Persists: true}}},
-		Skills:   &skillsApproach{traits{present.Traits{Roots: project, Channel: present.ChannelFile, Persists: true}}},
+		Settings: &settingsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
+		Hooks:    &hooksApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile}}},
+		Commands: &commandsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
+		Skills:   &skillsApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},
 		// The dynamic half, PROVIDED: the session endpoint as an entry in the
 		// MCP file.
 		Dynamic:      &sessionEndpoint{traits{present.Traits{Roots: home, Channel: present.ChannelFile}}},
@@ -272,8 +276,10 @@ func (a *hooksApproach) DeliverHooks(start present.Start, root present.RootKind,
 	return deliverSettingsFile(a.Name(), start, root, &wire.HooksConfig{Unified: in.Hooks}, false, nil, fs)
 }
 
-// commandsApproach is claude's commands surface: .claude/commands/ under the
-// project root; a command's help text and metadata arrive already decoded
+// commandsApproach is claude's commands surface: <config dir>/commands/
+// under the session home (the user-level directory claude loads alongside a
+// project's), or .claude/commands/ under the project root when the binding
+// selects it; a command's help text and metadata arrive already decoded
 // from its block (Claude.Exports) and become the slash-command frontmatter.
 type commandsApproach struct{ traits }
 
@@ -284,15 +290,29 @@ func (*commandsApproach) Forms() agent.Presentations {
 	})
 }
 func (a *commandsApproach) DeliverCommands(start present.Start, root present.RootKind, in engine.CommandsInputs, fs afero.Fs) (present.Delivered, error) {
-	if root != present.RootProjectRoot {
-		return present.Delivered{}, errRoot(a.Name(), root)
-	}
 	cmds := make([]agent.CommandExport, 0, len(in.Commands))
 	for _, c := range in.Commands {
 		cmds = append(cmds, agent.CommandExport{
 			Name: c.Name, Content: string(c.Body), Enabled: c.Enabled,
 			Description: c.Description, ArgumentHint: c.ArgumentHint, AllowedTools: c.AllowedTools, Model: c.Model,
 		})
+	}
+	switch root {
+	case present.RootSessionHome:
+		// The session's config dir is its own instance: nothing in the
+		// user's real ~/.claude/commands is deduped against, and a run with
+		// no engine home advised is refused rather than served from there.
+		if err := privateRooted(start); err != nil {
+			return present.Delivered{}, err
+		}
+		p := underPrivateRoot(start, CommandsDirName).Build()
+		if err := writeCommandDir(agent.GetFS(fs), p.HostPath, cmds); err != nil {
+			return present.Delivered{}, err
+		}
+		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
+	case present.RootProjectRoot:
+	default:
+		return present.Delivered{}, errRoot(a.Name(), root)
 	}
 	// The plan's commands land as given: a copy in the materializing
 	// host's own ~/.claude/commands is no reason to withhold one from a
@@ -305,8 +325,10 @@ func (a *commandsApproach) DeliverCommands(start present.Start, root present.Roo
 	return delivered(form, start, h), nil
 }
 
-// skillsApproach is claude's skills surface: .claude/skills/<name>/ under
-// the project root.
+// skillsApproach is claude's skills surface: <config dir>/skills/<name>/
+// under the session home (the user-level directory claude loads alongside a
+// project's), or .claude/skills/<name>/ under the project root when the
+// binding selects it.
 type skillsApproach struct{ traits }
 
 func (*skillsApproach) Name() string { return "skills-dir" }
@@ -314,9 +336,6 @@ func (*skillsApproach) Forms() agent.Presentations {
 	return agent.Presents(EngineName, agent.SurfaceSkills, agent.ApproachUnsafeFile, newSkillsSurface)
 }
 func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKind, in engine.SkillsInputs, fs afero.Fs) (present.Delivered, error) {
-	if root != present.RootProjectRoot {
-		return present.Delivered{}, errRoot(a.Name(), root)
-	}
 	skills := make([]agent.SkillExport, 0, len(in.Skills))
 	for _, s := range in.Skills {
 		e := agent.SkillExport{Name: s.Name, Description: s.Description, Enabled: s.Enabled}
@@ -328,6 +347,20 @@ func (a *skillsApproach) DeliverSkills(start present.Start, root present.RootKin
 			e.Files = append(e.Files, agent.PackageFile{RelPath: f.Path, Content: f.Bytes, Mode: mode})
 		}
 		skills = append(skills, e)
+	}
+	switch root {
+	case present.RootSessionHome:
+		if err := privateRooted(start); err != nil {
+			return present.Delivered{}, err
+		}
+		p := underPrivateRoot(start, SkillsDirName).Build()
+		if err := agent.WriteManagedSkillPackages(agent.GetFS(fs), p.HostPath, acceptedSkills(skills)); err != nil {
+			return present.Delivered{}, err
+		}
+		return present.Delivered{Presented: p, Wrote: []string{p.HostPath}}, nil
+	case present.RootProjectRoot:
+	default:
+		return present.Delivered{}, errRoot(a.Name(), root)
 	}
 	form := newSkillsSurface(agent.SurfaceInputs{Skills: skills}, fs)
 	h, err := form.Deliver(start)

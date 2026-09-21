@@ -126,7 +126,7 @@ func TestDoctorCmd_CapabilityLoss_NamesTheHooksAnEngineCannotCarry(t *testing.T)
 	require.NoError(t, err, "doctor stays diagnostic-only: a capability gap is reported, never fatal")
 
 	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
-	assert.Equal(t, doctorWarn, check.Status,
+	assert.Equal(t, operations.DoctorWarn, check.Status,
 		"a configured agent whose engine drops a hook it was given is a WARN — doctor's fail-loud signal:\n"+out)
 	assert.Contains(t, check.Detail, "default",
 		"the detail must name WHICH agent loses it, or a multi-agent roster is unactionable:\n"+out)
@@ -149,7 +149,7 @@ func TestDoctorCmd_CapabilityLoss_StaysQuietWhenNothingIsLost(t *testing.T) {
 	require.NoError(t, err)
 
 	check := doctorCheckNamed(t, out, "DOCTOR-CHECK-CAPABILITY-LOSS-u1")
-	assert.Equal(t, doctorOK, check.Status,
+	assert.Equal(t, operations.DoctorOK, check.Status,
 		"the check must RUN and say so — silence from a check that was never wired is not the same as silence from a clean project:\n"+out)
 	assert.NotContains(t, out, "NOT carried",
 		"claude-code carries both hooks, so there is nothing to report as lost:\n"+out)

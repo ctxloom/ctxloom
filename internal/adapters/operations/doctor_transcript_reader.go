@@ -1,11 +1,10 @@
-package cli
+package operations
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
@@ -54,13 +53,13 @@ type engineVersionProbe func(ctx context.Context, engine string) (string, error)
 // and never what wrote those bytes) — this check reports the CURRENT machine,
 // which is the other half a user needs and the only half a probe can honestly
 // supply.
-func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe engineVersionProbe) doctorCheck {
+func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe engineVersionProbe) DoctorCheck {
 	engines := doctorConfiguredEngines(cfg)
 	var lines []string
 	refused := false
 
 	for _, engine := range engines {
-		adapters, ok := operations.VendorReaderAdaptersFor(engine)
+		adapters, ok := VendorReaderAdaptersFor(engine)
 		if !ok {
 			// No vendor reader for this engine at all. Every REGISTERED
 			// backend has one, so this is the config-names-an-unknown-engine
@@ -93,15 +92,15 @@ func doctorCheckTranscriptReaders(ctx context.Context, cfg *config.Config, probe
 	}
 
 	if len(lines) == 0 {
-		return doctorCheck{Marker: doctorTranscriptReaderMarker, Status: doctorInfo,
+		return DoctorCheck{Marker: doctorTranscriptReaderMarker, Status: DoctorInfo,
 			Detail: "no configured engine reads a vendor-native transcript store (none names a registered backend with a reader), so no version-scoped reader applies"}
 	}
 
 	detail := strings.Join(lines, "; ")
 	if refused {
-		return doctorCheck{Marker: doctorTranscriptReaderMarker, Status: doctorWarn, Detail: detail}
+		return DoctorCheck{Marker: doctorTranscriptReaderMarker, Status: DoctorWarn, Detail: detail}
 	}
-	return doctorCheck{Marker: doctorTranscriptReaderMarker, Status: doctorInfo, Detail: detail}
+	return DoctorCheck{Marker: doctorTranscriptReaderMarker, Status: DoctorInfo, Detail: detail}
 }
 
 // doctorReaderRanges renders the version ranges a set of candidate readers

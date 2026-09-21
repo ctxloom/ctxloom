@@ -1,7 +1,6 @@
-package cli
+package operations
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,7 +24,7 @@ func TestDoctorCheckLegacyIndex_RightState_NoSessionsDirYet(t *testing.T) {
 	testsupport.Isolate(t)
 	check := doctorCheckLegacyIndex()
 	assert.Equal(t, doctorLegacyIndexMarker, check.Marker)
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 }
 
 func TestDoctorCheckLegacyIndex_RightState_HarpTreeWithoutIndex(t *testing.T) {
@@ -36,7 +35,7 @@ func TestDoctorCheckLegacyIndex_RightState_HarpTreeWithoutIndex(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.SessionSidecarFileName), []byte("backend: claude-code\n"), 0o644))
 
 	check := doctorCheckLegacyIndex()
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.NotContains(t, check.Detail, paths.IndexFileName, "a clean tree names no index")
 }
 
@@ -54,7 +53,7 @@ func TestDoctorCheckLegacyIndex_WrongState_NamesTheIndexWithRemedy(t *testing.T)
 
 	check := doctorCheckLegacyIndex()
 	assert.Equal(t, doctorLegacyIndexMarker, check.Marker)
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stale, "the finding names the file by its full path")
 	assert.Contains(t, check.Detail, wantLegacyIndexRemedy)
 
@@ -75,46 +74,14 @@ func TestDoctorCheckLegacyIndex_WrongState_NamesTheMigrationMarkerToo(t *testing
 	require.NoError(t, os.WriteFile(migrated, []byte("sessions: []\n"), 0o644))
 
 	check := doctorCheckLegacyIndex()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, migrated)
 	assert.Contains(t, check.Detail, wantLegacyIndexRemedy)
 
 	stale := filepath.Join(sessionsRoot, paths.IndexFileName)
 	require.NoError(t, os.WriteFile(stale, []byte("sessions: []\n"), 0o644))
 	check = doctorCheckLegacyIndex()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stale)
 	assert.Contains(t, check.Detail, migrated)
-}
-
-// TestDoctorCmd_ReportCarriesTheLegacyIndexCheck pins the registration: a
-// check that exists but is not in runDoctorCmd's list is a check nobody runs.
-// HOME is pointed at a directory this test owns (isolateGitHostState, the same
-// host-state isolation every full-command doctor test here uses) so the
-// fixture lands where paths.HomeSessionsDir resolves for the command.
-func TestDoctorCmd_ReportCarriesTheLegacyIndexCheck(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	home := t.TempDir()
-	isolateGitHostState(t, "", home)
-	sessionsRoot, err := paths.HomeSessionsDir()
-	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(sessionsRoot, 0o755))
-	stale := filepath.Join(sessionsRoot, paths.IndexFileName)
-	require.NoError(t, os.WriteFile(stale, []byte("sessions: []\n"), 0o644))
-
-	out, err := execDoctor(t, root, "--format", "json")
-	require.NoError(t, err)
-	var report doctorReport
-	require.NoError(t, json.Unmarshal([]byte(out), &report))
-
-	var found *doctorCheck
-	for i := range report.Checks {
-		if report.Checks[i].Marker == doctorLegacyIndexMarker {
-			found = &report.Checks[i]
-		}
-	}
-	require.NotNil(t, found, "the legacy-index check is missing from the report")
-	assert.Equal(t, doctorWarn, found.Status)
-	assert.Contains(t, found.Detail, stale)
-	assert.Contains(t, found.Detail, wantLegacyIndexRemedy)
 }

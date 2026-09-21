@@ -40,7 +40,7 @@ func fakeBinDir(t *testing.T, names ...string) string {
 // TestCheckSystemDeps_GitIdentitySet_NoWarn for the opposite.
 //
 // HOME/XDG_CONFIG_HOME/GIT_CONFIG_NOSYSTEM only neutralize git's GLOBAL and
-// SYSTEM config tiers. `git config --get` (gitIdentityDetail,
+// SYSTEM config tiers. `git config --get` (operations.GitIdentityDetail,
 // doctor_cmd.go) always calls with dir="", so the child process inherits
 // this TEST BINARY's cwd — which, absent this Chdir, is somewhere inside the
 // ctxloom repo checkout. Git resolves LOCAL config by walking up from cwd to

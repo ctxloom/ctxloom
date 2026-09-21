@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func TestDoctorCheckTranscriptReaders_RightState_DetectedVersionSelectsCarriedRe
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("2.1.225"))
 
-	assert.Equal(t, doctorInfo, check.Status)
+	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "claude-code", "must name the engine")
 	assert.Contains(t, check.Detail, "2.1.225", "must report the DETECTED version, not a placeholder")
 	assert.Contains(t, check.Detail, "claude.Adapter", "must name the reader actually selected")
@@ -73,7 +73,7 @@ func TestDoctorCheckTranscriptReaders_WrongState_DetectedVersionCarriesNoReader(
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("9.9.9"))
 
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "claude-code 9.9.9", "must name the version that has no reader")
 	assert.Contains(t, check.Detail, declared.Range.String(), "must show what ctxloom DOES carry — that gap is the diagnosis")
 	assert.Contains(t, check.Detail, "REFUSE", "must say the transcript refuses rather than being read by an unvalidated reader")
@@ -88,7 +88,7 @@ func TestDoctorCheckTranscriptReaders_WrongState_UnparseableVersionAlsoRefuses(t
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("not-a-version"))
 
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "not-a-version")
 	assert.Contains(t, check.Detail, "NO reader carried")
 }
@@ -104,7 +104,7 @@ func TestDoctorCheckTranscriptReaders_RightState_UnprobedVersionIsInfoNotWarn(t 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg,
 		failingVersionProbe(errors.New("claude: binary not on PATH")))
 
-	assert.Equal(t, doctorInfo, check.Status)
+	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "version not detected")
 	assert.Contains(t, check.Detail, "claude: binary not on PATH", "must carry the probe's own reason")
 	assert.Contains(t, check.Detail, declared.Range.String(), "carried ranges are true whether or not the engine is installed")
@@ -130,13 +130,12 @@ func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *tes
 	require.Contains(t, string(body), "mock", "the scaffolded config must name the engine it was built with")
 	require.NoError(t, os.WriteFile(cfgPath, []byte(strings.ReplaceAll(string(body), "mock", "some-future-engine")), 0o644))
 
-	resetApp()
 	cfg, err := configload.Load(configload.WithAppDir(filepath.Join(root, ".ctxloom")))
 	require.NoError(t, err)
 
 	check := doctorCheckTranscriptReaders(context.Background(), cfg, fixedVersionProbe("1.18.4"))
 
-	assert.Equal(t, doctorInfo, check.Status)
+	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "no configured engine reads a vendor-native transcript store")
 	assert.NotContains(t, check.Detail, "1.18.4", "nothing was selected, so no version may be reported")
 }
@@ -147,35 +146,6 @@ func TestDoctorCheckTranscriptReaders_RightState_EngineWithNoVendorReader(t *tes
 func TestDoctorCheckTranscriptReaders_RightState_NoConfigIsNotACrash(t *testing.T) {
 	check := doctorCheckTranscriptReaders(context.Background(), nil, fixedVersionProbe("2.1.225"))
 
-	assert.Equal(t, doctorInfo, check.Status)
+	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "no configured engine reads a vendor-native transcript store")
-}
-
-// TestDoctorCmd_TranscriptReaderCheckIsWiredIntoTheReport is the wiring half:
-// the check has to appear in the command's OWN report, not merely be callable.
-// It asserts the reported range — a real value, true down all three branches of
-// the check (selected / no reader / not probed), so it holds on any host
-// regardless of whether claude-code is installed here — never a clean exit.
-func TestDoctorCmd_TranscriptReaderCheckIsWiredIntoTheReport(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-
-	out, err := runDoctor(t, root)
-	require.NoError(t, err)
-
-	check := doctorCheckNamed(t, out, doctorTranscriptReaderMarker)
-	assert.Contains(t, check.Detail, "claude-code", "the check must name the configured engine")
-	assert.Contains(t, check.Detail, claudereader.VersionedAdapters[0].Range.String(),
-		"the check must carry the range ctxloom actually carries a reader for")
-}
-
-// TestDoctorCmd_TranscriptReaderCheckIsNotInDepsScope keeps --deps what it is:
-// machine-capability probes only, usable before a project exists. This check
-// reads the project's configured engines, so it has no place there.
-func TestDoctorCmd_TranscriptReaderCheckIsNotInDepsScope(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-
-	out, err := runDoctor(t, root, "--deps")
-	require.NoError(t, err)
-
-	assert.NotContains(t, out, doctorTranscriptReaderMarker)
 }

@@ -1,6 +1,11 @@
 package operations
 
 import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -31,4 +36,68 @@ func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) [
 	}
 	hooks := backends.AssembleManagedHooks(terminalReporter(), cfg, "", "", profileNames).WireDeclared()
 	return backends.UncarriedSurfaces(backend, agent.SurfaceInputs{Hooks: hooks})
+}
+
+// CapabilityLossByAgent is the roster-wide read of CapabilityLoss: for every
+// agent this project has configured, what the engine it resolves to drops of
+// the hooks its profiles actually configure. It is the single computation
+// `ctxloom doctor` and `ctxloom manage check` share; a second way to compute
+// the same fact is how the surfaces drift into disagreeing about what a
+// user's engine can carry.
+//
+// Agents that lose nothing are omitted entirely rather than listed as clean:
+// the same "only when it costs something" rule backends.UncarriedSurfaces
+// itself applies, so a caller can render the result unconditionally and stay
+// silent on a healthy project. Entries come out sorted by agent name, so the
+// report can be diffed across runs rather than reshuffling with a map's
+// range order.
+//
+// An agent that fails to RESOLVE is skipped, not reported: there is no engine
+// binding to name a loss against, and the resolution failure is already its
+// own finding (DOCTOR-CHECK-AGENTS-b2). Saying it twice in two vocabularies
+// would make neither line believable.
+func CapabilityLossByAgent(ctx context.Context, cfg *config.Config) []AgentSurfaceLoss {
+	if cfg == nil {
+		return nil
+	}
+	configured := cfg.GetConfiguredAgents()
+	names := make([]string, 0, len(configured))
+	for name := range configured {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var out []AgentSurfaceLoss
+	for _, name := range names {
+		resolved, err := ResolveAgent(ctx, cfg, name, "")
+		if err != nil {
+			continue
+		}
+		losses := CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
+		if len(losses) == 0 {
+			continue
+		}
+		out = append(out, AgentSurfaceLoss{Agent: name, Backend: resolved.Backend, Losses: losses})
+	}
+	return out
+}
+
+// CapabilityLossLines is one line per (agent, loss), in the SAME words
+// `profile materialize` and `agent show` use — SurfaceLoss.String() is the
+// one renderer, so the surfaces cannot describe one engine's gap several
+// different ways — prefixed with the agent that is paying for it. Every
+// frontend's rendering is built from these lines.
+func CapabilityLossLines(entries []AgentSurfaceLoss) []string {
+	var lines []string
+	for _, e := range entries {
+		for _, loss := range e.Losses {
+			lines = append(lines, fmt.Sprintf("%s (%s): %s", e.Agent, e.Backend, loss))
+		}
+	}
+	return lines
+}
+
+// capabilityLossDetail folds the lines into doctor's one-line-per-check
+// Detail shape.
+func capabilityLossDetail(entries []AgentSurfaceLoss) string {
+	return strings.Join(CapabilityLossLines(entries), "; ")
 }

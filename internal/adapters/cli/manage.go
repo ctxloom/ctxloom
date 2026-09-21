@@ -495,7 +495,7 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 	// Computed ONCE and stored on the result, so the json and text paths report
 	// the same losses. Rendering it only inside the text closure is how the
 	// machine-readable form came to omit it entirely.
-	result.CapabilityLoss = capabilityLossByAgent(cmd.Context(), cfg)
+	result.CapabilityLoss = operations.CapabilityLossByAgent(cmd.Context(), cfg)
 	return emit(cmd, result, func() error {
 		printHarnessStatus(cmd.OutOrStdout(), result, result.CapabilityLoss)
 		return nil
@@ -503,7 +503,7 @@ func runManageCheck(cmd *cobra.Command, _ []string) error {
 }
 
 // printHarnessStatus renders the wiring report. losses is the CAPABILITY half
-// of it (capabilityLossByAgent): what this project's configured agents ask for
+// of it (operations.CapabilityLossByAgent): what this project's configured agents ask for
 // that their engines have no structural place for. It belongs in this report
 // rather than in a separate command for the same reason materialize interleaves
 // its "NOT carried" lines with its "wrote" lines — every wiring line here is

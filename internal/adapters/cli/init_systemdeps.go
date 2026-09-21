@@ -65,7 +65,7 @@ func checkSystemDeps() error {
 // (`ctxloom sign`). It runs the SAME resolver both of those use
 // (internal/adapters/signing/agentkey.Discoverer.Discover — see review.go's
 // resolveReviewSigner and sign.go's runSign) and reuses
-// signKeyResolutionDetail (doctor_cmd.go) so this warn says the exact same
+// operations.SignKeyResolutionDetail so this warn says the exact same
 // thing `ctxloom doctor --deps`'s DOCTOR-CHECK-SIGNKEY-k1 check reports —
 // one resolver, one message, two surfaces. explicit is always "" here: a
 // brand-new init has no sign.key configured yet, so this checks the
@@ -80,7 +80,7 @@ func warnIfNoSignKey() {
 		clidiag.Warn("ctxloom", "%v", err)
 		return
 	}
-	ok, detail := signKeyResolutionDetail(context.Background(), discoverer, "")
+	ok, detail := operations.SignKeyResolutionDetail(context.Background(), discoverer, "")
 	if !ok {
 		clidiag.Warn("ctxloom", "%s", detail)
 	}
@@ -89,7 +89,7 @@ func warnIfNoSignKey() {
 // warnIfGitIdentityMissing is checkSystemDeps' companion probe for git's
 // commit identity (user.name/user.email), same shape and posture as
 // warnIfNoSignKey above: informational only, reusing the SAME shared
-// gitIdentityDetail (doctor_cmd.go) and the SAME `git config --get` reader
+// operations.GitIdentityDetail and the SAME `git config --get` reader
 // (internal/adapters/signing/agentkey.Discoverer.GitConfig, defaulted by
 // operations.SignerDiscoverer()) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
 // says the exact same thing `ctxloom doctor --deps` reports. Agents ctxloom
@@ -103,7 +103,7 @@ func warnIfGitIdentityMissing() {
 		clidiag.Warn("ctxloom", "%v", err)
 		return
 	}
-	ok, detail := gitIdentityDetail(context.Background(), discoverer.GitConfig)
+	ok, detail := operations.GitIdentityDetail(context.Background(), discoverer.GitConfig)
 	if !ok {
 		clidiag.Warn("ctxloom", "%s", detail)
 	}

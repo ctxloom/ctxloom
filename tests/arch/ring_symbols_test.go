@@ -441,7 +441,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	// the CLI: HostFacts are computed once by the composition root
 	"internal/adapters/cli/bundle_items.go":    "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/clean_cmd.go":       "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
-	"internal/adapters/cli/doctor_cmd.go":      "slice 15: operations.Doctor takes the facts it checks as values",
+	"internal/adapters/cli/doctor_cmd.go":      "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*; until then the CLI reads the home it hands operations.Doctor (DoctorRequest.Home)",
 	"internal/adapters/cli/init.go":            "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",
 	"internal/adapters/cli/mcp_server.go":      "slice 13: the stdio MCP server dies with the plugin arm",
 	"internal/adapters/cli/session_cmd.go":     "slice 7: launch.HostFacts carries home, cwd and temp from cmd/*",

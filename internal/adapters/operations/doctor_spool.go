@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
@@ -108,7 +107,7 @@ const doctorSpoolStuckMaxNamed = 5
 // directory itself may not even exist) — it is a message ctxloom was GIVEN
 // and REFUSED to deliver, permanently.
 //
-// Distinguishable outcomes, all doctorOK when nothing is wrong, worded
+// Distinguishable outcomes, all DoctorOK when nothing is wrong, worded
 // differently on purpose (this project's characteristic defect is a success
 // message over zero bytes examined, and this check exists specifically to
 // not be another instance of it):
@@ -124,19 +123,19 @@ const doctorSpoolStuckMaxNamed = 5
 //     rarer but equally clean state) — kept as two different sentences so
 //     neither is mistaken for the other, and so an existing-but-empty
 //     in/failed/ cannot be confused with "we never looked."
-func doctorCheckSpoolBacklog() doctorCheck {
+func doctorCheckSpoolBacklog() DoctorCheck {
 	sessionsRoot, err := paths.HomeSessionsDir()
 	if err != nil {
-		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn,
+		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorWarn,
 			Detail: "cannot resolve sessions dir: " + err.Error()}
 	}
 	entries, err := os.ReadDir(sessionsRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK,
+			return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorOK,
 				Detail: "no session directories yet; no spool to check"}
 		}
-		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn,
+		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorWarn,
 			Detail: "cannot read sessions dir: " + err.Error()}
 	}
 
@@ -216,14 +215,14 @@ func doctorCheckSpoolBacklog() doctorCheck {
 	}
 
 	if spoolsFound == 0 {
-		// ZERO BYTES EXAMINED IS NOT A PASS. Returning doctorOK here reported
+		// ZERO BYTES EXAMINED IS NOT A PASS. Returning DoctorOK here reported
 		// success over nothing looked at — the exact defect this check's own
 		// doc says it exists in order not to be. No spool directory under the
 		// sessions root is SUSPICIOUS: either no delegated run has happened
 		// yet, or this process reads a different home than the coordinator
 		// did (a container view, a different HOME). Both are worth saying
 		// out loud.
-		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn,
+		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorWarn,
 			Detail: "NO session has a spool directory under " + sessionsRoot +
 				" — nothing was examined. Either no delegated run has happened yet, " +
 				"or this command resolves a different home than the coordinator does " +
@@ -238,7 +237,7 @@ func doctorCheckSpoolBacklog() doctorCheck {
 		} else {
 			detail += fmt.Sprintf("; %d failed/ director(ies) checked, all empty", failedDirsSeen)
 		}
-		return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorOK, Detail: detail}
+		return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorOK, Detail: detail}
 	}
 
 	var parts []string
@@ -294,7 +293,7 @@ func doctorCheckSpoolBacklog() doctorCheck {
 		parts = append(parts, fmt.Sprintf("%d spool director(ies) could not be swept: %s",
 			len(sweepErrs), strings.Join(sweepErrs, "; ")))
 	}
-	return doctorCheck{Marker: doctorSpoolBacklogMarker, Status: doctorWarn, Detail: strings.Join(parts, "; ")}
+	return DoctorCheck{Marker: doctorSpoolBacklogMarker, Status: DoctorWarn, Detail: strings.Join(parts, "; ")}
 }
 
 // doctorSpoolCountersMarker is the DOCTOR-CHECK-* vocabulary entry for a live
@@ -328,14 +327,14 @@ const doctorSpoolCountersMarker = "DOCTOR-CHECK-SPOOL-COUNTERS-w3"
 //   - an endpoint.json present but unreadable or undecodable is a real
 //     problem discovery reports separately, and is surfaced as WARN rather
 //     than folded into "none live".
-func doctorCheckSpoolCounters(ctx context.Context) doctorCheck {
+func doctorCheckSpoolCounters(ctx context.Context) DoctorCheck {
 	endpoints, skipped := discover.List()
 	var problems []string
 	for _, err := range skipped {
 		problems = append(problems, err.Error())
 	}
 	if len(endpoints) == 0 && len(problems) == 0 {
-		return doctorCheck{Marker: doctorSpoolCountersMarker, Status: doctorInfo,
+		return DoctorCheck{Marker: doctorSpoolCountersMarker, Status: DoctorInfo,
 			Detail: "no coordinator endpoint recorded under ~/.ctxloom/coord; the spool counters live only " +
 				"in a running coordinator, so there is nothing to query"}
 	}
@@ -344,7 +343,7 @@ func doctorCheckSpoolCounters(ctx context.Context) doctorCheck {
 	var dead []string
 	faults := 0
 	for _, ep := range endpoints {
-		stats, err := operations.QueryCoordinatorSpoolStats(ctx, ep)
+		stats, err := QueryCoordinatorSpoolStats(ctx, ep)
 		if err != nil {
 			dead = append(dead, fmt.Sprintf("%s (%v)", ep.URL, err))
 			continue
@@ -364,11 +363,11 @@ func doctorCheckSpoolCounters(ctx context.Context) doctorCheck {
 	}
 
 	var parts []string
-	status := doctorInfo
+	status := DoctorInfo
 	if len(live) > 0 {
-		status = doctorOK
+		status = DoctorOK
 		if faults > 0 {
-			status = doctorWarn
+			status = DoctorWarn
 		}
 		parts = append(parts, fmt.Sprintf("%d live coordinator(s) answered: %s", len(live), strings.Join(live, "; ")))
 	}
@@ -382,8 +381,8 @@ func doctorCheckSpoolCounters(ctx context.Context) doctorCheck {
 		}
 	}
 	if len(problems) > 0 {
-		status = doctorWarn
+		status = DoctorWarn
 		parts = append(parts, fmt.Sprintf("%d endpoint file(s) could not be read: %s", len(problems), strings.Join(problems, "; ")))
 	}
-	return doctorCheck{Marker: doctorSpoolCountersMarker, Status: status, Detail: strings.Join(parts, "; ")}
+	return DoctorCheck{Marker: doctorSpoolCountersMarker, Status: status, Detail: strings.Join(parts, "; ")}
 }

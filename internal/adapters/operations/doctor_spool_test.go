@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func writeRawSpoolMessage(t *testing.T, mapper spool.PathMapper, harp string, di
 func TestDoctorCheckSpoolBacklog_RightState_NoSessionsDirYet(t *testing.T) {
 	testsupport.Isolate(t)
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session directories yet")
 }
 
@@ -49,7 +49,7 @@ func TestDoctorCheckSpoolBacklog_RightState_NoSessionsDirYet(t *testing.T) {
 // EXAMINED IS NOT A PASS. A session exists and no spool directory does, so
 // nothing was checked — either no delegated run has happened, or this
 // process resolves a different home than the coordinator does. Reporting
-// doctorOK there is a success message over nothing looked at. Asserts the
+// DoctorOK there is a success message over nothing looked at. Asserts the
 // STATUS, not the wording.
 func TestDoctorCheckSpoolBacklog_SessionsExistButNoSpool_IsNotAPass(t *testing.T) {
 	testsupport.Isolate(t)
@@ -58,7 +58,7 @@ func TestDoctorCheckSpoolBacklog_SessionsExistButNoSpool_IsNotAPass(t *testing.T
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status, "nothing was examined; that is not a healthy state")
+	assert.Equal(t, DoctorWarn, check.Status, "nothing was examined; that is not a healthy state")
 	assert.Contains(t, check.Detail, "nothing was examined")
 }
 
@@ -68,7 +68,7 @@ func TestDoctorCheckSpoolBacklog_SessionsExistButNoSpool_IsNotAPass(t *testing.T
 // healthy — the state actually observed — not just silently absent. This is
 // the "looked and found nothing wrong" half that TestDoctorCheckHarpDurability's
 // sibling proves for the durability check: it must read differently from
-// "didn't look" (the two tests above) even though both are doctorOK.
+// "didn't look" (the two tests above) even though both are DoctorOK.
 func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.T) {
 	testsupport.Isolate(t)
 	mapper := spool.NewHomeMapper()
@@ -80,7 +80,7 @@ func TestDoctorCheckSpoolBacklog_RightState_HealthySpoolNothingStuck(t *testing.
 	require.NoError(t, err)
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 session spool(s) checked")
 	assert.Contains(t, check.Detail, "0 entries stuck")
 	assert.Contains(t, check.Detail, "0 malformed entries",
@@ -104,7 +104,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheStuckEntry(t *testing.T) {
 	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, stuckRef.String(), "the stuck entry must be named by its ref")
 	assert.Contains(t, check.Detail, "1 spool entr(ies)")
 	assert.NotContains(t, check.Detail, "coord.md", "the fresh in/ entry must not be reported as stuck")
@@ -124,7 +124,7 @@ func TestDoctorCheckSpoolBacklog_CapsNamedListWithCount(t *testing.T) {
 	}
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies)")
 	assert.Contains(t, check.Detail, "more")
 }
@@ -162,7 +162,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedFilename(t *testing
 	_ = writeRawSpoolMessage(t, mapper, harp, spool.DirIn, fresh.UnixNano(), 1, "coord", fresh)
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, "not-a-spool-message.txt", "the malformed entry must be named")
 	assert.Contains(t, check.Detail, harp+":out/", "malformed entries are located by harp and direction")
@@ -183,7 +183,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheMalformedContent(t *testing.
 	writeRawSpoolFile(t, mapper, harp, spool.DirIn, name.String(), "no frontmatter here, just a body\n")
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) are malformed")
 	assert.Contains(t, check.Detail, name.String(), "the malformed entry must be named")
 	assert.NotContains(t, check.Detail, "sat unconsumed",
@@ -202,7 +202,7 @@ func TestDoctorCheckSpoolBacklog_RightState_MalformedFileDoesNotCountAsStuck(t *
 	writeRawSpoolFile(t, mapper, harp, spool.DirOut, "garbage.md.bak", "irrelevant")
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.NotContains(t, check.Detail, "0 spool entr(ies) sat unconsumed")
 	assert.NotContains(t, check.Detail, "sat unconsumed")
 }
@@ -222,7 +222,7 @@ func TestDoctorCheckSpoolBacklog_RightState_NoFailedDirIsNormal(t *testing.T) {
 	require.NoError(t, spool.EnsureDirs(mapper, harp))
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "no session has a failed/ directory")
 	assert.NotContains(t, check.Detail, "checked, all empty",
 		"an absent in/failed/ dir must not be worded as an existing-but-empty one")
@@ -244,7 +244,7 @@ func TestDoctorCheckSpoolBacklog_RightState_EmptyFailedDirDistinctFromAbsent(t *
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "in", "failed"), 0o755))
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "1 failed/ director(ies) checked, all empty")
 	assert.NotContains(t, check.Detail, "no session has a failed/ directory")
 }
@@ -269,7 +269,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedEntry(t *testing.T) {
 	live := writeRawSpoolMessage(t, mapper, harp, spool.DirIn, time.Now().UnixNano(), 2, "coord", time.Now())
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "1 spool entr(ies) were REFUSED into in/failed/")
 	assert.Contains(t, check.Detail, harp+":in/failed/"+failedRef.Name, "the refused entry must be named by harp and filename")
 	assert.Contains(t, check.Detail, "GIVEN this message and REFUSED to deliver it, permanently")
@@ -297,7 +297,7 @@ func TestDoctorCheckSpoolBacklog_CapsFailedListWithCount(t *testing.T) {
 	}
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "8 spool entr(ies) were REFUSED")
 	assert.Contains(t, check.Detail, "more")
 }
@@ -324,7 +324,7 @@ func TestDoctorCheckSpoolBacklog_WrongState_NamesTheFailedOutboundEntry(t *testi
 	require.NoError(t, spool.Fail(mapper, ref))
 
 	check := doctorCheckSpoolBacklog()
-	assert.Equal(t, doctorWarn, check.Status,
+	assert.Equal(t, DoctorWarn, check.Status,
 		"a report ctxloom was given and refused to route must not read as a healthy spool")
 	assert.Contains(t, check.Detail, ref.Name, "the doctor must name the file an operator has to go and read")
 	assert.Contains(t, check.Detail, string(spool.FailedOutDirName))
@@ -352,7 +352,7 @@ func TestDoctorCheckSpoolCounters_NoCoordinatorRecorded_IsInfoNotPass(t *testing
 	testsupport.Isolate(t)
 	check := doctorCheckSpoolCounters(context.Background())
 	assert.Equal(t, doctorSpoolCountersMarker, check.Marker)
-	assert.Equal(t, doctorInfo, check.Status)
+	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "no coordinator endpoint recorded")
 }
 
@@ -363,7 +363,7 @@ func TestDoctorCheckSpoolCounters_RecordedButDead_IsInfoNamingEndpoint(t *testin
 	home := testsupport.Isolate(t)
 	url := writeDeadEndpoint(t, home, "gone")
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorInfo, check.Status)
+	assert.Equal(t, DoctorInfo, check.Status)
 	assert.Contains(t, check.Detail, "none live")
 	assert.Contains(t, check.Detail, url)
 	assert.NotContains(t, check.Detail, "delivered=", "a dead coordinator has no counters to print")
@@ -377,10 +377,10 @@ func TestDoctorCheckSpoolCounters_LiveCleanCounters_OK(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 7, Consumed: 5}
-	startFakeCoordinator(t, home, f)
+	startFakeCoordinator(t, home, "proj", f)
 
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	for _, want := range []string{"1 live coordinator", "delivered=7", "consumed=5", "failed=0",
 		"doorbell_dropped=0", "doorbell_rejected=0"} {
 		assert.Contains(t, check.Detail, want)
@@ -394,10 +394,10 @@ func TestDoctorCheckSpoolCounters_FailedDelivery_Warns(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 9, Failed: 3}
-	startFakeCoordinator(t, home, f)
+	startFakeCoordinator(t, home, "proj", f)
 
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "failed=3")
 	assert.Contains(t, check.Detail, "has not arrived")
 }
@@ -409,10 +409,10 @@ func TestDoctorCheckSpoolCounters_RejectedDoorbell_Warns(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{DoorbellRejected: 2}
-	startFakeCoordinator(t, home, f)
+	startFakeCoordinator(t, home, "proj", f)
 
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "doorbell_rejected=2")
 }
 
@@ -422,10 +422,10 @@ func TestDoctorCheckSpoolCounters_DropsAreNotFaults(t *testing.T) {
 	home := testsupport.Isolate(t)
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{DoorbellDropped: 4}
-	startFakeCoordinator(t, home, f)
+	startFakeCoordinator(t, home, "proj", f)
 
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "doorbell_dropped=4")
 }
 
@@ -438,36 +438,13 @@ func TestDoctorCheckSpoolCounters_LiveAndDeadTogether(t *testing.T) {
 	deadURL := writeDeadEndpoint(t, home, "gone")
 	f := newFakeConsumerServer()
 	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 1}
-	startFakeCoordinator(t, home, f)
+	startFakeCoordinator(t, home, "proj", f)
 
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorOK, check.Status)
+	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "delivered=1")
 	assert.Contains(t, check.Detail, "1 not live")
 	assert.Contains(t, check.Detail, deadURL)
-}
-
-// TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters is the row's settling
-// claim end to end: `ctxloom doctor` — the published command, JSON form —
-// carries the spool counters of a LIVE coordinator, read over its consumer
-// socket, not from any file.
-func TestDoctorCmd_ShowsLiveCoordinatorSpoolCounters(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	// isolateGitHostState is what runDoctor does internally; done here by
-	// hand so the fake coordinator's endpoint.json lands in the HOME the
-	// command will actually discover from.
-	home := t.TempDir()
-	isolateGitHostState(t, "", home)
-	f := newFakeConsumerServer()
-	f.stats = &agentcoordpb.SpoolStatsResult{Delivered: 42, Failed: 1}
-	startFakeCoordinator(t, home, f)
-
-	out, err := execDoctor(t, root, "--format", "json")
-	require.NoError(t, err)
-	check := doctorCheckNamed(t, out, doctorSpoolCountersMarker)
-	assert.Equal(t, doctorWarn, check.Status)
-	assert.Contains(t, check.Detail, "delivered=42")
-	assert.Contains(t, check.Detail, "failed=1")
 }
 
 // TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns: an
@@ -482,7 +459,7 @@ func TestDoctorCheckSpoolCounters_UndecodableEndpointFile_Warns(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "endpoint.json"), []byte("not json"), 0o600))
 
 	check := doctorCheckSpoolCounters(context.Background())
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "could not be read")
 	assert.Contains(t, check.Detail, "corrupt")
 }

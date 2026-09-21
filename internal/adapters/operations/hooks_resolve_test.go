@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // cfgWithHooks builds a config whose single selected profile declares exactly
@@ -53,9 +54,10 @@ func TestResolveHooks_ReportsFinalOrderPerEvent(t *testing.T) {
 	assert.Equal(t, want, got, "the reported order must be the FINAL resolved order")
 }
 
-// Every one of the seven events must be reported, including the empty ones. An
-// event omitted because it is empty reads as "ctxloom did not look", and the
-// question the user asked — what runs on session_end? — goes unanswered.
+// Every unified event must be reported, including the empty ones, in the
+// canonical order. An event omitted because it is empty reads as "ctxloom did
+// not look", and the question the user asked — what runs on session_end? —
+// goes unanswered.
 func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
 		Cfg:     cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{{Type: "command", Command: "x"}}}),
@@ -67,10 +69,7 @@ func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 	for _, e := range res.Events {
 		events = append(events, e.Event)
 	}
-	assert.Equal(t, []string{
-		"pre_tool", "post_tool", "session_start", "session_end", "pre_shell", "post_file_edit",
-		"turn_end",
-	}, events)
+	assert.Equal(t, backends.HookEvents(), events)
 }
 
 // Position and Declared are both reported so a user can see whether a hook's

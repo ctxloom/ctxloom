@@ -32,7 +32,7 @@ func TestNew_FailureAfterEphemeralFallbackLeavesNoTempDir(t *testing.T) {
 	dir, err := stateDirForProject(key)
 	assert.NoError(t, err)
 	assert.NoError(t, os.WriteFile(filepath.Join(dir, OwnerLockFileName), []byte(strconv.Itoa(os.Getppid())+"\n"), 0o600))
-	if _, cerr := claimOwner(termRep(), dir); !assert.ErrorIs(t, cerr, errStateOwned, "precondition: the lock must be unavailable to New") {
+	if _, cerr := claimOwner(termRep(), dir); !assert.ErrorIs(t, cerr, ErrStateOwned, "precondition: the lock must be unavailable to New") {
 		return
 	}
 

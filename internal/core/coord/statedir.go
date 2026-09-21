@@ -109,9 +109,11 @@ func sanitizeKey(k string) string {
 	return out
 }
 
-// errStateOwned reports the project state dir is exclusively owned by another
-// live coordinator process.
-var errStateOwned = errors.New("coord: project state is owned by another live coordinator")
+// ErrStateOwned reports the project state dir is exclusively owned by another
+// live coordinator process. It is exported because the process that loses
+// the claim is REFUSED, not degraded: the session host turns it into the
+// named finding a second `ctxloom run` on one project exits on.
+var ErrStateOwned = errors.New("coord: project state is owned by another live coordinator")
 
 // writeOwnerPID stamps pid into a freshly created owner-lock file and closes
 // it, reporting the FIRST of the write's or the close's failure.
@@ -131,7 +133,7 @@ var writeOwnerPID = func(f *os.File, pid int) error {
 // claimOwner takes the project state dir's exclusive-owner lock. The journal
 // discipline demands a single writer per journal, and that holds ACROSS
 // processes too: two concurrent session-owning processes for one project must
-// not share journals. The second claimant gets errStateOwned and falls back
+// not share journals. The second claimant gets ErrStateOwned and falls back
 // to an ephemeral per-session state dir (no adoption, warned by the caller).
 // A dead owner's stale lock is replaced (liveness = signal 0 probe).
 //
@@ -150,13 +152,13 @@ func claimOwner(rep report.Reporter, dir string) (release func(), err error) {
 			if werr := writeOwnerPID(f, os.Getpid()); werr != nil {
 				_ = os.Remove(lock)
 				rep.Warnf("coordinator: could not stamp the project state lock %s (%v); declining the claim rather than leaving a lock that reads as a dead owner", lock, werr)
-				return nil, errStateOwned
+				return nil, ErrStateOwned
 			}
 			return func() { _ = os.Remove(lock) }, nil
 		}
 		raw, rerr := os.ReadFile(lock)
 		if rerr != nil {
-			return nil, errStateOwned
+			return nil, ErrStateOwned
 		}
 		pid, perr := strconv.Atoi(strings.TrimSpace(string(raw)))
 		// MaybeAlive (not a bare Alive check) treats an
@@ -166,13 +168,13 @@ func claimOwner(rep report.Reporter, dir string) (release func(), err error) {
 		// to enforce can never recover from. A needlessly-ephemeral fallback
 		// on a false positive is the safe direction; a shared journal is not.
 		if perr == nil && pid > 0 && pidalive.Probe(pid).MaybeAlive() && pid != os.Getpid() {
-			return nil, errStateOwned
+			return nil, ErrStateOwned
 		}
 		// Stale lock from a dead owner: remove and retry once. The remove→
 		// create window is racy in theory; the loser of the race lands on
-		// errStateOwned and takes the ephemeral fallback — never a shared
+		// ErrStateOwned and takes the ephemeral fallback — never a shared
 		// journal.
 		_ = os.Remove(lock)
 	}
-	return nil, errStateOwned
+	return nil, ErrStateOwned
 }

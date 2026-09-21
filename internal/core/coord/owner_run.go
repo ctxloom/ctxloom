@@ -12,7 +12,7 @@ import (
 
 // Phase 2a-B: top-level STRUCTURED and ONESHOT container runs onto Transport 2
 // / EngineHost, without go-plugin. The owning `ctxloom run` process already
-// hosts this coordinator in-process (newHostedCoordinator), so minting an
+// hosts this coordinator in-process (mcp.HostCoordinatorForSession), so minting an
 // owner-owned run and driving/watching it is a LIBRARY call — no new RPC, no
 // change to coordination.proto. The run reuses the existing
 // credential-based ownership model unchanged: it is enqueued parent-less with

@@ -54,13 +54,15 @@ import (
 // is the wake. They were previously the same thing only in the sense that
 // neither reached a waiting parent.
 //
-// THE SESSION OWNER is a spool recipient too, and its reader is THIS PROCESS:
-// the owner has no runner, so its in/ is drained by AgentRecv itself
-// (claimSpoolInbox / ackSpoolInbox in mailbox.go), with the same park/wake,
-// consume-on-next-recv ack and burst settle the mailbox gave it. The owner is
-// identified by DECLARATION (Options.OwnerHarp), never by a run record — a
-// host/stdio owner has none, and keying on one is what left every
-// child->parent message on the mailbox at full cutover.
+// THE SESSION OWNER is a spool recipient too. Its in/ is read by its own
+// runner (the plugin-hosted owner arm's agent_recv sweeps it like any
+// runner's), by its turn-start hook, and in-process by AgentRecv (the Verbs
+// surface: claimSpoolInbox / ackSpoolInbox in mailbox.go, with the same
+// park/wake, consume-on-next-recv ack and burst settle the mailbox gave it).
+// The owner is identified by DECLARATION (Options.OwnerHarp), never by a run
+// record — no launch minted it, so it has none, and keying on one is what
+// left every child->parent message on the mailbox at full cutover, and the
+// owner's every SEND unrouted (spoolRoles).
 //
 // Only a FROZEN legacy go-plugin child still stays on the mailbox: it has no
 // runner sweeping a spool, so a file written for it would sit in a directory

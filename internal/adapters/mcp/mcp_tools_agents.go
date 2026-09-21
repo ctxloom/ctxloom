@@ -36,6 +36,12 @@ import (
 //     and identity derives from the credential per request, never from this
 //     process's env.
 
+// errNoRunner is the refusal every agent tool returns from a bare stdio
+// server: a coordinator is hosted only by a RUNNER, and this process found
+// none to forward to. It names the remedy because the caller is an LLM
+// reading a tool error, not a person reading a stack.
+var errNoRunner = errors.New("agent delegation unavailable: no ctxloom runner is reachable from this MCP server, and an MCP server never hosts a coordinator itself — launch the session through `ctxloom run` so a runner exists, or make sure the runner's " + coord.EnvMCPSocket + " reaches this process")
+
 // agentDelegation is the coordinator-host state behind the agent tools.
 type agentDelegation struct {
 	self coord.Identity

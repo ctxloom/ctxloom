@@ -141,12 +141,12 @@ func claudeKeychainStore(t *testing.T) engine.KeychainStore {
 // account rule: $USER when it matches ^[a-zA-Z0-9._-]+$, else the fixed
 // fallback the CLI uses.
 func TestKeychainAccount_IsTheUserNameOrTheCLIsFallback(t *testing.T) {
-	assert.Equal(t, "alice", keychainAccount("alice"))
-	assert.Equal(t, "a.b-c_9", keychainAccount("a.b-c_9"))
-	assert.Equal(t, "claude-code-user", keychainAccount(""))
-	assert.Equal(t, "claude-code-user", keychainAccount("al ice"))
-	assert.Equal(t, "claude-code-user", keychainAccount("al/ice"))
-	assert.Equal(t, "claude-code-user", keychainAccount("ålice"))
+	assert.Equal(t, "alice", KeychainAccount("alice"))
+	assert.Equal(t, "a.b-c_9", KeychainAccount("a.b-c_9"))
+	assert.Equal(t, "claude-code-user", KeychainAccount(""))
+	assert.Equal(t, "claude-code-user", KeychainAccount("al ice"))
+	assert.Equal(t, "claude-code-user", KeychainAccount("al/ice"))
+	assert.Equal(t, "claude-code-user", KeychainAccount("ålice"))
 }
 
 // TestKeychainService_HashesTheNFCConfigDir pins the session item's service:
@@ -330,4 +330,35 @@ func TestKeychainArm_IsSelectedOnlyOnDarwin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Empty(t, fk.calls(t), "off darwin the security tool is never run")
+}
+
+// The platform switch: on darwin CopyAmbient seeds from the Keychain even
+// with no .credentials.json on the host, and a host with no default item is
+// refused naming the item rather than a file that does not exist on a Mac.
+func TestCopyAmbient_OnDarwinSeedsFromTheKeychain(t *testing.T) {
+	fk := withFakeSecurity(t)
+	store := claudeKeychainStore(t)
+	withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
+	instance := t.TempDir()
+
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	require.True(t, report.NoSource, "no default item: nothing seedable")
+	assert.Contains(t, report.NoSourceReason, `Keychain item "`+store.Service+`"`)
+	assert.Contains(t, report.NoSourceReason, "CLAUDE_CODE_OAUTH_TOKEN")
+	assert.Contains(t, report.NoSourceReason, "engine_home: host")
+
+	fk.put(t, store.Service, hostKeychainCredential)
+	report, err = CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = report.Close() })
+	assert.False(t, report.NoSource)
+	assert.Equal(t, keychainMechanism, report.Mechanism)
+	placed, ok := fk.item(t, wantService(store.Service, filepath.Join(instance, "claude")))
+	require.True(t, ok, "the session's item is derived from the instance's config dir")
+	assert.NotContains(t, placed, "kc-refresh")
+	assert.NoFileExists(t, filepath.Join(instance, "claude", ".credentials.json"), "on a Mac the store is the Keychain, not the file")
 }

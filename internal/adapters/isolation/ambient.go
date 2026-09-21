@@ -300,7 +300,11 @@ func noAmbientSourceReason(seed engine.CredentialSeed) string {
 	for _, v := range seed.EnvTriggers {
 		fmt.Fprintf(&b, "no %s, ", v)
 	}
-	fmt.Fprintf(&b, "no host ~/%s credentials found to authenticate this run — run `%s`", primaryAmbientHostRel(seed), seed.LoginHint)
+	if seed.Keychain != nil && keychainPlatform() {
+		fmt.Fprintf(&b, "no default Keychain item %q found to authenticate this run — run `%s`", seed.Keychain.Service, seed.LoginHint)
+	} else {
+		fmt.Fprintf(&b, "no host ~/%s credentials found to authenticate this run — run `%s`", primaryAmbientHostRel(seed), seed.LoginHint)
+	}
 	if len(seed.EnvTriggers) > 0 {
 		fmt.Fprintf(&b, ", set %s", strings.Join(seed.EnvTriggers, " or "))
 	}

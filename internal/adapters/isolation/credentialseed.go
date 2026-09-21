@@ -112,6 +112,16 @@ func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome stri
 	if envTriggered(seed) {
 		return seedSkippedEnv, Result{}, nil
 	}
+	if seed.Keychain != nil && keychainPlatform() {
+		// macOS: the store is the Keychain, and the session's item is keyed
+		// by the config dir the engine is told — so the dir is made first,
+		// and the seed is an item, never a file.
+		destDir := filepath.Join(configHome, seed.Subdir)
+		if err := prepareSeedDir(name, destDir); err != nil {
+			return seedNoSource, Result{}, err
+		}
+		return provisionKeychainSeed(name, *seed.Keychain, destDir)
+	}
 	files, ok := hostSeedSources(name, seed)
 	if !ok {
 		return seedNoSource, Result{}, nil

@@ -203,6 +203,13 @@
           "timeout": 15,
           "type": "command"
         }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
+          "type": "command"
+        }
       ]
     }
   },
@@ -440,6 +447,13 @@
           "timeout": 15,
           "type": "command"
         }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
+          "type": "command"
+        }
       ]
     }
   },
@@ -670,6 +684,13 @@
         {
           "command": "'ctxloom' hook next-step",
           "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
           "type": "command"
         }
       ]
@@ -906,6 +927,13 @@
           "timeout": 15,
           "type": "command"
         }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
+          "type": "command"
+        }
       ]
     }
   },
@@ -1136,6 +1164,13 @@
         {
           "command": "'ctxloom' hook next-step",
           "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
           "type": "command"
         }
       ]
@@ -1372,6 +1407,13 @@
           "timeout": 15,
           "type": "command"
         }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
+          "type": "command"
+        }
       ]
     }
   },
@@ -1602,6 +1644,13 @@
         {
           "command": "'ctxloom' hook next-step",
           "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
           "type": "command"
         }
       ]
@@ -1838,6 +1887,13 @@
           "timeout": 15,
           "type": "command"
         }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
+          "type": "command"
+        }
       ]
     }
   },
@@ -2050,6 +2106,13 @@
           "timeout": 15,
           "type": "command"
         }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
+          "type": "command"
+        }
       ]
     }
   },
@@ -2239,6 +2302,13 @@
         {
           "command": "'ctxloom' hook next-step",
           "timeout": 15,
+          "type": "command"
+        }
+      ],
+      "turn_start": [
+        {
+          "command": "'ctxloom' hook mail-drain",
+          "timeout": 5,
           "type": "command"
         }
       ]

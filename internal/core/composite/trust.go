@@ -173,9 +173,13 @@ func fault(port any) error {
 // retractable reports whether a retraction record could cover ref — only
 // content that travelled from a publisher's repository has a publisher who
 // can withdraw it — and so whether an unreadable retraction record must
-// withhold it.
+// withhold it. A companion loadout has no lockfile entry (its RepoURL is the
+// fixed ctxloom:companion token, not a repository), so no retraction can
+// cover it and an unreadable lockfile has nothing to say about it — ctxloom's
+// own loadout included, which a project-less start with a broken home
+// lockfile must still receive.
 func retractable(ref trust.Ref) bool {
-	return !ref.IsLocal && ref.RepoURL != ""
+	return !ref.IsLocal && !ref.IsCompanion && ref.RepoURL != ""
 }
 
 // localReason answers for content the human already controls: authored in

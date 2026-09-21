@@ -871,13 +871,18 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 			"the store-fault gate runs above EVERY exemption, this one included")
 	})
 
-	t.Run("an unreadable lockfile still withholds companion content", func(t *testing.T) {
-		// Deliberate asymmetry with local/builtin, pinned so nobody "tidies"
-		// it away: a companion ref carries a RepoURL, so it stays in
-		// retractable()'s scope, and step 2a can therefore only make companion
-		// content MORE withheld — never less. Relaxing a fail-closed gate is
-		// not part of making companion CONTENT local-equivalent.
-		assert.NotEmpty(t, tref.RepoURL, "a companion ref carries a RepoURL and stays in the retraction-fault scope")
+	t.Run("an unreadable lockfile does NOT withhold companion content", func(t *testing.T) {
+		// A retraction is a publisher's withdrawal recorded in the LOCKFILE,
+		// and a companion loadout has no lockfile entry: its RepoURL is the
+		// fixed ctxloom:companion token, not a repository anything could
+		// retract. So the retraction-fault gate has nothing to protect here —
+		// there is no withdrawn-companion state an unreadable lockfile could
+		// be hiding — and withholding on it only costs the session ctxloom's
+		// own loadout (its MCP server, its guidance) in a project-less start
+		// whose HOME lockfile is broken. The approvals-store fault above is
+		// different: a rejection CAN cover companion content, so that gate
+		// stays fail-closed for it.
+		assert.NotEmpty(t, tref.RepoURL, "a companion ref carries the fixed token as its RepoURL")
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
@@ -885,8 +890,8 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 			Retraction: faultedRetraction{assert.AnError},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, trust.Deny, res.Decision)
-		assert.Equal(t, trust.SourcePending, res.Source)
+		assert.Equal(t, trust.Allow, res.Decision)
+		assert.Equal(t, trust.SourceCompanion, res.Source)
 	})
 }
 

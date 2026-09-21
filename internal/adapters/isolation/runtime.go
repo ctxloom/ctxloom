@@ -212,9 +212,12 @@ type RunSpec struct {
 	Name    string   // --name, so teardown can target this exact container
 	WorkDir string   // -w and the identical-path project bind-mount target
 	Home    string   // fresh $HOME inside the container (engine global state isolated)
-	Command []string // in-container argv (the container's ctxloom + "llm serve …")
-	Env     []string // -e KEY=VAL, the curated go-plugin handshake env
+	Command []string // in-container argv (the container's ctxloom + its subcommand)
+	Env     []string // -e KEY=VAL, or a bare -e NAME forwarded from the run process's env
 	Mounts  []Mount  // --mount type=bind bind mounts
+	// TTY attaches the run to a terminal (-i -t): the runner's stdio is the
+	// tty the originator holds — an INTERACTIVE launch's foreground runner.
+	TTY bool
 
 	// Trace, when non-nil, marks a PROBE-ONLY run: renderRunSpec then grants
 	// --cap-add=SYS_PTRACE, bind-mounts the trace dir out, and wraps Command in
@@ -613,6 +616,9 @@ func (Host) Enumerate(context.Context, string) ([]ContainerInfo, error) { return
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
 func renderRunSpec(spec RunSpec) []string {
 	var args []string
+	if spec.TTY {
+		args = append(args, "-i", "-t")
+	}
 	// PROBE-ONLY: a non-nil Trace overrides Docker's default seccomp profile
 	// with the probe profile (default policy + the ptrace family allowed), which
 	// is what lets strace trace its own children in-container. NO capability is

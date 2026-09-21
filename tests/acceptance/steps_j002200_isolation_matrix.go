@@ -125,6 +125,11 @@ var isoSpyEnvAllowlistShell = strings.Join(isoSpyEnvAllowlist, " ")
 // environment — see that list's doc for the secret-leak hazard that
 // constraint exists to close.
 //
+// It ANSWERS in the engine's structured protocol (claude's stream-json: an
+// init line, one assistant text block, a result) because a `ctxloom run
+// --one-shot` drives the engine one structured turn per process and reads
+// its answer off that stream; a plain line would be no answer at all.
+//
 // The four non-env sections it also captures are all FILES CTXLOOM ITSELF
 // CREATED inside a config home ctxloom provisioned, in a throwaway test HOME —
 // a copy of the obviously-fake isoFixtureCredMarker, a directory listing, a
@@ -160,7 +165,9 @@ out="$CTXLOOM_ISOSPY_OUT"
   echo "===CLAUDE_INSTANCE_CONFIG==="
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.claude.json" 2>/dev/null
 } > "$out" 2>/dev/null
-echo '{"result":"ctxloom-isolation-matrix-spy","modelUsage":{"m":{"inputTokens":1,"outputTokens":1}}}'
+echo '{"type":"system","subtype":"init","session_id":"iso-spy","model":"m"}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"ctxloom-isolation-matrix-spy"}]}}'
+echo '{"type":"result","subtype":"success","usage":{"input_tokens":1},"modelUsage":{"m":{"outputTokens":1}}}'
 exit 0
 `
 

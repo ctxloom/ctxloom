@@ -40,6 +40,32 @@ func (c Container) StartRunner(_ context.Context, backendName, label string, ver
 	return startDirectRunner(c.runtime, spec, spawnEnv)
 }
 
+// InteractiveRunner is the container's foreground runner attached to a
+// terminal: `docker run -i -t … ctxloom runner <engine>` on the same spec
+// StartRunner renders — the mounts, the scoped env, the bare-name spawn env
+// — for the originator to start on the pty it holds. Teardown is by name
+// (Remove) plus the run CLI's own death with that pty.
+func (c Container) InteractiveRunner(_ context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+	cw, ok := ws.(*containerWorkspace)
+	if !ok {
+		return nil, "", fmt.Errorf("container interactive runner: unexpected workspace %T (expected a container workspace)", ws)
+	}
+	name := containerName(cw.agentID)
+	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
+	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
+	spec.TTY = true
+	// The runner process runs under RunnerTerm (the last -e wins over the
+	// workspace's TERM); the engine's env carries the human's terminal.
+	spec.Env = append(spec.Env, "TERM="+RunnerTerm)
+	cmd := exec.Command(c.runtime.Binary(), c.runtime.RunArgs(spec)...)
+	cmd.Env = append(os.Environ(), envPairs(spawnEnv)...)
+	return cmd, name, nil
+}
+
+// Remove force-removes the named container under the bounded teardown
+// timeout — the interactive runner's teardown by name.
+func (c Container) Remove(name string) { removeContainer(context.Background(), c.runtime, name) }
+
 // buildRunnerSpec assembles the RunSpec for one container runner. Env = the
 // fixed container base env (IS_SANDBOX) + the workspace's scoped auth/TERM/
 // git-identity env (cw.extraEnv) + the per-spawn runner env as BARE NAMES.

@@ -212,33 +212,19 @@ func StartInternalOneShot(ctx context.Context, cfg *config.Config, mode strictne
 	return StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir, ProjectID: projectID}, InternalSource(label, model, workDir), verbosity)
 }
 
-// runtimeCarrier / containerPersister are the narrow capabilities the container
-// policy implements (Runtime / ContainerPersistDir) and None/Worktree do not —
-// probed here rather than widening isolation.Policy, mirroring
-// mcpCommandOverrider. They feed the docker-exec interactive launcher (Phase
-// 2a-A): the runtime renders `exec -it`, and the container persist dir is where
-// the in-container turn reads the RunStart handoff.
+// runtimeCarrier is the narrow capability the container policy implements
+// (Runtime) and None/Worktree do not — probed here rather than widening
+// isolation.Policy. It is how the originator awaits a container runner's
+// running state (isolation.AwaitContainerRunning).
 type runtimeCarrier interface{ Runtime() isolation.Runtime }
-type containerPersister interface{ ContainerPersistDir(harp string) string }
 
 // RuntimeForPolicy reports a container policy's launch runtime (docker/podman),
-// or nil for none/worktree — the seam the docker-exec vpio.Launcher renders
-// `exec -it` through.
+// or nil for none/worktree.
 func RuntimeForPolicy(p isolation.Policy) isolation.Runtime {
 	if rc, ok := p.(runtimeCarrier); ok {
 		return rc.Runtime()
 	}
 	return nil
-}
-
-// ContainerPersistDirForPolicy reports the IN-CONTAINER path the host's session
-// persist dir is bind-mounted to for a container policy (where the docker-exec
-// turn reads the RunStart handoff), or "" for none/worktree.
-func ContainerPersistDirForPolicy(p isolation.Policy, harp string) string {
-	if cp, ok := p.(containerPersister); ok {
-		return cp.ContainerPersistDir(harp)
-	}
-	return ""
 }
 
 // isolationGateErr is the fail-loudly member gate over the strictness findings

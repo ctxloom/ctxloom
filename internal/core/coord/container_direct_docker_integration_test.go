@@ -114,6 +114,11 @@ func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnP
 	s.mu.Unlock()
 	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
+	// As Resolve carries a container launch: the container axis (the runner
+	// dials the container-reachable listener) and a session endpoint for the
+	// runner to bind — any free loopback port inside the container.
+	l.Axes.Runtime = launch.RuntimeRootless
+	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
 }
@@ -213,7 +218,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, "container", out.Runtime)
+	require.Equal(t, "container", string(out.Runtime))
 	childHarp := out.Harp
 
 	// Subscribe to the live tap before the container has even been run.
@@ -289,11 +294,15 @@ func assertNoPublishedOrExposedPorts(t *testing.T, name string) {
 	assert.NotContains(t, p, "HostPort", "no host port binding may appear in NetworkSettings.Ports (%s)", p)
 }
 
-// assertNoTCPListenSocket fails if any process inside the container holds a TCP
-// LISTEN socket (/proc/net/tcp{,6} state 0A) — the direct proof that the runner
-// binds no plugin port at all (the mauve-state class cannot recur on this
-// path). The runner-local MCP surface is a UNIX socket, never TCP, so a
-// correct docker-direct runner shows zero TCP listeners.
+// assertNoTCPListenSocket fails if any process inside the container holds a
+// TCP LISTEN socket on anything but the container's OWN loopback
+// (/proc/net/tcp{,6} state 0A) — the direct proof that the runner binds no
+// plugin port a peer container could reach (the mauve-state class cannot
+// recur on this path). The ONE listener a correct runner holds is the
+// session's MCP endpoint (runner/mcp.Endpoint), bound at the loopback
+// address the Launch names: private to the container's netns, bearer-gated,
+// the engine's own door. Anything else — a wildcard or bridge-address bind —
+// is the hole.
 func assertNoTCPListenSocket(t *testing.T, name string) {
 	t.Helper()
 	out, err := exec.Command("docker", "exec", name, "sh", "-c", "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null").Output()
@@ -305,8 +314,15 @@ func assertNoTCPListenSocket(t *testing.T, name string) {
 		}
 		// Column 3 (st) == 0A is TCP_LISTEN. The header row's field[3] is "st"
 		// (skipped by the equality check).
-		if fields[3] == "0A" {
-			t.Fatalf("the docker-direct runner container holds a TCP LISTEN socket (mauve-state hole): %q", line)
+		if fields[3] != "0A" {
+			continue
 		}
+		// local_address is hex ip:port; IPv4 loopback is 0100007F, IPv6
+		// loopback ends in ...00000001 (::1) or the v4-mapped 0100007F.
+		local := strings.SplitN(fields[1], ":", 2)[0]
+		if local == "0100007F" || local == "00000000000000000000000001000000" || strings.HasSuffix(local, "0000FFFF0100007F") {
+			continue
+		}
+		t.Fatalf("the runner container holds a TCP LISTEN socket beyond its own loopback (mauve-state hole): %q", line)
 	}
 }

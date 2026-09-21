@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -220,6 +221,11 @@ func (Worktree) SpawnClient(backendName, label string, verbosity int, ws Workspa
 // one unit rather than duplicate it.
 func (Worktree) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
 	return None{}.StartRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
+}
+
+// InteractiveRunner is None's: the runner is a host process either way.
+func (Worktree) InteractiveRunner(ctx context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+	return None{}.InteractiveRunner(ctx, backendName, ws, spawnEnv)
 }
 
 // excludeConfigFromMerge writes the broadened ctxloom-config exclude block to the

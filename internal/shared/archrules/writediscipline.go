@@ -20,7 +20,6 @@ var WriteDisciplineAllowed = map[string]string{
 	"internal/core/spool/writer.go#writeAndSync":                                "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/bundles/skill_archive.go#ImportSkillArchive":                 "C10 content/skill_archive sweep: fsys.Rename here is a WHOLE-DIRECTORY swap (staged tree -> final, and final -> aside on replace), not a single-file content write — outside iox's WriteFileAtomicFs API, which has no directory-rename surface. This is a deliberate, already-safe swap-never-clear-then-hope idiom (see the function's own doc) with its own aside/restore recovery; exempt, not a violation to migrate.",
 	"internal/adapters/cli/bundle_items.go#editInEditor":                        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/adapters/cli/llm_turn.go#writeRunStartHandoff":                    "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/cli/run_terminal_ui.go#redirectDiagnosticsForTUI":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/adapters/contextmetrics/contextmetrics.go#Append":                 "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/shared/docsgen/config.go#GenConfig":                               "pre-ratchet baseline, doc generator — migrate to iox (fs-consolidation plan C3/C10)",

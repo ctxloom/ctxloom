@@ -21,10 +21,13 @@ package isolation
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -181,6 +184,44 @@ type Policy interface {
 	// spawnEnv rides the same channel SpawnClient uses (host → cmd.Env;
 	// container → bare-name `-e` with values on the run-process env).
 	StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error)
+	// InteractiveRunner is the runner process of an INTERACTIVE launch, as a
+	// command the originator starts on the pty it holds (adapters/hostpty,
+	// adapters/attach): the self-exec'd `ctxloom runner <engine>` on a host
+	// cell; `docker run -i -t … ctxloom runner <engine>` — the container's
+	// foreground process — for a container cell, whose name is returned so
+	// teardown can target it ("" on the host). spawnEnv rides as
+	// StartRunner's does. Readiness is the coordinator's awaitRunner.
+	InteractiveRunner(ctx context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error)
+}
+
+// RunnerTerm is the TERM an INTERACTIVE runner process runs under: `dumb`,
+// deliberately. The runner is `ctxloom` on the terminal the originator
+// holds, and ctxloom's package-init terminal-capability detection
+// (lipgloss/termenv querying the background via OSC 11 + a DSR terminator)
+// would otherwise fire and READ the response from that same stdin,
+// swallowing the human's first keystrokes; `dumb` makes termenv skip the
+// query entirely. The ENGINE keeps real color: the launch's engine env,
+// laid over the runner's, carries the terminal the human is watching.
+const RunnerTerm = "dumb"
+
+// RunnerCommand is the self-exec'd host runner command: `ctxloom runner
+// <engine>` with spawnEnv (the reach-back trio) laid over the process env,
+// under RunnerTerm.
+func RunnerCommand(backendName string, spawnEnv map[string]string) *exec.Cmd {
+	cmd := exec.Command(selfexec.Path(), "runner", backendName)
+	cmd.Env = append(os.Environ(), "TERM="+RunnerTerm)
+	cmd.Env = append(cmd.Env, envPairs(spawnEnv)...)
+	return cmd
+}
+
+// envPairs renders spawnEnv as sorted KEY=VAL pairs.
+func envPairs(env map[string]string) []string {
+	kv := make([]string, 0, len(env))
+	for k, v := range env {
+		kv = append(kv, k+"="+v)
+	}
+	sort.Strings(kv)
+	return kv
 }
 
 // RunnerHandle is a directly-launched engine-runner process (no go-plugin

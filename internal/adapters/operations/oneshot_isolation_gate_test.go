@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,9 @@ func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[st
 }
 func (stubPolicy) StartRunner(context.Context, string, string, int, isolation.Workspace, map[string]string) (*isolation.RunnerHandle, error) {
 	return &isolation.RunnerHandle{Kill: func() {}, Wait: func() error { return nil }}, nil
+}
+func (stubPolicy) InteractiveRunner(context.Context, string, isolation.Workspace, map[string]string) (*exec.Cmd, string, error) {
+	return nil, "", nil
 }
 
 // stubPrepareIsolation swaps runResolvedAgent's isolation.Prepare seam for one

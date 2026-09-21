@@ -3,6 +3,7 @@ package isolation
 import (
 	"context"
 	"fmt"
+	"os/exec"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
@@ -70,6 +71,12 @@ func (None) StartRunner(_ context.Context, backendName, label string, _ int, _ W
 		return nil, fmt.Errorf("start host runner for backend %q (label %q): %w", backendName, label, err)
 	}
 	return &RunnerHandle{Name: "", Kill: hr.Kill, Wait: hr.Wait, StderrTail: hr.StderrTail}, nil
+}
+
+// InteractiveRunner is the self-exec'd runner on the host: the originator
+// starts it on the pty it holds.
+func (None) InteractiveRunner(_ context.Context, backendName string, _ Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+	return RunnerCommand(backendName, spawnEnv), "", nil
 }
 
 // hostWorkspace is the None policy's workspace: the live project directory with

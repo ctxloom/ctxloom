@@ -3,6 +3,7 @@ package isolation
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,6 +48,9 @@ func (failingPolicy) SpawnClient(string, string, int, Workspace, map[string]stri
 func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: the chain degrades before spawn")
 }
+func (failingPolicy) InteractiveRunner(context.Context, string, Workspace, map[string]string) (*exec.Cmd, string, error) {
+	return nil, "", nil
+}
 
 // passingPolicy is a test Policy that always prepares a trivial workspace (the
 // project dir, via None); its Name is configurable so a chain can place a
@@ -71,6 +75,9 @@ func (passingPolicy) SpawnClient(string, string, int, Workspace, map[string]stri
 }
 func (passingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: prepareChain stops at the first success")
+}
+func (passingPolicy) InteractiveRunner(context.Context, string, Workspace, map[string]string) (*exec.Cmd, string, error) {
+	return nil, "", nil
 }
 
 // TestNone_IsHostIdentical pins the None policy to today's host behaviour: the

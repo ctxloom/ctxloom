@@ -74,3 +74,30 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 	}
 	return int(result.ExitCode), nil
 }
+
+// turnResize adapts the cross-platform watchResize (SIGWINCH-sourced
+// pb.WindowSize on unix; the single ConPTY size on Windows) to the engine's
+// agent.WindowSize channel, closing when watchResize closes (ctx done). On
+// the runner's tty every resize the originator applies to the pty master —
+// or the daemon raises on a container's tty — lands here as a SIGWINCH.
+func turnResize(ctx context.Context, f *os.File) <-chan agent.WindowSize {
+	src := watchResize(ctx, f)
+	out := make(chan agent.WindowSize, 1)
+	go func() {
+		defer close(out)
+		for ws := range src {
+			s := agent.WindowSize{Rows: uint16(ws.GetRows()), Cols: uint16(ws.GetCols())}
+			select {
+			case out <- s:
+			default:
+				// Latest-wins: evict the stale pending size, then send the newer.
+				select {
+				case <-out:
+				default:
+				}
+				out <- s
+			}
+		}
+	}()
+	return out
+}

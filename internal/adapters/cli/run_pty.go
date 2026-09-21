@@ -5,25 +5,24 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"sort"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/attach"
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
-	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
-// runnerTermValue is the TERM the RUNNER process runs under on the pty:
-// `dumb`, deliberately. The runner is `ctxloom` on the interactive terminal,
-// and ctxloom's package-init terminal-capability detection (lipgloss/termenv
-// querying the background via OSC 11 + a DSR terminator) would otherwise fire
-// and READ the response from this same stdin, swallowing the human's first
-// keystrokes. `dumb` makes termenv skip the query entirely. The ENGINE keeps
-// real color: its env is the runner's overridden by the launch's engine env,
-// into which the originator stamps the terminal it is actually watching
-// (stampTerminalEnv).
-const runnerTermValue = "dumb"
+// runnerTTY is the interactive runner's terminal as the drive pumps it:
+// the pty master this process holds around the runner — a host process
+// (adapters/hostpty) or the container runtime's attached run
+// (adapters/attach) — with the exit and the teardown behind it.
+type runnerTTY interface {
+	Master() io.ReadWriter
+	Resize(rows, cols uint16) error
+	Exited() <-chan struct{}
+	Wait() (int, error)
+	Kill()
+}
 
 // ptyDrainGrace bounds the drain of the pty master after the runner was
 // reaped: its last bytes are already in the pty and arrive at once; only a
@@ -39,7 +38,7 @@ const ownerRunCompletionWait = 5 * time.Second
 // stampTerminalEnv copies the originator's TERM/COLORTERM into the launch's
 // engine env (never clobbering a value the launch already carries), so the
 // engine renders in the terminal the human is watching even though the
-// runner process runs under runnerTermValue.
+// runner process runs under isolation.RunnerTerm.
 func stampTerminalEnv(env map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range env {
@@ -55,32 +54,41 @@ func stampTerminalEnv(env map[string]string) map[string]string {
 	return out
 }
 
-// ptyStarter is the owner run's starter for an INTERACTIVE host launch: the
-// runner (`ctxloom runner <engine>`) is started on a pseudo-terminal whose
-// MASTER this process keeps (adapters/hostpty) — the terminal layer wraps
-// the master, keystrokes and resizes reach the engine through the pty the
-// kernel carries. The reach-back trio rides the runner's process env. The
-// session is recorded on the state for the drive; its Kill is the run's
-// teardown handle.
+// ptyStarter is the owner run's starter for an INTERACTIVE launch: the
+// runner — `ctxloom runner <engine>` self-exec'd on a host cell, `docker
+// run -i -t … ctxloom runner <engine>` as a container's foreground process —
+// is started on a pseudo-terminal whose MASTER this process keeps, so the
+// terminal layer wraps one master wherever the runner runs and keystrokes,
+// the engine's bytes and resizes cross the pty the kernel (and, for a
+// container, the daemon's tty) carries. The reach-back trio rides the
+// runner's process env. The session is recorded on the state for the drive;
+// its Kill (the container removed by name first) is the run's teardown.
 func (st *runState) ptyStarter() coord.OwnedRunStarter {
-	return func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
-		cmd := exec.Command(selfexec.Path(), "runner", st.backendName)
-		env := append([]string(nil), os.Environ()...)
-		env = append(env, "TERM="+runnerTermValue)
-		kv := make([]string, 0, len(spawnEnv))
-		for k, v := range spawnEnv {
-			kv = append(kv, k+"="+v)
+	return func(ctx context.Context, spawnEnv map[string]string) (func(), string, error) {
+		cmd, name, err := st.policy.InteractiveRunner(ctx, st.backendName, st.ws, spawnEnv)
+		if err != nil {
+			return nil, "", err
 		}
-		sort.Strings(kv)
-		cmd.Env = append(env, kv...)
 		// The launch ctx scopes preparation and attach only; teardown has
 		// one door (Kill), so the child must not die with the ctx.
-		s, err := hostpty.Start(context.Background(), cmd)
+		if name == "" {
+			s, err := hostpty.Start(context.Background(), cmd)
+			if err != nil {
+				return nil, "", fmt.Errorf("start the runner on a pty: %w", err)
+			}
+			st.pty = s
+			return s.Kill, "", nil
+		}
+		container, ok := st.policy.(interface{ Remove(string) })
+		if !ok {
+			return nil, "", fmt.Errorf("policy %q names container %q but cannot remove one", st.policy.Name(), name)
+		}
+		s, err := attach.Start(context.Background(), cmd, name, func() { container.Remove(name) })
 		if err != nil {
-			return nil, "", fmt.Errorf("start the runner on a pty: %w", err)
+			return nil, "", fmt.Errorf("attach the container runner on a pty: %w", err)
 		}
 		st.pty = s
-		return s.Kill, "", nil
+		return s.Kill, name, nil
 	}
 }
 

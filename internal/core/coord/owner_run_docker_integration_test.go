@@ -28,6 +28,9 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +43,20 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 )
+
+// containerOwnerLaunch is the owner's launch as a container run resolves it:
+// the container runtime axis (the runner dials the container-reachable
+// listener) and a session endpoint for the runner to bind — the endpoint
+// Resolve mints in production, here any free loopback port inside the
+// container (nothing outside dials it; the runner's bind is what the launch
+// exercises).
+func containerOwnerLaunch(harp string, mode engine.Mode) launch.Launch {
+	l := coord.OwnerLaunch(harp, "mock", "fast", "mock", "/work", agent.PermissionBypass)
+	l.Mode = mode
+	l.Axes.Runtime = launch.RuntimeRootless
+	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "owner-itest-bearer"}
+	return l
+}
 
 // dockerOwnerRunStarter builds an OwnedRunStarter that launches a REAL container
 // through the production isolation starter (Container.StartRunner → docker-
@@ -158,7 +175,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	defer collector.stop()
 
 	seed := "OWNER-STRUCT-" + coord.RandID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(coord.OwnerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), false), starter.start, seed)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(containerOwnerLaunch(ownerHarp, engine.Structured), false), starter.start, seed)
 	require.NoError(t, err)
 	require.Equal(t, ownerHarp, outcome.Harp)
 
@@ -264,7 +281,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	defer collector.stop()
 
 	seed := "OWNER-ONESHOT-" + coord.RandID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(coord.OwnerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), true), starter.start, seed)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(containerOwnerLaunch(ownerHarp, engine.Structured), true), starter.start, seed)
 	require.NoError(t, err)
 
 	want := "mock chat: " + seed

@@ -141,7 +141,6 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/turnchange` | `internal/adapters/turnchange` | adapters | JUDGMENT: reads the engine's transcript through the vendor readers (an adapter over adapters); imported by cli → adapters |
 | `internal/version` | `internal/shared/version` | shared | JUDGMENT: a leaf with no ctxloom imports by its own doc comment → toolbox |
 | `internal/vpio` | `internal/adapters/vpio` | adapters | JUDGMENT: unit A adapters row; the rename paragraph's vpio/* → adapters/hostpty, adapters/attach is a split of one package into two (a code change, slice 13's), so the leaf name is kept |
-| `internal/vpio/dockerexec` | `dies in place` | retired | rename paragraph: retired (slice 13); dies in place |
 | `internal/vpio/goplugin` | `dies in place` | retired | rename paragraph: retired (slice 13); dies in place |
 | `cmd/archlint` | stays | — | Part 0: cmd/* are the composition roots; they do not move |
 | `cmd/ctxloom` | stays | — | Part 0: cmd/* are the composition roots; they do not move |

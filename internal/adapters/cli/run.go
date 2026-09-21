@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,21 +15,19 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
-	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -42,7 +38,6 @@ import (
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
-	"github.com/ctxloom/ctxloom/internal/vpio/dockerexec"
 )
 
 var (
@@ -360,7 +355,6 @@ type runState struct {
 	mode        pb.ExecutionMode
 	permMode    agent.PermissionMode
 	managed     *agent.ManagedConfig
-	req         *pb.RunStart
 	activeHarp  string
 	// policy/ws are the cell's transport handle: how today's plugin
 	// transport spawns into the cell.
@@ -376,17 +370,14 @@ type runState struct {
 	sessionCoord *coord.Coordinator
 
 	// startTransport. ownedRun is the owner-owned run the coordinator this
-	// process hosts drives its runner through (StartOwnedRun): every host
-	// launch and a container --one-shot. pty is that runner's pseudo-terminal
-	// for an INTERACTIVE host launch (this process keeps the master; the
-	// terminal layer wraps it). interactiveLauncher + runnerHandle: a
-	// container-cell INTERACTIVE launch still drives its turn over a
-	// docker-exec vpio.Launcher into a runner container, until the container
-	// runner is the foreground process attached with -it.
-	ownedRun            *ownedRunSession
-	pty                 *hostpty.Session
-	interactiveLauncher vpio.Launcher
-	runnerHandle        *isolation.RunnerHandle
+	// process hosts drives its runner through (StartOwnedRun) — every
+	// launch. pty is the runner's pseudo-terminal for an INTERACTIVE launch
+	// (this process keeps the master; the terminal layer wraps it; a
+	// container's is removed by name with it); runnerHandle is a --one-shot
+	// launch's plain runner process.
+	ownedRun     *ownedRunSession
+	pty          runnerTTY
+	runnerHandle *isolation.RunnerHandle
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -460,14 +451,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 	defer closeCoordinator()
 
 	st.seedTask()
-	st.buildRunRequest()
 
-	// Teardown: kill the go-plugin client OR the docker-exec keepalive
-	// container, then release the cell. Registered HERE, before startTransport
-	// can return early: a defer only protects returns that happen AFTER it is
-	// reached, and every arm in startTransport assigns into
-	// runnerHandle/ownedRun/client BEFORE checking its own error, so every
-	// early return in between is covered instead of only the successful path.
+	// Teardown: end the runner (the pty session or the plain process — a
+	// container removed by name), then release the cell. Registered HERE,
+	// before startTransport can return early: a defer only protects returns
+	// that happen AFTER it is reached, and the starter records the runner's
+	// handle the moment it exists, so every early return in between is
+	// covered instead of only the successful path.
 	defer st.teardownAll()
 
 	if err := st.startTransport(); err != nil {
@@ -610,14 +600,6 @@ func (st *runState) boundAgent() string {
 		return st.cfg.GetDefaultAgent()
 	}
 	return ""
-}
-
-// buildRunRequest projects the launch onto the run-start message through
-// the one codec, then adds what only this invocation knows: the resumed
-// transcript as a trailing fragment, the startup findings, the host
-// terminal's description.
-func (st *runState) buildRunRequest() {
-	st.req = coordgrpc.EncodeRunStart(st.launch, st.opened.Package, st.opened.Managed, runVerbosity)
 }
 
 // resumedTranscript is the --session (full resume — no --distill) lead: the
@@ -868,8 +850,9 @@ func (st *runState) emitDryRun() error {
 	if err != nil {
 		return err
 	}
-	// The preview shows what the request would carry: a --session full
-	// resume trails the assembled context exactly as buildRunRequest sends it.
+	// The preview shows what the launch would carry: a --session full
+	// resume trails the assembled context exactly as the lead the launch
+	// composes (resumedTranscript).
 	context := pkg.Context.Text
 	if runResumeSession != "" && !runResumeDistill {
 		context = resumeFullContext(context, runResumeSession, func(h string) ([]agent.SessionEntry, error) {
@@ -943,12 +926,21 @@ func (st *runState) emitDryRun() error {
 type dryCells struct{}
 
 func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell, error) {
+	roots := present.Paths{
+		ProjectRoot: present.Root{Host: req.ProjectRoot},
+		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
+		Scratch:     present.Root{Host: req.SessionDir},
+	}
+	// The engine home a session-home run of a relocatable engine WOULD
+	// advise (the real cell's, under the session's home dir): the router
+	// reads it to place the engine's session-home kinds, so a preview
+	// without it would show every kind on the project root — the opposite of
+	// the run it previews.
+	if home := req.Engine.Home(); home.Relocates() && req.HomeMode == launch.HomeModeSession {
+		roots.EngineHome = present.Root{Host: filepath.Join(req.SessionDir, paths.SessionHomeDirName, home.Vars[0].Subdir)}
+	}
 	return launch.Cell{
-		Paths: present.OnHost(present.Paths{
-			ProjectRoot: present.Root{Host: req.ProjectRoot},
-			CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
-			Scratch:     present.Root{Host: req.SessionDir},
-		}),
+		Paths:     present.OnHost(roots),
 		Workspace: req.ProjectRoot,
 		HomeMode:  req.HomeMode,
 		Cleanup:   func() error { return nil },
@@ -961,7 +953,7 @@ func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 // --session --distill: distilled resume via the harp's essence (distilling on
 // demand first if missing) — see resumeDistillEnv's doc for the full
 // mechanism. Full resume (--session without --distill) carries its transcript
-// as a trailing fragment (buildRunRequest); it still sets CTXLOOM_RESUMED_FROM/
+// as a trailing context block (resumedTranscript); it still sets CTXLOOM_RESUMED_FROM/
 // PARTS="transcript" so the session instructions surface the "resumed from"
 // note, with a PARTS value the SessionStart hook's essence injection ignores
 // (the content already rode the fragment path — no double-injection).
@@ -1173,59 +1165,37 @@ func (st *runState) teardownTransport() {
 	}
 }
 
-// startTransport starts the run's runner. Every host launch and a container
-// --one-shot is an owner-owned run of the coordinator this process hosts
-// (StartOwnedRun): the runner is started through the launch's starter — on
-// a pty for an interactive host launch, as a plain process otherwise — and
-// receives its Launch over StartRun. A container-cell INTERACTIVE launch
-// still goes docker-exec into a runner container.
+// startTransport starts the run's runner: every launch is an owner-owned
+// run of the coordinator this process hosts (StartOwnedRun), its runner
+// started through the launch's starter — on a pty for an interactive
+// launch, as a plain process for a --one-shot — and handed its Launch over
+// StartRun.
 //
-// Every arm assigns its handle into the state BEFORE checking its own error
-// so runRun's already-registered teardown sees it — see the per-arm notes.
+// The starter records the runner's handle on the state the moment it
+// exists, so a later StartOwnedRun failure still tears it down.
 func (st *runState) startTransport() error {
-	switch runTransport(st.policy.Name(), st.mode) {
-	case armDockerExecInteractive:
-		handle, launcher, lerr := startContainerInteractive(st.ctx, st.policy, st.ws, st.req, st.backendName, st.label, runVerbosity, st.activeHarp, st.runnerSpawnEnv)
-		// Gate BEFORE the plain error return: a container that never reached
-		// running state records a NonDegradable ClassIsolation finding, and
-		// this is the window that turns it into exit 3. Without a gate here it
-		// would be recorded and checked by nothing — the run would warn and
-		// exit 1, which is the failure this whole path exists to fix.
-		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
-			return ferr
-		}
-		if lerr != nil {
-			return fmt.Errorf("failed to start container interactive turn: %w", lerr)
-		}
-		st.runnerHandle = handle
-		st.interactiveLauncher = launcher
-
-	case armOwnedRun:
-		var starter coord.OwnedRunStarter
-		if st.mode == pb.ExecutionMode_INTERACTIVE {
-			st.launch.Env = stampTerminalEnv(st.launch.Env)
-			starter = st.ptyStarter()
-		} else {
-			starter = st.processStarter()
-		}
-		sess, oerr := startOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
-			Launch:     st.launch,
-			MCPServers: st.managed.ChatMCPServers(),
-			RunnerEnv:  st.runnerSpawnEnv,
-		}, starter)
-		// The starter recorded the runner's handle on the state the moment
-		// it existed, so a later StartOwnedRun failure still tears it down.
-		st.ownedRun = sess
-		// Everything recorded since the startup gate — above all a
-		// coordinator that could not stand up (a project another live session
-		// owns is refused here), and a container that never reached running
-		// (the await inside the process starter) — is acted on in this window.
-		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
-			return ferr
-		}
-		if oerr != nil {
-			return fmt.Errorf("failed to start the run: %w", oerr)
-		}
+	var starter coord.OwnedRunStarter
+	if st.mode == pb.ExecutionMode_INTERACTIVE {
+		st.launch.Env = stampTerminalEnv(st.launch.Env)
+		starter = st.ptyStarter()
+	} else {
+		starter = st.processStarter()
+	}
+	sess, oerr := startOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
+		Launch:     st.launch,
+		MCPServers: st.managed.ChatMCPServers(),
+		RunnerEnv:  st.runnerSpawnEnv,
+	}, starter)
+	st.ownedRun = sess
+	// Everything recorded since the startup gate — above all a coordinator
+	// that could not stand up (a project another live session owns is
+	// refused here), and a container that never reached running (the await
+	// inside the process starter) — is acted on in this window.
+	if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
+		return ferr
+	}
+	if oerr != nil {
+		return fmt.Errorf("failed to start the run: %w", oerr)
 	}
 	return nil
 }
@@ -1239,151 +1209,58 @@ func (st *runState) drive() error {
 	// A --one-shot owner run: collect the run's FINAL answer off the
 	// coordinator's event stream, record the oneshot transcript, exit with
 	// the run's status.
-	if st.ownedRun != nil {
-		return runOneshotViaCoord(st.ctx, st.ownedRun, st.activeHarp, st.backendName, st.prompt, os.Stdout)
-	}
-	return st.driveTerminalSession()
+	return runOneshotViaCoord(st.ctx, st.ownedRun, st.activeHarp, st.backendName, st.prompt, os.Stdout)
 }
 
-// sessionIO is the terminal seam set the vpio launcher is handed. It is one
-// value rather than five returns because the five are decided together and
-// consumed together, and restore composes onto the others.
+// sessionIO is the terminal seam set the interactive drive pumps onto the
+// pty master. It is one value rather than four returns because they are
+// decided together and consumed together, and restore composes onto the
+// others.
 type sessionIO struct {
 	stdin  io.Reader
 	stdout io.Writer
 	resize <-chan *pb.WindowSize
-	// capture is the S6 oneshot tee's buffer; nil for INTERACTIVE.
-	capture *bytes.Buffer
 	// restore unwinds the terminal (raw mode, and the observation layer's
 	// scroll region + held output when one engaged). Idempotent, and a no-op
 	// for a run that never took the terminal.
 	restore func()
 }
 
-// driveTerminalSession is the docker-exec launch path: the run owns the
-// terminal, starts the turn over the vpio seam, and waits.
-func (st *runState) driveTerminalSession() error {
-	sio := st.prepareSessionIO()
-	// Deferred (the value may be the composed one) so a panic inside the
-	// session can't strand the shell in raw mode. restore is idempotent; the
-	// inline call in launchSession still restores before any normal-path
-	// output. This defer belongs on THIS frame, not runRun's: it must unwind
-	// before anything else, and this call is the last thing runRun does.
-	defer sio.restore()
-	return st.launchSession(sio)
-}
-
-// prepareSessionIO decides the run's terminal seams. For an interactive run
-// the frontend owns the terminal: raw mode + stdin + resize are pumped over
-// the VIRTUALIZED-PROCESS-IO (vpio) seam — internal/adapters/vpio — to the controller's
-// pty. Oneshot runs need none of that. Everything here stays above the seam:
-// it references only pb.WindowSize (the wire's resize payload shape, not a
-// transport call) and vpio types, never a transport client method directly.
+// prepareSessionIO decides an interactive run's terminal seams: the
+// frontend owns the terminal — raw mode + stdin + resize — and the terminal
+// layer (adapters/termui) wraps the seams before they are pumped onto the
+// runner's pty master.
 func (st *runState) prepareSessionIO() sessionIO {
 	sio := sessionIO{stdout: os.Stdout, restore: func() {}}
-
-	// S6 oneshot capture: a ONESHOT `--one-shot` run drives Backend.Execute,
-	// which returns prose on stdout with no ChatEvent stream — the
-	// structured tee (GRPCClient.Chat, internal/lm/grpc/chat.go) never
-	// fires for it, so this is the runner's own seam onto both halves of
-	// a two-entry canonical transcript (transcript.RecordOneshot): the
-	// prompt is already known (st.prompt), and this captures the returned
-	// half by teeing the SAME bytes already bound for the terminal into a
-	// buffer, alongside (never instead of) the user-visible stdout. Never
-	// allocated for INTERACTIVE (the pty path, out of scope — a separate,
-	// tracked gap) or when a container-policy ONESHOT drives over Transport 2
-	// instead (st.ownedRun != nil returns earlier, in drive).
-	if st.mode == pb.ExecutionMode_ONESHOT {
-		sio.capture = &bytes.Buffer{}
-		sio.stdout = io.MultiWriter(sio.stdout, sio.capture)
-	}
-
-	if st.mode == pb.ExecutionMode_INTERACTIVE {
-		sio.stdin, sio.resize, sio.restore = interactiveTerminal(st.ctx)
-		// Wrap the terminal seams with the observation layer (prefix-key
-		// viewer + surround bar) — real tty only, never a pipe, and
-		// --plain-terminal opts a session out entirely. Its Close composes
-		// onto the raw-mode restore so every exit path (clean, error,
-		// signal-cancelled ctx) unwinds scroll region, held output, and
-		// raw mode together.
-		if sio.stdin != nil && !runPlainTerminal {
-			// The TUI is about to own this terminal, so clidiag warnings must
-			// stop writing to it. Diverted to the session's diagnostics log,
-			// announced before the handover.
-			restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
-			if ui := setupTerminalUI(st.ctx, st.cfg, st.sessionCoord, terminalUIIdentity{
-				WorkDir: st.workDir,
-				Harp:    st.activeHarp,
-				Agent:   st.boundAgent(),
-				Backend: st.backendName,
-				Model:   st.labelModel,
-			}, sio.stdin, sio.resize); ui != nil {
-				sio.stdin, sio.stdout, sio.resize = ui.Stdin(), ui.Stdout(), ui.Resize()
-				rawRestore := sio.restore
-				sio.restore = func() { ui.Close(); restoreDiag(); rawRestore() }
-			} else {
-				// No TUI engaged after all — stderr is still the user's,
-				// so put the warnings back on it.
-				restoreDiag()
-			}
+	sio.stdin, sio.resize, sio.restore = interactiveTerminal(st.ctx)
+	// Wrap the terminal seams with the observation layer (prefix-key
+	// viewer + surround bar) — real tty only, never a pipe, and
+	// --plain-terminal opts a session out entirely. Its Close composes
+	// onto the raw-mode restore so every exit path (clean, error,
+	// signal-cancelled ctx) unwinds scroll region, held output, and
+	// raw mode together.
+	if sio.stdin != nil && !runPlainTerminal {
+		// The TUI is about to own this terminal, so clidiag warnings must
+		// stop writing to it. Diverted to the session's diagnostics log,
+		// announced before the handover.
+		restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
+		if ui := setupTerminalUI(st.ctx, st.cfg, st.sessionCoord, terminalUIIdentity{
+			WorkDir: st.workDir,
+			Harp:    st.activeHarp,
+			Agent:   st.boundAgent(),
+			Backend: st.backendName,
+			Model:   st.labelModel,
+		}, sio.stdin, sio.resize); ui != nil {
+			sio.stdin, sio.stdout, sio.resize = ui.Stdin(), ui.Stdout(), ui.Resize()
+			rawRestore := sio.restore
+			sio.restore = func() { ui.Close(); restoreDiag(); rawRestore() }
+		} else {
+			// No TUI engaged after all — stderr is still the user's,
+			// so put the warnings back on it.
+			restoreDiag()
 		}
 	}
 	return sio
-}
-
-// launchSession runs the docker-exec Launcher startTransport selected over
-// the vpio seam. Above-the-seam (this call site + the observation wrap)
-// references only vpio types.
-func (st *runState) launchSession(sio sessionIO) error {
-	session, err := st.interactiveLauncher.Start(st.ctx, vpio.ProcessSpec{
-		Stdin:  sio.stdin,
-		Stdout: sio.stdout,
-		Stderr: os.Stderr,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to start plugin: %w", err)
-	}
-	pumpResize(session, sio.resize)
-	status, err := session.Wait()
-	sio.restore()
-	if err != nil {
-		return fmt.Errorf("AI plugin failed: %w", err)
-	}
-
-	// Best-effort: capture failure warns but must never fail an
-	// otherwise-successful (or otherwise-failed — the exit code below
-	// is unaffected either way) run. Captured even on a nonzero exit:
-	// partial prose on stdout is still real memory of what happened.
-	var captureErr error
-	if sio.capture != nil {
-		captureErr = recordOneshotAnswer(st.activeHarp, st.backendName, st.prompt, sio.capture.String())
-	}
-
-	// Interactive-pty exit seam for vendor-transcript import — the
-	// interactive-pty regime in docs/transcript-schema.md "Capture regimes";
-	// ADR 0035 for the gap it closes:
-	// the structured tee (transcript.Tee/TeeAndClose) never reaches a pty,
-	// so this is the ONLY place ctxloom can turn the just-exited engine's
-	// OWN transcript into canonical memory. Mirrors oneshotCapture's own
-	// "capture even on a nonzero exit" note just above — a session that
-	// errored out mid-way still has real prior turns worth keeping.
-	// Best-effort exactly like RecordOneshot: a lookup/convert failure
-	// warns, never fails the run.
-	if st.mode == pb.ExecutionMode_INTERACTIVE {
-		convertVendorTranscriptOnExit(st.activeHarp)
-	}
-
-	if status.Code != 0 {
-		return &ExitError{Code: int(status.Code)}
-	}
-	// The engine's own exit code wins when it is nonzero: it already said
-	// what went wrong. Only an otherwise-GREEN run that produced no answer
-	// falls through to this.
-	if captureErr != nil {
-		return captureErr
-	}
-
-	return nil
 }
 
 // finalizeRunPrompt applies the last two steps of prompt resolution, after the
@@ -1481,133 +1358,6 @@ func convertVendorTranscriptOnExit(harp string) {
 	if src.HealErr != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: %v", src.HealErr)
 	}
-}
-
-// stampHostTerminalEnv copies the host's TERM/COLORTERM into req.Options.Env
-// (never clobbering a value the caller already set), so the in-container engine
-// child renders in the terminal the user is actually watching — the docker-exec
-// counterpart of isolation.hostTerminalEnv on the go-plugin container path. It
-// is what keeps the engine's color intact even though the turn PROCESS runs
-// under TERM=dumb (the Launcher's query-suppression).
-func stampHostTerminalEnv(req *pb.RunStart) {
-	if req.Options == nil {
-		req.Options = &pb.RunOptions{}
-	}
-	if req.Options.Env == nil {
-		req.Options.Env = map[string]string{}
-	}
-	for _, k := range []string{"TERM", "COLORTERM"} {
-		if v := os.Getenv(k); v != "" {
-			if _, set := req.Options.Env[k]; !set {
-				req.Options.Env[k] = v
-			}
-		}
-	}
-}
-
-// runTransportArm is how a top-level run drives its engine: an owner-owned
-// run of the in-process coordinator (armOwnedRun — every host launch and a
-// container --one-shot), or, for a container INTERACTIVE launch only, the
-// docker-exec turn into a runner container (armDockerExecInteractive).
-type runTransportArm int
-
-const (
-	armOwnedRun runTransportArm = iota
-	armDockerExecInteractive
-)
-
-// runTransport decides a run's transport arm.
-func runTransport(policyName string, mode pb.ExecutionMode) runTransportArm {
-	if isolation.IsContainerPolicyName(policyName) && mode == pb.ExecutionMode_INTERACTIVE {
-		return armDockerExecInteractive
-	}
-	return armOwnedRun
-}
-
-// startContainerInteractive is the Phase 2a-A docker-exec arm: it launches the
-// StartRunner keepalive container (Phase 1's `llm host` primitive — same
-// workspace mounts, auth env, session-state mounts, teardown-by-name), hands
-// the resolved RunStart off by a 0600 file in the bind-mounted persist dir
-// (never argv/env), and returns a docker-exec vpio.Launcher that runs the
-// interactive turn via `docker|podman exec -it <container> ctxloom llm turn`.
-// The keepalive carries NO coordinator reach-back (it just blocks); the trio
-// rides the exec into the turn process, which stands up its own runner-MCP —
-// so exactly one process dials home, mirroring the single top-level runner the
-// go-plugin path spawns. No in-container listener; teardown is RunnerHandle.Kill.
-func startContainerInteractive(ctx context.Context, policy isolation.Policy, ws isolation.Workspace, req *pb.RunStart, backendName, label string, verbosity int, harp string, runnerEnv map[string]string) (*isolation.RunnerHandle, vpio.Launcher, error) {
-	rt := operations.RuntimeForPolicy(policy)
-	if rt == nil {
-		return nil, nil, fmt.Errorf("container interactive: policy %q exposes no launch runtime", policy.Name())
-	}
-	persistDir := operations.ContainerPersistDirForPolicy(policy, harp)
-	if persistDir == "" {
-		return nil, nil, fmt.Errorf("container interactive: no session harp — the RunStart handoff needs the bind-mounted persist dir")
-	}
-
-	// The Launcher forces the TURN process's TERM=dumb (to silence ctxloom's
-	// init-time terminal query, which would eat the user's first keystrokes off
-	// this shared stdin). Stamp the REAL terminal description into the engine's
-	// env (RunStart.Options.Env, which the child's BuildEnv overlays over the
-	// turn's os.Environ) so the engine child still renders in full color —
-	// mirroring hostTerminalEnv on the go-plugin container path.
-	stampHostTerminalEnv(req)
-
-	// Hand off RunStart by file BEFORE the container starts (the persist dir is
-	// the bind SOURCE, created here and by the session-state mounts alike).
-	if _, err := writeRunStartHandoff(harp, req); err != nil {
-		return nil, nil, err
-	}
-	startPath := path.Join(persistDir, runStartHandoffFile)
-
-	// Keepalive env: session identity only — NO reach-back trio, so the `llm
-	// host` keepalive degrades to standup+block without dialing home (the turn
-	// owns the single dial). The container's auth/TERM/git env ride the
-	// workspace's own mounts+env, not this map.
-	keepaliveEnv := map[string]string{}
-	if harp != "" {
-		keepaliveEnv[sessions.EnvHarp] = harp
-	}
-	handle, err := policy.StartRunner(ctx, backendName, label, verbosity, ws, keepaliveEnv)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// The launcher below execs into handle.Name. StartRunner returns as soon as
-	// the runtime CLI process is spawned, which is NOT the container running —
-	// without this the exec was issued before the `run` reached the daemon and
-	// failed with a "No such container" that named nothing, while the real
-	// reason (a rejected mount, an unauthenticated engine) went to the runner's
-	// stderr and was thrown away. Wait for the container, and on failure return
-	// the runner's own stderr so the caller learns the actual cause.
-	if rerr := isolation.AwaitContainerRunning(rt, handle); rerr != nil {
-		if handle.Kill != nil {
-			handle.Kill()
-		}
-		// NON-DEGRADABLE, and this is the one isolation raise site in the
-		// product that is. Every other one reports a boundary that could not be
-		// BUILT, whose sanctioned degraded outcome is a warned host fallback —
-		// their fix-its say so, offering --degraded by name. This one reports a
-		// boundary that was requested, accepted, and then died: falling back
-		// now would run on the host a session that was already told it had a
-		// container. The launch IS the exposure, so it must not launch in
-		// either mode, and the remedy deliberately does NOT offer --degraded
-		// because that escape hatch would not work.
-		strictness.FailAlways(strictness.ClassIsolation,
-			"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
-			"container %q was started but never reached running state, so the isolation it promised does not exist: %v", handle.Name, rerr)
-		return nil, nil, rerr
-	}
-
-	launcher := dockerexec.NewLauncher(rt, handle.Name, dockerexec.TurnSpec{
-		Backend:   backendName,
-		Label:     label,
-		StartPath: startPath,
-		// The full reach-back trio (+ harp) crosses to the turn as bare `-e
-		// NAME` (values on the exec subprocess env, never argv), so the turn's
-		// runner-MCP standup can dial the session coordinator.
-		Env: runnerEnv,
-	})
-	return handle, launcher, nil
 }
 
 // validatePermissionFlag rejects an explicitly-typed --permissions value that

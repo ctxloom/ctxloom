@@ -32,6 +32,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
 
 // busIntegrationImage is this file's own minimal image (a distinct tag from
@@ -50,7 +51,13 @@ func buildBusIntegrationImage(t *testing.T) string {
 	dir := t.TempDir()
 
 	bin := filepath.Join(dir, "ctxloom")
+	// Built FROM THE MODULE ROOT: this suite runs inside a test sandbox whose
+	// cwd is no module (testsupport.SandboxedMain), where a bare `go build`
+	// finds no go.mod and the image is never built.
+	root, err := sourcedir.RepoRoot()
+	require.NoError(t, err)
 	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", testsupport.TestBinaryLDFlags, "-o", bin, "github.com/ctxloom/ctxloom/cmd/ctxloom")
+	build.Dir = root
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH, "GOWORK=off")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build static ctxloom: %v\n%s", err, out)

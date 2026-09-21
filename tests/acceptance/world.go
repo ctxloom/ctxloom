@@ -12,7 +12,6 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/gofrs/flock"
 
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -108,21 +107,23 @@ func worldFrom(ctx context.Context) *World {
 	return w
 }
 
-// agent returns the mock-agent MCP session, starting it (handshake included)
+// agent returns the mock-agent MCP session, opening it (handshake included)
 // on first use so scenarios that never touch the agent pay nothing. When a
-// session owner is standing, the shim is started with the owner's runner
-// socket and FORWARDS to it — the shape a `ctxloom run` engine's shim has —
-// so the agent tools reach a real coordinator; without one the shim serves
-// its own cell-local surface and refuses them.
+// session owner is standing, the session DIALS the owner's endpoint — the
+// URL and bearer its runner serves, the same door the owner's engine uses —
+// so the agent tools reach a real coordinator; without one the stdio shim
+// serves its own cell-local surface and refuses them.
 func (w *World) agent() (*testenv.MCPSession, error) {
 	if w.mcp != nil {
 		return w.mcp, nil
 	}
-	var extraEnv []string
+	var s *testenv.MCPSession
+	var err error
 	if w.owner != nil {
-		extraEnv = append(extraEnv, coord.EnvMCPSocket+"="+w.owner.socket)
+		s, err = testenv.ConnectMCPEndpoint(w.owner.endpoint)
+	} else {
+		s, err = w.env.StartMCP()
 	}
-	s, err := w.env.StartMCP(extraEnv...)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +170,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		if cerr := w.mcp.Close(); cerr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("mcp client close: %w", cerr)
 		}
-		// The shim closes BEFORE the owner it forwards to, so its forward
-		// session ends against a live runner rather than a dead socket.
+		// The agent session closes BEFORE the owner it dialed, so it ends
+		// against a live endpoint rather than a dead one.
 		w.owner.stop()
 		if cerr := w.tlMCP.Close(); cerr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("taskloom mcp client close: %w", cerr)

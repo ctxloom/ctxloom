@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -65,11 +64,33 @@ func reapLayout(t *testing.T) Layout {
 	return l
 }
 
+// fakeLocks is a Locks whose verdict is set per harp: dead unless refused.
+// It records, at release time, what the caller had done under the hold, so
+// a test can prove the lock was held ACROSS the removal and not merely
+// probed before it.
+type fakeLocks struct {
+	refused   map[string]string
+	pid       int
+	onRelease func(harp string)
+}
+
+func deadLocks() *fakeLocks { return &fakeLocks{refused: map[string]string{}, pid: 4242} }
+
+func (f *fakeLocks) Acquire(harp string) (LockProbe, func()) {
+	if why, ok := f.refused[harp]; ok {
+		return LockProbe{PID: f.pid, Reason: why}, func() {}
+	}
+	return LockProbe{Dead: true, PID: f.pid, Reason: "the session's lock was free"}, func() {
+		if f.onRelease != nil {
+			f.onRelease(harp)
+		}
+	}
+}
+
 // reapSeed plants the fixture for harp under the layout, with a top-level
 // symlink, and back-dates every mtime so "aged" is a property of the fixture
-// rather than of how long the test ran. The session's lock reads Dead: it
-// exists and nothing holds it — what the kernel leaves once the owner has
-// ended, however it ended.
+// rather than of how long the test ran. Liveness is the Locks port's answer
+// (deadLocks unless a test says otherwise).
 func reapSeed(t *testing.T, l Layout, harp string) string {
 	t.Helper()
 	dir := l.Dir(harp)
@@ -79,8 +100,6 @@ func reapSeed(t *testing.T, l Layout, harp string) string {
 		require.NoError(t, os.WriteFile(p, []byte(body), 0o644))
 	}
 	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "elsewhere.jsonl"), filepath.Join(dir, reapLinkName)))
-	require.NoError(t, sessionlock.Hold(harp))
-	sessionlock.Release(harp)
 	reapBackdate(t, dir)
 	return dir
 }
@@ -153,7 +172,7 @@ func TestReap_RemovesExactlyTheEphemeralMembers(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Reclaimed)
@@ -179,7 +198,7 @@ func TestReap_PersistScope_TakesThePersistStoreWithItsTranscript(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Reclaimed)
@@ -198,7 +217,7 @@ func TestReap_WithoutAnAgeBound_ReapsNothing(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
 
-	_, err := Reap(context.Background(), l, ReapPolicy{Apply: true}, nil)
+	_, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Apply: true}, nil)
 
 	require.ErrorIs(t, err, ErrNoAgeBound)
 	reapAssertPresence(t, dir, func(string, paths.HarpMember) bool { return false })
@@ -210,7 +229,7 @@ func TestReap_ReportsWithoutApplying(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff()}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff()}, nil)
 	require.NoError(t, err)
 
 	assert.False(t, rep.Applied)
@@ -228,9 +247,9 @@ func TestReap_BytesCountOnlyWhatThePolicyTakes(t *testing.T) {
 	l := reapLayout(t)
 	reapSeed(t, l, "aged-quiet-heron")
 
-	ephemeral, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff()}, nil)
+	ephemeral, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff()}, nil)
 	require.NoError(t, err)
-	persist, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist}, nil)
+	persist, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist}, nil)
 	require.NoError(t, err)
 
 	var wantEphemeral, wantPersist int64
@@ -252,9 +271,10 @@ func TestReap_BytesCountOnlyWhatThePolicyTakes(t *testing.T) {
 func TestReap_KeepMarkerExemptsTheSession(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionKeepMarkerFileName), nil, 0o644))
+	require.NoError(t, os.WriteFile(l.KeepMarker("aged-quiet-heron"), nil, 0o644))
+	reapBackdate(t, dir)
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Scope: paths.Persist, Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Kept)
@@ -264,40 +284,44 @@ func TestReap_KeepMarkerExemptsTheSession(t *testing.T) {
 	reapAssertPresence(t, dir, func(string, paths.HarpMember) bool { return false })
 }
 
-// TestReap_SkipsARunningSession: liveness comes from the lock, and the lock
-// only ever refuses — a held lock is a running owner.
-func TestReap_SkipsARunningSession(t *testing.T) {
+// TestReap_SkipsWhenTheLockDoesNotProveTheOwnerDead: liveness comes from
+// the Locks port, and the port only ever refuses — whatever it could not
+// prove dead (held, missing, untrusted) is skipped with its reason, and its
+// owner's pid is reported for a human.
+func TestReap_SkipsWhenTheLockDoesNotProveTheOwnerDead(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
-	require.NoError(t, sessionlock.Hold("aged-quiet-heron"))
-	t.Cleanup(func() { sessionlock.Release("aged-quiet-heron") })
-	reapBackdate(t, dir)
+	locks := deadLocks()
+	locks.refused["aged-quiet-heron"] = "the session's lock is held: its owner is alive"
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, locks, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Skipped)
 	require.Len(t, rep.Candidates, 1)
 	assert.Equal(t, ReapSkipped, rep.Candidates[0].Verdict)
-	assert.Equal(t, os.Getpid(), rep.Candidates[0].OwnerPID)
+	assert.Equal(t, locks.pid, rep.Candidates[0].OwnerPID)
+	assert.Contains(t, rep.Candidates[0].Reason, "alive")
 	reapAssertPresence(t, dir, func(string, paths.HarpMember) bool { return false })
 }
 
-// TestReap_SkipsASessionWithNoLock: "cannot determine" is never permission.
-// A session with no lock file at all — from before the lock existed, or
-// whose Hold failed — is Indeterminate, and Indeterminate refuses.
-func TestReap_SkipsASessionWithNoLock(t *testing.T) {
+// TestReap_HoldsTheLockAcrossTheRemoval: the lock is released only after
+// the members are gone, so a session resuming under the same harp mid-reap
+// waits rather than racing the deletion.
+func TestReap_HoldsTheLockAcrossTheRemoval(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
-	lock, err := paths.HarpLockPath("aged-quiet-heron")
-	require.NoError(t, err)
-	require.NoError(t, os.Remove(lock))
+	locks := deadLocks()
+	released := false
+	locks.onRelease = func(harp string) {
+		released = true
+		assert.NoDirExists(t, filepath.Join(dir, paths.EphemeralDirName), "released before the removal finished")
+	}
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	_, err := Reap(context.Background(), l, locks, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, rep.Skipped)
-	reapAssertPresence(t, dir, func(string, paths.HarpMember) bool { return false })
+	assert.True(t, released, "the hold must be released once the reap is done with the session")
 }
 
 // TestReap_LeavesASessionNewerThanTheBound: a session active since the bound
@@ -308,7 +332,7 @@ func TestReap_LeavesASessionNewerThanTheBound(t *testing.T) {
 	now := time.Now()
 	require.NoError(t, os.Chtimes(filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), now, now))
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Newer)
@@ -330,7 +354,7 @@ func TestReap_IgnoresASessionWithNothingInScope(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.EphemeralDirName), 0o755))
 	reapBackdate(t, dir)
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Empty(t, rep.Candidates)
@@ -350,7 +374,7 @@ func TestReap_RefusesASymlinkedMember(t *testing.T) {
 	require.NoError(t, os.Symlink(target, filepath.Join(dir, paths.EphemeralDirName)))
 	reapBackdate(t, dir)
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Skipped)
@@ -372,7 +396,7 @@ func TestReap_DoesNotFollowASymlinkInsideAMember(t *testing.T) {
 	require.NoError(t, os.Symlink(target, filepath.Join(dir, paths.EphemeralDirName, "link")))
 	reapBackdate(t, dir)
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Reclaimed)
@@ -387,31 +411,28 @@ func TestReap_IgnoresASymlinkedHarpDir(t *testing.T) {
 	real := reapSeed(t, l, "aged-quiet-heron")
 	require.NoError(t, os.Symlink(real, l.Dir("other-quiet-heron")))
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff()}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff()}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, rep.Candidates, 1)
 	assert.Equal(t, "aged-quiet-heron", rep.Candidates[0].Harp)
 }
 
-// TestReap_TouchesNothingBesideTheSessions: files beside the harp dirs (the
-// lock files) and directories whose names are not harps are not candidates.
+// TestReap_TouchesNothingBesideTheSessions: directories whose names
+// harp.Validate refuses are not candidates, and nothing under them moves.
 func TestReap_TouchesNothingBesideTheSessions(t *testing.T) {
 	l := reapLayout(t)
 	reapSeed(t, l, "aged-quiet-heron")
-	stray := filepath.Join(l.SessionsRoot(), "not_a_harp")
+	stray := filepath.Join(l.SessionsRoot(), "not:a:harp")
 	require.NoError(t, os.MkdirAll(filepath.Join(stray, paths.EphemeralDirName), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(stray, paths.EphemeralDirName, "x"), []byte("x"), 0o644))
 	reapBackdate(t, stray)
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	require.Len(t, rep.Candidates, 1)
 	assert.FileExists(t, filepath.Join(stray, paths.EphemeralDirName, "x"))
-	lock, lerr := paths.HarpLockPath("aged-quiet-heron")
-	require.NoError(t, lerr)
-	assert.FileExists(t, lock, "the lock file is deliberately left behind")
 }
 
 // TestReap_TriageSparesTheSession: the triage is the adapter's chance to
@@ -421,18 +442,18 @@ func TestReap_TouchesNothingBesideTheSessions(t *testing.T) {
 func TestReap_TriageSparesTheSession(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
-	var sawProbe sessionlock.Verdict
-	triage := func(_ context.Context, harp string, probe sessionlock.Probe, apply bool) (string, error) {
+	var sawProbe LockProbe
+	triage := func(_ context.Context, harp string, probe LockProbe, apply bool) (string, error) {
 		assert.Equal(t, "aged-quiet-heron", harp)
 		assert.True(t, apply)
-		sawProbe = probe.Verdict
+		sawProbe = probe
 		return "its scratch worktree wt-1 must be preserved: uncommitted work", nil
 	}
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, triage)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, triage)
 	require.NoError(t, err)
 
-	assert.Equal(t, sessionlock.Dead, sawProbe, "the triage is handed the reaper's own probe, not asked to re-probe under its hold")
+	assert.True(t, sawProbe.Dead, "the triage is handed the reaper's own probe, not asked to re-probe under its hold")
 	assert.Equal(t, 1, rep.Spared)
 	require.Len(t, rep.Candidates, 1)
 	assert.Equal(t, ReapSpared, rep.Candidates[0].Verdict)
@@ -445,11 +466,11 @@ func TestReap_TriageSparesTheSession(t *testing.T) {
 func TestReap_TriageErrorSkipsTheSession(t *testing.T) {
 	l := reapLayout(t)
 	dir := reapSeed(t, l, "aged-quiet-heron")
-	triage := func(context.Context, string, sessionlock.Probe, bool) (string, error) {
+	triage := func(context.Context, string, LockProbe, bool) (string, error) {
 		return "", errors.New("git is not installed")
 	}
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, triage)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, triage)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, rep.Skipped)
@@ -462,7 +483,7 @@ func TestReap_TriageErrorSkipsTheSession(t *testing.T) {
 func TestReap_MissingSessionsRootIsNotAFault(t *testing.T) {
 	l := reapLayout(t)
 
-	rep, err := Reap(context.Background(), l, ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
+	rep, err := Reap(context.Background(), l, deadLocks(), ReapPolicy{Cutoff: reapCutoff(), Apply: true}, nil)
 	require.NoError(t, err)
 
 	assert.Empty(t, rep.Candidates)
@@ -471,8 +492,8 @@ func TestReap_MissingSessionsRootIsNotAFault(t *testing.T) {
 // --- ActivityTime: the one clock --------------------------------------------
 
 // activityFixture plants a session with every mtime at base and returns its
-// dir. The lock file is stamped too, at now: it lives BESIDE the session dir
-// and must not count.
+// dir. A lock file is written beside the dir too, stamped now: it lives
+// OUTSIDE the session dir and must not count.
 func activityFixture(t *testing.T, l Layout, harp string, base time.Time) string {
 	t.Helper()
 	dir := l.Dir(harp)
@@ -491,8 +512,9 @@ func activityFixture(t *testing.T, l Layout, harp string, base time.Time) string
 		}
 		return os.Chtimes(p, base, base)
 	}))
-	require.NoError(t, sessionlock.Hold(harp))
-	sessionlock.Release(harp)
+	lock, err := paths.HarpLockPath(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(lock, []byte("4242\n"), 0o644))
 	return dir
 }
 

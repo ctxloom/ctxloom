@@ -23,11 +23,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -50,48 +48,43 @@ var reaperScopeFiles = []string{
 // in paths: the suffix says whether the leaf is a file or a directory.
 var memberConstName = regexp.MustCompile(`(FileName|DirName)$`)
 
-// pathsStringConsts parses internal/core/paths and returns every top-level
-// string constant by name, so a selector `paths.X` in the scanned code can
-// be resolved to the value the table holds.
-func pathsStringConsts(t *testing.T) map[string]string {
+// tableRowConstNames reads paths.HarpMembers' OWN source and returns the
+// constant each row's Name is spelled with — the table is written as
+// `{Name: SessionSidecarFileName, ...}`, so the row set is recoverable by
+// name without evaluating a single constant. The count is cross-checked
+// against the compiled table, so a row written some other way (a literal, a
+// computed name) fails here rather than slipping past the gate.
+func tableRowConstNames(t *testing.T) map[string]bool {
 	t.Helper()
-	root := moduleRoot(t)
-	dir := filepath.Join(root, "internal", "core", "paths")
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	file := filepath.Join(moduleRoot(t), "internal", "core", "paths", "harpmembers.go")
+	f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
 	if err != nil {
-		t.Fatalf("parse %s: %v", dir, err)
+		t.Fatalf("parse %s: %v", file, err)
 	}
-	consts := map[string]string{}
-	for _, p := range pkgs {
-		for _, f := range p.Files {
-			for _, decl := range f.Decls {
-				gd, ok := decl.(*ast.GenDecl)
-				if !ok || gd.Tok != token.CONST {
-					continue
-				}
-				for _, spec := range gd.Specs {
-					vs := spec.(*ast.ValueSpec)
-					for i, name := range vs.Names {
-						if i >= len(vs.Values) {
-							continue
-						}
-						lit, ok := vs.Values[i].(*ast.BasicLit)
-						if !ok || lit.Kind != token.STRING {
-							continue
-						}
-						consts[name.Name] = strings.Trim(lit.Value, "`\"")
-					}
+	names := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "HarpMembers" {
+			return true
+		}
+		ast.Inspect(vs, func(n ast.Node) bool {
+			kv, ok := n.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Name" {
+				if id, ok := kv.Value.(*ast.Ident); ok {
+					names[id.Name] = true
 				}
 			}
-		}
+			return true
+		})
+		return false
+	})
+	if len(names) != len(paths.HarpMembers) {
+		t.Fatalf("read %d row-name constants out of harpmembers.go but the table has %d rows — a row is not spelled `Name: <const>`", len(names), len(paths.HarpMembers))
 	}
-	if len(consts) < 20 {
-		t.Fatalf("resolved only %d string constants in paths — the parse is broken, not the package", len(consts))
-	}
-	return consts
+	return names
 }
 
 // memberSelector reports the constant name when expr is `paths.<X>` with X
@@ -111,11 +104,7 @@ func memberSelector(expr ast.Expr) (string, bool) {
 // TestArch_ReaperMemberNamesAreTableRows is the table-vs-constants gate.
 func TestArch_ReaperMemberNamesAreTableRows(t *testing.T) {
 	root := moduleRoot(t)
-	consts := pathsStringConsts(t)
-	rows := map[string]string{}
-	for _, m := range paths.HarpMembers {
-		rows[m.Name] = m.Rel()
-	}
+	rows := tableRowConstNames(t)
 
 	fset := token.NewFileSet()
 	var sites int
@@ -144,15 +133,9 @@ func TestArch_ReaperMemberNamesAreTableRows(t *testing.T) {
 					return true
 				}
 				sites++
-				value, known := consts[name]
-				if !known {
+				if !rows[name] {
 					findings = append(findings, fset.Position(node.Pos()).String()+
-						": paths."+name+" is not a string constant of paths")
-					return true
-				}
-				if _, isRow := rows[value]; !isRow {
-					findings = append(findings, fset.Position(node.Pos()).String()+
-						": paths."+name+" ("+value+") is not a paths.HarpMembers row — retired member, or a file that never lived under a session dir; delete the reference")
+						": paths."+name+" is not a paths.HarpMembers row — retired member, or a file that never lived under a session dir; delete the reference")
 				}
 			}
 			return true

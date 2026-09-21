@@ -361,15 +361,11 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 	for i := range entries {
 		e := &entries[i]
 		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
-		last := e.LastActivity
-		if last.IsZero() {
-			last = sessions.ActivityTime(*e)
-		}
 		rows = append(rows, sessionSummary{
 			Harp:         e.HarpName,
 			Backend:      e.Backend,
 			Title:        e.Summary,
-			LastActivity: last.Local().Format("2006-01-02 15:04:05"),
+			LastActivity: e.LastActivity.Local().Format("2006-01-02 15:04:05"),
 			Distilled:    distilled,
 		})
 	}

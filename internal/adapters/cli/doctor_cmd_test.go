@@ -1503,33 +1503,39 @@ func TestDoctorCheckHarpDurability_RightState_NoSessionsDirYet(t *testing.T) {
 	assert.Equal(t, doctorOK, check.Status)
 }
 
+// TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles: a session
+// whose every file lives where its paths.HarpMembers row puts it — the
+// essence at the top, the transcript and a note under persist/ — is not
+// reported.
 func TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles(t *testing.T) {
 	testsupport.Isolate(t)
 	harpDir, err := paths.HarpDir("amber-quiet-heron")
 	require.NoError(t, err)
-	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, "persist"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, "ephemeral"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "essence.md"), []byte("essence"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "transcript.jsonl"), []byte("{}"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "persist", "notes.md"), []byte("fine here"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.PersistDirName), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, paths.EphemeralDirName), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.EssenceFileName), []byte("essence"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.PersistDirName, paths.CanonicalTranscriptFileName), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, paths.PersistDirName, "notes.md"), []byte("fine here"), 0o644))
 
 	check := doctorCheckHarpDurability()
 	assert.Equal(t, doctorOK, check.Status)
 }
 
 // TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded pins
-// that the per-vendor-log engine-transcript symlinks (sessions.
-// linkEngineTranscript, fs-consolidation plan C12) are ctxloom-owned and must
-// never be flagged as an at-risk authored artifact — several can legitimately
-// sit at one harp dir's top level (one per rotation, one per engine).
+// that the per-vendor-log engine-transcript SYMLINKS (the shape
+// sessions.linkEngineTranscript writes) are never flagged as an at-risk
+// authored artifact — several can legitimately sit at one harp dir's top
+// level (one per rotation, one per engine).
 func TestDoctorCheckHarpDurability_RightState_EngineTranscriptLinksExcluded(t *testing.T) {
 	testsupport.Isolate(t)
 	harpDir, err := paths.HarpDir("amber-quiet-heron")
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(harpDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "engine-transcript-claude-code-sess-1.jsonl"), []byte("{}"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "engine-transcript-claude-code-sess-2.jsonl"), []byte("{}"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "engine-transcript-codex-sess-3.jsonl"), []byte("{}"), 0o644))
+	target := filepath.Join(t.TempDir(), "vendor.jsonl")
+	require.NoError(t, os.WriteFile(target, []byte("{}"), 0o644))
+	for _, leaf := range []string{"claude-code-sess-1", "claude-code-sess-2", "codex-sess-3"} {
+		require.NoError(t, os.Symlink(target, filepath.Join(harpDir, paths.EngineTranscriptLinkPrefix+leaf+".jsonl")))
+	}
 
 	check := doctorCheckHarpDurability()
 	assert.Equal(t, doctorOK, check.Status)

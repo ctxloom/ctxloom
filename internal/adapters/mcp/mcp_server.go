@@ -209,13 +209,6 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// doc.
 	operations.SweepOrphanedContainers(ctx, os.Stderr)
 
-	// Startup reaper, third half: authored session files (above all the
-	// *.plan.md this server's own instructions ask for) left at a harp
-	// directory's undurable top level, moved into persist/ where a
-	// containerized run's bind mount reaches them — see
-	// operations.SweepHarpArtifacts. Live sessions are passed over.
-	operations.SweepHarpArtifacts(os.Stderr)
-
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

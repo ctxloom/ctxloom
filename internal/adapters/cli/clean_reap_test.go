@@ -50,7 +50,7 @@ func TestClean_IncludePersist_RemovesTheTranscript(t *testing.T) {
 	assert.Equal(t, 1, rep.Sessions.Reclaimed)
 	assert.NoFileExists(t, transcript, "--include-persist takes the transcript")
 	cotAssertPlan(t, dir, false)
-	assert.FileExists(t, filepath.Join(dir, paths.SessionSidecarFileName), "the session still resolves")
+	assert.DirExists(t, dir, "the session directory itself is never removed")
 }
 
 // TestClean_ReapsTheSessionHomeWithTheEphemeralMembers: the session home is

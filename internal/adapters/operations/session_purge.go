@@ -16,24 +16,26 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
 
-// Session purge — j001300 close-out area 2 (docs/design/j001300-closeout-surfaces.design.md
-// §4). A harp directory holds three content classes, and purge treats each one
-// differently:
+// Session purge. A harp directory's files fall into three purge classes,
+// each decided by the paths.HarpMembers row the file lives under
+// (classifyPurgeFile), and purge treats each one differently:
 //
-//	machine  — the canonical transcript (paths.CanonicalTranscriptFileName,
-//	           top level or under persist/), everything under
-//	           persist/transcripts/, and whatever
-//	           file the index entry's TranscriptPath names (fenced to inside
-//	           this harp's own directory). ALWAYS destroyed.
-//	derived  — essence.md. Kept by default; destroyed only under --everything.
-//	authored — anything else outside ephemeral/. NEVER destroyed. Named in the
-//	           report so a kept-but-unmentioned file never goes unfiled.
+//	machine  — the canonical transcript row, everything under the transcript
+//	           store row, and whatever file the entry's TranscriptPath names
+//	           (fenced to inside this harp's own directory). Destroyed by the
+//	           transcript population.
+//	derived  — the essence row. Destroyed by the artifacts population.
+//	authored — every other file under a Persist member, and every top-level
+//	           file no row names. NEVER destroyed. Named in the report so a
+//	           kept-but-unmentioned file never goes unfiled.
 //
-// This is an ALLOWLIST, not a denylist: a file is destroyed only if it matches
-// one of the machine-bulk rules above. Everything else is kept and named.
-// ephemeral/ is never even walked — a purge runs zero git commands, so the
-// scratch worktrees a harp's ephemeral dir may hold are untouched by
-// construction, not by a filter applied after the fact.
+// This is an ALLOWLIST, not a denylist: a file is destroyed only if it is in
+// the population asked for. The Ephemeral members (the reaper's, by
+// Lifetime) are never even walked — a purge runs zero git commands, so the
+// scratch worktrees a harp's ephemeral store may hold are untouched by
+// construction, not by a filter applied after the fact. The identity rows
+// are no population and never an item: the sidecar is what records that a
+// purge happened (MarkPurged).
 
 // PurgeClass names one content class in a harp directory.
 type PurgeClass string
@@ -149,8 +151,8 @@ var (
 )
 
 // PurgeSession classifies a harp's directory and, when req.Apply, destroys
-// exactly the machine-written bulk (plus the derived essence under
-// --everything). It never descends into ephemeral/ and never runs git.
+// exactly the populations asked for. It never descends into an Ephemeral
+// member and never runs git.
 //
 // Ordering is load-bearing: the index entry is marked purged BEFORE any file
 // is unlinked (see sessions.Manager.MarkPurged's doc). If PurgeSession dies
@@ -294,9 +296,9 @@ func hasClass(items []PurgeItem, c PurgeClass) bool {
 }
 
 // classifyHarpDir walks harp's directory, classifying every regular file
-// under it EXCEPT ephemeral/, which is skipped by the walk itself (never
-// filtered afterward — see the package doc). Returned items are sorted by Rel
-// for a deterministic report.
+// under it EXCEPT those under an Ephemeral member, which the walk itself
+// skips (never filtered afterward — see the package doc), and the identity
+// rows. Returned items are sorted by Rel for a deterministic report.
 func classifyHarpDir(harpDir string, entry *sessions.Entry) ([]PurgeItem, error) {
 	var transcriptAbs string
 	if entry.TranscriptPath != "" {
@@ -320,8 +322,9 @@ func classifyHarpDir(harpDir string, entry *sessions.Entry) ([]PurgeItem, error)
 		if relErr != nil {
 			return relErr
 		}
+		member, isMember := paths.ClassifyMember(filepath.ToSlash(rel))
 		if d.IsDir() {
-			if rel == paths.EphemeralDirName {
+			if isMember && member.Lifetime == paths.Ephemeral {
 				return filepath.SkipDir
 			}
 			return nil
@@ -329,10 +332,7 @@ func classifyHarpDir(harpDir string, entry *sessions.Entry) ([]PurgeItem, error)
 		if !d.Type().IsRegular() {
 			return nil // symlinks/devices/etc: not one of the enumerated classes, left alone
 		}
-		if rel == paths.SessionSidecarFileName {
-			// The session's own record is what says a purge happened
-			// (MarkPurged stamps it); it is no population and never an
-			// item.
+		if isMember && member.Tier == paths.MemberIdentity {
 			return nil
 		}
 		info, infoErr := d.Info()
@@ -355,23 +355,23 @@ func classifyHarpDir(harpDir string, entry *sessions.Entry) ([]PurgeItem, error)
 	return items, nil
 }
 
-// classifyPurgeFile decides one file's PurgeClass from its path relative to
-// the harp directory. isTranscriptMatch is true when this file is the one
-// entry.TranscriptPath names (already fenced to inside the harp dir by the
-// caller) — a real session may bind a transcript filename this rule set does
-// not otherwise recognize, and that file is still machine-written bulk.
+// classifyPurgeFile decides one file's PurgeClass from the paths.HarpMembers
+// row it lives under (paths.ClassifyMember). isTranscriptMatch is true when
+// this file is the one entry.TranscriptPath names (already fenced to inside
+// the harp dir by the caller) — a real session may bind a transcript
+// filename no row names, and that file is still machine-written bulk.
 func classifyPurgeFile(rel string, isTranscriptMatch bool) PurgeClass {
 	if isTranscriptMatch {
 		return PurgeClassMachine
 	}
-	relSlash := filepath.ToSlash(rel)
-	switch {
-	case relSlash == paths.CanonicalTranscriptFileName,
-		relSlash == paths.PersistDirName+"/"+paths.CanonicalTranscriptFileName:
+	member, ok := paths.ClassifyMember(filepath.ToSlash(rel))
+	if !ok {
+		return PurgeClassAuthored
+	}
+	switch member.Name {
+	case paths.CanonicalTranscriptFileName, paths.TranscriptStoreDirName:
 		return PurgeClassMachine
-	case strings.HasPrefix(relSlash, paths.PersistDirName+"/"+paths.TranscriptStoreDirName+"/"):
-		return PurgeClassMachine
-	case relSlash == paths.EssenceFileName:
+	case paths.EssenceFileName:
 		return PurgeClassDerived
 	default:
 		return PurgeClassAuthored

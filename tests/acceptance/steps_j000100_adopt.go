@@ -43,20 +43,27 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	// failing the scenario that tests install rather than every scenario that
 	// needs a wired project.
 	//
-	// It runs the real command rather than writing the files install produces:
+	// It runs the real commands rather than writing the files they produce:
 	// a fabricated installed state drifts from the real one, and every scenario
 	// resting on it would then assert against a state the product never
-	// reaches.
+	// reaches. "Wired" is the scaffold PLUS the explicit project-side hooks
+	// install — `manage install` alone writes no engine file (a `ctxloom run`
+	// session carries its own surfaces).
 	ctx.Step(`^ctxloom is already wired into her project$`, func(c context.Context) error {
-		if err := runCLI(c, "ctxloom manage install --engine claude-code", ""); err != nil {
-			return err
-		}
-		// A precondition checks its own exit: a silent failure here makes every
-		// assertion after it meaningless, and the scenario has no reason to
-		// write a Then for setup.
-		if code := worldFrom(c).env.LastExitCode(); code != 0 {
-			return fmt.Errorf("precondition `manage install` failed (exit %d):\n%s",
-				code, worldFrom(c).env.LastOutput())
+		for _, cmdline := range []string{
+			"ctxloom manage install --engine claude-code",
+			"ctxloom manage hooks install",
+		} {
+			if err := runCLI(c, cmdline, ""); err != nil {
+				return err
+			}
+			// A precondition checks its own exit: a silent failure here makes
+			// every assertion after it meaningless, and the scenario has no
+			// reason to write a Then for setup.
+			if code := worldFrom(c).env.LastExitCode(); code != 0 {
+				return fmt.Errorf("precondition `%s` failed (exit %d):\n%s",
+					cmdline, code, worldFrom(c).env.LastOutput())
+			}
 		}
 		return nil
 	})

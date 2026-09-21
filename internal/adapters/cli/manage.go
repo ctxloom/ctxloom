@@ -20,29 +20,31 @@ import (
 )
 
 // manageCmd is the home for everything that mutates the project harness:
-// scaffolding (.ctxloom), hooks/statusline, MCP registration, command files,
-// .gitignore, and config. Runtime entrypoints (`mcp serve`) and machine
-// callbacks (all consolidated under the hidden `hook` namespace) deliberately
-// stay out of this user-facing namespace.
+// scaffolding (.ctxloom), the explicit project-side hooks/MCP/statusline
+// apply and its removal, .gitignore, and config. Runtime entrypoints (`mcp
+// serve`) and machine callbacks (all consolidated under the hidden `hook`
+// namespace) deliberately stay out of this user-facing namespace.
 var manageCmd = groupNode(&cobra.Command{
 	Use:   "manage",
 	Short: "Install and manage ctxloom's project harness",
 	Long: `Install, inspect, and remove ctxloom's integration with a project.
 
 Everything that writes to the project harness lives here: the .ctxloom
-directory, backend hooks and statusline, MCP server registration, generated
-command files, .gitignore, and configuration.
+directory, .gitignore, configuration, and — only when asked for explicitly —
+backend hooks, statusline, MCP server registration and generated command
+files in the project tree.
 
-  ctxloom manage install      Scaffold and wire ctxloom into this project
-  ctxloom manage uninstall    Remove ctxloom's hooks, MCP entry, and commands
+  ctxloom manage install      Scaffold .ctxloom and git-ignore its private state
+  ctxloom manage uninstall    Remove hooks, MCP entry, and commands an earlier install wrote
   ctxloom manage check        Show what ctxloom has wired in
-  ctxloom manage hooks        Install/uninstall/inspect backend hooks
+  ctxloom manage hooks        Install/uninstall/inspect backend hooks in the project
   ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
 
-MCP registration lives at the top-level 'ctxloom mcp register'/'unregister';
-configuration lives at the top-level 'ctxloom config'; the duplicate
-'manage init' setup entry point was removed, root 'ctxloom init' is the sole
-bootstrap.`,
+A 'ctxloom run' session delivers hooks, the MCP entry and the statusline
+into its own session home; nothing here is needed for that. An engine
+launched directly in the project tree gets no ctxloom hooks and no ctxloom
+MCP server. Configuration lives at the top-level 'ctxloom config'; root
+'ctxloom init' is the sole bootstrap.`,
 })
 
 // --- manage install / uninstall / status -----------------------------------
@@ -54,11 +56,14 @@ var (
 
 var manageInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Scaffold .ctxloom and wire hooks, MCP, gitignore, and config",
-	Long: `One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent),
-exclude ctxloom's private state from git, and apply hooks/MCP/statusline to
-every supported backend. Unlike root 'ctxloom init', it never prompts and never
-launches an AI, so it is the form to use from a script or CI.`,
+	Short: "Scaffold .ctxloom and git-ignore its private state",
+	Long: `One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent)
+and exclude ctxloom's private state from git. Nothing else is written into
+the project: a 'ctxloom run' session delivers hooks, the MCP entry and the
+statusline into its own session home, so an engine launched directly in the
+project tree gets no ctxloom hooks and no ctxloom MCP server. Unlike root
+'ctxloom init', it never prompts and never launches an AI, so it is the form
+to use from a script or CI.`,
 	Args: cobra.NoArgs,
 	RunE: runManageInstall,
 }
@@ -67,8 +72,10 @@ var manageUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove ctxloom's hooks, statusline, MCP entry, and command files",
 	Long: `Strip ctxloom-managed hooks, statusline, MCP servers, and generated command
-files from every supported backend. Leaves the .ctxloom directory and its
-contents (profiles, bundles, config) untouched.`,
+files from every supported backend — what an earlier ctxloom's install, or an
+explicit 'manage hooks install', wrote into the project. A project that only
+ever saw the current install has nothing to strip. Leaves the .ctxloom
+directory and its contents (profiles, bundles, config) untouched.`,
 	Args: cobra.NoArgs,
 	RunE: runManageUninstall,
 }
@@ -80,11 +87,14 @@ var manageCheckCmd = &cobra.Command{
 	RunE:  runManageCheck,
 }
 
-// runManageInstall scaffolds and wires ctxloom into the current project. Fault
-// tolerant with respect to per-backend hook errors (collected into
-// result.Errors and warned, not fatal) so a partial wire still lands the user
-// in a working state; NOT fault tolerant with respect to the .gitignore write,
-// which now fails loud.
+// runManageInstall scaffolds ctxloom into the current project: the .ctxloom
+// skeleton and the git-ignore of its private state, and nothing else
+// project-side. The runtime surfaces — hooks, the MCP entry, the statusline,
+// the context — are delivered by a `ctxloom run` session into its own
+// session home; a copy in the project is what let a directly-launched
+// engine reach ctxloom's MCP server with no session behind it. The
+// .gitignore write fails loud rather than reporting a success it did not
+// have.
 func runManageInstall(cmd *cobra.Command, _ []string) error {
 	appDir, err := resolveAppDir(false)
 	if err != nil {
@@ -143,71 +153,37 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		initialized = true
 	}
 
-	if _, err := ensureHarnessGitignore(projectDir); err != nil {
+	ignored, err := ensureHarnessGitignore(projectDir)
+	if err != nil {
 		return err
 	}
 
-	// The generation the install applies from; the read is also the early
-	// guard + config-warning echo the command owes the user before any work.
-	cfg, err := GetConfig()
-	if err != nil {
+	// The read is the early guard + config-warning echo the command owes the
+	// user: a scaffold whose config does not load is not a working install.
+	if _, err := GetConfig(); err != nil {
 		return err
 	}
-	// An EXPLICIT --engine scopes the hook apply to that one backend — the flag
-	// reads like "install for this engine" and used to wire every registered
-	// engine regardless, materializing config dirs in a project that uses one.
-	// Omitting the flag now means THIS PROJECT'S CONFIGURED ENGINES (see
-	// operations.ConfiguredEngines) rather than every engine ctxloom knows:
-	// manageInstallEngine always holds a value (its flag default is the
-	// engine shipped by default), so Changed is the only reliable signal that the user
-	// actually asked for one engine — see checkInstallEngineApplies above,
-	// which gates on the same Changed() check for the same reason.
-	hookBackend := ""
-	if cmd.Flags().Changed("engine") {
-		hookBackend = manageInstallEngine
-	}
-	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
-		Cfg:               cfg,
-		Backend:           hookBackend,
-		RegenerateContext: true,
-	})
-	if err != nil {
-		return err
-	}
-	// WarnErrors prints the same per-item warnings this used to print, but
-	// ALSO returns non-nil so the run actually fails. The old shape warned and
-	// returned nil: a refused engine apply exited 0, and any script or CI step
-	// gating on the exit code believed the hooks were installed.
-	warnErr := clidiag.WarnErrors("ctxloom", result.Errors)
 
 	type manageInstallResult struct {
-		AppDir      string   `json:"app_dir"`
-		Initialized bool     `json:"initialized"`
-		Gitignore   string   `json:"gitignore"`
-		Status      string   `json:"status"`
-		Backends    []string `json:"backends"`
-		Retracted   []string `json:"retracted,omitempty"`
-		Errors      []string `json:"errors,omitempty"`
+		AppDir          string `json:"app_dir"`
+		Initialized     bool   `json:"initialized"`
+		Gitignore       string `json:"gitignore"`
+		GitignoreStatus string `json:"gitignore_status"`
 	}
 	out := manageInstallResult{
-		AppDir:      appDir,
-		Initialized: initialized,
-		Gitignore:   filepath.Join(projectDir, ".gitignore"),
-		Status:      result.Status,
-		Backends:    result.Backends,
-		Retracted:   result.Retracted,
-		Errors:      result.Errors,
+		AppDir:          appDir,
+		Initialized:     initialized,
+		Gitignore:       filepath.Join(projectDir, ".gitignore"),
+		GitignoreStatus: ignored.status(),
 	}
-	if err := emit(cmd, out, func() error {
+	return emit(cmd, out, func() error {
 		if initialized {
 			fmt.Fprintf(cmd.OutOrStdout(), "Initialized ctxloom directory: %s\n", appDir)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
+		fmt.Fprintln(cmd.OutOrStdout(), ignored.summary(out.Gitignore, gitignore.NestedGitignorePath(projectDir)))
+		fmt.Fprintln(cmd.OutOrStdout(), "No engine file was written: a `ctxloom run` session delivers ctxloom's hooks and MCP server into its own session home. An engine launched directly here gets neither.")
 		return nil
-	}); err != nil {
-		return err
-	}
-	return warnErr
+	})
 }
 
 // checkEngineKnown rejects an explicitly-passed `--engine` that names no
@@ -242,11 +218,11 @@ func checkEngineKnown(engineRequested bool, engine string) error {
 // checkInstallEngineApplies rejects a `manage install --engine <x>` whose
 // engine choice cannot reach anything: the engine is recorded by
 // InitializeProject while it scaffolds, so on a project that already has a
-// .ctxloom the flag has no effect at all. Re-running install to re-apply hooks
-// stays supported — only an EXPLICITLY passed --engine is refused, and only
-// when there is nothing left to scaffold. checkEngineKnown runs before this,
-// so by the time this fires the engine name itself is already known-good and
-// the refusal really is about directory state.
+// .ctxloom the flag has no effect at all. Re-running install to refresh the
+// git-ignore stays supported — only an EXPLICITLY passed --engine is refused,
+// and only when there is nothing left to scaffold. checkEngineKnown runs
+// before this, so by the time this fires the engine name itself is already
+// known-good and the refusal really is about directory state.
 //
 // The refusal names where the engine actually lives, because the flag reads like
 // the way to change it and silently was not.
@@ -266,7 +242,7 @@ func printInstallPlan(appDir, projectDir string) {
 		fmt.Printf("  - scaffold .ctxloom: %s (engine: %s)\n", appDir, manageInstallEngine)
 	}
 	fmt.Printf("  - update .gitignore: %s\n", filepath.Join(projectDir, ".gitignore"))
-	fmt.Println("  - apply hooks, statusline, and MCP registration for all backends")
+	fmt.Println("  - write no engine file: hooks, MCP and statusline reach an engine through a `ctxloom run` session's own home")
 }
 
 // gitignoreOutcome is what ensureHarnessGitignore actually did to the file:

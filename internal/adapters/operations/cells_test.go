@@ -99,7 +99,7 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		assert.Equal(t, want, cell.Paths.Paths().EngineHome.Host, "the engine home is a root the launch advises")
 	})
 
-	t.Run("a binding with an UNDECLARED or host engine_home keeps the real host home", func(t *testing.T) {
+	t.Run("a binding selecting engine_home: host keeps the real host home", func(t *testing.T) {
 		resetStrictness(t)
 		t.Setenv("HOME", t.TempDir())
 		t.Setenv("ANTHROPIC_API_KEY", "sk-test")

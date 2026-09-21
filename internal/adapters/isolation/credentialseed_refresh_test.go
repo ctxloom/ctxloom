@@ -117,3 +117,54 @@ func TestCopyAmbient_InstanceFollowsTheHostCredentialUntilClosed(t *testing.T) {
 	assert.JSONEq(t, `{"token":"two"}`, string(got),
 		"after Close nothing may go on writing into the instance: the following ends with the run")
 }
+
+// A host refresh is RE-COPIED, and the copy is projected again: the new
+// access token reaches the instance, the new refresh token does not. The
+// projection is applied on every placement, not only the first — a
+// replicator that copied the rotated file verbatim would hand the instance
+// the very token the first placement withheld.
+func TestCopyAmbient_AHostRefreshIsRecopiedWithoutTheRefreshToken(t *testing.T) {
+	hostFile := seededClaudeHome(t, []byte(hostOAuthCredential))
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	instance := t.TempDir()
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = report.Close() })
+	_, oauth := seededOAuth(t, instance)
+	require.Equal(t, "acc", oauth["accessToken"])
+
+	rotateByRename(t, hostFile, []byte(`{"claudeAiOauth":{"accessToken":"acc-2","refreshToken":"ref-2","refreshTokenExpiresAt":4,"expiresAt":3}}`))
+	require.Eventually(t, func() bool {
+		_, o := seededOAuth(t, instance)
+		return o["accessToken"] == "acc-2"
+	}, 5*time.Second, 25*time.Millisecond, "the host's rotated access token never reached the instance")
+	_, oauth = seededOAuth(t, instance)
+	assert.NotContains(t, oauth, "refreshToken", "the re-copy must project exactly as the first placement did")
+	assert.NotContains(t, oauth, "refreshTokenExpiresAt")
+	assert.Equal(t, float64(3), oauth["expiresAt"])
+}
+
+// The seed is ONE-WAY. The instance holds a projection of the host file, so
+// a write of the instance back over the host would strip the host's own
+// refresh token — the user's login, lost by replication. An instance write
+// therefore never reaches the host, and the instance is restored to the
+// host's projection.
+func TestCopyAmbient_AnInstanceWriteNeverReachesTheHost(t *testing.T) {
+	hostFile := seededClaudeHome(t, []byte(hostOAuthCredential))
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	instance := t.TempDir()
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = report.Close() })
+	instFile := filepath.Join(instance, "claude", ".credentials.json")
+	placed, _ := seededOAuth(t, instance)
+
+	require.NoError(t, os.WriteFile(instFile, []byte(`{"claudeAiOauth":{"accessToken":"written-by-the-engine"}}`), 0o600))
+	time.Sleep(4 * replicationDebounce)
+	hostAfter, err := os.ReadFile(hostFile)
+	require.NoError(t, err)
+	assert.Equal(t, hostOAuthCredential, string(hostAfter), "an instance write must never reach the host: the copy is a projection and the host's refresh token would be lost")
+	eventuallyReads(t, instFile, string(placed))
+}

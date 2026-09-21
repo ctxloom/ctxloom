@@ -226,29 +226,42 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 		"two runs sharing one session instance must serialize; %d were generating at once", rec.maxInFlight.Load())
 }
 
-// TestCopyAmbient_InstanceCredentialKeepsItsRefreshToken is the INVERSE of the
-// stripping test it replaces, and the inversion is the whole point of this
-// work.
+// hostOAuthCredential is a live host ~/.claude/.credentials.json: the shape
+// claude 2.1.278 writes, refresh half included.
+const hostOAuthCredential = `{"claudeAiOauth":{"accessToken":"acc","refreshToken":"ref","refreshTokenExpiresAt":2,"expiresAt":1,"scopes":["user:inference"],"subscriptionType":"max","rateLimitTier":"default"}}`
+
+// seededOAuth reads the instance's placed credential back as a table.
+func seededOAuth(t *testing.T, instance string) (raw []byte, oauth map[string]any) {
+	t.Helper()
+	placed, err := os.ReadFile(filepath.Join(instance, "claude", ".credentials.json"))
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(placed, &cfg))
+	oauth, _ = cfg["claudeAiOauth"].(map[string]any)
+	require.NotNil(t, oauth, "the placed credential must still carry claudeAiOauth")
+	return placed, oauth
+}
+
+// TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken pins the seed's
+// shape (ruled 2026-09-21): claude's own session-seeding path copies the
+// credential with claudeAiOauth.refreshToken STRIPPED, and so does this one.
 //
-// The old seed removed the refresh half of claude's OAuth token on the way
-// into the instance, because a COPY that refreshed would consume the host's
-// single-use token and invalidate the user's own login. The price was that the
-// instance could authenticate until its access token expired and then had no
-// way back — a credential that provably could not renew.
+// The refresh token is SINGLE-USE and rotating. A seeded copy that carries it
+// can refresh, and whichever holder refreshes consumes the host's grant: the
+// host's next refresh is then rejected and the user's own login is revoked.
+// The instance therefore runs on the access token alone, and the host's
+// refreshes reach it through the replicator, never through a refresh of its
+// own. Everything else claude reads (accessToken, expiresAt, scopes, the
+// subscription fields) crosses intact, and the host file is not touched.
 //
-// The instance's credential is no longer a copy: it is the host's material,
-// delivered by a mechanism that keeps the two in step. So the refresh token
-// must be THERE, because refreshing is now the correct thing for the instance
-// to do.
-//
-// MUTATION TARGET: reintroduce any projection of the credential bytes and this
-// goes red.
-func TestCopyAmbient_InstanceCredentialKeepsItsRefreshToken(t *testing.T) {
+// MUTATION TARGET: drop the projection and the refresh token crosses.
+func TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
-	hostBytes := []byte(`{"claudeAiOauth":{"accessToken":"acc","refreshToken":"ref","refreshTokenExpiresAt":2,"subscriptionType":"max"}}`)
-	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), hostBytes, 0o600))
+	hostFile := filepath.Join(home, ".claude", ".credentials.json")
+	require.NoError(t, os.WriteFile(hostFile, []byte(hostOAuthCredential), 0o600))
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
 
 	instance := t.TempDir()
@@ -256,15 +269,54 @@ func TestCopyAmbient_InstanceCredentialKeepsItsRefreshToken(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = report.Close() })
 
-	placed, err := os.ReadFile(filepath.Join(instance, "claude", ".credentials.json"))
-	require.NoError(t, err)
-	var cfg map[string]any
-	require.NoError(t, json.Unmarshal(placed, &cfg))
-	oauth := cfg["claudeAiOauth"].(map[string]any)
-	assert.Equal(t, "ref", oauth["refreshToken"], "the instance must be able to RENEW; a stripped copy provably cannot")
-	assert.Equal(t, float64(2), oauth["refreshTokenExpiresAt"])
+	_, oauth := seededOAuth(t, instance)
+	assert.NotContains(t, oauth, "refreshToken", "a seeded copy must not be able to refresh: a refresh from the copy revokes the host's login")
+	assert.NotContains(t, oauth, "refreshTokenExpiresAt")
 	assert.Equal(t, "acc", oauth["accessToken"])
-	assert.Equal(t, hostBytes, placed, "the instance gets the host's material, unprojected")
+	assert.Equal(t, float64(1), oauth["expiresAt"])
+	assert.Equal(t, []any{"user:inference"}, oauth["scopes"])
+	assert.Equal(t, "max", oauth["subscriptionType"])
+	assert.Equal(t, "default", oauth["rateLimitTier"])
+
+	hostAfter, err := os.ReadFile(hostFile)
+	require.NoError(t, err)
+	assert.Equal(t, hostOAuthCredential, string(hostAfter), "the host's own credential keeps its refresh token; only the copy is projected")
+
+	info, err := os.Lstat(filepath.Join(instance, "claude", ".credentials.json"))
+	require.NoError(t, err)
+	assert.True(t, info.Mode().IsRegular(), "claude opens its credential O_NOFOLLOW; the seed must be a regular file")
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+// TestCopyAmbient_SeedsClaudesConfigBesideTheCredential: claude's own seeding
+// path copies `.claude.json` beside the credential, and so does this one —
+// through the engine's own writer, so the file lands at
+// <CLAUDE_CONFIG_DIR>/.claude.json, owner-only, carrying the account identity
+// claude reads with a subscription token.
+func TestCopyAmbient_SeedsClaudesConfigBesideTheCredential(t *testing.T) {
+	home := withFakeHome(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(hostOAuthCredential), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"),
+		[]byte(`{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"user@example.com"},"mcpServers":{"x":{"command":"secret"}}}`), 0o600))
+
+	instance := t.TempDir()
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = report.Close() })
+
+	cfgPath := filepath.Join(instance, "claude", ".claude.json")
+	data, err := os.ReadFile(cfgPath)
+	require.NoError(t, err, ".claude.json must be seeded beside .credentials.json")
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	assert.Equal(t, map[string]any{"emailAddress": "user@example.com"}, cfg["oauthAccount"], "the account identity crosses with the credential")
+	assert.NotContains(t, cfg, "mcpServers", "the user's own registrations never cross")
+	info, err := os.Stat(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
 // TestCopyAmbient_ReportsTheDeliveryItGot pins that the delivery reaches the

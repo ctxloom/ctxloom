@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -70,7 +71,14 @@ func (s *blockingStdin) Read(p []byte) (int, error) {
 // was ever delivered".
 func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 	dir := t.TempDir()
-	contextPath := filepath.Join(dir, "MOCK_CONTEXT.md")
+	// A default launch delivers into the SESSION's scratch, never the project
+	// (the mock's default form is backends.MockSessionFile; ruled 2026-09-21).
+	// HOME is pointed at a temp dir so the scratch is the test's, not the
+	// developer's.
+	t.Setenv("HOME", t.TempDir())
+	scratch, err := paths.HarpEphemeralDir("perky-same-chevy")
+	require.NoError(t, err)
+	contextPath := filepath.Join(scratch, "MOCK_CONTEXT.md")
 
 	var midTurn []byte
 	var midTurnErr error
@@ -104,6 +112,7 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
+	assert.NoFileExists(t, filepath.Join(dir, "MOCK_CONTEXT.md"), "a default launch never writes the project")
 	require.True(t, stdin.ran, "the observation never ran; the assertions below would be vacuous")
 	require.NoError(t, midTurnErr, "the turn must have materialized %s before the engine ran", contextPath)
 	assert.Contains(t, string(midTurn), "TURN-MARKER-2f7c",
@@ -123,7 +132,7 @@ func TestRunTurn_MockDeliversContextSurfaceDuringTheTurn(t *testing.T) {
 	// reason, which is exactly the shape the retired teardown wrote.
 	afterTurn, statErr := os.ReadFile(contextPath)
 	require.NoError(t, statErr,
-		"the delivered project surface must outlive the turn, got read err %v", statErr)
+		"the delivered session surface must outlive the turn, got read err %v", statErr)
 	assert.Contains(t, string(afterTurn), "TURN-MARKER-2f7c",
 		"the surface must still carry the turn's bytes after the turn ends")
 	assert.Contains(t, string(afterTurn), agent.ManagedContextBegin,

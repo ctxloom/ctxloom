@@ -105,6 +105,51 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Then the tool call succeeds
     And the received message is from "librarian" and its body carries its own guidance, not "cartographer"'s
 
+  # LOCKED — the CHILD->coordinator half of requirement 4 WITHOUT A RECEIVE.
+  # @R2 above proves the child's turn result reaches the owner's spool; this
+  # proves the owner is HANDED it at its next turn by the turn-start hook
+  # (`ctxloom hook mail-drain`), the one reader of the owner's in/ — no
+  # agent_recv, nothing parked. The hook is invoked here exactly as an engine
+  # invokes it: a subprocess with the owner's harp in its environment and the
+  # engine's turn-start payload on stdin; what it writes to stdout is what the
+  # engine injects as that turn's context. Delivery is proven on the PAYLOAD
+  # (the child's own guidance, under the coordinator's provenance header
+  # naming the child's harp), on DISK (the file has moved to in/consumed/ and
+  # nothing is left pending), and by a second turn-start that finds nothing —
+  # once per delivery, which a receive loop never had.
+  #
+  # The owner's harp is pinned by the scenario BEFORE the coordinator starts:
+  # the stdio coordinator takes its own identity from CTXLOOM_SESSION_HARP
+  # (selfIdentityFromEnv), and that identity IS the spool the hook reads.
+  #
+  # CONTAINER AXIS EXCLUDED, stated rather than discovered: a containerized
+  # claude never receives ctxloom's hooks at all (pulmonary-eternity), so this
+  # delivery is inert for a container-hosted coordinator until that lands. The
+  # coordinator here is a host process, which is the axis this claim covers.
+  @reach-back @R2
+  Scenario: A delegated child's report reaches the coordinator's next turn through the turn-start hook, with no receive
+    Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    And the session harp is "quiet-copper-heron"
+    When the agent calls tool "agent_run" with:
+      | agent  | librarian |
+      | prompt | go        |
+    Then the tool call succeeds
+    And "librarian"'s session harp is remembered
+    And the coordinator's own spool holds "librarian"'s report within 20s
+    When I run "ctxloom hook mail-drain" with input:
+      """
+      {"session_id":"vendor-session-1","hook_event_name":"UserPromptSubmit","prompt":"what did the child say?"}
+      """
+    Then the command succeeds
+    And the drained turn context carries "librarian"'s report with its own guidance, not "cartographer"'s
+    And the coordinator's own spool shows "librarian"'s report consumed, with nothing pending
+    When I run "ctxloom hook mail-drain" with input:
+      """
+      {"session_id":"vendor-session-1","hook_event_name":"UserPromptSubmit","prompt":"and now?"}
+      """
+    Then the command succeeds
+    And the hook writes nothing to stdout
+
   # THE NEGATIVE PROBE for the two hermetic bus scenarios above. Both are
   # green only because a REAL runner process stands for the child: the
   # coordinator self-execs one per delegated run, and it is that process — not

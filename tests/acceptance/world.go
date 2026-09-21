@@ -210,6 +210,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ002400Steps(ctx)
 	registerJ002600Steps(ctx)
 	registerJ002300Steps(ctx)
+	registerMailDrainSteps(ctx)
 	registerP6SteerEchoSteps(ctx)
 	registerJ001600Steps(ctx)
 	registerJ001400Steps(ctx)

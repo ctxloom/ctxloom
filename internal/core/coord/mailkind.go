@@ -15,7 +15,7 @@ import (
 // one a receiving model is expected to act on BECAUSE the coordinator authored
 // it — approval_request is relayed to a human as a trust decision — so a sender
 // able to set it phishes that decision. The kind also renders into the
-// provenance header of a delivered turn (frameCoordinatorDelivery), which is
+// provenance header of a delivered turn (FrameCoordinatorDelivery), which is
 // why nothing outside this set may reach the frame.
 const (
 	// KindMessage is the plain sender-to-sender message kind.

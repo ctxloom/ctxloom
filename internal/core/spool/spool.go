@@ -224,11 +224,11 @@ func ValidateName(name string) error {
 // PathMapper renders a logical Ref into THIS instance's filesystem view, and
 // inverts it for files this instance wrote.
 //
-// It is an interface rather than a helper because it has three consumers with
-// three different views: the wire doorbell (ref <-> local view), the runner's
-// wake prompt for the no-MCP read surface (which must render the CONTAINER
-// view for the agent's own file tools), and host-side operator tooling
-// (host view).
+// It is an interface rather than a helper because its consumers hold
+// different views of the same file: the wire doorbell (ref <-> the local view
+// of whichever side received it), the readers (a runner's Home for a child's
+// spool, the owner's turn-start hook for the owner's), and host-side operator
+// tooling (host view).
 //
 // Implementations MUST validate the ref before joining anything: harp and
 // name both arrive over the wire from a less-trusted peer. Resolve must fail
@@ -349,9 +349,43 @@ func Root(m PathMapper, harp string) (string, error) {
 // from a Resolve. It is never created.
 const rootProbeName = "0.probe.md"
 
-// DirPath returns the absolute path of one spool directory in m's view.
+// localDirs are the reader-local in-flight and terminal directories: siblings
+// of in/ and out/ that a reader moves files into without any peer being told,
+// so they carry no wire obligation and stay OUT of the closed Dir set (see
+// ClaimedDirName and FailedDirName). They are addressable through DirPath and
+// Sweep — the reader that owns them, and an operator, must be able to look —
+// but never through a Ref, which is a wire value.
+var localDirs = []Dir{ClaimedDirName, FailedDirName, FailedOutDirName}
+
+// LocalDirs returns every reader-local directory, so a scanner that wants to
+// surface what a reader set aside enumerates them from the authority rather
+// than from a second hand-kept list.
+func LocalDirs() []Dir { return append([]Dir(nil), localDirs...) }
+
+// local reports whether d is one of the reader-local directories.
+func (d Dir) local() bool {
+	for _, known := range localDirs {
+		if d == known {
+			return true
+		}
+	}
+	return false
+}
+
+// validateAddressable is the check for a directory a READER may name — the
+// closed wire set plus the reader-local directories. It is deliberately not
+// Validate, which stays the wire chokepoint.
+func (d Dir) validateAddressable() error {
+	if d.local() {
+		return nil
+	}
+	return d.Validate()
+}
+
+// DirPath returns the absolute path of one spool directory in m's view: any
+// member of the closed set, or a reader-local directory (LocalDirs).
 func DirPath(m PathMapper, harp string, dir Dir) (string, error) {
-	if err := dir.Validate(); err != nil {
+	if err := dir.validateAddressable(); err != nil {
 		return "", err
 	}
 	root, err := Root(m, harp)

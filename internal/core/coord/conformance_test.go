@@ -250,7 +250,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	for turn := 2; turn <= 4; turn++ {
 		gate <- struct{}{}
 		// The body arrives inside the provenance frame every mailbox delivery
-		// carries (frameCoordinatorDelivery), so ORDER is what this asserts:
+		// carries (FrameCoordinatorDelivery), so ORDER is what this asserts:
 		// each turn carries its own follow-up and no later one.
 		want := fmt.Sprintf("follow-up %d", turn-1)
 		require.Eventually(t, func() bool {
@@ -538,9 +538,9 @@ func TestInject_DeliveryModes(t *testing.T) {
 	gate <- struct{}{} // finish turn 1 → boundary drains the injection as turn 2
 	require.Eventually(t, func() bool {
 		texts := sp.chat(0).recordedTexts()
-		// Provenance-framed (frameCoordinatorDelivery): the injected body is the
+		// Provenance-framed (FrameCoordinatorDelivery): the injected body is the
 		// turn's content, the header names the user as its sender.
-		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
+		return len(texts) == 2 && texts[1] == FrameCoordinatorDelivery(UserSender, KindSteer, "mid-turn note")
 	}, conformanceWait, 10*time.Millisecond)
 
 	_, err = c.Inject("foreign-session-harp", "hello?")
@@ -608,7 +608,7 @@ func TestInject_WakesIdleChildAsNewTurn(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		texts := sp.chat(0).recordedTexts()
-		return len(texts) == 2 && texts[1] == frameCoordinatorDelivery(UserSender, KindSteer, "wake up")
+		return len(texts) == 2 && texts[1] == FrameCoordinatorDelivery(UserSender, KindSteer, "wake up")
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The O3 mirror fires for every delivery mode, this one included.

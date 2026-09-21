@@ -471,7 +471,7 @@ func New(opts Options) (*Coordinator, error) {
 		spoolSweepInterval: opts.SpoolSweepInterval,
 		spoolIn:            newSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
-	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.sweepSpoolDir, c.onRolePark, c.onRoleUnpark)
+	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.onRolePark, c.onRoleUnpark)
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
 	if c.spawner == nil {
 		return nil, c.abortNew(errors.New("coord: Options.Spawner is required (adapters/spawn, composed at cmd/*)"))

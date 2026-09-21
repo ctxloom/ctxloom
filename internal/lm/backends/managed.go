@@ -180,6 +180,13 @@ func appendManagedDynamicHooks(rep report.Reporter, m *ManagedHooks, cfg *config
 	m.mergeUnified(
 		wire.UnifiedHooks{TurnEnd: []wire.Hook{agent.NewNextStepHook()}},
 		fixedSource(HookSource{Origin: HookOriginContext}))
+	// The turn_start mail-drain hook rides the same managed set: it is the
+	// session owner's only spool reader, so it belongs to ctxloom rather than
+	// to any bundle. Ungated — a session with no mail is handed nothing, so
+	// the only thing to configure would be whether the owner may receive.
+	m.mergeUnified(
+		wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
+		fixedSource(HookSource{Origin: HookOriginContext}))
 	if contextHash != "" {
 		m.mergeUnified(
 			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(rep, contextHash, workDir)},

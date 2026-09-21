@@ -349,9 +349,9 @@ func mailFromSpool(e spool.Entry, from string) (Message, error) {
 //
 // Two recipient classes have one:
 //
-//   - THE OWNER, drained in-process: this session's own harp, whose in/ is
-//     read by AgentRecv (ownerSpool). It is a class of its own because it is
-//     identified by declaration, not by a run record.
+//   - THE OWNER: this session's own harp, whose in/ is read by AgentRecv
+//     in-process and by its turn-start hook (ownerSpool). It is a class of
+//     its own because it is identified by declaration, not by a run record.
 //   - A MIGRATED CHILD, drained by its runner: a run this coordinator tracks
 //     that rides StartRun and so has a ctxloom runner sweeping its own spool.
 //     The class is fixed at ENQUEUE (childRt.viaStartRun), so mail written
@@ -472,13 +472,11 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 }
 
 // pendingCount reports how many messages could still be delivered to role —
-// the ended-child check: leftover mail triggers a resume, never strands. For
-// the owner it is the inbox's count (what a live receive already holds is
-// spoken for, not waiting).
+// the ended-child check: leftover mail triggers a resume, never strands. The
+// owner needs no separate count: what a receive or the turn-start hook has
+// already taken sits in in/claimed/, not in/, so the file-backed count of
+// in/ is already "waiting, not spoken for".
 func (c *Coordinator) pendingCount(role string) int {
-	if c.ownerSpool(role) {
-		return c.inbox.pending(role)
-	}
 	return c.spoolPendingCount(role)
 }
 

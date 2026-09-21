@@ -25,10 +25,11 @@ import "encoding/json"
 // hookEventPreToolUse is the event name carried in payloads and decisions.
 const hookEventPreToolUse = "PreToolUse"
 
-// hookEventUserPromptSubmit is claude's native event for the unified
+// HookEventUserPromptSubmit is claude's native event for the unified
 // turn_start: it fires when a prompt is submitted, before the model runs, and
-// a command hook's stdout becomes context of that turn.
-const hookEventUserPromptSubmit = "UserPromptSubmit"
+// a command hook's stdout becomes context of that turn. ctxloom's own
+// turn-start hook (`ctxloom hook mail-drain`) emits UserPromptSubmitOutput.
+const HookEventUserPromptSubmit = "UserPromptSubmit"
 
 // permissionDeny is the permissionDecision value that blocks the tool call.
 const permissionDeny = "deny"
@@ -90,7 +91,7 @@ type SessionStartPayload struct {
 // SessionStartOutput is the JSON a SessionStart hook writes to stdout to
 // inject context. An empty output (no hookSpecificOutput) injects nothing.
 type SessionStartOutput struct {
-	HookSpecificOutput *SessionStartSpecificOutput `json:"hookSpecificOutput,omitempty"`
+	HookSpecificOutput *AdditionalContextOutput `json:"hookSpecificOutput,omitempty"`
 	// SystemMessage rides a separate channel from HookSpecificOutput: Claude
 	// Code surfaces it to the user in the terminal, NOT to the model. ctxloom
 	// uses it to nudge the user toward /recover after a /clear, where the model
@@ -98,10 +99,24 @@ type SessionStartOutput struct {
 	SystemMessage string `json:"systemMessage,omitempty"`
 }
 
-// SessionStartSpecificOutput carries the additional context to inject.
-type SessionStartSpecificOutput struct {
+// AdditionalContextOutput carries the additional context to inject. It is the
+// hookSpecificOutput of every event whose stdout becomes model-visible
+// context — SessionStart and UserPromptSubmit — with HookEventName naming
+// which; Claude Code refuses an envelope whose event does not match the hook
+// that produced it.
+type AdditionalContextOutput struct {
 	HookEventName     string `json:"hookEventName"`
 	AdditionalContext string `json:"additionalContext,omitempty"`
+}
+
+// --- UserPromptSubmit wire shapes ------------------------------------------
+
+// UserPromptSubmitOutput is the JSON a UserPromptSubmit hook writes to stdout
+// to add context to the turn that is starting. An empty output injects
+// nothing; a hook with nothing to say writes no envelope at all, because an
+// envelope with an empty additionalContext is still an event the model sees.
+type UserPromptSubmitOutput struct {
+	HookSpecificOutput *AdditionalContextOutput `json:"hookSpecificOutput,omitempty"`
 }
 
 // --- PostToolUse wire shapes -----------------------------------------------

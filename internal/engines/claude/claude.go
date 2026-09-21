@@ -942,7 +942,7 @@ func (w *ClaudeCodeHookWriter) addUnifiedHooks(settings *claudeCodeSettings, uni
 		// to match against, so the routes declare none and a hook that carried
 		// one is emitted without it.
 		{Hooks: unified.TurnEnd, Event: "Stop"},
-		{Hooks: unified.TurnStart, Event: hookEventUserPromptSubmit},
+		{Hooks: unified.TurnStart, Event: HookEventUserPromptSubmit},
 		{Hooks: unified.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},
 		{Hooks: unified.PostFileEdit, Event: "PostToolUse", DefaultMatcher: "Edit|Write"},
 	}, func(event string, h wire.Hook) {

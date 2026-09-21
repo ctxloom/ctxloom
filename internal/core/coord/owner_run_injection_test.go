@@ -50,7 +50,7 @@ func TestOwnerRun_ChildMailArrivesAsAnUnrequestedTurn(t *testing.T) {
 	_, err = c.AgentSend(child, ParentAddress, KindResult, marker, nil, "")
 	require.NoError(t, err)
 
-	want := frameCoordinatorDelivery(out.Harp, KindResult, marker)
+	want := FrameCoordinatorDelivery(out.Harp, KindResult, marker)
 	require.Eventually(t, func() bool {
 		for _, txt := range sc.recordedTexts() {
 			if txt == want {

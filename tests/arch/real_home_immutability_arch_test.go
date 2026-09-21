@@ -220,24 +220,19 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 		t.Fatalf("claude's credential never reached the instance (%v); the provisioning must have happened for this gate to mean anything", err)
 	}
 
-	// RENEWABLE, which is the INVERSE of the rule this assertion used to hold.
+	// A PROJECTION, and the projection is claude's own precedent (its
+	// session seeding copies the credential with the refresh token stripped,
+	// 2.1.278). The refresh token is single-use: a copy that could refresh
+	// would consume the host's grant and revoke the human's own login. So
+	// the instance holds the access half only, and the host's rotations
+	// reach it through the replicator — the refresh half must be ABSENT, and
+	// its presence would mean the projection was dropped and the instance
+	// can revoke the host again.
 	//
-	// The instance credential was once a strict subset of the host's, with the
-	// single-use refresh token stripped out, because it was a COPY and a copy
-	// that refreshed would consume the host's token and invalidate the human's
-	// own login. The price was a credential that could authenticate until its
-	// access token expired and then had no way back.
-	//
-	// It is not a copy any more. The provisioner delivers the host's own
-	// material — mounted, or kept in step by replication — so there is ONE
-	// rotating token and a refresh performed in the instance is a refresh the
-	// host has. The refresh half must therefore be PRESENT: its absence would
-	// mean something projected the bytes again and reintroduced the expiry.
-	//
-	// The byte-identity gate below is what still holds the other half honest:
+	// The byte-identity gate below is what holds the other half honest:
 	// ctxloom itself writes nothing into the real home.
-	if s := string(credential); !strings.Contains(s, "host-refresh") {
-		t.Errorf("claude's instance credential lost its refresh token; a credential that cannot renew is the stripped copy this work deleted.\nplaced: %s", s)
+	if s := string(credential); strings.Contains(s, "host-refresh") {
+		t.Errorf("claude's instance credential carries the host's refresh token; a copy that can refresh revokes the host's login.\nplaced: %s", s)
 	}
 	if !strings.Contains(string(credential), "host-token") {
 		t.Errorf("claude's instance credential lost its access token; it must still authenticate.\nplaced: %s", string(credential))

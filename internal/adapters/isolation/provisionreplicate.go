@@ -294,6 +294,7 @@ func (p *replicaPair) reconcile() error {
 		}
 		var want []byte
 		if hostErr == nil {
+			var err error
 			if want, err = p.view(hostData); err != nil {
 				return err
 			}

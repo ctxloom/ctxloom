@@ -17,13 +17,12 @@ import (
 // AmbientFile is one file whose ORIGIN is the user's real host home and which
 // is PLACED INTO an instance config home at instance time.
 //
-// It is no longer one-way for CREDENTIAL material, and the change is
-// deliberate: a one-way copy could not renew, so its refresh token had to be
-// stripped and the instance expired. The provisioner delivers the host's own
-// material instead, so a refresh the engine performs inside the instance is a
-// refresh the host has too. ctxloom itself still never writes the real home;
-// what reaches it is the ENGINE's own refresh, through a mount or a
-// replication, exactly as on a run with no instance home at all.
+// CREDENTIAL material is placed by the provisioner and kept in step with
+// the host file for as long as the run lives: the instance holds the
+// engine's declared projection of the host bytes (claude withholds the
+// single-use refresh token, as its own session seeding does), re-applied on
+// every host change. The direction is host TO instance only — ctxloom never
+// writes the real home, and neither does the instance through this path.
 //
 // The set of these per engine is an ALLOW-LIST, never a deny-list — see
 // AmbientSet.
@@ -131,7 +130,7 @@ type AmbientCopyReport struct {
 	// Delivery is HOW the credential material was placed — shared by IDENTITY
 	// (a mount) or by REPLICATION (two files kept in step). It is reported
 	// because the two FAIL DIFFERENTLY: replication has a rotation window a
-	// mount does not, and whoever debugs a rejected refresh a year from now
+	// mount does not, and whoever debugs a rejected token a year from now
 	// needs to know which one this run got. DeliveryUnset when nothing was
 	// placed (SkippedEnv, NoSource, or a declared-absent seed).
 	Delivery Delivery
@@ -159,9 +158,9 @@ type AmbientCopyReport struct {
 //
 // It is the RUN's to call, at the run's end, and nothing else's: the
 // replication is what carries a host token refresh into the instance (the
-// old token is revoked the moment the host rotates it) and the engine's own
-// refresh back out to the host. Closed early, a live engine is left on a
-// dead token; never closed, every launch leaks a watcher pair into the
+// old token is revoked the moment the host rotates it, and the instance
+// holds no refresh token of its own). Closed early, a live engine is left on
+// a dead token; never closed, every launch leaks a watcher pair into the
 // process that prepared it. The seam that prepares a controlled home hands
 // this back as the preparation's release (backends.InTreeAgentHomeSpec
 // .Prepare), and the cell folds it into its Cleanup.
@@ -184,14 +183,12 @@ func (r AmbientCopyReport) Close() error { return r.provisioned.Close() }
 //     vendor's format happens inside that vendor's package; this function only
 //     decides WHICH files and classes cross.
 //
-// ONE WAY, as a preparation. The real host home is READ and never written
-// by this call; tests/arch's real-home byte-identity gate is what proves it,
-// because a path assertion can only say where ctxloom MEANT to write. What
-// the call leaves RUNNING is a different matter: the credential replication
-// it returns on the report keeps host and instance on one rotating token in
-// BOTH directions, so an engine's refresh inside the instance does land on
-// the host — on the engine's behalf, byte for byte, to the one file the
-// engine would have written itself had it run on the host home.
+// ONE WAY. The real host home is READ and never written by this call;
+// tests/arch's real-home byte-identity gate is what proves it, because a
+// path assertion can only say where ctxloom MEANT to write. What the call
+// leaves RUNNING keeps that direction: the credential replication it returns
+// on the report carries the host's rotations into the instance, projected,
+// and an instance write is overwritten rather than propagated.
 //
 // The whole operation is serialized under the project lock keyed to
 // req.InstanceHome, so two runs sharing ONE session instance (a coordinator and

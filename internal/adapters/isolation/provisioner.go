@@ -41,9 +41,11 @@ const (
 	// that is silent (a private credential that cannot renew, or a shared one
 	// the caller believed was isolated).
 	SharingUnset Sharing = iota
-	// SharingShared: the instance's writes REACH THE HOST. A token the engine
-	// refreshes inside the instance rotates the host's copy too, which is the
-	// only arrangement under which a long run can keep authenticating.
+	// SharingShared: the instance is kept in step with the HOST's material —
+	// a host rotation reaches the instance for as long as the run lives, the
+	// only arrangement under which a long run can keep authenticating. A
+	// writable shared material carries the instance's writes back too; a
+	// read-only or projected one does not.
 	SharingShared
 	// SharingPrivate: the instance's writes STAY LOCAL. Correct for material
 	// deliberately isolated from the real thing ("give the agent my settings,

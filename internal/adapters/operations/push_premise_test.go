@@ -56,7 +56,7 @@ func pushPremiseCompanion(t *testing.T) {
 	t.Helper()
 	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
 
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(
 		"version: \"1.0.0\"\nfragments:\n"+
 			"  taskloom:\n"+
 			"    premise: \""+pushPremise+"\"\n"+

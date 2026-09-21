@@ -67,9 +67,9 @@ func TestNew_StampsRemoteProvenance(t *testing.T) {
 		t.Fatal("Refs enumerated nothing")
 	}
 	for _, ref := range refs {
-		if ref.IsLocal || ref.IsBuiltin || ref.RepoURL != "https://example.test/o/r" {
-			t.Fatalf("%s stamped local=%t builtin=%t repo=%q, want remote provenance only",
-				ref.Key(), ref.IsLocal, ref.IsBuiltin, ref.RepoURL)
+		if ref.IsLocal || ref.RepoURL != "https://example.test/o/r" {
+			t.Fatalf("%s stamped local=%t repo=%q, want remote provenance only",
+				ref.Key(), ref.IsLocal, ref.RepoURL)
 		}
 	}
 }

@@ -33,23 +33,19 @@ const maxFileDepth = 32
 
 // Provenance is the source attribution a store stamps onto every ref it
 // produces. A SurfaceType never guesses it: the same registered type serves an
-// authored local tree, a pinned remote and an embedded builtin, and only the
-// store knows which it is.
+// authored local tree and a pinned remote, and only the store knows which it
+// is.
 type Provenance struct {
-	RepoURL   string
-	IsLocal   bool
-	IsBuiltin bool
+	RepoURL string
+	IsLocal bool
 }
 
 func (p Provenance) validate() error {
-	if p.IsLocal && p.IsBuiltin {
-		return errors.New("content: provenance cannot be both local and builtin")
+	if p.RepoURL != "" && p.IsLocal {
+		return errors.New("content: provenance cannot carry a repo URL and also be local")
 	}
-	if p.RepoURL != "" && (p.IsLocal || p.IsBuiltin) {
-		return errors.New("content: provenance cannot carry a repo URL and also be local or builtin")
-	}
-	if p.RepoURL == "" && !p.IsLocal && !p.IsBuiltin {
-		return errors.New("content: provenance must be local, builtin, or carry a repo URL")
+	if p.RepoURL == "" && !p.IsLocal {
+		return errors.New("content: provenance must be local or carry a repo URL")
 	}
 	return nil
 }
@@ -57,7 +53,6 @@ func (p Provenance) validate() error {
 func (p Provenance) stamp(r trust.Ref) trust.Ref {
 	r.RepoURL = p.RepoURL
 	r.IsLocal = p.IsLocal
-	r.IsBuiltin = p.IsBuiltin
 	return r
 }
 
@@ -96,6 +91,9 @@ func NewTreeStore(fsys afero.Fs, root string, prov Provenance) (*TreeStore, erro
 	return &TreeStore{tfs: tfs, fsys: fsys, root: root, prov: prov}, nil
 }
 
+// ErrNoFS reports a store constructed with no source of bytes.
+var ErrNoFS = errors.New("content: no filesystem supplied")
+
 // newReadOnlyTreeStore opens a store over a bare TreeFS. It has no writable
 // backing, so its Writer half refuses; NewFSStore wraps it so that refusal is
 // unreachable rather than merely correct.
@@ -110,7 +108,7 @@ func newReadOnlyTreeStore(tfs TreeFS, prov Provenance) (*TreeStore, error) {
 }
 
 // beginWrite reports the two reasons a write must not start: a cancelled
-// context, and a store with no writable backing (a builtin, an archive, a
+// context, and a store with no writable backing (an archive, a
 // pinned remote). They are checked together because every Writer method must
 // check both first, and a separate guard for each would be two places to forget
 // one of them.

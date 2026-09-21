@@ -66,7 +66,7 @@ func pulledApp(t *testing.T, appDir string) *App {
 	t.Helper()
 	src, err := ComposeSources(Compose{NoCompanions: true, Options: []configload.Option{configload.WithAppDir(appDir)}})
 	require.NoError(t, err)
-	return NewApp(src, true, strictness.Mode{Prog: "ctxloom"}, config.Open, strictness.Sink("ctxloom"))
+	return NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, config.Open, strictness.Sink("ctxloom"))
 }
 
 // installPulled writes what a pull writes: the installed tree and the

@@ -9,17 +9,17 @@ This page is generated from `ctxloom container tooling --help`.
 
 ## ctxloom container tooling
 
-Agent-image tooling declarations from trusted bundles
+Agent-image tooling declarations from admitted companions
 
 ### Synopsis
 
-Collect every trusted bundle's 'tooling' command — the tools its
-content needs inside the agent container image — and emit them with
+Collect every admitted companion's typed 'tooling' declaration — the
+tools its content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
 ('ctxloom container scaffold'), propose the additions as a diff, get the
 user's explicit approval per change, then rebuild ('ctxloom container build').
 
-Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
+Collection is TRUST-GATED: a rejected companion's declaration is withheld
 like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.
 
@@ -40,5 +40,5 @@ ctxloom container tooling [flags]
 ### SEE ALSO
 
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
-* [ctxloom container tooling list](/reference/cli/ctxloom_container_tooling_list/)	 - Emit trusted bundles' agent-image tooling declarations for the LLM to apply
+* [ctxloom container tooling list](/reference/cli/ctxloom_container_tooling_list/)	 - Emit admitted companions' agent-image tooling declarations for the LLM to apply
 

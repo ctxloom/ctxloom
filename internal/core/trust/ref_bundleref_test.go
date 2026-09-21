@@ -18,7 +18,6 @@ func TestRefAsBundleRef_InternalClasses(t *testing.T) {
 		ref  Ref
 		want string
 	}{
-		{"builtin bundle", Ref{IsBuiltin: true, Bundle: "isolation"}, "ctxloom+builtin:isolation"},
 		{"local item", Ref{IsLocal: true, Bundle: "lang/go", Kind: KindFragment, Name: "solid"},
 			"ctxloom+local:lang/go#fragments/solid"},
 		{"companion item", Ref{IsCompanion: true, Bundle: "taskloom", Kind: KindMCP, Name: "server"},
@@ -111,9 +110,6 @@ func TestRefFromBundleRef_RoundTripsWithAsBundleRef(t *testing.T) {
 	file, err := FileRef("/srv/content", "lang/go")
 	require.NoError(t, err)
 
-	builtin, err := BuiltinRef("isolation")
-	require.NoError(t, err)
-
 	local, err := LocalRef("lang/go")
 	require.NoError(t, err)
 	local, err = local.WithItem(KindFragment, "solid")
@@ -130,7 +126,6 @@ func TestRefFromBundleRef_RoundTripsWithAsBundleRef(t *testing.T) {
 	}{
 		{"git item", git},
 		{"file bundle", file},
-		{"builtin bundle", builtin},
 		{"local item", local},
 		{"companion item", companion},
 	} {

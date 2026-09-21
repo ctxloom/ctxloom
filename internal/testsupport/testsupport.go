@@ -161,3 +161,22 @@ func WriteDirProfiles(t *testing.T, fs afero.Fs, appDir string, profiles map[str
 		require.NoError(t, iox.WriteFileAtomicFs(fs, out, body, 0o644))
 	}
 }
+
+// RunLoadout wraps a bundle document as the RUN section of a companion
+// loadout document — the shape a companion's `loadout --format json`
+// envelope carries (bundles.ParseLoadout's input) — for a fixture that only
+// needs session-time content.
+func RunLoadout(bundleYAML string) []byte {
+	var b strings.Builder
+	b.WriteString("run:\n")
+	for _, line := range strings.Split(strings.TrimRight(bundleYAML, "\n"), "\n") {
+		if line == "" {
+			b.WriteString("\n")
+			continue
+		}
+		b.WriteString("  ")
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return []byte(b.String())
+}

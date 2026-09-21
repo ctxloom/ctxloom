@@ -225,7 +225,7 @@ flowchart LR
 | `HarnessStatus` | `manage.go:116` | Per-backend wiring report plus MCP/statusline/root-fallback status. |
 | `SetStatusline` | `manage.go:165` | One `Manager.Update` transaction. |
 | `ListMCPServers` / `GetMCPServer` / `AddMCPServer` / `RemoveMCPServer` / `SetMCPAutoRegister` | `mcp_servers.go:43,159,208,305,406` | MCP registry CRUD over `config.Manager`. Add and Remove are check-and-write inside one `Manager.Update` transaction; removing nothing is a loud error. |
-| `CollectTooling` | `tooling.go:47` | Collects the `tooling` command text from every **trust-gated** bundle for container image assembly. |
+| `CollectTooling` | `tooling.go` | Collects every admitted companion's typed `init.tooling` declaration, **trust-gated**, for container image assembly. |
 | `ScaffoldContainerBase` | `tooling.go:105` | Materializes the embedded base Containerfile and wires the config key. |
 
 ## Profiles and agents

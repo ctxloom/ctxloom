@@ -800,12 +800,21 @@ func (st *runState) gateStartup() error {
 // authenticate) and returning launch.ErrRuntimeUnavailable over it — which
 // surfaces before the startup gate ever closes, as exit 1 with no class, no
 // fix and no "--degraded does NOT bypass" header. That refusal is the
-// finding's, so the gate reports it: the fatal-findings abort. Every other
-// refusal is its own message and returns as it came, findings or not — an
-// empty explicit selection records the fragment it missed AND refuses as
-// the empty-selection error, and that error is what the caller reads.
+// finding's, so the gate reports it: the fatal-findings abort.
+//
+// An EMPTY assembly (launch.ErrContextEmpty) is the same shape when a fatal
+// finding was recorded on the way: a profile whose bundle did not load, or
+// whose parent did not resolve, assembles to nothing BECAUSE of that finding,
+// and the finding names the fix where "assembled to nothing" only names the
+// symptom. Nothing else pads a profile set — companion content is delivered
+// beside the selection, but a set that selects nothing loadable is still
+// empty — so the gate reports first; with no finding recorded, the empty
+// error returns as it came. Every other refusal is its own message and
+// returns as it came, findings or not — an empty explicit selection records
+// the fragment it missed AND refuses as the empty-selection error, and that
+// error is what the caller reads.
 func (st *runState) refused(err error) error {
-	if errors.Is(err, launch.ErrRuntimeUnavailable) {
+	if errors.Is(err, launch.ErrRuntimeUnavailable) || errors.Is(err, launch.ErrContextEmpty) {
 		if ferr := st.gateStartup(); ferr != nil {
 			return ferr
 		}

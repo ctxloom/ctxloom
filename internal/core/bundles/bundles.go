@@ -92,8 +92,8 @@ type Bundle struct {
 	// sole input to contentSourceRef — the content trust key. Every shape it
 	// takes is decided by WHERE the bundle was found, never by what it says
 	// about itself: the class-appropriate minter's BundleRef for a remote
-	// (cloned) source, a bundle embedded in the binary (trust.BuiltinRef), a
-	// companion loadout (trust.CompanionRef), and the path-relative resolution
+	// (cloned) source, a companion loadout (trust.CompanionRef), and the
+	// path-relative resolution
 	// name for a bundle in the project's own tree (trust.LocalRef) — the
 	// last of those is what lets project content auto-trust.
 	//
@@ -102,7 +102,7 @@ type Bundle struct {
 	// SECURITY property, not tidiness: Bundle.Name is declared in the bundle's
 	// own YAML (`name:`), so falling back to it would let the content being
 	// judged choose its own trust key — a project bundle declaring
-	// `name: builtin:isolation` would claim the builtin's trust identity, and
+	// `name: ctxloom:companion@ltk` would claim the companion's trust identity, and
 	// a bundle that renamed itself would move off its own recorded decisions.
 	// The declared name is CONTENT: covered by the signature and by review, and
 	// therefore never an input to the decision that establishes that trust.
@@ -172,7 +172,28 @@ type Bundle struct {
 	// must not be able to write its own answer here
 	// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
 	untrustedSignerFingerprint string `yaml:"-"`
+
+	// self marks ctxloom's OWN companion loadout (CompanionLoadout.Self),
+	// whatever its signature state. It is INTRINSIC content: nobody
+	// installed it and nobody can remove it, so a listing of what the user
+	// installed leaves it out, while it stays addressable by its ref.
+	self bool `yaml:"-"`
+	// selfSigned marks ctxloom's OWN companion loadout whose signature
+	// VERIFIED, circularly (companionReader.read explains why): the
+	// principal is never stamped as signer, and a surface that renders
+	// signing state must say so rather than showing it as unsigned or as
+	// publisher-verified — both would be false.
+	selfSigned bool `yaml:"-"`
 }
+
+// Self reports whether this bundle is ctxloom's own companion loadout —
+// intrinsic content, never installed; see companionReader.read.
+func (b *Bundle) Self() bool { return b.self }
+
+// SelfSigned reports whether this bundle is ctxloom's own companion loadout
+// and its signature verified — circularly, so no signer is stamped; see
+// companionReader.read.
+func (b *Bundle) SelfSigned() bool { return b.selfSigned }
 
 // Signer returns the bundle's verified publisher identity, or "" when the bundle
 // is unsigned (see the signer field). A non-empty value means: a key trusted by
@@ -233,21 +254,19 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 }
 
 // contentSourceRef returns the bundle's honest source ref for content trust
-// gating: the canonical ref of a seeded (cloned) bundle, the BuiltinRef of a
-// bundle embedded in the binary, the CompanionRef of a companion loadout, or
-// the LocalRef of a project (fs) bundle. Locality/builtin-ness flows from this
-// into the trust cascade, so a clone's TEXT gates like its executables, a
-// builtin's TEXT carries the SAME identity whether it was selected by ref
-// through the loader or injected unconditionally (a builtin read through
-// localFSReader once keyed as LOCAL, a different trust identity than the
-// builtin ref injection uses for the identical item — a rejection via one
-// route did not withhold the other; see crispy-scoop), and a project bundle's
-// bare token keys IsLocal and auto-trusts. "Text to an LLM is executable."
+// gating: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
+// a companion loadout, or the LocalRef of a project (fs) bundle. Locality
+// flows from this into the trust cascade, so a clone's TEXT gates like its
+// executables, a companion's TEXT carries the SAME identity whether it was
+// selected by ref or delivered unconditionally (two identities for one item
+// is how a rejection via one route fails to withhold the other), and a
+// project bundle's bare token keys IsLocal and auto-trusts. "Text to an LLM
+// is executable."
 //
 // It reads sourceRef and NOTHING ELSE. In particular it must never fall back
 // to Bundle.Name: Name is DECLARED in the bundle's own YAML, so a fallback
 // would make the content being judged an input to its own trust key — a
-// project bundle declaring `name: builtin:isolation` would key as the builtin
+// project bundle declaring `name: ctxloom:companion@ltk` would key as the companion
 // and inherit its grants. newRead stamps the location-derived resolution ref
 // into sourceRef for every read a reader emits, so there is nothing for a
 // fallback to do but reopen that hole (outdated-recoil).
@@ -1445,22 +1464,7 @@ func ParseBundle(data []byte) (*Bundle, error) {
 		return nil, err
 	}
 
-	// Initialize maps if nil
-	if bundle.Fragments == nil {
-		bundle.Fragments = make(map[string]BundleFragment)
-	}
-	if bundle.Commands == nil {
-		bundle.Commands = make(map[string]BundleCommand)
-	}
-	if bundle.MCP == nil {
-		bundle.MCP = make(map[string]BundleMCP)
-	}
-	if bundle.Profiles == nil {
-		bundle.Profiles = make(map[string]BundleProfile)
-	}
-	if bundle.Skills == nil {
-		bundle.Skills = make(map[string]BundleSkill)
-	}
+	bundle.initMaps()
 
 	// A document that declares NOTHING is a truncated/empty file, not a bundle.
 	// gopkg.in/yaml.v3 returns a nil error for "", whitespace, a comment-only
@@ -1485,6 +1489,34 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	}
 
 	return &bundle, nil
+}
+
+// initMaps replaces every nil content map with an empty one, so a consumer
+// can range and index without a nil check per map.
+func (b *Bundle) initMaps() {
+	if b.Fragments == nil {
+		b.Fragments = make(map[string]BundleFragment)
+	}
+	if b.Commands == nil {
+		b.Commands = make(map[string]BundleCommand)
+	}
+	if b.MCP == nil {
+		b.MCP = make(map[string]BundleMCP)
+	}
+	if b.Profiles == nil {
+		b.Profiles = make(map[string]BundleProfile)
+	}
+	if b.Skills == nil {
+		b.Skills = make(map[string]BundleSkill)
+	}
+}
+
+// emptyBundle is a bundle declaring nothing, with its maps initialized — the
+// RUN loadout of a companion that only speaks at setup.
+func emptyBundle() *Bundle {
+	b := &Bundle{}
+	b.initMaps()
+	return b
 }
 
 // checkMCPTargets enforces wire.MCPServer's one-of-Command|URL rule over every

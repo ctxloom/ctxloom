@@ -121,11 +121,6 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 		want HookSource
 	}{
 		{
-			name: "builtin",
-			scm:  "bundle:" + string(mustRef(trust.BuiltinRef("core")).BundleIdentity()),
-			want: HookSource{Origin: HookOriginBuiltin, Ref: "ctxloom+builtin:core"},
-		},
-		{
 			name: "companion",
 			scm:  "bundle:" + string(mustRef(trust.CompanionRef("ltk")).BundleIdentity()),
 			want: HookSource{Origin: HookOriginCompanion, Ref: "ctxloom+companion:ltk"},

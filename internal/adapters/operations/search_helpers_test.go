@@ -61,7 +61,7 @@ func TestSearchProfiles(t *testing.T) {
 // the resolved bundle set, which every project gets ctxloom's own server in
 // through the builtin ctxloom bundle.
 func TestSearchMCPServers(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{}))
 
 	t.Run("matches ctxloom's own server by name", func(t *testing.T) {
 		got := searchMCPServers(cfg, "ctxloom")

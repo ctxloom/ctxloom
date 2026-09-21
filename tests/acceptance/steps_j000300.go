@@ -13,10 +13,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 )
 
-// Distinctive marker strings j000300_source_augmentation.feature's sources ship as
-// their "agent-setup" command content, so the composed interview prompt the
-// mock engine (or a real @live assistant) receives can be checked for exactly
-// this source's contribution — never a bare exit-code or file-exists proxy.
+// Distinctive marker strings j000300_source_augmentation.feature's companions
+// declare as their loadout's typed setup guidance, so the composed interview
+// prompt the mock engine (or a real @live assistant) receives can be checked
+// for exactly this companion's contribution — never a bare exit-code or
+// file-exists proxy.
 const (
 	j000300CompanyOnboarding  = "J000300-COMPANY-ONBOARDING-STEPS-MARKER"
 	j000300PersonalPreference = "J000300-PERSONAL-SETUP-PREFERENCE-MARKER"
@@ -26,22 +27,46 @@ const (
 	j000300CompanionCodeword  = "J000300-LIVE-COMPANION-CODEWORD"
 )
 
+// setupGuidanceLoadoutEnvelope is the unsigned v2 envelope a fake companion
+// emits for `loadout --format json` when all it contributes is setup
+// guidance: a loadout document whose typed init.setup_guidance carries text.
+func setupGuidanceLoadoutEnvelope(text string) (string, error) {
+	doc := fmt.Sprintf("init:\n  setup_guidance: %q\n", text)
+	envelope, err := signing.EncodeLoadoutEnvelope([]byte(doc), nil, "")
+	if err != nil {
+		return "", fmt.Errorf("encode fake companion loadout envelope: %w", err)
+	}
+	return string(envelope), nil
+}
+
+// installSetupGuidanceCompanion installs a fake companion named bin (a
+// ctxloom-companion-* name, so discovery lists it) whose loadout declares
+// text as its setup guidance. InstallFakeCompanion signs the binary with the
+// scenario's fixture key — "signed with its publisher's key".
+func installSetupGuidanceCompanion(w *World, bin, text string) error {
+	envelope, err := setupGuidanceLoadoutEnvelope(text)
+	if err != nil {
+		return err
+	}
+	versionJSON := fmt.Sprintf(`{"name":%q,"version":"9.9.9-j000300-fake"}`, bin)
+	return w.env.InstallFakeCompanion(bin, versionJSON, envelope)
+}
+
 func registerJ000300Steps(ctx *godog.ScenarioContext) {
-	// --- repo bundles augment (mock) ----------------------------------------
+	// --- installed companions augment (mock) --------------------------------
 
-	ctx.Step(`^her company's repository ships an "agent-setup" command with the company's onboarding steps$`, func(c context.Context) error {
-		w := worldFrom(c)
-		_, err := seedSource(w, "company", "commands", "agent-setup", j000300CompanyOnboarding, j000300CompanyOnboarding, true, false)
-		return err
+	ctx.Step(`^her company ships a companion whose loadout declares the company's onboarding steps$`, func(c context.Context) error {
+		return installSetupGuidanceCompanion(worldFrom(c), "ctxloom-companion-company", j000300CompanyOnboarding)
 	})
 
-	ctx.Step(`^her personal repository ships an "agent-setup" command with her own setup preferences$`, func(c context.Context) error {
-		w := worldFrom(c)
-		_, err := seedSource(w, "personal", "commands", "agent-setup", j000300PersonalPreference, j000300PersonalPreference, true, false)
-		return err
+	ctx.Step(`^her own tooling ships a companion whose loadout declares her setup preferences$`, func(c context.Context) error {
+		return installSetupGuidanceCompanion(worldFrom(c), "ctxloom-companion-personal", j000300PersonalPreference)
 	})
 
-	ctx.Step(`^both repositories are trusted, each signed with its owner's key$`, func(c context.Context) error {
+	ctx.Step(`^both companions are installed, each signed with its publisher's key$`, func(c context.Context) error {
+		// The two companions are already on PATH and signed (the Givens
+		// above); this scaffolds the project whose default LLM is the mock
+		// backend and points the mock at its record file.
 		w := worldFrom(c)
 		if err := ensureProjectWithEngine(w, "mock", "mock"); err != nil {
 			return err
@@ -49,26 +74,14 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		recordFile := filepath.Join(w.env.Root, "mock-record.txt")
 		w.env.SetEnv("CTXLOOM_MOCK_RECORD_FILE", recordFile)
 		w.j000300RecordFile = recordFile
-		for _, name := range []string{"company", "personal"} {
-			src := w.j000200Sources[name]
-			if src == nil {
-				return fmt.Errorf("source %q was never seeded", name)
-			}
-			if err := w.env.TrustSigner(src.signer, name+"@example.com", true); err != nil {
-				return err
-			}
-			if err := addSourceAsRemote(w, name, "default"); err != nil {
-				return err
-			}
-		}
 		return nil
 	})
 
 	ctx.Step(`^Alice runs the ctxloom setup$`, func(c context.Context) error {
-		// No-op beyond what "both repositories are trusted" (or "the reprise
+		// No-op beyond what "both companions are installed" (or "the reprise
 		// companion is installed") already scaffolded: a project whose default
-		// LLM is the mock backend, with sources already trusted/pulled (or the
-		// fake companion already on PATH). The NEXT step drives the actual
+		// LLM is the mock backend, with the fake companions already on PATH.
+		// The NEXT step drives the actual
 		// `ctxloom init` discovery launch. Split into two steps to mirror the
 		// Gherkin's own two-beat "runs setup" / "launches a mock engine" framing.
 		return nil
@@ -141,15 +154,8 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^it outputs its own setup guidance through ctxloom's setup-prompt CLI contract$`, func(c context.Context) error {
-		w := worldFrom(c)
-		bundleYAML := commandSourceYAML(j000300CompanionMarker)
-		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
-		if err != nil {
-			return fmt.Errorf("encode fake companion loadout envelope: %w", err)
-		}
-		versionJSON := `{"name":"reprise","version":"9.9.9-j000200-fake"}`
-		return w.env.InstallFakeCompanion("reprise", versionJSON, string(envelope))
+	ctx.Step(`^it declares its own setup guidance in its loadout$`, func(c context.Context) error {
+		return installSetupGuidanceCompanion(worldFrom(c), "reprise", j000300CompanionMarker)
 	})
 
 	// "Alice runs the ctxloom setup" / "it launches a mock engine..." /
@@ -171,7 +177,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 
 	// --- @live twins ----------------------------------------------------------
 
-	ctx.Step(`^her company's "agent-setup" command instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
+	ctx.Step(`^her company's companion instructs the assistant to confirm a company codeword$`, func(c context.Context) error {
 		w := worldFrom(c)
 		a, ok := liveAgents["claude"]
 		if !ok || !liveAgentAvailable(a) {
@@ -185,9 +191,8 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
-		command := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
-		_, err := seedSource(w, "company", "commands", "agent-setup", j000300CompanyCodeword, command, true, true)
-		return err
+		instruction := fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanyCodeword)
+		return installSetupGuidanceCompanion(w, "ctxloom-companion-company", instruction)
 	})
 
 	// Same shape as steps_j000200_setup.go's live scenario — these
@@ -196,12 +201,15 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 	// Failing loud instead of re-skipping turns "should be unreachable" into
 	// a real invariant should a future reorder or step-text reuse ever reach
 	// one of these with w.j000200Live still false.
-	ctx.Step(`^the company repository is trusted, signed with the company key$`, func(c context.Context) error {
+	ctx.Step(`^the company's companion is installed, signed with the company key$`, func(c context.Context) error {
+		// InstallFakeCompanion already signed the binary with the scenario's
+		// fixture key and trusted it for the companion namespace; nothing is
+		// left to do but refuse to be reached out of order.
 		w := worldFrom(c)
 		if !w.j000200Live {
 			return fmt.Errorf("j000300: reached this step with w.j000200Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
-		return addSourceAsRemote(w, "company", "default")
+		return nil
 	})
 
 	ctx.Step(`^Alice runs the ctxloom setup and its interview launches her real assistant$`, func(c context.Context) error {
@@ -209,7 +217,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if !w.j000200Live {
 			return fmt.Errorf("j000300: reached this step with w.j000200Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
-		// The composed agent-setup guidance (built-in + the company command's
+		// The composed setup guidance (built-in + the company companion's
 		// codeword instruction) is exactly what `ctxloom init prompt` emits
 		// (internal/adapters/cli/agent.go, via the SAME operations.ResolveSetupPrompt
 		// this scenario is proving) — driving it straight into the real
@@ -248,12 +256,8 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
 			return err
 		}
-		bundleYAML := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanionCodeword))
-		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
-		if err != nil {
-			return err
-		}
-		return w.env.InstallFakeCompanion("reprise", `{"name":"reprise","version":"9.9.9-j000200-fake"}`, string(envelope))
+		return installSetupGuidanceCompanion(w, "reprise",
+			fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j000300CompanionCodeword))
 	})
 
 	ctx.Step(`^the assistant's setup response confirms the companion codeword$`, func(c context.Context) error {

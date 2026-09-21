@@ -26,7 +26,6 @@ func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundle
 	root := cfg.TrustRoot()
 	return []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
 	}, nil
 }
 

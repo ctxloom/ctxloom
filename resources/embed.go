@@ -19,7 +19,7 @@ import (
 // schema/input directly (rather than all:schema) keeps the three hand-authored,
 // actually-read schemas and drops the dead weight.
 //
-//go:embed all:schema/input all:commands all:builtin_bundles all:prompts all:profiles example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
+//go:embed all:schema/input all:commands all:prompts all:profiles example-config.yaml default-config.yaml init-config.yaml default-remotes.yaml
 var resourcesFS embed.FS
 
 // GetPromptText returns an embedded prompt/instruction template by name
@@ -247,40 +247,3 @@ func listEmbeddedNames(fsys fs.FS, dir, ext string) ([]string, error) {
 func ListBuiltinCommands() ([]string, error) {
 	return listEmbeddedNames(resourcesFS, "commands", ".md")
 }
-
-// GetBuiltinBundle returns the raw YAML bytes for a built-in bundle embedded
-// in the binary. Built-in bundles ship core ctxloom functionality (e.g.
-// session-bind + plan-stamping hooks, command prompts) so users get it
-// without needing to pull anything from a remote.
-func GetBuiltinBundle(name string) ([]byte, error) {
-	return resourcesFS.ReadFile("builtin_bundles/" + name + ".yaml")
-}
-
-// ListBuiltinBundles returns the names of all built-in bundles embedded in
-// the binary.
-func ListBuiltinBundles() ([]string, error) {
-	return listEmbeddedNames(resourcesFS, "builtin_bundles", ".yaml")
-}
-
-// BuiltinBundlesFS returns the embedded builtin_bundles/ directory as a
-// filesystem, so the one reader that reads bundle documents out of directories
-// can serve the builtins too rather than a second body doing the same walk,
-// parse and signature check.
-//
-// A build that embedded nothing is a build defect, not an empty set — but this
-// accessor cannot report it and must not invent an alternative, so it hands
-// back an empty FS and lets the reader's own "no bundles here" reporting say
-// so. fs.Sub over an embed.FS with a literal, always-present path cannot fail;
-// the error is folded into an empty FS rather than a panic in a library.
-func BuiltinBundlesFS() fs.FS {
-	sub, err := fs.Sub(resourcesFS, "builtin_bundles")
-	if err != nil {
-		return emptyFS{}
-	}
-	return sub
-}
-
-// emptyFS is the unreachable fallback above: a filesystem holding nothing.
-type emptyFS struct{}
-
-func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }

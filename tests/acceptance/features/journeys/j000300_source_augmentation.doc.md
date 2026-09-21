@@ -9,35 +9,35 @@ company's onboarding and lose your own defaults, or you keep your defaults and
 quietly skip the step your security team added.
 
 ctxloom composes them instead. When you run setup, the interview prompt is
-ctxloom's own built-in guidance **plus** every trusted source's onboarding
-**plus** every installed companion's setup steps. Nothing replaces anything.
+ctxloom's own built-in guidance **plus** every installed companion's setup
+guidance. Nothing replaces anything.
 
 ## Where a contribution can come from
 
-Two places, and they arrive by the same road:
+From a **companion** — a tool that lives alongside ctxloom: the one your
+company ships to standardize its projects, the one you installed for yourself,
+a first-party tool like reprise. A companion advertises what it ships in its
+loadout, and the setup guidance it declares there is a typed field of that
+loadout, not a command with a special name that has to be spelled exactly
+right to be noticed.
 
-- **A trusted repository** — your company's, your own, a third party's. A
-  repository contributes by shipping an `agent-setup` command; if you trust the
-  source, its steps join the interview.
-- **An installed companion** — a tool that lives alongside ctxloom. A companion
-  advertises what it ships, and an `agent-setup` command in that set is picked
-  up exactly like a repository's.
-
-There is no separate mechanism for companions and no extra command to run. Both
-are read by the same pass, which is why adding a source is never a special case.
+There is no separate mechanism per companion and no extra command to run. Every
+companion is read by the same pass, which is why adding one is never a special
+case.
 
 ## What "composes" means in practice
 
-Say your company's repository contributes an onboarding step, your personal
-repository contributes your preferences, and you have a companion installed
-that needs a setup step of its own. The assistant conducting your setup
-interview receives all four things — ctxloom's built-in guidance and all three
-contributions — in a stable order.
+Say your company's companion contributes an onboarding step, your own tooling's
+companion contributes your preferences, and you have a first-party companion
+installed that needs a setup step of its own. The assistant conducting your
+setup interview receives all four things — ctxloom's built-in guidance and all
+three contributions — in a stable order.
 
-Trust is the gate. A repository's steps reach your setup interview when you
-trust that repository, which is the same decision that governs everything else
-it ships. An untrusted source contributes nothing, silently to the interview and
-loudly where trust decisions are reported.
+Execution is the gate. A companion's guidance reaches your setup interview when
+ctxloom is allowed to run that companion — a binary signed by a publisher you
+trust — which is the same decision that governs everything else it ships. A
+companion nobody vouched for contributes nothing, silently to the interview and
+loudly where that refusal is reported.
 
 ## Why this is worth caring about
 

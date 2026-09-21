@@ -75,8 +75,8 @@ type SurfaceType interface {
 	// RefFor translates a candidate group's paths into a ref. Path-to-ref
 	// translation lives here because it is kind-specific: a hook's name is
 	// "<event>/<name>", two path segments, where every other kind's is one.
-	// The caller overwrites the ref's provenance fields (RepoURL, IsLocal,
-	// IsBuiltin), so a type must not try to guess them.
+	// The caller overwrites the ref's provenance fields (RepoURL, IsLocal),
+	// so a type must not try to guess them.
 	RefFor(bundle string, src Source) (trust.Ref, error)
 }
 

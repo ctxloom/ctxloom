@@ -106,16 +106,22 @@ func TestResolveSignTarget_RetiredSpellingsRefusedWithAHint(t *testing.T) {
 	}
 }
 
-func TestResolveSignTarget_BuiltinRefRejected(t *testing.T) {
+// TestResolveSignTarget_CompanionRefRejected: a companion loadout is signed
+// where it is built, never here — and the retired "builtin:" spelling names
+// nothing, so it is refused as a retired spelling rather than resolving to a
+// local bundle of that name.
+func TestResolveSignTarget_CompanionRefRejected(t *testing.T) {
 	for _, ref := range []string{
-		"builtin:ltk#fragments/x",
-		"ctxloom+builtin:ltk#fragments/x",
-		"ctxloom+builtin:ltk",
+		"ctxloom+companion:ltk#fragments/x",
+		"ctxloom+companion:ltk",
 	} {
 		_, err := ResolveSignTarget(ref)
 		require.Error(t, err, ref)
-		assert.Contains(t, err.Error(), "builtin", ref)
+		assert.Contains(t, err.Error(), "does not resolve to a bundle you author locally", ref)
 	}
+	_, err := ResolveSignTarget("builtin:ltk#fragments/x")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errs.ErrRetiredRefSpelling)
 }
 
 func TestResolveSignTarget_EmptyRefErrors(t *testing.T) {

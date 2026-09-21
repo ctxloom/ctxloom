@@ -272,7 +272,5 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 	require.NoError(t, err, "a per-version fetch failure must never abort assembly")
 	assert.Contains(t, res.Context, "GOOD-V1", "the resolvable pinned item still assembles")
 	assert.NotContains(t, res.Context, "DEFAULT-BAD", "the unresolvable item is withheld, not silently defaulted")
-	// The always-on builtin isolation fragment injects unconditionally
-	// alongside the profile-resolved set; see builtinIsolationFragmentRef.
-	assert.ElementsMatch(t, []string{cqVersionID + "#fragments/good", builtinIsolationFragmentRef}, res.FragmentsLoaded)
+	assert.ElementsMatch(t, []string{cqVersionID + "#fragments/good"}, res.FragmentsLoaded)
 }

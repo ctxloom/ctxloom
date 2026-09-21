@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
@@ -302,9 +301,7 @@ func TestAssembleContext_WithFragments(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// +1 for the always-on builtin isolation fragment (builtinIsolationFragmentRef).
-	assert.Len(t, result.FragmentsLoaded, 2)
-	assert.Contains(t, result.FragmentsLoaded, builtinIsolationFragmentRef)
+	assert.Len(t, result.FragmentsLoaded, 1)
 	assert.Contains(t, result.Context, "Go Patterns")
 }
 
@@ -321,9 +318,7 @@ func TestAssembleContext_MultipleFragments(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// +1 for the always-on builtin isolation fragment (builtinIsolationFragmentRef).
-	assert.Len(t, result.FragmentsLoaded, 3)
-	assert.Contains(t, result.FragmentsLoaded, builtinIsolationFragmentRef)
+	assert.Len(t, result.FragmentsLoaded, 2)
 	assert.Contains(t, result.Context, "Security Rules")
 	assert.Contains(t, result.Context, "Go Patterns")
 }
@@ -341,10 +336,8 @@ func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// Should deduplicate. +1 for the always-on builtin isolation fragment
-	// (builtinIsolationFragmentRef).
-	assert.Len(t, result.FragmentsLoaded, 2)
-	assert.Contains(t, result.FragmentsLoaded, builtinIsolationFragmentRef)
+	// Should deduplicate.
+	assert.Len(t, result.FragmentsLoaded, 1)
 }
 
 func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
@@ -387,9 +380,7 @@ func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// The always-on builtin isolation fragment (builtinIsolationFragmentRef)
-	// injects regardless of profile tag selection; it's the only expected entry.
-	assert.Equal(t, []string{builtinIsolationFragmentRef}, result.FragmentsLoaded)
+	assert.Empty(t, result.FragmentsLoaded, "a profile's tags describe it; they never select content")
 	assert.NotContains(t, result.Context, "Go Patterns")
 }
 
@@ -657,12 +648,12 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// Empty request with no default profiles returns no PROFILE-sourced
-	// content, but the always-on builtin isolation fragment still injects
-	// unconditionally (see TestAssembleContext_InjectsBuiltinIsolationFragment).
+	// Empty request with no default profiles and no companion loadout in the
+	// loader: nothing is assembled (a companion's fragments would be — see
+	// TestAssembleContext_DeliversCompanionFragmentUnconditionally).
 	assert.Empty(t, result.Profiles)
-	assert.Equal(t, []string{builtinIsolationFragmentRef}, result.FragmentsLoaded)
-	assert.NotEmpty(t, result.Context)
+	assert.Empty(t, result.FragmentsLoaded)
+	assert.Empty(t, result.Context)
 }
 
 // TestAssembleContext_InjectsCompanionLoadoutFragments verifies the
@@ -676,14 +667,14 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(
-		[]byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
+		testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
 	require.NoError(t, err)
 	taskloomEnvelope, err := signing.EncodeLoadoutEnvelope(
-		[]byte("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n"), nil, "")
+		testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n"), nil, "")
 	require.NoError(t, err)
 
 	t.Run("companions present → fragments injected", func(t *testing.T) {
-		_, loader := setupContextTestFS(t)
+		_, _ = setupContextTestFS(t)
 		// A fresh Config per sub-test: companion probing is memoized once per
 		// Config's lifetime, so sharing one across sub-tests with different
 		// fakes would silently reuse the first sub-test's cached result.
@@ -706,7 +697,10 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		defer restoreProbe()
 
 		cfg = published(t, cfg)
-		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
+		// The injected stage reads the generation's own catalog: companion
+		// fragments come from the loader the pipeline reads, never a side
+		// channel, so a stage over a project-only loader would deliver none.
+		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, cfg.BundleLoader())})
 		require.NoError(t, err)
 		assert.Contains(t, result.Context, "llm-tool-killer briefing")
 		assert.Contains(t, result.Context, "taskloom briefing")
@@ -715,7 +709,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 	})
 
 	t.Run("companion absent (loadout probe fails) → that companion's fragments skipped", func(t *testing.T) {
-		_, loader := setupContextTestFS(t)
+		_, _ = setupContextTestFS(t)
 		cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 		restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
@@ -734,58 +728,38 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		defer restoreProbe()
 
 		cfg = published(t, cfg)
-		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
+		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, cfg.BundleLoader())})
 		require.NoError(t, err)
 		assert.NotContains(t, result.FragmentsLoaded, "ctxloom+companion:ltk#fragments/ltk", "absent companion is skipped")
 		assert.Contains(t, result.FragmentsLoaded, "ctxloom+companion:taskloom#fragments/taskloom", "present companion still injects")
 	})
 }
 
-// builtinIsolationFragmentRef is the stable identity of the always-on
-// isolation fragment (resources/builtin_bundles/isolation.yaml), shared by
-// every test in this package that must account for its unconditional
-// injection alongside loader-resolved content.
-const builtinIsolationFragmentRef = "ctxloom+builtin:isolation#fragments/isolation-axes"
+// companionIsolationFragmentRef is the stable identity of the fixture
+// companion's isolation fragment (isolationCompanion), shared by every test
+// in this package that must account for its unconditional delivery alongside
+// loader-resolved content.
+const companionIsolationFragmentRef = "ctxloom+companion:isolation#fragments/isolation-axes"
 
-// TestAssembleContext_InjectsBuiltinIsolationFragment proves ctxloom's first
-// genuinely-embedded builtin bundle (resources/builtin_bundles/isolation.yaml)
-// actually reaches assembled context, unconditionally — not merely that the
-// mechanism exists (README.md's claim; this test is what makes that claim
-// verified rather than trusted). It reads the REAL
-// resources.GetBuiltinBundle("isolation") — embedded in the binary via
-// resources/embed.go's `//go:embed all:builtin_bundles` — through the actual
-// AssembleContext path, with an EMPTY request (no profile/fragments/tags), so
-// the only way this fragment's text can appear is the unconditional builtin
-// append (appendBuiltinFragments in context.go). A builtin that ships but is
-// never wired to inject would pass every other test in this file while still
-// delivering zero bytes to a real session — exactly the silent-no-op failure
-// mode this codebase has shipped before.
-func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
-	raw, err := resources.GetBuiltinBundle("isolation")
-	require.NoError(t, err, "resources/builtin_bundles/isolation.yaml must be embedded")
-
-	var b bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(raw, &b))
-	frag, ok := b.Fragments["isolation-axes"]
-	require.True(t, ok, "isolation.yaml must ship the isolation-axes fragment")
-	require.NotEmpty(t, frag.Content)
-
-	_, loader := setupContextTestFS(t)
+// TestAssembleContext_DeliversCompanionFragmentUnconditionally proves the
+// wiring end to end: a companion loadout's fragment reaches the ASSEMBLED
+// context through the actual AssembleContext path with an EMPTY request (no
+// profile/fragments/tags), so the only way its text can appear is the
+// unconditional companion delivery. A companion whose content never reached
+// assembly would pass every other test here while delivering zero bytes to a
+// real session — the silent-no-op failure mode this codebase has shipped.
+func TestAssembleContext_DeliversCompanionFragmentUnconditionally(t *testing.T) {
+	_, _ = setupContextTestFS(t)
+	body := companionIsolationContent(t)
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	loader := ingestLoader(t, afero.NewMemMapFs())
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
 
-	assert.Contains(t, result.Context, strings.TrimSpace(frag.Content),
-		"assembled context must contain the real embedded isolation fragment's exact bytes")
-	assert.Contains(t, result.FragmentsLoaded, builtinIsolationFragmentRef)
-
-	// Ground truth: the specific facts the fragment must carry, pinned
-	// directly (not just "non-empty content made it through") so a future
-	// edit that keeps SOME content but drops the substance still fails.
-	for _, want := range []string{"runtime", "workspace", "host", "container", "worktree"} {
-		assert.Contains(t, result.Context, want)
-	}
+	assert.Contains(t, result.Context, body,
+		"assembled context must contain the companion fragment's exact bytes")
+	assert.Contains(t, result.FragmentsLoaded, companionIsolationFragmentRef)
 }
 
 // TestAssembleContext_ExcludesCtxloomInitCommandBody is the OTHER half of the
@@ -959,10 +933,9 @@ func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// The unresolvable default profile degrades to nothing, but the always-on
-	// builtin isolation fragment still injects unconditionally.
-	assert.Equal(t, []string{builtinIsolationFragmentRef}, result.FragmentsLoaded)
-	assert.NotEmpty(t, result.Context)
+	// The unresolvable default profile degrades to nothing.
+	assert.Empty(t, result.FragmentsLoaded)
+	assert.Empty(t, result.Context)
 }
 
 func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {

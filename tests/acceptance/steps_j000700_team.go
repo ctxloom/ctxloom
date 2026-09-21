@@ -11,8 +11,7 @@
 // plumbing rather than extending the shared testenv package — see the
 // worktree brief's request to keep shared-file churn tight).
 //
-// Authoring goes straight to the bundle's YAML content field (the same direct
-// approach steps_j000200_common.go's commandSourceYAML takes) rather than
+// Authoring goes straight to the bundle's YAML content field rather than
 // through the interactive `command create`+`edit` round trip: the mechanism
 // under test is trust/propagation/distillation, not the editor UX, and direct
 // YAML authorship gives exact, reproducible marker content across the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -58,6 +60,9 @@ func (e *ExitError) Error() string {
 type Composition struct {
 	Reporter   report.Sink
 	OpenConfig operations.ConfigOpener
+	// Loadout is ctxloom's own companion loadout, embedded beside main and
+	// emitted by `ctxloom loadout` (see EmbeddedLoadout).
+	Loadout EmbeddedLoadout
 	// NewCoordinator constructs the process's one coordinator over the App
 	// it is handed: the root composes the production launch seam
 	// (adapters/spawn) from that App unless the options carry one.
@@ -104,11 +109,18 @@ func SetAppForTesting(app *operations.App) func() {
 // cannot be bound degrades to a warning: each individual override is still
 // resolved, and warned about, per generation.
 func installApp(flags *pflag.FlagSet, environ []string, noCompanions bool, mode strictness.Mode, opts ...configload.Option) {
-	src, err := operations.ComposeSources(operations.Compose{Flags: flags, Environ: environ, NoCompanions: noCompanions, Options: opts})
+	// A process composed with an embedded loadout is ctxloom itself and
+	// probes itself as a companion at the path selfexec resolves; one
+	// without (a test process) has nothing to emit and must not exec itself.
+	var selfLoadout func() string
+	if len(theComposition.Loadout.YAML) > 0 {
+		selfLoadout = selfexec.Path
+	}
+	src, err := operations.ComposeSources(operations.Compose{Flags: flags, Environ: environ, NoCompanions: noCompanions, SelfLoadout: selfLoadout, Options: opts})
 	if err != nil {
 		clidiag.Warn("ctxloom", "config overrides: %v", err)
 	}
-	theApp = operations.NewApp(src, noCompanions, mode, theComposition.OpenConfig, theComposition.Reporter)
+	theApp = operations.NewApp(src, noCompanions, selfLoadout, mode, theComposition.OpenConfig, theComposition.Reporter)
 }
 
 // strictnessMode is the posture this invocation runs under. Degraded comes
@@ -330,6 +342,17 @@ var rootAssembly sync.Once
 // main installed (the zap logger's sinks) would be dropped on exactly the runs
 // that failed. Returning the code keeps the exit and the teardown in one frame.
 func Run(comp Composition) int {
+	return run(comp, nil, nil)
+}
+
+// RunWithArgs is Run over an explicit argv and stdout, for a test that drives
+// the real root with the real composition (what ctxloom's own self-probe
+// execs). nil args means the process's own.
+func RunWithArgs(comp Composition, args []string, stdout io.Writer) int {
+	return run(comp, args, stdout)
+}
+
+func run(comp Composition, args []string, stdout io.Writer) int {
 	theComposition = comp
 	// Compose the shipped engines before any command can read the registry.
 	// A refused declaration is a startup failure that names the engine and
@@ -338,7 +361,14 @@ func Run(comp Composition) int {
 		fmt.Fprintf(os.Stderr, "ctxloom: %v\n", err)
 		return 1
 	}
-	err := rootCommand().Execute()
+	root := rootCommand()
+	if args != nil {
+		root.SetArgs(args)
+	}
+	if stdout != nil {
+		root.SetOut(stdout)
+	}
+	err := root.Execute()
 	if err == nil {
 		return 0
 	}

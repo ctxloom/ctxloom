@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
 // packageDir is this package's directory, captured before the test
@@ -28,11 +27,9 @@ var packageDir, _ = os.Getwd()
 // variable.
 //
 // Coverage — this checks exactly, and only, the fragment content this repo
-// compiles in or ships alongside its own binaries:
-//   - every embedded builtin bundle (resources/builtin_bundles/*.yaml, via
-//     resources.ListBuiltinBundles/GetBuiltinBundle)
-//   - the two standalone companion loadouts (cmd/taskloom/loadout.yaml,
-//     cmd/ltk/loadout.yaml), which ship the same bundle document shape
+// ships inside its own binaries: every companion loadout under cmd/*/
+// (loadout.yaml, ctxloom's own included), whose RUN section is a bundle
+// document
 //
 // It deliberately does NOT cover, and cannot cover from inside this repo:
 //   - remote-pulled bundle content (ctxloom-default or any other remote a
@@ -58,9 +55,7 @@ func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
 	}
 	var sources []fragmentSource
 
-	collect := func(label string, raw []byte) {
-		bundle, err := bundles.ParseBundle(raw)
-		require.NoError(t, err, "%s: must parse as a bundle document", label)
+	collectBundle := func(label string, bundle *bundles.Bundle) {
 		for name, frag := range bundle.Fragments {
 			sources = append(sources, fragmentSource{
 				label:   label + "#fragments/" + name,
@@ -68,24 +63,15 @@ func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
 			})
 		}
 	}
-
-	builtinNames, err := resources.ListBuiltinBundles()
+	loadouts, err := filepath.Glob(filepath.Join(packageDir, "..", "..", "..", "cmd", "*", "loadout.yaml"))
 	require.NoError(t, err)
-	require.NotEmpty(t, builtinNames, "no builtin bundles found — this guard would silently check nothing")
-	for _, name := range builtinNames {
-		raw, err := resources.GetBuiltinBundle(name)
-		require.NoError(t, err)
-		collect("builtin_bundles/"+name, raw)
-	}
-
-	for _, rel := range []string{
-		filepath.Join("..", "..", "..", "cmd", "taskloom", "loadout.yaml"),
-		filepath.Join("..", "..", "..", "cmd", "ltk", "loadout.yaml"),
-	} {
-		path := filepath.Join(packageDir, rel)
+	require.NotEmpty(t, loadouts, "no companion loadouts found under cmd/*/ — this guard would silently check nothing")
+	for _, path := range loadouts {
 		raw, err := os.ReadFile(path)
-		require.NoError(t, err, "companion loadout must exist: %s", path)
-		collect(rel, raw)
+		require.NoError(t, err)
+		lo, err := bundles.ParseLoadout(raw)
+		require.NoError(t, err, "%s: must parse as a loadout document", path)
+		collectBundle(filepath.Base(filepath.Dir(path))+"/loadout.yaml", lo.Run)
 	}
 
 	require.NotEmpty(t, sources, "no fragment sources discovered — this guard would silently check nothing")

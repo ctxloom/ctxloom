@@ -80,7 +80,7 @@ type Spec struct {
 	Root string
 
 	// RepoURL is the provenance stamped onto every ref. It is REQUIRED: a ref
-	// with no origin would be neither local, builtin nor remote, and
+	// with no origin would be neither local nor remote, and
 	// content.Provenance refuses it rather than defaulting — a store must never
 	// claim an origin it was not given.
 	RepoURL string

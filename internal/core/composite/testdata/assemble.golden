@@ -7,7 +7,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -48,7 +48,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -84,13 +84,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -249,7 +249,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -290,7 +290,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -326,13 +326,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -493,7 +493,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -534,7 +534,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -570,13 +570,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -732,7 +732,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -773,7 +773,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -809,13 +809,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -973,7 +973,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1014,7 +1014,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1050,13 +1050,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1212,7 +1212,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1253,7 +1253,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1289,13 +1289,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1453,7 +1453,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1494,7 +1494,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1530,13 +1530,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1692,7 +1692,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1733,7 +1733,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1769,13 +1769,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1933,7 +1933,7 @@
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -1980,7 +1980,7 @@
     "ctxloom+local:ctxloom-project#fragments/green-is-not-passing",
     "ctxloom+local:ctxloom-project#fragments/tool-intent-and-finding",
     "ctxloom+local:code-quality#fragments/solid",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "profiles": [
     "golden-auto"
@@ -1990,13 +1990,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -2129,7 +2129,7 @@
     "ctxloom+local:code-quality#fragments/tricky",
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "premise_index": [
     {
@@ -2176,7 +2176,7 @@
     "ctxloom+local:premised#fragments/always",
     "ctxloom+local:premised#fragments/sometimes",
     "ctxloom+local:ctxloom-project#fragments/conditional-guidance",
-    "ctxloom+builtin:isolation#fragments/isolation-axes"
+    "ctxloom+companion:ctxloom#fragments/isolation-axes"
   ],
   "profiles": [
     "golden-curated"
@@ -2186,13 +2186,13 @@
 {
   "BundleMCP": {
     "ctxloom": {
-      "_ctxloom": "bundle:ctxloom+builtin:ctxloom-mcp",
+      "_ctxloom": "bundle:ctxloom+companion:ctxloom",
       "args": [
         "mcp",
         "serve"
       ],
       "command": "ctxloom",
-      "notes": "blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9"
+      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -2453,12 +2453,6 @@ Scan the current project and discover matching ctxloom content from configured r
 5. `ctxloom profile create go-dev --parent ctxloom-default/go-developer`, then run `ctxloom deps pull`
 
 If the user says "skip", acknowledge and let them know they can run `/discover` again later.
-
-== blob:2c9cea185e764af60e61b0e1bd437446bfcff22fc71e56a9ba0ae70ac77678c9
-ctxloom's own stdio MCP server. The command written into an engine's
-settings is the absolute path of the ctxloom binary that materialized
-that surface, so a session's MCP server can never diverge from the
-binary running it.
 
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
@@ -4307,3 +4301,9 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
+== blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe
+ctxloom's own stdio MCP server. The command is written into an
+engine's settings exactly as declared here — the bare binary name,
+resolved against PATH where it fires — so a tracked settings file
+carries no one machine's absolute path.
+

@@ -1600,3 +1600,32 @@ func TestClaudeCodeHookWriter_TurnEndReachesStop(t *testing.T) {
 	assert.Equal(t, "command", entry["type"])
 	assert.Equal(t, float64(15), entry["timeout"])
 }
+
+// TestClaudeCodeHookWriter_WritesTheDeclaredCtxloomEntryVerbatim pins that the
+// ctxloom entry written to .mcp.json IS the entry the resolved server set
+// carries — the one ctxloom's own companion loadout declares — with no Go
+// rewrite of command or args in between. The bundle says what is written;
+// the only field the writer adds is cwd, which no bundle can express. A
+// rewrite here would let the written surface diverge from the signed content
+// a user reviewed.
+func TestClaudeCodeHookWriter_WritesTheDeclaredCtxloomEntryVerbatim(t *testing.T) {
+	tmpDir := t.TempDir()
+	writer := &ClaudeCodeHookWriter{}
+	declared := map[string]wire.MCPServer{
+		agent.MCPServerName: {Command: "ctxloom", Args: []string{"mcp", "serve"}, Env: map[string]string{"CTXLOOM_TRACE": "1"}},
+	}
+	require.NoError(t, writer.WriteSettings(&wire.HooksConfig{}, declared, tmpDir))
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".mcp.json"))
+	require.NoError(t, err)
+	var mcpConfig struct {
+		Servers map[string]agent.ChatMCPConfigEntry `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(data, &mcpConfig))
+	got := mcpConfig.Servers[agent.MCPServerName]
+
+	assert.Equal(t, declared[agent.MCPServerName].Command, got.Command, "command written as declared")
+	assert.Equal(t, declared[agent.MCPServerName].Args, got.Args, "args written as declared")
+	assert.Equal(t, declared[agent.MCPServerName].Env, got.Env, "env written as declared — nothing is discarded behind the loadout's back")
+	assert.Equal(t, "${CLAUDE_PROJECT_DIR}", got.Cwd, "cwd is the writer's one addition")
+}

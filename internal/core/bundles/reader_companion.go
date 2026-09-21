@@ -11,10 +11,10 @@ import (
 )
 
 // CompanionLoadout is one companion application's advertised loadout, exactly
-// as it came off that binary's stdout: the bundle document's bytes and the
+// as it came off that binary's stdout: the loadout document's bytes and the
 // detached signature its release shipped alongside them.
 //
-// It is BYTES, not a parsed bundle, on purpose. Handing the reader a finished
+// It is BYTES, not a parsed loadout, on purpose. Handing the reader a finished
 // *Bundle with a signer already stamped would put the establishment of trust
 // facts in the prober — i.e. in whichever caller wired it — and the whole point
 // of a reader is that the facts are established in one place, by the thing that
@@ -25,10 +25,19 @@ type CompanionLoadout struct {
 	Bin string
 	// Path is the resolved absolute path that was executed, for diagnostics.
 	Path string
-	// Bundle is the loadout document's raw bytes.
-	Bundle []byte
+	// Document is the loadout document's raw bytes — ParseLoadout's input
+	// and the exact bytes Signature covers.
+	Document []byte
 	// Signature is the detached signature the envelope carried, or nil.
 	Signature []byte
+	// Self marks the loadout ctxloom obtained from ITSELF: ctxloom is its
+	// own companion, probed through the same exec as every other. Its
+	// signature is verified uniformly, but it is CIRCULAR — the binary that
+	// carries the trust root vouching for the key is the binary that
+	// carries the loadout, so the verification adds no trust — and the
+	// reader must not stamp it as a publisher identity a review surface
+	// would show as one.
+	Self bool
 }
 
 // CompanionProber obtains the loadouts of every companion this machine's human
@@ -178,7 +187,8 @@ func companionCandidate(rep report.Reporter, bin, path string, reason CandidateR
 	return Candidate{Ref: typed.BundleIdentity(), Path: path, Reason: reason}, true
 }
 
-// read turns one companion's loadout bytes into a read, establishing its
+// read turns one companion's loadout bytes into a read — the RUN bundle as
+// the read's content, the typed INIT loadout beside it — establishing its
 // signature facts and saying out loud what they were when they are not clean.
 //
 // All three diagnostics dedup, for the reason the sibling readers do: a process
@@ -186,11 +196,12 @@ func companionCandidate(rep report.Reporter, bin, path string, reason CandidateR
 // the SAME loadout bytes and re-checks the SAME signature. Nothing it could
 // say differs between generations.
 func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
-	b, err := ParseBundle(lo.Bundle)
+	parsed, err := ParseLoadout(lo.Document)
 	if err != nil {
-		r.cfg.warnOnce("companion %q: unparseable loadout bundle, withholding: %v", lo.Bin, err)
+		r.cfg.warnOnce("companion %q: unparseable loadout, withholding: %v", lo.Bin, err)
 		return BundleRead{}, false
 	}
+	b := parsed.Run
 	ref := companionRefPrefix + lo.Bin
 	// The companion ref is the RESOLUTION identity and stays unconditional; it
 	// is only the FALLBACK for Name, so a loadout that declared `name:` keeps
@@ -205,7 +216,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 	b.sourceRef = typed
 	b.sourceRefSet = true
 
-	facts := readSignatureFacts(lo.Bundle, lo.Signature, r.cfg.root)
+	facts := readSignatureFacts(lo.Document, lo.Signature, r.cfg.root)
 	switch {
 	case facts.Signature == SignatureInvalid:
 		r.cfg.warnOnce("companion %q: its loadout signature does not verify over its own bytes — most likely a stale or "+
@@ -215,6 +226,24 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 		r.cfg.warnOnce("companion %q: its loadout is signed by a key this machine does not trust to publish; "+
 			"delivering the content anyway (companion content is admitted at exec, not by signature), unattributed", lo.Bin)
 	}
+	b.self = lo.Self
+	if lo.Self && facts.Signature == SignatureValid && facts.Signer == SignerTrusted {
+		// INVARIANT: ctxloom's own loadout signature is CIRCULAR and adds no
+		// trust. The key that signed it is trusted because THIS binary's
+		// embedded trust root says so, and this binary is also what carries
+		// the loadout — a tampered build would carry a matching root and a
+		// matching signature alike. The signature is still verified above
+		// (a stale one is a release bug and warns like any companion's), but
+		// the verified principal is NOT stamped as the bundle's publisher:
+		// stamping it would let every surface that renders a signer present
+		// ctxloom's own content as "verified by a publisher you trust", which
+		// is a claim nothing here established. The bundle is marked
+		// self-signed instead, so a surface can say what actually held.
+		facts = facts.withoutSigner()
+		b.selfSigned = true
+	}
 	facts.stamp(b)
-	return NewRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts), true
+	read := NewRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts)
+	read.Init = parsed.Init
+	return read, true
 }

@@ -1,12 +1,13 @@
-// This file is the trusted-bundle → agent-image tooling pipeline. A bundle
-// whose content needs tools inside the agent container (linters, language
-// runtimes, build helpers) ships a well-known `tooling` command
-// describing them; `ctxloom tooling` collects those texts THROUGH
-// THE TRUST GATE and emits them with instructions for the LLM to fold — with
-// explicit per-change user permission — into the local base Containerfile
-// that every locally-built agent image (default auto-build included) layers
-// on. Nothing here runs on pull/sync: collection and the scaffold are
-// explicit commands, and the edit itself is the LLM's, gated by the user.
+// This file is the companion-loadout → agent-image tooling pipeline. A
+// companion whose content needs tools inside the agent container (linters,
+// language runtimes, build helpers) declares them in the typed `init.tooling`
+// field of its loadout (bundles.InitLoadout); `ctxloom tooling` collects those
+// texts THROUGH THE TRUST GATE and emits them with instructions for the LLM to
+// fold — with explicit per-change user permission — into the local base
+// Containerfile that every locally-built agent image (default auto-build
+// included) layers on. Nothing here runs on pull/sync: collection and the
+// scaffold are explicit commands, and the edit itself is the LLM's, gated by
+// the user.
 
 package operations
 
@@ -15,35 +16,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// ToolingCommandName is the well-known command name a bundle ships to declare
-// the tools its content needs available where agents run — today that means
-// the agent container image. Matching mirrors the agent-setup override
-// contract: the bare name, or the last path/# segment
-// (`<bundle>#commands/tooling`).
-const ToolingCommandName = "tooling"
-
-// ToolingDeclaration is one bundle's collected tooling declaration.
+// ToolingDeclaration is one companion's collected tooling declaration.
 type ToolingDeclaration struct {
-	// Source is the bundle-qualified command name the text came from, so the
-	// user can trace every proposed Containerfile change to its bundle.
+	// Source is the companion's ref the text came from, so the user can
+	// trace every proposed Containerfile change to its companion.
 	Source  string `json:"source"`
 	Content string `json:"content"`
 }
 
-// CollectTooling gathers every trusted bundle's `tooling`
-// command. SECURITY: collection goes through the TRUST-GATED pipeline — a
-// command from an unreviewed/untrusted bundle is withheld exactly like any
-// other gated content (bundle-supplied text driving Containerfile edits is a
+// CollectTooling gathers every admitted companion's typed `init.tooling`
+// declaration. SECURITY: collection goes through the TRUST-GATED pipeline —
+// a companion the human rejected is withheld exactly like any other gated
+// content (loadout-supplied text driving Containerfile edits is a
 // code-execution vector), and the withholding is surfaced content-free.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
 // pipe is a test seam; nil uses the gated exposure pipeline.
@@ -58,26 +50,12 @@ func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclara
 	if pipe == nil {
 		return nil
 	}
-	infos, err := pipe.Loader().ListAllCommands()
-	if err != nil {
-		clidiag.Warn("ctxloom", "tooling: list commands: %v", err)
-		return nil
-	}
 	var out []ToolingDeclaration
-	for _, info := range infos {
-		if !setupCommandNameMatches(info.Name, ToolingCommandName) {
+	for _, admitted := range pipe.InitLoadouts() {
+		if admitted.Init.Tooling == "" {
 			continue
 		}
-		// Fetch by BUNDLE-QUALIFIED ref: many bundles ship a command with this
-		// same well-known name, and a bare-name fetch would resolve every one
-		// of them to the first match. The ref also gives the user a traceable
-		// source per declaration.
-		ref := info.Bundle + "#commands/" + info.Name
-		content, gerr := pipe.GetCommand(ref)
-		if gerr != nil || strings.TrimSpace(content.Content) == "" {
-			continue // withheld by the gate, or empty — skip, never block
-		}
-		out = append(out, ToolingDeclaration{Source: ref, Content: content.Content})
+		out = append(out, ToolingDeclaration{Source: admitted.Ref, Content: admitted.Init.Tooling})
 	}
 	warnWithheld(gate)
 	return out

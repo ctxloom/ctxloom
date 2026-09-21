@@ -22,9 +22,9 @@ import (
 	"strings"
 )
 
-// SourceClass names which of the five reference classes a URI belongs to. The
+// SourceClass names which of the four reference classes a URI belongs to. The
 // class is carried in the URI SCHEME (ctxloom+git, ctxloom+file,
-// ctxloom+builtin, ctxloom+local, ctxloom+companion) rather than in a path
+// ctxloom+local, ctxloom+companion) rather than in a path
 // prefix, which is legal per RFC 3986 §3.1 (scheme = ALPHA *( ALPHA / DIGIT /
 // "+" / "-" / "." )) and is what leaves the AUTHORITY slot free for the real
 // host. That in turn is what makes RFC 3986 §6.2.2.1 host case-folding apply
@@ -38,8 +38,6 @@ const (
 	// ClassFile addresses a bundle in a git repository at an absolute local
 	// path. It has no authority: ctxloom+file:///srv/repo//bundles/x.
 	ClassFile SourceClass = "file"
-	// ClassBuiltin addresses a bundle embedded in the ctxloom binary.
-	ClassBuiltin SourceClass = "builtin"
 	// ClassLocal addresses a bundle in the project's own tree.
 	ClassLocal SourceClass = "local"
 	// ClassCompanion addresses a bundle from a companion binary's loadout.
@@ -55,7 +53,7 @@ const (
 // which is what makes this list the definition of the vocabulary rather than a
 // second copy of it.
 func Classes() []SourceClass {
-	return []SourceClass{ClassGit, ClassFile, ClassBuiltin, ClassLocal, ClassCompanion}
+	return []SourceClass{ClassGit, ClassFile, ClassLocal, ClassCompanion}
 }
 
 // SchemePrefix is the shared scheme prefix of every class. The class name is
@@ -235,8 +233,8 @@ func Parse(raw string) (Parts, error) {
 	// case-insensitive for free (R1, §6.2.2.1).
 	class, ok := ClassForScheme(u.Scheme)
 	if !ok {
-		return Parts{}, fmt.Errorf("%w: unknown scheme %q (want %sgit|%sfile|%sbuiltin|%slocal|%scompanion)",
-			ErrSyntax, u.Scheme, SchemePrefix, SchemePrefix, SchemePrefix, SchemePrefix, SchemePrefix)
+		return Parts{}, fmt.Errorf("%w: unknown scheme %q (want %sgit|%sfile|%slocal|%scompanion)",
+			ErrSyntax, u.Scheme, SchemePrefix, SchemePrefix, SchemePrefix, SchemePrefix)
 	}
 	if u.User != nil {
 		// Credentials address a REQUEST, never a repository. Dropping them
@@ -469,11 +467,6 @@ func Git(host, repoPath, bundle string) (Parts, error) {
 // absolute local path. See Git for why it round-trips through the parser.
 func File(repoPath, bundle string) (Parts, error) {
 	return Mint(Parts{Class: ClassFile, RepoPath: LeadingSlash(repoPath), Bundle: bundle})
-}
-
-// Builtin builds the parsed reference to a bundle embedded in the binary.
-func Builtin(bundle string) (Parts, error) {
-	return Mint(Parts{Class: ClassBuiltin, Bundle: bundle})
 }
 
 // Local builds the parsed reference to a bundle in the project's own tree.

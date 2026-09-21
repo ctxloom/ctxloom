@@ -9,9 +9,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
-// ctxloomBundleServer is the entry the builtin ctxloom bundle contributes to a
-// resolved server set: the bare binary name and the `mcp serve` leaf, which
-// ResolveManagedMCPServers reconstructs from ctxloom's own values.
+// ctxloomBundleServer is the entry ctxloom's own companion loadout contributes
+// to a resolved server set: the bare binary name and the `mcp serve` leaf,
+// written to every surface as declared.
 func ctxloomBundleServer() wire.MCPServer {
 	return wire.MCPServer{Command: CtxloomBinary, Args: []string{"mcp", "serve"}}
 }
@@ -103,33 +103,6 @@ func TestComposeChatMCPServers_BareCommand(t *testing.T) {
 	assert.Equal(t, "ctxloom", got[0].Command,
 		"the composed ctxloom command must be the bare name, resolved on PATH at fire time")
 	assert.Equal(t, CtxloomMCPArgs, got[0].Args)
-}
-
-// TestResolveManagedMCPServers pins the split the builtin bundle depends on:
-// the bundle says WHETHER ctxloom's own server is registered, this function
-// fixes WHAT is written, and it never mutates the caller's map (one resolved
-// set is shared across engines and cells).
-func TestResolveManagedMCPServers(t *testing.T) {
-	// A deliberately WRONG invocation under ctxloom's own name: the source's
-	// command and args must both be discarded and rebuilt, so neither can be
-	// mistaken for a pass-through.
-	src := map[string]wire.MCPServer{
-		MCPServerName: {Command: "/bundle/declared/ctxloom", Args: []string{"bogus"}},
-		"other":       {Command: "other", Args: []string{"x"}},
-	}
-
-	out, _ := ResolveManagedMCPServers(src)
-
-	assert.Equal(t, "ctxloom", out[MCPServerName].Command)
-	assert.Equal(t, CtxloomMCPArgs, out[MCPServerName].Args)
-	assert.Equal(t, wire.MCPServer{Command: "other", Args: []string{"x"}}, out["other"],
-		"every other entry passes through untouched")
-	assert.Equal(t, "/bundle/declared/ctxloom", src[MCPServerName].Command,
-		"the caller's map must not be mutated")
-
-	withheld := map[string]wire.MCPServer{"other": {Command: "other"}}
-	assert.Equal(t, withheld, resolvedManaged(withheld),
-		"a set with no ctxloom entry is returned unchanged — nothing invents one")
 }
 
 // TestManagedConfigChatMCPServers: the ManagedConfig-shaped entry point — the

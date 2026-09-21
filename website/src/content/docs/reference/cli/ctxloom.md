@@ -71,6 +71,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends
+* [ctxloom loadout](/reference/cli/ctxloom_loadout/)	 - Print ctxloom's ctxloom loadout — the content ctxloom contributes to a session
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)

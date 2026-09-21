@@ -66,8 +66,8 @@ func WithVersionResolver(fn func(cfg *config.Config) bundles.BundleVersionResolv
 }
 
 // WithReaderSource adds a factory for bundle readers a generation's Catalog
-// is resolved from, after the project and builtin readers: the lockfile's
-// pinned remotes, every discovered companion's loadout.
+// is resolved from, after the project reader: the lockfile's pinned remotes,
+// every discovered companion's loadout.
 func WithReaderSource(fn func(cfg *config.Config) []bundles.Reader) Option {
 	return func(s *Sources) { s.readerSources = append(s.readerSources, fn) }
 }
@@ -214,13 +214,11 @@ func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 // Readers are the bundle sources of cfg's generation, in precedence order —
 // a later reader wins a name collision, so pinned remote content shadows a
 // stale extracted copy on disk and a companion's own ref, which nothing else
-// can claim, comes last. The builtin reader's presence is what makes a
-// builtin bundle resolvable BY REF; its position is name precedence only.
+// can claim, comes last.
 func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
 	}
 	for _, source := range s.readerSources {
 		readers = append(readers, source(cfg)...)

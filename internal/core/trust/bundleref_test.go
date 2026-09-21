@@ -41,11 +41,6 @@ func TestBundleRef_AllFiveClassesRoundTrip(t *testing.T) {
 			kind: KindSkill, item: "kit",
 		},
 		{
-			name:  "builtin",
-			in:    "ctxloom+builtin:isolation#fragments/isolation-axes",
-			class: ClassBuiltin, bundle: "isolation", kind: KindFragment, item: "isolation-axes",
-		},
-		{
 			name:  "local nested",
 			in:    "ctxloom+local:lang/go#fragments/a",
 			class: ClassLocal, bundle: "lang/go", kind: KindFragment, item: "a",
@@ -219,7 +214,7 @@ func TestBundleRef_R1_PipeAndControlCharactersNeverPassThrough(t *testing.T) {
 			"ctxloom+file:///srv/we|ird//bundles/x",
 			"ctxloom+file:///srv/repo//bundles/a|b",
 			"ctxloom+local:tooling#fragments/a|b",
-			"ctxloom+builtin:we|ird",
+			"ctxloom+companion:we|ird",
 		} {
 			got, err := ParseBundleRef(in)
 			require.NoError(t, err, in)
@@ -236,7 +231,7 @@ func TestBundleRef_R1_PipeAndControlCharactersNeverPassThrough(t *testing.T) {
 			"ctxloom+local:tool\ning#fragments/a",
 			"ctxloom+local:tooling#fragments/a\rb",
 			"ctxloom+file:///srv/re\x00po//bundles/x",
-			"ctxloom+builtin:iso\x7flation",
+			"ctxloom+companion:iso\x7flation",
 		} {
 			_, err := ParseBundleRef(in)
 			require.Error(t, err, "accepted a control character in %q", in)
@@ -430,7 +425,7 @@ func TestBundleRef_R3_SameFoldCollisionsRefused(t *testing.T) {
 		// merge two unrelated items.
 		refs := []BundleRef{
 			mustParse("ctxloom+local:iso#fragments/isolation"),
-			mustParse("ctxloom+builtin:iso#fragments/Isolation"),
+			mustParse("ctxloom+companion:iso#fragments/Isolation"),
 		}
 		assert.NoError(t, CheckBundleRefFoldCollisions(refs))
 	})
@@ -640,20 +635,19 @@ func TestBundleRef_AtInANameIsDataNotAVersion(t *testing.T) {
 
 // TestBundleRef_VersionOnInternalClassesIsUniform pins U3's decision on the
 // one grammar divergence left open by U2: "@<version>" is accepted on the
-// three internal classes (builtin/local/companion) exactly as it is on
+// two internal classes (local/companion) exactly as it is on
 // git/file, rather than being a git/file-only affordance. The grammar stays
 // ONE rule ("at most one unescaped '@' before any '#' is a version, on every
 // class") instead of a per-class carve-out, and Identity/BundleIdentity
 // already drop Version uniformly, so accepting it here costs nothing: a
-// companion or builtin ref MAY carry a diagnostic version (e.g. the
-// companion binary's own release, or ctxloom's own build) without that
+// companion ref MAY carry a diagnostic version (e.g. the companion
+// binary's own release) without that
 // version ever entering what the reference keys as.
 func TestBundleRef_VersionOnInternalClassesIsUniform(t *testing.T) {
 	for _, tt := range []struct {
 		class SourceClass
 		in    string
 	}{
-		{ClassBuiltin, "ctxloom+builtin:isolation@1.2.3"},
 		{ClassLocal, "ctxloom+local:lang/go@1.2.3"},
 		{ClassCompanion, "ctxloom+companion:taskloom@1.2.3"},
 	} {
@@ -699,11 +693,7 @@ func TestBundleRef_MintersProduceParseableRefs(t *testing.T) {
 		assert.Equal(t, "ctxloom+file:///srv/content//bundles/lang/go", r.String())
 	})
 
-	t.Run("BuiltinRef, LocalRef, CompanionRef", func(t *testing.T) {
-		b, err := BuiltinRef("isolation")
-		require.NoError(t, err)
-		assert.Equal(t, "ctxloom+builtin:isolation", b.String())
-
+	t.Run("LocalRef, CompanionRef", func(t *testing.T) {
 		l, err := LocalRef("lang/go")
 		require.NoError(t, err)
 		assert.Equal(t, "ctxloom+local:lang/go", l.String())
@@ -770,7 +760,7 @@ func TestBundleRef_SyntaxRefusals(t *testing.T) {
 		{"selector without a name", "ctxloom+local:tooling#fragments"},
 		{"truncated percent escape", "ctxloom+local:too%"},
 		{"invalid percent escape", "ctxloom+local:too%zz"},
-		{"path on an internal class", "ctxloom+builtin://host/x"},
+		{"path on an internal class", "ctxloom+companion://host/x"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ParseBundleRef(tt.in)

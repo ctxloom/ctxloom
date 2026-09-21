@@ -6,12 +6,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"strings"
 
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
@@ -316,19 +319,28 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return seedItemContent(worldFrom(c), bundle, "commands", command, fixtureCommandBody(command))
 	})
 
-	// A bundle whose only content is the well-known `tooling` command
-	// operations.CollectTooling looks for, carrying a caller-chosen marker so a
-	// scenario can tell "the trust gate withheld this declaration" apart from
-	// "collection returned nothing at all".
-	ctx.Step(`^a bundle "([^"]*)" declaring container tooling "([^"]*)"$`, func(c context.Context, name, marker string) error {
-		body := fmt.Sprintf("version: 1.0.0\n"+
-			"description: declares agent-image tooling\n"+
-			"commands:\n"+
-			"  tooling:\n"+
-			"    description: tools this bundle's content needs in the agent image\n"+
-			"    content: |\n"+
-			"      %s: install the tools this bundle's content needs.\n", marker)
-		return worldFrom(c).env.WriteFile(bundleFilePath(name), body)
+	// A companion whose loadout declares only typed init.tooling — what
+	// operations.CollectTooling reads — carrying a caller-chosen marker so a
+	// scenario can tell "the gate withheld this declaration" apart from
+	// "collection returned nothing at all". Installed under the
+	// ctxloom-companion-<name> discovery convention, signed by the scenario's
+	// fixture key, so ctxloom executes it.
+	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)"$`, func(c context.Context, name, marker string) error {
+		return installToolingCompanion(worldFrom(c), name, marker)
+	})
+
+	// The same companion, but its binary is signed by a key this project does
+	// not trust — refused at exec, so its declaration never enters the process.
+	ctx.Step(`^a companion "([^"]*)" declaring container tooling "([^"]*)", signed by a key this project does not trust$`, func(c context.Context, name, marker string) error {
+		w := worldFrom(c)
+		if err := installToolingCompanion(w, name, marker); err != nil {
+			return err
+		}
+		path, err := exec.LookPath("ctxloom-companion-" + name)
+		if err != nil {
+			return fmt.Errorf("the fake companion %q is not on PATH after install: %w", name, err)
+		}
+		return signCompanionWithUntrustedKey(w, path)
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a
@@ -600,4 +612,17 @@ func runFixture(c context.Context, args ...string) error {
 		return fmt.Errorf("fixture %v failed (exit %d): %s", args, code, w.env.LastOutput())
 	}
 	return nil
+}
+
+// installToolingCompanion installs a fake companion ctxloom-companion-<name>
+// whose loadout is a v2 document declaring marker as its typed init.tooling.
+func installToolingCompanion(w *World, name, marker string) error {
+	bin := "ctxloom-companion-" + name
+	doc := fmt.Sprintf("init:\n  tooling: %q\n", marker+": install the tools this companion's content needs.")
+	envelope, err := signing.EncodeLoadoutEnvelope([]byte(doc), nil, "")
+	if err != nil {
+		return fmt.Errorf("encode %s loadout envelope: %w", bin, err)
+	}
+	versionJSON := fmt.Sprintf(`{"name":%q,"version":"0.0.0-fixture"}`, bin)
+	return w.env.InstallFakeCompanion(bin, versionJSON, string(envelope))
 }

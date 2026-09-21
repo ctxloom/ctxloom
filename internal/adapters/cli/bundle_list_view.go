@@ -36,6 +36,9 @@ type bundleListRow struct {
 	RetractedReason string `json:"retracted_reason,omitempty"`
 	Signed          bool   `json:"signed"`
 	Signer          string `json:"signer,omitempty"`
+	// SelfSigned: ctxloom's own loadout, whose signature verified but is
+	// circular — Signed without a Signer, and deliberately not "unsigned".
+	SelfSigned bool `json:"self_signed,omitempty"`
 }
 
 func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
@@ -54,8 +57,9 @@ func newBundleListRow(info *bundles.BundleInfo) bundleListRow {
 		Held:            info.Held,
 		Retracted:       info.Retracted,
 		RetractedReason: info.RetractedReason,
-		Signed:          info.Signer != "",
+		Signed:          info.Signer != "" || info.SelfSigned,
 		Signer:          info.Signer,
+		SelfSigned:      info.SelfSigned,
 	}
 }
 
@@ -88,6 +92,7 @@ type bundleShowView struct {
 	Installation string                        `json:"installation,omitempty"`
 	Signed       bool                          `json:"signed"`
 	Signer       string                        `json:"signer,omitempty"`
+	SelfSigned   bool                          `json:"self_signed,omitempty"`
 	Fragments    map[string]bundleShowFragment `json:"fragments,omitempty"`
 	Commands     map[string]bundleShowCommand  `json:"commands,omitempty"`
 	MCP          map[string]bundleShowMCP      `json:"mcp,omitempty"`
@@ -144,8 +149,9 @@ func newBundleShowView(b *bundles.Bundle) bundleShowView {
 		Tags:         b.Tags,
 		Notes:        b.Notes,
 		Installation: b.Installation,
-		Signed:       b.Signer() != "",
+		Signed:       b.Signer() != "" || b.SelfSigned(),
 		Signer:       b.Signer(),
+		SelfSigned:   b.SelfSigned(),
 	}
 	if len(b.Fragments) > 0 {
 		v.Fragments = make(map[string]bundleShowFragment, len(b.Fragments))

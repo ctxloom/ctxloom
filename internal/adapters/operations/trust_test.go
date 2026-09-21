@@ -202,16 +202,6 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			want:    trust.Deny,
 			source:  trust.SourceRejected,
 		},
-		{
-			name:    "rejection beats a builtin (a user can reject the ctxloom release key's content)",
-			records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.IsBuiltin && r.Bundle == "kit" && r.Name == "x" }},
-			ref:     trust.Ref{IsBuiltin: true, Bundle: "kit", Kind: trust.KindFragment, Name: "x"},
-			payload: pbytes("whatever"),
-			form:    rawForm,
-			signer:  trust.BuiltinSigner,
-			want:    trust.Deny,
-			source:  trust.SourceRejected,
-		},
 
 		// --- local first-party exemption (all kinds) ---
 		{
@@ -247,17 +237,6 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:  trust.SourceLocal,
 		},
 
-		// --- builtin ---
-		{
-			name:    "builtin allowed by default at its own step",
-			ref:     trust.Ref{IsBuiltin: true, Bundle: "kit", Kind: trust.KindFragment, Name: "x"},
-			payload: pbytes("builtin body"),
-			form:    rawForm,
-			signer:  trust.BuiltinSigner,
-			want:    trust.Allow,
-			source:  trust.SourceBuiltin,
-		},
-
 		// --- retracted (step 2): a peer of rejected, beats every allow below ---
 		{
 			name:       "retracted bundle denies, beating a trusted signer",
@@ -280,27 +259,17 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			source:     trust.SourceTrustedSigner,
 		},
 		{
-			// Retraction is a REMOTE-manifest concept and local/builtin refs never
+			// Retraction is a REMOTE-manifest concept and local refs never
 			// carry a lockfile entry in production (RetractionRecords.Retracted
-			// guards on RepoURL/IsLocal/IsBuiltin) — but the DECISION FUNCTION's
+			// guards on RepoURL/IsLocal) — but the DECISION FUNCTION's
 			// ordering is still exercised directly here, the same way the rejected
-			// block above proves rejection beats local/builtin regardless of
+			// block above proves rejection beats local regardless of
 			// whether a real store would ever produce that combination.
 			name:       "retraction ordering beats the local exemption",
 			retraction: fakeRetraction{retracted: func(r trust.Ref) (bool, string) { return r.IsLocal && r.Bundle == "dev", "withdrawn" }},
 			ref:        trust.Ref{IsLocal: true, Bundle: "dev", Kind: trust.KindFragment, Name: "x"},
 			payload:    pbytes("x"),
 			form:       rawForm,
-			want:       trust.Deny,
-			source:     trust.SourceRetracted,
-		},
-		{
-			name:       "retraction ordering beats the builtin exemption",
-			retraction: fakeRetraction{retracted: func(r trust.Ref) (bool, string) { return r.IsBuiltin && r.Bundle == "kit", "withdrawn" }},
-			ref:        trust.Ref{IsBuiltin: true, Bundle: "kit", Kind: trust.KindFragment, Name: "x"},
-			payload:    pbytes("x"),
-			form:       rawForm,
-			signer:     trust.BuiltinSigner,
 			want:       trust.Deny,
 			source:     trust.SourceRetracted,
 		},
@@ -332,15 +301,6 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 			signer:  trustedPublisher,
 			want:    trust.Allow,
 			source:  trust.SourceTrustedSigner,
-		},
-		{
-			name:    "the synthetic builtin identity is NOT a trusted publisher on a non-builtin ref",
-			ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
-			payload: pbytes("x"),
-			form:    rawForm,
-			signer:  trust.BuiltinSigner, // must NOT launder into step 4
-			want:    trust.Deny,
-			source:  trust.SourcePending,
 		},
 		{
 			name:    "unsigned remote item is NOT trusted (pending)",
@@ -735,15 +695,14 @@ func TestResolveItemAsk_Grammar(t *testing.T) {
 	}).Catalog()
 
 	tests := []struct {
-		name        string
-		ref         string
-		wantRepo    string
-		wantBundle  string
-		wantKind    trust.ItemKind
-		wantName    string
-		wantLocal   bool
-		wantBuiltin bool
-		wantErr     bool
+		name       string
+		ref        string
+		wantRepo   string
+		wantBundle string
+		wantKind   trust.ItemKind
+		wantName   string
+		wantLocal  bool
+		wantErr    bool
 	}{
 		{
 			name: "canonical remote fragment", ref: "ctxloom+git://github.com/acme/repo//bundles/tooling#fragments/solid",
@@ -757,11 +716,7 @@ func TestResolveItemAsk_Grammar(t *testing.T) {
 			name: "plain local bundle name, prompts spelling of the command kind", ref: "myb#prompts/review",
 			wantBundle: "myb", wantKind: trust.KindPrompt, wantName: "review", wantLocal: true,
 		},
-		{
-			name: "canonical builtin", ref: "ctxloom+builtin:taskloom#mcp/taskloom",
-			wantBundle: "taskloom", wantKind: trust.KindMCP, wantName: "taskloom", wantBuiltin: true,
-		},
-		// A companion loadout ref must land as neither local nor builtin, so
+		// A companion loadout ref must land as not local, so
 		// it reaches EffectiveTrust's trusted-signer/approved/pending steps
 		// like any other third-party content. See
 		// TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable for
@@ -808,9 +763,9 @@ func TestResolveItemAsk_Grammar(t *testing.T) {
 			}
 			tref := trust.RefFromBundleRef(br)
 			if tref.RepoURL != tt.wantRepo || tref.Bundle != tt.wantBundle || tref.Kind != tt.wantKind ||
-				tref.Name != tt.wantName || tref.IsLocal != tt.wantLocal || tref.IsBuiltin != tt.wantBuiltin {
-				t.Errorf("got %+v, want repo=%q bundle=%q kind=%q name=%q local=%v builtin=%v",
-					tref, tt.wantRepo, tt.wantBundle, tt.wantKind, tt.wantName, tt.wantLocal, tt.wantBuiltin)
+				tref.Name != tt.wantName || tref.IsLocal != tt.wantLocal {
+				t.Errorf("got %+v, want repo=%q bundle=%q kind=%q name=%q local=%v",
+					tref, tt.wantRepo, tt.wantBundle, tt.wantKind, tt.wantName, tt.wantLocal)
 			}
 		})
 	}
@@ -846,7 +801,6 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	tref := trust.RefFromBundleRef(br)
 	assert.True(t, tref.IsCompanion, "the companion flag must ride the same parse the ref does")
 	assert.False(t, tref.IsLocal, "a companion is its OWN exemption step, never laundered through the local one")
-	assert.False(t, tref.IsBuiltin, "a companion loadout is not compiled into this binary")
 	assert.Equal(t, remote.CompanionSource, tref.RepoURL)
 	assert.Equal(t, "ltk", tref.Bundle)
 
@@ -917,13 +871,18 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 			"the store-fault gate runs above EVERY exemption, this one included")
 	})
 
-	t.Run("an unreadable lockfile still withholds companion content", func(t *testing.T) {
-		// Deliberate asymmetry with local/builtin, pinned so nobody "tidies"
-		// it away: a companion ref carries a RepoURL, so it stays in
-		// retractable()'s scope, and step 2a can therefore only make companion
-		// content MORE withheld — never less. Relaxing a fail-closed gate is
-		// not part of making companion CONTENT local-equivalent.
-		assert.NotEmpty(t, tref.RepoURL, "a companion ref carries a RepoURL and stays in the retraction-fault scope")
+	t.Run("an unreadable lockfile does NOT withhold companion content", func(t *testing.T) {
+		// A retraction is a publisher's withdrawal recorded in the LOCKFILE,
+		// and a companion loadout has no lockfile entry: its RepoURL is the
+		// fixed ctxloom:companion token, not a repository anything could
+		// retract. So the retraction-fault gate has nothing to protect here —
+		// there is no withdrawn-companion state an unreadable lockfile could
+		// be hiding — and withholding on it only costs the session ctxloom's
+		// own loadout (its MCP server, its guidance) in a project-less start
+		// whose HOME lockfile is broken. The approvals-store fault above is
+		// different: a rejection CAN cover companion content, so that gate
+		// stays fail-closed for it.
+		assert.NotEmpty(t, tref.RepoURL, "a companion ref carries the fixed token as its RepoURL")
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
@@ -931,8 +890,8 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 			Retraction: faultedRetraction{assert.AnError},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, trust.Deny, res.Decision)
-		assert.Equal(t, trust.SourcePending, res.Source)
+		assert.Equal(t, trust.Allow, res.Decision)
+		assert.Equal(t, trust.SourceCompanion, res.Source)
 	})
 }
 

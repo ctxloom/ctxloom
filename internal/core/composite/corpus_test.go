@@ -1,6 +1,7 @@
 package composite_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -80,10 +81,25 @@ commands:
 // corpus builds the catalog over the in-memory bundles.
 func corpus(t *testing.T) bundles.Catalog {
 	t.Helper()
+	return corpusWith(t)
+}
+
+// corpusWith is corpus plus the given companion loadouts, read by the
+// companion reader under their ctxloom:companion@<bin> refs — the source
+// class whose fragments assembly delivers unconditionally.
+func corpusWith(t *testing.T, companions ...bundles.CompanionLoadout) bundles.Catalog {
+	t.Helper()
 	fs := afero.NewMemMapFs()
 	testsupport.SeedTree(t, fs, paths.BundlesLayoutRoot("/app", paths.LayoutV2), map[string]string{
 		"alpha.yaml": alphaYAML,
 		"beta.yaml":  betaYAML,
 	})
-	return bundles.NewLoader(bundles.NewProjectReader(fs, []string{"/app"})).Catalog()
+	readers := []bundles.Reader{bundles.NewProjectReader(fs, []string{"/app"})}
+	if len(companions) > 0 {
+		probe := func(context.Context) (bundles.CompanionProbe, error) {
+			return bundles.CompanionProbe{Loadouts: companions}, nil
+		}
+		readers = append(readers, bundles.NewCompanionReader(probe))
+	}
+	return bundles.NewLoader(readers...).Catalog()
 }

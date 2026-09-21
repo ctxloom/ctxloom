@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // --- DiscoverCompanions: first-party UNION ctxloom-companion-* on PATH -----
@@ -198,8 +199,8 @@ func TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld(t *testing
 
 	// Sign one payload, ship a DIFFERENT one under that signature — the exact
 	// shape a companion release with a stale .sig produces.
-	signed := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: OLD\n")
-	shipped := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: NEW\n")
+	signed := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: OLD\n")
+	shipped := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: NEW\n")
 	sig, err := signing.Sign(signed, sshSigner, signing.NamespacePublish)
 	require.NoError(t, err)
 	envelope, err := signing.EncodeLoadoutEnvelope(shipped, sig, "ltk@example.com")
@@ -243,7 +244,7 @@ func TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld(t *testing.
 	require.NoError(t, err)
 	sshSigner, err := ssh.NewSignerFromSigner(priv)
 	require.NoError(t, err)
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
 	require.NoError(t, err)
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "stranger@example.com")
@@ -279,7 +280,7 @@ func TestProbeCompanionLoadouts_UnsignedLoadoutSeededWithEmptySigner(t *testing.
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
 	require.NoError(t, err)
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
@@ -309,7 +310,7 @@ func TestProbeCompanionLoadouts_SignedByTrustedKeySeededWithPrincipal(t *testing
 	sshPub, err := ssh.NewPublicKey(pub)
 	require.NoError(t, err)
 
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
 	require.NoError(t, err)
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "ltk@example.com")
@@ -347,8 +348,8 @@ func TestProbeCompanionLoadouts_AdvisorySignerFieldNeverTrusted(t *testing.T) {
 		PublicKey:  sshPub,
 	})
 
-	bundleYAML := []byte("version: \"1.0.0\"\n")
-	forged := []byte(`{"contract":"ctxloom-loadout/1","bundle":"` + base64.StdEncoding.EncodeToString(bundleYAML) + `","signer":"ltk@example.com"}`)
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\n")
+	forged := []byte(`{"contract":"` + signing.LoadoutContract + `","loadout":"` + base64.StdEncoding.EncodeToString(bundleYAML) + `","signer":"ltk@example.com"}`)
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return forged, nil })
 	defer restoreProbe()
 
@@ -368,7 +369,7 @@ func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
 	require.NoError(t, err)
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
@@ -451,7 +452,7 @@ commands:
 
 func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte, error) {
 	t.Helper()
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(bundleYAML), nil, "")
 	require.NoError(t, err)
 	return func(string) ([]byte, error) { return envelope, nil }
 }
@@ -541,52 +542,6 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 	})
 }
 
-func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
-	defer restoreProbe()
-
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(appDir, 0o755))
-
-	t.Run("trusted gate: companion fragment is included, ref carries the companion source (not builtin:)", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
-		var seenRef string
-		var seenSignature bundles.Signature
-		var seenSigner bundles.Signer
-		got := cfg.ResolveBuiltinBundleFragments(bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
-			seenRef = e.RefString()
-			seenSignature, seenSigner = e.Read.Signature(), e.Read.Signer()
-			return bundles.Verdict{Allow: true, Reason: bundles.ReasonCompanion}
-		}))
-		var found bool
-		for _, f := range got {
-			if f.Name == "ctxloom+companion:ltk#fragments/ltk" {
-				found = true
-			}
-		}
-		assert.True(t, found, "companion fragment must be present with the companion's own ref, not a builtin: ref")
-		assert.Equal(t, "ctxloom+companion:ltk#fragments/ltk", seenRef)
-		// The read's own axes, not a collapsed signer string: an unsigned
-		// loadout reports none/none as a FACT. An empty signer string alone
-		// could not: it means both "unsigned" and "signed by a key we
-		// distrust" equally.
-		assert.Equal(t, bundles.SignatureNone, seenSignature, "this loadout is unsigned")
-		assert.Equal(t, bundles.SignerNone, seenSigner, "and so names no key")
-	})
-
-	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
-		cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
-		got := cfg.ResolveBuiltinBundleFragments(testAuthorizer(false))
-		for _, f := range got {
-			assert.NotEqual(t, "ctxloom+companion:ltk#fragments/ltk", f.Name,
-				"a companion fragment must be withheld by a denying gate — a true builtin fragment is exempt and would NOT be")
-		}
-	})
-}
-
 // TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers is the
 // regression guard for a bug where a profile's exclude_mcp could not exclude a
 // COMPANION-shipped (or builtin-shipped) MCP server: the `excluded` set was
@@ -638,41 +593,4 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 		assert.Contains(t, result, "ltk-server",
 			"hoisting the exclusion set must not withhold servers nobody excluded")
 	})
-}
-
-// A companion loadout fragment's PREMISE must survive the projection into
-// config.BuiltinFragment. It did not: the field simply was not on the struct, so an
-// authored premise was accepted by the schema, surfaced in the premise INDEX
-// from the catalog, and then discarded here — leaving assembly to deliver the
-// body anyway. The agent was offered a menu item its context already carried,
-// which is worse than not supporting premises at all.
-//
-// Measured when this was fixed: the unconditional companion floor under every
-// profile fell from 14,323 bytes to 3,475.
-func TestResolveBuiltinBundleFragments_CarriesThePremise(t *testing.T) {
-	admitEveryDiscoveredCompanion(t)
-	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
-	defer restoreLook()
-	restoreProbe := SetCompanionLoadoutOutputForTesting(fakeCompanionEnvelope(t, companionLoadoutWithEverything))
-	defer restoreProbe()
-
-	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	cfg := companionConfig(t, config.Fixture{AppPaths: []string{appDir}})
-
-	gate := bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
-		return bundles.Verdict{Allow: true, Reason: bundles.ReasonCompanion}
-	})
-
-	var found *config.BuiltinFragment
-	for _, f := range cfg.ResolveBuiltinBundleFragments(gate) {
-		if strings.Contains(f.Name, "fragments/ltk") {
-			frag := f
-			found = &frag
-		}
-	}
-	require.NotNil(t, found, "precondition: the companion fragment must resolve at all")
-	require.Equal(t, "You are about to run a shell command this project redirects.", found.Premise,
-		"the authored premise must reach config.BuiltinFragment, or assembly cannot honour it")
-	require.NotEmpty(t, found.Content, "the body still travels; the premise decides whether it is DELIVERED")
 }

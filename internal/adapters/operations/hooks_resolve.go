@@ -22,9 +22,6 @@ const (
 	// SourceKindProfileDirectory: a directory profile's own `hooks:` block.
 	// Source names the profile.
 	SourceKindProfileDirectory = string(backends.HookOriginProfileDirectory)
-	// SourceKindBuiltin: a bundle compiled into the ctxloom binary. Source is
-	// "builtin:<name>".
-	SourceKindBuiltin = string(backends.HookOriginBuiltin)
 	// SourceKindCompanion: a companion binary's loadout, discovered on PATH.
 	// Source is "ctxloom:companion@<bin>".
 	SourceKindCompanion = string(backends.HookOriginCompanion)
@@ -109,7 +106,7 @@ func resolvedHookEventOrder() []string { return backends.HookEvents() }
 // # Why this resolves through the APPLY path rather than reading bundles
 //
 // The order a user gets is emergent: config-level hooks, then inline profiles,
-// then gated directory profiles, then builtins, then companions, then each
+// then gated directory profiles, then companions, then each
 // profile's bundles — merged by pure APPEND, with each bundle's own `order:`
 // sequencing only its own hooks within an event. No single input states the
 // result, which is exactly why the result was invisible.

@@ -453,7 +453,7 @@ func TestSearchContent_SearchProfiles(t *testing.T) {
 }
 
 func TestSearchContent_SearchMCPServers(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}}))
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
 		Query: "ctxloom",
@@ -464,7 +464,7 @@ func TestSearchContent_SearchMCPServers(t *testing.T) {
 	assert.Equal(t, 1, result.Count)
 	assert.Equal(t, "mcp_server", result.Results[0].Type)
 	assert.Equal(t, "ctxloom", result.Results[0].Name,
-		"ctxloom's own server, injected by the builtin ctxloom bundle, must be searchable")
+		"ctxloom's own server, declared by its own companion loadout, must be searchable")
 }
 
 func TestSearchContent_MultipleTypes(t *testing.T) {

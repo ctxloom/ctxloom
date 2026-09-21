@@ -10,11 +10,9 @@ import (
 
 // loadoutYAML is ltk's own ctxloom loadout — the bundle content ltk
 // contributes to a ctxloom session (signature-envelope spec §4.3). It is the
-// single source of truth for what ltk tells ctxloom about itself: the ltk
-// fragment, the pre-tool hook registration, and the task-runner setup command.
-// It replaces the formerly-embedded resources/builtin_bundles/ltk.yaml on
-// the ctxloom side (now deleted) — ctxloom discovers this binary on PATH and
-// execs `ltk loadout --format json` instead of vendoring this content.
+// single source of truth for what ltk tells ctxloom about itself — ctxloom
+// discovers this binary on PATH and execs `ltk loadout --format json` rather
+// than vendoring this content.
 //
 //go:embed loadout.yaml
 var loadoutYAML []byte

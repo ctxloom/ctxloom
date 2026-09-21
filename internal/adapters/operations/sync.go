@@ -542,8 +542,8 @@ func addRemoteBundleBase(bundleSet collections.Set[string], ref, owner string) {
 // retired prefixes, so every canonical ctxloom+<class>: ref answered "not
 // remote" and was reported as a missing local profile.
 //
-// Self-contained is necessary but not sufficient: the local, builtin and
-// companion classes are self-contained and are NOT fetched. refuri.Parts
+// Self-contained is necessary but not sufficient: the local and companion
+// classes are self-contained and are NOT fetched. refuri.Parts
 // .IsExternal is the vocabulary-driven answer to which classes address a
 // repository, so a class added to refuri.Classes without being handled there
 // fails that package's exhaustiveness test rather than being misread here.

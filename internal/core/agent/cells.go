@@ -238,7 +238,7 @@ type KindedDelivery interface {
 // SurfaceInputs is the shared, per-run superset of everything a backend's
 // surfaces write: the assembled context (as a string for the ContextWriter-core
 // engines, and the raw fragments for codex's file writer), the merged MCP config
-// + profile/builtin bundle servers, the merged hook set + statusline policy, and
+// + profile/companion bundle servers, the merged hook set + statusline policy, and
 // the command exports. Setup fills it once (from req + the merged lifecycle state)
 // and hands it to every selected approach's Construct, which picks the fields
 // IT needs. It is the cross-backend contract that lets the generic Setup build

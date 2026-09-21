@@ -16,65 +16,85 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestResolveSetupPrompt_NoCommandsIsBuiltinAlone proves the built-in alone is
-// returned when nothing installed ships an `agent-setup` command, and that a nil
-// config is safe (never blocks setup).
-func TestResolveSetupPrompt_NoCommandsIsBuiltinAlone(t *testing.T) {
+// fakeCompanions installs one fake companion per entry — bin name → the
+// loadout DOCUMENT its `loadout --format json` probe emits (unsigned) — and
+// admits every one of them for execution. The restore is wired to t.Cleanup.
+func fakeCompanions(t *testing.T, docs map[string]string) {
+	t.Helper()
+	t.Cleanup(companions.AdmitEveryDiscoveredCompanionForTesting())
+	t.Setenv("HOME", t.TempDir())
+
+	paths := make(map[string]string, len(docs))
+	envelopes := make(map[string][]byte, len(docs))
+	for bin, doc := range docs {
+		path := "/fake/" + bin
+		paths[bin] = path
+		env, err := signing.EncodeLoadoutEnvelope([]byte(doc), nil, "")
+		require.NoError(t, err)
+		envelopes[path] = env
+	}
+	t.Cleanup(companions.SetLookPathForTesting(func(bin string) (string, error) {
+		if p, ok := paths[bin]; ok {
+			return p, nil
+		}
+		return "", exec.ErrNotFound
+	}))
+	t.Cleanup(companions.SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+		env, ok := envelopes[path]
+		if !ok {
+			return nil, exec.ErrNotFound
+		}
+		return env, nil
+	}))
+}
+
+// TestResolveSetupPrompt_NoGuidanceIsBuiltinAlone proves the built-in alone
+// is returned when no installed companion declares setup guidance, and that a
+// nil config is safe (never blocks setup).
+func TestResolveSetupPrompt_NoGuidanceIsBuiltinAlone(t *testing.T) {
 	testsupport.Isolate(t)
+	fakeCompanions(t, map[string]string{
+		"ltk": "run:\n  version: 1.0.0\n  fragments:\n    ltk:\n      content: RUN-ONLY\n",
+	})
 	appDir, _ := regenTestApp(t)
-	writeRegenBundle(t, appDir, "misc", `version: "1.0"
-commands:
-  something-else:
-    content: "UNRELATED"
-`)
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(cfg, "BUILTIN"),
-		"no agent-setup command installed → the built-in prompt alone")
+	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(published(t, cfg), "BUILTIN"),
+		"no companion declares setup_guidance → the built-in prompt alone")
 	assert.Equal(t, "BUILTIN", ResolveSetupPrompt(nil, "BUILTIN"),
 		"a nil config is safe and falls back to the built-in")
 }
 
-// TestResolveSetupPrompt_OneCommandAugmentsBuiltin proves a bundle shipping a
-// single `agent-setup` command ADDS to the built-in rather than replacing it —
-// "bundles can ship setup guidance" now means augment, not override.
-func TestResolveSetupPrompt_OneCommandAugmentsBuiltin(t *testing.T) {
+// TestResolveSetupPrompt_CompanionSetupGuidanceAugmentsBuiltin proves a
+// companion's TYPED `init.setup_guidance` ADDS to the built-in rather than
+// replacing it: setup guidance is a field of the INIT loadout, read by name
+// from the parsed document — not a command that happens to be called
+// `agent-setup`.
+func TestResolveSetupPrompt_CompanionSetupGuidanceAugmentsBuiltin(t *testing.T) {
 	testsupport.Isolate(t)
+	fakeCompanions(t, map[string]string{
+		"ltk": "run:\n  version: 1.0.0\ninit:\n  setup_guidance: COMPANION-SHIPPED-SETUP-GUIDANCE\n",
+	})
 	appDir, _ := regenTestApp(t)
-	writeRegenBundle(t, appDir, "onboarding", `version: "1.0"
-commands:
-  agent-setup:
-    content: "BUNDLE-SHIPPED-SETUP-PROMPT"
-`)
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	got := ResolveSetupPrompt(cfg, "BUILTIN-DEFAULT")
+	got := ResolveSetupPrompt(published(t, cfg), "BUILTIN-DEFAULT")
 	assert.Contains(t, got, "BUILTIN-DEFAULT", "the built-in guidance must still be present")
-	assert.Contains(t, got, "BUNDLE-SHIPPED-SETUP-PROMPT", "the bundle's agent-setup content must be added")
+	assert.Contains(t, got, "COMPANION-SHIPPED-SETUP-GUIDANCE", "the companion's typed setup_guidance must be added")
 }
 
-// TestResolveSetupPrompt_TwoCommandsComposeInStableOrder proves TWO installed
-// agent-setup commands (e.g. a personal repo's and a company repo's) both land
-// in the composed prompt, alongside the built-in, in a deterministic
-// (sorted-by-command-name) order regardless of which bundle happened to load
-// first.
-func TestResolveSetupPrompt_TwoCommandsComposeInStableOrder(t *testing.T) {
+// TestResolveSetupPrompt_TwoCompanionsComposeInStableOrder proves TWO
+// companions' guidance both land in the composed prompt, alongside the
+// built-in, in a deterministic (sorted-by-companion-ref) order regardless of
+// which probe returned first.
+func TestResolveSetupPrompt_TwoCompanionsComposeInStableOrder(t *testing.T) {
 	testsupport.Isolate(t)
+	fakeCompanions(t, map[string]string{
+		"taskloom": "init:\n  setup_guidance: ZEBRA-SETUP-CONTENT\n",
+		"ltk":      "init:\n  setup_guidance: ALPHA-SETUP-CONTENT\n",
+	})
 	appDir, _ := regenTestApp(t)
-	// "alpha-onboarding" sorts before "zebra-onboarding" by bundle-qualified
-	// command name, so the composed order is deterministic across repeated runs
-	// regardless of directory listing order.
-	writeRegenBundle(t, appDir, "zebra-onboarding", `version: "1.0"
-commands:
-  agent-setup:
-    content: "ZEBRA-SETUP-CONTENT"
-`)
-	writeRegenBundle(t, appDir, "alpha-onboarding", `version: "1.0"
-commands:
-  agent-setup:
-    content: "ALPHA-SETUP-CONTENT"
-`)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
 	require.Contains(t, got, "BUILTIN")
@@ -83,66 +103,51 @@ commands:
 	assert.Less(t, strings.Index(got, "BUILTIN"), strings.Index(got, "ALPHA-SETUP-CONTENT"),
 		"the built-in leads every contribution")
 	assert.Less(t, strings.Index(got, "ALPHA-SETUP-CONTENT"), strings.Index(got, "ZEBRA-SETUP-CONTENT"),
-		"alpha-onboarding#agent-setup sorts before zebra-onboarding#agent-setup")
+		"ctxloom+companion:ltk sorts before ctxloom+companion:taskloom")
 
-	// Re-resolving must reproduce the exact same order — this is a
-	// deterministic composition, not an accident of one run's map iteration.
 	again := ResolveSetupPrompt(cfg, "BUILTIN")
 	assert.Equal(t, got, again, "composition order must be stable across repeated resolutions")
 }
 
-// TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin proves that a
-// companion loadout's `agent-setup` command lands in
-// the SAME seeded set a repo bundle's does (config.go's SeededBundleLoader
-// merges loadRemoteBundleSeed and companionBundleSeed into one map), so
-// composing over ListAllCommands picks up an installed companion's setup
-// guidance with no separate companion-specific lookup in this package.
-func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T) {
-	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
+// TestResolveSetupPrompt_MagicCommandNameNoLongerContributes pins the clean
+// break: a command that happens to be named `agent-setup` — in a project
+// bundle or in a companion's RUN loadout — is an ordinary command and reaches
+// the init prompt exactly as much as any other command does: not at all. The
+// convention it replaced silently no-op'd on a typo and was never actually
+// used by any companion; nothing may keep reading it.
+func TestResolveSetupPrompt_MagicCommandNameNoLongerContributes(t *testing.T) {
 	testsupport.Isolate(t)
-	t.Setenv("HOME", t.TempDir())
-
-	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
-		if bin == "ltk" {
-			return "/fake/ltk", nil
-		}
-		return "", exec.ErrNotFound
+	fakeCompanions(t, map[string]string{
+		"ltk": "run:\n  version: 1.0.0\n  commands:\n    agent-setup:\n      content: COMPANION-MAGIC-COMMAND\n",
 	})
-	defer restoreLook()
-
-	bundleYAML := []byte("version: \"1.0.0\"\ncommands:\n  agent-setup:\n    content: COMPANION-SHIPPED-SETUP-PROMPT\n")
-	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
-	require.NoError(t, err)
-	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-	defer restoreProbe()
-
-	appDir, _ := regenTestApp(t)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
-
-	got := ResolveSetupPrompt(published(t, cfg), "BUILTIN")
-	assert.Contains(t, got, "BUILTIN", "the built-in guidance must still be present")
-	assert.Contains(t, got, "COMPANION-SHIPPED-SETUP-PROMPT",
-		"an installed companion's agent-setup command must be composed in exactly like a repo bundle's")
-}
-
-// TestResolveSetupPrompt_HealthyPathNeverWarns is a regression net: the two
-// clidiag.Warn calls (listing-failure, per-ref read-failure) fire only on
-// their respective error paths, never on an ordinary successful composition.
-func TestResolveSetupPrompt_HealthyPathNeverWarns(t *testing.T) {
-	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)
 	writeRegenBundle(t, appDir, "onboarding", `version: "1.0"
 commands:
   agent-setup:
-    content: "BUNDLE-SHIPPED-SETUP-PROMPT"
+    content: "PROJECT-MAGIC-COMMAND"
 `)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+
+	got := ResolveSetupPrompt(cfg, "BUILTIN")
+	assert.Equal(t, "BUILTIN", got, "a command named agent-setup is not setup guidance")
+}
+
+// TestResolveSetupPrompt_HealthyPathNeverWarns is a regression net: the
+// clidiag.Warn calls fire only on their error paths, never on an ordinary
+// successful composition.
+func TestResolveSetupPrompt_HealthyPathNeverWarns(t *testing.T) {
+	testsupport.Isolate(t)
+	fakeCompanions(t, map[string]string{
+		"ltk": "init:\n  setup_guidance: COMPANION-SHIPPED-SETUP-GUIDANCE\n",
+	})
+	appDir, _ := regenTestApp(t)
+	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
 	got := ResolveSetupPrompt(cfg, "BUILTIN")
-	assert.Contains(t, got, "BUNDLE-SHIPPED-SETUP-PROMPT")
+	assert.Contains(t, got, "COMPANION-SHIPPED-SETUP-GUIDANCE")
 	assert.Empty(t, buf.String(), "a healthy composition must never warn")
 }

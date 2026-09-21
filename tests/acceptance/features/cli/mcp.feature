@@ -34,20 +34,20 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       When the agent reads resource "ctxloom://mcp-servers"
       Then the resource contains "toolserver"
 
-  Rule: ctxloom's own MCP server ships in a builtin bundle, so it needs no configuration
+  Rule: ctxloom's own MCP server ships in ctxloom's own companion loadout, so it needs no configuration
 
     # The entry whose absence costs the user every ctxloom tool. Nothing in
-    # the project asks for it: the builtin ctxloom bundle is injected into
-    # every session unconditionally, which is what makes "composing the bundle
-    # registers the server" true by default. The BUNDLE is asserted alongside
-    # the name — a name alone would still be satisfied by an implementation
-    # that hard-coded the entry back into the writers.
+    # the project asks for it: ctxloom is its own companion, and a companion's
+    # servers are registered in every session unconditionally, which is what
+    # makes "the loadout registers the server" true by default. The SOURCE is
+    # asserted alongside the name — a name alone would still be satisfied by an
+    # implementation that hard-coded the entry back into the writers.
     Scenario: A project that configures nothing still registers ctxloom's own server
       Given an initialized ctxloom project
       When I run "ctxloom mcp server list"
       Then the command succeeds
       And the output contains "ctxloom"
-      And the output contains "ctxloom+builtin:ctxloom-mcp"
+      And the output contains "ctxloom+companion:ctxloom"
 
   Rule: Showing a server surfaces its stored command, not just its name
 
@@ -72,9 +72,9 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle            | names the verb |
-        |               | ctxloom+builtin:ctxloom-mcp | serve           |
-        | --format json | ctxloom+builtin:ctxloom-mcp | serve           |
-        | --format text | ctxloom+builtin:ctxloom-mcp | mcp serve       |
+        |               | ctxloom+companion:ctxloom   | serve           |
+        | --format json | ctxloom+companion:ctxloom   | serve           |
+        | --format text | ctxloom+companion:ctxloom   | mcp serve       |
 
   Rule: There is no config-level MCP store to create in or remove from
 

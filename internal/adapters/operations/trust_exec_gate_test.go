@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -190,7 +191,7 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 	})
 	defer restoreLook()
 	envelope, err := signing.EncodeLoadoutEnvelope(
-		[]byte("version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n"), nil, "")
+		testsupport.RunLoadout("version: \"1.0.0\"\nmcp:\n  ltk-server:\n    command: ltk\n    args: [\"serve\"]\n"), nil, "")
 	require.NoError(t, err)
 	restoreProbe := companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 	defer restoreProbe()

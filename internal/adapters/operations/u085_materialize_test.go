@@ -7,47 +7,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
-// rejectEveryBuiltinFragment rejects the content of every fragment shipped in a
-// built-in bundle. The built-in fragments are unconditional — the isolation-axes
-// fragment lands in EVERY assembly — so without this an assembled context can
-// never be empty and the empty-context path is unreachable. A user rejecting a
-// builtin is a supported state: config_bundles.go routes builtins BELOW the
-// rejection step precisely "so a user can still reject a builtin".
-func rejectEveryBuiltinFragment(t *testing.T) {
-	t.Helper()
-	names, err := resources.ListBuiltinBundles()
-	require.NoError(t, err)
-	for _, name := range names {
-		data, err := resources.GetBuiltinBundle(name)
-		require.NoError(t, err)
-		var b bundles.Bundle
-		require.NoError(t, yaml.Unmarshal(data, &b))
-		for fragName, frag := range b.Fragments {
-			payload, form := frag.ContentPayload(false)
-			installUnsignedRejection(t,
-				trust.Ref{Bundle: name, Kind: trust.KindFragment, Name: fragName, IsLocal: true},
-				signing.Form(form), payload)
-		}
-	}
-}
-
 // emptyContextMaterializeFixture is materializeFixture with every source of
-// context removed: the profile selects a tag nothing carries and every builtin
-// fragment is rejected, so AssembleContext resolves cleanly to "".
+// context removed: the profile selects a tag nothing carries (and the fixture
+// reads no companion loadout), so AssembleContext resolves cleanly to "".
 func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	t.Helper()
 	cfg, target := materializeFixture(t, "UNSELECTED-CONTENT")
-	rejectEveryBuiltinFragment(t)
 	// Re-seed the fixture's profile so it selects a tag no fragment carries.
 	// materializeFixture writes "reviewer"; overwriting it here is what makes
 	// the assembled context empty — under the gate that reads the real

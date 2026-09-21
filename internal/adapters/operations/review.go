@@ -201,17 +201,17 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 // is obliged to say the key is not trusted — it is never returned as, or
 // alongside, an identity.
 //
-// trust.BuiltinSigner never appears as a principal here for exactly the reason
-// EffectiveTrust's trusted-signer step excludes it: it is a SYNTHETIC identity,
-// not a cryptographic one, and reporting it as a trusted publisher key would
-// launder "shipped inside this binary" into "a publisher you verified". A
-// builtin reads as unsigned, which is what it is; it is allowed as a builtin and
-// never appears in this listing anyway.
+// ctxloom's own loadout carries NO principal here even though its signature
+// verified: the companion reader withholds it because the verification is
+// circular (bundles.CompanionLoadout.Self), so a trusted-signer state with an
+// empty signer reads as unsigned rather than laundering "shipped inside this
+// binary" into "a publisher you verified". It is admitted as companion
+// content and never appears in this listing anyway.
 func reviewPublisherOf(read bundles.BundleRead) (state bundles.Reason, principal, fingerprint string) {
 	state = bundles.PublisherOf(read)
 	switch state {
 	case bundles.ReasonTrustedSigner:
-		if signer := read.Bundle.Signer(); signer != trust.BuiltinSigner {
+		if signer := read.Bundle.Signer(); signer != "" {
 			return state, signer, ""
 		}
 		return bundles.ReasonUnsigned, "", ""
@@ -396,11 +396,11 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// from the bundle's HONEST typed source (read.SourceRef(), the same
 	// typed field every producer mints from) through the canonical
 	// bundle-reference grammar — never from bundleRef (read.DisplayName(), a
-	// label) . The two disagree for a BUILTIN bundle, whose resolution ref is
-	// deliberately unqualified ("isolation") while its source ref carries its
-	// class — so composing an identity out of the display name reads a builtin
-	// item as Ref{IsLocal: true} instead of Ref{IsBuiltin: true}: a second,
-	// quietly-different construction of "the same" identity.
+	// label). The two can disagree: a resolution ref is deliberately
+	// unqualified while the source ref carries its class — so composing an
+	// identity out of the display name could read a non-local item as
+	// Ref{IsLocal: true}: a second, quietly-different construction of "the
+	// same" identity.
 	kind, parsedName, serr := trust.ParseSelector(kindDir + "/" + name)
 	if serr != nil {
 		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", asked, serr)

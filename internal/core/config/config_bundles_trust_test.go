@@ -97,13 +97,13 @@ func TestExtractMCPFromBundle_FailClosed(t *testing.T) {
 	assert.Empty(t, got, "fail-closed: a deny-all gate withholds every MCP server")
 }
 
-// TestExtractMCPFromBundle_NilGate_Ungated proves builtin/management callers
+// TestExtractMCPFromBundle_NilGate_Ungated proves management/listing callers
 // (nil gate) resolve every server unchanged — no enforcement.
 func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustBuiltinRef(t, "tools"), composite.Ungated().Authorizer())
+	got := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", b), mustLocalRef(t, "tools"), composite.Ungated().Authorizer())
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 
@@ -183,9 +183,6 @@ func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
 // TestResolveBundleHooks_GatedEndToEnd drives the full path for hooks: a denied
 // profile-bundle hook is absent while a trusted one survives.
 func TestResolveBundleHooks_GatedEndToEnd(t *testing.T) {
-	restore := SetLookPathForTesting(func(string) (string, error) { return "/usr/bin/x", nil })
-	defer restore()
-
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
 	bundlesDir := paths.LocalBundlesPathFor(appDir, paths.LayoutV2)

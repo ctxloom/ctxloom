@@ -63,7 +63,6 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 		[]string{
 			identity + "#fragments/reviewer-base",
 			identity + "#fragments/security",
-			builtinIsolationFragmentRef,
 		},
 		res.FragmentsLoaded)
 	assert.Contains(t, res.Context, "REVIEWER-BASE")

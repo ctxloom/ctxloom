@@ -99,48 +99,74 @@ type assembly struct {
 	findings     []Finding
 }
 
-// fragments loads the selection order, then the builtin injections.
+// fragments loads the selection order, then every companion loadout's
+// fragments unconditionally.
 func (a *assembly) fragments() {
 	a.explicit = make(map[string]bool, len(a.sel.Explicit))
 	for _, name := range a.sel.Explicit {
 		a.explicit[name] = true
 	}
 	for _, ask := range a.sel.Fragments {
-		lc, err := a.load(ask)
-		if err != nil {
-			// A withheld fragment is not a load failure: the gate recorded
-			// it, and the attestation names it.
-			if !errors.Is(err, errs.ErrFragmentWithheld) {
-				a.findings = append(a.findings, Finding{Kind: FindingLoadFailed, Ref: ask.Name, Version: ask.Version, Message: err.Error()})
+		a.fragment(ask)
+	}
+	for _, ask := range a.companionAsks() {
+		a.fragment(ask)
+	}
+}
+
+// companionAsks is the unconditional half of the fragment order: every
+// fragment of every companion loadout the catalog read — ctxloom's own
+// included — in companion-ref, then fragment-name order for a stable context
+// hash. "Always-on" describes not being profile-selected; each ask still
+// goes through the same pipeline as a selected one, so the gate (a human's
+// rejection beats the companion exemption), the premise rule and the
+// once-per-item ingest all apply. Reading the CATALOG rather than taking an
+// injected list is what lets the rest of the decision apparatus govern this
+// content: what a reader read and the gate admitted is what is delivered.
+func (a *assembly) companionAsks() []FragmentAsk {
+	var asks []FragmentAsk
+	for _, read := range a.pipe.Loader().Catalog().Scoped(bundles.ProvenanceCompanion).Reads() {
+		for _, name := range slices.Sorted(maps.Keys(read.Bundle.Fragments)) {
+			ref, err := bundles.ItemRefFor(read.SourceRef(), trust.KindFragment, name)
+			if err != nil {
+				// One unaddressable loadout costs its own fragments, never
+				// the rest of the catalog.
+				a.findings = append(a.findings, Finding{Kind: FindingLoadFailed, Ref: read.DisplayName() + "#fragments/" + name, Message: err.Error()})
+				continue
 			}
-			continue
+			asks = append(asks, FragmentAsk{Name: ref})
 		}
-		item := Item[Fragment]{
-			Value:    Fragment{Name: ask.Name, Premise: lc.Premise},
-			Ref:      ask.Name,
-			Form:     lc.Form,
-			Decision: trust.Allow,
-			Signer:   lc.Signer,
+	}
+	return asks
+}
+
+// fragment loads one ask through the process stage and delivers it, holds
+// it back for its premise, or records why it did not load.
+func (a *assembly) fragment(ask FragmentAsk) {
+	lc, err := a.load(ask)
+	if err != nil {
+		// A withheld fragment is not a load failure: the gate recorded
+		// it, and the attestation names it.
+		if !errors.Is(err, errs.ErrFragmentWithheld) {
+			a.findings = append(a.findings, Finding{Kind: FindingLoadFailed, Ref: ask.Name, Version: ask.Version, Message: err.Error()})
 		}
-		if a.holdBack(lc.Premise, ask.Name) {
-			item.Value.Body = a.substitute(ask.Name, lc.Content)
-			a.premised = append(a.premised, item)
-			a.row(ask.Name, item.Value.Body)
-			continue
-		}
+		return
+	}
+	item := Item[Fragment]{
+		Value:    Fragment{Name: ask.Name, Premise: lc.Premise},
+		Ref:      ask.Name,
+		Form:     lc.Form,
+		Decision: trust.Allow,
+		Signer:   lc.Signer,
+	}
+	if a.holdBack(lc.Premise, ask.Name) {
 		item.Value.Body = a.substitute(ask.Name, lc.Content)
-		a.deliver(item, lc.TrustRef)
+		a.premised = append(a.premised, item)
+		a.row(ask.Name, item.Value.Body)
+		return
 	}
-	for _, f := range a.opts.Builtin {
-		body := strings.TrimSpace(f.Body)
-		item := Item[Fragment]{Value: Fragment{Name: f.Name, Body: body, Premise: f.Premise}, Ref: f.Name, Form: bundles.FormRaw, Decision: trust.Allow}
-		if a.holdBack(f.Premise, f.Name) {
-			a.premised = append(a.premised, item)
-			a.row(f.Name, body)
-			continue
-		}
-		a.deliver(item, f.Name)
-	}
+	item.Value.Body = a.substitute(ask.Name, lc.Content)
+	a.deliver(item, lc.TrustRef)
 }
 
 // load resolves one ask through the process stage, honouring a pinned
@@ -171,8 +197,7 @@ func (a *assembly) substitute(name, content string) string {
 
 // deliver ingests a fragment into the context — once per item — and records
 // its attestation row. identity is the ref the item's identity key derives
-// from (the read's trust ref for a loaded fragment, the injection's own name
-// for a builtin).
+// from (the read's trust ref).
 func (a *assembly) deliver(item Item[Fragment], identity string) {
 	a.loaded = append(a.loaded, item.Ref)
 	kept, dup := a.ingest.add(identityKey(identity), item.Value.Body, item.Ref)

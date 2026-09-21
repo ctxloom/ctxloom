@@ -36,5 +36,5 @@ ctxloom container [flags]
 * [ctxloom container build](/reference/cli/ctxloom_container_build/)	 - Build the agent container image for a backend
 * [ctxloom container check](/reference/cli/ctxloom_container_check/)	 - Diagnose container capability (runtime, image, shared filesystem)
 * [ctxloom container scaffold](/reference/cli/ctxloom_container_scaffold/)	 - Materialize the editable base Containerfile and wire it into config
-* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from trusted bundles
+* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from admitted companions
 

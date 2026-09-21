@@ -31,6 +31,10 @@ import (
 // signature covers BYTES, so the fixture has to hand out the same ones it wrote.
 var readerBundleYAML = []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
 
+// readerLoadoutDoc is readerBundleYAML as a companion's loadout DOCUMENT —
+// the same bundle under run:, the shape ParseLoadout reads.
+var readerLoadoutDoc = []byte("run:\n  version: \"1.0\"\n  fragments:\n    keeper:\n      content: KEEPER-PAYLOAD\n")
+
 // readerTreeEnvelope and readerTreeFragments are readerBundleYAML's TREE
 // counterpart: the same bundle — one fragment "keeper" carrying
 // KEEPER-PAYLOAD — expressed the only way a bundle can now be published, with
@@ -169,23 +173,9 @@ func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) 
 		"a project bundle's typed source ref is LocalRef(its bare resolution name), minted by newRead's fallback")
 }
 
-func TestNewBuiltinReader_ReportsBuiltinProvenanceLocalAndUnsigned(t *testing.T) {
-	reads, err := NewBuiltinReader().Read(context.Background())
-
-	require.NoError(t, err)
-	require.NotEmpty(t, reads, "the binary ships builtin bundles; an empty read means the embed is broken")
-	for _, read := range reads {
-		assert.Equal(t, ProvenanceBuiltin, read.Provenance)
-		assert.Equal(t, TrustCtxLocal, read.TrustCtx(), "a builtin was compiled in; it crossed no intermediary")
-		assert.Equal(t, SignatureNone, read.Signature(),
-			"a builtin is deliberately unsigned — signing bytes with a key inside the binary that verifies them is circular")
-		assert.Equal(t, SignerNone, read.Signer())
-	}
-}
-
 func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing.T) {
 	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML}),
+		loadoutProbe(CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc}),
 	).Read(context.Background())
 
 	require.NoError(t, err)
@@ -293,13 +283,13 @@ func TestNewRepoFSReader_SignatureFactsAreEstablishedNotAssumed(t *testing.T) {
 // companion's build error; the control that catches a swapped binary is the
 // hash-keyed exec consent, not this.
 func TestNewCompanionReader_InvalidSignatureIsReportedNotWithheld(t *testing.T) {
-	signed := []byte("version: \"1.0\"\nfragments:\n  ltk:\n    content: OLD\n")
-	shipped := []byte("version: \"1.0\"\nfragments:\n  ltk:\n    content: NEW\n")
+	signed := []byte("run:\n  version: \"1.0\"\n  fragments:\n    ltk:\n      content: OLD\n")
+	shipped := []byte("run:\n  version: \"1.0\"\n  fragments:\n    ltk:\n      content: NEW\n")
 	sig, root, _ := signFor(t, signed, "ltk@example.test")
 
 	var warnings bytes.Buffer
 	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: shipped, Signature: sig}),
+		loadoutProbe(CompanionLoadout{Bin: "ltk", Document: shipped, Signature: sig}),
 		WithTrustRoot(root),
 		captureWarnings(&warnings),
 	).Read(context.Background())
@@ -323,8 +313,8 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 	var warnings bytes.Buffer
 	reads, err := NewCompanionReader(
 		loadoutProbe(
-			CompanionLoadout{Bin: "broken", Bundle: []byte(":\n  not a bundle")},
-			CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML},
+			CompanionLoadout{Bin: "broken", Document: []byte(":\n  not a loadout")},
+			CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc},
 		),
 		captureWarnings(&warnings),
 	).Read(context.Background())
@@ -414,4 +404,53 @@ func captureWarnings(buf *bytes.Buffer) ReaderOption {
 	return WithReaderReporter(report.SinkFunc(func(f report.Finding) {
 		fmt.Fprintln(buf, f.Text)
 	}))
+}
+
+// TestNewCompanionReader_SelfLoadoutSignatureIsVerifiedButNotTrust pins the
+// circular-signature invariant for ctxloom's own loadout: the signature is
+// still verified (both facts axes report the truth — it IS valid, the key IS
+// trusted), but no publisher identity is stamped on the bundle, because the
+// trust root vouching for the key ships in the same binary as the loadout.
+// A surface reading Signer() therefore cannot present ctxloom's own content
+// as "verified by a publisher you trust", and the bundle says so itself.
+func TestNewCompanionReader_SelfLoadoutSignatureIsVerifiedButNotTrust(t *testing.T) {
+	sig, root, _ := signFor(t, readerLoadoutDoc, "releases@ctxloom.test")
+
+	reads, err := NewCompanionReader(
+		loadoutProbe(CompanionLoadout{Bin: "ctxloom", Document: readerLoadoutDoc, Signature: sig, Self: true}),
+		WithTrustRoot(root),
+	).Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+
+	read := reads[0]
+	assert.Equal(t, SignatureValid, read.Signature(), "the fact is established: the signature covers these bytes")
+	assert.Equal(t, SignerTrusted, read.Signer(), "the fact is established: the key is one the root trusts")
+	assert.Empty(t, read.Bundle.Signer(), "but no publisher identity is stamped — the verification is circular")
+	assert.True(t, read.Bundle.SelfSigned())
+	assert.Equal(t, "ctxloom+companion:ctxloom", string(read.Key()), "ctxloom's content is addressed like every companion's")
+
+	// The control: the same loadout NOT marked Self stamps the principal.
+	reads, err = NewCompanionReader(
+		loadoutProbe(CompanionLoadout{Bin: "ctxloom", Document: readerLoadoutDoc, Signature: sig}),
+		WithTrustRoot(root),
+	).Read(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "releases@ctxloom.test", reads[0].Bundle.Signer())
+	assert.False(t, reads[0].Bundle.SelfSigned())
+}
+
+// TestNewCompanionReader_UnsignedSelfLoadoutIsNotSelfSigned: the mark means
+// "ctxloom's own signature verified, circularly" — an unsigned or stale self
+// loadout is exactly what it is (unsigned; warned about), never presented as
+// self-signed.
+func TestNewCompanionReader_UnsignedSelfLoadoutIsNotSelfSigned(t *testing.T) {
+	reads, err := NewCompanionReader(
+		loadoutProbe(CompanionLoadout{Bin: "ctxloom", Document: readerLoadoutDoc, Self: true}),
+	).Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	assert.False(t, reads[0].Bundle.SelfSigned())
+	assert.True(t, reads[0].Bundle.Self(), "the self IDENTITY holds whatever the signature state: it is what keeps the loadout out of the installed listing")
+	assert.Equal(t, SignatureNone, reads[0].Signature())
 }

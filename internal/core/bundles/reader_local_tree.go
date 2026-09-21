@@ -330,8 +330,6 @@ func (r *localFSReader) treeProvenance() (content.Provenance, error) {
 	switch r.provenance {
 	case ProvenanceProject:
 		return content.Provenance{IsLocal: true}, nil
-	case ProvenanceBuiltin:
-		return content.Provenance{IsBuiltin: true}, nil
 	default:
 		return content.Provenance{}, fmt.Errorf("bundles: no content provenance for reader class %v", r.provenance)
 	}

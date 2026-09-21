@@ -284,7 +284,7 @@ Emitted by `operations.countersignRef` from a `trust.Ref`. Component by componen
 
 | Component | Value | Source |
 |---|---|---|
-| `CanonicalURL` | the canonicalized source repo URL; or the literal `ctxloom:local` for project-authored items; or `builtin:ctxloom` for in-binary items; or `ctxloom:companion` for a companion loadout | `trust.Ref.CanonicalURL` → `trust.CanonicalRepoURL` |
+| `CanonicalURL` | the canonicalized source repo URL; or the literal `ctxloom:local` for project-authored items; or `ctxloom:companion` for a companion loadout | `trust.Ref.CanonicalURL` → `trust.CanonicalRepoURL` |
 | `Bundle` | the bundle name (e.g. `go-tools`) — **not** a path, **not** a canonical ref | `trust.Ref.Bundle` |
 | `KindDir` | one of `fragments`, `prompts`, `mcp`, `hooks` | `trust.ItemKind.Dir` |
 | `Name` | the item name within the bundle | `trust.Ref.Name` |
@@ -681,12 +681,12 @@ is the flow that would need it.
 This is the one surface where the emitter controls the bytes, so it is an
 envelope rather than a sibling file.
 
-The companion binary owns and emits its own bundle (`cmd/ltk/loadout.go`,
-`cmd/taskloom/loadout.go`), mirroring the `<bin> version --format json` probe
-convention, and ctxloom discovers it at boot (`internal/core/config/companions.go`).
-This replaced an earlier design in which companion bundles were vendored into
-ctxloom's own binary under `resources/builtin_bundles/`; **those vendored bundles
-are deleted** — that directory now holds only a README.
+The companion binary owns and emits its own loadout (`loadout.NewCommand` in
+`internal/adapters/companions/loadout`, embedded beside each `cmd/<bin>/main`),
+mirroring the `<bin> version --format json` probe convention, and ctxloom
+discovers it at boot (`companions.Prober.ProbeCompanionLoadouts`). ctxloom is
+its own companion: nothing is vendored into the binary as a "builtin bundle" —
+its own content is `cmd/ctxloom/loadout.yaml`, probed from the running binary.
 
 **Contract — `<companion> loadout --format json`, on stdout.** The same JSON
 envelope is *also* the recommended carrier for a registry / object-store / MDM
@@ -694,17 +694,19 @@ channel (§4.5), because it keeps the pair together in one transportable object:
 
 ```json
 {
-  "contract": "ctxloom-loadout/1",
-  "bundle": "<base64(std, padded) of the exact bundle YAML bytes>",
+  "contract": "ctxloom-loadout/2",
+  "loadout": "<base64(std, padded) of the exact loadout document bytes>",
   "signature": "-----BEGIN SSH SIGNATURE-----\n...\n-----END SSH SIGNATURE-----\n",
   "signer": "releases@ctxloom.dev"
 }
 ```
 
-- `bundle` is base64 **only** to survive JSON transport. The signed payload is the
+- `loadout` is base64 **only** to survive JSON transport. The signed payload is the
   **decoded bytes**, verbatim — identical in kind to §3.1. The verifier decodes,
-  verifies the signature over the decoded bytes, and only then parses YAML.
-- `signature` is over the decoded bundle bytes under namespace
+  verifies the signature over the decoded bytes, and only then parses YAML. The
+  decoded document is a loadout document — a `run:` bundle and a typed `init:`
+  section under one signature (`docs/companion-loadout-standard.md`).
+- `signature` is over the decoded loadout bytes under namespace
   `publish.v1.ctxloom.dev`. It is produced at **companion build time** and embedded
   in the companion binary (the companion does not hold a private key at runtime).
 - `signer` is advisory — a hint for error messages. The **key** is resolved from
@@ -749,26 +751,32 @@ This is the enterprise flow end to end:
 The same flow *is* the CI flow (§9.2): CI is just a developer who never approves
 anything.
 
-### 4.5 Builtin (in-binary) bundles
+### 4.5 ctxloom's own content: its own companion loadout
 
-**Builtins are not signed, and must not be.** Signing bytes that are embedded in
-the binary that is doing the verifying is circular: if you can trust the binary's
-verifier, you can trust the binary's embedded bytes. The integrity of the embedded
-bytes is exactly the integrity of the binary, and it is the **release-artifact
-signature** (§6, surface 1) that is supposed to establish that.
+There are no in-binary "builtin bundles". Everything ctxloom delivers into an
+engine on its own behalf — its MCP server entry, its always-on guidance — is
+declared in ctxloom's **own companion loadout** (`cmd/ctxloom/loadout.yaml`),
+probed from the running binary through the same `loadout --format json` contract
+as every companion (§4.3), read by the same companion reader, and admitted at the
+decision function's companion step under `ctxloom:companion@ctxloom` — *below*
+rejection, so a user can reject any of it, and inside the catalog, so a profile
+can exclude it.
+
+The loadout is signed uniformly with the release key so the signing pipeline has
+one shape. That signature is **circular** — the trust root that vouches for the
+key ships in the same binary as the loadout, so a tampered build would carry a
+matching root and a matching signature alike. It adds no trust: the reader
+verifies it (a stale signature is a release bug, and warns) but never stamps the
+principal as a publisher, and no surface presents ctxloom's own content as
+"verified by a publisher you trust". What establishes the integrity of the
+embedded bytes is the integrity of the binary, which the **release-artifact
+signature** (§6, surface 1) is supposed to establish.
 
 > **Note the load-bearing caveat:** §6 surface 1 **is not implemented** — there is no
-> `signs:` block in `.goreleaser.yml`, so **release artifacts are unsigned**. The
-> "covered transitively" argument is therefore currently an argument about a
-> signature that does not exist. Builtins are trusted because you ran the binary, and
-> for no cryptographic reason beyond that. That is a defensible position — it is the
-> same trust you extend by executing the binary at all — but it is not the position
-> this section originally claimed.
-
-What builtins **do** need is to stop bypassing the gate. They are assigned the
-synthetic signer identity `builtin:ctxloom`, and they are routed through the
-decision function like everything else, where they are allowed at step 3 — *below*
-rejection. See §8.
+> `signs:` block in `.goreleaser.yml`, so **release artifacts are unsigned**. ctxloom's
+> own content is trusted because you ran the binary, and for no cryptographic reason
+> beyond that. That is a defensible position — it is the same trust you extend by
+> executing the binary at all — but it is not a signature.
 
 ---
 
@@ -1214,8 +1222,8 @@ own, no prompts, and no secrets** (§9.5).
 Implemented as `operations.EffectiveTrust` (`internal/adapters/operations/trust.go`).
 First-match-wins. Fail-closed. The request gains one field —
 `Signer` (the verified publisher identity attached to the item's source document at
-load, or `builtin:ctxloom`, or empty for unsigned) — and the store lookups become
-signature verifications.
+load, or empty for unsigned) — and the store lookups become signature
+verifications.
 
 ```
 EffectiveTrust(ref, payload_bytes, form, signer) -> (Decision, Source)
@@ -1225,14 +1233,15 @@ EffectiveTrust(ref, payload_bytes, form, signer) -> (Decision, Source)
      a valid reject-countersignature exists over THESE payload bytes (content-reject),
      from any key trusted for the reject namespace.
    -- Checked FIRST, ahead of every allow. A user can reject content signed by the
-      ctxloom release key, and can reject a builtin. Rejection is supreme.
+      ctxloom release key, and can reject ctxloom's own loadout content.
+      Rejection is supreme.
 
 2. LOCAL → ALLOW     (source: local)
      ref.IsLocal — authored in this project. Unchanged from today.
 
-3. BUILTIN → ALLOW   (source: builtin)
-     signer == "builtin:ctxloom" — compiled into this binary. Authenticated BY the
-     binary (§4.5); reachable by step 1's veto, which is the change from today.
+3. COMPANION → ALLOW (source: companion)
+     ref.IsCompanion — a loadout an installed companion advertised, ctxloom's
+     own included (§4.5); admitted at exec, and reachable by step 1's veto.
 
 4. TRUSTED SIGNER → ALLOW   (source: trusted-signer)
      signer is non-empty AND signer's key is trusted for the publish namespace.
@@ -1685,7 +1694,7 @@ almost every no-key case:
 | Situation | Needs a key? | What happens |
 |---|---|---|
 | Authoring fragments in your own project | **No** | `ctxloom:local` is first-party, allowed at step 2. Never gated. This is the overwhelmingly common case and it is untouched by this entire spec. |
-| Using builtin bundles | **No** | Allowed at step 3. |
+| Using companion loadouts (ctxloom's own included) | **No** | Allowed at step 3. |
 | Using `ctxloom-default` | **No** | Signed by *our* key, verified against the **embedded public key**. Public-key asymmetry: you verify without possessing anything. |
 | Using an org's / team lead's published + approved content | **No** | Steps 4/5. The org made the signatures; you only check them. This is why the enterprise flow (§4.4) puts **no key on the developer's machine**. |
 | CI / headless runners | **No** | CI verifies, never approves (§9.2.1). No agent, no socket, no secret. |
@@ -2006,7 +2015,7 @@ versioned independently, because they change for independent reasons:
 | Countersignature payload framing | header line `ctxloom-countersign/2` **and** namespace `approve.v1.ctxloom.dev` | all existing approvals invalidate → mass re-review |
 | Countersignature **`ref` serialization** (§3.2.1) | the framing above | a different `ref` string is a different signed payload — signatures will not verify |
 | Exec-item preimage | `"preimage":"ctxloom-exec/2"` **first field** (§3.3.2) | all MCP/hook approvals invalidate |
-| Companion loadout envelope | `"contract":"ctxloom-loadout/1"` | companions must re-emit |
+| Companion loadout envelope | `"contract":"ctxloom-loadout/2"` | companions must re-emit |
 | Sibling path convention | `<bundle>.yaml.sig` | a new path is a new contract |
 
 All six are emitted by the code today. A third party binding to any of them should

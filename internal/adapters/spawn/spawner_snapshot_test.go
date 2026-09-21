@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
@@ -65,12 +67,38 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 }
 
 // spawnerApp opens the process composition a spawner test drives: the real
-// reader pinned to appDir, no remote or companion readers.
+// reader pinned to appDir, plus ctxloom's OWN companion loadout — the repo's
+// real cmd/ctxloom/loadout.yaml, read as the self-probe would read it, so a
+// child's reach-back server is present the way it is for a real ctxloom.
+// No remote readers, no other companion.
 func spawnerApp(t *testing.T, appDir string) *operations.App {
 	t.Helper()
-	src, err := configload.New(nil, nil, configload.WithAppDir(appDir))
+	src, err := configload.New(nil, nil, configload.WithAppDir(appDir), configload.WithReaderSource(ctxloomOwnLoadoutReader(t)))
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
 	return operations.OpenedApp(owner)
+}
+
+// packageDirAtStart is the test binary's working directory before any
+// sandbox moves it: this package's directory, three levels below the repo
+// root (-trimpath strips runtime.Caller's path, so the directory is the only
+// anchor).
+var packageDirAtStart, _ = os.Getwd()
+
+// ctxloomOwnLoadoutReader is a reader source over ctxloom's own loadout as
+// the self-probe reads it: the repo's real cmd/ctxloom/loadout.yaml, marked
+// Self.
+func ctxloomOwnLoadoutReader(t *testing.T) func(*config.Config) []bundles.Reader {
+	t.Helper()
+	require.NotEmpty(t, packageDirAtStart)
+	doc, err := os.ReadFile(filepath.Join(packageDirAtStart, "..", "..", "..", "cmd", "ctxloom", "loadout.yaml"))
+	require.NoError(t, err)
+	self := bundles.CompanionLoadout{Bin: "ctxloom", Path: "/opt/build/ctxloom", Document: doc, Self: true}
+	return func(cfg *config.Config) []bundles.Reader {
+		probe := func(context.Context) (bundles.CompanionProbe, error) {
+			return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{self}}, nil
+		}
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(cfg.TrustRoot()))}
+	}
 }

@@ -63,7 +63,7 @@ func TestDocumentStore_ReadsABundleWithNoFilesystem(t *testing.T) {
 	// Provenance is stamped, so a companion item is neither local nor builtin and
 	// therefore still gates — it does not inherit local auto-allow.
 	for _, r := range refs {
-		if r.IsLocal || r.IsBuiltin || r.RepoURL != "ctxloom:companion@ltk" {
+		if r.IsLocal || r.RepoURL != "ctxloom:companion@ltk" {
 			t.Errorf("%s: provenance = %+v", r.Key(), r)
 		}
 	}

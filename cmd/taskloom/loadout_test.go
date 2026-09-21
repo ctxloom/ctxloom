@@ -14,13 +14,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 )
 
-// TestLoadout_YAML_IsAValidBundle proves the embedded loadout.yaml parses as
-// a well-formed bundles.Bundle carrying the taskloom fragment, both hooks,
-// and the MCP server registration — the content that used to live in
-// ctxloom's now-deleted resources/builtin_bundles/taskloom.yaml.
-func TestLoadout_YAML_IsAValidBundle(t *testing.T) {
-	b, err := bundles.ParseBundle(loadoutYAML)
-	require.NoError(t, err, "taskloom's loadout.yaml must be a well-formed bundle")
+// TestLoadout_YAML_IsAValidLoadout proves the embedded loadout.yaml parses
+// as a well-formed loadout document whose RUN bundle carries the taskloom
+// fragment, both hooks, and the MCP server registration.
+func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
+	lo, err := bundles.ParseLoadout(loadoutYAML)
+	require.NoError(t, err, "taskloom's loadout.yaml must be a well-formed loadout document")
+	assert.True(t, lo.Init.IsZero(), "taskloom declares no INIT loadout today; a typed field appearing here is a content change to review")
+	b := lo.Run
 
 	require.Contains(t, b.Fragments, "taskloom")
 	assert.NotEmpty(t, b.Fragments["taskloom"].Content)
@@ -42,9 +43,9 @@ func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 	assert.Equal(t, loadoutYAML, buf.Bytes())
 }
 
-// TestLoadout_JSONFormat_DecodesToIdenticalBundle proves the round trip a
+// TestLoadout_JSONFormat_DecodesToIdenticalDocument proves the round trip a
 // real companion-discovery probe depends on.
-func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
+func TestLoadout_JSONFormat_DecodesToIdenticalDocument(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
 
@@ -53,8 +54,9 @@ func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
 	assert.Equal(t, loadoutYAML, decoded)
 	assert.Empty(t, signer, "an unsigned loadout must decode with an empty verified signer, not an error")
 
-	b, err := bundles.ParseBundle(decoded)
+	lo, err := bundles.ParseLoadout(decoded)
 	require.NoError(t, err)
+	b := lo.Run
 	assert.Contains(t, b.Fragments, "taskloom")
 }
 
@@ -197,8 +199,9 @@ func TestLoadout_UnknownFormatErrors(t *testing.T) {
 // the total-struct parity sweep in internal/lm/grpc/arch_test.go (build tag
 // `arch`).
 func TestLoadout_SessionBindKeepsPreToolFallback(t *testing.T) {
-	b, err := bundles.ParseBundle(loadoutYAML)
+	lo, err := bundles.ParseLoadout(loadoutYAML)
 	require.NoError(t, err)
+	b := lo.Run
 
 	require.Len(t, b.Hooks.SessionStart, 1)
 	h := b.Hooks.SessionStart[0]

@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -161,6 +162,15 @@ func (p Prober) ProbeCompanions(root trust.TrustRoot) []CompanionStatus {
 // (silently skipped, never an error).
 var firstPartyCompanions = []string{"ltk", "taskloom", "reprise"}
 
+// SelfCompanion is the companion identity ctxloom probes ITSELF under —
+// ctxloom:companion@ctxloom. It is deliberately NOT in firstPartyCompanions:
+// those are discovered on PATH and admitted by a signature beside the binary,
+// whereas ctxloom's own loadout comes from the RUNNING binary (Prober.Self —
+// never a PATH lookup, which could answer with a stale install, and never
+// a raw os.Executable, which goes stale after an in-place upgrade) and needs
+// no exec consent, because the process is already executing.
+const SelfCompanion = agent.CtxloomBinary
+
 // FirstPartyCompanionNames returns the shipped companion names. Exported so a
 // test harness can scrub them from a scenario's PATH by asking the list rather
 // than keeping a second copy of it — a copy would silently stop matching the
@@ -254,6 +264,16 @@ func SetCompanionLoadoutOutputForTesting(fn func(string) ([]byte, error)) func()
 // later wonder why their ltk commands vanished.
 type Prober struct {
 	Disabled bool
+	// Self arms the self-probe: ctxloom probing ITSELF as a companion (see
+	// SelfCompanion). It resolves the RUNNING binary's path at probe time —
+	// the composition root injects selfexec.Path, so the answer survives an
+	// in-place upgrade and is never a PATH lookup. Only a process composed
+	// WITH an embedded loadout sets it (cmd/ctxloom's composition root),
+	// because a process without one has nothing to emit, and exec'ing a test
+	// binary as if it were ctxloom re-runs the test binary. nil is unarmed.
+	// Disabled does NOT disarm it: that switch is about the host's installed
+	// binaries, and this is the running one.
+	Self func() string
 }
 
 // ReaderSource is the per-generation companion reader the composition root
@@ -278,8 +298,8 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // ProbeCompanionLoadouts is the companion reader's EXEC seam: it discovers
 // companions (DiscoverCompanions), ADMITS the ones this machine's human agreed
 // ctxloom may execute (AdmitCompanions), and for each admitted one execs
-// `<bin> loadout --format json` and unwraps the envelope into the loadout's raw
-// bundle bytes and detached signature.
+// `<bin> loadout --format json` and unwraps the envelope into the loadout
+// document's raw bytes and detached signature.
 //
 // It stops at BYTES. Parsing them and establishing what their signature turned
 // out to be belongs to bundles.NewCompanionReader — one place, shared with
@@ -290,7 +310,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // fails or times out (including a first-party name that does not implement
 // `loadout` yet, e.g. reprise today), or whose loadout ENVELOPE is structurally
 // unusable — unparseable envelope, unrecognized contract, non-base64 or empty
-// bundle — is SKIPPED with a warning: NEVER fatal, NEVER a crash, NEVER a
+// document — is SKIPPED with a warning: NEVER fatal, NEVER a crash, NEVER a
 // stalled startup. Those cases produced no content in the first place, so there
 // is nothing to report.
 //
@@ -303,23 +323,28 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
 func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot) (bundles.CompanionProbe, error) {
-	// See ProbeCompanions' identical guard.
-	if p.Disabled {
-		return bundles.CompanionProbe{}, nil
-	}
 	if err := ctx.Err(); err != nil {
 		return bundles.CompanionProbe{}, err
 	}
-	// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion this
-	// machine's human has not agreed to run is never exec'd, and two prompts
-	// can never interleave on one terminal. See AdmitCompanions.
-	//
-	// The refused half is KEPT rather than filtered away. It is the only place
-	// a "found on PATH, never allowed to run" companion exists at all — it
-	// produces no loadout by definition — and reporting it costs nothing here
-	// while reconstructing it later would cost a second discovery pass.
-	decided := companionAdmission(DiscoverCompanions(), root)
-	admitted := make([]CompanionAdmission, 0, len(decided))
+	// Disabled (--no-companions) means NO DISCOVERED binary is executed — the
+	// switch makes a run independent of what the host has installed. It does
+	// not disarm the self-probe below: ctxloom's own loadout is the running
+	// binary's, not something installed on the host, and a run without it
+	// would lose ctxloom's MCP server and its always-on guidance.
+	var decided []CompanionAdmission
+	if !p.Disabled {
+		// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion
+		// this machine's human has not agreed to run is never exec'd, and two
+		// prompts can never interleave on one terminal. See AdmitCompanions.
+		//
+		// The refused half is KEPT rather than filtered away. It is the only
+		// place a "found on PATH, never allowed to run" companion exists at all
+		// — it produces no loadout by definition — and reporting it costs
+		// nothing here while reconstructing it later would cost a second
+		// discovery pass.
+		decided = companionAdmission(DiscoverCompanions(), root)
+	}
+	admitted := make([]CompanionAdmission, 0, len(decided)+1)
 	var candidates []bundles.CompanionCandidate
 	for _, a := range decided {
 		if a.Allow {
@@ -329,6 +354,12 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 		candidates = append(candidates, bundles.CompanionCandidate{
 			Bin: a.Bin, Path: a.Path, Reason: candidateReasonFor(a.Reason),
 		})
+	}
+	// ctxloom ITSELF, first in the fan-out: admitted by identity (the running
+	// binary needs no consent to run), probed through the same exec as every
+	// other companion so its loadout takes exactly the path theirs does.
+	if p.Self != nil {
+		admitted = append([]CompanionAdmission{selfAdmission(p.Self())}, admitted...)
 	}
 	slots := make([]*bundles.CompanionLoadout, len(admitted))
 	failed := make([]*bundles.CompanionCandidate, len(admitted))
@@ -353,7 +384,7 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
 				return
 			}
-			bundleBytes, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
+			doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
 			if derr != nil {
 				// STRUCTURAL failure — no content was produced at all. Nothing
 				// to hand on, so this half still withholds.
@@ -361,7 +392,7 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
 				return
 			}
-			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Bundle: bundleBytes, Signature: sig}
+			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig, Self: bin == SelfCompanion}
 		}(i, adm.Bin, adm.Path)
 	}
 	wg.Wait()
@@ -394,4 +425,12 @@ func candidateReasonFor(r CompanionAdmissionReason) bundles.CandidateReason {
 		return bundles.CandidateAbsent
 	}
 	return bundles.CandidateUnconsented
+}
+
+// selfAdmission is the running binary's own admission: allowed, at the path
+// the composition root resolved (Prober.Self), with no signature consulted —
+// the process IS executing. Its reason is CompanionAdmissionSelf so a report
+// can say which arm allowed it rather than presenting it as signed.
+func selfAdmission(path string) CompanionAdmission {
+	return newCompanionAdmission(CompanionKey{Bin: SelfCompanion, Path: path}, true, CompanionAdmissionSelf)
 }

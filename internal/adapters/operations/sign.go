@@ -63,9 +63,10 @@ type SignTarget struct {
 //
 // Only LOCAL bundles resolve successfully: ctxloom has no write access to a
 // remote's git tree (only that remote's own publisher can sign it), and a
-// builtin bundle must never be signed at all — signing bytes compiled into
-// the very binary that verifies them is circular (spec §4.5). Both are
-// reported as clear, actionable errors rather than silently skipped.
+// companion loadout is signed where it is built (`just sign-loadouts`), not
+// here. Both are reported as clear, actionable errors rather than silently
+// skipped; a retired spelling (trust.IsRetiredAskSpelling) is refused by name
+// so a stale instruction fails loud instead of resolving to a local bundle.
 func ResolveSignTarget(ref string) (SignTarget, error) {
 	if ref == "" {
 		return SignTarget{}, fmt.Errorf("ref is required")
@@ -73,8 +74,6 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 
 	if br, err := trust.ParseBundleRef(ref); err == nil {
 		switch br.Class {
-		case trust.ClassBuiltin:
-			return SignTarget{}, errSignBuiltin(ref)
 		case trust.ClassLocal:
 			return SignTarget{BundleName: br.Bundle, ItemNote: itemNote(br.Kind, br.Item)}, nil
 		default:
@@ -82,9 +81,6 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		}
 	}
 
-	if trust.IsRetiredBuiltinSpelling(ref) {
-		return SignTarget{}, errSignBuiltin(ref)
-	}
 	if trust.IsRetiredAskSpelling(ref) {
 		return SignTarget{}, fmt.Errorf("ctxloom bundle sign: %w: %q — see `ctxloom bundle sign --help`; "+
 			"re-run `ctxloom init` to migrate a project", errs.ErrRetiredRefSpelling, ref)
@@ -111,12 +107,6 @@ func itemNote(kind trust.ItemKind, name string) string {
 		return ""
 	}
 	return kind.Dir() + "/" + name
-}
-
-// errSignBuiltin refuses a builtin bundle, whatever spelling named it.
-func errSignBuiltin(ref string) error {
-	return fmt.Errorf("ctxloom bundle sign: %q is a builtin bundle — builtins are never signed "+
-		"(signing bytes compiled into the binary that verifies them is circular)", ref)
 }
 
 // errSignRemote refuses a bundle this project does not author.
@@ -290,7 +280,7 @@ func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) 
 // .ctxloom/content/bundles tree) — the set `ctxloom bundle sign --all` signs. In a
 // publishing repo that set IS the repo's shipped content, which is the whole
 // point: the thing you publish must be the thing you can sign. Remote (seeded)
-// and builtin bundles are never included, nor is anything in the gitignored
+// and companion bundles are never included, nor is anything in the gitignored
 // cache: this project only has write access to its own authored bundle files.
 // Sorted for deterministic --all output.
 //

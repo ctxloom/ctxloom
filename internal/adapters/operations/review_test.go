@@ -684,20 +684,19 @@ func TestReviewPublisherOf_ThreeReachableStates(t *testing.T) {
 	require.Error(t, err, "a tampered tree must not resolve to a reviewable read")
 }
 
-// The synthetic builtin token is not a key and must never be reported as a
-// trusted publisher — the same exclusion EffectiveTrust's trusted-signer step
-// makes, for the same reason: "shipped inside this binary" is not "a publisher
-// you verified".
-func TestReviewPublisherOf_BuiltinIsNotATrustedPublisher(t *testing.T) {
+// A trusted-signer read that carries NO principal — ctxloom's own loadout,
+// whose circular self-signature the reader verifies but never stamps — must
+// not be reported as a trusted publisher: "shipped inside this binary" is not
+// "a publisher you verified".
+func TestReviewPublisherOf_EmptyPrincipalIsNotATrustedPublisher(t *testing.T) {
 	// One real item: a tree with no items is not a bundle, so the converter
 	// writes nothing and there would be no read to ask about.
 	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {
 		ItemBody: bundles.ItemBody{Content: "x"},
 	}}}
-	b.StampSigner(trust.BuiltinSigner)
 	loader := seedTrustedSigned(t, reviewPubRef, "runbooks@acme.example", b)
 	read := readOf(t, loader, reviewPubRef)
-	read.Bundle.StampSigner(trust.BuiltinSigner)
+	read.Bundle.StampSigner("")
 
 	state, principal, fingerprint := reviewPublisherOf(read)
 	assert.NotEqual(t, bundles.ReasonTrustedSigner, state)

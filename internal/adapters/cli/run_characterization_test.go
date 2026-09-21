@@ -476,11 +476,13 @@ func TestRunCharacterization_NonGitRootWarnsButProceeds(t *testing.T) {
 // reportBundleRefLoadFailure's fatal finding, so the preview is refused
 // exactly as the run would be: exit 3, the finding listed, nothing rendered
 // past the gate. --degraded previews past it, warning, as it would launch
-// past it.
+// past it — the profile also selects a fragment that DOES resolve, so the
+// degraded preview has context to render; a set that assembles to nothing is
+// refused in every mode.
 func TestRunCharacterization_DryRunRefusesAMissingBundleLikeARun(t *testing.T) {
 	dir := runCLIFixture(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "profiles", "broken.yaml"),
-		[]byte("description: references a missing bundle\nbundles:\n  - does-not-exist\n"), 0o644))
+		[]byte("description: references a missing bundle\nbundles:\n  - does-not-exist\nfragments:\n  - demo#fragments/testing\n"), 0o644))
 	resetApp()
 
 	res := runCLI(t, "run", "--dry-run", "--format", "text", "--profile", "broken", "hello")

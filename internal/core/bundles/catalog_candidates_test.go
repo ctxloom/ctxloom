@@ -25,8 +25,8 @@ func mixedCompanionCatalog(t *testing.T) Catalog {
 	t.Helper()
 	return Resolve(context.Background(), nil, NewCompanionReader(candidateProbe(
 		[]CompanionLoadout{
-			{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: readerBundleYAML},
-			{Bin: "garbled", Path: "/opt/bin/garbled", Bundle: []byte(":\n  not a bundle")},
+			{Bin: "ltk", Path: "/opt/bin/ltk", Document: readerLoadoutDoc},
+			{Bin: "garbled", Path: "/opt/bin/garbled", Document: []byte(":\n  not a loadout")},
 		},
 		[]CompanionCandidate{
 			{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: CandidateUnconsented},

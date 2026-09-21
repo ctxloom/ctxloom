@@ -15,31 +15,42 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestCollectTooling_CollectsDeclarations proves collection finds
-// every bundle's `tooling` command (bare-name match, like the
-// agent-setup override contract), attributes it to its source, and skips
-// bundles without one. The nil loader exercises the real trust-gated
-// exposure path over locally-authored (baseline-trusted) bundles.
-func TestCollectTooling_CollectsDeclarations(t *testing.T) {
+// TestCollectTooling_CollectsCompanionToolingDeclarations proves collection
+// reads every admitted companion's TYPED `init.tooling` field, attributes it
+// to the companion's source ref, and skips companions that declare none. The
+// nil pipe exercises the real trust-gated exposure path.
+func TestCollectTooling_CollectsCompanionToolingDeclarations(t *testing.T) {
 	testsupport.Isolate(t)
+	fakeCompanions(t, map[string]string{
+		"ltk":      "init:\n  tooling: Install golangci-lint v2 and gofumpt.\n",
+		"taskloom": "run:\n  version: 1.0.0\n",
+	})
+	appDir, _ := regenTestApp(t)
+	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
+
+	got := CollectTooling(cfg, nil)
+	require.Len(t, got, 1, "only the companion declaring tooling is collected")
+	assert.Equal(t, "ctxloom+companion:ltk", got[0].Source, "source is the companion's canonical ref")
+	assert.Equal(t, "Install golangci-lint v2 and gofumpt.", got[0].Content)
+}
+
+// TestCollectTooling_MagicCommandNameNoLongerContributes pins the clean
+// break: a command named `tooling` — in a project bundle or a companion's RUN
+// loadout — is an ordinary command, not a tooling declaration.
+func TestCollectTooling_MagicCommandNameNoLongerContributes(t *testing.T) {
+	testsupport.Isolate(t)
+	fakeCompanions(t, map[string]string{
+		"ltk": "run:\n  version: 1.0.0\n  commands:\n    tooling:\n      content: COMPANION-MAGIC-COMMAND\n",
+	})
 	appDir, _ := regenTestApp(t)
 	writeRegenBundle(t, appDir, "go-tools", `version: "1.0"
 commands:
   tooling:
-    content: "Install golangci-lint v2 and gofumpt."
+    content: "PROJECT-MAGIC-COMMAND"
 `)
-	writeRegenBundle(t, appDir, "unrelated", `version: "1.0"
-commands:
-  something-else:
-    content: "NOT TOOLING"
-`)
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 
-	got := CollectTooling(cfg, nil)
-	require.Len(t, got, 1, "only the tooling command is collected")
-	assert.Contains(t, got[0].Source, "#commands/tooling", "source is the bundle-qualified ref")
-	assert.Contains(t, got[0].Source, "go-tools", "source names the bundle")
-	assert.Equal(t, "Install golangci-lint v2 and gofumpt.", got[0].Content)
+	assert.Empty(t, CollectTooling(cfg, nil), "a command named tooling is not a tooling declaration")
 }
 
 // TestCollectTooling_NilSafe: a nil config never errors — the

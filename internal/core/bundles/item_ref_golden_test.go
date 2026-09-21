@@ -28,8 +28,6 @@ import (
 // expectations make this a golden test in the ordinary sense: no shared logic
 // to keep in sync, just the string a grant is keyed on.
 func TestItemRefFor_GoldenAgainstDeletedStringRoute(t *testing.T) {
-	builtinRef, err := trust.BuiltinRef("ltk")
-	require.NoError(t, err)
 	companionRef, err := trust.CompanionRef("ltk")
 	require.NoError(t, err)
 	localRef, err := trust.LocalRef("my-tools")
@@ -42,17 +40,6 @@ func TestItemRefFor_GoldenAgainstDeletedStringRoute(t *testing.T) {
 		src  trust.BundleRef
 		want map[trust.ItemKind]string
 	}{
-		{
-			name: "builtin",
-			src:  builtinRef,
-			want: map[trust.ItemKind]string{
-				trust.KindFragment: "ctxloom+builtin:ltk#fragments/x",
-				trust.KindPrompt:   "ctxloom+builtin:ltk#prompts/x",
-				trust.KindMCP:      "ctxloom+builtin:ltk#mcp/x",
-				trust.KindHook:     "ctxloom+builtin:ltk#hooks/PreToolUse/0",
-				trust.KindSkill:    "ctxloom+builtin:ltk#skills/x",
-			},
-		},
 		{
 			name: "companion",
 			src:  companionRef,

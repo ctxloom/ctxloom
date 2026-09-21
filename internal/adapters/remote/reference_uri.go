@@ -69,17 +69,6 @@ func parseCanonicalURIReference(ref string) (*Reference, error) {
 	case refuri.ClassCompanion:
 		out.URL = CompanionSource
 		out.IsCompanion = true
-	case refuri.ClassBuiltin:
-		// A builtin bundle is embedded in this binary: it has no repository to
-		// fetch from and no source token in this grammar, so Reference cannot
-		// represent one. Refused rather than mapped onto ClassLocal, which is
-		// the only near-fit and the wrong one — builtin and local are
-		// deliberately distinct trust sources so a project-authored bundle can
-		// never collide with an embedded one of the same name, and collapsing
-		// them here would hand a builtin the local auto-allow under a name the
-		// project chose.
-		return nil, fmt.Errorf("reference %s addresses a bundle embedded in the binary, "+
-			"which is not fetched through a source — builtin content is resolved by name, never by reference", ref)
 	default:
 		return nil, fmt.Errorf("reference %s: unhandled source class %q", ref, p.Class)
 	}

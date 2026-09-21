@@ -28,7 +28,6 @@ func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bund
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
 	}
 	return append(readers, Prober{}.ReaderSource()(cfg)...), nil
 }
@@ -46,14 +45,4 @@ func companionConfig(t *testing.T, f config.Fixture, ports ...compositetest.Opti
 	owner, err := config.Open(context.Background(), companionSources{cfg: config.NewFixture(f), ports: ports})
 	require.NoError(t, err)
 	return owner.Current().Config
-}
-
-// testAuthorizer admits everything or withholds everything as pending.
-func testAuthorizer(admit bool) bundles.Authorizer {
-	return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
-		if admit {
-			return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
-		}
-		return bundles.Verdict{Reason: bundles.ReasonPending}
-	})
 }

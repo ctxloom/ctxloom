@@ -22,8 +22,8 @@ import (
 )
 
 // ONE assembly for every consumer. AssemblePackage resolves what the config
-// holds — the profile set, the trust, the catalog, the builtin injections,
-// the surfaces the config-level resolvers compose — into composite's
+// holds — the profile set, the trust, the catalog, the surfaces the
+// config-level resolvers compose — into composite's
 // inputs, calls composite.Assemble ONCE, and voices its findings. Every
 // consumer of an assembled package (a run's context and managed surfaces,
 // the MCP assemble tool, the SessionStart context file, `profile
@@ -108,13 +108,10 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		return composite.Package{}, err
 	}
 	opts.DenyTools = sel.DenyTools
-	// Built-in bundles inject their fragments unconditionally, gated through
-	// the SAME gate as loader-resolved content so a rejected builtin fragment
-	// is withheld exactly like a rejected builtin server; ctxloom's embedded
-	// commands are always present.
-	for _, f := range cfg.ResolveBuiltinBundleFragments(gate) {
-		opts.Builtin = append(opts.Builtin, composite.Fragment{Name: f.Name, Body: f.Content, Premise: f.Premise})
-	}
+	// ctxloom's embedded commands are always present. Companion loadout
+	// fragments need no input here: Assemble reads them off the catalog
+	// (composite assembly's companionAsks) through the same gate as every
+	// selected fragment.
 	opts.Commands = builtinCommands()
 
 	pkg, err := composite.Assemble(ctx, cat, sel, tr, opts)

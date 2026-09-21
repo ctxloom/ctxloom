@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // ltkLoadoutWithTaskRunnerCommand is a minimal stand-in for
@@ -43,7 +44,7 @@ commands:
 // restore function that undoes both.
 func fakeLtkOnPath(t *testing.T, bundleYAML string) func() {
 	t.Helper()
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(bundleYAML), nil, "")
 	require.NoError(t, err)
 	restoreLook := companions.SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "ltk" {

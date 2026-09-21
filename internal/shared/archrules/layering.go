@@ -146,7 +146,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
 			"internal/core/bundles -> internal/shared/upgrade":              "slice 1a: the permanent migrations are deleted",
-			"internal/core/bundles -> resources":                            "slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/config — Part 1.0 also lists config/layerscope, which is under the
 			// from-prefix today and so not a violation until the rename moves it to
@@ -234,6 +233,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":            "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/configload":                 "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
 			"internal/adapters/cli -> internal/adapters/companions":                 "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
+			"internal/adapters/cli -> internal/adapters/companions/loadout":         "ctxloom is its own companion: the CLI owns `ctxloom loadout`'s place in the documented tree while cmd/ctxloom owns the embedded bytes; removed when the companion-side loadout package (cobra + envelope encode, no other adapter) moves out of adapters",
 			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
 			// package may import its own subpackage.
 			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",

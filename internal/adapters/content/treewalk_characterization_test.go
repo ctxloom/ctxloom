@@ -84,8 +84,8 @@ func snapshotStore(t *testing.T, s Store) string {
 			t.Fatalf("Refs %s: %v", id, err)
 		}
 		for _, ref := range refs {
-			fmt.Fprintf(&b, "  ref %s local=%t builtin=%t repo=%q\n",
-				ref.Key(), ref.IsLocal, ref.IsBuiltin, ref.RepoURL)
+			fmt.Fprintf(&b, "  ref %s local=%t repo=%q\n",
+				ref.Key(), ref.IsLocal, ref.RepoURL)
 			item, err := bundle.Item(ctx, ref)
 			if err != nil {
 				t.Fatalf("Item %s: %v", ref.Key(), err)

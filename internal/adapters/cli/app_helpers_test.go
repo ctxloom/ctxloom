@@ -68,7 +68,6 @@ func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 	root := cfg.TrustRoot()
 	return []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
 		bundles.NewCompanionReader(s.probe, bundles.WithTrustRoot(root)),
 	}, nil
 }

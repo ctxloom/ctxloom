@@ -477,7 +477,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return gatedFixture(config.Fixture{}), nil
+		return withCtxloomLoadout(t, gatedFixture(config.Fixture{})), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -678,9 +678,9 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 	tmpDir := "/project"
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return gatedFixture(config.Fixture{
-			// No profiles or fragments - regenerateContext should return empty
-		}), nil
+		return withCtxloomLoadout(t, gatedFixture(config.Fixture{
+			// No profiles or fragments: only ctxloom's own loadout contributes.
+		})), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -693,10 +693,9 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	// No PROFILE-sourced fragments, but the always-on builtin isolation
-	// fragment still injects unconditionally (see
-	// TestAssembleContext_InjectsBuiltinIsolationFragment), so a context file
-	// is still written and hashed.
+	// No PROFILE-sourced fragments, but ctxloom's own loadout fragment is
+	// delivered unconditionally, so a context file is still written and
+	// hashed.
 	assert.NotEmpty(t, result.ContextHash)
 }
 
@@ -1191,14 +1190,14 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
 	mockConfigLoader := func() (*config.Config, error) {
-		return cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
+		return withCtxloomLoadout(t, cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
 			"default": {
 				SelectTags: []string{"nonexistent-tag"}, // No fragments match this select tag
 			},
 		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		}), nil
+		})), nil
 	}
 
 	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
@@ -1211,8 +1210,8 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	// No profile-tag-matched fragments were found, but the always-on builtin
-	// isolation fragment still injects unconditionally, so a context file is
-	// still written and hashed.
+	// No profile-tag-matched fragments were found, but ctxloom's own loadout
+	// fragment is delivered unconditionally, so a context file is still
+	// written and hashed.
 	assert.NotEmpty(t, result.ContextHash)
 }

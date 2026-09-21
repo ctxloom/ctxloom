@@ -24,9 +24,9 @@ A publisher signature covers the whole bundle FILE, so an item ref
 that; ctxloom bundle sign says so.
 
 Only bundles you author LOCALLY can be signed. A remote bundle's tree is not
-yours to write — only that remote's own publisher can sign it — and a builtin
-is never signed at all, because signing bytes compiled into the binary that
-verifies them is circular. Both are refused by name rather than skipped.
+yours to write — only that remote's own publisher can sign it — and a
+companion's loadout is signed where it is built (just sign-loadouts). Both are
+refused by name rather than skipped.
 
 ref is never resolved against a catalog: a publishing repository signs the
 bundles it ships, whether or not they are installed anywhere.

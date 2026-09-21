@@ -94,22 +94,21 @@ func TestAssemble_WithheldItemRefusesUnlessDropped(t *testing.T) {
 	assert.NotContains(t, pkg.Context.Text, "Prefer small functions.")
 }
 
-// The same item reaching the context twice — selected by ref and injected
-// as a builtin under another spelling — is assembled once, first occurrence
-// kept, and the drop is a finding the surface can voice.
+// The same item reaching the context twice — selected by ref and delivered
+// unconditionally from a companion loadout under another ref — is assembled
+// once, first occurrence kept, and the drop is a finding the surface can
+// voice.
 func TestAssemble_DuplicateContentUnderTwoRefsIsAssembledOnce(t *testing.T) {
-	cat := corpus(t)
-	injected := composite.Fragment{Name: "ctxloom+builtin:alpha#fragments/style", Body: "Prefer small functions."}
-	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{
-		Builtin: []composite.Fragment{injected, {Name: "ctxloom+builtin:tools#fragments/axes", Body: "Axes."}},
-	})
+	cat := corpusWith(t, bundles.CompanionLoadout{Bin: "alpha", Document: []byte(
+		"run:\n  version: 1.0.0\n  fragments:\n    style:\n      content: Prefer small functions.\n    axes:\n      content: Axes.\n")})
+	pkg, err := composite.Assemble(context.Background(), cat, selectAlpha(t, cat), compositetest.Trust(), composite.Options{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "Prefer small functions.\n\n---\n\nRules for golden.\n\n---\n\nAxes.", pkg.Context.Text)
-	assert.Equal(t, []string{alphaStyle, alphaRules, "ctxloom+builtin:tools#fragments/axes"}, itemRefs(pkg.Fragments))
+	assert.Equal(t, []string{alphaStyle, alphaRules, "ctxloom+companion:alpha#fragments/axes"}, itemRefs(pkg.Fragments))
 	require.Len(t, pkg.Findings, 1)
 	assert.Equal(t, composite.FindingDuplicate, pkg.Findings[0].Kind)
-	assert.Equal(t, injected.Name, pkg.Findings[0].Ref)
+	assert.Equal(t, "ctxloom+companion:alpha#fragments/style", pkg.Findings[0].Ref)
 }
 
 // A fragment ask that does not load is a finding, never a refusal: the
@@ -244,45 +243,55 @@ func TestIndexOf_EnumeratesTheCatalog(t *testing.T) {
 	assert.Contains(t, byRef, betaTagged)
 }
 
-// A builtin or companion-loadout injection reaches the SAME premise rule
-// every other fragment does. "Always-on" describes not being profile-
-// selected; it never meant immunity from a premise. Without this an
-// authored premise was inert in the worst way: the catalog offered the
-// fragment while the context already carried it.
-func TestAssemble_InjectedFragmentsHonourTheirPremise(t *testing.T) {
-	cat := corpus(t)
-	builtins := []composite.Fragment{
-		{Name: "ctxloom+builtin:core#fragments/always", Body: "ALWAYS-BODY"},
-		{Name: "ctxloom+companion:taskloom#fragments/taskloom", Body: "TASKLOOM-BODY", Premise: "You are about to touch the task log."},
-	}
+// A companion loadout's fragments are delivered UNCONDITIONALLY — every
+// companion the catalog read, ctxloom's own included, with no profile
+// selecting them — and reach the SAME premise rule and the SAME gate every
+// other fragment does. "Always-on" describes not being profile-selected; it
+// never meant immunity from a premise or from rejection. They come from the
+// catalog, not from a side input: what a reader read and the gate admitted
+// is what is delivered, so a profile's exclusion or a human's rejection
+// governs them like everything else.
+func TestAssemble_CompanionFragmentsAreUnconditionalAndHonourTheirPremise(t *testing.T) {
+	cat := corpusWith(t,
+		bundles.CompanionLoadout{Bin: "core", Document: []byte("run:\n  version: 1.0.0\n  fragments:\n    always:\n      content: ALWAYS-BODY\n")},
+		bundles.CompanionLoadout{Bin: "taskloom", Document: []byte("run:\n  version: 1.0.0\n  fragments:\n    taskloom:\n      premise: You are about to touch the task log.\n      content: TASKLOOM-BODY\n")},
+	)
 	empty, err := composite.Select(nil, cat, composite.SelectRequest{})
 	require.NoError(t, err)
 
-	t.Run("dynamic: the premised injection stays OUT of the assembled bytes and is offered", func(t *testing.T) {
-		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{Builtin: builtins})
+	t.Run("dynamic: the premised fragment stays OUT of the assembled bytes and is offered", func(t *testing.T) {
+		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{})
 		require.NoError(t, err)
-		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY", "an unpremised injection is unconditional")
-		assert.NotContains(t, pkg.Context.Text, "TASKLOOM-BODY", "a premised injection must be HELD BACK")
-		assert.Equal(t, []string{"ctxloom+builtin:core#fragments/always"}, pkg.Loaded, "a held-back fragment is not reported as loaded")
+		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY", "an unpremised companion fragment is unconditional")
+		assert.NotContains(t, pkg.Context.Text, "TASKLOOM-BODY", "a premised companion fragment must be HELD BACK")
+		assert.Equal(t, []string{"ctxloom+companion:core#fragments/always"}, pkg.Loaded, "a held-back fragment is not reported as loaded")
 		assert.Equal(t, []string{"ctxloom+companion:taskloom#fragments/taskloom"}, itemRefs(pkg.Premised))
 	})
 
 	t.Run("explicit: naming it IS the selection", func(t *testing.T) {
 		sel := empty
 		sel.Explicit = []string{"ctxloom+companion:taskloom#fragments/taskloom"}
-		pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{Builtin: builtins})
+		pkg, err := composite.Assemble(context.Background(), cat, sel, compositetest.Trust(), composite.Options{})
 		require.NoError(t, err)
 		assert.Contains(t, pkg.Context.Text, "TASKLOOM-BODY")
 		assert.Empty(t, pkg.Premised)
 	})
 
 	t.Run("static: both are delivered, because nothing can pull later", func(t *testing.T) {
-		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{Builtin: builtins, Static: true})
+		pkg, err := composite.Assemble(context.Background(), cat, empty, compositetest.Trust(), composite.Options{Static: true})
 		require.NoError(t, err)
 		assert.Contains(t, pkg.Context.Text, "ALWAYS-BODY")
 		assert.Contains(t, pkg.Context.Text, "TASKLOOM-BODY", "a static surface loses a held-back fragment rather than deferring it")
 		assert.Len(t, pkg.Loaded, 2)
 		assert.Empty(t, pkg.Premised)
+	})
+
+	t.Run("rejected: a human's rejection beats the companion exemption", func(t *testing.T) {
+		tr := compositetest.Trust(compositetest.RejectWhen(func(ref trust.Ref, _ []byte) bool { return ref.Name == "always" }))
+		pkg, err := composite.Assemble(context.Background(), cat, empty, tr, composite.Options{DropWithheld: true})
+		require.NoError(t, err)
+		assert.NotContains(t, pkg.Context.Text, "ALWAYS-BODY")
+		assert.Contains(t, pkg.Attestation().Withheld, "ctxloom+companion:core#fragments/always")
 	})
 }
 

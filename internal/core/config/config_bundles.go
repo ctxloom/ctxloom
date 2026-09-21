@@ -3,12 +3,12 @@ package config
 import (
 	"context"
 	"errors"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
-	"os/exec"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -16,9 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
-
-// lookPath is the PATH-resolution seam for tests.
-var lookPath = exec.LookPath
 
 // hookPreimage and mcpPreimage are the executable-surface preimage builders for
 // a bundle hook / MCP server, indirected through package vars so a test can
@@ -55,18 +52,17 @@ func (c *Config) bindGeneration(catalog func() bundles.Catalog, trust composite.
 // Catalog returns the generation's bundle catalog. Every Config an Owner
 // published had one bound before publication (bindGeneration) and returns
 // that same resolved set for its life. A Config no Owner published — a
-// fixture — has no generation to pin: it resolves the two readers core
-// itself can build, the project's authored bundles and the builtins, on
-// every call, and never sees remote or companion content, which only the
-// composition root's Sources supply.
+// fixture — has no generation to pin: it resolves the one reader core
+// itself can build, the project's authored bundles, on every call, and never
+// sees remote or companion content, which only the composition root's
+// Sources supply.
 func (c *Config) Catalog() bundles.Catalog {
 	if c.catalog != nil {
 		return c.catalog()
 	}
 	root := c.TrustRoot()
 	return bundles.Resolve(context.Background(), c.rep.Sink,
-		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
+		bundles.NewProjectReader(c.getFS(), c.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(c.rep.Sink)))
 }
 
 // Trust is the generation's gate holder, bound before publication
@@ -105,70 +101,6 @@ func (c *Config) RequireTrust() (composite.Trust, error) {
 // for a listing, compositetest.Trust over fake ports for a decision.
 func (c *Config) BindTrustForTesting(tr composite.Trust) { c.trust = tr }
 
-// SetLookPathForTesting overrides the companion-binary PATH-resolution seam and
-// returns a restore function. Tests in other packages use it to make companion
-// detection (built-in bundle hooks/MCP/fragments) deterministic regardless of
-// what is installed on the developer's machine.
-func SetLookPathForTesting(fn func(string) (string, error)) func() {
-	prev := lookPath
-	lookPath = fn
-	return func() { lookPath = prev }
-}
-
-// missingWarned tracks binaries already warned about, so a missing companion
-// produces one hint per process, not one per resolve pass.
-var (
-	missingWarnedMu sync.Mutex
-	missingWarned   = map[string]bool{}
-)
-
-// missingCompanion reports whether the command's executable is a companion
-// binary absent from PATH. Commands run by ctxloom itself (`ctxloom hook ...`)
-// always pass — gating exists for foreign binaries shipped separately
-// (taskloom, ltk), whose builtin-bundle entries must degrade to absent rather
-// than register a broken server or hook.
-func missingCompanion(command string) (string, bool) {
-	bin := companionBin(command)
-	if bin == "" {
-		return "", false
-	}
-	if _, err := lookPath(bin); err != nil {
-		return bin, true
-	}
-	return "", false
-}
-
-// companionBin extracts the companion executable a command invokes: its first
-// field, unless the command is empty or runs ctxloom itself.
-func companionBin(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 || fields[0] == "ctxloom" {
-		return ""
-	}
-	return fields[0]
-}
-
-// warnMissingCompanion emits the one-shot install hint for an absent binary.
-func warnMissingCompanion(rep report.Reporter, bin, hint string) {
-	missingWarnedMu.Lock()
-	defer missingWarnedMu.Unlock()
-	if missingWarned[bin] {
-		return
-	}
-	missingWarned[bin] = true
-	msg := bin + " not found on PATH; its tools are disabled for this session"
-	if hint != "" {
-		msg += " (" + strings.TrimSpace(hint) + ")"
-	}
-	rep.Warnf("%s", msg)
-}
-
-// builtinBundleSetRef is the source ref addServers attributes the in-binary
-// builtin bundle set to. The builtins are merged into one map before
-// ResolveBundleMCPServers sees them (resolveBuiltinBundleMCPServers), so they
-// contest as one source rather than individually.
-const builtinBundleSetRef = "ctxloom builtin bundles"
-
 // mcpNameClaims settles the MCP server-name contest at the BUNDLE-RESOLUTION
 // layer: two ctxloom source refs both declaring one server name, before any
 // engine registry writer sees the composed set.
@@ -180,14 +112,15 @@ const builtinBundleSetRef = "ctxloom builtin bundles"
 // a profile also references) dedupes silently.
 //
 // Silence here is a delivery-substitution path: one bundle's server quietly
-// answering for another's declared name, up to a profile bundle shadowing a
-// builtin ctxloom server. Nothing downstream can detect it — the resolved set
-// is keyed BY NAME, so the loser leaves no trace, and the surviving entry
-// carries the WINNER's SCM, so reconciliation attributes it to the wrong
-// bundle. The incumbent is kept rather than dropped because withholding both
-// would, in degraded mode, also remove a working builtin over a contest the
-// user did not create; and in strict mode the finding aborts the launch
-// anyway, so nothing runs on the composed set either way.
+// answering for another's declared name, up to a profile bundle shadowing
+// ctxloom's own server (declared by its own companion loadout). Nothing
+// downstream can detect it — the resolved set is keyed BY NAME, so the loser
+// leaves no trace, and the surviving entry carries the WINNER's SCM, so
+// reconciliation attributes it to the wrong bundle. The incumbent is kept
+// rather than dropped because withholding both would, in degraded mode, also
+// remove a working companion server over a contest the user did not create;
+// and in strict mode the finding aborts the launch anyway, so nothing runs on
+// the composed set either way.
 //
 // This arbitrates ctxloom-vs-ctxloom, and every part of its shape follows from
 // that: its predicate is ref IDENTITY rather than mere presence (the same ref
@@ -230,15 +163,13 @@ func (c *mcpNameClaims) claim(name, sourceRef string) bool {
 
 // ResolveBundleMCPServers loads MCP servers from bundles referenced in the
 // caller's selected profiles (or the configured defaults when none are passed),
-// plus servers shipped by built-in bundles embedded in the binary
-// (resources/builtin_bundles) and by every discovered COMPANION's loadout
-// (S8 — a companion's MCP registration is unconditional, matching the old
-// embedded-bundle behavior for taskloom, but NEVER exempt like a builtin: it
-// is routed through the identical extraction+gate path a profile-referenced
-// bundle uses, so trusted-signer/approved/pending applies). Mirrors
-// ResolveBundleHooks: any future built-in that ships an MCP server is picked
-// up automatically, tagged with SCM="bundle:ctxloom+builtin:<name>" so reconciliation
-// can identify it.
+// plus servers shipped by every discovered COMPANION's loadout — ctxloom's
+// own included, which is how ctxloom's own MCP server is registered. A
+// companion's MCP registration is unconditional but never exempt: it is
+// routed through the identical extraction+gate path a profile-referenced
+// bundle uses, so rejection applies. Mirrors ResolveBundleHooks. Each server
+// is tagged with the SCM of the bundle that shipped it so reconciliation can
+// identify it.
 func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.MCPServer {
 	return c.ResolveBundleMCPServersFor(c.ResolveProfileSet(profileNames))
 }
@@ -323,28 +254,21 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 		}
 	}
 
-	// Built-in bundles are unconditional — they ship core ctxloom
-	// functionality and aren't gated on profile membership. Resolving them
-	// first only fixes who is the INCUMBENT of a contested name; it grants no
-	// precedence to anyone, because a later source that declares a name a
-	// builtin already claimed is refused loudly rather than allowed to
-	// override (see mcpNameClaims). They ARE routed through
-	// c.ExecutableTrustGate() (AdmitAll on management/listing paths, which
-	// state that they gate nothing) so a builtin item can still be REJECTED —
-	// see resolveBuiltinBundleMCPServers.
-	addServers(builtinBundleSetRef, resolveBuiltinBundleMCPServers(c.rep, c.ExecutableTrustGate()))
-
 	// BundleLoader includes remote bundles from the active lockfile AND every
-	// discovered companion's loadout, read under its ctxloom:companion@<bin>
-	// ref; without them, MCP servers shipped in remote bundles (or a companion
-	// loadout) silently disappear (see docs/bundle-review-plan.md Phase 1.2).
+	// discovered companion's loadout — ctxloom's own included — read under
+	// its ctxloom:companion@<bin> ref; without them, MCP servers shipped in
+	// remote bundles (or a companion loadout) silently disappear (see
+	// docs/bundle-review-plan.md Phase 1.2).
 	bundleLoader := c.BundleLoader()
 
-	// Companion loadouts are resolved through loadMCPFromBundleRef — the SAME
-	// path a profile-referenced bundle uses (Load -> extractMCPFromBundle) —
-	// so a companion's server is judged by ITS bundle's own source ref and
-	// verified Signer(), never the builtin exemption. Sorted for a
-	// deterministic result across runs.
+	// Companion loadouts first, resolved through loadMCPFromBundleRef — the
+	// SAME path a profile-referenced bundle uses (Load -> extractMCPFromBundle)
+	// — so a companion's server is judged by ITS bundle's own source ref and
+	// verified Signer(). Sorted for a deterministic result across runs.
+	// Resolving them first only fixes who is the INCUMBENT of a contested
+	// name; it grants no precedence to anyone, because a later source that
+	// declares a name a companion already claimed is refused loudly rather
+	// than allowed to override (see mcpNameClaims).
 	cat := bundleLoader.Catalog()
 	for _, ref := range companionRefs(cat) {
 		addServers(ref, loadMCPFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate()))
@@ -352,9 +276,9 @@ func (c *Config) ResolveBundleMCPServersFor(set []profiles.ResolvedProfile) map[
 
 	// Finally the profile-referenced bundles. A bundle listed by two profiles
 	// in scope is the SAME ref reached twice and dedupes silently; a bundle
-	// that declares a name a builtin, a companion, or another profile bundle
-	// already claimed is a contest between two different refs, and
-	// mcpNameClaims withholds it loudly.
+	// that declares a name a companion or another profile bundle already
+	// claimed is a contest between two different refs, and mcpNameClaims
+	// withholds it loudly.
 	for _, resolved := range set {
 		for _, bundleRef := range resolved.Bundles {
 			addServers(bundleRef, loadMCPFromBundleRef(c.rep, bundleRef, cat, c.ExecutableTrustGate()))
@@ -410,37 +334,6 @@ func (c *Config) LinkGrantFor(set []profiles.ResolvedProfile) bundles.LinkGrant 
 		srv, ok := granted[server]
 		return ok && srv.SCM == bundleSCM(read.SourceRef())
 	})
-}
-
-// resolveBuiltinBundleMCPServers parses every YAML under
-// resources/builtin_bundles/ (embedded at build time) and returns the
-// merged MCP-server map. Mirrors resolveBuiltinBundleHooks. Each server
-// is tagged with SCM="bundle:ctxloom+builtin:<name>" so apply-* reconciliation can
-// identify built-in entries. Failures on individual bundles are logged
-// to stderr and skipped — built-in bundles must never block startup.
-//
-// gate is run through extractMCPFromBundle exactly like a remote/local bundle's
-// servers (a builtin source ref carries trust.Ref{IsBuiltin: true} — see
-// trust.BuiltinRef): the decision function still ALLOWS a
-// builtin server by default (no new review friction — trust-model.md's builtin
-// exemption), but a REJECTED builtin item is now withheld, because rejection is
-// evaluated before the builtin exemption. A nil gate (management/listing paths,
-// matching every other resolver here) is fully ungated, unchanged from before.
-func resolveBuiltinBundleMCPServers(rep report.Reporter, gate bundles.Authorizer) map[string]wire.MCPServer {
-	out := make(map[string]wire.MCPServer)
-	eachBuiltinBundle(rep, func(read bundles.BundleRead) {
-		for serverName, server := range extractMCPFromBundle(rep, read, read.SourceRef(), gate) {
-			// Builtin bundles wire in standalone companion binaries; a
-			// missing one degrades to no entry (and one install hint)
-			// rather than a broken server in every backend.
-			if bin, missing := missingCompanion(server.Command); missing {
-				warnMissingCompanion(rep, bin, server.Installation)
-				continue
-			}
-			out[serverName] = server
-		}
-	})
-	return out
 }
 
 // resolveProfileOrReport resolves profileName through the recursive resolver
@@ -517,10 +410,9 @@ func reportBundleRefLoadFailure(rep report.Reporter, bundleRef string, err error
 
 // ResolveBundleHooks aggregates hooks shipped by every bundle referenced
 // in the caller's selected profiles (or the configured defaults when none
-// are passed), plus the always-on hooks shipped by built-in bundles embedded
-// in the binary (resources/builtin_bundles) and by every discovered
-// COMPANION's loadout (S8 — unconditional like a builtin hook, e.g. ltk's
-// pre-tool guard or taskloom's session-bind, but NEVER exempt like one: see
+// are passed), plus the always-on hooks shipped by every discovered
+// COMPANION's loadout (ctxloom's own included — unconditional, e.g. ltk's
+// pre-tool guard or taskloom's session-bind, but never exempt: see
 // ResolveBundleMCPServers for why). Mirrors ResolveBundleMCPServers. Each
 // emitted hook carries SCM source info so apply-hooks can identify
 // ctxloom-managed entries when reconciling the backend's settings.json.
@@ -534,23 +426,16 @@ func (c *Config) ResolveBundleHooksFor(set []profiles.ResolvedProfile) wire.Unif
 	var result wire.UnifiedHooks
 
 	// One link grant for every arm: the granted set it answers from holds
-	// builtin, companion and profile servers alike, so a hook linked to its
+	// companion and profile servers alike, so a hook linked to its
 	// server is delivered exactly when that server is, whichever arm shipped
 	// both. Lazy, so an assembly with no linked hook never resolves it.
 	links := c.LinkGrantFor(set)
 
-	// Built-in bundles are unconditional — they ship core ctxloom
-	// functionality (session bind, plan-stamping). No profile
-	// gating, no deps pull. Routed through c.ExecutableTrustGate() (see
-	// resolveBuiltinBundleMCPServers for why: allowed by default, but now
-	// reachable by a rejection).
-	result.Append(resolveBuiltinBundleHooks(c.rep, c.ExecutableTrustGate(), links))
-
 	bundleLoader := c.BundleLoader()
 
-	// Companion loadout hooks: same extraction+gate path a profile-referenced
-	// bundle uses, keyed and signed by the companion's OWN bundle — never the
-	// builtin exemption. Sorted for a deterministic result across runs.
+	// Companion loadout hooks (ctxloom's own included): same extraction+gate
+	// path a profile-referenced bundle uses, keyed and signed by the
+	// companion's OWN bundle. Sorted for a deterministic result across runs.
 	cat := bundleLoader.Catalog()
 	for _, ref := range companionRefs(cat) {
 		result.Append(loadHooksFromBundleRef(c.rep, ref, cat, c.ExecutableTrustGate(), links))
@@ -615,7 +500,7 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // configured defaults when none are passed), PLUS the commands shipped by
 // every discovered COMPANION's loadout (S8 — unconditional whenever the
 // companion binary is on PATH, e.g. ltk's task-runner command, but NEVER
-// exempt like a builtin: routed through bundleLoader.CommandsFromBundleRef,
+// exempt: routed through bundleLoader.CommandsFromBundleRef,
 // the identical extraction+gate path a profile-referenced bundle's commands
 // use — see ResolveCompanionCommands). Deduped by prompt name; profile-sourced
 // commands are resolved FIRST so an explicit profile curation of the same
@@ -695,7 +580,7 @@ func (c *Config) ResolveBundleSkills(profileNames []string) []*bundles.LoadedSki
 // (companion-ref-sorted, then name-sorted within a loadout) order. Routed
 // through bundleLoader.CommandsFromBundleRef — the SAME extraction+gate path a
 // profile-referenced bundle's commands use, keyed and signed by the
-// companion's OWN bundle — never the builtin nil-gate exemption; it decides
+// companion's OWN bundle; it decides
 // with the cfg-carried executable trust gate exactly like ResolveBundleCommands,
 // so an unsigned/withheld companion loadout's commands do not export.
 //
@@ -723,187 +608,6 @@ func resolveCompanionCommandsWith(pipe *bundles.Pipeline, cat bundles.Catalog) [
 	return out
 }
 
-// resolveBuiltinBundleHooks parses every YAML under
-// resources/builtin_bundles/ (embedded at build time) and returns the
-// merged hook set. Each hook is tagged with SCM="bundle:ctxloom+builtin:<name>" so the
-// apply-hooks reconciliation can identify built-in entries. Failures on
-// individual bundles are logged to stderr and skipped — built-in bundles
-// must never block startup.
-// gate is threaded through exactly like resolveBuiltinBundleMCPServers: still
-// allowed by default (no new review friction), but now reachable by a
-// rejection (rejection is evaluated before the builtin exemption). A nil gate
-// (management/listing paths) stays fully ungated.
-func resolveBuiltinBundleHooks(rep report.Reporter, gate bundles.Authorizer, links bundles.LinkGrant) wire.UnifiedHooks {
-	var out wire.UnifiedHooks
-	eachBuiltinBundle(rep, func(read bundles.BundleRead) {
-		out.Append(filterMissingCompanionHooks(rep, extractHooksFromBundle(rep, read, read.SourceRef(), gate, links)))
-	})
-	return out
-}
-
-// filterMissingCompanionHooks drops hooks whose executable is a companion
-// binary absent from PATH (one install hint per binary). ctxloom's own hooks
-// always pass; see missingCompanion.
-func filterMissingCompanionHooks(rep report.Reporter, in wire.UnifiedHooks) wire.UnifiedHooks {
-	keep := func(hooks []wire.Hook) []wire.Hook {
-		var out []wire.Hook
-		for _, h := range hooks {
-			if bin, missing := missingCompanion(h.Command); missing {
-				warnMissingCompanion(rep, bin, "")
-				continue
-			}
-			out = append(out, h)
-		}
-		return out
-	}
-	return wire.UnifiedHooks{
-		PreTool:      keep(in.PreTool),
-		PostTool:     keep(in.PostTool),
-		SessionStart: keep(in.SessionStart),
-		SessionEnd:   keep(in.SessionEnd),
-		PreShell:     keep(in.PreShell),
-		PostFileEdit: keep(in.PostFileEdit),
-		TurnEnd:      keep(in.TurnEnd),
-		TurnStart:    keep(in.TurnStart),
-	}
-}
-
-// BuiltinFragment is one always-on fragment shipped by a built-in bundle,
-// ready for unconditional injection into assembled context.
-type BuiltinFragment struct {
-	Name         string // reporting identity, the canonical bundle-reference grammar's item ref (e.g. "ctxloom+builtin:<bundle>#fragments/<name>")
-	Content      string
-	Installation string
-	// Premise is the fragment's authored applicability condition, "" for an
-	// unconditional one — carried so a builtin or a COMPANION LOADOUT fragment
-	// reaches the same premise filter every other fragment does.
-	//
-	// Dropping it here is what made an authored premise inert: the schema
-	// accepted it, the catalog surfaced it in the index, and this projection
-	// discarded it before assembly could act. The result was worse than
-	// ignoring premises outright — the index ADVERTISED a fragment the context
-	// already carried.
-	Premise string
-}
-
-// ResolveBuiltinBundleFragments returns the fragments shipped by built-in
-// bundles embedded in the binary (resources/builtin_bundles), for unconditional
-// injection into assembled context — the always-on counterpart to
-// ResolveBundleHooks / ResolveBundleMCPServers, which wire in those same
-// bundles' hooks and MCP servers. A bundle whose companion binary (the
-// executable its hooks/MCP invoke, e.g. ltk, taskloom) is absent from PATH is
-// skipped: with the tool not installed, briefing the agent about it is noise,
-// and its hooks/MCP are skipped for the same reason. ctxloom-only built-in
-// bundles have no companion and always inject. Order is deterministic (bundle
-// name, then fragment name) for a stable context hash. The missing-companion
-// install hint is emitted by the hooks/MCP path; this resolver stays silent.
-//
-// gate mirrors ResolveBundleHooks/ResolveBundleMCPServers's builtin routing: a
-// builtin fragment is still exposed by default (no new review friction), but a
-// REJECTED builtin fragment is now withheld — rejection is evaluated before the
-// builtin exemption. Callers on an exposure surface pass the SAME gate their
-// content loader is using (Pipeline.Authorizer()) so builtin fragments gate through the
-// identical decision as the loader-resolved ones, sharing its trust-store
-// open and its withheld-ref tally. bundles.AdmitAll (management/listing
-// callers) is fully ungated, matching every other resolver here.
-func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []BuiltinFragment {
-	preferDistilled := c.ShouldUseDistilled()
-	var out []BuiltinFragment
-
-	eachBuiltinBundle(c.rep, func(read bundles.BundleRead) {
-		if _, missing := builtinBundleCompanionMissing(read.Bundle); missing {
-			return
-		}
-		// A builtin carries NO signer: it is not signed and must not be
-		// (signing bytes embedded in the binary that verifies them is
-		// circular — spec §4.5). The builtin class on its TRUST ref is
-		// what routes it to the decision function's builtin step, which sits
-		// BELOW rejection so a user can still reject a builtin.
-		//
-		// SourceRef, not Ref: a builtin's RESOLUTION ref is the bare
-		// name, and building the gate ref from that would key this route
-		// IsLocal — a second trust identity for the same item, which is how a
-		// rejection recorded against the loader route stops withholding this
-		// one (crispy-scoop).
-		out = fragmentsFromBundle(c.rep, out, read, read.SourceRef(), preferDistilled, gate)
-	})
-
-	// Companion loadouts (S8): unconditional like a builtin fragment (the
-	// old embedded-bundle behavior for ltk/taskloom), but NEVER exempt like
-	// one — ref carries the companion's own ctxloom:companion@<bin> source
-	// and signer carries its VERIFIED publisher identity, so it reaches
-	// EffectiveTrust's trusted-signer/approved/pending steps like any other
-	// seeded bundle. Do NOT route this through the builtin ref prefix above:
-	// that is precisely the nil-gate/exemption bypass the trust rework
-	// forbids for third-party content.
-	for _, read := range companionReads(c.BundleLoader().Catalog()) {
-		out = fragmentsFromBundle(c.rep, out, read, read.SourceRef(), preferDistilled, gate)
-	}
-	return out
-}
-
-// fragmentsFromBundle extracts every fragment in b as BuiltinFragment
-// entries in a stable (sorted-by-name) order, applying gate per item — ref
-// minted through bundles.ItemRefFor(src, trust.KindFragment, name), the
-// canonical bundle-reference grammar's item selector over src (using the
-// caller-supplied signer) — and skipping empty content. Shared by the
-// embedded-builtin loop above (signer "", src a BuiltinRef) and the
-// companion-loadout loop (signer b.Signer(), src a CompanionRef)
-// — the only two callers, which differ solely in src/signer.
-func fragmentsFromBundle(rep report.Reporter, out []BuiltinFragment, read bundles.BundleRead, src trust.BundleRef, preferDistilled bool, gate bundles.Authorizer) []BuiltinFragment {
-	b := read.Bundle
-	fragNames := make([]string, 0, len(b.Fragments))
-	for fragName := range b.Fragments {
-		fragNames = append(fragNames, fragName)
-	}
-	sort.Strings(fragNames)
-	for _, fragName := range fragNames {
-		frag := b.Fragments[fragName]
-		// ONE resolution of the surface feeds the gate AND the delivery below,
-		// so what is presented (body + premise) and what is hashed cannot be
-		// two different reads of the same struct.
-		surface := frag.Surface(preferDistilled)
-		if strings.TrimSpace(surface.Body()) == "" {
-			continue
-		}
-		ref, rerr := bundles.ItemRefFor(src, trust.KindFragment, fragName)
-		if rerr != nil {
-			// One unaddressable bundle costs its own fragments, never the
-			// rest of the loadout.
-			rep.Warnf("%v — withheld", rerr)
-			continue
-		}
-		if !bundles.Decide(rep, gate, read, ref, surface.Preimage(), surface.Form()).Allow {
-			continue // withheld by the trust gate (e.g. rejected, or pending)
-		}
-		out = append(out, BuiltinFragment{
-			Name:         ref,
-			Content:      surface.Body(),
-			Installation: frag.Installation,
-			Premise:      surface.Premise(),
-		})
-	}
-	return out
-}
-
-// builtinBundleCompanionMissing reports the companion binary a built-in bundle
-// depends on (the first executable its hooks or MCP servers invoke that isn't
-// ctxloom itself) and whether it is absent from PATH. A bundle with no companion
-// returns ("", false). Mirrors the gating applied to the bundle's hooks/MCP.
-func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
-	for _, e := range b.Hooks.Entries() {
-		if bin, missing := missingCompanion(e.Hook.Command); missing {
-			return bin, true
-		}
-	}
-	for _, m := range b.MCP {
-		if bin, missing := missingCompanion(m.Command); missing {
-			return bin, true
-		}
-	}
-	return "", false
-}
-
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
@@ -923,9 +627,9 @@ func loadHooksFromBundleRef(rep report.Reporter, bundleRef string, cat bundles.C
 // the canonical bundle-reference grammar's item selector over source
 // (bundles.ItemRefFor(src, trust.KindHook, "<event>/<index>")); a DENY omits the
 // hook — a bundle hook is an arbitrary-command executable that must never be
-// applied unevaluated (fail-closed). Builtin callers pass bundles.AdmitAll
-// (in-binary, exempt): the preimage is never even built, which is why this
-// branches rather than letting Decide answer. The identity scheme is
+// applied unevaluated (fail-closed). An ungated caller (management/listing
+// paths) passes bundles.AdmitAll: the preimage is never even built, which is
+// why this branches rather than letting Decide answer. The identity scheme is
 // bundles.HookEntry.ID() ("<event>/<index>"), shared with the migration
 // baseline so a baselined hook's ref matches.
 //
@@ -1042,7 +746,8 @@ func extractHooksFromBundle(rep report.Reporter, read bundles.BundleRead, src tr
 // on the canonical bundle-reference grammar's item selector over source
 // (bundles.ItemRefFor(src, trust.KindMCP, name)); a DENY omits the server entirely
 // — an arbitrary-command executable must never reach settings unevaluated
-// (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt).
+// (fail-closed). An ungated caller (management/listing paths) passes
+// bundles.AdmitAll.
 func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trust.BundleRef, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
@@ -1083,53 +788,4 @@ func extractMCPFromBundle(rep report.Reporter, read bundles.BundleRead, src trus
 	}
 
 	return result
-}
-
-// eachBuiltinBundle parses every bundle embedded in the binary through the
-// CANONICAL bundle parser and hands each one to fn. A bundle that cannot be
-// listed, read or parsed is a warning and is skipped — one broken builtin never
-// sinks the others.
-//
-// It exists so the four surfaces that read builtin bundles (MCP servers, hooks,
-// fragments, companion bins) cannot disagree about what a builtin bundle SAYS.
-// They previously each ran their own `yaml.Unmarshal`, which bypasses
-// bundles.ParseBundle's schema-upgrade pipeline: a migration that renames a key
-// would have applied on every on-disk and remote bundle and silently not here,
-// so the same bytes would mean different things depending on which surface
-// asked. Routing all four through the builtin READER — the same localfs
-// implementation that reads the project's own bundles, pointed at the embedded
-// filesystem — is what makes "a builtin bundle" one definition rather than four,
-// and what keeps a builtin's trust facts established the same way everything
-// else's are.
-// The read is memoized for the life of the PROCESS, which is safe here in a way
-// it would not be for any other reader: builtin bundles are compiled into the
-// binary, so their bytes cannot change while it runs. Every other source can,
-// which is why nothing else in this package caches across calls.
-//
-// It matters because the callers are not rare — four surfaces, and `doctor`
-// alone reached them repeatedly — and each call re-walked the embedded
-// filesystem and re-ran ParseBundle over every builtin to produce a byte-identical
-// answer.
-//
-// This does NOT collapse the two routes a builtin reaches a session by: ref
-// selection through Config.BundleLoader, and the unconditional injection below.
-// Both are deliberate — the ingest identity rule exists precisely to collapse
-// one item arriving by both — and the memo makes them provably agree by giving
-// them one parse instead of two.
-var builtinReads = sync.OnceValues(func() ([]bundles.BundleRead, error) {
-	return bundles.NewBuiltinReader().Read(context.Background())
-})
-
-// eachBuiltinBundle visits every builtin bundle; a read failure is reported
-// once per caller through rep (the memo keeps the error, not the warning,
-// so no caller's report is lost to another's first call).
-func eachBuiltinBundle(rep report.Reporter, fn func(read bundles.BundleRead)) {
-	reads, err := builtinReads()
-	if err != nil {
-		rep.Warnf("read builtin bundles: %v", err)
-		return
-	}
-	for _, read := range reads {
-		fn(read)
-	}
 }

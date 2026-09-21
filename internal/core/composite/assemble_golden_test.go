@@ -22,6 +22,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -235,11 +236,31 @@ func goldenEngines() []string {
 	return names
 }
 
+// goldenLoad loads the corpus the way a real ctxloom does: the project's
+// readers plus ctxloom's OWN companion loadout — the repo's
+// cmd/ctxloom/loadout.yaml, read as the self-probe would read it — so the
+// golden carries what every consumer receives on ctxloom's own behalf (its
+// MCP server entry, its always-on guidance), not only the profile-selected
+// content.
+func goldenLoad(t *testing.T, appDir string) *config.Config {
+	t.Helper()
+	doc, err := os.ReadFile(filepath.Join(repoRoot(t), "cmd", "ctxloom", "loadout.yaml"))
+	require.NoError(t, err)
+	self := bundles.CompanionLoadout{Bin: "ctxloom", Path: "/opt/build/ctxloom", Document: doc, Self: true}
+	probe := func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{self}}, nil
+	}
+	cfg, err := configload.Load(configload.WithAppDir(appDir), configload.WithReaderSource(func(cfg *config.Config) []bundles.Reader {
+		return []bundles.Reader{bundles.NewCompanionReader(probe, bundles.WithTrustRoot(cfg.TrustRoot()))}
+	}))
+	require.NoError(t, err)
+	return cfg
+}
+
 func TestAssemble_Golden(t *testing.T) {
 	update := os.Getenv("CTXLOOM_UPDATE_GOLDEN") != ""
 	appDir := goldenAppDir(t)
-	cfg, err := configload.Load(configload.WithAppDir(appDir))
-	require.NoError(t, err)
+	cfg := goldenLoad(t, appDir)
 
 	g := &golden{}
 	for _, engine := range goldenEngines() {
@@ -299,8 +320,7 @@ func copyTree(t *testing.T, fsys afero.Fs, src, dst string) {
 // pins WHAT they decode to; this pins that none is refused.
 func TestCorpus_EveryExportBlockDecodesThroughTheEngine(t *testing.T) {
 	appDir := goldenAppDir(t)
-	cfg, err := configload.Load(configload.WithAppDir(appDir))
-	require.NoError(t, err)
+	cfg := goldenLoad(t, appDir)
 	pkg, err := operations.AssemblePackage(context.Background(), cfg, operations.PackageRequest{Profiles: []string{"golden-auto"}})
 	require.NoError(t, err)
 	require.NotEmpty(t, pkg.Commands)

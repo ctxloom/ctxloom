@@ -76,7 +76,7 @@ type TreeEntry struct {
 }
 
 // ErrReadOnly reports a write attempted against a store with no writable
-// backing — a builtin, an archive, a pinned remote. It is an ERROR rather than
+// backing — an archive, a pinned remote. It is an ERROR rather than
 // a no-op on purpose: a Put that returned nil while writing nothing is this
 // codebase's characteristic failure.
 var ErrReadOnly = errors.New("content: store is read-only")
@@ -273,9 +273,9 @@ func validateTreePath(p string) error {
 // FSStore is a read-only Store over any TreeFS — the constructor a bytes-only
 // backend uses.
 //
-// It WRAPS a TreeStore rather than embedding it, for the same reason
-// BuiltinStore does: TreeStore is both a Store and a Writer, and an embedded
-// one would make a read-only store satisfy Writer by accident. Wrapping makes
+// It WRAPS a TreeStore rather than embedding it: TreeStore is both a Store
+// and a Writer, and an embedded one would make a read-only store satisfy
+// Writer by accident. Wrapping makes
 // "a bytes-only store cannot be written" a fact the type system enforces.
 type FSStore struct {
 	inner *TreeStore

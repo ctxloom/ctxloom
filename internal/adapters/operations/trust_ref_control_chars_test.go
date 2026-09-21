@@ -65,7 +65,6 @@ func TestResolveItemAsk_CleanRefsResolve(t *testing.T) {
 		"lang/go#commands/review",
 		"ctxloom+local:mybundle#mcp/postgres",
 		"ctxloom+git://github.com/acme/repo//bundles/core#mcp/postgres",
-		"ctxloom+builtin:ltk#fragments/x",
 		"ctxloom+companion:ltk#hooks/pre_tool/0",
 	} {
 		br, err := ResolveItemAsk(cat, ref)

@@ -251,3 +251,52 @@ func TestNewTrust_LocalityRule_TheSameBundleFromARemoteSourceIsWithheld(t *testi
 	assert.NotEqual(t, bundles.ReasonStaleLocalSignature, v.Reason, "stale-local is a LOCAL row and never names remote content")
 	assert.Equal(t, []string{e.RefStr}, tr.Withheld())
 }
+
+// faultedRetraction is a RetractionRecords whose backing lockfile could not be
+// read; it reports so through the optional Faulted capability.
+type faultedRetraction struct {
+	fakeRetraction
+	err error
+}
+
+func (f faultedRetraction) Fault() error { return f.err }
+
+// companionFragment is a fragment from an installed companion's own loadout
+// (ctxloom's own included) — the shape no lockfile entry can retract.
+func companionFragment(t *testing.T) bundles.Exposure {
+	t.Helper()
+	const refStr = "ctxloom+companion:ctxloom#fragments/isolation-axes"
+	br, err := trust.ParseBundleRef(refStr)
+	require.NoError(t, err)
+	b := &bundles.Bundle{Name: "ctxloom:companion@ctxloom"}
+	read := bundles.NewRead("ctxloom:companion@ctxloom", b, bundles.ProvenanceCompanion, bundles.TrustCtxLocal,
+		bundles.SignatureFacts{Signature: bundles.SignatureNone, Signer: bundles.SignerNone})
+	return bundles.Exposure{
+		Read:   read,
+		Ref:    trust.RefFromBundleRef(br),
+		RefStr: refStr,
+		Bytes:  []byte("Set both isolation axes."),
+		Form:   bundles.FormRaw,
+	}
+}
+
+// TestNewTrust_AnUnreadableLockfileDoesNotWithholdCompanionContent: a
+// retraction is a PUBLISHER's withdrawal of a bundle, sourced from the
+// lockfile — and a companion loadout has no lockfile entry, so no retraction
+// can cover it and an unreadable lockfile has nothing to say about it. A
+// project-less start with a broken home lockfile must still get ctxloom's
+// own loadout (its MCP server, its guidance), which is companion content.
+// Remote content in the same state stays withheld (the sibling test above).
+func TestNewTrust_AnUnreadableLockfileDoesNotWithholdCompanionContent(t *testing.T) {
+	retraction := faultedRetraction{nil, errors.New("lock.yaml is unreadable")}
+	tr := mustTrust(t, noRecords(), retraction)
+
+	v := tr.Authorizer().Admit(companionFragment(t))
+	assert.True(t, v.Allow, "a companion loadout cannot be retracted, so an unreadable lockfile cannot withhold it")
+	assert.Equal(t, bundles.ReasonCompanion, v.Reason)
+
+	remote, _ := remoteExecutable(t)
+	rv := tr.Authorizer().Admit(remote)
+	assert.False(t, rv.Allow, "control: remote content under an unreadable lockfile is still withheld")
+	assert.Equal(t, bundles.ReasonPending, rv.Reason)
+}

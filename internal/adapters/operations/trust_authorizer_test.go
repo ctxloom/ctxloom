@@ -208,7 +208,6 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 	}{
 		{"local", trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true},
 			bundles.ProjectAuthoredRead("kit", authorizerBundle())},
-		{"builtin", trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsBuiltin: true}, builtinLikeRead(t)},
 		{"companion", trust.Ref{RepoURL: "ctxloom:companion", Bundle: "ltk", Kind: trust.KindFragment, Name: "keeper", IsCompanion: true},
 			companionLikeRead(t)},
 	}
@@ -229,17 +228,6 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 			assert.Equal(t, bundles.ReasonRejected, v.Reason)
 		})
 	}
-}
-
-// builtinLikeRead / companionLikeRead present the fixture bundle with the two
-// non-project first-party postures. They go through the readers that own those
-// postures rather than minting them: a builtin is read out of the binary's own
-// embedded FS, a companion off the stdout of a binary the user consented to run.
-func builtinLikeRead(t *testing.T) bundles.BundleRead {
-	t.Helper()
-	read := bundles.ProjectAuthoredRead("kit", authorizerBundle())
-	read.Provenance = bundles.ProvenanceBuiltin
-	return read
 }
 
 func companionLikeRead(t *testing.T) bundles.BundleRead {

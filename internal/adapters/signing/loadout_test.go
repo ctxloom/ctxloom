@@ -49,7 +49,7 @@ func TestDecodeLoadoutEnvelope_RefusesEnvelopeDecodingToEmptyBundle(t *testing.T
 	// EncodeLoadoutEnvelope's own floor — this is exactly the shape a
 	// malfunctioning or hostile companion (or a hand-built MDM payload) could
 	// send over the wire.
-	raw := []byte(`{"contract":"` + LoadoutContract + `","bundle":""}`)
+	raw := []byte(`{"contract":"` + LoadoutContract + `","loadout":""}`)
 
 	_, pub := newTestSigner(t)
 	root := rootWith("bundles@ctxloom.dev", pub, NamespacePublish)
@@ -110,7 +110,7 @@ func TestLoadoutEnvelope_AdvisorySignerFieldIsNeverTrusted(t *testing.T) {
 	bundle := []byte("version: \"1.0.0\"\n")
 	// Forge the advisory signer claim onto an otherwise-unsigned envelope by
 	// hand, simulating a hostile companion binary.
-	forged := []byte(`{"contract":"ctxloom-loadout/1","bundle":"` + base64.StdEncoding.EncodeToString(bundle) + `","signer":"releases@ctxloom.dev"}`)
+	forged := []byte(`{"contract":"` + LoadoutContract + `","loadout":"` + base64.StdEncoding.EncodeToString(bundle) + `","signer":"releases@ctxloom.dev"}`)
 
 	_, pub := newTestSigner(t)
 	root := rootWith("releases@ctxloom.dev", pub, NamespacePublish)
@@ -119,12 +119,36 @@ func TestLoadoutEnvelope_AdvisorySignerFieldIsNeverTrusted(t *testing.T) {
 	assert.Empty(t, verifiedSigner, "a claimed signer with NO signature must never be believed")
 }
 
+// TestLoadoutEnvelope_ContractIsV2 pins the contract string this build
+// speaks. The bump to /2 was a CLEAN BREAK (the envelope carries a two-part
+// loadout document — RUN and INIT — under one signature, and the field is
+// named for what it carries): an old ctxloom rejects /2 loudly and this one
+// rejects /1 — no additive optional field, no dual-read.
+func TestLoadoutEnvelope_ContractIsV2(t *testing.T) {
+	assert.Equal(t, "ctxloom-loadout/2", LoadoutContract)
+}
+
+// TestLoadoutEnvelope_RejectsV1Contract proves the previous contract version
+// is refused OUTRIGHT — never best-effort parsed as the current one (spec §12:
+// a version is an identity, not a constraint). A v1 envelope's payload was a
+// bare bundle; reading it as a v2 loadout document would silently deliver an
+// empty RUN loadout.
+func TestLoadoutEnvelope_RejectsV1Contract(t *testing.T) {
+	raw := []byte(`{"contract":"ctxloom-loadout/1","bundle":"aGVsbG8="}`)
+	_, pub := newTestSigner(t)
+	root := rootWith("bundles@ctxloom.dev", pub, NamespacePublish)
+
+	_, _, err := DecodeLoadoutEnvelope(raw, root, time.Now())
+	require.Error(t, err, "a v1 envelope must be withheld, never read as v2")
+	assert.Contains(t, err.Error(), "ctxloom-loadout/1", "the refusal names the contract it saw")
+}
+
 // TestLoadoutEnvelope_UnrecognizedContract proves a verifier fails closed on
 // a contract string it does not recognize (spec §12: "must reject a payload
 // whose contract string it does not recognize — never best-effort parse an
 // unknown version").
 func TestLoadoutEnvelope_UnrecognizedContract(t *testing.T) {
-	raw := []byte(`{"contract":"ctxloom-loadout/2","bundle":"aGVsbG8="}`)
+	raw := []byte(`{"contract":"ctxloom-loadout/3","loadout":"aGVsbG8="}`)
 	_, pub := newTestSigner(t)
 	root := rootWith("bundles@ctxloom.dev", pub, NamespacePublish)
 
@@ -144,8 +168,8 @@ func TestLoadoutEnvelope_Unparseable(t *testing.T) {
 		nil,
 		[]byte(""),
 		[]byte("not json at all"),
-		[]byte(`{"contract":"ctxloom-loadout/1","bundle":"not-valid-base64!!!"}`),
-		[]byte(`{"contract":"ctxloom-loadout/1"}`), // missing bundle field entirely -> empty base64 -> decodes to empty, not an error, but exercised for completeness
+		[]byte(`{"contract":"` + LoadoutContract + `","loadout":"not-valid-base64!!!"}`),
+		[]byte(`{"contract":"` + LoadoutContract + `"}`), // missing loadout field entirely -> empty base64 -> decodes to empty, not an error, but exercised for completeness
 	} {
 		bundleBytes, signer, err := DecodeLoadoutEnvelope(raw, root, time.Now())
 		if err != nil {

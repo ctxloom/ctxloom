@@ -99,9 +99,9 @@ const doctorSpoolStuckMaxNamed = 5
 // almost always well under doctorSpoolStuckAge — so it never trips the stuck
 // check at all, and nothing else looked at in/failed/. This clause is that
 // look. in/failed/ is deliberately NOT one of spool.Dirs()'s closed set (see
-// FailedDirName's doc), so it cannot be reached through spool.DirPath or
-// spool.Sweep; this check reads it directly with os.ReadDir, the same way
-// spool.Fail writes to it, and never renames or deletes what it finds. A
+// FailedDirName's doc); it is created lazily, so this check reads it directly
+// with os.ReadDir — absence is a normal state, not a sweep failure — and never
+// renames or deletes what it finds. A
 // failed entry is worded a fourth, distinct way from the other three: it did
 // not "sit unconsumed" (it was actively rejected), it is not "malformed"
 // (the file parsed fine as a message), and it is not a sweep I/O error (the
@@ -185,14 +185,14 @@ func doctorCheckSpoolBacklog() doctorCheck {
 			}
 		}
 
-		// The failed/ directories are deliberately NOT members of
-		// spool.Dirs() (see spool.FailedDirName's doc), so they are
-		// unreachable through spool.DirPath or spool.Sweep. Read them
-		// directly with os.ReadDir, the same way spool.Fail writes to them —
-		// list only, never rename or delete. BOTH directions are enumerated
-		// from spool.FailedDirNames rather than named here: a refused
-		// outbound report is exactly as invisible as a refused inbound one if
-		// nothing looks at its directory.
+		// The failed/ directories are created lazily, on the first refusal,
+		// so a session that never refused a message has none — absence is a
+		// normal state this check must not report as a failure, which is why
+		// they are read directly with os.ReadDir rather than swept. List
+		// only, never rename or delete. BOTH directions are enumerated from
+		// spool.FailedDirNames rather than named here: a refused outbound
+		// report is exactly as invisible as a refused inbound one if nothing
+		// looks at its directory.
 		for _, failedName := range spool.FailedDirNames() {
 			failedDir := filepath.Join(root, filepath.FromSlash(string(failedName)))
 			failedEntries, failedErr := os.ReadDir(failedDir)

@@ -349,9 +349,9 @@ func mailFromSpool(e spool.Entry, from string) (Message, error) {
 //
 // Two recipient classes have one:
 //
-//   - THE OWNER, drained in-process: this session's own harp, whose in/ is
-//     read by AgentRecv (ownerSpool). It is a class of its own because it is
-//     identified by declaration, not by a run record.
+//   - THE OWNER: this session's own harp, whose in/ is read by AgentRecv
+//     in-process and by its turn-start hook (ownerSpool). It is a class of
+//     its own because it is identified by declaration, not by a run record.
 //   - A MIGRATED CHILD, drained by its runner: a run this coordinator tracks
 //     that rides StartRun and so has a ctxloom runner sweeping its own spool.
 //     The class is fixed at ENQUEUE (childRt.viaStartRun), so mail written

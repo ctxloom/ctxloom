@@ -12,8 +12,10 @@ import (
 
 // THE ONE INBOX. The session owner is the one recipient with no runner: a
 // child's in/ spool is read by a Home on the far side of a run channel, the
-// owner's by agent_recv, here, in the coordinator's own process. spoolInbox
-// is that reader and the parking in front of it, as one type:
+// owner's by agent_recv, here, in the coordinator's own process — and by the
+// owner's turn-start hook (`ctxloom hook mail-drain`), a subprocess that
+// shares the on-disk states below and nothing else. spoolInbox is the
+// in-process reader and the parking in front of it, as one type:
 //
 //   - PARK. One held long-poll per role; a newer receive preempts the parked
 //     one (ErrRecvPreempted); a delivery WAKES the poll without handing it
@@ -83,9 +85,9 @@ type parkedPoll struct {
 // pollResult is what completes a parked poll's channel. A delivery sends a
 // bare wake (err==nil): the payload is on disk, and claim — called by
 // whichever goroutine is actually about to hand messages back to a still-live
-// caller — is the one place a reservation is ever made. That is what keeps
+// caller — is the one place a hand-off is ever made. That is what keeps
 // "woken" and "received" from being conflated: a wake sent to a poll nobody
-// drains reserves nothing, and the next receive finds the mail where it was.
+// drains claims nothing, and the next receive finds the mail where it was.
 type pollResult struct {
 	err error
 }

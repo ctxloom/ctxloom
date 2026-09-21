@@ -2,9 +2,20 @@
 
 `internal/adapters/mcp` builds and serves **five different MCP surfaces**: the
 runner-terminated HTTP-on-unix server that a real session's harness actually
-talks to, the stdio shim that forwards onto it, the legacy standalone stdio
-server that stands a coordinator up itself, the read-only `ctxloom://` resource
-surface, and a handler-free clone of the whole thing for docs generation. This
+talks to, the stdio shim that forwards onto it, the standalone stdio server a
+bare `ctxloom mcp` serves when it finds no runner (cell-local tools; every
+agent tool refused by name), the read-only `ctxloom://` resource surface, and
+a handler-free clone of the whole thing for docs generation.
+
+**A coordinator is hosted only by a runner.** `ctxloom run` stands it up
+(`coord_host.go`'s `HostCoordinatorForSession`, the ONE hosting path in the
+binary — its constructor is private), and every MCP server is a client of
+that coordinator: the shim forwards to the owner's runner, and a shim that
+finds no runner refuses the agent tools with `errNoRunner`, naming
+`ctxloom run`. It can never become a coordinator. A second `ctxloom` hosting
+a coordinator for a project another live session owns is refused
+(`coord.ErrStateOwned`, a `strictness.ClassOwner` finding) — never degraded
+to a rival on state of its own. This
 is the boundary where an external MCP client meets `internal/adapters/operations`
 (content), `internal/core/coord` (delegation), and
 `internal/adapters/coordgrpc/mcpschema` (the proto-canonical tool routing table). The
@@ -40,8 +51,8 @@ flowchart TD
     R3 --> RH["recvHandler :495 / reportHandler :540<br/>(runner-local)"]
     RH --> ST["artifactStamper :637<br/>planCandidates :646 / publish :679"]
 
-    L --> AT["registerAgentTools<br/>mcp_tools_agents.go:160<br/>SECOND agent_* surface, hand-written schemas"]
-    AT --> AD["agentDelegation :39 → coord.Coordinator"]
+    L --> AT["registerAgentTools<br/>mcp_tools_agents.go<br/>SECOND agent_* surface, hand-written schemas"]
+    AT --> AD["delegation() → errNoRunner<br/>(no coordinator is ever built here)"]
 
     N -.->|"schemas + routing"| MS[["mcpschema.Routes / Tools"]]
     R1 -.-> OPS[["internal/adapters/operations"]]
@@ -106,8 +117,8 @@ fail-loud, and one of the better patterns in the package.
 
 | Type | file:line | Role |
 |---|---|---|
-| `ctxServer` | `mcp_server.go:32` | Shared handler state: `cfg`, `self coord.Identity`, `agents *agentDelegation` + `agentsMu`, `distill *singleflight.Group`. Four disjoint field partitions; on the runner path `agents`/`agentsMu`/`distill` stay nil and `self` is unread by resource handlers. |
-| `agentDelegation` | `mcp_tools_agents.go:39` | `{self, c *coord.Coordinator}` behind the standalone stdio `agent_*` tools. |
+| `ctxServer` | `mcp_server.go` | Shared handler state: `cfg`, `self coord.Identity`, `agents *agentDelegation`, `distill *singleflight.Group`. `agents` is nil on every server this package builds — `delegation()` then refuses with `errNoRunner`; nothing in the package constructs a coordinator. |
+| `agentDelegation` | `mcp_tools_agents.go` | `{self, c *coord.Coordinator}` behind the standalone stdio `agent_*` tools; never populated. |
 | `RunnerMCP` | `mcp_runner.go:56` | `{SocketPath, httpSrv, cleanup}` — one runner's live endpoint handle. |
 | `socketKind` | `mcp_runner.go:140` | Three-tier enum: container / host-runtime / private-temp. `socketKindPrivateTemp` means "no marker is publishable", encoded only in prose at `:152-156`. |
 | `artifactStamper` / `artifactCandidate` | `mcp_runner.go:637`, `:623` | Per-run upload dedupe (artifact_id → last sha256) and the candidate shape. `seen` is committed only after a successful upload. |
@@ -116,8 +127,9 @@ fail-loud, and one of the better patterns in the package.
 
 ### Runner discovery (`mcp_discovery.go`)
 
-The host-controlled fallback that stops a child engine with no
-`CTXLOOM_MCP_SOCKET` from silently starting a rogue second coordinator.
+A shim with no `CTXLOOM_MCP_SOCKET` refuses the agent tools rather than
+hosting anything, so discovery only decides whether a shim FORWARDS — never
+whether a second coordinator exists.
 
 | Function | file:line | Contract |
 |---|---|---|

@@ -72,19 +72,30 @@ func TestProbeCompanionLoadouts_SelfProbeFailureIsACandidate(t *testing.T) {
 	assert.Contains(t, probe.Candidates, bundles.CompanionCandidate{Bin: SelfCompanion, Path: "/opt/build/ctxloom", Reason: bundles.CandidateProbeFailed})
 }
 
-// TestProbeCompanionLoadouts_DisabledSkipsSelfToo: --no-companions means no
-// companion content at all, ctxloom's own included — a session that asked
-// for no add-ons must not get ctxloom's MCP server and fragments by a side
-// door.
-func TestProbeCompanionLoadouts_DisabledSkipsSelfToo(t *testing.T) {
-	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) {
-		t.Fatal("a disabled prober must exec nothing, itself included")
-		return nil, nil
+// TestProbeCompanionLoadouts_DisabledStillProbesItself: --no-companions /
+// CTXLOOM_NO_COMPANIONS exists so a run does not depend on what the HOST has
+// installed — no discovered binary is executed. ctxloom's own loadout is not
+// one of those: it is the running binary's, so it is probed regardless, and a
+// CI run keeps ctxloom's MCP server and its always-on guidance. Nothing
+// discovered is exec'd.
+func TestProbeCompanionLoadouts_DisabledStillProbesItself(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(SetLookPathForTesting(func(bin string) (string, error) { return "/fake/" + bin, nil }))
+	t.Cleanup(AdmitEveryDiscoveredCompanionForTesting())
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout("version: 1.0.0\n"), nil, "")
+	require.NoError(t, err)
+	var execd []string
+	t.Cleanup(SetCompanionLoadoutOutputForTesting(func(path string) ([]byte, error) {
+		execd = append(execd, path)
+		return envelope, nil
 	}))
+
 	probe, err := Prober{Disabled: true, Self: selfAt("/opt/build/ctxloom")}.ProbeCompanionLoadouts(context.Background(), nil)
 	require.NoError(t, err)
-	assert.Empty(t, probe.Loadouts)
-	assert.Empty(t, probe.Candidates)
+	require.Len(t, probe.Loadouts, 1, "only ctxloom itself")
+	assert.True(t, probe.Loadouts[0].Self)
+	assert.Equal(t, []string{"/opt/build/ctxloom"}, execd, "no discovered companion is exec'd; the self-probe still runs")
+	assert.Empty(t, probe.Candidates, "nothing was discovered, so nothing is reported as withheld")
 }
 
 // TestProbeCompanionLoadouts_UnarmedNeverProbesItself: a process composed

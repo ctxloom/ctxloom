@@ -270,8 +270,9 @@ type Prober struct {
 	// in-place upgrade and is never a PATH lookup. Only a process composed
 	// WITH an embedded loadout sets it (cmd/ctxloom's composition root),
 	// because a process without one has nothing to emit, and exec'ing a test
-	// binary as if it were ctxloom re-runs the test binary. nil is unarmed;
-	// Disabled wins over it.
+	// binary as if it were ctxloom re-runs the test binary. nil is unarmed.
+	// Disabled does NOT disarm it: that switch is about the host's installed
+	// binaries, and this is the running one.
 	Self func() string
 }
 
@@ -322,23 +323,28 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
 func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot) (bundles.CompanionProbe, error) {
-	// See ProbeCompanions' identical guard.
-	if p.Disabled {
-		return bundles.CompanionProbe{}, nil
-	}
 	if err := ctx.Err(); err != nil {
 		return bundles.CompanionProbe{}, err
 	}
-	// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion this
-	// machine's human has not agreed to run is never exec'd, and two prompts
-	// can never interleave on one terminal. See AdmitCompanions.
-	//
-	// The refused half is KEPT rather than filtered away. It is the only place
-	// a "found on PATH, never allowed to run" companion exists at all — it
-	// produces no loadout by definition — and reporting it costs nothing here
-	// while reconstructing it later would cost a second discovery pass.
-	decided := companionAdmission(DiscoverCompanions(), root)
-	admitted := make([]CompanionAdmission, 0, len(decided))
+	// Disabled (--no-companions) means NO DISCOVERED binary is executed — the
+	// switch makes a run independent of what the host has installed. It does
+	// not disarm the self-probe below: ctxloom's own loadout is the running
+	// binary's, not something installed on the host, and a run without it
+	// would lose ctxloom's MCP server and its always-on guidance.
+	var decided []CompanionAdmission
+	if !p.Disabled {
+		// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion
+		// this machine's human has not agreed to run is never exec'd, and two
+		// prompts can never interleave on one terminal. See AdmitCompanions.
+		//
+		// The refused half is KEPT rather than filtered away. It is the only
+		// place a "found on PATH, never allowed to run" companion exists at all
+		// — it produces no loadout by definition — and reporting it costs
+		// nothing here while reconstructing it later would cost a second
+		// discovery pass.
+		decided = companionAdmission(DiscoverCompanions(), root)
+	}
+	admitted := make([]CompanionAdmission, 0, len(decided)+1)
 	var candidates []bundles.CompanionCandidate
 	for _, a := range decided {
 		if a.Allow {

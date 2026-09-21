@@ -54,13 +54,12 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 			entries = refreshed
 		}
 	}
-	// Default output shape (CLI-primary reorg plan, decision 13): a
-	// lightweight projection — harp, single-line summary, start, end,
-	// essence path — never the full Entry (session_id, transcript paths,
-	// etc. stay off this wire; internal/core/sessions.Entry's own json posture
-	// is untouched). --full swaps in each session's complete essence body
-	// (see session_full.go); emitSessionRows owns both shapes.
-	return emitSessionRows(cmd, entries, sessionListFull, appDir)
+	// The rows render from the one read model (operations.SessionView),
+	// never from the entry: a lightweight projection — harp, single-line
+	// summary, start, end, essence path — by default, or each session's
+	// complete essence body under --full (see session_full.go);
+	// emitSessionRows owns both shapes.
+	return emitSessionRows(cmd, operations.ViewSessions(entries), sessionListFull)
 }
 
 // loadSessionEntries reads the session index: every project's sessions when
@@ -133,14 +132,11 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 	if entry == nil {
 		return fmt.Errorf("harp not found: %q", harp)
 	}
-	essence, distilled := readSessionEssence(harp, entry)
-	essencePath := ""
-	if distilled {
-		essencePath, _ = operations.SessionEssenceInfo(harp, entry)
-	}
-	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
+	view := operations.ViewSession(*entry)
+	essence, distilled := readSessionEssence(view)
+	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: view.EssencePath}, func() error {
 		if !distilled {
-			return undistilledSessionError(harp, entry.SessionID)
+			return undistilledSessionError(harp, view.NativeSession)
 		}
 		_, _ = cmd.OutOrStdout().Write([]byte(essence))
 		return nil

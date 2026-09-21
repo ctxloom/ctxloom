@@ -68,3 +68,9 @@ func (l Layout) Spool(harp string) string { return l.member(harp, paths.SpoolDir
 // Sidecar is the identity member: the file whose presence makes the dir a
 // session.
 func (l Layout) Sidecar(harp string) string { return l.Member(harp, paths.IdentityMember()) }
+
+// KeepMarker is the reaper's hand-placed exemption: a file whose presence
+// spares the session under every scope.
+func (l Layout) KeepMarker(harp string) string {
+	return l.member(harp, paths.SessionKeepMarkerFileName)
+}

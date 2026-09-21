@@ -160,10 +160,9 @@ type Spawner interface {
 	// first turn's lead, "" when none is loadable.
 	ResumeHistory(ctx context.Context, harp string) string
 	// MarkSessionEnded ends the harp's session: it stamps it ended in session
-	// accounting AND (in production, via operations.EndSession) removes the
-	// child's per-session engine-home instance, credential copy and all, from
-	// the project tree. A test double that does neither is fine; a production
-	// implementation that only stamps leaves a credential on disk per child.
+	// accounting and releases its liveness lock (in production, via
+	// operations.EndSession), which is what lets the reaper take the child's
+	// session home — credential copy and all — once it ages out.
 	MarkSessionEnded(harp string)
 }
 

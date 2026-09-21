@@ -2595,9 +2595,19 @@ type Store interface {
 	Forget(harp string) error
 }
 
-// Locks is the cooperative session lock port.
+// Locks is the session-liveness port the reaper decides by (landed in 14b):
+// Acquire probes harp's lock and, ONLY when its owner is provably dead, keeps
+// it until release — the adapter over the on-disk liveness lock implements
+// it; core never reads the lock itself. It never creates a lock file.
 type Locks interface {
-	Hold(ctx context.Context, harp string) (release func(), err error)
+	Acquire(harp string) (probe LockProbe, release func())
+}
+
+// LockProbe is what Acquire learned: Dead is the only permitting verdict.
+type LockProbe struct {
+	Dead   bool
+	PID    int
+	Reason string
 }
 ```
 
@@ -3034,38 +3044,51 @@ package sessions
 
 import (
 	"context"
-	"io"
 	"time"
-
-	"github.com/spf13/afero"
 
 	"ctxloom.example/c/internal/core/paths"
 )
 
-// ReapPolicy is THE reaper's policy value. Lifetime is the only axis it
-// knows; tiers exist for purge classification and doctor reporting. Scope
-// Persist (a human's --include-persist) TAKES the transcripts with the rest
-// of persist/: there is no transcript-sparing arm.
+// ReapPolicy is THE reaper's policy value (landed in 14b). Lifetime is the
+// only axis it knows; tiers exist for purge classification and doctor
+// reporting. Scope Persist (a human's --include-persist) TAKES the
+// transcripts with the rest of persist/: there is no transcript-sparing arm.
 type ReapPolicy struct {
-	Cutoff     time.Time      // required; zero refuses (ErrNoAgeBound)
-	Scope      paths.Lifetime // Ephemeral by default; Persist only when a human passes --include-persist
-	Apply      bool           // report-first
-	KeepMarker bool
+	Cutoff time.Time      // required; zero refuses (ErrNoAgeBound)
+	Scope  paths.Lifetime // Ephemeral by default; Persist only when a human passes --include-persist
+	Apply  bool           // report-first
 }
+
+// Members is what the policy takes from each aged session, derived from the
+// table: every top-level Ephemeral row, plus the persist store (the
+// directory the InPersist rows live in) under Scope Persist. The keep marker
+// row is honoured by Reap itself, under every scope.
+func (p ReapPolicy) Members() []paths.HarpMember { return nil }
 
 // ActivityTime is the reaper's ONE clock: the newest mtime anywhere under
 // the session dir, EXCLUDING the harp directory's own mtime (creating a
 // sibling entry bumps it) and every symlink's mtime (a link's mtime is the
 // link's, not the target's). Every list-by-activity and every reap reads
 // this and nothing else.
-func ActivityTime(fsys afero.Fs, dir string) (time.Time, error) { return time.Time{}, nil }
+func ActivityTime(l Layout, harp string) (time.Time, error) { return time.Time{}, nil }
 
-type ReapResult struct{ Removed, Kept []string }
+// Triage is the one question the reaper asks the outside before removing an
+// aged, provably-dead session's members: is there anything under them that
+// must be preserved? Core cannot answer it (a scratch worktree holding
+// uncommitted work is a git question); operations hands in the answerer.
+type Triage func(ctx context.Context, harp string, probe LockProbe, apply bool) (spared string, err error)
+
+// Report is one reap: every candidate with its verdict (reclaimable,
+// reclaimed, spared, kept, skipped), the members the policy takes, and the
+// bytes. Nothing is warned; every outcome is in the report.
+type Report struct{}
 
 // Reap classifies through paths.ClassifyMember, honours the keep marker and
-// the session lock, and removes only members whose Lifetime is within Scope.
-func Reap(ctx context.Context, store Store, locks Locks, layout Layout, p ReapPolicy, report io.Writer) (ReapResult, error) {
-	return ReapResult{}, nil
+// the session lock (Locks), and removes only the members the policy takes.
+// Divergence from the pre-landing sketch: no Store (the reap walks the
+// layout) and no io.Writer (the Report carries every outcome).
+func Reap(ctx context.Context, l Layout, locks Locks, p ReapPolicy, triage Triage) (Report, error) {
+	return Report{}, nil
 }
 ```
 

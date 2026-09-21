@@ -3,13 +3,11 @@ package operations
 import (
 	"context"
 	"errors"
-	"os"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -225,12 +223,11 @@ func AssignSessionHarp(projectDir, backend string) (sessions.Entry, error) {
 		return sessions.Entry{}, err
 	}
 	// THIS PROCESS OWNS THE SESSION FROM HERE: hold its liveness lock until
-	// EndSession. Every sweep that reclaims per-session data (engine-home
-	// instances, agent worktrees, aged session data) reads the harp as alive
-	// while this is held and as dead once the kernel lets go — on a graceful
-	// end or on any crash. A child agent's harp is minted here too, by the
-	// coordinating process, which is exactly the process whose death should
-	// release it.
+	// EndSession. Every sweep that reclaims per-session data (the reaper,
+	// the worktree reaper) reads the harp as alive while this is held and
+	// as dead once the kernel lets go — on a graceful end or on any crash. A
+	// child agent's harp is minted here too, by the coordinating process,
+	// which is exactly the process whose death should release it.
 	//
 	// A failed hold does not fail the session: it leaves NO lock file
 	// (sessionlock.Hold removes it), so the harp reads Indeterminate — the
@@ -288,26 +285,15 @@ func RecordSessionEngineVersion(ctx context.Context, harp, backend string) (stri
 	return version, true
 }
 
-// EndSession ends harp's session: it stamps the entry's end time AND removes
-// the session's per-session engine-home instance from the project tree.
-// Idempotent; the end stamp lets the time-window transcript fallback find the
-// session even when the bind hook never fired.
+// EndSession ends harp's session: it stamps the entry's end time and
+// releases the session's liveness lock. Idempotent; the end stamp lets the
+// time-window transcript fallback find the session even when the bind hook
+// never fired.
 //
-// NAMED FOR BOTH HALVES, deliberately — it used to be MarkSessionEnded, which
-// described only the index write. A caller reaching for a session-end helper
-// must see that it also DELETES a directory, for the same reason
-// WriteAndRecordSyncSummary is not called WriteSyncSummary: a destructive
-// second effect hiding behind a read-ish name is how it gets called from
-// somewhere that did not want it.
-//
-// THE ORDER IS LOAD → MARK → REMOVE, and each step depends on the one before:
-//
-//   - MARK before REMOVE, so that a removal which fails still leaves an entry
-//     a reaper reads as ended and can collect later. Removing first and
-//     failing to mark would strand the leftover as "live" forever.
-//
-// The removal is best-effort and never fails the session end: see
-// removeSessionInstance.
+// It removes NOTHING. The session home — the engine's config-home instance,
+// credential copy and all — is an Ephemeral member of the session
+// (paths.HarpMembers) and is reaped by age like every other one
+// (sessions.Reap); there is no session-end remover beside the reaper.
 func EndSession(harp string, at time.Time) error {
 	mgr, err := openSessions()
 	if err != nil {
@@ -323,36 +309,9 @@ func EndSessionIn(mgr sessions.Store, harp string, at time.Time) error {
 	// The owner is done with the session however the rest of this goes: a
 	// lock held on past a failed end-mark — by a long-lived coordinator for a
 	// child, say — would read that session as alive for the holder's whole
-	// life. Deferred, so it runs AFTER the mark and the instance removal.
+	// life. Deferred, so it runs AFTER the mark.
 	defer sessionlock.Release(harp)
-	if err := mgr.MarkEnded(harp, at); err != nil {
-		return err
-	}
-	removeSessionInstance(harp)
-	return nil
-}
-
-// removeSessionInstance deletes harp's engine-home instance
-// (paths.HarpSessionHome). Everything in it is copied or generated, so
-// removal costs nothing; what it BUYS is that the credential copied in at
-// instance time stops living on disk once the session is over. The instance
-// is an Ephemeral member of the session (paths.HarpMembers), so a session
-// that never reaches its end leaves it for the age reaper.
-//
-// Best-effort by contract: this runs on a session's exit path, where failing
-// the exit would be worse than leaving bytes behind. It warns and returns.
-func removeSessionInstance(harp string) {
-	if harp == "" {
-		return
-	}
-	dir, err := paths.HarpSessionHome(harp)
-	if err != nil {
-		clidiag.Warn("ctxloom", "session end: cannot resolve %s's engine-home instance to remove it: %v", harp, err)
-		return
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		clidiag.Warn("ctxloom", "session end: cannot remove %s's engine-home instance %q (it still holds a copied credential): %v", harp, dir, err)
-	}
+	return mgr.MarkEnded(harp, at)
 }
 
 // BindSession records the backend session_id and transcript path for harp.

@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -26,14 +25,13 @@ import (
 // present "not distilled yet" uniformly; an essence that exists but cannot be
 // READ is a different fact and is reported rather than passed off as
 // never-distilled.
-func readSessionEssence(harp string, entry *sessions.Entry) (string, bool) {
-	path, distilled := operations.SessionEssenceInfo(harp, entry)
-	if !distilled {
+func readSessionEssence(v operations.SessionView) (string, bool) {
+	if !v.Distilled {
 		return "", false
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(v.EssencePath)
 	if err != nil {
-		clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", harp, path, err)
+		clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", v.Harp, v.EssencePath, err)
 		return "", false
 	}
 	return string(data), true

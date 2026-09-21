@@ -357,20 +357,15 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 		}
 	}
 
-	rows := make([]sessionSummary, 0, len(entries))
-	for i := range entries {
-		e := &entries[i]
-		_, distilled := operations.SessionEssenceInfo(e.HarpName, e)
-		last := e.LastActivity
-		if last.IsZero() {
-			last = sessions.ActivityTime(*e)
-		}
+	views := operations.ViewSessions(entries)
+	rows := make([]sessionSummary, 0, len(views))
+	for _, v := range views {
 		rows = append(rows, sessionSummary{
-			Harp:         e.HarpName,
-			Backend:      e.Backend,
-			Title:        e.Summary,
-			LastActivity: last.Local().Format("2006-01-02 15:04:05"),
-			Distilled:    distilled,
+			Harp:         v.Harp,
+			Backend:      v.Engine,
+			Title:        v.Summary,
+			LastActivity: v.LastActivity.Local().Format("2006-01-02 15:04:05"),
+			Distilled:    v.Distilled,
 		})
 	}
 	return nil, &listSessionsResult{Sessions: rows}, nil

@@ -268,40 +268,6 @@ func fillCanonicalTranscript(e *Entry) {
 	}
 }
 
-// ActivityTime returns e's last-worked time for `session list` ordering: the
-// transcript's mtime (canonical transcript preferred over the legacy
-// TranscriptPath — see the body) when set and stat succeeds, falling back to
-// StartedAt for a never-worked session (no transcript bound/located yet) or
-// one whose transcript can no longer be stat'd. Exported so a caller
-// merging in rows that never went through ListForProject (e.g. run.go's
-// raw/not-yet-adopted backend transcript rows) can compute the same signal
-// without duplicating the fallback logic.
-//
-// Callers should compute this ONCE per entry — e.g. stash it in
-// Entry.LastActivity as ListForProject does below — rather than calling it
-// from inside a sort comparator: a stat per comparison does not scale to a
-// large index (100+ sessions means O(n log n) stats instead of O(n)).
-func ActivityTime(e Entry) time.Time {
-	// Prefer the canonical transcript (paths.HarpCanonicalTranscriptPath) over
-	// the legacy TranscriptPath, mirroring SourceStale: an ACP/coordinator
-	// session records ONLY a canonical transcript and never binds a legacy
-	// TranscriptPath, so statting TranscriptPath alone pinned it to StartedAt
-	// and mis-ranked it. Canonical is also the file the
-	// compactor distills and SourceSize fingerprints — ordering and staleness
-	// must agree on which file is the source of truth.
-	if e.CanonicalTranscriptPath != "" {
-		if info, err := os.Stat(e.CanonicalTranscriptPath); err == nil {
-			return info.ModTime()
-		}
-	}
-	if e.TranscriptPath != "" {
-		if info, err := os.Stat(e.TranscriptPath); err == nil {
-			return info.ModTime()
-		}
-	}
-	return e.StartedAt
-}
-
 // TranscriptStale compares a transcript's current ENTRY COUNT to the count
 // stamped when an essence was distilled from it (Entry.SourceEntries). It
 // reports whether the essence is out of date and whether that could be

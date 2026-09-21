@@ -1402,20 +1402,16 @@ func doctorUnderDir(root, p string) bool {
 const doctorHarpDurabilityMaxNamed = 5
 
 // doctorCheckHarpDurability warns about authored artifacts sitting at a harp
-// directory's TOP LEVEL — neither persist/ (mounted into containers, durable)
-// nor ephemeral/ (deliberately excluded, scratch). A containerized agent
-// writing a design note there writes into container-ephemeral space and
-// loses it on exit.
+// directory's TOP LEVEL, where no paths.HarpMembers row classifies them —
+// neither under persist/ (mounted into containers, durable) nor under an
+// Ephemeral member. A containerized agent writing a design note there writes
+// into container-ephemeral space and loses it on exit. Nothing moves them;
+// the human does, and this check says where.
 //
-// The walk is two-level: HomeSessionsDir()'s OWN top level holds files
-// (lock files, the retired index) alongside the harp directories, so the
-// OUTER iteration skips non-directory entries — an exclusion list aimed at
-// the harp level (as an earlier version of this design proposed) would never
-// see those files at all, since it never walks into a non-directory. The INNER level is operations.HarpTopLevelArtifacts,
-// which is also what operations.MigrateHarpArtifacts moves. Sharing that one
-// predicate is deliberate: a check that flags a file the mover declines is a
-// warning nobody can ever clear, and the two drifting apart is exactly how
-// this check would come to lie.
+// The walk is two-level: the sessions root's OWN top level holds files (lock
+// files) alongside the harp directories, so the OUTER iteration skips
+// non-directory entries; the INNER level is operations.HarpTopLevelArtifacts,
+// the table-derived predicate.
 func doctorCheckHarpDurability() doctorCheck {
 	const marker = "DOCTOR-CHECK-HARP-DURABILITY-s9"
 	sessionsRoot, err := paths.HomeSessionsDir()
@@ -1433,9 +1429,8 @@ func doctorCheckHarpDurability() doctorCheck {
 	var flagged []string
 	for _, e := range entries {
 		if !e.IsDir() {
-			// a lock file or the retired index, sitting at the sessions
-			// root's OWN top level beside the harp directories — not a harp,
-			// never walked into.
+			// a lock file at the sessions root's OWN top level beside the
+			// harp directories — not a harp, never walked into.
 			continue
 		}
 		harp := e.Name()
@@ -1463,8 +1458,8 @@ func doctorCheckHarpDurability() doctorCheck {
 		list += fmt.Sprintf(", … +%d more", more)
 	}
 	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: fmt.Sprintf(
-		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither persist/ (durable, mounted into containers) nor ephemeral/: %s — the next `ctxloom run` or `ctxloom mcp serve` moves them under persist/ once that session's liveness lock is free (a file whose session is running, or has never run under the lock, waits for that session to end under it)",
-		len(flagged), list)}
+		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither %s/ (durable, mounted into containers) nor a disposable member: %s — move each under its session's %s/ directory, where a containerized run keeps it",
+		len(flagged), paths.PersistDirName, list, paths.PersistDirName)}
 }
 
 // doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one

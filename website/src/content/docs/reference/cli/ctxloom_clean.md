@@ -25,20 +25,24 @@ does --yes. lock.yaml survives too: it is rebuildable but committed, so
 deleting it would dirty your tree rather than free anything.
 
 Every session also leaves a directory under ~/.ctxloom/sessions/<harp>/,
-and clean reaps the DISPOSABLE part of it by age: ephemeral/, the scratch
-store (agent worktrees, rendered overlays) whose loss costs nothing. A
-session is aged when nothing anywhere in it has been modified for longer
-than the bound — 30d unless your ~/.ctxloom/config.yaml sets
-session_reap_age, and --older-than overrides either for one invocation:
+and clean reaps its DISPOSABLE members by age — the ones whose loss costs
+nothing because the next run rebuilds them: the engine's per-session home
+(settings, scaffolding and the credential copied in for the run) and the
+scratch store ephemeral/ (agent worktrees, rendered overlays). The report
+names exactly what it takes. A session is aged when no file under its
+directory has been modified for longer than the bound — 30d unless your
+~/.ctxloom/config.yaml sets session_reap_age, and --older-than overrides
+either for one invocation:
 
   ctxloom clean --older-than 30d          an offset: 30d, 12w, 720h
   ctxloom clean --older-than 2026-01-01   or a date
 
 persist/ — transcripts, plans, session artifacts — is REFERENCED DATA:
 task rows and design records cite paths in it, so no age takes it. Pass
---include-persist to reclaim it too, from the same aged sessions. The
-session's own record (its sidecar, essence and rotation segments) is never
-taken: the directory stays, and the session still lists and resolves.
+--include-persist to reap it too, whole and transcripts included, from the
+same aged sessions. The session's own record (its sidecar, essence, next
+step and rotation segments) is never taken: the directory stays, and the
+session still lists and resolves.
 
 To exempt one session from every sweep, place an empty file named 'keep'
 at the top of its directory.
@@ -76,8 +80,8 @@ ctxloom clean [flags]
 ### Options
 
 ```
-      --include-persist     also reclaim persist/ (transcripts, plans, artifacts) from the aged sessions; referenced data, so never taken without this
-      --older-than string   reclaim the disposable store of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation
+      --include-persist     also reap persist/ — transcripts, plans, artifacts — from the aged sessions; referenced data, so never taken without this
+      --older-than string   reap the disposable members of sessions last active before this age (30d, 12w, 720h) or date (2026-01-01), overriding the configured session_reap_age for this invocation
       --yes                 apply exactly the plan this reports
 ```
 

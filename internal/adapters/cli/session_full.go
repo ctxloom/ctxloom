@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -27,21 +27,21 @@ type SessionFullRow struct {
 	Essence string `json:"essence" label:"Essence"`
 }
 
-// newSessionFullRow builds a SessionFullRow for e: the same projection
-// newSessionRow builds, plus the body of the essence file that projection
-// already resolved. The row resolves the essence ONCE — the body is read from
+// newSessionFullRow builds a SessionFullRow for v: the same projection
+// newSessionRow builds, plus the body of the essence file the view already
+// resolved. The essence is resolved ONCE — the body is read from
 // SessionRow.EssencePath — so the two halves of one row can never describe
 // different files. An unreadable essence leaves Essence empty; the row still
 // names the path it found, and readSessionEssence's caller-facing paths report
 // the read failure.
-func newSessionFullRow(e sessions.Entry, appDir string) SessionFullRow {
-	row := newSessionRow(e, appDir)
+func newSessionFullRow(v operations.SessionView) SessionFullRow {
+	row := newSessionRow(v)
 	essence := ""
 	if row.EssencePath != "" {
 		if data, err := os.ReadFile(row.EssencePath); err == nil {
 			essence = string(data)
 		} else {
-			clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", e.HarpName, row.EssencePath, err)
+			clidiag.Warn("ctxloom", "essence for %s exists at %s but could not be read: %v", v.Harp, row.EssencePath, err)
 		}
 	}
 	return SessionFullRow{SessionRow: row, Essence: essence}
@@ -96,20 +96,20 @@ func renderSessionFullText(w io.Writer, rows []SessionFullRow) error {
 // Structured formats (json/yaml/toml) never reach pagerWriter at all: they
 // return straight out of clifmt.Render, so `--full --format json | jq` stays
 // exactly as pipeable as it was before `--full` existed.
-func emitSessionRows(cmd *cobra.Command, entries []sessions.Entry, full bool, appDir string) error {
+func emitSessionRows(cmd *cobra.Command, views []operations.SessionView, full bool) error {
 	if !full {
-		rows := make([]SessionRow, len(entries))
-		for i, e := range entries {
-			rows[i] = newSessionRow(e, appDir)
+		rows := make([]SessionRow, len(views))
+		for i, v := range views {
+			rows[i] = newSessionRow(v)
 		}
 		return emit(cmd, rows, func() error {
 			return renderSessionRows(cmd.OutOrStdout(), rows)
 		})
 	}
 
-	fullRows := make([]SessionFullRow, len(entries))
-	for i, e := range entries {
-		fullRows[i] = newSessionFullRow(e, appDir)
+	fullRows := make([]SessionFullRow, len(views))
+	for i, v := range views {
+		fullRows[i] = newSessionFullRow(v)
 	}
 
 	format, err := cliemit.Resolve(cmd)

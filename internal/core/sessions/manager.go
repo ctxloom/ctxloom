@@ -116,12 +116,11 @@ type Entry struct {
 
 	// LastActivity is the last-worked time used to order `session list`:
 	// most-recent-first by actual activity, not by session creation. Computed
-	// on read (see ActivityTime) from the transcript's mtime when available,
-	// falling back to StartedAt for a session that has no transcript yet or
-	// whose transcript can't be stat'd. Never persisted and never exposed over
-	// the JSON wire (`session list --format json`) — the same computed-on-read,
-	// local-only posture as CanonicalTranscriptPath — so this is purely an
-	// in-memory ordering aid.
+	// on read from the one clock (ActivityTime — the newest mtime under the
+	// session dir), falling back to StartedAt when the dir cannot be read.
+	// Never persisted and never exposed over the JSON wire (`session list
+	// --format json`) — the same computed-on-read, local-only posture as
+	// CanonicalTranscriptPath — so this is purely an in-memory ordering aid.
 	LastActivity time.Time `yaml:"-" json:"-"`
 
 	// CanonicalTranscriptPath is the harp's OWN captured transcript
@@ -625,10 +624,9 @@ func (m *Manager) enumerate() ([]Entry, error) {
 }
 
 // ListForProject returns entries whose ProjectDir == projectDir, sorted
-// most-recent-first by last-worked time (transcript mtime, falling back to
-// StartedAt — see ActivityTime), not by creation time. A session that keeps
-// getting resumed and worked must stay above a newer-CREATED-but-untouched
-// one.
+// most-recent-first by last-worked time (ActivityTime), not by creation
+// time. A session that keeps getting resumed and worked must stay above a
+// newer-CREATED-but-untouched one.
 func (m *Manager) ListForProject(projectDir string) ([]Entry, error) {
 	all, err := m.enumerate()
 	if err != nil {
@@ -656,25 +654,46 @@ func (m *Manager) ListAll() ([]Entry, error) {
 }
 
 // enrichAndSortByActivity fills each entry's derived fields and LastActivity,
-// then sorts most-recent-first by last-worked time (ActivityTime), with
-// StartedAt as a deterministic tiebreak. Shared by ListForProject and ListAll
-// so scoped and all-projects listings order identically. Mutates and returns
-// the given slice.
+// then sorts most-recent-first by last-worked time (ActivityTime, the one
+// clock), with StartedAt as a deterministic tiebreak. Shared by
+// ListForProject and ListAll so scoped and all-projects listings order
+// identically. Mutates and returns the given slice.
+//
+// The layout is the home one, resolved once per listing: it is the same
+// tree every paths.Harp* helper the enrichment stats resolves through, so
+// the clock and the derived paths read one session.
 func enrichAndSortByActivity(entries []Entry) []Entry {
+	l, lerr := HomeLayout()
 	for i := range entries {
 		enrich(&entries[i])
-		// Computed once per entry here, not inside the sort comparator.
-		entries[i].LastActivity = ActivityTime(entries[i])
+		// Computed once per entry here, not inside the sort comparator: a
+		// walk per comparison does not scale to a large store.
+		entries[i].LastActivity = lastActivity(l, lerr, entries[i])
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if !entries[i].LastActivity.Equal(entries[j].LastActivity) {
 			return entries[i].LastActivity.After(entries[j].LastActivity)
 		}
 		// Deterministic tiebreak: same activity time (e.g. both fell back to
-		// StartedAt, or transcripts stat'd to the same mtime granularity).
+		// StartedAt, or members stamped at the same mtime granularity).
 		return entries[i].StartedAt.After(entries[j].StartedAt)
 	})
 	return entries
+}
+
+// lastActivity is ActivityTime with the listing's fallback: a session whose
+// dir cannot be read (a record with no directory — a MemStore entry, a
+// forgotten session) orders by StartedAt rather than sinking a zero time to
+// the bottom.
+func lastActivity(l Layout, lerr error, e Entry) time.Time {
+	if lerr != nil {
+		return e.StartedAt
+	}
+	at, err := ActivityTime(l, e.HarpName)
+	if err != nil || at.IsZero() {
+		return e.StartedAt
+	}
+	return at
 }
 
 // MarkEnded sets EndedAt on the named entry. Idempotent.

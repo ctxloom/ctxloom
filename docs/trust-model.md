@@ -15,7 +15,7 @@ are listed under Known gaps).
 
 **A human sees third-party content — including every update to it — before the
 LLM does.** First-party content is exempt: material you authored in this project
-(`ctxloom:local`), builtin bundles shipped inside the binary, and content from a
+(`ctxloom:local`), companion loadouts (ctxloom's own included), and content from a
 **trusted publisher** — a bundle signed by a key you trust for the publish
 namespace (`allowed_signers`). Every other remote item is born **pending** and is
 withheld from the agent until a human reviews it.
@@ -142,11 +142,7 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
    `bundles.ErrTreeBundleWithheld`; the gate withholds one if it ever
    arrives). Pinned by `TestNewTrust_LocalityRule_*` in `core/composite` and
    by the local-tree reader tests in `core/bundles`.
-4. **builtin** — the item is shipped inside the binary itself
-   (`resources/builtin_bundles`, synthetic signer `builtin:ctxloom`) → **ALLOW**.
-   Builtins are deliberately **not** signed — signing bytes embedded in the
-   binary that verifies them is circular.
-4b. **companion** — the item came from an installed companion binary's own
+4. **companion** — the item came from an installed companion binary's own
    loadout (`ctxloom:companion@<bin>`) → **ALLOW**. Local-equivalent, and the
    reason is *order of operations*, not deference: ctxloom reads a loadout by
    **executing** the companion (`<bin> loadout --format json`), so by the time
@@ -154,15 +150,25 @@ signature and signer axes, provenance). First match wins; it is fail-closed:
    Reviewing the content afterwards buys ~nothing while costing a review prompt
    for a tool you deliberately installed. The control point that *does* have
    purchase is **exec**, and that is where the human decision lives — see
-   "Companion loadouts" below. Like builtin, this is a distinct step below
-   rejection specifically so step 1 can still reach it.
+   "Companion loadouts" below. This is a distinct step below rejection
+   specifically so step 1 can still reach it.
+
+   ctxloom is **its own companion**: everything it delivers into an engine on
+   its own behalf (its MCP server entry, its always-on guidance) is its own
+   loadout (`cmd/ctxloom/loadout.yaml`), probed from the running binary and
+   admitted here like every other companion's under
+   `ctxloom:companion@ctxloom`. Its loadout is signed uniformly with the
+   release key, but that signature is **circular** — the trust root that
+   vouches for the key ships in the same binary — so the reader verifies it
+   (a stale one is a release bug) and never stamps the principal as a
+   publisher; no surface presents it as trust.
 5. **trusted signer** — the item's bundle carries a non-empty verified publisher
    `Signer`: a key trusted for the publish namespace signed exactly these file
    bytes, and the signature verified at load, before any parse → **ALLOW**
    (updates included). This replaces the deleted hash-blind `trust_bundles`
-   source bypass. The synthetic `builtin:ctxloom` identity is explicitly
-   excluded here — a builtin is allowed *as a builtin* (step 4), never laundered
-   into a "trusted publisher".
+   source bypass. ctxloom's own loadout carries no principal here even
+   though its signature verified — it is allowed *as a companion* (step 4),
+   never laundered into a "trusted publisher".
 6. **approved** — a valid approve countersignature covers exactly these bytes,
    at this ref, in this form, from a key trusted for the approve namespace
    → **ALLOW**. Any change to the exposed bytes drops the approval to pending.
@@ -185,7 +191,7 @@ filesystem-level I/O error), or contains a `.sig` record whose bytes will not
 parse as a signature at all, is treated as a fault, not as empty: it might be
 hiding a **rejection**, and silently reading it as "nothing rejected" would
 reopen a gate a human closed. On that fault the resolver **denies every item**
-— even one that would otherwise be allowed by the local or builtin exemption —
+— even one that would otherwise be allowed by the local or companion exemption —
 and the port records a fatal `trust`-class finding in strict mode. The fix is
 the same shape either failure has always had: `fix or remove the corrupted
 approvals store, then re-review (ctxloom review)`.
@@ -198,14 +204,14 @@ to the decision, never a state. An item is pending, approved, or rejected; a
 signed item whose key you do not trust is not a fourth thing — it is pending.
 
 Rejection is checked first so it beats every exemption: a user can reject an
-item even from a trusted publisher or a **builtin**, and step 1 is evaluated even
-when the publisher signature is absent or failed to verify (a rejection is of
-*bytes*, not of provenance). This is enforced, not just
-documented — builtin bundles are routed through the SAME decision function as
-everything else (`trust.Ref{IsBuiltin: true}`, keyed under the synthetic
-identity `builtin:ctxloom` so a builtin item can never collide with a
-project-local bundle of the same name), and step 1's rejection check runs
-before step 4's builtin exemption. A missing countersignature for the exact
+item even from a trusted publisher or from ctxloom's **own loadout**, and step 1
+is evaluated even when the publisher signature is absent or failed to verify (a
+rejection is of *bytes*, not of provenance). This is enforced, not just
+documented — every companion loadout, ctxloom's own included, is routed through
+the SAME decision function as everything else (`trust.Ref{IsCompanion: true}`,
+keyed under the `ctxloom:companion` token so a companion item can never
+collide with a project-local bundle of the same name), and step 1's rejection
+check runs before step 4's companion exemption. A missing countersignature for the exact
 form being exposed does not satisfy step 6 — the exact materialization being
 exposed was never reviewed, so it stays pending. Finding a candidate
 countersignature FILE at the right index is never enough on its own: it must
@@ -236,27 +242,15 @@ A signature that parses but does not verify is *not* a fault — that is the
 ordinary "not proven" outcome, and treating it as one would deny every session
 carrying a single stale record.
 
-`builtin:ctxloom` is a plain identity string, not a cryptographic signature —
-nothing about a builtin bundle is verified beyond "it shipped inside this
-binary" (trusting the binary trusts what it ships, same as always). It exists
-purely so builtin items are addressable and rejectable through the same
-identity shape the store already uses for local (`ctxloom:local`) and remote
-(canonical repo URL) items. It is explicitly rejected at step 5 so it can never
-be mistaken for a cryptographically-verified publisher.
-
 ## First-party sources
 
-Four source classes are exempt from review by default (but not from
+Three source classes are exempt from review by default (but not from
 rejection — see the decision function above):
 
 - **Local** — items authored in this project, keyed to the `ctxloom:local`
   source. Locality is honest: a seeded or cloned bundle stamps its canonical
   remote ref, so a *copy* of remote content keys as remote and is **not**
   local-trusted. "You wrote it here, you trust it; a clone of it is not yours."
-- **Builtin** — bundles compiled into the binary, keyed to the synthetic
-  `builtin:ctxloom` identity. Allowed by default (step 4) with no review
-  friction — but, unlike local content's step-3 placement, this is a distinct
-  step specifically so a rejection (step 1) can still reach it.
 - **Companion** — a loadout an installed companion binary advertised about
   itself, keyed to the fixed `ctxloom:companion` token. Exempt because reading
   it *required executing the binary first*; see "Companion loadouts" below for
@@ -659,9 +653,9 @@ context.
 
 | Choke | Covers | On deny |
 |-------|--------|---------|
-| Content gate | fragments, commands (text) — including builtin fragments | absent from assembled context |
-| Executable gate — MCP | bundle MCP servers — including builtin servers | omitted from backend settings |
-| Executable gate — hooks | bundle hooks — including builtin hooks | omitted from backend settings |
+| Content gate | fragments, commands (text) — including companion fragments, ctxloom's own | absent from assembled context |
+| Executable gate — MCP | bundle MCP servers — including companion servers, ctxloom's own | omitted from backend settings |
+| Executable gate — hooks | bundle hooks — including companion hooks | omitted from backend settings |
 | Executable gate — command export | command slash-commands | not exported |
 | Tooling collection (`CollectTooling`) | a companion loadout's typed `init.tooling` declaration | withheld from Containerfile proposals |
 | Setup prompt (`ResolveSetupPrompt`) | a companion loadout's typed `init.setup_guidance`, composed into the `ctxloom init` prompt | withheld from the init prompt; the built-in guidance still composes |
@@ -671,13 +665,12 @@ There is one choke *above* all of these, and it is not a content decision at
 all: **companion exec consent**. A companion whose execution nobody confirmed is
 never run, so its content never exists to gate. See "Companion loadouts".
 
-Builtin content passes through every one of these chokes exactly like
-remote/local content — it is simply allowed by default at the decision
-function's builtin step (see above) rather than needing review. The chokes
-that resolve builtins on a caller-supplied gate (`c.execGate` for MCP/hooks,
-the exposure loader's content gate for fragments) stay ungated on
-management/listing paths, matching the existing convention for every other
-item kind — that path never gates ANY item, builtin or not.
+Companion content — ctxloom's own included — passes through every one of
+these chokes exactly like remote/local content; it is simply allowed by
+default at the decision function's companion step (see above) rather than
+needing review. The chokes that resolve companion items on a caller-supplied
+gate stay ungated on management/listing paths, matching the existing
+convention for every other item kind — that path never gates ANY item.
 
 **Ungated by design:**
 
@@ -775,11 +768,10 @@ needs on first launch.
 
 Items key as `{canonical repo URL} + {bundle}#{kind}/{name}` with no version;
 hashes carry the version dimension. Local items key under the fixed
-`ctxloom:local` token in place of a repo URL; builtin items key under the fixed
-`builtin:ctxloom` token; companion items key under the fixed
-`ctxloom:companion` token with the binary's name as the bundle component — all
-three are sentinels, so none of these classes can collide with a real remote
-repo URL, or with each other. Repo URLs are normalized on both sides of every comparison, but only over
+`ctxloom:local` token in place of a repo URL; companion items key under the
+fixed `ctxloom:companion` token with the binary's name as the bundle component
+— both are sentinels, so neither class can collide with a real remote repo
+URL, or with each other. Repo URLs are normalized on both sides of every comparison, but only over
 spellings that are the SAME URI — scheme case and `http`/`https`, host case,
 the `git@` transport form, trailing slashes, and the userinfo/query/fragment
 components, which address a request and never a repository. A merely

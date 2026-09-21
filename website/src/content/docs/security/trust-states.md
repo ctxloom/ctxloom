@@ -60,9 +60,9 @@ then re-review.
 
 ### Rejection is step 1 for a reason
 
-Rejection beats everything below it: retraction, the local exemption, the builtin exemption, a
-trusted publisher, and ctxloom's own release key. You can reject a builtin. You can reject
-something Trent signed. Step 1 is evaluated even when a publisher signature is absent or
+Rejection beats everything below it: retraction, the local exemption, the companion exemption, a
+trusted publisher, and ctxloom's own release key. You can reject ctxloom's own loadout content.
+You can reject something Trent signed. Step 1 is evaluated even when a publisher signature is absent or
 failed to verify, because **a rejection is of bytes, not of provenance**.
 
 This is the structural consequence of "signed does not mean safe". A signature authenticates;
@@ -78,14 +78,15 @@ trusted signer's own key: a publisher can retract content signed by a key this m
 trusts. Retraction renders as the **rejected** state in listings (withheld permanently,
 awaiting nothing) rather than as a fourth state — the three-state model above still holds.
 
-### Builtins go through the gate
+### ctxloom's own content goes through the gate
 
-Bundles compiled into the binary are allowed by default — trusting the ctxloom binary trusts
-what it ships — but they are allowed at their **own step, below rejection**, rather than
-skipping the gate. They are routed through the same decision function as everything else,
-under a synthetic `builtin:ctxloom` identity that is explicitly excluded from step 4 so it can
-never be laundered into a "verified publisher". Builtins are deliberately **not** signed:
-signing bytes embedded in the binary that verifies them is circular.
+ctxloom is its own companion: its MCP server entry and its always-on guidance are its own
+companion loadout, read and admitted exactly like every other companion's — allowed by
+default at the **companion step, below rejection**, rather than skipping the gate, under
+`ctxloom:companion@ctxloom` so a profile can exclude it and you can reject it. The loadout is
+signed with the release key for uniformity, but that signature is circular — the trust root
+vouching for the key ships in the same binary — so it is verified and never presented as a
+"verified publisher".
 
 ### A candidate signature is not a verdict
 

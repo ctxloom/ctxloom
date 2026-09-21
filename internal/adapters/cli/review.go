@@ -132,9 +132,14 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 		}
 	}
 
-	sum := runReviewWalk(out, promptLine, res, reviewApplier(cfg, reviewProjectFlag, signer))
+	sum, err := operations.ReviewWalk(cmd.Context(), App(), operations.ReviewWalkRequest{
+		Pending: res, Project: reviewProjectFlag, Signer: signer,
+	}, &reviewObserver{out: out, prompt: promptLine})
+	if err != nil {
+		return err
+	}
 	printReviewSummary(out, sum)
-	if sum.accepted+sum.rejected > 0 {
+	if sum.Trusted+sum.Rejected > 0 {
 		// One refresh for the whole session (not per item): reflect the new
 		// decisions in the managed artifacts immediately, exactly like the
 		// trust/reject plumbing does.
@@ -306,18 +311,6 @@ func renderReviewPublisher(w io.Writer, b operations.ReviewBundle) {
 	}
 }
 
-// reviewDecision is the parsed per-item answer.
-type reviewDecision int
-
-const (
-	reviewSkip reviewDecision = iota
-	reviewTrust
-	reviewReject
-	reviewTrustBundle
-	reviewRejectBundle
-	reviewQuit
-)
-
 // parseReviewChoice maps a raw answer to a decision.
 //
 // The letters ARE the CLI's verbs — [t]rust and [r]eject spell what `ctxloom
@@ -335,119 +328,60 @@ const (
 // Everything else is a skip: the empty line, an unrecognized word, and the
 // retired `a`/`A` accept spellings, which land on the safe side rather than
 // silently approving on muscle memory. Viewing must never mutate trust.
-func parseReviewChoice(answer string) reviewDecision {
+func parseReviewChoice(answer string) operations.ReviewDecision {
 	switch trimmed := strings.TrimSpace(answer); trimmed {
 	case "t":
-		return reviewTrust
+		return operations.ReviewTrust
 	case "T":
-		return reviewTrustBundle
+		return operations.ReviewTrustBundle
 	case "r":
-		return reviewReject
+		return operations.ReviewReject
 	case "R":
-		return reviewRejectBundle
+		return operations.ReviewRejectBundle
 	case "q", "Q":
-		return reviewQuit
+		return operations.ReviewQuit
 	default:
-		return reviewSkip
+		return operations.ReviewSkip
 	}
 }
 
-// reviewApplyFuncs are the mutation hooks the walk drives — injected so the
-// walk is unit-testable without resolving real bundles; production wires the
-// operations plumbing (reviewApplier).
-type reviewApplyFuncs struct {
-	accept func(ref string) error
-	reject func(ref string) error
+// reviewObserver is `ctxloom review`'s frontend for operations.ReviewWalk: it
+// shows each bundle and item, asks the human, and echoes what was recorded.
+// It decides nothing — the letters it reads are the CLI's own verbs
+// (parseReviewChoice), and the walk applies them.
+type reviewObserver struct {
+	out    io.Writer
+	prompt func(string) (string, error)
 }
 
-// reviewApplier routes accept/reject through the SAME operations the
-// standalone trust/blacklist commands use, so the porcelain and the plumbing
-// write identical countersignatures. signer/project are resolved once for the
-// whole session (see runReview) and threaded through every mutation so a
-// session countersigns consistently with one key, to one store.
-func reviewApplier(cfg *config.Config, project bool, signer ssh.Signer) reviewApplyFuncs {
-	return reviewApplyFuncs{
-		accept: func(ref string) error {
-			_, err := operations.SetItemTrust(cfg, operations.SetItemTrustRequest{Ref: ref, Project: project, Signer: signer})
-			return err
-		},
-		reject: func(ref string) error {
-			res, err := operations.SetBlacklist(cfg, operations.SetBlacklistRequest{Ref: ref, Project: project, Signer: signer})
-			if err == nil && len(res.ContentForms) == 0 {
-				clidiag.Warn("ctxloom", "could not countersign %q's content; the ref-level rejection applies, but no content-reject countersignature was recorded", ref)
-			}
-			return err
-		},
+func (o *reviewObserver) BundleStart(b operations.ReviewBundle) { printReviewBundleHeader(o.out, b) }
+
+// Decide shows the item and reads one answer. A read error (EOF, closed
+// stdin) is returned as-is: reviewing must never mutate without an explicit
+// answer, and the walk quits on it.
+func (o *reviewObserver) Decide(index, count int, item operations.ReviewItem) (operations.ReviewDecision, error) {
+	printReviewItem(o.out, index, count, item)
+	answer, err := o.prompt("[t]rust / [r]eject / [s]kip / [T] trust or [R] reject rest of bundle / [q]uit: ")
+	if err != nil {
+		return operations.ReviewSkip, err
 	}
+	return parseReviewChoice(answer), nil
 }
 
-// reviewSummary tallies one review session.
-type reviewSummary struct {
-	total    int
-	accepted int
-	rejected int
-	skipped  int
-}
-
-func (s reviewSummary) stillPending() int { return s.total - s.accepted - s.rejected }
-
-// runReviewWalk is the interactive core: per bundle print a header, per item
-// show the content (or update diff) and apply the prompted decision. A read
-// error (EOF, closed stdin) quits the walk — reviewing must never mutate
-// without an explicit answer. Apply failures warn and count the item as
-// skipped (fault tolerance: one unresolvable item never aborts the session).
-// A bulk answer applies to the REST OF ONE BUNDLE and is reset at the next
-// bundle header, so a reviewer can never decide, in one keystroke, about
-// content they were never shown.
-func runReviewWalk(out io.Writer, prompt func(string) (string, error), res *operations.PendingReviewResult, apply reviewApplyFuncs) reviewSummary {
-	sum := reviewSummary{total: res.Total}
-	trust := func(ref string) { applyReviewDecision(out, apply.accept, ref, "trusted", &sum.accepted, &sum.skipped) }
-	reject := func(ref string) { applyReviewDecision(out, apply.reject, ref, "rejected", &sum.rejected, &sum.skipped) }
-	for _, b := range res.Bundles {
-		printReviewBundleHeader(out, b)
-		var rest func(string)
-		for i, item := range b.Items {
-			if rest != nil {
-				rest(item.Ref)
-				continue
-			}
-			printReviewItem(out, i+1, len(b.Items), item)
-			answer, err := prompt("[t]rust / [r]eject / [s]kip / [T] trust or [R] reject rest of bundle / [q]uit: ")
-			if err != nil {
-				return sum // EOF/read error → quit; no answer, no mutation
-			}
-			switch parseReviewChoice(answer) {
-			case reviewTrust:
-				trust(item.Ref)
-			case reviewReject:
-				reject(item.Ref)
-			case reviewTrustBundle:
-				rest = trust
-				trust(item.Ref)
-			case reviewRejectBundle:
-				rest = reject
-				reject(item.Ref)
-			case reviewQuit:
-				return sum
-			default:
-				sum.skipped++
-			}
-		}
+func (o *reviewObserver) Recorded(ref string, decision operations.ReviewDecision) {
+	verb := "trusted"
+	if decision == operations.ReviewReject {
+		verb = "rejected"
 	}
-	return sum
+	fmt.Fprintf(o.out, "  → %s %s\n", verb, ref)
 }
 
-// applyReviewDecision runs one mutation, echoes the outcome, and tallies it. A
-// failure warns and counts the item as skipped — it stays pending for a later
-// session rather than sinking this one.
-func applyReviewDecision(out io.Writer, apply func(string) error, ref, verb string, tally, skipped *int) {
-	if err := apply(ref); err != nil {
-		clidiag.Warn("ctxloom", "could not record decision for %q: %v", ref, err)
-		*skipped++
-		return
-	}
-	fmt.Fprintf(out, "  → %s %s\n", verb, ref)
-	*tally++
+func (o *reviewObserver) NotRecorded(ref string, err error) {
+	clidiag.Warn("ctxloom", "could not record decision for %q: %v", ref, err)
+}
+
+func (o *reviewObserver) ContentNotCountersigned(ref string) {
+	clidiag.Warn("ctxloom", "could not countersign %q's content; the ref-level rejection applies, but no content-reject countersignature was recorded", ref)
 }
 
 // printReviewBundleHeader names the bundle, its source remote, and the counts.
@@ -575,7 +509,7 @@ func printPublisherBlock(w io.Writer, ref, text string) {
 }
 
 // printReviewSummary reports the session tally.
-func printReviewSummary(w io.Writer, sum reviewSummary) {
+func printReviewSummary(w io.Writer, sum operations.ReviewWalkResult) {
 	fmt.Fprintf(w, "\nReview complete: %d trusted, %d rejected, %d skipped — %d still pending.\n",
-		sum.accepted, sum.rejected, sum.skipped, sum.stillPending())
+		sum.Trusted, sum.Rejected, sum.Skipped, sum.StillPending())
 }

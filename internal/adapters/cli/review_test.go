@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -36,27 +35,27 @@ import (
 // Everything else is a skip, including the retired `a`/`A` spellings and the
 // empty line, because viewing must never mutate trust.
 func TestParseReviewChoice(t *testing.T) {
-	cases := map[string]reviewDecision{
-		"t":     reviewTrust,
-		" t ":   reviewTrust,
-		"T":     reviewTrustBundle,
-		" T ":   reviewTrustBundle,
-		"r":     reviewReject,
-		" r ":   reviewReject,
-		"R":     reviewRejectBundle,
-		" R ":   reviewRejectBundle,
-		"q":     reviewQuit,
-		"Q":     reviewQuit,
-		"s":     reviewSkip,
-		"":      reviewSkip,
-		"skip":  reviewSkip,
-		"trust": reviewSkip, // only single-letter shortcuts act
-		"yes":   reviewSkip,
-		"junk":  reviewSkip,
+	cases := map[string]operations.ReviewDecision{
+		"t":     operations.ReviewTrust,
+		" t ":   operations.ReviewTrust,
+		"T":     operations.ReviewTrustBundle,
+		" T ":   operations.ReviewTrustBundle,
+		"r":     operations.ReviewReject,
+		" r ":   operations.ReviewReject,
+		"R":     operations.ReviewRejectBundle,
+		" R ":   operations.ReviewRejectBundle,
+		"q":     operations.ReviewQuit,
+		"Q":     operations.ReviewQuit,
+		"s":     operations.ReviewSkip,
+		"":      operations.ReviewSkip,
+		"skip":  operations.ReviewSkip,
+		"trust": operations.ReviewSkip, // only single-letter shortcuts act
+		"yes":   operations.ReviewSkip,
+		"junk":  operations.ReviewSkip,
 		// The retired accept spellings. Muscle memory must land on the SAFE
 		// side: a stale `a` skips the item rather than silently approving it.
-		"a": reviewSkip,
-		"A": reviewSkip,
+		"a": operations.ReviewSkip,
+		"A": operations.ReviewSkip,
 	}
 	for in, want := range cases {
 		assert.Equalf(t, want, parseReviewChoice(in), "parseReviewChoice(%q)", in)
@@ -74,33 +73,6 @@ func scriptedPrompt(answers ...string) func(string) (string, error) {
 		a := answers[i]
 		i++
 		return a, nil
-	}
-}
-
-// recordingApply captures the decisions the walk drives, optionally failing
-// chosen refs.
-type recordingApply struct {
-	accepted []string
-	rejected []string
-	failRefs map[string]bool
-}
-
-func (r *recordingApply) funcs() reviewApplyFuncs {
-	return reviewApplyFuncs{
-		accept: func(ref string) error {
-			if r.failRefs[ref] {
-				return fmt.Errorf("boom")
-			}
-			r.accepted = append(r.accepted, ref)
-			return nil
-		},
-		reject: func(ref string) error {
-			if r.failRefs[ref] {
-				return fmt.Errorf("boom")
-			}
-			r.rejected = append(r.rejected, ref)
-			return nil
-		},
 	}
 }
 
@@ -134,100 +106,47 @@ func walkFixture() *operations.PendingReviewResult {
 	}
 }
 
-// TestRunReviewWalk_TrustRejectSkip drives one of each single-item action and
-// checks tallies, applied refs, and the update diff rendering.
-func TestRunReviewWalk_TrustRejectSkip(t *testing.T) {
-	rec := &recordingApply{}
+// TestReviewObserver_RendersWhatTheWalkAsksFor pins the frontend's half of a
+// review session: the bundle header names source and counts, a NEW item shows
+// its full content, an UPDATE shows a unified diff against the accepted
+// snapshot, an executable renders what it runs, the answer is read as the
+// CLI's own verbs, and a recorded decision is echoed with its verb.
+func TestReviewObserver_RendersWhatTheWalkAsksFor(t *testing.T) {
 	var out bytes.Buffer
-	// f1 trust, s1 reject, m1 skip, f2 trust, f3 skip.
-	sum := runReviewWalk(&out, scriptedPrompt("t", "r", "s", "t", ""), walkFixture(), rec.funcs())
+	obs := &reviewObserver{out: &out, prompt: scriptedPrompt("t", "R", "")}
+	fx := walkFixture()
 
-	assert.Equal(t, []string{"one#fragments/f1", "two#fragments/f2"}, rec.accepted)
-	assert.Equal(t, []string{"one#commands/s1"}, rec.rejected)
-	assert.Equal(t, 2, sum.accepted)
-	assert.Equal(t, 1, sum.rejected)
-	assert.Equal(t, 2, sum.skipped)
-	assert.Equal(t, 2, sum.stillPending())
+	obs.BundleStart(fx.Bundles[0])
+	d, err := obs.Decide(1, 3, fx.Bundles[0].Items[0])
+	require.NoError(t, err)
+	assert.Equal(t, operations.ReviewTrust, d)
+	obs.Recorded(fx.Bundles[0].Items[0].Ref, operations.ReviewTrust)
+	d, err = obs.Decide(2, 3, fx.Bundles[0].Items[1])
+	require.NoError(t, err)
+	assert.Equal(t, operations.ReviewRejectBundle, d)
+	obs.Recorded(fx.Bundles[0].Items[1].Ref, operations.ReviewReject)
+	d, err = obs.Decide(3, 3, fx.Bundles[0].Items[2])
+	require.NoError(t, err)
+	assert.Equal(t, operations.ReviewSkip, d, "an empty answer is a skip")
 
 	text := out.String()
 	assert.Contains(t, text, "bundles/one (remote: acme) — 3 pending (1 update(s))", "bundle header must name source + counts")
+	assert.Contains(t, text, "[1/3] fragments/f1 (NEW)")
 	assert.Contains(t, text, "f1 body", "NEW items show full content")
 	assert.Contains(t, text, "-s1 v1", "UPDATE items show a unified diff against the accepted snapshot")
 	assert.Contains(t, text, "+s1 v2")
 	assert.Contains(t, text, "command: m1", "executables render what they run")
+	assert.Contains(t, text, "  → trusted one#fragments/f1\n")
+	assert.Contains(t, text, "  → rejected one#commands/s1\n")
 }
 
-// TestRunReviewWalk_TrustBundle: 'T' trusts the current item and everything
-// remaining in the SAME bundle, then the walk moves to the next bundle.
-func TestRunReviewWalk_TrustBundle(t *testing.T) {
-	rec := &recordingApply{}
+// TestReviewObserver_EOFIsNoAnswer: a closed stdin is reported to the walk as
+// an error, never read as a decision — no answer, no mutation.
+func TestReviewObserver_EOFIsNoAnswer(t *testing.T) {
 	var out bytes.Buffer
-	// f1: T (trusts f1, s1, m1 without further prompts), f2: r, f3: s.
-	sum := runReviewWalk(&out, scriptedPrompt("T", "r", "s"), walkFixture(), rec.funcs())
-
-	assert.Equal(t, []string{"one#fragments/f1", "one#commands/s1", "one#mcp/m1"}, rec.accepted)
-	assert.Equal(t, []string{"two#fragments/f2"}, rec.rejected)
-	assert.Equal(t, 3, sum.accepted)
-	assert.Equal(t, 1, sum.rejected)
-	assert.Equal(t, 1, sum.skipped)
-}
-
-// TestRunReviewWalk_RejectBundle is the bulk form's other direction, and it is
-// the one that must be proven: bulk TRUST at least re-gates itself the moment
-// any of those bytes change, while every rejection it writes is sticky.
-//
-// The bulk decision must also stay inside its bundle. A 'R' that ran on to the
-// next bundle would reject content the reviewer never saw, permanently.
-func TestRunReviewWalk_RejectBundle(t *testing.T) {
-	rec := &recordingApply{}
-	var out bytes.Buffer
-	// f1: R (rejects f1, s1, m1 without further prompts), f2: t, f3: s.
-	sum := runReviewWalk(&out, scriptedPrompt("R", "t", "s"), walkFixture(), rec.funcs())
-
-	assert.Equal(t, []string{"one#fragments/f1", "one#commands/s1", "one#mcp/m1"}, rec.rejected)
-	assert.Equal(t, []string{"two#fragments/f2"}, rec.accepted,
-		"the next bundle is still decided item by item — a bulk answer covers the bundle it was given in, and no more")
-	assert.Equal(t, 3, sum.rejected)
-	assert.Equal(t, 1, sum.accepted)
-	assert.Equal(t, 1, sum.skipped)
-}
-
-// TestRunReviewWalk_Quit: 'q' ends the session immediately; nothing after it
-// is prompted or mutated, and the remainder stays pending.
-func TestRunReviewWalk_Quit(t *testing.T) {
-	rec := &recordingApply{}
-	var out bytes.Buffer
-	sum := runReviewWalk(&out, scriptedPrompt("t", "q"), walkFixture(), rec.funcs())
-
-	assert.Equal(t, []string{"one#fragments/f1"}, rec.accepted)
-	assert.Empty(t, rec.rejected)
-	assert.Equal(t, 1, sum.accepted)
-	assert.Equal(t, 4, sum.stillPending())
-}
-
-// TestRunReviewWalk_EOFQuits: a read error (closed stdin) quits without
-// mutating — no answer, no action.
-func TestRunReviewWalk_EOFQuits(t *testing.T) {
-	rec := &recordingApply{}
-	var out bytes.Buffer
-	sum := runReviewWalk(&out, scriptedPrompt(), walkFixture(), rec.funcs())
-
-	assert.Empty(t, rec.accepted)
-	assert.Empty(t, rec.rejected)
-	assert.Zero(t, sum.accepted+sum.rejected+sum.skipped)
-	assert.Equal(t, 5, sum.stillPending())
-}
-
-// TestRunReviewWalk_ApplyFailureCountsSkipped: a failing mutation warns,
-// counts the item as skipped (still pending), and the walk continues.
-func TestRunReviewWalk_ApplyFailureCountsSkipped(t *testing.T) {
-	rec := &recordingApply{failRefs: map[string]bool{"one#fragments/f1": true}}
-	var out bytes.Buffer
-	sum := runReviewWalk(&out, scriptedPrompt("t", "q"), walkFixture(), rec.funcs())
-
-	assert.Empty(t, rec.accepted)
-	assert.Equal(t, 0, sum.accepted)
-	assert.Equal(t, 1, sum.skipped)
+	obs := &reviewObserver{out: &out, prompt: scriptedPrompt()}
+	_, err := obs.Decide(1, 1, walkFixture().Bundles[0].Items[0])
+	assert.ErrorIs(t, err, io.EOF)
 }
 
 // TestPrintReviewItem_UpdateWithoutSnapshot falls back to full content with an
@@ -330,21 +249,31 @@ func TestRenderReviewPublisher_UntrustedKeyReadsAsAWarningNotAnIdentity(t *testi
 		"the comparison must be stated before the command that acts on it")
 }
 
-// TestReviewApplier_WritesStoreStates proves the porcelain's apply hooks write
-// the SAME on-disk countersignatures as the trust/blacklist plumbing (they are
-// the same operations): accept countersigns an approval over the item's
-// bytes, reject writes the ref block + a content-reject.
-func TestReviewApplier_WritesStoreStates(t *testing.T) {
+// TestReviewWalk_WritesStoreStates proves the porcelain's session writes the
+// SAME on-disk countersignatures as the trust/blacklist plumbing (they are
+// the same operations): trust countersigns an approval over the item's
+// bytes, reject writes the ref block + a content-reject — and the frontend
+// echoes each decision as it lands.
+func TestReviewWalk_WritesStoreStates(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	seedLocalFragment(t, cfg, "demo", "keep", "acceptable body")
 	seedLocalFragment(t, cfg, "demo2", "drop", "rm -rf danger")
+	app := appOver(t, cfg)
 
-	apply := reviewApplier(cfg, false, nil)
-	require.NoError(t, apply.accept("demo#fragments/keep"))
-	require.NoError(t, apply.reject("demo2#fragments/drop"))
+	pending := &operations.PendingReviewResult{Total: 2, Bundles: []operations.ReviewBundle{
+		{Ref: "demo", Items: []operations.ReviewItem{{Ref: "demo#fragments/keep", Kind: "fragments", Name: "keep", CurrentContent: "acceptable body"}}},
+		{Ref: "demo2", Items: []operations.ReviewItem{{Ref: "demo2#fragments/drop", Kind: "fragments", Name: "drop", CurrentContent: "rm -rf danger"}}},
+	}}
+	var out bytes.Buffer
+	sum, err := operations.ReviewWalk(context.Background(), app, operations.ReviewWalkRequest{Pending: pending},
+		&reviewObserver{out: &out, prompt: scriptedPrompt("t", "r")})
+	require.NoError(t, err)
+	assert.Equal(t, operations.ReviewWalkResult{Total: 2, Trusted: 1, Rejected: 1}, sum)
+	assert.Contains(t, out.String(), "  → trusted demo#fragments/keep\n")
+	assert.Contains(t, out.String(), "  → rejected demo2#fragments/drop\n")
 
 	store := userApprovalsStore(t)
 	keepRef := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "keep", IsLocal: true}
@@ -353,6 +282,17 @@ func TestReviewApplier_WritesStoreStates(t *testing.T) {
 	dropRef := trust.Ref{Bundle: "demo2", Kind: trust.KindFragment, Name: "drop", IsLocal: true}
 	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(t, dropRef)))
 	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, fragmentBytes("rm -rf danger")))
+}
+
+// appOver opens the process composition over a fixture config, the way a
+// command's App() would hold it.
+func appOver(t *testing.T, cfg *config.Config) *operations.App {
+	t.Helper()
+	owner, err := config.Open(context.Background(), probeSources{cfg: cfg, probe: func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{}, nil
+	}})
+	require.NoError(t, err)
+	return operations.OpenedApp(owner)
 }
 
 // TestPrintReviewItem_ShowsBothCountersignedForms closes a gap: an

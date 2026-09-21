@@ -33,9 +33,7 @@ func (h *HooksConfig) Count() int {
 	if h == nil {
 		return 0
 	}
-	n := len(h.Unified.PreTool) + len(h.Unified.PostTool) +
-		len(h.Unified.SessionStart) + len(h.Unified.SessionEnd) +
-		len(h.Unified.PreShell) + len(h.Unified.PostFileEdit) + len(h.Unified.TurnEnd)
+	n := len(h.Unified.All())
 	for _, backend := range h.Ext {
 		for _, hooks := range backend {
 			n += len(hooks)

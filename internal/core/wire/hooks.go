@@ -109,18 +109,7 @@ func (h *HooksConfig) UnmarshalYAML(node *yaml.Node) error {
 // HasAny reports whether any hook is configured. Used by config Save() to decide
 // whether to emit the `hooks` key at all (vs. delete it from the file).
 func (h HooksConfig) HasAny() bool {
-	u := h.Unified
-	if len(u.PreTool)+len(u.PostTool)+len(u.SessionStart)+len(u.SessionEnd)+len(u.TurnEnd)+len(u.PreShell)+len(u.PostFileEdit) > 0 {
-		return true
-	}
-	for _, backend := range h.Ext {
-		for _, hooks := range backend {
-			if len(hooks) > 0 {
-				return true
-			}
-		}
-	}
-	return false
+	return h.Count() > 0
 }
 
 // BackendHooks holds backend-native hook events (passthrough to backend config).
@@ -173,13 +162,16 @@ func (u *UnifiedHooks) Append(other UnifiedHooks) {
 	u.TurnEnd = appendUniqueHooks(u.TurnEnd, other.TurnEnd)
 	u.PreShell = appendUniqueHooks(u.PreShell, other.PreShell)
 	u.PostFileEdit = appendUniqueHooks(u.PostFileEdit, other.PostFileEdit)
+	u.TurnStart = appendUniqueHooks(u.TurnStart, other.TurnStart)
 }
 
 // All is every hook across the unified events, in event order then
-// declaration order — the flat view an engine's Exports routes from.
+// declaration order — the flat view an engine's Exports routes from. It is
+// the one enumeration of the events in this package: HasAny and Count read
+// through it rather than re-listing the fields.
 func (u UnifiedHooks) All() []Hook {
 	var out []Hook
-	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit} {
+	for _, hooks := range [][]Hook{u.PreTool, u.PostTool, u.SessionStart, u.SessionEnd, u.TurnEnd, u.PreShell, u.PostFileEdit, u.TurnStart} {
 		out = append(out, hooks...)
 	}
 	return out

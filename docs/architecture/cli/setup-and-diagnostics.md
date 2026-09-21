@@ -55,10 +55,9 @@ flowchart TD
     end
 
     subgraph doctor["doctor_cmd.go"]
-        DC["doctor :108"] --> DCL["11 doctorCheck* funcs → DoctorCheck :85 / DoctorReport :92"]
-        DCL --> RDR["renderDoctorReport :737"]
-        DCL --> DCE["doctorConfiguredEngines :180"]
-        DCL --> SKRD["signKeyResolutionDetail :307 / gitIdentityDetail :390"]
+        DC["doctor (--deps)"] --> OD[["operations.Doctor(ctx, app, DoctorRequest{DepsOnly, Home}) → DoctorReport"]]
+        OD --> RDR["renderDoctorReport"]
+        ISD["init_systemdeps.go: checkSystemDeps"] --> SKRD[["operations.SignKeyResolutionDetail / GitIdentityDetail"]]
     end
 
     subgraph util["util_config_write.go (hidden)"]
@@ -140,13 +139,17 @@ resolution.
 | `scaffold` | `:255` | Writes a base Containerfile |
 | `check [backend]` | `:287` | Diagnoses container capability |
 
-## `ctxloom doctor` (`doctor_cmd.go:108`)
+## `ctxloom doctor` (`doctor_cmd.go`)
 
-`--deps` selects the 4-check subset; otherwise 11 checks. Each produces a
-`DoctorCheck{Marker, Status, Detail}` where `Marker` carries the
-`DOCTOR-CHECK-*` vocabulary **shared with the external `ctxloom-doctor` Agent
-Skill**, and `Status` is `"ok"` | `"warn"` | `"info"` — a free-form string with
-its three legal values in a trailing comment and 20+ literal write sites.
+The checks are `operations.Doctor`'s: `--deps` selects the machine-capability
+subset (`DoctorRequest.DepsOnly`), the CLI hands in the home it stands in for
+the composition root on (`DoctorRequest.Home`), and `renderDoctorReport` is
+the only text the command writes. Each row is an `operations.DoctorCheck{Marker,
+Status, Detail}` where `Marker` carries the `DOCTOR-CHECK-*` vocabulary
+**shared with the external `ctxloom-doctor` Agent Skill** and `Status` is the
+`operations.DoctorStatus` enum (`ok` | `warn` | `info`). The run banner's
+startup findings (`run_startup_findings.go`) are `operations.StartupFindings`
+rendered through the same renderer.
 
 Checks: deps (`:206`), sign key (`:269`), git identity (`:377`)
 (`:452`), agents (`:508`), version (`:539`), hooks/trust (`:551`), setup marker

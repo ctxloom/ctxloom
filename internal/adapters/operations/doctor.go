@@ -41,14 +41,14 @@ var doctorDepBinariesRequired = []string{"git"}
 
 // doctorDepBinariesRecommended are binaries ctxloom ITSELF never execs —
 // grepped repo-wide: no exec.Command/LookPath("ssh") or ("ssh-keygen")
-// anywhere but this probe and init PRIME's mirror of it (checkSystemDeps,
-// init.go) — but that are still worth flagging present:
+// anywhere but this probe and init PRIME's mirror of it
+// (cli.checkSystemDeps) — but that are still worth flagging present:
 //
 //   - ssh is what `git` ITSELF shells out to for an ssh:// or git@host:
 //     remote (irrelevant for the default HTTPS remote ctxloom seeds).
 //   - ssh-keygen is the tool a user without an existing SSH key would run BY
-//     HAND to make one (`ssh-keygen -t ed25519-sk` — the fix review.go's/
-//     agentkey.go's own messages already suggest); ctxloom never runs it
+//     HAND to make one (`ssh-keygen -t ed25519-sk` — the fix `ctxloom
+//     review` and agentkey's own messages already suggest); ctxloom never runs it
 //     for them.
 //
 // NEITHER is a signing dependency (an earlier version of this comment/the
@@ -77,7 +77,7 @@ type DoctorStatus string
 const (
 	// DoctorOK: the check's subject is in the state setup intends.
 	DoctorOK DoctorStatus = "ok"
-	// DoctorWarn: this command's fail-loud signal. doctor never fails the
+	// DoctorWarn: doctor's fail-loud signal. Doctor never fails the
 	// process, so a warn is how a real problem is reported.
 	DoctorWarn DoctorStatus = "warn"
 	// DoctorInfo: reported for context, not a verdict — nothing to fix.
@@ -85,7 +85,7 @@ const (
 )
 
 // DoctorCheck is one named check's outcome. Marker is the DOCTOR-CHECK-*
-// vocabulary this command shares with the "ctxloom-doctor" Agent Skill, so a
+// vocabulary doctor shares with the "ctxloom-doctor" Agent Skill, so a
 // human or an LLM reading either surface sees one language.
 type DoctorCheck struct {
 	Marker string       `json:"marker"`
@@ -293,8 +293,9 @@ func doctorMissingEngineClients(cfg *config.Config) []string {
 // (included in --deps scope): it asks whether a signing IDENTITY would
 // resolve right now, using the EXACT SAME resolver `ctxloom review`'s
 // approve path AND `ctxloom sign`/`--sign` both use (internal/adapters/signing/
-// agentkey.Discoverer.Discover — see review.go's resolveReviewSigner and
-// sign.go's runSign) rather than re-deriving discovery here. Read-only:
+// agentkey.Discoverer.Discover, behind ResolveLocalSigner — see
+// cli.resolveReviewSigner and `ctxloom sign`) rather than re-deriving
+// discovery here. Read-only:
 // Discover only lists ssh-agent identities (agent.Agent.Signers/List over
 // SSH_AUTH_SOCK), it never signs or reads private key bytes.
 //
@@ -308,7 +309,7 @@ func doctorMissingEngineClients(cfg *config.Config) []string {
 // seeded ctxloom-default remote is pre-trusted, nothing to approve) genuinely
 // has no need for one; this is advisory, same posture as the ssh-keygen/
 // container-runtime warns beside it. Surfacing it here (and in init PRIME's
-// checkSystemDeps, see init.go) beats a user hitting agentkey.NoKeyError or
+// cli.checkSystemDeps) beats a user hitting agentkey.NoKeyError or
 // the unsigned-approval prompt cold at their first real `ctxloom review`/
 // `ctxloom sign`.
 func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *agentkey.Discoverer) DoctorCheck {
@@ -328,10 +329,10 @@ func doctorCheckSignKey(ctx context.Context, cfg *config.Config, discoverer *age
 // chain (explicit --key/sign.key, then `git config user.signingkey`, then
 // ssh-agent's sole identity — agentkey.go's package doc) and renders the
 // outcome as a short, actionable line. Shared between doctorCheckSignKey and
-// init PRIME's checkSystemDeps (init.go) so both surfaces say the exact same
+// init PRIME's cli.checkSystemDeps so both surfaces say the exact same
 // thing about the exact same resolver, rather than drifting apart.
 //
-// ok=true names the resolved key the way sign.go's printSignResult already
+// ok=true names the resolved key the way cli.printSignResult already
 // does ("<source> (<fingerprint>)") — the same presentation `ctxloom sign`
 // itself prints when it actually signs something.
 //
@@ -433,7 +434,7 @@ func doctorCheckGitIdentity(ctx context.Context, gitConfig gitConfigFunc) Doctor
 
 // GitIdentityDetail runs gitConfig for user.name and user.email and renders
 // the outcome as a short, actionable line. Shared between
-// doctorCheckGitIdentity and init PRIME's checkSystemDeps (init.go) so both
+// doctorCheckGitIdentity and init PRIME's cli.checkSystemDeps so both
 // surfaces say the exact same thing, rather than drifting apart.
 func GitIdentityDetail(ctx context.Context, gitConfig gitConfigFunc) (ok bool, detail string) {
 	name, nameOK, nameErr := gitConfig(ctx, "", "user.name")
@@ -658,11 +659,11 @@ func doctorTrustStoreDetail(signers []SignerListing, err error) (detail string, 
 // These compose the SAME operations/config entry points every other command
 // already uses (config.Config, AssembleContext, the resolved
 // bundles.Catalog behind config.Config.BundleLoader) rather than
-// re-implementing any of their logic — this file's job is to CALL them and
+// re-implementing any of their logic — a check's job is to CALL them and
 // translate the result into a DoctorCheck, never to re-derive what "locked",
 // "resolves", or "registered" means. Deliberately absent: anything that
 // opens a third-party client's own config file (Zed settings.json, Nori's
-// config.toml, ...) — see doctorCmd's Long text and init-as-skill.plan.md
+// config.toml, ...) — see `ctxloom doctor --help` and init-as-skill.plan.md
 // §6/§8.2. The remaining two §8.2 items — agents non-empty/resolvable and
 // hooks/MCP registered per backend — are folded directly into
 // doctorCheckAgents and doctorCheckHooksTrust above rather than duplicated
@@ -724,7 +725,7 @@ func doctorCheckSetupMarker(cfg *config.Config, cfgErr error) DoctorCheck {
 	// see internal/core/config/warnings.go's own doc: "EVERY kind declared below
 	// is fatal-class in strict mode". Doctor's own contract (doctor.feature:
 	// "why its exit code is not the verdict") means this stays DoctorWarn,
-	// never a process exit change -- warn IS this command's fail-loud signal.
+	// never a process exit change -- warn IS doctor's fail-loud signal.
 	if warnings := cfg.GetWarnings(); len(warnings) > 0 {
 		return DoctorCheck{Marker: marker, Status: DoctorWarn,
 			Detail: fmt.Sprintf("marker present, but config.yaml failed schema validation (%d issue(s) -- see the warning line(s) printed above, or `ctxloom manage config edit`): %s", len(warnings), appDir)}
@@ -1188,16 +1189,12 @@ func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) DoctorCheck
 			len(refused), strings.Join(parts, "; "))}
 }
 
-// ===== J001300 close-out: doctor checks 1, 4, 5 (of the feature's numbering) ====
+// ===== J001300 close-out: doctor's share of the journey's checks ====
 //
-// The feature file and its step definitions both describe "doctor's five new
-// checks"; this file adds exactly THREE — the ones the J001300 close-out design
-// doc (docs/design/j001300-closeout-surfaces.design.md §6, area 4) scopes as
-// doctor's share of that journey, and the ones the corresponding scenarios'
-// own comments number 1, 4 and 5. Checks 2 and 3 of that numbering belong to
-// a different area of J001300 (worktrees/purge/lessons) and are not implemented
-// here — see this slice's own commit message / the design doc's §1 table for
-// where they actually land.
+// The journey's feature numbers five checks; the gitignore posture, the
+// foreign worktrees and the harp durability below are doctor's (its
+// scenarios' 1, 4 and 5). The other two are the worktree/purge/lessons
+// surfaces and are theirs, not doctor's.
 
 // doctorCheckGitignorePosture reports a superseded blanket `.ctxloom` ignore
 // rule: under it, .ctxloom/content can never be committed at all, so a

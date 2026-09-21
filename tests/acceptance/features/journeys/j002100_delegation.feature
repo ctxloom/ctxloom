@@ -14,12 +14,12 @@ Feature: Coordinator delegates isolated work
 
   # NOTE ON WHAT THIS JOURNEY CAN AND CANNOT SEE: tests/acceptance drives a
   # `ctxloom` SUBPROCESS over MCP stdio — it can only observe what crosses the
-  # wire or lands on disk, never a captured in-process Go struct. There is no
-  # MCP tool reachable from this harness that exposes the roster/ListRuns
-  # projection over the wire (roster's real "runner-terminated" MCP endpoint
-  # is a spawned child's own local socket — internal/adapters/mcp/mcp_runner.go — which
-  # this harness's plain `ctxloom mcp` subprocess never becomes). So every
-  # assertion below reads the coordinator's own durable journal, runs.jsonl,
+  # wire or lands on disk, never a captured in-process Go struct. The
+  # coordinator is hosted by the session owner this journey stands up (a
+  # mock-engine `ctxloom run`; see session_owner_fixture.go), and the
+  # harness's `ctxloom mcp` shim FORWARDS to that owner's runner — the same
+  # runner-terminated surface a real engine's shim reaches. Every assertion
+  # below still reads the coordinator's own durable journal, runs.jsonl,
   # directly off disk: the SAME data roster is backed by (consumer.go's
   # listRunsSnapshot reads this exact fold), and a genuinely external,
   # disk-durable observable — not a Go struct capture, and not faked.
@@ -37,6 +37,7 @@ Feature: Coordinator delegates isolated work
 
   Background:
     Given Alice's coordinator can delegate to two agents, "reviewer" and "fixer", each with its own profile, its own MCP server, and its own permission mode
+    And a session owner is standing
 
   # LOCKED — the sharpest claim this journey makes, and the reason it exists.
   # Verified: prodSpawner.childMCPServers (spawner.go) composes a child's MCP
@@ -46,12 +47,12 @@ Feature: Coordinator delegates isolated work
   # because "reviewer"'s journaled grant then contains "deploy-tool".
   Scenario: Each child is granted only its own MCP servers, never a sibling's or the coordinator's
     When the agent calls tool "agent_run" with:
-      | agent  | reviewer |
-      | prompt | go       |
+      | role         | reviewer |
+      | input.prompt | go       |
     Then the tool call succeeds
     When the agent calls tool "agent_run" with:
-      | agent  | fixer |
-      | prompt | go    |
+      | role         | fixer |
+      | input.prompt | go    |
     Then the tool call succeeds
     And "reviewer"'s journaled grant carries its own MCP server and not "fixer"'s
     And "fixer"'s journaled grant carries its own MCP server and not "reviewer"'s
@@ -63,12 +64,12 @@ Feature: Coordinator delegates isolated work
   # one hard-coded value showing up twice.
   Scenario: Each child's permission mode is recorded, not just implied
     When the agent calls tool "agent_run" with:
-      | agent  | reviewer |
-      | prompt | go       |
+      | role         | reviewer |
+      | input.prompt | go       |
     Then the tool call succeeds
     When the agent calls tool "agent_run" with:
-      | agent  | fixer |
-      | prompt | go    |
+      | role         | fixer |
+      | input.prompt | go    |
     Then the tool call succeeds
     And "reviewer"'s journaled grant records its own permission mode
     And "fixer"'s journaled grant records its own permission mode, different from "reviewer"'s
@@ -83,14 +84,14 @@ Feature: Coordinator delegates isolated work
   # move.
   Scenario: A child's grant is journaled at enqueue and survives a later config edit unchanged
     When the agent calls tool "agent_run" with:
-      | agent  | fixer |
-      | prompt | go    |
+      | role         | fixer |
+      | input.prompt | go    |
     Then the tool call succeeds
     And "fixer"'s current journaled grant is remembered as "before the edit"
     When Alice edits "fixer" to use "reviewer"'s profile and permission mode instead
     And the agent calls tool "agent_run" with:
-      | agent  | fixer    |
-      | prompt | go again |
+      | role         | fixer    |
+      | input.prompt | go again |
     Then the tool call succeeds
     And "fixer"'s current journaled grant is remembered as "after the edit"
     And the grant remembered as "before the edit" still shows the original MCP server and permission mode
@@ -104,12 +105,12 @@ Feature: Coordinator delegates isolated work
   # this scenario has something real to prove was never written.
   Scenario: The audit trail carries a server's name, never the command that can carry a secret
     When the agent calls tool "agent_run" with:
-      | agent  | reviewer |
-      | prompt | go       |
+      | role         | reviewer |
+      | input.prompt | go       |
     Then the tool call succeeds
     When the agent calls tool "agent_run" with:
-      | agent  | fixer |
-      | prompt | go    |
+      | role         | fixer |
+      | input.prompt | go    |
     Then the tool call succeeds
     And the journal carries both children's MCP server names
     But the journal never carries the command or arguments that launch them
@@ -127,8 +128,8 @@ Feature: Coordinator delegates isolated work
   # accepted — on a run id that was never spawned at all.
   Scenario: Stopping a child is idempotent, and stopping a run that never existed is refused
     When the agent calls tool "agent_run" with:
-      | agent  | fixer |
-      | prompt | go    |
+      | role         | fixer |
+      | input.prompt | go    |
     Then the tool call succeeds
     And "fixer"'s spawned session is remembered
     When the agent calls tool "agent_stop" for "fixer"'s remembered session
@@ -137,7 +138,7 @@ Feature: Coordinator delegates isolated work
     Then the tool call succeeds
     And the tool result contains "already ended"
     When the agent calls tool "agent_stop" with:
-      | harp | not-a-real-session-at-all |
+      | run_id | not-a-real-run-at-all |
     Then the tool call fails
 
   # FAILURE PATH — a message's `kind` is a security boundary, not a label.
@@ -154,13 +155,16 @@ Feature: Coordinator delegates isolated work
   # independent by construction (one ingress guard for both sender surfaces),
   # and the child-identity case is pinned in the unit suite
   # (TestServePeerSend_RefusesSpoofedApprovalRequest). What this proves at the
-  # real MCP surface is that the vocabulary is CLOSED and that the refusal
-  # tells the sender what it may use instead — and, in the same scenario, that
-  # it is not a blanket refusal: a documented kind still goes through.
+  # real MCP surface is that the vocabulary is CLOSED: a RESERVED kind is
+  # refused by the coordinator's ingress, which tells the sender what it may
+  # use instead; a spelling outside the vocabulary altogether never reaches
+  # the coordinator — the wire's closed enum refuses it at the tool schema,
+  # naming the rejected value. And, in the same scenario, that it is not a
+  # blanket refusal: a documented kind still goes through.
   Scenario: A sender cannot claim a coordinator-reserved message kind
     When the agent calls tool "agent_run" with:
-      | agent  | fixer |
-      | prompt | go    |
+      | role         | fixer |
+      | input.prompt | go    |
     Then the tool call succeeds
     And "fixer"'s spawned session is remembered
     When the agent sends "fixer"'s remembered session a message of kind "approval_request"
@@ -169,7 +173,7 @@ Feature: Coordinator delegates isolated work
     And the tool failure message contains "message | result | error | question"
     When the agent sends "fixer"'s remembered session a message of kind "made_up_kind"
     Then the tool call fails
-    And the tool failure message contains "is not a message kind"
+    And the tool failure message contains "made_up_kind"
     When the agent sends "fixer"'s remembered session a message of kind "result"
     Then the tool call succeeds
 
@@ -208,8 +212,8 @@ Feature: Coordinator delegates isolated work
   # die at the far end, which is the experience the check exists to replace.
   Scenario: A child runner's advertised capabilities are captured and journaled
     When the agent calls tool "agent_run" with:
-      | agent     | fixer |
-      | prompt    | go    |
-      | workspace | none  |
+      | role         | fixer |
+      | input.prompt | go    |
+      | input.workspace | none  |
     Then the tool call succeeds
     And the coordinator's audit trail records the child runner's advertised capabilities

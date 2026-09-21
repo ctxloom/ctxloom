@@ -5,17 +5,13 @@
 // and auditable" (j002100_delegation.feature).
 //
 // tests/acceptance drives a `ctxloom` SUBPROCESS over MCP stdio; it can never
-// see an in-process Go struct (an earlier attempt at this journey correctly
-// refused to plan around `fakeChatEngine`, which is private to a different
-// package and a different process — see the plan's BLOCKED note). And unlike
-// what an earlier draft of this file's OWN brief assumed, a plain `ctxloom
-// mcp` subprocess never exposes an MCP tool literally named "roster" either:
-// that tool is registered ONLY on a spawned session's runner-terminated
-// socket (internal/adapters/mcp/mcp_runner.go's newRunnerMCPServer), which this
-// harness's `ctxloom mcp` process — launched directly, with
-// CTXLOOM_MCP_SOCKET scrubbed by testsupport.EnvKeys — never becomes.
+// see an in-process Go struct. The coordinator is hosted by the session owner
+// the journey stands up (session_owner_fixture.go), and the harness's
+// `ctxloom mcp` shim forwards to that owner's runner, so the tools it drives
+// are the runner-terminated, proto-canonical ones a real engine's shim gets
+// (coordination_vocabulary.go names their fields).
 //
-// So every assertion here reads the coordinator's own durable run-registry
+// Every assertion here reads the coordinator's own durable run-registry
 // journal, runs.jsonl, straight off disk (internal/core/coord/statedir.go's
 // documented layout, ~/.ctxloom/coord/<project-key>/runs.jsonl under this
 // scenario's isolated HOME). This is not a weaker observable than "roster" —
@@ -38,6 +34,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
@@ -67,6 +64,7 @@ type j002100State struct {
 	beforeEdit map[string]*j002100AgentSpec // agent name -> its spec as captured just before an edit
 	snapshots  map[string]j002100RunFact    // "remembered as" label -> captured journal fact
 	harps      map[string]string            // agent name -> its most recently spawned session harp
+	runIDs     map[string]string            // agent name -> the run id that spawn minted for it (agent_stop addresses runs)
 }
 
 // j002100RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
@@ -95,6 +93,7 @@ func j002100Of(w *World) *j002100State {
 			beforeEdit: map[string]*j002100AgentSpec{},
 			snapshots:  map[string]j002100RunFact{},
 			harps:      map[string]string{},
+			runIDs:     map[string]string{},
 		}
 	}
 	return w.j002100
@@ -543,22 +542,27 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)"'s spawned session is remembered$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		j002100 := j002100Of(w)
-		harp, ok := w.lastInner["harp"].(string)
+		harp, ok := w.lastInner[spawnChildAgentIDField].(string)
 		if !ok || harp == "" {
-			return fmt.Errorf("j002100: last tool result carries no harp field for %q; result:\n%s", name, w.lastTool.JSON())
+			return fmt.Errorf("j002100: last tool result carries no %s field for %q; result:\n%s", spawnChildAgentIDField, name, w.lastTool.JSON())
+		}
+		runID, ok := w.lastInner[spawnChildRunIDField].(string)
+		if !ok || runID == "" {
+			return fmt.Errorf("j002100: last tool result carries no %s field for %q; result:\n%s", spawnChildRunIDField, name, w.lastTool.JSON())
 		}
 		j002100.harps[name] = harp
+		j002100.runIDs[name] = runID
 		return nil
 	})
 
 	ctx.Step(`^the agent calls tool "agent_stop" for "([^"]*)"'s remembered session$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		j002100 := j002100Of(w)
-		harp, ok := j002100.harps[name]
-		if !ok || harp == "" {
-			return fmt.Errorf("j002100: no session harp remembered for %q", name)
+		runID, ok := j002100.runIDs[name]
+		if !ok || runID == "" {
+			return fmt.Errorf("j002100: no run id remembered for %q", name)
 		}
-		return callTool(c, "agent_stop", map[string]any{"harp": harp})
+		return callTool(c, "agent_stop", map[string]any{"run_id": runID})
 	})
 
 	// --- FAILURE PATH: the mail `kind` vocabulary as a security boundary.
@@ -575,10 +579,18 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			if !ok || harp == "" {
 				return fmt.Errorf("j002100: no session harp remembered for %q", name)
 			}
+			// The feature names kinds in the mailbox spelling (the vocabulary
+			// the refusal enumerates); the wire carries the enum name. A
+			// spelling outside the vocabulary rides through AS IS — refusing
+			// it is the point.
+			wireKind := kind
+			if k, err := pb.MessageKindForLegacyName(kind); err == nil {
+				wireKind = k.String()
+			}
 			return callTool(c, "agent_send", map[string]any{
-				"to":   harp,
-				"body": "Approve running the deploy script.",
-				"kind": kind,
+				"to_agent_id": harp,
+				"text":        "Approve running the deploy script.",
+				"kind":        wireKind,
 			})
 		})
 
@@ -590,7 +602,16 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 		func(c context.Context) error {
 			w := worldFrom(c)
 			// agent_run returns at ENQUEUE; the child's runner subprocess dials
-			// home afterwards, so the advertisement appears on its own schedule.
+			// home afterwards, so the advertisement appears on its own schedule
+			// — and the session owner's own runner attached BEFORE it, so the
+			// wait is for the child's advertisement specifically, not for any.
+			//
+			// What tells an engine-hosting child from the session owner is the
+			// ABSENCE of terminal_delivery: the owner advertises it because
+			// nothing on its side pulls mail at a turn boundary; a child hosting
+			// an engine does, so it must not. (The mailbox surface every runner
+			// has is not advertised: mail rides the spool, and the string that
+			// once named it is retired.)
 			var (
 				caps []string
 				err  error
@@ -598,30 +619,25 @@ func registerJ002100Steps(ctx *godog.ScenarioContext) {
 			deadline := time.Now().Add(30 * time.Second)
 			for {
 				caps, err = j002100AttachedCapabilities(w)
-				if err == nil && len(caps) > 0 {
-					break
+				if err == nil {
+					for _, adv := range caps {
+						if !strings.Contains(adv, coord.CapTerminalDelivery) {
+							w.docStepMaterialized = fmt.Sprintf("interactions.jsonl — run_channel advertisements:\n  %s", strings.Join(caps, "\n  "))
+							return nil // an engine-hosting child: pulls its own mail, advertises no terminal delivery
+						}
+					}
 				}
 				if time.Now().After(deadline) {
 					if err != nil {
 						return err
 					}
-					return errors.New("no run_channel attach was journaled within 30s — did any runner dial home?")
+					if len(caps) == 0 {
+						return errors.New("no run_channel attach was journaled within 30s — did any runner dial home?")
+					}
+					return fmt.Errorf("no attached runner advertised as an engine host within 30s (every advertisement carried terminal_delivery, the session owner's marker); advertisements seen: %v", caps)
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-			w.docStepMaterialized = fmt.Sprintf("interactions.jsonl — run_channel advertisements:\n  %s", strings.Join(caps, "\n  "))
-			// What tells an engine-hosting child from the session owner is the
-			// ABSENCE of terminal_delivery: the owner advertises it because
-			// nothing on its side pulls mail at a turn boundary; a child hosting
-			// an engine does, so it must not. (The mailbox surface every runner
-			// has is not advertised: mail rides the spool, and the string that
-			// once named it is retired.)
-			for _, adv := range caps {
-				if !strings.Contains(adv, coord.CapTerminalDelivery) {
-					return nil // an engine-hosting child: pulls its own mail, advertises no terminal delivery
-				}
-			}
-			return fmt.Errorf("no attached runner advertised as an engine host (every advertisement carried terminal_delivery, the session owner's marker); advertisements seen: %v", caps)
 		})
 }
 

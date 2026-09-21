@@ -34,11 +34,26 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err := src.Identity.Validate(); err != nil {
 		return Launch{}, fmt.Errorf("%w: %v", ErrNoIdentity, err)
 	}
+	if src.Identity.IsChild() && src.Orchestrator == "" {
+		return Launch{}, ErrNoOrchestrator
+	}
+	if !src.Identity.IsChild() {
+		// The root is its own orchestrator: it seeds whole from the host and
+		// is the one refresher. Nothing above it to project from.
+		src.Orchestrator = ""
+	}
 	cfg := deps.Snapshot.Config
 
 	sel, err := selectSource(cfg, src)
 	if err != nil {
 		return Launch{}, err
+	}
+	if sel.homeMode == "" {
+		// A launch with no binding (a profile set, an internal one-shot, a
+		// degraded bare launch) has no engine_home to read: it gets the
+		// default, the session home. The real home is only ever a
+		// binding's explicit selection.
+		sel.homeMode = HomeModeSession
 	}
 	// A selection with no profiles is context-free BY DECLARATION (an
 	// internal one-shot, a binding that composes nothing): nothing is
@@ -93,17 +108,18 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	env := sessions.HookEnv(src.Identity)
 	maps.Copy(env, passthrough)
 	cell, err := deps.Cells.Prepare(ctx, CellRequest{
-		Axes:        axes,
-		Engine:      eng,
-		Identity:    src.Identity,
-		ProjectRoot: src.WorkDir,
-		SessionDir:  filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
-		DirtyTree:   dirty,
-		Image:       ImageConfigFor(cfg, def.Name),
-		Host:        deps.Host,
-		Degraded:    src.Degraded,
-		HomeMode:    sel.homeMode,
-		Env:         env,
+		Axes:         axes,
+		Engine:       eng,
+		Identity:     src.Identity,
+		ProjectRoot:  src.WorkDir,
+		SessionDir:   filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
+		DirtyTree:    dirty,
+		Image:        ImageConfigFor(cfg, def.Name),
+		Host:         deps.Host,
+		Degraded:     src.Degraded,
+		HomeMode:     sel.homeMode,
+		Orchestrator: src.Orchestrator,
+		Env:          env,
 	})
 	if err != nil {
 		return Launch{}, err
@@ -215,7 +231,7 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 		if !degraded {
 			return selection{}, fmt.Errorf("agent %q: %w", name, err)
 		}
-		home = HomeModeHost
+		home = HomeModeSession
 	}
 	return selection{
 		agent:       name,
@@ -230,13 +246,14 @@ func bindingSelection(cfg *config.Config, name string, degraded bool) (selection
 }
 
 // parseHomeMode is the one conversion of the binding's `engine_home`
-// spelling; empty is the host default, an unknown spelling is refused.
+// spelling; empty is the session default, "host" is the unsafe selection
+// of the real home, an unknown spelling is refused.
 func parseHomeMode(s string) (HomeMode, error) {
 	switch HomeMode(strings.TrimSpace(s)) {
-	case "", HomeModeHost:
-		return HomeModeHost, nil
-	case HomeModeSession:
+	case "", HomeModeSession:
 		return HomeModeSession, nil
+	case HomeModeHost:
+		return HomeModeHost, nil
 	default:
 		return "", fmt.Errorf("unknown engine_home %q (known: %s|%s)", s, HomeModeHost, HomeModeSession)
 	}

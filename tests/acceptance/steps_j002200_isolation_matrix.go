@@ -217,15 +217,25 @@ func isoBinaryNames(engine string) ([]string, error) {
 	}
 }
 
-// isoAPIKeyEnvVar is the env var whose presence bypasses credential seeding
-// for engine — read off the engine's own declaration
-// (engine.CredentialSeed.EnvTrigger), not re-typed here.
-func isoAPIKeyEnvVar(engine string) (string, error) {
+// isoAPIKeyEnvVars are the env vars whose presence bypasses credential
+// seeding for engine — read off the engine's own declaration
+// (engine.CredentialSeed.EnvTriggers), not re-typed here.
+func isoAPIKeyEnvVars(engine string) ([]string, error) {
 	seed, ok := backends.CredentialSeedFor(engine).Get()
-	if !ok || seed.EnvTrigger == "" {
-		return "", fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
+	if !ok || len(seed.EnvTriggers) == 0 {
+		return nil, fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
 	}
-	return seed.EnvTrigger, nil
+	return seed.EnvTriggers, nil
+}
+
+// isoAPIKeyEnvVar is the API key among them: the LAST the engine declares
+// (claude names its env access token first, its API key second).
+func isoAPIKeyEnvVar(engine string) (string, error) {
+	vars, err := isoAPIKeyEnvVars(engine)
+	if err != nil {
+		return "", err
+	}
+	return vars[len(vars)-1], nil
 }
 
 // isoCredHostPath is engine's REQUIRED host credential file's path, relative
@@ -718,7 +728,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice has no "([^"]*)" credentials or API key on the host$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		key, err := isoAPIKeyEnvVar(engine)
+		keys, err := isoAPIKeyEnvVars(engine)
 		if err != nil {
 			return err
 		}
@@ -726,7 +736,9 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		// binary inherits the developer's own shell env (isolatedEnv only
 		// replaces HOME/XDG_*), so a locally-exported ANTHROPIC_API_KEY (etc.)
 		// would otherwise silently flip this scenario's premise.
-		w.env.SetEnv(key, "")
+		for _, key := range keys {
+			w.env.SetEnv(key, "")
+		}
 		return nil
 	})
 
@@ -830,6 +842,23 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// prints a DIR line for its own config home from inside the running
 	// process, which is when the directory's existence actually matters. The
 	// sibling "is gone after the run" step pins the reaping half.
+	// The engine's WORKING DIRECTORY under workspace "none" is the live
+	// project dir whatever its config home is: relocating the home moves
+	// where claude keeps its state, never where it works.
+	ctx.Step(`^the spy "([^"]*)" process ran in the live project dir$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		if pwd := isoParseSpyEnv(body)["PWD"]; pwd != w.env.ProjectDir {
+			return fmt.Errorf("engine %q ran in %q, want the live project dir %q; spy dump:\n%s", engine, pwd, w.env.ProjectDir, body)
+		}
+		w.docStepMaterialized = fmt.Sprintf("engine %s ran in the live project dir %s", engine, w.env.ProjectDir)
+		return nil
+	})
+
 	ctx.Step(`^the spy "([^"]*)" process's "([^"]*)" env var points at this session's config-home instance$`, func(c context.Context, engine, varName string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
@@ -1235,17 +1264,17 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		got := isoParseSpySection(body, marker)
-		// The credential arrives WHOLE. Stripping the rotating refresh token
-		// was what a COPY needed to avoid invalidating the host's single-use
-		// login — and it made the instance unable to renew, so it worked until
-		// the access token expired and then that run was stuck. There is no
-		// copy now: material is delivered by a mechanism the engine DECLARED it
-		// accepts, and both mounted and replicated can refresh.
+		// A `ctxloom run` is the ROOT — the orchestrator, the single
+		// ctxloom-side refresher (ruled 2026-09-21) — so its copy is WHOLE,
+		// refresh token included, two-way with the host file through the
+		// replicator. Its agents' projections (refresh token withheld) are
+		// pinned in the isolation package; no scenario here spawns a claude
+		// child against a real engine.
 		if !strings.Contains(got, isoFixtureAccessMarker) {
 			return fmt.Errorf("isolated %s credential lost its access token; it must still authenticate. spy read:\n%s", engine, got)
 		}
 		if !strings.Contains(got, isoFixtureRefreshMarker) {
-			return fmt.Errorf("isolated %s credential is MISSING its refresh token; a delivered credential that cannot renew is stuck the moment its access token expires — that is the defect the copy path carried. spy read:\n%s", engine, got)
+			return fmt.Errorf("isolated %s credential is MISSING its refresh token; the root is the orchestrator and holds the whole credential. spy read:\n%s", engine, got)
 		}
 		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — whole, refresh token intact:\n%s", engine, marker, got)
 		return nil
@@ -1261,7 +1290,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	//   - none of Alice's own config crossed with it — asserted against the raw
 	//     bytes, because a key can be absent while its VALUE rode in under
 	//     another name.
-	ctx.Step(`^the instance's claude config carries the generated trust answer and none of Alice's own config$`, func(c context.Context) error {
+	ctx.Step(`^the instance's claude config carries the generated trust answer and the account identity, and none of Alice's own registrations or history$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		body, err := isoReadSpyOut(j)
@@ -1300,10 +1329,16 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if cfg.MCPServers != nil {
 			return fmt.Errorf("the agent's instance inherited Alice's own mcpServers registrations:\n%s", got)
 		}
-		for _, secret := range []string{isoFixturePersonalSecret, isoFixturePersonalEmail, isoFixturePersonalHistory} {
+		for _, secret := range []string{isoFixturePersonalSecret, isoFixturePersonalHistory} {
 			if strings.Contains(got, secret) {
 				return fmt.Errorf("the agent's instance config carries Alice's own %q:\n%s", secret, got)
 			}
+		}
+		// The account identity CROSSES (ruled 2026-09-21): claude's own
+		// session seeding copies oauthAccount beside the credential, and it
+		// is what claude shows and checks for a subscription token.
+		if !strings.Contains(got, isoFixturePersonalEmail) {
+			return fmt.Errorf("the agent's instance config does not carry the account identity (oauthAccount) claude reads with a subscription token:\n%s", got)
 		}
 		w.docStepMaterialized = "instance .claude.json, read from inside the spy process:\n" + got
 		return nil

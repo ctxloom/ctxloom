@@ -333,8 +333,9 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	}
 	//
 	// EngineHome is the engine's PRIVATE config home for this run, read from
-	// the var the engine declared (SetEngineHomeVar). A run with none — no
-	// binding, or one that keeps the real host home — advises no EngineHome,
+	// the var the engine declared (SetEngineHomeVar). A run with none — a
+	// binding that selected the real host home, an engine with no
+	// relocatable home — advises no EngineHome,
 	// and an approach that writes beneath it refuses (ErrUnrootedEngineHome)
 	// rather than landing in the user's own home.
 	var engineHome string

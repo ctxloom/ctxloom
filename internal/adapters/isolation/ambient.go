@@ -2,10 +2,12 @@ package isolation
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/gofrs/flock"
 
@@ -17,13 +19,13 @@ import (
 // AmbientFile is one file whose ORIGIN is the user's real host home and which
 // is PLACED INTO an instance config home at instance time.
 //
-// It is no longer one-way for CREDENTIAL material, and the change is
-// deliberate: a one-way copy could not renew, so its refresh token had to be
-// stripped and the instance expired. The provisioner delivers the host's own
-// material instead, so a refresh the engine performs inside the instance is a
-// refresh the host has too. ctxloom itself still never writes the real home;
-// what reaches it is the ENGINE's own refresh, through a mount or a
-// replication, exactly as on a run with no instance home at all.
+// CREDENTIAL material is placed by the provisioner and kept in step with
+// its source for as long as the run lives. The ORCHESTRATOR's instance is
+// sourced from the host file, whole and two-way (the engine's refresh is
+// the one write that reaches the real home, and it is the engine's). An
+// AGENT's instance holds the engine's declared projection of the
+// orchestrator's copy (claude withholds the single-use refresh token, as
+// its own session seeding does), re-applied on every change, one way.
 //
 // The set of these per engine is an ALLOW-LIST, never a deny-list — see
 // AmbientSet.
@@ -102,6 +104,13 @@ type AmbientRequest struct {
 	// be keyed to the directory the run actually uses. Empty is tolerated (the
 	// engine skips its per-project half and says so).
 	WorkDir string
+	// Orchestrator is the harp of the ROOT session this instance is an
+	// agent of: its credential is projected from the orchestrator's session
+	// home (read-only, refresh token withheld) and kept in step with it.
+	// Empty means THIS instance is the orchestrator's own: it is seeded
+	// WHOLE from the host credential and kept two-way with it — the one
+	// ctxloom-side refresher.
+	Orchestrator string
 }
 
 // AmbientCopyReport is what one CopyAmbient call did.
@@ -113,12 +122,12 @@ type AmbientCopyReport struct {
 	// MissingOptional counts allow-listed, non-Required files absent from the
 	// host.
 	MissingOptional int
-	// SkippedEnv reports that the engine's EnvTrigger already carries usable
-	// auth, so there was nothing to copy. Not an error; the caller still
+	// SkippedEnv reports that one of the engine's EnvTriggers already carries
+	// usable auth, so there was nothing to copy. Not an error; the caller still
 	// points the engine at the instance.
 	SkippedEnv bool
 	// NoSource reports the FAIL-LOUD case: this engine relocates credentials
-	// with its home var, no EnvTrigger is set, and the required host
+	// with its home var, none of its EnvTriggers is set, and the required host
 	// credential is absent — an engine launched at this instance would start
 	// logged out. It is returned as a DECISION rather than a Go error so the
 	// caller can refuse the relocation in its own words (a fail-loud finding
@@ -131,7 +140,7 @@ type AmbientCopyReport struct {
 	// Delivery is HOW the credential material was placed — shared by IDENTITY
 	// (a mount) or by REPLICATION (two files kept in step). It is reported
 	// because the two FAIL DIFFERENTLY: replication has a rotation window a
-	// mount does not, and whoever debugs a rejected refresh a year from now
+	// mount does not, and whoever debugs a rejected token a year from now
 	// needs to know which one this run got. DeliveryUnset when nothing was
 	// placed (SkippedEnv, NoSource, or a declared-absent seed).
 	Delivery Delivery
@@ -159,9 +168,9 @@ type AmbientCopyReport struct {
 //
 // It is the RUN's to call, at the run's end, and nothing else's: the
 // replication is what carries a host token refresh into the instance (the
-// old token is revoked the moment the host rotates it) and the engine's own
-// refresh back out to the host. Closed early, a live engine is left on a
-// dead token; never closed, every launch leaks a watcher pair into the
+// old token is revoked the moment the host rotates it, and the instance
+// holds no refresh token of its own). Closed early, a live engine is left on
+// a dead token; never closed, every launch leaks a watcher pair into the
 // process that prepared it. The seam that prepares a controlled home hands
 // this back as the preparation's release (backends.InTreeAgentHomeSpec
 // .Prepare), and the cell folds it into its Cleanup.
@@ -184,14 +193,12 @@ func (r AmbientCopyReport) Close() error { return r.provisioned.Close() }
 //     vendor's format happens inside that vendor's package; this function only
 //     decides WHICH files and classes cross.
 //
-// ONE WAY, as a preparation. The real host home is READ and never written
-// by this call; tests/arch's real-home byte-identity gate is what proves it,
-// because a path assertion can only say where ctxloom MEANT to write. What
-// the call leaves RUNNING is a different matter: the credential replication
-// it returns on the report keeps host and instance on one rotating token in
-// BOTH directions, so an engine's refresh inside the instance does land on
-// the host — on the engine's behalf, byte for byte, to the one file the
-// engine would have written itself had it run on the host home.
+// ONE WAY. The real host home is READ and never written by this call;
+// tests/arch's real-home byte-identity gate is what proves it, because a
+// path assertion can only say where ctxloom MEANT to write. What the call
+// leaves RUNNING keeps that direction: the credential replication it returns
+// on the report carries the host's rotations into the instance, projected,
+// and an instance write is overwritten rather than propagated.
 //
 // The whole operation is serialized under the project lock keyed to
 // req.InstanceHome, so two runs sharing ONE session instance (a coordinator and
@@ -222,7 +229,7 @@ func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSe
 	var rep AmbientCopyReport
 
 	if seed, ok := declared.Get(); ok {
-		result, provisioned, err := hostCredentialSeed(name, seed, req.InstanceHome)
+		result, provisioned, err := hostCredentialSeed(name, seed, req.InstanceHome, req.Orchestrator)
 		if err != nil {
 			return rep, err
 		}
@@ -233,13 +240,13 @@ func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSe
 			rep.SkippedEnv = true
 		case seedNoSource:
 			rep.NoSource = true
-			rep.NoSourceReason = noAmbientSourceReason(seed)
+			rep.NoSourceReason = noAmbientSourceReason(seed, req.Orchestrator)
 			// Nothing to authenticate with: do NOT generate a config for an
 			// instance the caller is about to refuse. Reporting the decision is
 			// this call's whole remaining job.
 			return rep, nil
 		case seedOK:
-			rep.Copied, rep.MissingOptional = ambientCopyCounts(seed)
+			rep.Copied, rep.MissingOptional = ambientCopyCounts(seed, req.Orchestrator)
 		}
 	}
 
@@ -267,16 +274,17 @@ func copyAmbientLocked(name string, declared engine.Declared[engine.CredentialSe
 	return rep, nil
 }
 
-// ambientCopyCounts reports how many of seed's ambient files were present on
-// the host and how many OPTIONAL ones were absent, after a successful seed.
-// Recomputed from the same declaration the seed used rather than threaded
-// back out of it, so the counting cannot claim a copy the seed did not make.
-func ambientCopyCounts(seed engine.CredentialSeed) (copied, missingOptional int) {
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
+// ambientCopyCounts reports how many of seed's ambient files were present at
+// the source and how many OPTIONAL ones were absent, after a successful
+// seed. Recomputed from the same declaration the seed used rather than
+// threaded back out of it, so the counting cannot claim a copy the seed did
+// not make.
+func ambientCopyCounts(seed engine.CredentialSeed, orchestrator string) (copied, missingOptional int) {
+	files, ok, err := seedSources("", seed, orchestrator)
+	if err != nil || !ok {
 		return 0, 0
 	}
-	for _, f := range resolveSeedFiles(seed, home) {
+	for _, f := range files {
 		switch {
 		case fileExists(f.host):
 			copied++
@@ -288,16 +296,35 @@ func ambientCopyCounts(seed engine.CredentialSeed) (copied, missingOptional int)
 }
 
 // noAmbientSourceReason builds the fail-loud message for "nothing seedable":
-// no API-key env var and no host credential file. It names ONLY fixes that
-// work — authenticating the engine, or setting its key — and deliberately not
-// "(or pass --degraded)": on the in-tree path that flag is consulted by the
-// CALLER's strictness finding, never by the code that surfaces this string, and
-// an error naming an escape hatch that does not exist sends the user round a
+// none of the engine's env bypasses set and no host credential file. It
+// names the remedies that work — authenticating the engine, setting one of
+// its env tokens, or selecting the real home on the binding (`engine_home:
+// host`, the unsafe selection) — and deliberately not "(or pass
+// --degraded)": on the in-tree path that flag is consulted by the CALLER's
+// strictness finding, never by the code that surfaces this string, and an
+// error naming an escape hatch that does not exist sends the user round a
 // loop that cannot terminate.
-func noAmbientSourceReason(seed engine.CredentialSeed) string {
-	return fmt.Sprintf(
-		"no %s and no host ~/%s credentials found to authenticate this run — run `%s` or set %s",
-		seed.EnvTrigger, primaryAmbientHostRel(seed), seed.LoginHint, seed.EnvTrigger)
+func noAmbientSourceReason(seed engine.CredentialSeed, orchestrator string) string {
+	if orchestrator != "" {
+		// An agent's only source is its orchestrator's session home; the
+		// host file is never consulted for it, so no login remedy applies.
+		return fmt.Sprintf("the orchestrator session %s holds no %s credential to project into this agent; the orchestrator's own session home must be seeded first",
+			orchestrator, seed.Subdir)
+	}
+	var b strings.Builder
+	for _, v := range seed.EnvTriggers {
+		fmt.Fprintf(&b, "no %s, ", v)
+	}
+	if seed.Keychain != nil && keychainPlatform() {
+		fmt.Fprintf(&b, "no default Keychain item %q found to authenticate this run — run `%s`", seed.Keychain.Service, seed.LoginHint)
+	} else {
+		fmt.Fprintf(&b, "no host ~/%s credentials found to authenticate this run — run `%s`", primaryAmbientHostRel(seed), seed.LoginHint)
+	}
+	if len(seed.EnvTriggers) > 0 {
+		fmt.Fprintf(&b, ", set %s", strings.Join(seed.EnvTriggers, " or "))
+	}
+	b.WriteString(", or select the real home on the binding with `engine_home: host` (unsafe: the run then shares your own engine home)")
+	return b.String()
 }
 
 // primaryAmbientHostRel is the slash-separated, home-relative path of seed's

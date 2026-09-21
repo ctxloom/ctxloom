@@ -377,39 +377,41 @@ func ContainerInstanceHome(ws Workspace) string {
 // a workspace has no ContainerInstanceHome and the resolver never yields a
 // mount for it, so reaching here with one means the two disagree.
 //
-// TWO mounts, not one, when the run authenticates by credential mount. The
-// directory mount hands the engine its relocated home — and the copy seeded
-// into it, which is ACCESS-TOKEN-ONLY by design (a copy that could refresh
-// would rotate the host's single-use token). Once its home var relocates, the
-// engine no longer reads the real credential bind-mounted into the
-// container's own $HOME, so on that copy alone a long run dies at expiry.
-// RULED: the engine's real host credential FILE is bind-mounted read-write
-// OVER the seeded copy, at the engine-side home, so the container's refresh
-// lands in the one real file exactly as it does for an unrelocated home. The
-// file only — the confidentiality line the seed draws (never ~/.claude.json)
-// is drawn here too, by the engine's relocatedCredentialMounts. Auth that
-// rides the environment needs no file and gets none; an engine with no
-// relocatable credential has nothing to overlay.
+// THE SESSION HOME IS THE ONLY CREDENTIAL SOURCE for a relocated container
+// run (ruled 2026-09-21): the directory mount hands the engine its home
+// read-write, and the real host credential file is NEVER a mount source
+// once the home relocates — the auth resolver's real-file mounts are
+// dropped here. What the home holds depends on who the run is: the
+// ORCHESTRATOR's home holds the whole credential (two-way with the host
+// through the replicator), so its engine refreshes in place and the
+// directory mount alone is right; an AGENT's home holds a read-only
+// projection, and the seeded file is bind-mounted READ-ONLY over itself
+// (projected) so the agent's engine can neither write it back nor refresh.
+// Auth that rides the environment needs no file and gets none; an engine
+// with no relocatable credential has nothing to overlay.
 //
-// The real file vanishing between auth resolution and this call must not turn
-// a working run into a broken one: the home still mounts, the run
-// authenticates from the seeded copy, and the lost refresh is said out loud
-// instead of discovered at expiry.
-func MountEngineHome(ws Workspace, m present.Mount) error {
+// An agent whose home holds no seeded copy must not turn a launch into a
+// logged-out engine silently: the home still mounts, and the gap is said
+// out loud.
+func MountEngineHome(ws Workspace, m present.Mount, projected bool) error {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return fmt.Errorf("engine home mount %s -> %s: workspace %T executes on the host and cannot mount", m.HostDir, m.TargetDir, ws)
 	}
 	cw.extraMounts = append(cw.extraMounts, cw.runtime.Expose(m.HostDir, m.TargetDir, false))
-	if cw.authMode != authCredentialMount || cw.engineSpec.relocatedCredentialMounts == nil {
+	if cw.authMode != authCredentialMount {
 		return nil
 	}
-	creds, ok := cw.engineSpec.relocatedCredentialMounts(m.TargetDir)
-	if !ok {
-		clidiag.Warn("ctxloom", "container engine home %s: the host credential file (.credentials.json) resolved at launch is no longer there to mount over the seeded copy; this run authenticates from the copy and cannot refresh its token in place", m.TargetDir)
+	// The relocated home is the credential's only source from here on.
+	cw.authMounts = nil
+	if !projected || cw.engineSpec.projectedCredentialMounts == nil {
 		return nil
 	}
-	cw.extraMounts = append(cw.extraMounts, creds...)
+	mounts, missing := cw.engineSpec.projectedCredentialMounts(m.HostDir, m.TargetDir)
+	for _, name := range missing {
+		clidiag.Warn("ctxloom", "container engine home %s: no seeded %s to pin read-only; this agent authenticates from nothing", m.TargetDir, name)
+	}
+	cw.extraMounts = append(cw.extraMounts, mounts...)
 	return nil
 }
 

@@ -20,12 +20,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/watch"
 )
 
-// Replication: shared BY REPLICATION, for platforms that cannot mount.
+// Replication: shared BY REPLICATION, for material that cannot be mounted.
 //
 // Two files kept in step by a directory watcher and a write-back, under a
-// cross-process lock. It is strictly worse than a mount — see the rotation
-// window in provisioner.go — and strictly better than a copy, which cannot
-// renew at all. macOS has no mount option, so this is the answer there.
+// cross-process lock. It has the rotation window provisioner.go describes,
+// and it is the ONE delivery that can serve a projected material: the
+// instance holds Material.Project of the host's bytes, re-applied on every
+// host change, and never writes back (a projected material is read-only by
+// construction — validateMaterial).
 //
 // THREE CHOICES HERE ARE LOAD-BEARING AND EACH ONE IS AN INODE-VERSUS-NAME
 // TRAP:
@@ -113,6 +115,7 @@ func (p *replicationProvisioner) Provision(instanceHome string, materials []Mate
 			host:     m.Host,
 			instance: filepath.Join(instanceHome, filepath.FromSlash(m.DestRel)),
 			readOnly: m.ReadOnly,
+			project:  m.Project,
 		}
 		if err := r.start(ctx, pair); err != nil {
 			cancel()
@@ -129,15 +132,32 @@ func (p *replicationProvisioner) Provision(instanceHome string, materials []Mate
 
 // replicaPair is one host file and its instance-side twin, plus the last
 // content each side was seen holding — which is how a write this replicator
-// itself made is told apart from one the engine made.
+// itself made is told apart from one the engine made. lastHost hashes the
+// host's RAW bytes and lastInst the instance's (projected) bytes: under a
+// projection the two legitimately differ, so each side is compared only
+// with what it was last seen holding.
 type replicaPair struct {
 	host     string
 	instance string
 	readOnly bool
+	project  func(host []byte) ([]byte, error)
 
 	mu       sync.Mutex
 	lastHost [sha256.Size]byte
 	lastInst [sha256.Size]byte
+}
+
+// view is what the instance holds for host bytes: the projection when one
+// is declared, the bytes themselves otherwise.
+func (p *replicaPair) view(host []byte) ([]byte, error) {
+	if p.project == nil {
+		return host, nil
+	}
+	out, err := p.project(host)
+	if err != nil {
+		return nil, fmt.Errorf("replication: project %s for the instance: %w", p.host, err)
+	}
+	return out, nil
 }
 
 // replicator owns every watcher started for one Provision call.
@@ -154,10 +174,9 @@ type replicator struct {
 // start places the pair's initial content and begins watching both sides.
 //
 // The initial placement is BOOTSTRAP, not a copy mode: it is how the instance
-// gets a file at all, after which the two are kept in step. Nothing is
-// projected out of it — there is no refresh token to strip, because the whole
-// point is that this instance may rotate the host's token and have the
-// rotation land.
+// gets a file at all, after which the two are kept in step — the instance
+// holding the host's view (projected when the material declares it) after
+// every host change.
 func (r *replicator) start(ctx context.Context, pair *replicaPair) error {
 	if err := os.MkdirAll(filepath.Dir(pair.instance), 0o700); err != nil {
 		return fmt.Errorf("replication provisioning: prepare %s: %w", filepath.Dir(pair.instance), err)
@@ -236,13 +255,17 @@ func (p *replicaPair) bootstrap() error {
 		if err != nil {
 			return fmt.Errorf("replication provisioning: read %s: %w", p.host, err)
 		}
-		if !p.instanceHolds(data) {
-			if err := p.write(p.instance, data); err != nil {
+		want, err := p.view(data)
+		if err != nil {
+			return err
+		}
+		if !p.instanceHolds(want) {
+			if err := p.write(p.instance, want); err != nil {
 				return err
 			}
 		}
 		p.lastHost = sha256.Sum256(data)
-		p.lastInst = p.lastHost
+		p.lastInst = sha256.Sum256(want)
 		return nil
 	})
 }
@@ -269,11 +292,18 @@ func (p *replicaPair) reconcile() error {
 		if hostErr != nil && instErr != nil {
 			return fmt.Errorf("neither side of %s is readable (%v; %v)", p.host, hostErr, instErr)
 		}
-		if hostErr == nil && instErr == nil && bytes.Equal(hostData, instData) {
+		var want []byte
+		if hostErr == nil {
+			var err error
+			if want, err = p.view(hostData); err != nil {
+				return err
+			}
+		}
+		if hostErr == nil && instErr == nil && bytes.Equal(want, instData) {
 			// Identical: nothing to do, and recording the hashes here is what
 			// stops a write this replicator just made from bouncing back.
 			p.lastHost = sha256.Sum256(hostData)
-			p.lastInst = p.lastHost
+			p.lastInst = sha256.Sum256(instData)
 			return nil
 		}
 		hostHash := hashOrZero(hostData, hostErr)
@@ -293,17 +323,17 @@ func (p *replicaPair) reconcile() error {
 			clidiag.Warn("ctxloom",
 				"credential replication: %s and its instance copy both changed since the last sync; keeping the host's version and discarding the instance's. "+
 					"This is the rotation window inherent to replicated sharing: a mounted delivery has no such window.", p.host)
-			return p.propagate(p.instance, hostData)
+			return p.toInstance(hostData, want)
 		case instChanged:
 			if p.readOnly {
 				// Read-only material: the instance is not permitted to write
 				// back, so the host's version is restored over it rather than
 				// propagated from it.
-				return p.propagate(p.instance, hostData)
+				return p.toInstance(hostData, want)
 			}
-			return p.propagate(p.host, instData)
+			return p.toHost(instData)
 		case hostChanged:
-			return p.propagate(p.instance, hostData)
+			return p.toInstance(hostData, want)
 		default:
 			// The two differ but neither matches a change we can attribute —
 			// a first reconcile after a restart, say. The host is the source
@@ -311,20 +341,33 @@ func (p *replicaPair) reconcile() error {
 			if hostErr != nil {
 				return fmt.Errorf("host material %s is unreadable: %w", p.host, hostErr)
 			}
-			return p.propagate(p.instance, hostData)
+			return p.toInstance(hostData, want)
 		}
 	})
 }
 
-// propagate writes data to dst and records BOTH sides as now holding it, so
-// the write it just made is not read back as a change on the next event. That
-// recording is the whole of the loop suppression: without it each sync would
-// fire the other side's watcher, which would sync back, forever.
-func (p *replicaPair) propagate(dst string, data []byte) error {
-	if err := p.write(dst, data); err != nil {
+// toInstance writes the host's view into the instance and records both
+// sides as now holding what they hold — the host its raw bytes, the
+// instance the view — so the write it just made is not read back as a change
+// on the next event. That recording is the whole of the loop suppression:
+// without it each sync would fire the other side's watcher, which would
+// sync back, forever.
+func (p *replicaPair) toInstance(host, want []byte) error {
+	if err := p.write(p.instance, want); err != nil {
 		return err
 	}
-	sum := sha256.Sum256(data)
+	p.lastHost, p.lastInst = sha256.Sum256(host), sha256.Sum256(want)
+	return nil
+}
+
+// toHost writes the instance's bytes over the host, for an unprojected,
+// writable material only (a projected one is read-only by construction and
+// never reaches here). Both sides then hold the same bytes.
+func (p *replicaPair) toHost(inst []byte) error {
+	if err := p.write(p.host, inst); err != nil {
+		return err
+	}
+	sum := sha256.Sum256(inst)
 	p.lastHost, p.lastInst = sum, sum
 	return nil
 }

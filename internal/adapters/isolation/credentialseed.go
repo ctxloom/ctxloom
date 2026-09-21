@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -21,15 +22,20 @@ import (
 // logged out — silent unless something places material in the instance. That
 // "something" is this file, reached through CopyAmbient.
 //
-// IT IS NOT A COPY, AND THAT IS THE WHOLE POINT. A copied credential had its
-// single-use refresh token stripped out on the way across, so it worked until
-// the access token expired and then that instance was stuck with no way back —
-// not a weaker sharing mode, a different product with a fuse on it. The
-// placement now goes through the material provisioner (Select, provisioner.go),
-// which delivers the host credential by a mechanism that keeps host and
-// instance on ONE rotating token: a mount shares it by IDENTITY, replication
-// shares it by keeping the two in step. Either way a refresh the engine
-// performs inside the instance is a refresh the host has too.
+// WHO HOLDS WHAT (ruled 2026-09-21). The placement goes through the material
+// provisioner (Select, provisioner.go), and its shape is decided by whether
+// this instance is the ORCHESTRATOR — the root session, no orchestrator
+// named — or an AGENT of one:
+//
+//   - the orchestrator's instance holds the HOST credential whole and
+//     two-way: the engine's own refresh reaches the host file, the host's
+//     reaches the instance — exactly two holders of the refresh token;
+//   - an agent's instance holds the engine's declared PROJECTION of the
+//     ORCHESTRATOR's copy (claude withholds the single-use refresh token —
+//     a copy that could refresh would revoke the host's login the first time
+//     it did), read-only, re-projected on every change of the orchestrator's
+//     copy; the host file is never an agent's source, and an agent never
+//     writes back.
 //
 // WHICH mechanism is not decided here either. The engine DECLARES the
 // deliveries it accepts, best first (hosting.Hosting.Provisioning), Select
@@ -50,15 +56,22 @@ func CredentialSeedEngineNames() []string {
 	return factNames()
 }
 
-// seedFile is one host file a seed copies, resolved against the host HOME.
+// seedFile is one file a seed places, resolved against its source: the
+// host HOME for the orchestrator, the orchestrator's session home for an
+// agent.
 type seedFile struct {
-	host     string // absolute host source path
+	host     string // absolute source path
 	destName string // filename under the destination directory
 	required bool
+	// projected says the instance holds the engine's projection of the
+	// source, read-only: true for an agent, false for the orchestrator,
+	// whose copy is whole and two-way.
+	projected bool
+	project   func(host []byte) ([]byte, error) // the engine's projection, applied when projected
 }
 
-// resolveSeedFiles resolves seed's declared files against hostHome, in copy
-// order.
+// resolveSeedFiles resolves seed's declared files against the host HOME, in
+// copy order — the ORCHESTRATOR's shape: whole, two-way, no projection.
 func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 	out := make([]seedFile, 0, len(seed.Files))
 	for _, f := range seed.Files {
@@ -71,6 +84,49 @@ func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 	return out
 }
 
+// orchestratorSeedFiles resolves seed's declared files against the
+// ORCHESTRATOR's session home — where the orchestrator's own seed placed
+// them, under the engine's leaf at the declared destination names — in
+// copy order, each projected and read-only: the AGENT's shape.
+func orchestratorSeedFiles(seed engine.CredentialSeed, orchestrator string) ([]seedFile, error) {
+	home, err := paths.HarpSessionHome(orchestrator)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]seedFile, 0, len(seed.Files))
+	for _, f := range seed.Files {
+		out = append(out, seedFile{
+			host:      filepath.Join(home, seed.Subdir, f.DestName),
+			destName:  f.DestName,
+			required:  f.Required,
+			projected: true,
+			project:   f.Project,
+		})
+	}
+	return out, nil
+}
+
+// seedSources resolves the files this instance seeds from and whether there
+// is anything seedable: the host HOME for the orchestrator (hostSeedSources),
+// the orchestrator's session home for an agent. An agent never falls back to
+// the host file: its orchestrator is its only source.
+func seedSources(name string, seed engine.CredentialSeed, orchestrator string) ([]seedFile, bool, error) {
+	if orchestrator == "" {
+		files, ok := hostSeedSources(name, seed)
+		return files, ok, nil
+	}
+	files, err := orchestratorSeedFiles(seed, orchestrator)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s credential seed: resolve the orchestrator %s's session home: %w", name, orchestrator, err)
+	}
+	for _, f := range files {
+		if f.required && !fileExists(f.host) {
+			return nil, false, nil
+		}
+	}
+	return files, true, nil
+}
+
 // seedResult is hostCredentialSeed's decision, returned instead of a bare
 // bool so the caller (CopyAmbient) can tell "nothing to do" (seedSkippedEnv)
 // apart from "nothing WAS seedable" (seedNoSource) — only the latter is the
@@ -78,19 +134,19 @@ func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 type seedResult int
 
 const (
-	// seedSkippedEnv: the engine's EnvTrigger is set — auth rides the env,
-	// nothing to seed. Not an error.
+	// seedSkippedEnv: one of the engine's EnvTriggers is set — auth rides
+	// the env, nothing to seed. Not an error.
 	seedSkippedEnv seedResult = iota
 	// seedOK: at least the primary (required) credential file was copied.
 	seedOK
 	// seedNoSource: the engine DOES honour its isolation var for credentials,
-	// no EnvTrigger is set, and the primary host credential file is absent —
+	// none of its EnvTriggers is set, and the primary host credential file is absent —
 	// nothing seedable. The caller fails loud (ClassIsolation).
 	seedNoSource
 )
 
 // hostCredentialSeed places the host credential material seed declares for
-// engine into configHome/<seed.Subdir>, gated on seed.EnvTrigger exactly as
+// engine into configHome/<seed.Subdir>, gated on seed.EnvTriggers exactly as
 // the container resolver gates its mount.
 //
 // It does not copy. It reads the engine's DECLARED provisioning policy and
@@ -105,17 +161,37 @@ const (
 //
 // The returned Result carries whatever the provisioning left RUNNING (a
 // replicator's watchers). It is returned rather than closed here because the
-// replication has to outlive this call: it is what propagates the engine's
-// refreshes for as long as the engine runs.
-func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome string) (seedResult, Result, error) {
-	if seed.EnvTrigger != "" && os.Getenv(seed.EnvTrigger) != "" {
+// replication has to outlive this call: it is what carries the host's
+// refreshes into the instance for as long as the engine runs.
+func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome, orchestrator string) (seedResult, Result, error) {
+	if envTriggered(seed) {
 		return seedSkippedEnv, Result{}, nil
 	}
-	files, ok := hostSeedSources(name, seed)
+	destDir := filepath.Join(configHome, seed.Subdir)
+	if seed.Keychain != nil && keychainPlatform() {
+		// macOS: the store is the Keychain, and the session's item is keyed
+		// by the config dir the engine is told — so the dir is made first,
+		// and the seed is an item, never a file.
+		if err := prepareSeedDir(name, destDir); err != nil {
+			return seedNoSource, Result{}, err
+		}
+		orchestratorDir := ""
+		if orchestrator != "" {
+			home, err := paths.HarpSessionHome(orchestrator)
+			if err != nil {
+				return seedNoSource, Result{}, fmt.Errorf("%s credential seed: resolve the orchestrator %s's session home: %w", name, orchestrator, err)
+			}
+			orchestratorDir = filepath.Join(home, seed.Subdir)
+		}
+		return provisionKeychainSeed(name, *seed.Keychain, destDir, orchestratorDir)
+	}
+	files, ok, err := seedSources(name, seed, orchestrator)
+	if err != nil {
+		return seedNoSource, Result{}, err
+	}
 	if !ok {
 		return seedNoSource, Result{}, nil
 	}
-	destDir := filepath.Join(configHome, seed.Subdir)
 	if err := prepareSeedDir(name, destDir); err != nil {
 		return seedNoSource, Result{}, err
 	}
@@ -128,11 +204,12 @@ func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome stri
 // provisionSeedFiles turns the resolved host files into declared Materials and
 // has the engine's chosen provisioner place them.
 //
-// Every credential material asks for SharingShared, and it is not a choice
-// this function makes: a credential that must RENEW has to reach the host, and
-// a private one is the copy being deleted wearing a different name. Material
-// deliberately isolated from the real thing is a different declaration, not a
-// weaker version of this one.
+// Every credential material asks for SharingShared: the host's refreshes
+// must reach the instance for as long as the run lives. A file the engine
+// projects (a withheld refresh token) is placed READ-ONLY, because its
+// instance bytes are a lossy view of the host's and a write back through
+// that view would strip the host's own copy — the projection decides the
+// direction, not this function.
 //
 // Placing nothing reports seedNoSource, never seedOK: a placement that
 // delivered zero bytes must not report success.
@@ -147,8 +224,10 @@ func provisionSeedFiles(name string, seed engine.CredentialSeed, files []seedFil
 			// Slash form, and the DECLARED destination name rather than one
 			// re-derived from the host path: an name that renames material
 			// on placement must be served at the name it actually reads.
-			DestRel: path.Join(seed.Subdir, f.destName),
-			Sharing: SharingShared,
+			DestRel:  path.Join(seed.Subdir, f.destName),
+			Sharing:  SharingShared,
+			ReadOnly: f.projected,
+			Project:  f.project,
 		})
 	}
 	if len(materials) == 0 {
@@ -186,6 +265,17 @@ func selectSeedProvisioner(name string, seed engine.CredentialSeed) (Provisioner
 // stripped copy, and a refusal that cannot be provoked is a claim nobody has
 // checked. Production never replaces it.
 var seedProvisionOptions = func() []ProvisionOption { return nil }
+
+// envTriggered reports whether any of seed's env bypasses is set: auth rides
+// the env and nothing is seeded.
+func envTriggered(seed engine.CredentialSeed) bool {
+	for _, v := range seed.EnvTriggers {
+		if os.Getenv(v) != "" {
+			return true
+		}
+	}
+	return false
+}
 
 // tightenSeedDestinations restates owner-only on any destination that ALREADY
 // EXISTS, before live credential bytes are placed into it.

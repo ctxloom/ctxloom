@@ -60,9 +60,9 @@ func readInstanceConfig(t *testing.T, instanceHome string) map[string]any {
 }
 
 // TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList is the PAYLOAD test
-// for D4: the generated instance file carries the onboarding answers by name
-// and NOT ONE of the confidential keys sitting beside them in the same host
-// file.
+// for D4: the generated instance file carries the onboarding answers and the
+// account identity by name and NOT ONE of the confidential keys sitting
+// beside them in the same host file.
 //
 // MUTATION TARGET (m1): add "mcpServers" to ambientConfigKeys — or replace the
 // per-key loop with a wholesale copy of the host table — and the mcpServers
@@ -88,7 +88,7 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 
 	// NEVER copied. Each of these is a live confidentiality question, not a
 	// tidiness preference.
-	for _, forbidden := range []string{"mcpServers", "oauthAccount", "userID", "firstStartTime"} {
+	for _, forbidden := range []string{"mcpServers", "userID", "firstStartTime"} {
 		assert.NotContains(t, cfg, forbidden,
 			"%q is the user's own data and must never cross into an agent's instance", forbidden)
 	}
@@ -99,7 +99,6 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "SECRET-SPOTIFY-TOKEN")
 	assert.NotContains(t, string(raw), "SECRET-GMAIL-TOKEN")
-	assert.NotContains(t, string(raw), "user@example.com")
 	assert.NotContains(t, string(raw), "a private prompt")
 }
 
@@ -329,6 +328,8 @@ func TestAmbientConfigKeys_IsAnAllowListOfOnboardingAnswersOnly(t *testing.T) {
 		"hasIdeOnboardingBeenShown",
 		"hasClaudeMdExternalIncludesApproved",
 		"hasClaudeMdExternalIncludesWarningShown",
+		"oauthAccount",
+		"primaryApiKey",
 	}
 	var got []string
 	for _, k := range ambientConfigKeys {
@@ -336,6 +337,45 @@ func TestAmbientConfigKeys_IsAnAllowListOfOnboardingAnswersOnly(t *testing.T) {
 	}
 	assert.Equal(t, want, got,
 		"the ambient allow-list changed. Every entry crosses from the user's real home into every agent's instance — adding one is a confidentiality decision, not a refactor")
+}
+
+// TestWriteInstanceConfig_CarriesTheAccountIdentityAndPrimaryKey: claude's
+// own session-seeding path copies `.claude.json`'s oauthAccount and
+// primaryApiKey beside the credential (read from the 2.1.278 bundle), and
+// so does this writer — by name. The account identity is what claude shows
+// and checks for a subscription token; the primary API key is the
+// credential of an API-key login, which has no .credentials.json to seed.
+// Neither widens the allow-list past those two names: the registrations,
+// the history and the telemetry keys still never cross.
+func TestWriteInstanceConfig_CarriesTheAccountIdentityAndPrimaryKey(t *testing.T) {
+	host := writeHostConfig(t, `{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"user@example.com","accountUuid":"abc-123"},"primaryApiKey":"sk-ant-host","mcpServers":{"x":{"command":"secret"}},"userID":"telemetry"}`)
+	instance := t.TempDir()
+	_, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
+		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
+	}, nil)
+	require.NoError(t, err)
+
+	got := readInstanceConfig(t, instance)
+	assert.Equal(t, map[string]any{"emailAddress": "user@example.com", "accountUuid": "abc-123"}, got["oauthAccount"])
+	assert.Equal(t, "sk-ant-host", got["primaryApiKey"])
+	assert.NotContains(t, got, "mcpServers")
+	assert.NotContains(t, got, "userID")
+}
+
+// A host with neither (an API-key login has no oauthAccount; a subscription
+// login has no primaryApiKey) yields an instance carrying neither — nothing
+// is invented, and their absence is not schema drift worth a warning.
+func TestWriteInstanceConfig_AbsentAccountFieldsAreOmittedSilently(t *testing.T) {
+	host := writeHostConfig(t, `{"hasCompletedOnboarding":true,"lastOnboardingVersion":"2.1.278"}`)
+	instance := t.TempDir()
+	rep, err := claudeInstanceConfig{}.WriteInstanceConfig(engine.InstanceConfigRequest{
+		HostHome: host, InstanceHome: instance, WorkDir: t.TempDir(),
+	}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, rep.Warnings)
+	got := readInstanceConfig(t, instance)
+	assert.NotContains(t, got, "oauthAccount")
+	assert.NotContains(t, got, "primaryApiKey")
 }
 
 // keysOf renders a table's keys for a failure message.

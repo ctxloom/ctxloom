@@ -11,11 +11,11 @@ func validHome() HomeSpec {
 	return HomeSpec{
 		Vars: []HomeVar{{Name: "X_CONFIG_DIR", Subdir: "x"}},
 		Credentials: Provide(CredentialSeed{
-			Subdir:     "x",
-			EnvTrigger: "X_API_KEY",
-			LoginHint:  "x login",
-			Files:      []SeedFile{{HostRelHome: ".x/creds.json", DestName: "creds.json", Required: true}},
-			Accept:     []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryReplicated},
+			Subdir:      "x",
+			EnvTriggers: []string{"X_API_KEY"},
+			LoginHint:   "x login",
+			Files:       []SeedFile{{HostRelHome: ".x/creds.json", DestName: "creds.json", Required: true}},
+			Accept:      []MaterialDelivery{MaterialDeliveryMounted, MaterialDeliveryReplicated},
 		}),
 	}
 }

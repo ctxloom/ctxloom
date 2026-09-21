@@ -210,8 +210,8 @@ func firstLine(b []byte) string {
 	return string(b)
 }
 
-// A record delivery on a run whose engine home was never advised — no
-// binding, or one that keeps the real host home — is REFUSED with
+// A record delivery on a run whose engine home was never advised — a
+// binding that selected the real host home — is REFUSED with
 // ErrUnrootedEngineHome. Nothing is written anywhere: not a relative
 // "settings.json", not the user's real ~/.claude, and no record.
 func TestSettingsRecord_Deliver_RefusesAnUnresolvedEngineHome(t *testing.T) {

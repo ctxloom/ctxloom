@@ -55,17 +55,19 @@ func (h HomeSpec) Relocates() bool { return len(h.Vars) > 0 }
 
 // CredentialSeed is the host credential material copied into a session
 // home, the deliveries the engine ACCEPTS for it, and the two facts a
-// fail-loud "nothing to seed" message needs: the env var that carries usable
-// auth instead (EnvTrigger — seeding is skipped when it is set), and the
+// fail-loud "nothing to seed" message needs: the env vars that carry usable
+// auth instead (EnvTriggers — seeding is skipped when any is set), and the
 // command that makes the credential file exist (LoginHint).
 type CredentialSeed struct {
 	// Subdir is the home subdirectory the seed lands in. It must be a Subdir
 	// one of the spec's Vars names, or the seed lands where the engine never
 	// looks.
 	Subdir string
-	// EnvTrigger, when set in the process env, means auth rides the env and
-	// nothing is seeded. "" when the engine has no such bypass.
-	EnvTrigger string
+	// EnvTriggers are the env vars any one of which, set in the process
+	// env, means auth rides the env and nothing is seeded — in the order the
+	// engine consults them, which is the order a refusal names them. Empty
+	// when the engine has no such bypass.
+	EnvTriggers []string
 	// LoginHint is the command that creates the credential file
 	// (e.g. "claude login") — the fix a "nothing seedable" refusal names.
 	LoginHint string
@@ -77,6 +79,28 @@ type CredentialSeed struct {
 	// existence and the way it may reach the instance are ONE declaration,
 	// so "material to place but no delivery it accepts" cannot be authored.
 	Accept []MaterialDelivery
+	// Keychain, when set, is the engine's macOS credential store: on darwin
+	// the seed is a Keychain item rather than a file, read from the store's
+	// default item and written as the session's own. nil for an engine
+	// whose macOS store is the same file as everywhere else.
+	Keychain *KeychainStore
+}
+
+// KeychainStore describes an engine whose macOS credential lives in the
+// login Keychain as a generic password, keyed the way claude keys it: the
+// account is the user's name, the service is a fixed name for the default
+// config dir and that name suffixed with a hash of the config dir when the
+// engine's home var relocates it.
+type KeychainStore struct {
+	// Service is the default item's service name (e.g. "Claude
+	// Code-credentials"). The session item's service is this name, a dash,
+	// and the first eight hex digits of the sha256 of the NFC-normalised
+	// config dir — the engine's own derivation, which is what makes the
+	// item findable by the engine and recomputable by the reaper.
+	Service string
+	// Project transforms the default item's bytes into the session item's,
+	// on every placement; nil copies them as they are.
+	Project func(host []byte) ([]byte, error)
 }
 
 // SeedFile is one host file a CredentialSeed copies.
@@ -88,6 +112,18 @@ type SeedFile struct {
 	DestName string
 	// Required marks the file whose absence means nothing is seedable.
 	Required bool
+	// Project, when set, is the ENGINE's transform of the host bytes into
+	// the instance's: what the instance may hold is a projection of the
+	// host file, applied on every placement, never only the first. nil
+	// means the instance holds the host's bytes as they are.
+	//
+	// A projected file is delivered ONE WAY, and the machinery enforces
+	// it: the instance cannot write back through a lossy projection
+	// without destroying what the projection withheld. It is the engine's
+	// own knowledge of its format — which field is the single-use refresh
+	// token — so it is declared here, by the engine, and the isolation
+	// machinery applies it without reading a byte of the format itself.
+	Project func(host []byte) ([]byte, error)
 }
 
 // Validate refuses a non-zero spec the cells adapter could not act on

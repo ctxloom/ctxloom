@@ -12,27 +12,24 @@ import "github.com/ctxloom/ctxloom/internal/core/engine"
 // WHY IT IS POLYMORPHIC. There is more than one way to put a file in an
 // instance home, and they are not interchangeable:
 //
-//	mount              shared by IDENTITY      one inode, no window
-//	watcher + sync     shared by REPLICATION   eventual, locked, has a window
-//	copy               NOT SHARED              cannot renew at all
+//	mount              shared by IDENTITY      one inode, no window, cannot project
+//	watcher + sync     shared by REPLICATION   eventual, locked, re-projects on change
 //
-// The copy is what credentialseed.go does today, and it is the reason this
-// exists: a copied credential has its single-use refresh token stripped, so it
-// works until the access token expires and then that instance is stuck. It is
-// not a weaker sharing mode, it is a different product with a fuse on it. This
-// file does NOT delete that path — that is a later, ordered change — it builds
-// the replacement alongside it.
+// A PROJECTED material (Material.Project) is an AGENT's credential: the
+// engine declares which bytes of the orchestrator's copy the agent may hold
+// — claude withholds the single-use refresh token — and the projection is
+// applied on every placement. Only replication can serve it, and it serves
+// it ONE WAY: an instance write through a lossy projection would strip the
+// source, so a projected material is read-only by construction and an
+// instance change is overwritten with the projection. An UNPROJECTED shared
+// material — the orchestrator's own credential — is two-way.
 //
-// THE ROTATION WINDOW, stated here because it will bite someone. With a
-// single-use refresh token: instance A refreshes, consuming T1 and receiving
-// T2. If instance B refreshes before replication has delivered T2, B presents
-// T1 and THE SERVER rejects it. No local locking closes that window — it is
-// inherent to replication. A mount has no such window because there is one
-// file and one refresh path. Replication is still far better than a credential
-// that provably cannot renew, which is what makes it the right answer where
-// mounting is impossible; it is NOT equal to mounting, and DeliveryReplicated
-// is what keeps that difference visible to whoever debugs an auth failure a
-// year from now.
+// THE ROTATION WINDOW, stated here because it will bite someone. The host
+// refreshes; the old access token is revoked the moment the new one lands;
+// until replication delivers the new bytes the instance presents a revoked
+// token and the server rejects it. No local locking closes that window — it
+// is inherent to replication, and DeliveryReplicated is what keeps it
+// visible to whoever debugs an auth failure a year from now.
 
 // Sharing is what the DECLARER ASKS FOR. It says nothing about how the request
 // is met — that is Delivery.
@@ -45,9 +42,11 @@ const (
 	// that is silent (a private credential that cannot renew, or a shared one
 	// the caller believed was isolated).
 	SharingUnset Sharing = iota
-	// SharingShared: the instance's writes REACH THE HOST. A token the engine
-	// refreshes inside the instance rotates the host's copy too, which is the
-	// only arrangement under which a long run can keep authenticating.
+	// SharingShared: the instance is kept in step with the HOST's material —
+	// a host rotation reaches the instance for as long as the run lives, the
+	// only arrangement under which a long run can keep authenticating. A
+	// writable shared material carries the instance's writes back too; a
+	// read-only or projected one does not.
 	SharingShared
 	// SharingPrivate: the instance's writes STAY LOCAL. Correct for material
 	// deliberately isolated from the real thing ("give the agent my settings,
@@ -104,10 +103,15 @@ type Material struct {
 	DestRel string
 	// Sharing is what the declarer asks for. SharingUnset is refused.
 	Sharing Sharing
-	// ReadOnly asks that the instance not be able to write it at all. A
-	// credential cannot be read-only — refreshing IS a write — so this is for
-	// material the engine only consumes.
+	// ReadOnly asks that the instance not be able to write it back: an
+	// instance change is overwritten with the host's version rather than
+	// propagated. Required for a projected material (Project), whose
+	// instance bytes are a lossy view of the host's.
 	ReadOnly bool
+	// Project, when set, transforms the host bytes into the instance's on
+	// every placement (engine.SeedFile.Project, declared by the engine).
+	// nil places the host's bytes as they are.
+	Project func(host []byte) ([]byte, error)
 }
 
 // Result is what a Provisioner did, reported back so its consumers can act on

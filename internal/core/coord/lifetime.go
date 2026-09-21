@@ -145,6 +145,7 @@ func (c *Coordinator) readopt(runID string) {
 	c.mu.Unlock()
 	close(rt.attached)
 
+	rec.Orchestrator = c.ownerHarp
 	release, err := c.spawner.Adopt(c.baseCtx, rec)
 	if err != nil {
 		c.rep.Warnf("re-adopt run %s (%s): the run's cell ownership could not be re-acquired: %v", runID, rec.Harp, err)

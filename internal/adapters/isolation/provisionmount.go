@@ -84,7 +84,7 @@ func (p *containerMountProvisioner) Can(s Sharing) bool { return s == SharingSha
 func (p *containerMountProvisioner) Provision(_ string, materials []Material) (Result, error) {
 	res := Result{Delivery: DeliveryMounted, Mechanism: containerMountMechanism}
 	for _, m := range materials {
-		if err := validateMaterial(m, SharingShared); err != nil {
+		if err := validateMountable(m, SharingShared); err != nil {
 			return Result{}, err
 		}
 		// path.Join, not filepath.Join, and DestRel verbatim: the target is a
@@ -161,7 +161,7 @@ func (p *namespaceMountProvisioner) Provision(instanceHome string, materials []M
 	}
 	res := Result{Delivery: DeliveryMounted, Mechanism: namespaceMountMechanism}
 	for _, m := range materials {
-		if err := validateMaterial(m, SharingShared); err != nil {
+		if err := validateMountable(m, SharingShared); err != nil {
 			return Result{}, err
 		}
 		target := filepath.Join(instanceHome, filepath.FromSlash(m.DestRel))
@@ -199,6 +199,22 @@ func validateMaterial(m Material, want Sharing) error {
 	}
 	if m.Sharing != want {
 		return fmt.Errorf("material %s asks for %s sharing, which this provisioner does not deliver (it delivers %s); a provisioner that quietly delivered the other one is the substitution this design exists to forbid", m.Host, m.Sharing, want)
+	}
+	if m.Project != nil && !m.ReadOnly {
+		return fmt.Errorf("material %s declares a projection but is writable; an instance write through a lossy projection would strip the host's own copy, so a projected material must be read-only", m.Host)
+	}
+	return nil
+}
+
+// validateMountable is validateMaterial for a mount: a mount shares by
+// IDENTITY and cannot project, so a material declaring a projection is
+// refused by name rather than mounted with the withheld bytes visible.
+func validateMountable(m Material, want Sharing) error {
+	if err := validateMaterial(m, want); err != nil {
+		return err
+	}
+	if m.Project != nil {
+		return fmt.Errorf("material %s declares a projection, which a mount cannot apply: a mount shares the host's inode as it is; the engine must accept a copying delivery for it", m.Host)
 	}
 	return nil
 }

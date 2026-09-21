@@ -41,8 +41,9 @@ func (d *recordingDynamic) Serve(_ context.Context, lo delivery.Loadout, policy 
 func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: env.mint(t, 1, "run-ep"),
-		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity:     env.mint(t, 1, "run-ep"),
+		Orchestrator: "root-harp",
+		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, l.MCP.URL, "the resolver minted the endpoint")
@@ -102,8 +103,9 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 func TestExecute_EndpointUnavailable_IsReturnedTyped(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: env.mint(t, 1, "run-busy"),
-		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity:     env.mint(t, 1, "run-busy"),
+		Orchestrator: "root-harp",
+		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}

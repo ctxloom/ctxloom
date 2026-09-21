@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ReclaimAgedSessions is sessions.Reap over the home layout with this
@@ -29,7 +30,28 @@ func ReclaimAgedSessions(ctx context.Context, g git.Git, p sessions.ReapPolicy) 
 	if err != nil {
 		return sessions.Report{}, fmt.Errorf("resolve sessions dir: %w", err)
 	}
-	return sessions.Reap(ctx, l, sessionLocks{}, p, worktreeTriage(g))
+	return sessions.Reap(ctx, l, sessionLocks{}, p, sessionTriage(g, isolation.ReapKeychainItems))
+}
+
+// sessionTriage is the reaper's triage for this adapter: the worktree
+// question (worktreeTriage), and — on apply, for a session it did not spare
+// — the deletion of the session's macOS Keychain credential items
+// (isolation.ReapKeychainItems). The items are keyed by the session home's
+// path, so the reap that removes the home is the one clock that can find
+// them; a failure there is reported and does not spare the session, because
+// the disk is still the reaper's to reclaim.
+func sessionTriage(g git.Git, reapKeychain func(harp string) error) sessions.Triage {
+	worktrees := worktreeTriage(g)
+	return func(ctx context.Context, harp string, probe sessions.LockProbe, apply bool) (string, error) {
+		spared, err := worktrees(ctx, harp, probe, apply)
+		if err != nil || spared != "" || !apply {
+			return spared, err
+		}
+		if err := reapKeychain(harp); err != nil {
+			clidiag.Warn("ctxloom", "reap %s: its Keychain credential item(s) could not be deleted: %v", harp, err)
+		}
+		return "", nil
+	}
 }
 
 // worktreeTriage classifies a session's scratch worktrees through the very

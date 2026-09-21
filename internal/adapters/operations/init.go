@@ -213,7 +213,7 @@ func BuildInitialConfig(engine, dirtyTreeHandler string) ([]byte, error) {
 		SeedProfileName: {
 			LLM:      primaryLabel,
 			Runtime:  "host",
-			HomeMode: string(agents.HomeModeHost),
+			HomeMode: string(agents.HomeModeSession),
 			Profiles: []string{SeedProfileName},
 		},
 	}

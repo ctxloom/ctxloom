@@ -23,11 +23,11 @@ func TestRegister_PushesTheCredentialSeedDeclarationToIsolation(t *testing.T) {
 	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture-home"}},
 		Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir:     "fixture-home",
-			EnvTrigger: "FIXTURE_KEY",
-			LoginHint:  "fixture login",
-			Files:      []engine.SeedFile{{HostRelHome: ".fixture/creds.json", DestName: "creds.json", Required: true}},
-			Accept:     []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
+			Subdir:      "fixture-home",
+			EnvTriggers: []string{"FIXTURE_KEY"},
+			LoginHint:   "fixture login",
+			Files:       []engine.SeedFile{{HostRelHome: ".fixture/creds.json", DestName: "creds.json", Required: true}},
+			Accept:      []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
 		}),
 	}))
 	require.NoError(t, Register(enginefixture.RegistryOf(kind), d))

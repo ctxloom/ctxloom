@@ -87,10 +87,10 @@ func TestResolve_Permission_FlooredOnce(t *testing.T) {
 	env = launchtest.Deps(t, launchtest.WithAgent("silent"))
 	child := env.Identity
 	child.Depth = 1
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Orchestrator: env.Identity.Harp})
 	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a child declaring no headless-safe posture is refused, never widened to bypass")
 
-	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true})
+	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true, Orchestrator: env.Identity.Harp})
 	require.NoError(t, err)
 	require.Equal(t, engine.PermissionPlan, l.Permission, "degraded narrows a child to the most restrictive headless-safe posture")
 }
@@ -299,7 +299,7 @@ func TestResolve_Permission_PlanCollapsesOnEveryPath(t *testing.T) {
 
 	child := env.Identity
 	child.Depth = 1
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: child, Agent: "planner", Mode: engine.Structured, WorkDir: env.Project, Orchestrator: env.Identity.Harp})
 	require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "a delegated child declaring an unenforceable plan is refused, never launched with a flag the engine ignores")
 }
 

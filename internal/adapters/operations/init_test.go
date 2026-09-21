@@ -204,10 +204,11 @@ func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 	assert.Equal(t, "claude-code", cfg.GetConfiguredAgents()[SeedProfileName].LLM, "the default agent carries the selected primary engine")
 	assert.Equal(t, "host", cfg.GetConfiguredAgents()[SeedProfileName].Runtime)
 	// The engine-home axis is DECLARED on the seeded binding, not left to the
-	// parser's default: the default is host either way, but an explicit line
-	// is what makes the third isolation axis visible in a fresh config.
-	assert.Contains(t, string(cfgData), "engine_home: host", "init declares the engine-home axis explicitly on the default agent")
-	assert.Equal(t, string(agents.HomeModeHost), cfg.GetConfiguredAgents()[SeedProfileName].HomeMode)
+	// parser's default: the default is session either way, but an explicit
+	// line is what makes the third isolation axis visible in a fresh config —
+	// and init must never write the unsafe host selection.
+	assert.Contains(t, string(cfgData), "engine_home: session", "init declares the engine-home axis explicitly on the default agent")
+	assert.Equal(t, string(agents.HomeModeSession), cfg.GetConfiguredAgents()[SeedProfileName].HomeMode)
 }
 
 // TestScaffoldSeedProfile_WriteIfAbsent proves a re-init does not clobber a

@@ -98,6 +98,11 @@ func Permissions(p string) AgentOption {
 	return func(d *agentDecl) { d.binding.Permissions = p }
 }
 
+// EngineHome sets the binding's `engine_home:` declaration, unparsed.
+func EngineHome(s string) AgentOption {
+	return func(d *agentDecl) { d.binding.HomeMode = s }
+}
+
 // NoStructuredDrive makes the fixture engine declare Interactive only, so a
 // Structured Source is refused at Definition.Modes.
 func NoStructuredDrive() AgentOption {
@@ -385,7 +390,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
 		Scratch:     present.Root{Host: req.SessionDir},
 	})
-	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
 }
 
 // Structured is a resolved structured-mode launch for one harp on the

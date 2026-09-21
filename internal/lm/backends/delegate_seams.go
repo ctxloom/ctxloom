@@ -111,20 +111,22 @@ type InTreeAgentHomeSpec struct {
 	// engine declared, never at a guess from the host path.
 	Subdir string
 	// Prepare populates Dir before the engine is launched at it: the ambient
-	// copy-in of host material (credentials today) plus any engine-specific
-	// scaffolding, returning an actionable error when there is nothing to
-	// authenticate with. cwd is the directory the engine will actually run
-	// in — what a generated workspace-trust answer must name. nil when the
-	// backend needs neither.
+	// copy-in of credential material plus any engine-specific scaffolding,
+	// returning an actionable error when there is nothing to authenticate
+	// with. cwd is the directory the engine will actually run in — what a
+	// generated workspace-trust answer must name. orchestrator is the root
+	// session an AGENT projects its credential from; "" for the root
+	// itself, which seeds whole from the host. nil when the backend needs
+	// neither.
 	//
 	// The returned release stops what preparing left RUNNING: the credential
-	// replicator that keeps the instance in step with the host's rotating
-	// token for as long as the run lives. It is the RUN's to call, at the
-	// run's end — the replicator must outlive Prepare, or a host refresh
-	// revokes the instance's token behind a live engine; and it must not
-	// outlive the run, or every launch leaks a watcher into the process
-	// that started it. Never nil on success.
-	Prepare func(cwd string) (release func() error, err error)
+	// replicator that keeps the instance in step with its source for as
+	// long as the run lives. It is the RUN's to call, at the run's end —
+	// the replicator must outlive Prepare, or a rotation revokes the
+	// instance's token behind a live engine; and it must not outlive the
+	// run, or every launch leaks a watcher into the process that started
+	// it. Never nil on success.
+	Prepare func(cwd, orchestrator string) (release func() error, err error)
 }
 
 // InTreeAgentHomeFor resolves the named backend's controlled config-home
@@ -174,10 +176,12 @@ func InTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
 	v := home.Vars[0]
 	engine := name
 	return InTreeAgentHomeSpec{
-		EnvVar:  v.Name,
-		Dir:     filepath.Join(root, v.Subdir),
-		Subdir:  v.Subdir,
-		Prepare: func(cwd string) (func() error, error) { return prepareInTreeAmbient(engine, root, cwd) },
+		EnvVar: v.Name,
+		Dir:    filepath.Join(root, v.Subdir),
+		Subdir: v.Subdir,
+		Prepare: func(cwd, orchestrator string) (func() error, error) {
+			return prepareInTreeAmbient(engine, root, cwd, orchestrator)
+		},
 	}, true
 }
 
@@ -204,11 +208,12 @@ func cleanAbsPath(p string) string {
 // it stops the credential replication, and the replication is what keeps a
 // live run's token current across a host refresh. A refused preparation has
 // nothing to keep running and is closed before the error is returned.
-func prepareInTreeAmbient(engine, instanceRoot, cwd string) (func() error, error) {
+func prepareInTreeAmbient(engine, instanceRoot, cwd, orchestrator string) (func() error, error) {
 	report, err := isolation.CopyAmbient(isolation.AmbientRequest{
 		Engine:       engine,
 		InstanceHome: instanceRoot,
 		WorkDir:      cwd,
+		Orchestrator: orchestrator,
 	})
 	if err != nil {
 		_ = report.Close()

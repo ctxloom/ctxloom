@@ -76,6 +76,9 @@ const (
 // the journal holds.
 type SpawnStart struct {
 	Identity sessions.Identity
+	// Orchestrator is the coordinator's own session harp: the root every
+	// child projects its credential from (launch.Source.Orchestrator).
+	Orchestrator string
 	// ResumeKey is the journaled native session id of the run being resumed;
 	// empty on a fresh spawn. A resume reuses the harp's endpoint.
 	ResumeKey string

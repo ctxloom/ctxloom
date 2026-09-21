@@ -173,8 +173,9 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 
 // TestResolveAgent_HomeMode proves the resolve-time treatment of
 // ResolvedAgent.HomeMode: undeclared and unresolvable both warn-and-default
-// to agents.HomeModeHost (never fatal — a hand-edited config.yaml must not
-// block a launch over this), a declared "session" or "host" round-trips
+// to agents.HomeModeSession (never fatal — a hand-edited config.yaml must
+// not block a launch over this, and never onto the real home, which only an
+// explicit "host" selects), a declared "session" or "host" round-trips
 // unchanged, and the field is NEVER empty once an agent resolved at all —
 // that emptiness is reserved for "no agent binding was resolved", a state
 // this function (which always resolves SOME binding) can never produce.
@@ -188,10 +189,10 @@ func TestResolveAgent_HomeMode(t *testing.T) {
 		"typo":       {LLM: "fast", Profiles: []string{"p1"}, HomeMode: "sessionn"},
 	})
 	cases := map[string]agents.HomeMode{
-		"undeclared": agents.HomeModeHost, // MUTATION TARGET m1's unit-layer twin
+		"undeclared": agents.HomeModeSession, // MUTATION TARGET m1's unit-layer twin
 		"session":    agents.HomeModeSession,
 		"host":       agents.HomeModeHost,
-		"typo":       agents.HomeModeHost, // warn+default, never fatal
+		"typo":       agents.HomeModeSession, // warn+default, never fatal, never the real home
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {

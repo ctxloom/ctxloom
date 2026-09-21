@@ -94,9 +94,11 @@ type Cells interface {
 	Prepare(ctx context.Context, req CellRequest) (Cell, error)
 }
 
-// HomeMode is the binding's engine-home policy: keep the home the runtime
-// gives the engine, or give it this session's controlled home. It rides
-// CellRequest until Engine.Home() is the engine's own declaration.
+// HomeMode is the binding's engine-home policy: this session's controlled
+// home (the default), or the home the runtime gives the engine — the
+// binding's unsafe selection, rendered as such wherever the launch is
+// shown. It rides CellRequest until Engine.Home() is the engine's own
+// declaration.
 type HomeMode string
 
 const (
@@ -116,6 +118,9 @@ type CellRequest struct {
 	Host        HostFacts
 	Degraded    bool
 	HomeMode    HomeMode
+	// Orchestrator is the root session an agent projects its credential
+	// from (Source.Orchestrator); empty for the root itself.
+	Orchestrator string
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string
@@ -127,6 +132,11 @@ type Cell struct {
 	Workspace string
 	Env       map[string]string
 	Home      []engine.HomeBinding
+	// HomeMode is the engine-home policy this cell was prepared under: the
+	// session home, or the real one the binding selected — the unsafe
+	// selection a plan and a banner name. Local to the launching process;
+	// Home is what crosses the wire.
+	HomeMode  HomeMode
 	Container *ContainerCell
 	Cleanup   func() error
 	// Handle is what the cells adapter keeps to START a process in this cell
@@ -184,6 +194,7 @@ var (
 	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
 	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
 	ErrBindingRoots         = errors.New("launch: the binding's root selection does not parse")
+	ErrNoOrchestrator       = errors.New("launch: a delegated run names no orchestrator; an agent holds a projection of the root session's credential and has nothing to project from")
 )
 
 // Open is the in-process consumer of the carrier — the local launcher's

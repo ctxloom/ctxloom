@@ -29,7 +29,7 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	seed, ok := home.Credentials.Get()
 	require.True(t, ok, "claude relocates credentials with its home var")
 	assert.Equal(t, HomeLeaf, seed.Subdir)
-	assert.Equal(t, "ANTHROPIC_API_KEY", seed.EnvTrigger)
+	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}, seed.EnvTriggers)
 	assert.Equal(t, "claude login", seed.LoginHint)
 	require.Len(t, seed.Files, 1, "only .credentials.json crosses — never .claude.json (the user's whole config)")
 	assert.Equal(t, filepath.ToSlash(filepath.Join(ConfigDirName, CredentialsFileName)), seed.Files[0].HostRelHome)
@@ -38,21 +38,32 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.NotNil(t, home.InstanceConfig, "claude generates its own instance config into a provisioned home")
 }
 
-// Claude's refresh token is single-use and rotating, so the ORDER is the
-// declaration: a mount has one inode and one refresh path, replication has a
-// window in which an instance can present a token another already spent.
-// Asserting the order, not the set, is what keeps a later edit from quietly
-// preferring the mechanism with the failure mode. A stripped copy is refused
-// at every position: it works until the access token expires and then that
-// instance is stuck with no way back.
-func TestHome_AcceptsMountedBeforeReplicated_AndNothingThatCannotRenew(t *testing.T) {
+// The seed is a PROJECTION (the refresh half withheld), and a projection can
+// only be delivered by a mechanism that copies: replication re-projects the
+// host file on every change; a mount shares by identity and would hand the
+// instance the very field the seed withholds. So replication is the one
+// accepted delivery, and the projection is declared on the file itself.
+func TestHome_AcceptsReplicationOnly_BecauseTheSeedIsAProjection(t *testing.T) {
 	seed, ok := claudeKind(t).Home().Credentials.Get()
 	require.True(t, ok)
-	assert.Equal(t, []engine.MaterialDelivery{engine.MaterialDeliveryMounted, engine.MaterialDeliveryReplicated}, seed.Accept)
-	for _, d := range seed.Accept {
-		assert.NotEqual(t, engine.MaterialDeliveryAbsent, d)
-		assert.True(t, d.Decided(), "every accepted delivery must be a decided one")
-	}
+	assert.Equal(t, []engine.MaterialDelivery{engine.MaterialDeliveryReplicated}, seed.Accept)
+	require.NotNil(t, seed.Files[0].Project, "the credential file declares its projection")
+	got, err := seed.Files[0].Project([]byte(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r","refreshTokenExpiresAt":1,"expiresAt":2,"scopes":["s"]},"other":true}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"claudeAiOauth":{"accessToken":"a","expiresAt":2,"scopes":["s"]},"other":true}`, string(got))
+}
+
+// An API-key credential carries no OAuth object: the projection has nothing
+// to withhold and passes the object through. Anything that is not a JSON
+// object is refused rather than seeded uninspected.
+func TestProjectCredential_NoOAuthObjectPassesThrough_NonObjectRefused(t *testing.T) {
+	got, err := projectCredential([]byte(`{"apiKey":"k"}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"apiKey":"k"}`, string(got))
+	_, err = projectCredential([]byte(`not json`))
+	assert.Error(t, err)
+	_, err = projectCredential([]byte(`{"claudeAiOauth":"a string"}`))
+	assert.Error(t, err)
 }
 
 func TestContainer_AuthPrefersEnvAndMountsTheRealCredentialReadWrite(t *testing.T) {
@@ -87,4 +98,17 @@ func TestHooks_DecodesTheNativePayload(t *testing.T) {
 	assert.Equal(t, "session_start", ev.Event, "the registration's event names it when the payload carries none")
 	_, err = codec.Decode("Stop", []byte(`not json`))
 	require.Error(t, err)
+}
+
+// On macOS the store is the Keychain: the seed declares the default item's
+// service and the same projection the file arm applies.
+func TestHome_DeclaresTheMacOSKeychainStore(t *testing.T) {
+	seed, ok := claudeKind(t).Home().Credentials.Get()
+	require.True(t, ok)
+	require.NotNil(t, seed.Keychain)
+	assert.Equal(t, "Claude Code-credentials", seed.Keychain.Service)
+	require.NotNil(t, seed.Keychain.Project)
+	got, err := seed.Keychain.Project([]byte(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r"}}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"claudeAiOauth":{"accessToken":"a"}}`, string(got))
 }

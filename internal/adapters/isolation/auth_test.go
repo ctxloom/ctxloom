@@ -52,7 +52,7 @@ func TestHostCredentialSeed_RefusesSymlinkedDestination(t *testing.T) {
 	require.NoError(t, os.MkdirAll(seedDir, 0o700))
 	require.NoError(t, os.Symlink(victim, filepath.Join(seedDir, ".credentials.json")))
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.Error(t, err, "must refuse to place credential bytes through a symlinked destination")
 	assert.Equal(t, seedNoSource, result, "a refused placement never reports success")
@@ -225,7 +225,7 @@ func TestCredentialSeed_ClaudeDeclarationReachesTheSeam(t *testing.T) {
 	seed := claudeSeed(t)
 	assert.Contains(t, CredentialSeedEngineNames(), claude.EngineName)
 	assert.Equal(t, claude.HomeLeaf, seed.Subdir)
-	assert.Equal(t, "ANTHROPIC_API_KEY", seed.EnvTrigger)
+	assert.Equal(t, []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}, seed.EnvTriggers)
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
@@ -238,7 +238,7 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedSkippedEnv, result)
@@ -262,7 +262,7 @@ func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	writeCreds(t, home, true) // withDotClaude=true: host ALSO has ~/.claude.json — must not be seeded
 	dest := t.TempDir()
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
@@ -290,7 +290,7 @@ func TestHostCredentialSeed_OnlyCredentialFileRequired(t *testing.T) {
 	writeCreds(t, home, false)
 	dest := t.TempDir()
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
@@ -307,7 +307,7 @@ func TestHostCredentialSeed_NoSourceReturnsNoSourceNotError(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err, "nothing seedable is a DECISION, not an I/O error")
 	assert.Equal(t, seedNoSource, result)
@@ -325,7 +325,7 @@ func TestHostCredentialSeed_UnresolvableHostHome(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	dest := t.TempDir()
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
@@ -484,7 +484,7 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude.json"), []byte(realisticDotClaudeJSON), 0o600))
 	dest := t.TempDir()
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
@@ -534,7 +534,7 @@ func TestHostCredentialSeed_TightensAPreExistingDestination(t *testing.T) {
 	stale := filepath.Join(seedDir, ".credentials.json")
 	require.NoError(t, os.WriteFile(stale, []byte("stale"), 0o644))
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedOK, result)
@@ -561,7 +561,7 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 	seedDir := filepath.Join(dest, claudeSeed(t).Subdir)
 	require.NoError(t, os.MkdirAll(seedDir, 0o755))
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	require.Equal(t, seedOK, result)
@@ -589,7 +589,7 @@ func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	done := captureStderr(t)
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir())
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir(), "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	stderr := done()
 
@@ -632,7 +632,7 @@ func TestHostCredentialSeed_SeedDirUncreatable(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), notADir)
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), notADir, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credential seed dir")
@@ -653,7 +653,7 @@ func TestHostCredentialSeed_UnreadableSourceIsAnError(t *testing.T) {
 	require.NoError(t, os.Chmod(src, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(src, 0o600) })
 
-	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir())
+	result, provisioned, err := hostCredentialSeed(claude.EngineName, claudeSeed(t), t.TempDir(), "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "provision claude-code credential material")
@@ -672,7 +672,7 @@ func TestHostCredentialSeed_AllOptionalAndNonePresent(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	result, provisioned, err := hostCredentialSeed("phantom", seed, dest)
+	result, provisioned, err := hostCredentialSeed("phantom", seed, dest, "")
 	t.Cleanup(func() { _ = provisioned.Close() })
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result, "placing nothing is never seedOK")

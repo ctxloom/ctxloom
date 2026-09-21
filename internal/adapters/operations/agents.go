@@ -46,7 +46,7 @@ type AgentEntry struct {
 	// doc).
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// HomeMode is the agent's declared per-engine engine-home policy
-	// (session|host), as written; empty (undeclared) defaults to host at
+	// (session|host), as written; empty (undeclared) defaults to session at
 	// resolve time — see agents.Agent.HomeMode's doc.
 	HomeMode string `json:"engine_home,omitempty"`
 }
@@ -135,7 +135,8 @@ type SetAgentRequest struct {
 	// see agents.ValidateDriving's doc for why.
 	Driving *string `json:"driving,omitempty"`
 	// HomeMode sets the binding's per-engine engine-home policy
-	// (session|host); empty (undeclared) defaults to host at resolve time.
+	// (session|host); empty (undeclared) defaults to session at resolve
+	// time, and host is the unsafe selection.
 	// Unlike Runtime/Permissions, an unknown value here is REJECTED (SetAgent
 	// returns an error, nothing is persisted) — the same treatment Surfaces
 	// gets, and for the same reason: see agents.Agent.HomeMode's doc.
@@ -589,12 +590,12 @@ type ResolvedAgent struct {
 	// HomeMode is the agent's EFFECTIVE, already-resolved config-home
 	// policy — always agents.HomeModeSession or agents.HomeModeHost,
 	// never empty, whatever the binding declared (agents.ParseHomeMode's
-	// undeclared/unresolvable → host default already applied). It is the
-	// value `agent show` reports; the launch resolver reads the same
+	// undeclared/unresolvable → session default already applied). It is
+	// the value `agent show` reports; the launch resolver reads the same
 	// declaration off the binding itself (launch.HomeMode on the
 	// CellRequest) and the cells adapter threads it into
-	// InTreeAgentHome.HomeMode — a launch with NO binding keeps the real host
-	// home by construction, not by this field's value.
+	// InTreeAgentHome.HomeMode — a launch with NO binding gets the session
+	// home by the resolver's own default, not by this field's value.
 	HomeMode agents.HomeMode `json:"engine_home,omitempty"`
 }
 

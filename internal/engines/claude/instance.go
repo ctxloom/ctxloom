@@ -34,35 +34,44 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 }
 
 // Home: CLAUDE_CONFIG_DIR relocates config AND credentials, so a session
-// home is seeded with .credentials.json. ~/.claude.json is NOT seeded: on a
-// real host it is claude's whole top-level config including the user's own
-// mcpServers registrations (and whatever secrets they carry) — a
-// confidentiality leak for mere onboarding convenience — and claude
-// auto-creates its own inside CLAUDE_CONFIG_DIR when none exists there, so
-// .credentials.json alone authenticates; the instance config claude
-// generates (claudeInstanceConfig) supplies the rest.
+// home is seeded with .credentials.json and its own .claude.json — the
+// latter through claudeInstanceConfig, which carries the account identity
+// and the onboarding answers across by name and nothing else (the host's
+// own mcpServers registrations and history never cross).
 //
-// The deliveries the seed ACCEPTS, in order: claude's OAuth refresh token is
-// SINGLE-USE and rotating — whichever holder refreshes consumes the token
-// and receives its successor — so a MOUNT is the only arrangement with no
-// failure mode at all (one inode, one refresh path). Replication is accepted
-// BELOW it: two files kept in step by a watcher leave a window in which an
-// instance can present a token another already spent, and the SERVER
-// rejects it; it is still the right second answer because the alternative,
-// where mounting is impossible, is material that cannot renew at all. A
-// stripped COPY is deliberately NOT accepted, at any position: it
-// authenticates until the access token expires and then that instance is
-// stuck with no way back — a loud launch refusal converted into a run that
-// dies hours later, far from its cause.
+// WHO REFRESHES (ruled 2026-09-21): the refresh token is SINGLE-USE and
+// rotating — whichever holder refreshes consumes the grant — so exactly one
+// ctxloom-side holder may hold it: the ORCHESTRATOR, the root session,
+// whose copy is whole and kept two-way with the host file by replication.
+// Every AGENT holds this seed's PROJECTION of the orchestrator's copy
+// (projectCredential: claudeAiOauth.refreshToken stripped — claude's own
+// precedent, the temp config dir it makes for a resumed SDK session,
+// 2.1.278), read-only, re-projected whenever the orchestrator's changes.
+// A mount is not accepted: it shares by identity and cannot project, so it
+// would hand an agent the very field the seed withholds.
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
 		Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir:     HomeLeaf,
-			EnvTrigger: "ANTHROPIC_API_KEY",
-			LoginHint:  "claude login",
-			Files:      []engine.SeedFile{{HostRelHome: credentialRelHome(), DestName: CredentialsFileName, Required: true}},
-			Accept:     []engine.MaterialDelivery{engine.MaterialDeliveryMounted, engine.MaterialDeliveryReplicated},
+			Subdir: HomeLeaf,
+			// CLAUDE_CODE_OAUTH_TOKEN is an access token in the env: it
+			// outranks every credential store and needs no file (2.1.278),
+			// so it is the first bypass a refusal names.
+			EnvTriggers: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
+			LoginHint:   "claude login",
+			Files: []engine.SeedFile{{
+				HostRelHome: credentialRelHome(),
+				DestName:    CredentialsFileName,
+				Required:    true,
+				Project:     projectCredential,
+			}},
+			Accept: []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
+			// macOS: the store is the login Keychain, not the file (2.1.278):
+			// the default config dir's item is "Claude Code-credentials", a
+			// relocated dir's is that name suffixed with the dir's hash, and
+			// a relocated dir does NOT see the default item — so the seed
+			// there is the session's own item, projected the same way.
+			Keychain: &engine.KeychainStore{Service: KeychainService, Project: projectCredential},
 		}),
 		InstanceConfig: claudeInstanceConfig{},
 	}

@@ -14,7 +14,7 @@ import (
 
 // The auth-fix hint is READ OFF THE ENGINE'S OWN DECLARATION: an engine that
 // declares how its credential file comes to exist (CredentialSeed.LoginHint)
-// and which env var bypasses it (EnvTrigger) gets a hint naming exactly
+// and which env vars bypass it (EnvTriggers) gets a hint naming exactly
 // those, without this package keeping a per-engine table that a new engine
 // would have to be remembered in.
 func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
@@ -23,11 +23,11 @@ func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}},
 		Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir:     "fixture",
-			EnvTrigger: "FIXTURE_KEY",
-			LoginHint:  "fixture login",
-			Files:      []engine.SeedFile{{HostRelHome: ".fixture/creds", DestName: "creds", Required: true}},
-			Accept:     []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
+			Subdir:      "fixture",
+			EnvTriggers: []string{"FIXTURE_KEY"},
+			LoginHint:   "fixture login",
+			Files:       []engine.SeedFile{{HostRelHome: ".fixture/creds", DestName: "creds", Required: true}},
+			Accept:      []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
 		}),
 	}))
 	require.NoError(t, backends.Register(enginefixture.RegistryOf(kind), d))
@@ -63,8 +63,8 @@ func TestEngineAuthFixHint_EveryDeclaredSeedIsNamed(t *testing.T) {
 		checked++
 		hint := engineAuthFixHint(engine)
 		assert.Contains(t, hint, seed.LoginHint, engine)
-		if seed.EnvTrigger != "" {
-			assert.Contains(t, hint, seed.EnvTrigger, engine)
+		for _, v := range seed.EnvTriggers {
+			assert.Contains(t, hint, v, engine)
 		}
 	}
 	require.GreaterOrEqual(t, checked, 1, "at least one registered engine declares a credential seed")

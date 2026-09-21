@@ -70,6 +70,13 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 func TestOneShot_SurfacesWithheldExecutable(t *testing.T) {
 	resetStrictness(t)
 	cfg := withheldOneshotProject(t)
+	// A claude one-shot runs in its session home, which is seeded from the
+	// host credential: give the (sandboxed) host one, or the launch is
+	// refused before the surfaces are ever gated.
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".claude"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json"), []byte(hostCredentialFixture), 0o600))
 	stub := &stubClient{out: "done"}
 	warnings := captureWarnings(t)
 

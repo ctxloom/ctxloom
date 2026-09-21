@@ -67,12 +67,6 @@ func runOK(w *World, args ...string) error {
 	return nil
 }
 
-// commandSourceYAML builds a bundle manifest carrying an "agent-setup" command
-// whose content is the marker string — j000300's augmentation payload.
-func commandSourceYAML(marker string) string {
-	return fmt.Sprintf("version: \"1.0.0\"\ncommands:\n  agent-setup:\n    content: %q\n", marker)
-}
-
 // j000200ItemTreePath is the path, relative to a tree bundle's own root, one
 // (kind, item) source's file lands at — "fragments/" for a fragment,
 // "prompts/" for a command (trust.KindPrompt; a residue of the
@@ -320,8 +314,7 @@ const ptyWaitTimeout = 20 * time.Second
 // the FINAL record-file write — the one this function reads back — is the
 // interactive launch's, not the ping's; then it spawns the mock and hands it
 // discoverySessionPrompt(cfg): the composed built-in + every installed
-// agent-setup command (repo bundle or companion loadout) this harness is
-// proving delivery of. init now hands off and exits with no further prompt
+// companion's typed setup guidance this harness is proving delivery of. init now hands off and exits with no further prompt
 // (the post-discovery relaunch offer and the inline review offer are both
 // deleted — init-as-skill slice ④), so this just waits for the process to
 // exit. Returns the mock's full recorded-input file.

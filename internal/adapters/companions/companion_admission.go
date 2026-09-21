@@ -46,6 +46,10 @@ const (
 	// CompanionAdmissionStoreFault: the consent record exists but cannot be
 	// read. Denies EVERY companion, first-party included.
 	CompanionAdmissionStoreFault CompanionAdmissionReason = "consent-store-fault"
+	// CompanionAdmissionSelf: the running ctxloom binary, probed as its own
+	// companion. No signature is consulted — the process is already
+	// executing, so exec consent is not a question it can be asked.
+	CompanionAdmissionSelf CompanionAdmissionReason = "self"
 )
 
 // CompanionAdmission is the decision about whether ctxloom may EXECUTE one

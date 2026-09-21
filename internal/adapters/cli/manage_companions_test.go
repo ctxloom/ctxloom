@@ -130,7 +130,7 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	// The switch is a property of the process composition, not a global.
 	src, err := operations.ComposeSources(operations.Compose{NoCompanions: true})
 	require.NoError(t, err)
-	t.Cleanup(SetAppForTesting(operations.NewApp(src, true, strictness.Mode{Prog: "ctxloom"}, config.Open, strictness.Sink("ctxloom"))))
+	t.Cleanup(SetAppForTesting(operations.NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, config.Open, strictness.Sink("ctxloom"))))
 
 	var out bytes.Buffer
 	printCompanionStatus(&out)

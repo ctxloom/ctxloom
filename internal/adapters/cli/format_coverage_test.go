@@ -137,6 +137,7 @@ func formatCoverageProject(t *testing.T) *config.Config {
 var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- exercised: the chokepoint itself + this task's stragglers ---
 	"version":     {extraArgs: noExtraArgs},
+	"loadout":     {skip: "carries its OWN --format over the envelope vocabulary (yaml|json), shadowing the root's five formats by design — the companion loadout wire contract; pinned in cmd/ctxloom/loadout_test.go"},
 	"llm list":    {extraArgs: noExtraArgs},
 	"config show": {extraArgs: noExtraArgs},
 	"config get":  {extraArgs: func(string) []string { return []string{"config"} }},

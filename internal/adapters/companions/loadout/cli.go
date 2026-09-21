@@ -2,8 +2,8 @@
 // `loadout` subcommand every in-repo companion binary wires in identically —
 // print the
 // companion's own ctxloom loadout (signature-envelope spec §4.3), either as
-// raw bundle YAML or as the JSON envelope ctxloom's companion discovery
-// execs (`<bin> loadout --format json`).
+// the raw loadout document or as the JSON envelope ctxloom's companion
+// discovery execs (`<bin> loadout --format json`).
 //
 // docs/companion-loadout-standard.md is the contract this implements, stated
 // once: what a companion emits, how ctxloom asks for it, how it is signed, what
@@ -51,40 +51,53 @@ const (
 
 // NewCommand builds the `loadout` cobra command for a companion binary.
 //
-// binName is used only in help text. bundleYAML is the companion's own
-// embedded (via the go embed directive) loadout bundle bytes. sig is an
-// OPTIONAL detached publish signature over bundleYAML (namespace
+// binName is used only in help text. loadoutYAML is the companion's own
+// embedded (via the go embed directive) loadout document bytes. sig is an
+// OPTIONAL detached publish signature over loadoutYAML (namespace
 // signing.NamespacePublish), embedded the same way at build time. A NIL sig
 // emits unsigned — legal, ordinary, and routes to ctxloom's review path
 // rather than an error (spec §10.1); a non-nil but EMPTY one is refused, see
 // Emit and ReadEmbeddedSig.
 //
 // The sig seam is LIVE, not speculative. `just sign-loadouts` is the signing
-// pipeline, and both in-repo companions (cmd/ltk, cmd/taskloom) embed a
-// committed loadout.yaml.sig that ReadEmbeddedSig hands straight to this
-// parameter, so each ships a loadout that verifies against the compiled-in
-// ctxloom release key rather than taking the review path. nil stays the
-// contract for a companion that has NOT been signed — a third-party binary,
-// or an in-repo one before its first `just sign-loadouts` run.
-func NewCommand(binName string, bundleYAML, sig []byte) *cobra.Command {
+// pipeline, and every in-repo companion embeds a committed loadout.yaml.sig
+// that ReadEmbeddedSig hands straight to this parameter, so each ships a
+// loadout that verifies against the compiled-in ctxloom release key rather
+// than taking the review path. nil stays the contract for a companion that
+// has NOT been signed — a third-party binary, or an in-repo one before its
+// first `just sign-loadouts` run.
+func NewCommand(binName string, loadoutYAML, sig []byte) *cobra.Command {
+	return NewDeferredCommand(binName, func() ([]byte, []byte) { return loadoutYAML, sig })
+}
+
+// NewDeferredCommand is NewCommand for a binary whose loadout bytes are not in
+// hand when the command tree is built: content reads them at RUN time. This
+// is ctxloom's own shape — the CLI package owns its command tree (so the
+// documented tree carries `loadout` without a composition), while the
+// embedded bytes live in the composition root (go:embed cannot reach outside
+// the embedding package), which hands them over before dispatch. A companion
+// that embeds beside its own main uses NewCommand.
+func NewDeferredCommand(binName string, content func() (loadoutYAML, sig []byte)) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   Subcommand,
-		Short: fmt.Sprintf("Print %s's ctxloom loadout — the bundle content %s contributes to a session", binName, binName),
-		Long: fmt.Sprintf(`loadout emits the ctxloom bundle %s contributes to a session, for ctxloom's
-companion discovery to seed into its trust gate under the source ref
+		Short: fmt.Sprintf("Print %s's ctxloom loadout — the content %s contributes to a session", binName, binName),
+		Long: fmt.Sprintf(`loadout emits the ctxloom loadout %s contributes — a document with the RUN
+bundle a session consumes and the typed INIT section setup consumes — for
+ctxloom's companion discovery to seed into its trust gate under the source ref
 ctxloom:companion@%s (signature-envelope spec §4.3, §6).
 
 --format json is the machine contract ctxloom's companion discovery execs
-(`+"`%s loadout --format json`"+`): a JSON envelope carrying the exact bundle YAML
-bytes (base64) plus an OPTIONAL detached publish signature.
+(`+"`%s loadout --format json`"+`): a JSON envelope carrying the exact loadout
+document bytes (base64) plus an OPTIONAL detached publish signature.
 
---format yaml (the default) prints the raw bundle YAML for a human to read.`, binName, binName, binName),
+--format yaml (the default) prints the raw loadout document for a human to read.`, binName, binName, binName),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return Emit(cmd.OutOrStdout(), resolveFormat(cmd, format), bundleYAML, sig)
+			loadoutYAML, sig := content()
+			return Emit(cmd.OutOrStdout(), resolveFormat(cmd, format), loadoutYAML, sig)
 		},
 	}
-	cmd.Flags().StringVar(&format, FormatFlag, "yaml", "output format: yaml (raw bundle) or json (signed envelope)")
+	cmd.Flags().StringVar(&format, FormatFlag, "yaml", "output format: yaml (raw loadout document) or json (signed envelope)")
 	return cmd
 }
 
@@ -150,10 +163,10 @@ func ReadEmbeddedSig(files fs.ReadFileFS) []byte {
 	return data
 }
 
-// Emit is the pure core NewCommand's RunE drives: deterministic, no network,
+// Emit is the pure core NewDeferredCommand's RunE drives: deterministic, no network,
 // no filesystem access beyond the bytes already in hand. Exported so each
 // companion's own tests can drive it directly without going through cobra.
-func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
+func Emit(w io.Writer, format string, loadoutYAML, sig []byte) error {
 	// A companion binary embedding zero bytes (a build mistake:
 	// forgot the go:embed directive, wrong glob, empty loadout.yaml) used
 	// to emit a well-formed envelope carrying nothing, in BOTH formats —
@@ -163,8 +176,8 @@ func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
 	// companion. Fail loud here, at the emitter, where binName is known
 	// and where the companion's OWN tests catch it — not just at
 	// ctxloom's consumer side.
-	if len(bundleYAML) == 0 {
-		return fmt.Errorf("empty loadout bundle: this companion has no content to contribute (embedded loadout.yaml is empty or missing)")
+	if len(loadoutYAML) == 0 {
+		return fmt.Errorf("empty loadout: this companion has no content to contribute (embedded loadout.yaml is empty or missing)")
 	}
 	// The signature's own half of the same principle. nil sig is the ordinary
 	// unsigned build and stays legal; a PRESENT but zero-byte one is a
@@ -179,7 +192,7 @@ func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
 	// THE TWO BRANCHES DELIBERATELY DIFFER ON THE TRAILING NEWLINE, and the
 	// asymmetry is load-bearing in one direction only.
 	//
-	// yaml writes bundleYAML with nothing added. These are the exact bytes a
+	// yaml writes loadoutYAML with nothing added. These are the exact bytes a
 	// detached publish signature covers, and the exact bytes --format json
 	// base64s, so `<bin> loadout` piped to a file has to reproduce the signed
 	// payload byte for byte (spec §3.0). A trailing newline appended for
@@ -197,10 +210,10 @@ func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
 	// line-oriented reader.
 	switch format {
 	case "yaml":
-		_, err := w.Write(bundleYAML)
+		_, err := w.Write(loadoutYAML)
 		return err
 	case FormatJSON:
-		env, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "")
+		env, err := signing.EncodeLoadoutEnvelope(loadoutYAML, sig, "")
 		if err != nil {
 			return fmt.Errorf("encode loadout envelope: %w", err)
 		}

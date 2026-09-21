@@ -173,17 +173,18 @@ type Bundle struct {
 	// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
 	untrustedSignerFingerprint string `yaml:"-"`
 
-	// selfLoadout marks the bundle as ctxloom's OWN companion loadout, whose
-	// signature is circular (companionReader.read explains why): it is
-	// verified but never stamped as a signer, and a surface that renders
+	// selfSigned marks ctxloom's OWN companion loadout whose signature
+	// VERIFIED, circularly (companionReader.read explains why): the
+	// principal is never stamped as signer, and a surface that renders
 	// signing state must say so rather than showing it as unsigned or as
 	// publisher-verified — both would be false.
-	selfLoadout bool `yaml:"-"`
+	selfSigned bool `yaml:"-"`
 }
 
-// SelfLoadout reports whether this bundle is ctxloom's own companion loadout,
-// whose signature is verified but circular — see companionReader.read.
-func (b *Bundle) SelfLoadout() bool { return b.selfLoadout }
+// SelfSigned reports whether this bundle is ctxloom's own companion loadout
+// and its signature verified — circularly, so no signer is stamped; see
+// companionReader.read.
+func (b *Bundle) SelfSigned() bool { return b.selfSigned }
 
 // Signer returns the bundle's verified publisher identity, or "" when the bundle
 // is unsigned (see the signer field). A non-empty value means: a key trusted by

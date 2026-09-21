@@ -226,19 +226,20 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 		r.cfg.warnOnce("companion %q: its loadout is signed by a key this machine does not trust to publish; "+
 			"delivering the content anyway (companion content is admitted at exec, not by signature), unattributed", lo.Bin)
 	}
-	if lo.Self {
+	if lo.Self && facts.Signature == SignatureValid && facts.Signer == SignerTrusted {
 		// INVARIANT: ctxloom's own loadout signature is CIRCULAR and adds no
 		// trust. The key that signed it is trusted because THIS binary's
 		// embedded trust root says so, and this binary is also what carries
 		// the loadout — a tampered build would carry a matching root and a
 		// matching signature alike. The signature is still verified above
-		// (a stale one is a release bug worth a warning), but the verified
-		// principal is NOT stamped as the bundle's publisher: stamping it
-		// would let every surface that renders a signer present ctxloom's
-		// own content as "verified by a publisher you trust", which is a
-		// claim nothing here established.
+		// (a stale one is a release bug and warns like any companion's), but
+		// the verified principal is NOT stamped as the bundle's publisher:
+		// stamping it would let every surface that renders a signer present
+		// ctxloom's own content as "verified by a publisher you trust", which
+		// is a claim nothing here established. The bundle is marked
+		// self-signed instead, so a surface can say what actually held.
 		facts = facts.withoutSigner()
-		b.selfLoadout = true
+		b.selfSigned = true
 	}
 	facts.stamp(b)
 	read := NewRead(ref, b, ProvenanceCompanion, TrustCtxLocal, facts)

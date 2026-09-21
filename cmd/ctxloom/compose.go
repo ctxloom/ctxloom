@@ -29,6 +29,7 @@ func compose(sink report.Sink) cli.Composition {
 	var owners, coordinators sync.Once
 	return cli.Composition{
 		Reporter: sink,
+		Loadout:  embeddedLoadout(),
 		OpenConfig: func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error) {
 			owner, err := (*config.Owner)(nil), errSecondOwner
 			owners.Do(func() {

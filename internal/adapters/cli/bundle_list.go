@@ -228,9 +228,19 @@ func renderBundleShowHeader(w *iox.ErrWriter, bundle *bundles.Bundle) {
 	if len(bundle.Tags) > 0 {
 		w.Printf("Tags: %s\n", strings.Join(bundle.Tags, ", "))
 	}
+	if bundle.SelfSigned() {
+		w.Println(selfSignedLine)
+	}
 	w.Printf("Path: %s\n", bundle.Path)
 	w.Println()
 }
+
+// selfSignedLine is what the human view says about ctxloom's own loadout's
+// signature: it verified, and it is circular — the trust root vouching for
+// the key ships in the binary that carries the loadout — so it must never
+// read as a publisher a user chose to trust. Pinned by test so the wording
+// cannot drift into a trust claim.
+const selfSignedLine = "Signature: ctxloom's own (verified, but circular — it adds no trust)"
 
 func renderBundleShow(out io.Writer, bundle *bundles.Bundle) error {
 	w := iox.NewErrWriter(out)

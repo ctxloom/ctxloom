@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -382,4 +384,33 @@ func TestBundleListAndShow_FormatJSON_EmitTheViews(t *testing.T) {
 		assert.NotContains(t, keysOf(got), "Fragments")
 		assert.NotContains(t, out.String(), `"content"`, "show never carries an item's body")
 	})
+}
+
+// TestBundleShowView_SelfLoadoutIsNotPresentedAsTrust pins how ctxloom's own
+// loadout renders its signing state: signed and verified, but NOT by a
+// publisher — the view says the signature is ctxloom's own and circular, and
+// carries no signer a reader could mistake for independent trust.
+func TestBundleShowView_SelfLoadoutIsNotPresentedAsTrust(t *testing.T) {
+	dir, cfg := setupProject(t, "claude-code")
+	doc := []byte("run:\n  version: 1.0.0\n  fragments:\n    isolation-axes:\n      content: SELF\n")
+	sig := testsupport.SignLoadoutForTesting(t, doc, "releases@ctxloom.test", paths.AllowedSignersPath(filepath.Join(dir, paths.AppDirName)))
+	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{
+			{Bin: "ctxloom", Path: "/opt/build/ctxloom", Document: doc, Signature: sig, Self: true},
+		}}, nil
+	})
+	b, err := cfg.BundleLoader().Load("ctxloom:companion@ctxloom")
+	require.NoError(t, err)
+	require.True(t, b.SelfSigned(), "control: the reader verified ctxloom's own circular signature")
+
+	v := newBundleShowView(b)
+	assert.True(t, v.Signed, "the loadout IS signed and the signature verified")
+	assert.Empty(t, v.Signer, "no publisher identity: the verification is circular")
+	assert.True(t, v.SelfSigned)
+
+	var out strings.Builder
+	require.NoError(t, renderBundleShow(&out, b))
+	assert.Contains(t, out.String(), selfSignedLine,
+		"the human view must say the signature adds no trust")
+	assert.Equal(t, "Signature: ctxloom's own (verified, but circular — it adds no trust)", selfSignedLine)
 }

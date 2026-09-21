@@ -24,6 +24,8 @@ type App struct {
 	// NoCompanions is the --no-companions / CTXLOOM_NO_COMPANIONS switch: no
 	// companion binary is executed and none contributes to a generation.
 	NoCompanions bool
+	// SelfLoadout mirrors Compose.SelfLoadout for the probers this App hands out.
+	SelfLoadout func() string
 	// Strictness is the posture this composition runs under — the program
 	// its findings render as and whether --degraded waives the ordinary
 	// ones. A value: two Apps in one process may differ.
@@ -48,6 +50,10 @@ type Compose struct {
 	Flags        *pflag.FlagSet
 	Environ      []string
 	NoCompanions bool
+	// SelfLoadout arms ctxloom's self-probe (companions.Prober.Self): the
+	// running binary's path resolver, set only for a process composed with
+	// an embedded loadout to emit; nil is unarmed.
+	SelfLoadout func() string
 	// Options extend the Sources: a pinned app dir, an injected filesystem.
 	Options []configload.Option
 }
@@ -61,7 +67,7 @@ type Compose struct {
 // A flag or env override that cannot be bound is returned alongside a
 // usable Sources; the root degrades it to a warning.
 func ComposeSources(c Compose) (config.Sources, error) {
-	prober := companions.Prober{Disabled: c.NoCompanions}
+	prober := companions.Prober{Disabled: c.NoCompanions, Self: c.SelfLoadout}
 	opts := []configload.Option{
 		configload.WithProfileRefCanonicalizer(func(shell *config.Config, ref string) string {
 			return remote.CanonicalizeProfileShortRef(ref, shell.ProfileRemoteURLResolver())
@@ -82,8 +88,8 @@ func ComposeSources(c Compose) (config.Sources, error) {
 // one-mint-one-owner rule.
 type ConfigOpener func(ctx context.Context, src config.Sources, opts ...config.Option) (*config.Owner, error)
 
-func NewApp(src config.Sources, noCompanions bool, mode strictness.Mode, open ConfigOpener, rep report.Sink) *App {
-	return &App{NoCompanions: noCompanions, Strictness: mode, Reporter: rep, src: src, open: open}
+func NewApp(src config.Sources, noCompanions bool, selfLoadout func() string, mode strictness.Mode, open ConfigOpener, rep report.Sink) *App {
+	return &App{NoCompanions: noCompanions, SelfLoadout: selfLoadout, Strictness: mode, Reporter: rep, src: src, open: open}
 }
 
 // OpenedApp wraps an owner a test already opened.
@@ -95,7 +101,9 @@ func OpenedApp(owner *config.Owner) *App {
 
 // Prober is the companion-probing adapter for this invocation, carrying its
 // companion switch.
-func (a *App) Prober() companions.Prober { return companions.Prober{Disabled: a.NoCompanions} }
+func (a *App) Prober() companions.Prober {
+	return companions.Prober{Disabled: a.NoCompanions, Self: a.SelfLoadout}
+}
 
 // Opened reports whether the owner has been opened: a composition may be
 // replaced (init pinning its target directory) only before that.

@@ -622,6 +622,7 @@ func (c Catalog) Infos() []*BundleInfo {
 			MCPCount:      b.MCPCount(),
 			ProfileCount:  b.ProfileCount(),
 			Signer:        b.Signer(),
+			SelfSigned:    b.SelfSigned(),
 		})
 	}
 	return out

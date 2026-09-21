@@ -3,7 +3,9 @@ package agent
 import (
 	"os"
 
+	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -55,6 +57,32 @@ func PreferSurfaces(rep report.Reporter, managed *ManagedConfig, engine string, 
 		return
 	}
 	managed.Surfaces = surfaces
+}
+
+// PreferPlanRoots projects the launch's plan onto the plugin arm's
+// name-keyed selection, so the binding's `roots:` governs the host arm as
+// it governs the runner: a kind the plan roots under the PROJECT root (the
+// shared root, selected on the binding and never fallen back to — the
+// unsafe door) is delivered by the engine's project form, ApproachUnsafeFile,
+// unless the binding already named an approach for that kind. A kind the
+// plan roots under the session home is left to the engine's declared
+// default, which is its session form.
+func PreferPlanRoots(managed *ManagedConfig, plan delivery.Plan) {
+	if managed == nil {
+		return
+	}
+	for _, it := range plan.Static {
+		if it.Root != present.RootProjectRoot && it.Root != present.RootWorkDir {
+			continue
+		}
+		if _, named := managed.Surfaces[it.Kind]; named {
+			continue
+		}
+		if managed.Surfaces == nil {
+			managed.Surfaces = map[SurfaceKind]string{}
+		}
+		managed.Surfaces[it.Kind] = ApproachUnsafeFile
+	}
 }
 
 // CommandExportsOf is the engine's command exports in the writers' shape.

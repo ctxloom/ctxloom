@@ -142,6 +142,9 @@ func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened,
 	}
 	managed := agent.ManagedConfigFor(ManagedSurfacesOf(pkg), l.Exports)
 	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
+	// The plan decides the roots; the plugin arm's name-keyed selection is
+	// its projection, so a binding's roots: reaches the host arm too.
+	agent.PreferPlanRoots(managed, l.Plan)
 	return Opened{Package: pkg, Loadout: l.Loadout(pkg), Managed: managed}, nil
 }
 

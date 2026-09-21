@@ -284,7 +284,7 @@ func TestMockSurfaces_WithEverything_MaterializesEverySurface(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	delivered, kinds, errs := agent.Select(mockDeclaration(config.BackendMock)).WithEverything().DeliverUnder(agent.SurfaceInputs{
+	delivered, kinds, errs := projectForms(agent.Select(mockDeclaration(config.BackendMock)).WithEverything()).DeliverUnder(agent.SurfaceInputs{
 		Context:   "END-TO-END-MARKER",
 		Skills:    []agent.SkillExport{reviewerSkillExport()},
 		BundleMCP: map[string]wire.MCPServer{"postgres": {Command: "mcp-postgres"}},
@@ -505,4 +505,31 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "USER-AUTHORED-4f10", string(got),
 		"a user's own skill package must survive ctxloom's reversal byte-for-byte")
+}
+
+// projectForms selects the PROJECT form of every mock surface: an at-rest
+// delivery into a target dir advises no Scratch, so the session default
+// (MockSessionFile) has nowhere to land there and refuses. The project form
+// is the explicit choice such a delivery makes.
+func projectForms(sel *agent.SurfaceSelection) *agent.SurfaceSelection {
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
+		sel = sel.With(kind, agent.ApproachUnsafeFile)
+	}
+	return sel
+}
+
+// TestMockSessionForm_RefusesAnAtRestDelivery: with no Scratch advised the
+// session form refuses rather than writing a bare relative path wherever
+// the process happens to be.
+func TestMockSessionForm_RefusesAnAtRestDelivery(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_, _, errs := agent.Select(mockDeclaration(config.BackendMock)).WithEverything().DeliverUnder(agent.SurfaceInputs{
+		Context: "X", Hooks: &wire.HooksConfig{}, BundleMCP: map[string]wire.MCPServer{},
+	}, fs, present.ProjectOnHost("/target"))
+	require.NotEmpty(t, errs)
+	for _, err := range errs {
+		assert.ErrorIs(t, err, agent.ErrUnrootedDelivery)
+	}
+	entries, _ := afero.ReadDir(fs, "/")
+	assert.Empty(t, entries, "nothing was written anywhere")
 }

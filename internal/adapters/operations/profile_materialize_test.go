@@ -140,14 +140,14 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 	assert.Equal(t, string(first), string(second), "re-materialize is a clean overwrite")
 }
 
-// TestMaterializeProfile_ExportsCtxloomsOwnMCPServer proves the builtin
-// ctxloom bundle reaches a materialized export: the exported .mcp.json carries
-// ctxloom's own server, resolved to an absolute ctxloom path rather than the
-// bare name the bundle declares. No profile names the bundle — builtins are
-// injected unconditionally — so this is also the proof that the injection route
-// carries MCP.
+// TestMaterializeProfile_ExportsCtxloomsOwnMCPServer proves ctxloom's own
+// companion loadout reaches a materialized export: the exported .mcp.json
+// carries ctxloom's own server, written as the loadout declares it. No profile
+// names the loadout — a companion's servers are registered unconditionally —
+// so this is also the proof that the companion route carries MCP.
 func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
+	cfg = withCtxloomLoadout(t, cfg)
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
@@ -168,7 +168,7 @@ func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 	require.True(t, ok, "ctxloom's own MCP server must be exported; got %v", doc.MCPServers)
 	assert.Equal(t, agent.CtxloomMCPArgs, entry.Args, "the exported entry must invoke `mcp serve`")
 	assert.Equal(t, agent.CtxloomCommand(), entry.Command,
-		"the exported command must be the binary that materialized the surface, not the bare name the bundle declares")
+		"the exported command is the bare name the loadout declares, written as declared")
 }
 
 // materializeHookFixture is materializeFixture with the selected profile shipping
@@ -285,7 +285,9 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"),
 		[]byte("#!/bin/sh\necho hi\n"), 0755))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	// A skills-only bundle assembles no context text on its own; ctxloom's
+	// own loadout supplies the always-on guidance a real materialize carries.
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
@@ -341,7 +343,9 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 			"      SKILL.md:\n        sha256: "+sha256Of(skillMD)+"\n        mode: \"0644\"\n"+
 			"      scripts/run.sh:\n        sha256: "+sha256Of(script)+"\n        mode: \"0755\"\n"), 0644))
 
-	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
+	// A skills-only bundle assembles no context text on its own; ctxloom's
+	// own loadout supplies the always-on guidance a real materialize carries.
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
 	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{

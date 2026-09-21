@@ -7,8 +7,8 @@
 // internal/adapters/signing/countersign), or rejected (withheld permanently; the
 // rejection is itself a countersignature, and a content-scoped rejection
 // deliberately omits the ref so a renamed identical copy stays rejected —
-// signature-envelope spec §5.3). First-party sources — local content, builtin
-// bundles, and content from a trusted PUBLISHER (a signing key in
+// signature-envelope spec §5.3). First-party sources — local content,
+// companion loadouts, and content from a trusted PUBLISHER (a signing key in
 // allowed_signers, verified over the bytes) — are exempt from review;
 // rejection beats even the first-party exemption.
 //
@@ -49,16 +49,10 @@ type Source string
 const (
 	// SourceRejected: a human declined this item (ref-level rejected state) or
 	// its content hash is on the repo/ref-agnostic denylist. Rejection beats
-	// every exemption, including local/builtin/trusted-source.
+	// every exemption, including local/companion/trusted-source.
 	SourceRejected Source = "rejected"
 	// SourceLocal: project-authored local content auto-allowed (all kinds).
 	SourceLocal Source = "local"
-	// SourceBuiltin: compiled into this binary (resources/builtin_bundles).
-	// Authenticated by the binary itself — trusting ctxloom trusts what it
-	// ships — and allowed by default with no review friction, but (unlike the
-	// old gate=nil bypass) reachable by SourceRejected: a user can reject a
-	// builtin item and have that rejection enforced.
-	SourceBuiltin Source = "builtin"
 	// SourceCompanion: a loadout an installed companion binary advertised about
 	// itself (ctxloom:companion@<bin>). LOCAL-EQUIVALENT, and for a reason that
 	// is about ORDER OF OPERATIONS, not about deference to the companion:
@@ -71,8 +65,8 @@ const (
 	// absolute path + binary hash; first-party names exempt only when they
 	// resolve from ctxloom's own install directory).
 	//
-	// Like SourceBuiltin this is a DISTINCT step below rejection, precisely so
-	// step 1 still reaches it.
+	// It is a DISTINCT step below rejection, precisely so step 1 still
+	// reaches it.
 	//
 	// A companion's SIGNATURE does not enter this decision in either direction.
 	// A publisher signature protects bytes from an intermediary, and a loadout
@@ -238,24 +232,8 @@ type Ref struct {
 	// operations' decision-function table.
 	IsLocal bool
 
-	// IsBuiltin marks an item shipped inside the ctxloom binary itself
-	// (resources/builtin_bundles). Mutually exclusive with IsLocal — every
-	// site that builds a Ref sets at most one of the two as a literal, and the
-	// single site that copies both from data (content.Provenance.stamp) is
-	// refused at construction by Provenance.validate, "provenance cannot be
-	// both local and builtin". Neither field is assigned anywhere else, so the
-	// exclusion is a checked property rather than a convention. It matters
-	// because the two flags are read at DIFFERENT layers: CanonicalURL keys
-	// builtin first, while the decision function reaches its local tier first,
-	// so a Ref carrying both would key under one identity and report the
-	// other. Builtin
-	// items key under BuiltinSigner (never refuri.LocalSource) so they cannot
-	// collide with a project-local bundle of the same name, and so a rejection
-	// recorded against a builtin item is addressed unambiguously.
-	IsBuiltin bool
-
 	// IsCompanion marks an item from a companion binary's own loadout
-	// (ctxloom:companion@<bin>). Like IsBuiltin it is a distinct, nameable
+	// (ctxloom:companion@<bin>). It is a distinct, nameable
 	// exemption step in the decision function (SourceCompanion) rather than a
 	// second spelling of IsLocal, so step 1's rejection check still runs ahead
 	// of it and a reader can see WHICH exemption allowed an item.
@@ -265,18 +243,10 @@ type Ref struct {
 	// only for the fixed refuri.CompanionSource token — never for a URL or
 	// bundle name an author can choose — and which never coincides with
 	// IsLocal (pinned by remote's own reference_companion_test). The Ref keys
-	// under that same token, so a companion item can no more collide with a
-	// project-local or remote bundle than a builtin can.
+	// under that same token, so a companion item cannot collide with a
+	// project-local or remote bundle.
 	IsCompanion bool
 }
-
-// BuiltinSigner is the synthetic identity builtin items key under —
-// distinct from refuri.LocalSource, so a builtin bundle can never collide
-// with a project-local bundle sharing its name. It names WHO vouches for the
-// content (the ctxloom binary itself), matching the identity a future signed
-// builtin loadout would carry — it is a plain identity string here, not a
-// cryptographic signer; no signature is verified.
-const BuiltinSigner = "builtin:ctxloom"
 
 // Key returns the repo-relative item key used in the store, e.g.
 // "code-quality#fragments/solid" or "tooling#mcp/postgres". It deliberately
@@ -300,9 +270,6 @@ func (r Ref) Key() string {
 // under the fixed ctxloom:local source token so they never collide with a
 // remote and are distinguishable from an unresolved (empty-URL) remote ref.
 func (r Ref) CanonicalURL() string {
-	if r.IsBuiltin {
-		return BuiltinSigner
-	}
 	if r.IsLocal {
 		return refuri.LocalSource
 	}
@@ -401,7 +368,7 @@ func CanonicalRepoURL(raw string) string {
 }
 
 // AsBundleRef converts r into the canonical bundle-reference grammar
-// (BundleRef), minting through the same GitRef / FileRef / BuiltinRef /
+// (BundleRef), minting through the same GitRef / FileRef /
 // LocalRef / CompanionRef entry points a caller building a fresh reference by
 // hand would use — so a Ref converted here is held to exactly the rules
 // (R1-R4) a hand-typed reference is, never a laxer path around them.
@@ -442,8 +409,6 @@ func (r Ref) AsBundleRef() (BundleRef, error) {
 // half AsBundleRef shares with a future bundle-only (no item) conversion.
 func (r Ref) bundleRefBase() (BundleRef, error) {
 	switch {
-	case r.IsBuiltin:
-		return BuiltinRef(r.Bundle)
 	case r.IsLocal:
 		return LocalRef(r.Bundle)
 	case r.IsCompanion:
@@ -494,8 +459,6 @@ func (r Ref) bundleRefBase() (BundleRef, error) {
 func RefFromBundleRef(br BundleRef) Ref {
 	r := Ref{Bundle: br.Bundle, Kind: br.Kind, Name: br.Item}
 	switch br.Class {
-	case ClassBuiltin:
-		r.IsBuiltin = true
 	case ClassLocal:
 		r.IsLocal = true
 	case ClassCompanion:

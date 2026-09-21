@@ -9,9 +9,8 @@ import (
 )
 
 // Companion-binary status for `manage check`. Companions are separate binaries
-// (taskloom, ltk) that ctxloom never installs; a missing one silently disables
-// the builtin bundle wiring that needs it, so the status report names what is
-// disabled and how to install it.
+// that ctxloom never installs; a missing one contributes no loadout, so the
+// status report names what is disabled and how to install it.
 
 // companionHint describes what a missing companion binary disables and how to
 // install it.
@@ -41,8 +40,7 @@ func hintForCompanion(bin string) companionHint {
 }
 
 // printCompanionStatus reports each companion binary's presence AND whether
-// ctxloom is allowed to execute it; builtin bundle entries for missing ones are
-// skipped at resolve time.
+// ctxloom is allowed to execute it; a missing one contributes no loadout.
 //
 // THIS REPORT RUNS NOTHING AND ASKS NOTHING, on every path, and that is a
 // property of the command rather than of the fixture it happens to run in.

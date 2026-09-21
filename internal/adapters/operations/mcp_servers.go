@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -45,8 +43,8 @@ type ListMCPServersResult struct {
 
 // ListMCPServers returns the MCP servers this project registers: the set
 // Config.ResolveBundleMCPServers resolves for the configured default profiles
-// — builtin bundles (ctxloom's own server among them), each discovered
-// companion's loadout, and the profile→bundle cascade — which is the same set
+// — each discovered companion's loadout (ctxloom's own server among them)
+// and the profile→bundle cascade — which is the same set
 // the settings writers materialize.
 func ListMCPServers(ctx context.Context, cfg *config.Config, req ListMCPServersRequest) (*ListMCPServersResult, error) {
 	freshCfg, err := resolveListConfig(cfg)
@@ -72,17 +70,11 @@ func resolveListConfig(cfg *config.Config) (*config.Config, error) {
 }
 
 // registeredMCPServers resolves the server set a settings writer would
-// materialize for the configured default profiles, with ctxloom's own entry
-// carrying the command that actually reaches a surface rather than the bare
-// name its bundle declares (agent.ResolveManagedMCPServers). A listing that
-// showed the bundle's literal would disagree with every engine's settings file
-// and with `ctxloom doctor`'s MCP-invocation check.
+// materialize for the configured default profiles — every entry as its
+// bundle declares it, which is exactly what every engine's settings file
+// carries.
 func registeredMCPServers(cfg *config.Config) map[string]wire.MCPServer {
-	servers, found := agent.ResolveManagedMCPServers(cfg.ResolveBundleMCPServers(nil))
-	for _, f := range found {
-		strictness.Sink("ctxloom").Report(f)
-	}
-	return servers
+	return cfg.ResolveBundleMCPServers(nil)
 }
 
 // mcpServerMatches reports whether a server matches the (already lower-cased)

@@ -33,7 +33,7 @@ func blockingGate(seen map[string][2]string, substrs ...string) Authorizer {
 // is the property TestLoaderGate_SeededBundleGatesByCanonicalRef exists to pin.
 func exposureRefKey(e Exposure) string {
 	base := e.Ref.Bundle
-	if !e.Ref.IsLocal && !e.Ref.IsBuiltin && e.Ref.RepoURL != "" {
+	if !e.Ref.IsLocal && e.Ref.RepoURL != "" {
 		base = e.Ref.RepoURL + "@bundles/" + e.Ref.Bundle
 	}
 	return base + "#" + e.Ref.Kind.Dir() + "/" + e.Ref.Name

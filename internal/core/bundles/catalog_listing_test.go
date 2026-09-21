@@ -34,44 +34,6 @@ func TestCatalogInfos_ListsTheResolvableRefNotTheLeafName(t *testing.T) {
 	assert.NoError(t, err, "every name a listing prints must resolve")
 }
 
-// TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent is the listing
-// contract `bundle list` states in its own help: local plus pinned-remote
-// content. A builtin ships inside the binary and is neither.
-//
-// The builtin here is the REAL embedded one (NewBuiltinReader over
-// resources/builtin_bundles), not a fixture, so the assertion cannot pass by the
-// builtin never having been there — the absence-satisfies-absence shape. The
-// test proves it was present in the unscoped set first, then that scoping drops
-// exactly it and keeps the remote and companion reads.
-func TestCatalogScoped_ExcludesBuiltinsAndKeepsAcquiredContent(t *testing.T) {
-	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	acquired := staticReader{reads: []BundleRead{
-		NewRead("https://example.test/repo@bundles/pinned", &Bundle{Name: "https://example.test/repo@bundles/pinned", Version: "1.0.0"},
-			ProvenanceRemote, TrustCtxRemote, unsigned),
-		NewRead(companionRefPrefix+"ltk", &Bundle{Name: companionRefPrefix + "ltk", Version: "1.0.0"},
-			ProvenanceCompanion, TrustCtxLocal, unsigned),
-	}}
-	cat := Resolve(context.Background(), nil,
-		projectReaderOver(t, "local.yaml", "version: 1.0.0\n"),
-		NewBuiltinReader(),
-		acquired,
-	)
-
-	// The BARE name: a builtin is DISPLAYED by the name it declares. Its
-	// canonical URI is what addresses it; the display name never did.
-	const builtinRef = "isolation"
-	require.Contains(t, namesOf(cat.Infos()), builtinRef,
-		"guard: the embedded builtin must be in the unscoped set, or this test proves nothing")
-
-	got := namesOf(cat.Scoped(ProvenanceProject, ProvenanceRemote, ProvenanceCompanion).Infos())
-
-	assert.NotContains(t, got, builtinRef, "a builtin is not installed and must not be listed")
-	assert.Contains(t, got, "local", "project content must still be listed")
-	assert.Contains(t, got, "https://example.test/repo@bundles/pinned", "pinned remote content must still be listed")
-	assert.Contains(t, got, companionRefPrefix+"ltk", "companion content must still be listed")
-	assert.Len(t, got, 3, "scoping drops the builtin and nothing else")
-}
-
 // TestCatalogLookupRef_ResolvesByTypedSourceIdentity proves the typed
 // counterpart to Lookup(ask): a caller holding a structured trust.BundleRef
 // (LocalRef("kit"), the identity a real project bundle's SourceRef carries)
@@ -110,14 +72,6 @@ func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
 	assert.False(t, ok, "an identity nothing was resolved under must miss")
 }
 
-func namesOf(infos []*BundleInfo) []string {
-	out := make([]string, 0, len(infos))
-	for _, i := range infos {
-		out = append(out, i.Name)
-	}
-	return out
-}
-
 // twoBundlesOneDisplayName resolves a catalog holding two bundles that show
 // the SAME display name under DIFFERENT canonical URIs — the shape nothing
 // shadows any more, and therefore the shape a listing has to be able to render
@@ -126,21 +80,21 @@ func twoBundlesOneDisplayName(t *testing.T) Catalog {
 	t.Helper()
 	localSrc, err := trust.LocalRef("isolation")
 	require.NoError(t, err)
-	builtinSrc, err := trust.BuiltinRef("isolation")
+	companionSrc, err := trust.CompanionRef("isolation")
 	require.NoError(t, err)
 
 	localBundle := &Bundle{Name: "isolation", Version: "1.0.0"}
 	localBundle.sourceRef = localSrc
 	localBundle.sourceRefSet = true
 
-	builtinBundle := &Bundle{Name: "isolation", Version: "2.0.0"}
-	builtinBundle.sourceRef = builtinSrc
-	builtinBundle.sourceRefSet = true
+	companionBundle := &Bundle{Name: "isolation", Version: "2.0.0"}
+	companionBundle.sourceRef = companionSrc
+	companionBundle.sourceRefSet = true
 
 	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	return Resolve(context.Background(), nil, staticReader{reads: []BundleRead{
 		NewRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned),
-		NewRead("isolation", builtinBundle, ProvenanceBuiltin, TrustCtxLocal, unsigned),
+		NewRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal, unsigned),
 	}})
 }
 
@@ -176,8 +130,8 @@ func TestListingNames_ShowsTheURIWhenTwoRowsShareAName(t *testing.T) {
 			"a URI the refusal tells the user to type must be findable in the listing")
 	}
 	// Listing order is by display name then canonical key (sortReads), so the
-	// builtin URI sorts ahead of the local one.
-	assert.Equal(t, "isolation (ctxloom+builtin:isolation)", labels[0])
+	// companion URI sorts ahead of the local one.
+	assert.Equal(t, "isolation (ctxloom+companion:isolation)", labels[0])
 	assert.Equal(t, "isolation (ctxloom+local:isolation)", labels[1])
 }
 

@@ -265,16 +265,13 @@ type Options struct {
 	// Static writes premised fragments into the context instead of holding
 	// them for the catalog: the consumer has no ctxloom behind it to pull one.
 	Static bool
-	// Builtin are unconditional fragment injections, already read (the
-	// builtin bundles' fragments, companion loadouts).
-	Builtin []Fragment
 	// Commands are unconditional command injections, already read (ctxloom's
 	// embedded commands).
 	Commands []Command
 	// Hooks, MCP, DenyTools and Statusline are the surfaces the caller
 	// resolved: config-level hooks, ctxloom's own hooks for this run, the
-	// bundle and builtin servers with the profiles' vetoes applied. Assemble
-	// carries them; the link grant is derived from MCP.
+	// bundle and companion servers with the profiles' vetoes applied.
+	// Assemble carries them; the link grant is derived from MCP.
 	Hooks      wire.HooksConfig
 	MCP        map[string]wire.MCPServer
 	DenyTools  []string

@@ -153,7 +153,7 @@ func (a *authorizer) Admit(e bundles.Exposure) bundles.Verdict {
 	if reason, ok := localReason(e.Read); ok {
 		return bundles.Verdict{Allow: true, Reason: reason, Detail: admitDetail(e.Read)}
 	}
-	if signer := e.Read.Bundle.Signer(); signer != "" && signer != trust.BuiltinSigner {
+	if signer := e.Read.Bundle.Signer(); signer != "" {
 		return bundles.Verdict{Allow: true, Reason: bundles.ReasonTrustedSigner}
 	}
 	if a.records.Approved(e.Ref, e.Bytes, e.Form) {
@@ -175,7 +175,7 @@ func fault(port any) error {
 // can withdraw it — and so whether an unreadable retraction record must
 // withhold it.
 func retractable(ref trust.Ref) bool {
-	return !ref.IsLocal && !ref.IsBuiltin && ref.RepoURL != ""
+	return !ref.IsLocal && ref.RepoURL != ""
 }
 
 // localReason answers for content the human already controls: authored in
@@ -192,8 +192,6 @@ func localReason(read bundles.BundleRead) (bundles.Reason, bool) {
 	switch read.Provenance {
 	case bundles.ProvenanceProject:
 		return bundles.ReasonLocal, true
-	case bundles.ProvenanceBuiltin:
-		return bundles.ReasonBuiltin, true
 	case bundles.ProvenanceCompanion:
 		return bundles.ReasonCompanion, true
 	}

@@ -3,9 +3,7 @@ package config
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -500,64 +498,33 @@ func TestExtractMCPFromBundle(t *testing.T) {
 // ResolveBundleMCPServers Tests
 // =============================================================================
 
-// onlyBuiltinMCPServers asserts a resolution surfaced nothing beyond the
-// embedded builtin bundles' servers. Exactly one exists — ctxloom's own, from
-// resources/builtin_bundles/ctxloom-mcp.yaml — and it must be there whatever
-// the profile scope: builtins are injected unconditionally, which is what makes
-// composing that bundle the thing that registers ctxloom's MCP server.
-// (Companion loadouts also land here; none of these callers fakes a loadout
-// probe, so none appears.)
-func onlyBuiltinMCPServers(t *testing.T, result map[string]wire.MCPServer) {
+// noMCPServers asserts a resolution surfaced nothing: with no profile in
+// scope and no companion loadout probed (none of these callers fakes a probe,
+// and a fixture Config reads no companion), there is no source to register a
+// server from — ctxloom's own included, which arrives only through its
+// companion loadout.
+func noMCPServers(t *testing.T, result map[string]wire.MCPServer) {
 	t.Helper()
-	for name, server := range result {
-		assert.True(t, strings.HasPrefix(server.SCM, "bundle:ctxloom+builtin:") || strings.HasPrefix(server.SCM, "bundle:ctxloom+companion:"),
-			"unexpected non-builtin, non-companion MCP server %q (SCM %q)", name, server.SCM)
-	}
-	own, ok := result["ctxloom"]
-	require.True(t, ok, "ctxloom's own MCP server must be injected by the builtin ctxloom bundle; got %v", result)
-	assert.Equal(t, "bundle:ctxloom+builtin:ctxloom-mcp", own.SCM)
-	assert.Equal(t, []string{"mcp", "serve"}, own.Args, "the builtin entry must invoke the `mcp serve` leaf")
-	assert.Len(t, result, 1, "no other embedded builtin bundle ships an MCP server, and these callers don't fake a companion loadout probe")
-}
-
-// stubLookPath pins the companion-gating seam: every binary resolves except
-// those named missing, so assertions don't depend on what the host machine
-// happens to have installed.
-func stubLookPath(t *testing.T, missing ...string) {
-	t.Helper()
-	gone := make(map[string]bool, len(missing))
-	for _, m := range missing {
-		gone[m] = true
-	}
-	orig := lookPath
-	lookPath = func(bin string) (string, error) {
-		if gone[bin] {
-			return "", exec.ErrNotFound
-		}
-		return "/stub/" + bin, nil
-	}
-	t.Cleanup(func() { lookPath = orig })
+	assert.Empty(t, result, "no profile bundle and no companion loadout in scope: nothing registers a server")
 }
 
 func TestConfig_ResolveBundleMCPServers_NoDefaultProfile(t *testing.T) {
-	stubLookPath(t)
 	cfg := &Config{
 		appPaths: []string{"/project/.ctxloom"},
 	}
 	cfg.BindTrustForTesting(compositetest.Trust())
 
-	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
+	noMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
 func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
-	stubLookPath(t)
 	cfg := &Config{
 		defaultAgent: "default", agents: map[string]agents.Agent{"default": {Profiles: []string{"test"}}},
 		appPaths: []string{},
 	}
 	cfg.BindTrustForTesting(compositetest.Trust())
 
-	onlyBuiltinMCPServers(t, cfg.ResolveBundleMCPServers(nil))
+	noMCPServers(t, cfg.ResolveBundleMCPServers(nil))
 }
 
 // An unresolvable profile (`ctxloom run -p <typo>`) delivers zero MCP
@@ -567,7 +534,6 @@ func TestConfig_ResolveBundleMCPServers_NoAppPaths(t *testing.T) {
 // `continue` past it. Previously this test asserted only the empty map, which
 // is what the silent no-op produces.
 func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
-	stubLookPath(t)
 	resetConfigStrictness(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/project/.ctxloom"
@@ -585,7 +551,7 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 	}
 
 	mark := strictness.Checkpoint()
-	onlyBuiltinMCPServers(t, newCfg().ResolveBundleMCPServers(nil))
+	noMCPServers(t, newCfg().ResolveBundleMCPServers(nil))
 	found := strictness.Since(mark)
 	require.NotEmpty(t, found, "an unresolvable profile must record a finding, not vanish")
 	assert.Equal(t, strictness.ClassRef, found[0].Class)
@@ -617,7 +583,6 @@ func TestConfig_ResolveBundleMCPServers_ProfileNotFound(t *testing.T) {
 // that ships neither — no warning, no finding, exit 0. The sibling
 // loadBundleProfileSeed (config.go) already reports exactly this fault.
 func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
-	stubLookPath(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
 	bundlesDir := paths.LocalBundlesPath(appDir)
@@ -667,7 +632,6 @@ func TestConfig_BundleRefThatFailsToLoadIsReported(t *testing.T) {
 // a legitimate empty result, not a swallowed failure, and must not be reported
 // as a fatal startup finding.
 func TestConfig_ItemScopedBundleRefIsNotAFailure(t *testing.T) {
-	stubLookPath(t)
 	resetConfigStrictness(t)
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
@@ -1051,59 +1015,6 @@ mcp:
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)
 	assert.Empty(t, result.PostFileEdit)
-}
-
-// TestResolveBuiltinBundleHooks proves the embedded-builtin-bundle hook path
-// degrades cleanly to a zero-valued UnifiedHooks now that no embedded bundle
-// ships a companion wire-in (S8 deleted resources/builtin_bundles/{ltk,
-// taskloom}.yaml — that content now rides their own loadouts, discovered on
-// PATH; see TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated). The
-// SCM-tagging contract for any FUTURE embedded builtin is still pinned
-// directly via a synthetic bundle through extractHooksFromBundle — the exact
-// code path resolveBuiltinBundleHooks takes.
-func TestResolveBuiltinBundleHooks(t *testing.T) {
-	hooks := resolveBuiltinBundleHooks(report.Reporter{}, composite.Ungated().Authorizer(), bundles.LinksUnchecked())
-	assert.Empty(t, hooks.PreTool)
-	assert.Empty(t, hooks.PostTool)
-	assert.Empty(t, hooks.SessionStart)
-	assert.Empty(t, hooks.SessionEnd)
-	assert.Empty(t, hooks.PreShell)
-	assert.Empty(t, hooks.PostFileEdit, "no embedded builtin bundle ships a hook anymore")
-
-	synthetic := extractHooksFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
-		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
-	}), mustBuiltinRef(t, "future-bundle"), composite.Ungated().Authorizer(), bundles.LinksUnchecked())
-	require.Len(t, synthetic.PostFileEdit, 1)
-	assert.Equal(t, "bundle:ctxloom+builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
-		"extractHooksFromBundle prepends 'bundle:' to the source's canonical BundleIdentity, including a builtin's")
-}
-
-// TestResolveBuiltinBundleMCPServers proves the embedded-builtin-bundle
-// MCP-server path DELIVERS: ctxloom's own server ships in
-// resources/builtin_bundles/ctxloom-mcp.yaml, and this resolver — which every
-// session runs unconditionally, before any profile scope — is what puts it in
-// the managed set. The SCM-tag contract is pinned both through the real bundle
-// and directly via extractMCPFromBundle with a BuiltinRef as the source.
-func TestResolveBuiltinBundleMCPServers(t *testing.T) {
-	stubLookPath(t)
-	got := resolveBuiltinBundleMCPServers(report.Reporter{}, composite.Ungated().Authorizer())
-	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
-	own, ok := got["ctxloom"]
-	require.True(t, ok, "the builtin ctxloom bundle must contribute ctxloom's own MCP server; got %v", got)
-	assert.Equal(t, "ctxloom", own.Command, "the bundle declares the bare name; the writers resolve it")
-	assert.Equal(t, []string{"mcp", "serve"}, own.Args, "the `mcp serve` leaf is the one spelling that speaks the protocol")
-	assert.Equal(t, "bundle:ctxloom+builtin:ctxloom-mcp", own.SCM)
-
-	// Pin the contract directly: a synthetic builtin source through
-	// extractMCPFromBundle produces the expected SCM tag.
-	synthetic := extractMCPFromBundle(report.Reporter{}, bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
-		MCP: map[string]bundles.BundleMCP{
-			"synthetic": {Command: "fake"},
-		},
-	}), mustBuiltinRef(t, "future-bundle"), composite.Ungated().Authorizer())
-	require.Contains(t, synthetic, "synthetic")
-	assert.Equal(t, "bundle:ctxloom+builtin:future-bundle", synthetic["synthetic"].SCM,
-		"extractMCPFromBundle prepends 'bundle:' to the source's canonical BundleIdentity, including a builtin's")
 }
 
 func TestHooksConfig_HasAny(t *testing.T) {

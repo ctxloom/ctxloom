@@ -19,7 +19,7 @@ allowed to see yet — grouped by bundle, and decide each one.
 An item is pending when it was never reviewed, or when its content changed
 since a human approved it (an UPDATE — shown as a diff against what was
 approved). First-party content is exempt and never appears here: items you
-authored in this project, builtin bundles shipped inside the binary, and
+authored in this project, companion loadouts (ctxloom's own included), and
 bundles signed by a publisher key you trust (allowed_signers). Trust is keyed
 to a signing KEY, never to the remote the bytes arrived from. A rejection
 still beats every one of those exemptions.

@@ -97,7 +97,6 @@ func (s seededSources) Readers(_ context.Context, cfg *config.Config) ([]bundles
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
 	}
 	if s.companions {
 		readers = append(readers, companions.Prober{}.ReaderSource()(cfg)...)

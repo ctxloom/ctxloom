@@ -849,9 +849,8 @@ func TestWalk_MalformedDirectoriesFailLoud(t *testing.T) {
 
 func TestNewTreeStore_RefusesAmbiguousProvenance(t *testing.T) {
 	for name, prov := range map[string]Provenance{
-		"local and builtin": {IsLocal: true, IsBuiltin: true},
-		"local with url":    {IsLocal: true, RepoURL: "https://example.test/x"},
-		"unspecified":       {},
+		"local with url": {IsLocal: true, RepoURL: "https://example.test/x"},
+		"unspecified":    {},
 	} {
 		if _, err := NewTreeStore(newMemFsWithRoot(t), fixtureRoot, prov); err == nil {
 			t.Errorf("%s: NewTreeStore accepted %+v", name, prov)

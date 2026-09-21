@@ -49,7 +49,6 @@ selection, not content, and its constituent items are decided individually.
 The bundle half is either a CANONICAL URI or a plain bundle NAME:
 
   ctxloom+local:<name>                        a bundle in this project's tree
-  ctxloom+builtin:<name>                      a bundle compiled into ctxloom
   ctxloom+companion:<binary>                  a companion binary's loadout
   ctxloom+git://<host>/<repo>//bundles/<name> a bundle in a remote repository
   ctxloom+file://<abs-repo>//bundles/<name>   the same, in a repo on this disk
@@ -65,7 +64,6 @@ Examples:
   ctxloom bundle trust 'core#fragments/tdd'
   ctxloom bundle trust 'lang/go#fragments/idioms'
   ctxloom bundle trust 'ctxloom+local:dev#commands/review'
-  ctxloom bundle trust 'ctxloom+builtin:isolation#fragments/isolation-axes'
   ctxloom bundle trust 'ctxloom+companion:ltk#hooks/PreToolUse/0'
   ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
   ctxloom bundle trust 'ctxloom+git://github.com/acme/repo//bundles/x@v1.2.0#fragments/y'
@@ -136,7 +134,7 @@ Reference format matches 'ctxloom bundle trust' (see its help).
 
 Examples:
   ctxloom bundle reject 'tooling#fragments/curl-pipe-sh'
-  ctxloom bundle reject 'ctxloom+builtin:ltk#hooks/SessionStart/0'
+  ctxloom bundle reject 'ctxloom+companion:ltk#hooks/PreToolUse/0'
   ctxloom bundle reject 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'`
 
 // runBundleRejectCmd is bundleRejectCmd's RunE.

@@ -1038,22 +1038,17 @@ func (w *ClaudeCodeHookWriter) removeExactCommand(settings *claudeCodeSettings, 
 // AppMCPServerName is the name used for the ctxloom MCP server in settings.
 const AppMCPServerName = agent.MCPServerName
 
-// addMCPServersToConfig adds the resolved bundle MCP servers to the .mcp.json
-// config. ctxloom's own entry (the builtin ctxloom bundle's) has its command
-// resolved to the bare ctxloom executable (agent.CtxloomCommand) so it is
-// looked up on PATH wherever the entry is read, and additionally carries cwd
-// so it runs in the project directory where findAppDir works — the one field
-// no bundle can express.
-// mcpEntries renders the managed server set as .mcp.json entries. The
-// ctxloom entry alone gets a cwd: .mcp.json (not settings.json) is where
-// ${CLAUDE_PROJECT_DIR} expands, see MCPConfigPath.
+// mcpEntries renders the resolved server set as .mcp.json entries, each
+// written AS DECLARED by the bundle that shipped it — ctxloom's own entry
+// (its companion loadout's) names the bare ctxloom executable, looked up on
+// PATH wherever the file is read (agent.CtxloomCommand's invariant), and no
+// rewrite happens here. The ctxloom entry alone gets a cwd, so it runs in the
+// project directory where findAppDir works — the one field no bundle can
+// express, and .mcp.json (not settings.json) is where ${CLAUDE_PROJECT_DIR}
+// expands, see MCPConfigPath.
 func (w *ClaudeCodeHookWriter) mcpEntries(bundleMCP map[string]wire.MCPServer) (map[string]agent.ChatMCPConfigEntry, error) {
 	out := make(map[string]agent.ChatMCPConfigEntry)
-	servers, found := agent.ResolveManagedMCPServers(bundleMCP)
-	for _, f := range found {
-		strictness.Sink("ctxloom").Report(f)
-	}
-	for name, server := range servers {
+	for name, server := range bundleMCP {
 		if err := server.Validate(); err != nil {
 			return nil, fmt.Errorf("mcp server %q: %w", name, err)
 		}

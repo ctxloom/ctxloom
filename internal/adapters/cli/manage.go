@@ -659,13 +659,14 @@ var manageHooksListCmd = &cobra.Command{
 	Short: "List the hooks that will fire, per event, in their resolved order",
 	Long: `List the hooks that will actually fire, in the order they will fire in.
 
-Hooks merge across every source — your config, your profiles, ctxloom's builtins,
-companion tools, and each bundle your profiles reference — by pure APPEND, and a
+Hooks merge across every source — your config, your profiles, companion
+loadouts (ctxloom's own included), and each bundle your profiles reference — by
+pure APPEND, and a
 bundle's own 'order:' sequences only its own hooks within an event. The result is
 emergent: no single file states it. This is where you read it.
 
 Each hook is reported with where it came from — your config, which profile, or
-which bundle, builtin or companion — so a sequence you dislike points at one
+which bundle or companion — so a sequence you dislike points at one
 place you can go and change.`,
 	Args: cobra.NoArgs,
 	RunE: runManageHooksList,

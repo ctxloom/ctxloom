@@ -38,7 +38,6 @@ func TestState_ProjectionIsLossyButSourceAlwaysTravelsWithIt(t *testing.T) {
 		{trust.Deny, trust.SourceRetracted, trust.StateRejected},
 		{trust.Deny, trust.SourcePending, trust.StatePending},
 		{trust.Allow, trust.SourceLocal, trust.StateAccepted},
-		{trust.Allow, trust.SourceBuiltin, trust.StateAccepted},
 		{trust.Allow, trust.SourceTrustedSigner, trust.StateAccepted},
 		{trust.Allow, trust.SourceAccepted, trust.StateAccepted},
 	}

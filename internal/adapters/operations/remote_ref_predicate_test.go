@@ -40,7 +40,6 @@ func TestIsRemoteReference_RecognizesEveryFetchableSpelling(t *testing.T) {
 		"bare name":          "developer",
 		"ctxloom:local":      "ctxloom:local@bundles/dev",
 		"canonical local":    "ctxloom+local:bundles/dev",
-		"canonical builtin":  "ctxloom+builtin:core",
 		"canonicalcompanion": "ctxloom+companion:ltk",
 	}
 	for name, ref := range localRefs {

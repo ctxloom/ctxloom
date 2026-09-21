@@ -13,14 +13,14 @@ import (
 
 // The MCP-server listing reads the set a session actually registers
 // (Config.ResolveBundleMCPServers), so every entry it returns is a bundle item.
-// These tests assert on the ONE server every project gets — ctxloom's own, from
-// the builtin ctxloom bundle — because that is the entry whose absence costs
-// the user every ctxloom tool. Nothing here configures a server: if the
-// builtin's unconditional injection stopped delivering MCP, every one of them
+// These tests assert on the ONE server every project gets — ctxloom's own,
+// from its own companion loadout — because that is the entry whose absence
+// costs the user every ctxloom tool. Nothing here configures a server: if the
+// loadout's unconditional delivery stopped registering MCP, every one of them
 // goes red.
 
 func TestListMCPServers_ReturnsCtxloomsOwnServerResolved(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{}))
 
 	res, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{})
 	require.NoError(t, err)
@@ -33,30 +33,28 @@ func TestListMCPServers_ReturnsCtxloomsOwnServerResolved(t *testing.T) {
 	}
 	require.NotNil(t, own, "ctxloom's own MCP server must be listed; got %+v", res.Servers)
 	assert.Equal(t, res.Count, len(res.Servers), "Count must match the slice it describes")
-	assert.Equal(t, "ctxloom+builtin:ctxloom-mcp", own.Source,
+	assert.Equal(t, "ctxloom+companion:ctxloom", own.Source,
 		"the listing must name the bundle the server came from, with the bundle: prefix stripped")
 	assert.Equal(t, agent.CtxloomMCPArgs, own.Args, "the listed entry must invoke the `mcp serve` leaf")
-	// The listing must report the command a SETTINGS FILE would receive, which
-	// is agent.CtxloomCommand's self-exec resolution of the bare name the bundle
-	// declares. (Under `go test` self-lookup falls back to the bare name, so the
-	// two coincide here; agent.TestResolveManagedMCPServers is where the
-	// substitution itself is pinned.)
+	// The listing reports the command a SETTINGS FILE receives: the bare name
+	// the loadout declares, written as declared (agent.CtxloomCommand's
+	// invariant).
 	assert.Equal(t, agent.CtxloomCommand(), own.Command)
 }
 
 func TestGetMCPServer_FindsCtxloomsOwnServer(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{}))
 
 	res, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: agent.MCPServerName})
 	require.NoError(t, err)
 	require.True(t, res.Found)
 	require.Len(t, res.Entries, 1, "one name resolves to one server")
 	assert.Equal(t, agent.MCPServerName, res.Entries[0].Name)
-	assert.Equal(t, "ctxloom+builtin:ctxloom-mcp", res.Entries[0].Source)
+	assert.Equal(t, "ctxloom+companion:ctxloom", res.Entries[0].Source)
 }
 
 func TestGetMCPServer_NotFound(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{}))
 
 	res, err := GetMCPServer(context.Background(), cfg, GetMCPServerRequest{Name: "no-such-server"})
 	require.NoError(t, err)
@@ -66,7 +64,7 @@ func TestGetMCPServer_NotFound(t *testing.T) {
 }
 
 func TestListMCPServers_QueryFiltersByNameAndCommand(t *testing.T) {
-	cfg := gatedFixture(config.Fixture{})
+	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{}))
 
 	all, err := ListMCPServers(context.Background(), cfg, ListMCPServersRequest{})
 	require.NoError(t, err)

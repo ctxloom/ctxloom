@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,9 +28,15 @@ func testApp(t *testing.T, opts ...configload.Option) *App {
 }
 
 // fixtureSources is a config.Sources whose every Read is the same fixture
-// value, with the reader set ComposeSources wires: project, builtin, the
-// lockfile's remote readers and every discovered companion's loadout.
-type fixtureSources struct{ cfg *config.Config }
+// value, with the reader set ComposeSources wires: project, the lockfile's
+// remote readers and every discovered companion's loadout — or, when a test
+// hands it loadouts directly, a companion reader over exactly those (no
+// discovery), for a fixture companion under a name discovery would never
+// list.
+type fixtureSources struct {
+	cfg      *config.Config
+	loadouts []bundles.CompanionLoadout
+}
 
 func (s fixtureSources) Read(context.Context) (*config.Config, []config.Warning, error) {
 	return s.cfg, nil, nil
@@ -38,9 +46,14 @@ func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundle
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
 	}
 	readers = append(readers, RemoteBundleReaders(cfg)...)
+	if s.loadouts != nil {
+		probe := func(context.Context) (bundles.CompanionProbe, error) {
+			return bundles.CompanionProbe{Loadouts: s.loadouts}, nil
+		}
+		return append(readers, bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root))), nil
+	}
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
 }
 
@@ -52,11 +65,18 @@ func (s fixtureSources) TrustPorts(context.Context, *config.Config) (composite.T
 // fixtureApp opens the process composition over a fixture Config.
 func fixtureApp(t *testing.T, cfg *config.Config) *App {
 	t.Helper()
+	return fixtureAppWith(t, cfg, nil)
+}
+
+// fixtureAppWith is fixtureApp with the companion loadouts the generation
+// reads handed in directly (see fixtureSources.loadouts).
+func fixtureAppWith(t *testing.T, cfg *config.Config, loadouts []bundles.CompanionLoadout) *App {
+	t.Helper()
 	// The gate the fixture already carries survives publication: the Owner
 	// binds a Trust over the fake ports, and a test that stated a gate of its
 	// own (BindTrustForTesting) meant that one.
 	carried := cfg.Trust()
-	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg})
+	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg, loadouts: loadouts})
 	require.NoError(t, err)
 	if carried.Authorizer() != nil {
 		owner.Current().Config.BindTrustForTesting(carried)
@@ -91,6 +111,15 @@ func published(t *testing.T, cfg *config.Config) *config.Config {
 	return snap.Config
 }
 
+// publishedWith is published over a generation that read exactly the given
+// companion loadouts.
+func publishedWith(t *testing.T, cfg *config.Config, loadouts ...bundles.CompanionLoadout) *config.Config {
+	t.Helper()
+	snap, err := fixtureAppWith(t, cfg, loadouts).Snapshot(context.Background())
+	require.NoError(t, err)
+	return snap.Config
+}
+
 // loaded unwraps a config loader's result for a request field.
 func loaded(t *testing.T, load func() (*config.Config, error)) *config.Config {
 	t.Helper()
@@ -103,4 +132,28 @@ func loaded(t *testing.T, load func() (*config.Config, error)) *config.Config {
 		cfg.BindTrustForTesting(compositetest.Trust())
 	}
 	return cfg
+}
+
+// ctxloomOwnLoadout is ctxloom's OWN companion loadout as the self-probe
+// reads it — the repo's real cmd/ctxloom/loadout.yaml, not a stand-in — so a
+// fixture that must carry what every session gets on ctxloom's behalf (its
+// MCP server entry, its always-on guidance) pins the shipped content.
+func ctxloomOwnLoadout(t *testing.T) bundles.CompanionLoadout {
+	t.Helper()
+	// The test binary's working directory before the sandbox moves it is
+	// this package's directory, three levels below the repo root (-trimpath
+	// strips runtime.Caller's path, so the directory is the only anchor).
+	require.NotEmpty(t, packageDirAtStart)
+	doc, err := os.ReadFile(filepath.Join(packageDirAtStart, "..", "..", "..", "cmd", "ctxloom", "loadout.yaml"))
+	require.NoError(t, err)
+	return bundles.CompanionLoadout{Bin: "ctxloom", Path: "/opt/build/ctxloom", Document: doc, Self: true}
+}
+
+var packageDirAtStart, _ = os.Getwd()
+
+// withCtxloomLoadout publishes cfg over a generation that read ctxloom's own
+// loadout — the generation a real ctxloom holds.
+func withCtxloomLoadout(t *testing.T, cfg *config.Config) *config.Config {
+	t.Helper()
+	return publishedWith(t, cfg, ctxloomOwnLoadout(t))
 }

@@ -17,8 +17,8 @@ const LocalSource = "ctxloom:local"
 // PATH (`<bin> loadout --format json`, signature-envelope spec §4.3/§6
 // discovery). This is the FIRST-CLASS, RECOGNIZED source token companion
 // loadouts are seeded under: recognized here (so the unrecognized-source
-// guard every caller builds on IsSelfContainedRef never fires for it) and mapped to a NON-local,
-// NON-builtin trust.Ref (Reference.IsLocal stays false), so companion content
+// guard every caller builds on IsSelfContainedRef never fires for it) and mapped to a NON-local
+// trust.Ref (Reference.IsLocal stays false), so companion content
 // flows through EffectiveTrust's trusted-signer/approved/pending steps
 // exactly like a remote bundle — never auto-allowed, never denied as
 // unrecognized.
@@ -39,8 +39,8 @@ const CompanionSource = "ctxloom:companion"
 // well-formed one. This function is the union of the two, so neither reach
 // is lost:
 //
-//   - the whole canonical ctxloom+<class>: family, via refuri.HasScheme. Three
-//     of the five classes are OPAQUE URIs — "ctxloom+builtin:x" carries no
+//   - the whole canonical ctxloom+<class>: family, via refuri.HasScheme. Two
+//     of the four classes are OPAQUE URIs — "ctxloom+local:x" carries no
 //     "://" at all — so a "://" test reads them as bare names and grants them
 //     the first-party local exemption, which is the fail-OPEN direction for
 //     every guard built on this answer.

@@ -9,19 +9,20 @@ This page is generated from `ltk loadout --help`.
 
 ## ltk loadout
 
-Print ltk's ctxloom loadout — the bundle content ltk contributes to a session
+Print ltk's ctxloom loadout — the content ltk contributes to a session
 
 ### Synopsis
 
-loadout emits the ctxloom bundle ltk contributes to a session, for ctxloom's
-companion discovery to seed into its trust gate under the source ref
+loadout emits the ctxloom loadout ltk contributes — a document with the RUN
+bundle a session consumes and the typed INIT section setup consumes — for
+ctxloom's companion discovery to seed into its trust gate under the source ref
 ctxloom:companion@ltk (signature-envelope spec §4.3, §6).
 
 --format json is the machine contract ctxloom's companion discovery execs
-(`ltk loadout --format json`): a JSON envelope carrying the exact bundle YAML
-bytes (base64) plus an OPTIONAL detached publish signature.
+(`ltk loadout --format json`): a JSON envelope carrying the exact loadout
+document bytes (base64) plus an OPTIONAL detached publish signature.
 
---format yaml (the default) prints the raw bundle YAML for a human to read.
+--format yaml (the default) prints the raw loadout document for a human to read.
 
 ```
 ltk loadout [flags]
@@ -30,7 +31,7 @@ ltk loadout [flags]
 ### Options
 
 ```
-      --format string   output format: yaml (raw bundle) or json (signed envelope) (default "yaml")
+      --format string   output format: yaml (raw loadout document) or json (signed envelope) (default "yaml")
   -h, --help            help for loadout
 ```
 

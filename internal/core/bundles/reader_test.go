@@ -173,20 +173,6 @@ func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) 
 		"a project bundle's typed source ref is LocalRef(its bare resolution name), minted by newRead's fallback")
 }
 
-func TestNewBuiltinReader_ReportsBuiltinProvenanceLocalAndUnsigned(t *testing.T) {
-	reads, err := NewBuiltinReader().Read(context.Background())
-
-	require.NoError(t, err)
-	require.NotEmpty(t, reads, "the binary ships builtin bundles; an empty read means the embed is broken")
-	for _, read := range reads {
-		assert.Equal(t, ProvenanceBuiltin, read.Provenance)
-		assert.Equal(t, TrustCtxLocal, read.TrustCtx(), "a builtin was compiled in; it crossed no intermediary")
-		assert.Equal(t, SignatureNone, read.Signature(),
-			"a builtin is deliberately unsigned — signing bytes with a key inside the binary that verifies them is circular")
-		assert.Equal(t, SignerNone, read.Signer())
-	}
-}
-
 func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing.T) {
 	reads, err := NewCompanionReader(
 		loadoutProbe(CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc}),

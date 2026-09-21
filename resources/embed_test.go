@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -147,49 +146,6 @@ func TestGetDefaultRemotes(t *testing.T) {
 	// restore the hash-blind source bypass this rework removed.
 	if strings.Contains(string(data), "trust_bundles") {
 		t.Error("default-remotes.yaml must NOT carry a trust_bundles flag — source trust is deleted")
-	}
-}
-
-// TestGetBuiltinBundle_TaskloomDeleted proves taskloom is no longer an
-// embedded builtin bundle (signature-envelope spec §4.3, S8): its content
-// (fragment, hooks, MCP server) now ships from its own binary's loadout
-// (`taskloom loadout --format json`, cmd/taskloom/loadout.yaml), discovered
-// on PATH — see internal/core/config's ProbeCompanionLoadouts and
-// TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated. This
-// replaces the old TestGetBuiltinBundle, which asserted the OPPOSITE
-// (taskloom.yaml present and non-empty) — that fixture is gone by design.
-func TestGetBuiltinBundle_TaskloomDeleted(t *testing.T) {
-	_, err := GetBuiltinBundle("taskloom")
-	if err == nil {
-		t.Fatal("taskloom.yaml must no longer be an embedded builtin bundle — it ships from its own loadout now")
-	}
-}
-
-func TestGetBuiltinBundle_Unknown(t *testing.T) {
-	_, err := GetBuiltinBundle("no-such-bundle")
-	if err == nil {
-		t.Fatal("expected error for unknown bundle, got nil")
-	}
-}
-
-// TestListBuiltinBundles_PinsEmbeddedSet pins the current embedded set. A bundle
-// belongs here only when it has no companion of its own to ship it: "isolation"
-// carries the isolation vocabulary, and "ctxloom-mcp" carries ctxloom's own MCP
-// server, which is unconditionally injected now that config has no `mcp:` key
-// to declare it. ListBuiltinBundles must report exactly those names, and must
-// still strip the .yaml extension for whatever it finds.
-func TestListBuiltinBundles_PinsEmbeddedSet(t *testing.T) {
-	names, err := ListBuiltinBundles()
-	if err != nil {
-		t.Fatalf("ListBuiltinBundles: %v", err)
-	}
-	for _, n := range names {
-		if strings.HasSuffix(n, ".yaml") {
-			t.Errorf("ListBuiltinBundles must strip the .yaml extension; got %q", n)
-		}
-	}
-	if want := []string{"ctxloom-mcp", "isolation"}; !reflect.DeepEqual(names, want) {
-		t.Errorf("expected embedded builtin bundles %v, got %v", want, names)
 	}
 }
 

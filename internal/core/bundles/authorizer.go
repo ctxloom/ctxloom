@@ -138,9 +138,6 @@ const (
 
 	// ReasonLocal: authored in this project. Trusted by construction.
 	ReasonLocal
-	// ReasonBuiltin: compiled into this binary. Authenticated BY the binary —
-	// trusting ctxloom trusts what it ships.
-	ReasonBuiltin
 	// ReasonCompanion: a loadout an installed companion binary advertised about
 	// itself. Local-equivalent because the binary already ran as the user to
 	// produce it; the control point is EXEC consent, not content review.
@@ -275,8 +272,6 @@ func (r Reason) String() string {
 	switch r {
 	case ReasonLocal:
 		return "local"
-	case ReasonBuiltin:
-		return "builtin"
 	case ReasonCompanion:
 		return "companion"
 	case ReasonTrustedSigner:
@@ -353,7 +348,7 @@ func (r Reason) Explain(detail string) string {
 			return detail
 		}
 		return "its signature no longer covers its bytes — re-sign it"
-	case ReasonLocal, ReasonBuiltin, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
+	case ReasonLocal, ReasonCompanion, ReasonTrustedSigner, ReasonApproved:
 		return "allowed: " + r.String()
 	default:
 		// ReasonUnsigned, ReasonPending, ReasonUnset, and the fail-closed

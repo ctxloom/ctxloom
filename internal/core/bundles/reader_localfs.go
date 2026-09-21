@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
 // localFSReader reads bundle documents out of directories on a filesystem.
@@ -24,8 +23,8 @@ import (
 // directories and the bundles compiled into the binary — because an embed.FS
 // adapted through afero is a filesystem, and a second body would have been the
 // same walk, the same parse and the same signature check free to drift from
-// this one. The two differ only in what they hard-code: their provenance label
-// and their filesystem. Neither is a constructor argument.
+// this one. Its provenance label and filesystem are hard-coded by its
+// constructor, never arguments.
 type localFSReader struct {
 	fsys       afero.Fs
 	dirs       []string
@@ -33,11 +32,7 @@ type localFSReader struct {
 	cfg        readerConfig
 
 	// layouts is the set of FORMAT roots to search beneath each dir, most
-	// preferred first. EMPTY means the dirs are searched as given — the
-	// UNLAYERED case, which is the embedded builtin FS: its bundles sit at the
-	// root of the embed, there is no format tree there to migrate, and
-	// expanding it into per-format roots would search two directories that do
-	// not exist and find no builtin bundle at all.
+	// preferred first. EMPTY means the dirs are searched as given, unlayered.
 	layouts []paths.BundleLayout
 
 	// failed records, per resolution name, WHY a bundle this reader should
@@ -53,8 +48,8 @@ type localFSReader struct {
 //
 // Provenance and trust context are hard-coded, not parameters. A
 // NewLocalFSReader(fs, dirs, provenance) would let any caller mint
-// builtin-labelled or project-labelled content out of a call site, which is a
-// trust bypass that reviews as ordinary wiring.
+// project-labelled content out of a call site, which is a trust bypass that
+// reviews as ordinary wiring.
 //
 // Local content is trusted by LOCALITY, so a signature on it never gates:
 // the reader still establishes the signature facts, because they are what tells
@@ -73,24 +68,6 @@ func NewProjectReader(fsys afero.Fs, dirs []string, opts ...ReaderOption) Reader
 	}
 }
 
-// NewBuiltinReader reads the bundles embedded in the ctxloom binary
-// (resources/builtin_bundles): ProvenanceBuiltin, TrustCtxLocal.
-//
-// A builtin is deliberately UNSIGNED — signing bytes with a key embedded in the
-// binary that verifies them is circular — so it reports none/none and is local
-// by construction: it did not cross an intermediary, it was compiled in. It is
-// still a READ like any other, which is what keeps a rejected builtin item
-// rejectable: rejection sits above every exemption and is applied downstream,
-// not by hiding the content here.
-func NewBuiltinReader(opts ...ReaderOption) Reader {
-	return &localFSReader{
-		fsys:       afero.FromIOFS{FS: resources.BuiltinBundlesFS()},
-		dirs:       []string{"."},
-		provenance: ProvenanceBuiltin,
-		cfg:        newReaderConfig(opts),
-	}
-}
-
 // ProjectAuthoredRead states the trust facts of content that IS in this
 // project's own tree but did not come out of a Reader, because it is not a
 // bundle: a `.ctxloom/profiles/<name>.yaml` profile's directly-declared hooks
@@ -105,8 +82,8 @@ func NewBuiltinReader(opts ...ReaderOption) Reader {
 // to choose. Two things hold it in place:
 //
 //   - It can only ever say PROJECT/LOCAL/UNSIGNED. There is no argument for
-//     provenance, trust context or signature, so it cannot mint a builtin, a
-//     companion, or a trusted signer, and it cannot claim a signature covers
+//     provenance, trust context or signature, so it cannot mint a
+//     companion or a trusted signer, and it cannot claim a signature covers
 //     anything.
 //   - It is no wider than the claim it replaces: the same call site used to
 //     assert locality implicitly, by handing the gate a bare-token ref, which
@@ -126,13 +103,6 @@ func ProjectAuthoredRead(ref string, b *Bundle) BundleRead {
 // bundle was read through. Computing that preimage against a different fs
 // produces a different hash for the same skill and silently withholds it.
 func (r *localFSReader) FS() afero.Fs { return r.fsys }
-
-// contentProvenance reports what this reader's filesystem HOLDS, so readersFS
-// can pick the project tree over the embedded one without depending on the
-// order the readers were composed in. It is deliberately not the exported
-// Provenance of a read: this answers "whose filesystem is this", which is the
-// only question the fs choice turns on.
-func (r *localFSReader) contentProvenance() ProvenanceClass { return r.provenance }
 
 // Read reports every bundle in every search directory.
 //
@@ -392,43 +362,6 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 		bundle.Name = ExtractBundleName(path)
 	}
 
-	// A builtin's content TRUST identity is stamped HERE, and it deliberately
-	// DIVERGES from the resolution identity below. The two are different
-	// questions:
-	//
-	//   RESOLUTION ref (BundleRead.ref, `name`) is the handle a profile or a
-	//   user asks by. Source class is not part of it — a bundle is addressed
-	//   by what it declares, not by where it sits (ProvenanceClass's own doc:
-	//   provenance is "a LABEL ... never the axis a gate keys on").
-	//
-	//   TRUST ref (bundle.sourceRef, trust.BuiltinRef(name)) is ACTUAL
-	//   LOCATION, and trust keys on actual location. Source class belongs
-	//   here and only here.
-	//
-	// This must run BEFORE newRead, whose stamp is only-if-empty: with sourceRef
-	// already set, the bare resolution ref cannot overwrite it. Were sourceRef
-	// left unset, newRead would stamp the bare `name`, Bundle.contentSourceRef()
-	// (the fragment/prompt/skill trust ref for the loader-resolved-by-ref route)
-	// would yield it, and it would key IsLocal — a second trust identity for
-	// the same item, so a rejection recorded against one route would not
-	// withhold the other (crispy-scoop). The injection route in
-	// config.ResolveBuiltinBundleFragments reads the same value through
-	// BundleRead.SourceRef(), so both routes still resolve to ONE
-	// Ref{IsBuiltin: true} and one store key — now structurally, rather than
-	// because two independently-built strings happened to match.
-	//
-	// A project bundle's sourceRef is untouched (stays the zero BundleRef), so
-	// newRead stamps its bare resolution name and its IsLocal auto-trust is
-	// unchanged.
-	if r.provenance == ProvenanceBuiltin {
-		typed, err := trust.BuiltinRef(name)
-		if err != nil {
-			warnUnmintableSource(r.cfg.rep, name, err)
-		}
-		bundle.sourceRef = typed
-		bundle.sourceRefSet = true
-	}
-
 	// Skills are a PACKAGE (a directory tree: SKILL.md plus siblings), which a
 	// single-file bundle has no filesystem room to hold alongside it. Fail loud
 	// rather than let a skill entry resolve against a directory that does not
@@ -447,15 +380,11 @@ func (r *localFSReader) readBundle(ctx context.Context, path, name string) (Bund
 	}
 	facts := r.directorySignatureFacts(ctx, path, tree)
 	facts.stamp(bundle)
-	// The RESOLUTION ref is the bare path-relative name for EVERY class this
-	// reader serves, builtins included. A builtin once minted
-	// "builtin:<name>" here to dodge a map-key collision with a project bundle
-	// of the same name; that pushed the source class into identity, which is
-	// the rule this reader is not allowed to break, and it leaked "builtin:"
-	// into every listing that showed a ref. The collision is now settled where
-	// collisions belong — in Catalog.Resolve, which shadows the builtin, keeps
-	// the project's, and SAYS SO. Source qualification survives only on
-	// bundle.sourceRef, the trust key, stamped above.
+	// The RESOLUTION ref is the bare path-relative name: source class is never
+	// part of identity (ProvenanceClass's own doc). A collision between two
+	// sources of one name is settled where collisions belong — in
+	// Catalog.Resolve, which keeps the project's and SAYS SO. Source
+	// qualification lives only on bundle.sourceRef, the trust key.
 	return NewRead(name, bundle, r.provenance, TrustCtxLocal, facts), nil
 }
 

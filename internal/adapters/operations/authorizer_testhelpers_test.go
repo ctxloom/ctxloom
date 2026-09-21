@@ -128,7 +128,7 @@ func admitExec(t *testing.T, g *contentGate, read bundles.BundleRead, ref string
 // (TestEffectiveTrust_UnsetPostureWithholds, and the reader tests in
 // internal/core/bundles).
 func postureCtxOf(ref trust.Ref) bundles.TrustCtx {
-	if ref.IsBuiltin || ref.IsCompanion || ref.IsLocal {
+	if ref.IsCompanion || ref.IsLocal {
 		return bundles.TrustCtxLocal
 	}
 	return bundles.TrustCtxRemote
@@ -137,8 +137,6 @@ func postureCtxOf(ref trust.Ref) bundles.TrustCtx {
 // postureProvOf is postureCtxOf's provenance half — see its doc.
 func postureProvOf(ref trust.Ref) bundles.ProvenanceClass {
 	switch {
-	case ref.IsBuiltin:
-		return bundles.ProvenanceBuiltin
 	case ref.IsCompanion:
 		return bundles.ProvenanceCompanion
 	case ref.IsLocal:

@@ -153,7 +153,6 @@ func TestAssembleContext_DirectoryProfileWithBundles_ReturnsAllFragments(t *test
 			"ctxloom+local:test/alpha#fragments/a1",
 			"ctxloom+local:test/alpha#fragments/a2",
 			"ctxloom+local:test/beta#fragments/two",
-			builtinIsolationFragmentRef, // always-on, independent of profile selection
 		},
 		result.FragmentsLoaded,
 		"FragmentsLoaded must include every expanded fragment")

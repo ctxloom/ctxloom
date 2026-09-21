@@ -43,8 +43,6 @@ const (
 	ProvenanceUnset ProvenanceClass = iota
 	// ProvenanceProject is content authored in this project's own tree.
 	ProvenanceProject
-	// ProvenanceBuiltin is content embedded in the ctxloom binary.
-	ProvenanceBuiltin
 	// ProvenanceCompanion is a loadout a companion application advertised
 	// about itself.
 	ProvenanceCompanion
@@ -56,8 +54,6 @@ func (p ProvenanceClass) String() string {
 	switch p {
 	case ProvenanceProject:
 		return "project"
-	case ProvenanceBuiltin:
-		return "builtin"
 	case ProvenanceCompanion:
 		return "companion"
 	case ProvenanceRemote:
@@ -264,13 +260,12 @@ func (r BundleRead) Key() trust.BundleKey {
 // refs — the structured trust.BundleRef a "<source>#<kind>/<name>" gate ref
 // is built from.
 //
-// It exists so the two routes a builtin's content reaches a session by cannot
-// key differently. The loader-resolved route builds its ref from
-// Bundle.contentSourceRef(); the unconditional injection route
-// (config.ResolveBuiltinBundleFragments and its hooks/MCP siblings) reads the
-// trust key HERE rather than reconstructing one from a display name. Two
-// constructions of one identity is exactly how a rejection recorded against
-// one route stops withholding the other.
+// It exists so the routes a bundle's content reaches a session by cannot key
+// differently. The loader-resolved route builds its ref from
+// Bundle.contentSourceRef(); the hooks/MCP resolvers read the trust key HERE
+// rather than reconstructing one from a display name. Two constructions of
+// one identity is exactly how a rejection recorded against one route stops
+// withholding the other.
 //
 // Location-derived without exception: the readers stamp it, nothing a bundle
 // DECLARES reaches it (outdated-recoil).
@@ -366,16 +361,16 @@ func (r BundleRead) Claimed() bool {
 // ctxloom:companion ref — never by the document's own `name:`. Without this,
 // contentSourceRef fell back to Bundle.Name, which a bundle DECLARES, so the
 // content being judged supplied an input to its own trust key: a project
-// bundle declaring `name: builtin:isolation` keyed as that builtin
+// bundle declaring `name: ctxloom:companion@ltk` keyed as that companion
 // (outdated-recoil).
 //
 // Only-when-empty, so a ref a reader already established deliberately wins:
 // WithSeededBundles' lockfile ref, the repofs reader's, the companion
-// reader's, and localFSReader's "builtin:<name>" for embedded content.
+// reader's.
 //
 // Every caller that reaches this fallback with sourceRefSet still false is, by
-// construction, a genuinely local resolution ref — the companion, repofs and
-// builtin call sites all stamp sourceRef (and sourceRefSet) themselves before
+// construction, a genuinely local resolution ref — the companion and repofs
+// call sites stamp sourceRef (and sourceRefSet) themselves before
 // calling newRead, so the only ones left unset here are localFSReader's
 // project-provenance bundles and the package's other exported constructor for
 // project-authored (non-Reader) content above. The stamp below is minted with

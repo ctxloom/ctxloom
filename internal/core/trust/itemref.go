@@ -17,9 +17,10 @@ import (
 // would be gated under another.
 
 // IsRetiredBuiltinSpelling reports whether ask is written as "builtin:<name>",
-// the one bundle-reference spelling NOTHING in this system still mints: a
-// builtin bundle's identity comes from BuiltinRef, and no lockfile, resolved
-// profile or assembly identity carries this prefix.
+// the one bundle-reference spelling NOTHING in this system still mints: the
+// bundles that used to be embedded in the binary now arrive as ctxloom's own
+// companion loadout, and no lockfile, resolved profile or assembly identity
+// carries this prefix.
 //
 // It is therefore the only spelling the LOAD path may refuse outright. The
 // load path is handed self-contained identities that are still authored today

@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/errs"
 )
 
@@ -230,20 +229,6 @@ func TestExposureWithheld_Characterization_TrustedSignerExposes(t *testing.T) {
 	assert.Empty(t, p.withheld(), "nothing is withheld when the publisher is trusted")
 }
 
-// TestExposureWithheld_Characterization_BuiltinSignerNeverLaunders pins the
-// explicit carve-out: the SYNTHETIC builtin identity stamped onto a REMOTE
-// bundle must never be read as a trusted publisher. Nothing about a builtin is
-// cryptographically verified, so laundering the token would turn "shipped in
-// the binary" into "signed by someone we trust".
-func TestExposureWithheld_Characterization_BuiltinSignerNeverLaunders(t *testing.T) {
-	p := newExposureProbe(t, nil, newTrustFixture(t).records(), charGateSeed(trust.BuiltinSigner))
-
-	_, err := p.fragment(charGateApprovedRef)
-	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld),
-		"the synthetic builtin signer on a remote bundle must not launder into a trusted publisher, got %v", err)
-	assert.Contains(t, p.withheld(), canonicalWithheldRef(t, charGateApprovedRef))
-}
-
 // TestExposureWithheld_Characterization_UnmintableSourceRefuses is the first of
 // the two FAIL-CLOSED arms. A bundle seeded under a source ref that cannot be
 // addressed as a trust ref (here: a canonical URL missing its "@bundles/<path>"
@@ -382,15 +367,12 @@ func TestExposureWithheld_Characterization_StoreErrorWithholdsEverything(t *test
 	assert.Empty(t, res.FragmentsLoaded, "an unreadable store exposes nothing at all")
 
 	assert.ElementsMatch(t,
-		// The always-on BUILTIN fragment is in this set too: builtin is its own
-		// allow step, and the store fault sits above every allow step.
 		[]string{
 			canonicalWithheldRef(t, "localdev#fragments/keep"),
 			canonicalWithheldRef(t, charGateApprovedRef),
-			builtinIsolationFragmentRef,
 		},
 		p.withheld(),
-		"every item consulted under a broken store is tallied as withheld — including the builtin, whose own allow step the fault outranks")
+		"every item consulted under a broken store is tallied as withheld")
 }
 
 // TestExposureWithheld_Characterization_RealPath_LocalExemptAndRejection

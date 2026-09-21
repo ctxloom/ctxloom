@@ -28,11 +28,7 @@ func ComposeChatMCPServers(bundleMCP map[string]wire.MCPServer, existing []ChatM
 	}
 
 	merged := make(map[string]ChatMCPServer)
-	// The findings are not rendered here: this composes the SAME managed
-	// payload the engine's Setup resolved and reported (dedup'd by text), so
-	// the second sight of a declared ctxloom entry has nothing new to say.
-	servers, _ := ResolveManagedMCPServers(bundleMCP)
-	for name, s := range servers {
+	for name, s := range bundleMCP {
 		merged[name] = ChatMCPServerFromWire(name, s)
 	}
 

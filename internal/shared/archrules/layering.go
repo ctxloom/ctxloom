@@ -146,7 +146,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
 			"internal/core/bundles -> internal/shared/upgrade":              "slice 1a: the permanent migrations are deleted",
-			"internal/core/bundles -> resources":                            "slice 5: the embedded builtin bundles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/config — Part 1.0 also lists config/layerscope, which is under the
 			// from-prefix today and so not a violation until the rename moves it to

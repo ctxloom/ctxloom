@@ -87,9 +87,8 @@ func (p *Pipeline) Loader() *Loader {
 }
 
 // Authorizer returns the authorizer this pipeline decides with. Lets a caller
-// that must decide about OTHER items through the IDENTICAL
-// decision — builtin bundle fragments, which never resolve through a Loader at
-// all — share this authorizer rather than building a redundant one.
+// that must decide about OTHER items through the IDENTICAL decision share
+// this authorizer rather than building a redundant one.
 func (p *Pipeline) Authorizer() Authorizer {
 	if p == nil {
 		return nil

@@ -1465,8 +1465,8 @@ func doctorCheckHarpDurability() doctorCheck {
 // doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one
 // pulled from a forge, and therefore one a publisher signature is expected for.
 //
-// Local project bundles, companion loadouts and builtins all legitimately carry
-// no publisher signature: local content is trusted by provenance, and a
+// Local project bundles and companion loadouts legitimately carry no
+// publisher signature: local content is trusted by provenance, and a
 // companion's bytes are verified by its own loadout envelope. Flagging them
 // would put a warning on every healthy project, which is how a check trains
 // users to ignore it.

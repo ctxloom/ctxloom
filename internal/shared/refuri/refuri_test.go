@@ -40,7 +40,7 @@ func TestHasScheme_KnowsEveryClass(t *testing.T) {
 	// assertion stays green. This literal is what makes the loop below a real
 	// exhaustiveness claim.
 	assert.ElementsMatch(t,
-		[]SourceClass{ClassGit, ClassFile, ClassBuiltin, ClassLocal, ClassCompanion},
+		[]SourceClass{ClassGit, ClassFile, ClassLocal, ClassCompanion},
 		Classes(),
 		"every source class must be enumerated by Classes()")
 
@@ -90,7 +90,6 @@ func TestParse_RoundTripsEveryClass(t *testing.T) {
 		"ctxloom+git://github.com/acme/repo//bundles/tooling@v1.2.3",
 		"ctxloom+git://github.com/acme/repo//bundles/tooling#fragments/x",
 		"ctxloom+file:///srv/repo//bundles/tooling",
-		"ctxloom+builtin:ltk",
 		"ctxloom+local:my-tools#profiles/dev",
 		"ctxloom+companion:ltk@v2",
 	} {
@@ -135,7 +134,6 @@ func TestBuilders_RenderCanonicalStrings(t *testing.T) {
 			"ctxloom+git://github.com/acme/repo//bundles/tooling"},
 		{"file", func() (Parts, error) { return File("/srv/repo", "lang/go") },
 			"ctxloom+file:///srv/repo//bundles/lang/go"},
-		{"builtin", func() (Parts, error) { return Builtin("ltk") }, "ctxloom+builtin:ltk"},
 		{"local", func() (Parts, error) { return Local("my-tools") }, "ctxloom+local:my-tools"},
 		{"companion", func() (Parts, error) { return Companion("ltk") }, "ctxloom+companion:ltk"},
 	}

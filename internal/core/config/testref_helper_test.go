@@ -20,14 +20,3 @@ func mustLocalRef(t testing.TB, name string) trust.BundleRef {
 	}
 	return ref
 }
-
-// mustBuiltinRef is mustLocalRef's builtin-class counterpart, for tests that
-// used to pass the old "builtin:<name>" source spelling.
-func mustBuiltinRef(t testing.TB, name string) trust.BundleRef {
-	t.Helper()
-	ref, err := trust.BuiltinRef(name)
-	if err != nil {
-		t.Fatalf("mustBuiltinRef(%q): %v", name, err)
-	}
-	return ref
-}

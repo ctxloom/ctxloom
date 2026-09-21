@@ -9,14 +9,13 @@ import (
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/resources"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // These tests assert on the ASSEMBLED CONTEXT — the bytes AssembleContext
@@ -24,22 +23,23 @@ import (
 // bookkeeps correctly and still ships the fragment twice is the failure mode
 // worth catching, and only the delivered bytes catch it.
 
-// builtinIsolationContent reads the REAL embedded isolation fragment's bytes
-// (resources/builtin_bundles/isolation.yaml), the one
-// ResolveBuiltinBundleFragments injects into every session unconditionally.
-// Tests that need "a fragment that is ALSO injected" must use these exact
-// bytes, not a stand-in: the whole question is whether two routes to ONE piece
-// of content collapse.
-func builtinIsolationContent(t *testing.T) string {
+// companionIsolationContent is the body of the "isolation-axes" fragment the
+// fixture companion "isolation" ships — the fragment assembly delivers into
+// every session unconditionally (composite's companionAsks). Tests that need
+// "a fragment that is ALSO delivered unconditionally" must use these exact
+// bytes, not a stand-in: the whole question is whether two routes to ONE
+// piece of content collapse.
+func companionIsolationContent(t *testing.T) string {
 	t.Helper()
-	raw, err := resources.GetBuiltinBundle("isolation")
-	require.NoError(t, err, "resources/builtin_bundles/isolation.yaml must be embedded")
-	var b bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(raw, &b))
-	frag, ok := b.Fragments["isolation-axes"]
-	require.True(t, ok, "isolation.yaml must ship the isolation-axes fragment")
-	require.NotEmpty(t, frag.Content)
-	return strings.TrimSpace(frag.Content)
+	return "## Isolation: specify both axes\n\nSet runtime and workspace explicitly."
+}
+
+// isolationCompanion is the fixture companion loadout carrying
+// companionIsolationContent under the name a project bundle can also carry.
+func isolationCompanion(t *testing.T) bundles.CompanionLoadout {
+	t.Helper()
+	return bundles.CompanionLoadout{Bin: "isolation", Path: "/fake/isolation", Document: testsupport.RunLoadout(
+		"version: 1.0.0\nfragments:\n  isolation-axes:\n    content: |\n" + indentYAML(companionIsolationContent(t)))}
 }
 
 // writeIngestBundle drops a bundle into the test project's bundles dir.
@@ -50,25 +50,35 @@ func writeIngestBundle(t *testing.T, fs afero.Fs, name, body string) {
 		authoredV1(testBaseDir)+"/"+name+".yaml", []byte(body), 0o644))
 }
 
-// ingestLoader rebuilds a loader over fs after extra bundles have been written.
-func ingestLoader(fs afero.Fs) *bundles.Loader {
-	return bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
+// ingestLoader rebuilds a loader over fs after extra bundles have been
+// written, beside the fixture companion whose fragment assembly delivers
+// unconditionally.
+func ingestLoader(t *testing.T, fs afero.Fs) *bundles.Loader {
+	t.Helper()
+	lo := isolationCompanion(t)
+	probe := func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{lo}}, nil
+	}
+	return bundles.NewLoader(
+		bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}),
+		bundles.NewCompanionReader(probe),
+	)
 }
 
-// TestIngest_InjectedBuiltinAlsoSelectedByRefIsAssembledOnce is THE provoking
-// case, and the reason ingest idempotence exists at all.
+// TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce is THE
+// provoking case, and the reason ingest idempotence exists at all.
 //
 // A project bundle named "isolation" ships a fragment "isolation-axes" whose
-// bytes are the builtin's bytes — which is exactly the situation a profile
-// selecting "isolation#fragments/isolation-axes" produces once the builtin
-// reader is admitted to Config.BundleLoader. The two routes carry DIFFERENT
-// ref strings ("ctxloom:local@bundles/isolation#fragments/isolation-axes" from
-// the loader, "builtin:isolation#fragments/isolation-axes" from the injection),
-// so neither dedupeFragmentRefs nor any string comparison of the refs collapses
-// them. Only the ingest identity rule does.
-func TestIngest_InjectedBuiltinAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
+// bytes are the companion's bytes — which is exactly the situation a profile
+// selecting "isolation#fragments/isolation-axes" produces beside a companion
+// loadout of the same name. The two routes carry DIFFERENT ref strings
+// ("ctxloom+local:isolation#fragments/isolation-axes" from the selection,
+// "ctxloom+companion:isolation#fragments/isolation-axes" from the
+// unconditional companion delivery), so no string comparison of the refs
+// collapses them. Only the ingest identity rule does.
+func TestIngest_CompanionFragmentAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
-	body := builtinIsolationContent(t)
+	body := companionIsolationContent(t)
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
@@ -81,13 +91,13 @@ func TestIngest_InjectedBuiltinAlsoSelectedByRefIsAssembledOnce(t *testing.T) {
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "picks-isolation",
-		Pipeline: opPipe(cfg, ingestLoader(fs)),
+		Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 	})
 	require.NoError(t, err)
 
 	require.Contains(t, result.Context, body, "sanity: the isolation content must reach the context at all")
 	assert.Equal(t, 1, strings.Count(result.Context, body),
-		"a fragment that is both INJECTED as a builtin and SELECTED by ref must be assembled ONCE")
+		"a fragment that is both delivered unconditionally from a companion and SELECTED by ref must be assembled ONCE")
 }
 
 // TestIngest_SameFragmentSelectedByTwoProfilesIsAssembledOnce covers the
@@ -137,7 +147,7 @@ fragments:
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "twins",
-		Pipeline: opPipe(cfg, ingestLoader(fs)),
+		Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 	})
 	require.NoError(t, err)
 
@@ -172,7 +182,7 @@ fragments:
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "both",
-		Pipeline: opPipe(cfg, ingestLoader(fs)),
+		Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 	})
 	require.NoError(t, err)
 
@@ -188,7 +198,7 @@ fragments:
 // list out of a map, fails here — those reorder the context without changing
 // what it contains.
 func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
-	body := builtinIsolationContent(t)
+	body := companionIsolationContent(t)
 
 	assemble := func(t *testing.T, refs []config.FragmentRef) string {
 		t.Helper()
@@ -199,7 +209,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 		cfg = withProfileDefs(t, cfg, map[string]config.Profile{"p": {Fragments: refs}})
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 			Profile:  "p",
-			Pipeline: opPipe(cfg, ingestLoader(fs)),
+			Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 		})
 		require.NoError(t, err)
 		return result.Context
@@ -215,7 +225,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 		{Name: "dev#fragments/go-patterns"},
 	})
 
-	require.Contains(t, without, body, "sanity: the builtin injects even without the explicit selection")
+	require.Contains(t, without, body, "sanity: the companion fragment is delivered even without the explicit selection")
 	assert.Equal(t, without, with,
 		"selecting a fragment that is ALREADY injected must not change one byte of the assembled context")
 }
@@ -228,7 +238,7 @@ func TestIngest_OrderIsUnchangedByTheDuplicate(t *testing.T) {
 // wrote two different selections and got one fragment, so "I meant two
 // different fragments" is a live reading that a silent drop would mask.
 func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T) {
-	body := builtinIsolationContent(t)
+	body := companionIsolationContent(t)
 
 	// captureIngestWarnings swaps the accumulator's diagnostic sink for the
 	// duration of fn. Asserting through clidiag's process-global WarnOnce set
@@ -258,7 +268,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		lines := captureIngestWarnings(t, func() {
 			_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 				Profile:  "p",
-				Pipeline: opPipe(cfg, ingestLoader(fs)),
+				Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 			})
 			require.NoError(t, err)
 		})
@@ -266,7 +276,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		assert.Contains(t, lines[0], "reached this context twice")
 		assert.Contains(t, lines[0], "ctxloom+local:isolation#fragments/isolation-axes",
 			"the warning must name the occurrence that was KEPT")
-		assert.Contains(t, lines[0], builtinIsolationFragmentRef,
+		assert.Contains(t, lines[0], companionIsolationFragmentRef,
 			"the warning must name the occurrence that was DROPPED")
 	})
 }
@@ -278,7 +288,7 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 // contributing nothing when its fragment is right there in the context.
 func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	fs, _ := setupContextTestFS(t)
-	body := builtinIsolationContent(t)
+	body := companionIsolationContent(t)
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
@@ -290,11 +300,11 @@ func TestIngest_CollapsedDuplicateStaysReportedAsLoaded(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 			Profile:  "p",
-			Pipeline: opPipe(cfg, ingestLoader(fs)),
+			Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 		})
 		require.NoError(t, err)
 		assert.Contains(t, result.FragmentsLoaded, "ctxloom+local:isolation#fragments/isolation-axes")
-		assert.Contains(t, result.FragmentsLoaded, builtinIsolationFragmentRef,
+		assert.Contains(t, result.FragmentsLoaded, companionIsolationFragmentRef,
 			"the dropped occurrence still LOADED and its content is in the context")
 		assert.Empty(t, result.MissingFragments)
 	})
@@ -316,24 +326,24 @@ func indentYAML(s string) string {
 // ---- the SECOND accumulation point: regenerateContext → the context file ----
 //
 // regenerateContext assembles the SessionStart-injected context file through
-// its own loop, with its own builtin injection at the end. It must obey the
-// same rule, and its output is a file, so these assert on the bytes actually
+// the same assembly, companion delivery included. It must obey the same
+// rule, and its output is a file, so these assert on the bytes actually
 // written — the thing a session loads.
 
-// TestIngest_RegenerateContext_InjectedBuiltinAlsoSelectedByRefIsWrittenOnce is
-// the provoking case on the SessionStart path.
-func TestIngest_RegenerateContext_InjectedBuiltinAlsoSelectedByRefIsWrittenOnce(t *testing.T) {
-	body := builtinIsolationContent(t)
+// TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce
+// is the provoking case on the SessionStart path.
+func TestIngest_RegenerateContext_CompanionFragmentAlsoSelectedByRefIsWrittenOnce(t *testing.T) {
+	body := companionIsolationContent(t)
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "isolation",
 		"version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
-	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+	cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 		"default": {Fragments: []config.FragmentRef{{Name: "isolation#fragments/isolation-axes"}}},
 	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-	})
+	}), isolationCompanion(t))
 
 	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
@@ -384,7 +394,7 @@ fragments:
 // proof on the SessionStart path: the context file is content-addressed, so an
 // identical hash is proof the bytes did not move.
 func TestIngest_RegenerateContext_OrderIsUnchangedByTheDuplicate(t *testing.T) {
-	body := builtinIsolationContent(t)
+	body := companionIsolationContent(t)
 
 	regen := func(t *testing.T, refs []config.FragmentRef) (hash, written string) {
 		t.Helper()
@@ -398,12 +408,12 @@ fragments:
 `)
 		writeRegenBundle(t, appDir, "isolation",
 			"version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
-		cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+		cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 			"default": {Fragments: refs},
 		}, config.Fixture{
 			DefaultAgent: "default",
 			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-		})
+		}), isolationCompanion(t))
 		h, err := regenerateContext(cfg, workDir)
 		require.NoError(t, err)
 		w, err := agent.ReadContextFile(workDir, h)
@@ -421,7 +431,7 @@ fragments:
 		{Name: "dev#fragments/omega"},
 	})
 
-	require.Contains(t, without, body, "sanity: the builtin injects even without the explicit selection")
+	require.Contains(t, without, body, "sanity: the companion fragment is delivered even without the explicit selection")
 	assert.Equal(t, without, with,
 		"selecting a fragment that is ALREADY injected must not move one byte of the context file")
 	assert.Equal(t, withoutHash, withHash,
@@ -437,7 +447,7 @@ fragments:
 // asked for and could not see. Both survive, so no source's content is ever
 // stood in for by another's.
 func TestIngest_SameItemWithDifferentContentBothSurvive(t *testing.T) {
-	builtinBody := builtinIsolationContent(t)
+	builtinBody := companionIsolationContent(t)
 	fs, _ := setupContextTestFS(t)
 	writeIngestBundle(t, fs, "isolation", `version: "1.0"
 fragments:
@@ -453,7 +463,7 @@ fragments:
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "p",
-		Pipeline: opPipe(cfg, ingestLoader(fs)),
+		Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 	})
 	require.NoError(t, err)
 
@@ -475,7 +485,7 @@ fragments:
 // past everything selected after it — a different context for the same
 // configuration.
 func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
-	body := builtinIsolationContent(t)
+	body := companionIsolationContent(t)
 	fs, _ := setupContextTestFS(t)
 	writeIngestBundle(t, fs, "isolation", "version: \"1.0\"\nfragments:\n  isolation-axes:\n    content: |\n"+indentYAML(body))
 
@@ -490,7 +500,7 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Profile:  "p",
-		Pipeline: opPipe(cfg, ingestLoader(fs)),
+		Pipeline: opPipe(cfg, ingestLoader(t, fs)),
 	})
 	require.NoError(t, err)
 
@@ -503,17 +513,19 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(result.Context, body), "and still only once")
 }
 
-// TestIngest_BuiltinsAreIngestedAfterSelectedContent pins the ORDER that makes
-// first-occurrence-wins mean what it is supposed to mean. Unconditional builtin
-// injection arrives LAST, after everything the profile or request selected, so
-// when a builtin collides with a selection it is the SELECTION that survives —
-// the user's specific ask, carrying variable substitution and any pinned
-// content version — and the always-on copy that is dropped. Ingesting builtins
-// first would silently invert that: same bytes, opposite precedence, and the
-// injected copy sitting ahead of the content the user actually chose.
-func TestIngest_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
-	body := builtinIsolationContent(t)
-	fs, loader := setupContextTestFS(t)
+// TestIngest_CompanionFragmentsAreIngestedAfterSelectedContent pins the ORDER
+// that makes first-occurrence-wins mean what it is supposed to mean. The
+// unconditional companion delivery arrives LAST, after everything the profile
+// or request selected, so when a companion fragment collides with a selection
+// it is the SELECTION that survives — the user's specific ask, carrying
+// variable substitution and any pinned content version — and the always-on
+// copy that is dropped. Ingesting companions first would silently invert
+// that: same bytes, opposite precedence, and the delivered copy sitting ahead
+// of the content the user actually chose.
+func TestIngest_CompanionFragmentsAreIngestedAfterSelectedContent(t *testing.T) {
+	body := companionIsolationContent(t)
+	fs, _ := setupContextTestFS(t)
+	loader := ingestLoader(t, fs)
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	cfg.SetFS(fs)
@@ -532,16 +544,16 @@ func TestIngest_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
 	require.NotEqual(t, -1, sec)
 	require.NotEqual(t, -1, iso)
 	assert.Less(t, sec, iso,
-		"the always-on builtin injection must sit AFTER selected content, which is what makes the selection the occurrence that survives a collision")
+		"the unconditional companion delivery must sit AFTER selected content, which is what makes the selection the occurrence that survives a collision")
 }
 
-// TestIngest_RegenerateContext_BuiltinsAreIngestedAfterSelectedContent is
-// TestIngest_BuiltinsAreIngestedAfterSelectedContent at the second accumulation
-// point. The two paths must agree: a SessionStart context file whose precedence
-// differs from what `ctxloom run` assembles is two different sessions from one
-// configuration.
-func TestIngest_RegenerateContext_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
-	body := builtinIsolationContent(t)
+// TestIngest_RegenerateContext_CompanionFragmentsAreIngestedAfterSelectedContent
+// is TestIngest_CompanionFragmentsAreIngestedAfterSelectedContent at the second
+// accumulation point. The two paths must agree: a SessionStart context file
+// whose precedence differs from what `ctxloom run` assembles is two different
+// sessions from one configuration.
+func TestIngest_RegenerateContext_CompanionFragmentsAreIngestedAfterSelectedContent(t *testing.T) {
+	body := companionIsolationContent(t)
 	appDir, workDir := regenTestApp(t)
 	writeRegenBundle(t, appDir, "dev", `version: "1.0"
 fragments:
@@ -549,12 +561,12 @@ fragments:
     content: "ALPHA-BODY"
 `)
 
-	cfg := cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
+	cfg := publishedWith(t, cfgWithDirProfiles(t, afero.NewOsFs(), appDir, map[string]config.Profile{
 		"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/alpha"}}},
 	}, config.Fixture{
 		DefaultAgent: "default",
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-	})
+	}), isolationCompanion(t))
 
 	hash, err := regenerateContext(cfg, workDir)
 	require.NoError(t, err)
@@ -566,5 +578,5 @@ fragments:
 	require.NotEqual(t, -1, alpha)
 	require.NotEqual(t, -1, iso)
 	assert.Less(t, alpha, iso,
-		"the context file must place the always-on builtin injection after selected content, same as AssembleContext")
+		"the context file must place the unconditional companion delivery after selected content, same as AssembleContext")
 }

@@ -43,10 +43,6 @@ import (
 //   - "ctxloom+git://github.com/owner/repo//bundles/name[@ver][#kind/item]"
 //   - "ctxloom+file:///abs/repo//bundles/name"
 //   - "ctxloom+local:name", "ctxloom+companion:bin"
-//
-// ctxloom+builtin: parses as a URI but has no Reference: a builtin bundle is
-// embedded in the binary and has no source to fetch from. See
-// parseCanonicalURIReference.
 func ParseReference(ref string) (*Reference, error) {
 	// Ingest boundary: a reference reaching the grammar carries no control
 	// characters (NormalizeRef). Doing it here rather than in each caller is
@@ -496,11 +492,6 @@ func (r *Reference) localRef() string {
 // It is NOT the lockfile key. A lockfile entry addresses a FETCH and is keyed
 // by LockKey, which spells the same bundle the way the lockfile on disk already
 // spells it — see LockKey's own doc for why the two are separate.
-//
-// There is no ctxloom+builtin arm because no Reference can be builtin: a
-// builtin bundle is embedded in the binary, has no source to fetch from, and
-// parseCanonicalURIReference refuses the class outright rather than mapping it
-// onto ClassLocal.
 //
 // A reference that cannot be classified into the URI family carries no URL and
 // is not local or companion, which makes it malformed by construction. It

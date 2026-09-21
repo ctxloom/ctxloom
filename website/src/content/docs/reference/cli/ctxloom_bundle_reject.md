@@ -31,7 +31,7 @@ Reference format matches 'ctxloom bundle trust' (see its help).
 
 Examples:
   ctxloom bundle reject 'tooling#fragments/curl-pipe-sh'
-  ctxloom bundle reject 'ctxloom+builtin:ltk#hooks/SessionStart/0'
+  ctxloom bundle reject 'ctxloom+companion:ltk#hooks/PreToolUse/0'
   ctxloom bundle reject 'ctxloom+git://github.com/acme/repo//bundles/tooling#mcp/postgres'
 
 ```

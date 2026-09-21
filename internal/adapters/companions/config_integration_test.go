@@ -40,7 +40,6 @@ func (s companionSources) Readers(_ context.Context, cfg *config.Config) ([]bund
 	root := cfg.TrustRoot()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
-		bundles.NewBuiltinReader(bundles.WithTrustRoot(root)),
 	}
 	return append(readers, companions.Prober{}.ReaderSource()(cfg)...), nil
 }

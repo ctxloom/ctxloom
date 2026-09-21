@@ -8,13 +8,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
 )
 
-// loadoutYAML is taskloom's own ctxloom loadout — the bundle content
-// taskloom contributes to a ctxloom session (signature-envelope spec §4.3):
-// the taskloom fragment, the session-bind and plan-stamping hooks, and the
-// taskloom MCP server registration. It replaces the formerly-embedded
-// resources/builtin_bundles/taskloom.yaml on the ctxloom side (now deleted)
-// — ctxloom discovers this binary on PATH and execs
-// `taskloom loadout --format json` instead of vendoring this content.
+// loadoutYAML is taskloom's own ctxloom loadout — the content taskloom
+// contributes to a ctxloom session (signature-envelope spec §4.3). It is the
+// single source of truth for what taskloom tells ctxloom about itself —
+// ctxloom discovers this binary on PATH and execs
+// `taskloom loadout --format json` rather than vendoring this content.
 //
 //go:embed loadout.yaml
 var loadoutYAML []byte

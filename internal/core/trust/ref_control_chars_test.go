@@ -57,6 +57,4 @@ func TestRefCanonicalURL_StripsControlCharacters(t *testing.T) {
 	local := Ref{IsLocal: true}
 	assert.Equal(t, refuri.LocalSource, local.CanonicalURL())
 
-	builtin := Ref{IsBuiltin: true}
-	assert.Equal(t, BuiltinSigner, builtin.CanonicalURL())
 }

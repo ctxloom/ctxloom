@@ -223,18 +223,6 @@ func TestEffectiveTrust_CorruptLockfile_LocalAndBuiltinStillAllowed(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, local.Decision, "a local ref can never carry a lockfile retraction, so an unreadable lockfile must not withhold it")
 	assert.Equal(t, trust.SourceLocal, local.Source)
-
-	builtin, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:        trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true},
-		Posture:    postureCtxOf(trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true}),
-		Provenance: postureProvOf(trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true}),
-		Payload:    pbytes("y"),
-		Form:       rawForm,
-		FS:         fs,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, trust.Allow, builtin.Decision, "a builtin ref can never carry a lockfile retraction either")
-	assert.Equal(t, trust.SourceBuiltin, builtin.Source)
 }
 
 // TestEffectiveTrust_CorruptLockfile_RejectionStillOutranks keeps rejection

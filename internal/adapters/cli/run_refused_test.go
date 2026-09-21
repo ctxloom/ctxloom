@@ -66,22 +66,47 @@ func TestRunState_Refused_DegradedStillAbortsOnNonDegradable(t *testing.T) {
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
 }
 
+// TestRunState_Refused_EmptyAssemblyWithAFindingAbortsThroughTheGate: a
+// profile set that assembled to nothing BECAUSE a fatal finding was recorded
+// on the way (a bundle that did not load, a parent that did not resolve) is
+// that finding's refusal: the gate reports it, with the fix, rather than the
+// resolver's symptom-only "assembled to nothing". Nothing pads a profile set
+// — companion content rides beside the selection, not inside it — so the
+// empty assembly is exactly what the finding predicts.
+func TestRunState_Refused_EmptyAssemblyWithAFindingAbortsThroughTheGate(t *testing.T) {
+	resetStrictness(t)
+	var out bytes.Buffer
+	st := refusedFixture(&out, strictness.Mode{})
+	strictness.Fail(strictness.ClassBundle, "fix the profile's bundle list", "failed to load bundle \"does-not-exist\"")
+	cause := fmt.Errorf("%w: profile set [broken]", launch.ErrContextEmpty)
+
+	err := st.refused(cause)
+
+	var exitErr *ExitError
+	require.ErrorAs(t, err, &exitErr, "the recorded finding is why the set is empty; it aborts through the gate")
+	assert.Equal(t, exitCodeFatalFindings, exitErr.Code)
+	assert.Contains(t, out.String(), "does-not-exist")
+}
+
 // TestRunState_Refused_OtherRefusalsReturnAsTheyCame: every other resolver
-// refusal is its own message, findings or not. An explicit -f selection that
-// resolved to nothing records the missing fragment as a finding AND refuses
-// as the empty-selection error — and that error is what the caller reads
+// refusal is its own message, findings or not. An empty assembly with NO
+// finding recorded is the resolver's own error (nothing else explains it);
+// an explicit -f selection that resolved to nothing refuses as the
+// empty-selection error — and that error is what the caller reads
 // (TestRunCharacterization_ExplicitFragmentMissFailsLoudly), not a gate
-// listing. Only the cell's refusal is a finding standing in for an error.
+// listing.
 func TestRunState_Refused_OtherRefusalsReturnAsTheyCame(t *testing.T) {
 	resetStrictness(t)
 	var out bytes.Buffer
 	st := refusedFixture(&out, strictness.Mode{})
+
+	empty := fmt.Errorf("%w: profile set [quiet]", launch.ErrContextEmpty)
+	require.Same(t, empty, st.refused(empty), "no finding recorded: the resolver's own error is the abort")
+	assert.Empty(t, out.String(), "the gate did not report")
+
 	strictness.Fail(strictness.ClassRef, "fix the ref", "failed to load fragment \"no-such-fragment\"")
-	cause := fmt.Errorf("%w: requested fragments not found: no-such-fragment", launch.ErrContextEmpty)
-
-	err := st.refused(cause)
-
-	require.Same(t, cause, err)
+	miss := errors.New("no fragments loaded: requested fragments not found: no-such-fragment")
+	require.Same(t, miss, st.refused(miss), "an explicit selection miss is its own error, findings or not")
 	assert.Empty(t, out.String(), "the gate did not report; the resolver's own error is the abort")
 
 	plain := errors.New("launch: no agent \"nobody\"")

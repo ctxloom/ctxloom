@@ -92,8 +92,8 @@ type Bundle struct {
 	// sole input to contentSourceRef — the content trust key. Every shape it
 	// takes is decided by WHERE the bundle was found, never by what it says
 	// about itself: the class-appropriate minter's BundleRef for a remote
-	// (cloned) source, a bundle embedded in the binary (trust.BuiltinRef), a
-	// companion loadout (trust.CompanionRef), and the path-relative resolution
+	// (cloned) source, a companion loadout (trust.CompanionRef), and the
+	// path-relative resolution
 	// name for a bundle in the project's own tree (trust.LocalRef) — the
 	// last of those is what lets project content auto-trust.
 	//
@@ -102,7 +102,7 @@ type Bundle struct {
 	// SECURITY property, not tidiness: Bundle.Name is declared in the bundle's
 	// own YAML (`name:`), so falling back to it would let the content being
 	// judged choose its own trust key — a project bundle declaring
-	// `name: builtin:isolation` would claim the builtin's trust identity, and
+	// `name: ctxloom:companion@ltk` would claim the companion's trust identity, and
 	// a bundle that renamed itself would move off its own recorded decisions.
 	// The declared name is CONTENT: covered by the signature and by review, and
 	// therefore never an input to the decision that establishes that trust.
@@ -245,21 +245,19 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 }
 
 // contentSourceRef returns the bundle's honest source ref for content trust
-// gating: the canonical ref of a seeded (cloned) bundle, the BuiltinRef of a
-// bundle embedded in the binary, the CompanionRef of a companion loadout, or
-// the LocalRef of a project (fs) bundle. Locality/builtin-ness flows from this
-// into the trust cascade, so a clone's TEXT gates like its executables, a
-// builtin's TEXT carries the SAME identity whether it was selected by ref
-// through the loader or injected unconditionally (a builtin read through
-// localFSReader once keyed as LOCAL, a different trust identity than the
-// builtin ref injection uses for the identical item — a rejection via one
-// route did not withhold the other; see crispy-scoop), and a project bundle's
-// bare token keys IsLocal and auto-trusts. "Text to an LLM is executable."
+// gating: the canonical ref of a seeded (cloned) bundle, the CompanionRef of
+// a companion loadout, or the LocalRef of a project (fs) bundle. Locality
+// flows from this into the trust cascade, so a clone's TEXT gates like its
+// executables, a companion's TEXT carries the SAME identity whether it was
+// selected by ref or delivered unconditionally (two identities for one item
+// is how a rejection via one route fails to withhold the other), and a
+// project bundle's bare token keys IsLocal and auto-trusts. "Text to an LLM
+// is executable."
 //
 // It reads sourceRef and NOTHING ELSE. In particular it must never fall back
 // to Bundle.Name: Name is DECLARED in the bundle's own YAML, so a fallback
 // would make the content being judged an input to its own trust key — a
-// project bundle declaring `name: builtin:isolation` would key as the builtin
+// project bundle declaring `name: ctxloom:companion@ltk` would key as the companion
 // and inherit its grants. newRead stamps the location-derived resolution ref
 // into sourceRef for every read a reader emits, so there is nothing for a
 // fallback to do but reopen that hole (outdated-recoil).

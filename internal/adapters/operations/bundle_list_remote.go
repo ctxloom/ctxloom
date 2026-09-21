@@ -28,13 +28,9 @@ import (
 //     — come from the Resolver/VCS history walk and are flagged Deleted so the
 //     user sees a dependency has vanished upstream.
 //
-// BUILTINS ARE EXCLUDED, and that is the listing's contract rather than a
-// preference: `bundle list` says it lists what is installed — local content
-// under .ctxloom/content/bundles plus the remotes pinned in the lockfile — and a
-// builtin ships INSIDE the binary. It was never installed and cannot be removed,
-// so counting it under "Installed bundles (N)" states something false and makes
-// `bundle remove` name a bundle the user has no way to act on. Companion and
-// remote content stays: both are things this machine actually acquired.
+// The listing's contract: `bundle list` lists what is installed — local
+// content under .ctxloom/content/bundles, the remotes pinned in the lockfile,
+// and the companion loadouts this machine acquired.
 //
 // Fault-tolerant per CLAUDE.md: the seeded loader already degrades a bad
 // lockfile/remote to a warning, and the deleted-item walk is best-effort.

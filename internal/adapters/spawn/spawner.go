@@ -422,19 +422,19 @@ func (s *spawner) childMCPServers(plan *coord.SpawnPlan) []agent.ChatMCPServer {
 // agent_send, no agent_recv and no agent_report, so it launches, consumes its
 // budget, and can never answer its parent or be steered — the stranding shape
 // spawnReachURL fails loud on when the fault is an unreachable endpoint. Here the
-// cause is configuration (the builtin ctxloom bundle's `ctxloom` server
-// withheld — a profile's `exclude_mcp: [ctxloom]`, or the item rejected — which
-// composes a set carrying no ctxloom entry, nil when nothing else is registered
-// either), so it warns rather than refusing: withholding it is a deliberate
-// project choice and mirrors the documented degraded no-reach-back posture.
-// What it must not be is SILENT.
+// cause is configuration (ctxloom's own companion loadout's `ctxloom` server
+// withheld — a profile's `exclude_mcp: [ctxloom]`, the item rejected, or the
+// self-probe disabled — which composes a set carrying no ctxloom entry, nil
+// when nothing else is registered either), so it warns rather than refusing:
+// withholding it is a deliberate project choice and mirrors the documented
+// degraded no-reach-back posture. What it must not be is SILENT.
 func warnNoReachBack(rep report.Reporter, agentName string, servers []agent.ChatMCPServer) {
 	for _, srv := range servers {
 		if srv.Name == agent.MCPServerName {
 			return
 		}
 	}
-	rep.Warnf("agent_run: agent %q composed no %q MCP server (the builtin ctxloom bundle's server is withheld for this project — check `exclude_mcp` on its profiles, and whether the item is rejected); the child launches WITHOUT agent_send/agent_recv/agent_report — it cannot report back or be steered",
+	rep.Warnf("agent_run: agent %q composed no %q MCP server (ctxloom's own loadout server is withheld for this project — check `exclude_mcp` on its profiles, whether the item is rejected, and that companions are not disabled); the child launches WITHOUT agent_send/agent_recv/agent_report — it cannot report back or be steered",
 		agentName, agent.MCPServerName)
 }
 

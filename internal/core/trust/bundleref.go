@@ -28,8 +28,6 @@ const (
 	// ClassFile addresses a bundle in a git repository at an absolute local
 	// path. It has no authority: ctxloom+file:///srv/repo//bundles/x.
 	ClassFile = refuri.ClassFile
-	// ClassBuiltin addresses a bundle embedded in the ctxloom binary.
-	ClassBuiltin = refuri.ClassBuiltin
 	// ClassLocal addresses a bundle in the project's own tree.
 	ClassLocal = refuri.ClassLocal
 	// ClassCompanion addresses a bundle from a companion binary's loadout.
@@ -59,7 +57,6 @@ var (
 //
 //	ctxloom+git://<host>[:<port>]/<repo-path>//bundles/<name>[@<ver>][#<kind>/<item>]
 //	ctxloom+file://<abs-repo-path>//bundles/<name>[@<ver>][#<kind>/<item>]
-//	ctxloom+builtin:<name>[@<ver>][#<kind>/<item>]
 //	ctxloom+local:<name>[@<ver>][#<kind>/<item>]
 //	ctxloom+companion:<bin>[@<ver>][#<kind>/<item>]
 //
@@ -69,8 +66,8 @@ var (
 // escape whose decoding changes the structure of the reference, so a decoded
 // field could not tell "a%2Fb" from "a/b" apart again.
 //
-// Construct one with ParseBundleRef or a minter (GitRef, FileRef, BuiltinRef,
-// LocalRef, CompanionRef). The zero value is not meaningful.
+// Construct one with ParseBundleRef or a minter (GitRef, FileRef, LocalRef,
+// CompanionRef). The zero value is not meaningful.
 type BundleRef struct {
 	// Class is the source class, carried in the scheme.
 	Class SourceClass
@@ -265,11 +262,6 @@ func GitRef(host, repoPath, bundle string) (BundleRef, error) {
 // local path.
 func FileRef(repoPath, bundle string) (BundleRef, error) {
 	return fromParts(refuri.File(repoPath, bundle))
-}
-
-// BuiltinRef mints a reference to a bundle embedded in the ctxloom binary.
-func BuiltinRef(bundle string) (BundleRef, error) {
-	return fromParts(refuri.Builtin(bundle))
 }
 
 // LocalRef mints a reference to a bundle in the project's own tree.

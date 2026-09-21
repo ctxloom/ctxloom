@@ -33,8 +33,8 @@ every engine, and ctxloom's own stdio server.
                            only one that speaks the protocol.
   ctxloom mcp server       List, show and edit registered servers
 
-Every server here comes from a BUNDLE — ctxloom's own included, which ships
-in the builtin ctxloom bundle. Add one by composing a bundle that declares it;
+Every server here comes from a BUNDLE — ctxloom's own included, which its
+own companion loadout declares. Add one by composing a bundle that declares it;
 withhold one with a profile's exclude_mcp, or with
   ctxloom bundle reject <bundle>#mcp/<name>
 

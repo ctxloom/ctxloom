@@ -862,8 +862,6 @@ func resultOf(v bundles.Verdict) EffectiveTrustResult {
 		res.Source = trust.SourceRetracted
 	case bundles.ReasonLocal, bundles.ReasonStaleLocalSignature:
 		res.Source = trust.SourceLocal
-	case bundles.ReasonBuiltin:
-		res.Source = trust.SourceBuiltin
 	case bundles.ReasonCompanion:
 		res.Source = trust.SourceCompanion
 	case bundles.ReasonTrustedSigner:

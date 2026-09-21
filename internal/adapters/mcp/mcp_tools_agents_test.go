@@ -139,8 +139,11 @@ func TestAgentStopHandler_UnknownChild(t *testing.T) {
 // agents here declare disjoint profiles, each pulling in one bundle with one
 // distinctly-named MCP server; each captured child request must show its own
 // server and must NOT show the other's. (Both may also carry shared baseline
-// servers — the builtin ctxloom server, any discovered companion loadout —
-// so the assertion is containment, not exact-set equality.)
+// servers — any discovered companion loadout's, ctxloom's own included — so
+// the assertion is containment, not exact-set equality.) Each bundle also
+// carries a fragment: a profile that assembles to no context at all is
+// refused at launch, and this fixture reads no companion loadout to supply
+// one.
 func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	cfg, root := delegationFixture(t, map[string]agents.Agent{
 		"workerA": headlessAgent("p-a"),
@@ -148,9 +151,9 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	})
 	app := filepath.Join(root, ".ctxloom")
 	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV2), "kit-a.yaml"),
-		"version: \"1.0.0\"\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
+		"version: \"1.0.0\"\nfragments:\n  a:\n    content: KIT-A\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
 	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV2), "kit-b.yaml"),
-		"version: \"1.0.0\"\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
+		"version: \"1.0.0\"\nfragments:\n  b:\n    content: KIT-B\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-a.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-a\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")
 
@@ -220,9 +223,9 @@ func TestProdSpawner_ChildMCPServers_JournaledDisjointPerAgent(t *testing.T) {
 	})
 	app := filepath.Join(root, ".ctxloom")
 	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV2), "kit-a.yaml"),
-		"version: \"1.0.0\"\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
+		"version: \"1.0.0\"\nfragments:\n  a:\n    content: KIT-A\nmcp:\n  server-a:\n    command: echo\n    args: [\"a\"]\n")
 	writeDelegationFile(t, filepath.Join(paths.LocalBundlesPathFor(app, paths.LayoutV2), "kit-b.yaml"),
-		"version: \"1.0.0\"\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
+		"version: \"1.0.0\"\nfragments:\n  b:\n    content: KIT-B\nmcp:\n  server-b:\n    command: echo\n    args: [\"b\"]\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-a.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-a\n")
 	writeDelegationFile(t, filepath.Join(app, "profiles", "p-b.yaml"), "bundles:\n  - ctxloom:local@bundles/kit-b\n")
 

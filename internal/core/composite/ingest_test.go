@@ -22,25 +22,25 @@ func TestIngest_DropReportsTheKeptRef(t *testing.T) {
 	require.True(t, dup, "a re-ingest of the same ref is a duplicate")
 	assert.Equal(t, "ctxloom+local:dev#fragments/rules", kept)
 
-	kept, dup = in.add(identityKey("ctxloom+builtin:dev#fragments/rules"), "RULES", "ctxloom+builtin:dev#fragments/rules")
+	kept, dup = in.add(identityKey("ctxloom+companion:dev#fragments/rules"), "RULES", "ctxloom+companion:dev#fragments/rules")
 	require.True(t, dup, "the same item under another source is the same content")
 	assert.Equal(t, "ctxloom+local:dev#fragments/rules", kept, "the first occurrence is the one kept")
 	assert.Equal(t, "RULES", in.join(), "delivered once")
 }
 
-// identityKey pins the reduction the rule depends on: the builtin and the
+// identityKey pins the reduction the rule depends on: the companion and the
 // local spellings of ONE item reduce to one key, and every distinction the
 // rule must preserve survives the reduction. A ref outside the canonical
 // grammar is used verbatim, so it can only ever match a byte-identical
 // spelling — never a different one.
 func TestIdentityKey_IsSourceAgnosticAndSelectorBearing(t *testing.T) {
-	builtin := identityKey("ctxloom+builtin:isolation#fragments/isolation-axes")
+	companion := identityKey("ctxloom+companion:isolation#fragments/isolation-axes")
 	local := identityKey("ctxloom+local:isolation#fragments/isolation-axes")
-	assert.Equal(t, builtin, local, "the builtin and local spellings of ONE item must reduce to one key")
+	assert.Equal(t, companion, local, "the companion and local spellings of ONE item must reduce to one key")
 
-	assert.NotEqual(t, builtin, identityKey("ctxloom+builtin:isolation#fragments/other-axes"), "a different item NAME is a different item")
-	assert.NotEqual(t, builtin, identityKey("ctxloom+builtin:other-bundle#fragments/isolation-axes"), "a different BUNDLE is a different item")
-	assert.NotEqual(t, builtin, identityKey("ctxloom+builtin:isolation#prompts/isolation-axes"), "a different item KIND is a different item")
+	assert.NotEqual(t, companion, identityKey("ctxloom+companion:isolation#fragments/other-axes"), "a different item NAME is a different item")
+	assert.NotEqual(t, companion, identityKey("ctxloom+companion:other-bundle#fragments/isolation-axes"), "a different BUNDLE is a different item")
+	assert.NotEqual(t, companion, identityKey("ctxloom+companion:isolation#prompts/isolation-axes"), "a different item KIND is a different item")
 	assert.Equal(t, "not a ref", identityKey("not a ref"))
 }
 

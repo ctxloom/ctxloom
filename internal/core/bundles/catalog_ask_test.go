@@ -94,22 +94,22 @@ func TestCatalogResolveAsk_BareNameNotFoundRefuses(t *testing.T) {
 func TestCatalogResolveAsk_AmbiguousBareNameRefuses(t *testing.T) {
 	localSrc, err := trust.LocalRef("isolation")
 	require.NoError(t, err)
-	builtinSrc, err := trust.BuiltinRef("isolation")
+	companionSrc, err := trust.CompanionRef("isolation")
 	require.NoError(t, err)
 
 	localBundle := &Bundle{Name: "isolation", Version: "1.0.0"}
 	localBundle.sourceRef = localSrc
 	localBundle.sourceRefSet = true
 
-	builtinBundle := &Bundle{Name: "isolation", Version: "1.0.0"}
-	builtinBundle.sourceRef = builtinSrc
-	builtinBundle.sourceRefSet = true
+	companionBundle := &Bundle{Name: "isolation", Version: "1.0.0"}
+	companionBundle.sourceRef = companionSrc
+	companionBundle.sourceRefSet = true
 
 	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 	localRead := NewRead("isolation", localBundle, ProvenanceProject, TrustCtxLocal, unsigned)
-	builtinRead := NewRead("isolation", builtinBundle, ProvenanceBuiltin, TrustCtxLocal, unsigned)
+	companionRead := NewRead("isolation", companionBundle, ProvenanceCompanion, TrustCtxLocal, unsigned)
 
-	cat := Catalog{reads: []BundleRead{localRead, builtinRead}}
+	cat := Catalog{reads: []BundleRead{localRead, companionRead}}
 
 	_, err = cat.ResolveAsk("isolation")
 	require.Error(t, err)
@@ -157,9 +157,9 @@ func TestCatalog_Lookup_CanonicalURIResolvesExactly(t *testing.T) {
 
 	// The same grammar, a bundle this catalog does not hold: not found, and
 	// NOT quietly answered by the bundle that happens to share the leaf name.
-	builtin, err := trust.BuiltinRef("kit")
+	companion, err := trust.CompanionRef("kit")
 	require.NoError(t, err)
-	_, err = cat.Lookup(builtin.String())
+	_, err = cat.Lookup(companion.String())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrBundleNotFound)
 }

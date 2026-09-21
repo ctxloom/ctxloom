@@ -112,7 +112,7 @@ func (c ContextConsumer) static() (bool, error) {
 // that declares no skill export answers no; every engine with a skills
 // surface answers yes.
 func exportsSkills(eng engine.Engine) bool {
-	ex, err := eng.Exports(engine.Items{Skills: []engine.SkillItem{{Ref: "ctxloom+builtin:probe#skills/probe", Name: "probe"}}})
+	ex, err := eng.Exports(engine.Items{Skills: []engine.SkillItem{{Ref: "ctxloom+local:probe#skills/probe", Name: "probe"}}})
 	return err == nil && len(ex.Skills) == 1 && ex.Skills[0].Enabled
 }
 
@@ -131,8 +131,8 @@ type AssembleContextResult struct {
 	// MissingFragments lists the EXPLICITLY requested fragments (Fragments in
 	// the request) that did not resolve/load. Assembly is fault-tolerant (a
 	// missing ask warns and is skipped), but callers like `run -f` treat an
-	// all-missing explicit ask as a hard error — and the always-on builtin
-	// companion fragments mean a non-empty FragmentsLoaded can't signal it.
+	// all-missing explicit ask as a hard error — and the always-on companion
+	// fragments mean a non-empty FragmentsLoaded can't signal it.
 	MissingFragments []string `json:"missing_fragments,omitempty"`
 	// MissingTags names every requested tag (Tags in the request) when the
 	// WHOLE tag selection contributed zero fragments. A tag query is a union

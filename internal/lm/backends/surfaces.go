@@ -136,8 +136,8 @@ func LaunchOnlySurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss
 }
 
 // managedMCPDetail counts the MCP servers a delivery would have registered:
-// every server the resolved bundles ship, ctxloom's own (the builtin ctxloom
-// bundle's, whose absence costs the user every ctxloom tool) included. "" when
+// every server the resolved bundles ship, ctxloom's own (its companion
+// loadout's, whose absence costs the user every ctxloom tool) included. "" when
 // there are none at all.
 func managedMCPDetail(in agent.SurfaceInputs) string {
 	n := len(in.BundleMCP)

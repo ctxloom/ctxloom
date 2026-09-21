@@ -1,11 +1,10 @@
 Feature: The machine callbacks every session fires — do they deliver, and do they stay on their channel?
 
-  Five hidden commands run on every ctxloom session, invoked by the host
+  Four hidden commands run on every ctxloom session, invoked by the host
   engine rather than by a person: `hook inject-context` hands the engine the
   project's assembled context at SessionStart, `hook session-bind` records
   which backend session belongs to which harp, `hook stamp-plan` marks a plan
-  file with the session that edited it, `hook hud` renders the statusline, and
-  `hook turn-changed` decides whether a finishing turn changed anything.
+  file with the session that edited it, and `hook hud` renders the statusline.
   Nobody types any of them, so nobody notices when one stops working.
 
   They share a contract that makes them unusually easy to break quietly. A
@@ -142,30 +141,14 @@ Feature: The machine callbacks every session fires — do they deliver, and do t
     And the output contains "42%"
     And the output contains "brisk-copper-moth"
 
-  # turn-changed classifies a finishing turn as "changed" or "unchanged". It
-  # exists for completeness of the hook vocabulary this feature covers, not to
-  # serve any particular consumer; internal/adapters/cli/hook_turn_changed.go carries
-  # that ruling and is the one place to read it.
-  #
-  # What is pinned HERE is the DIRECTION of its failure: it fails SAFE,
-  # reporting "changed" for any payload it cannot read, so an unreadable
-  # transcript never masquerades as a quiet turn. The two scenarios below pin
-  # that from both approaches — a transcript named but absent, and a payload
-  # naming none at all. Classification of a real transcript's CONTENTS is a
-  # unit concern in internal/adapters/turnchange; what is asserted here is the CLI
-  # contract.
-  Scenario: A transcript the hook cannot read is reported changed, never unchanged
-    When I run "ctxloom hook turn-changed" with input:
-      """
-      {"hook_event_name":"Stop","transcript_path":"/nonexistent/no-such-transcript.jsonl"}
-      """
-    Then the command succeeds
-    And the turn verdict on stdout is "changed"
-
-  Scenario: A payload naming no transcript is reported changed, never unchanged
+  # `hook turn-changed` was RETIRED: nothing ever wired it — no hook
+  # configuration invoked it — and a machine callback kept "for vocabulary
+  # completeness" is a verdict nobody reads. What is pinned here is that it
+  # stays gone: a retired verb that quietly came back would be a fifth hook
+  # this feature no longer describes, answering a payload nobody sends.
+  Scenario: The retired turn-changed callback is not a command
     When I run "ctxloom hook turn-changed" with input:
       """
       {"hook_event_name":"Stop"}
       """
-    Then the command succeeds
-    And the turn verdict on stdout is "changed"
+    Then the command fails

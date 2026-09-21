@@ -34,10 +34,12 @@ const (
 )
 
 // The argv flags the mock's presentations announce their files on; the
-// mock's CLI grammar declares both.
+// mock's CLI grammar declares both. HooksFlag is exported for the mock
+// binary's interactive loop (mock/runtime), which reads the delivered hook
+// file off its own argv to fire turn_start per typed line.
 const (
 	contextFlag = "--context"
-	hooksFlag   = "--hooks"
+	HooksFlag   = "--hooks"
 )
 
 // surface is the shared half of every mock approach: its name and traits.
@@ -136,7 +138,7 @@ func (a *hooksFile) DeliverHooks(start present.Start, root present.RootKind, in 
 	if err != nil {
 		return present.Delivered{}, err
 	}
-	return writeFile(fs, r.AnnounceFlag(hooksFlag).Build(), append(bytes, '\n'), 0o644)
+	return writeFile(fs, r.AnnounceFlag(HooksFlag).Build(), append(bytes, '\n'), 0o644)
 }
 
 // commandsDir writes each enabled command as <name>.md under the commands

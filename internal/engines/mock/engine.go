@@ -224,7 +224,7 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 	// context and hook files are also announced on argv so a session home
 	// the mock was not started in can be found.
 	file := present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}
-	flags := []engine.Flag{{Name: "--resume", HasValue: true}, {Name: contextFlag, HasValue: true}, {Name: hooksFlag, HasValue: true}}
+	flags := []engine.Flag{{Name: "--resume", HasValue: true}, {Name: contextFlag, HasValue: true}, {Name: HooksFlag, HasValue: true}}
 	d := engine.Definition{
 		Name:         name,
 		Distribution: engine.DistributionTestOnly,

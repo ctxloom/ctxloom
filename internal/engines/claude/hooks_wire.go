@@ -25,6 +25,11 @@ import "encoding/json"
 // hookEventPreToolUse is the event name carried in payloads and decisions.
 const hookEventPreToolUse = "PreToolUse"
 
+// hookEventUserPromptSubmit is claude's native event for the unified
+// turn_start: it fires when a prompt is submitted, before the model runs, and
+// a command hook's stdout becomes context of that turn.
+const hookEventUserPromptSubmit = "UserPromptSubmit"
+
 // permissionDeny is the permissionDecision value that blocks the tool call.
 const permissionDeny = "deny"
 

@@ -332,16 +332,18 @@ Every host-side launch enters through `launch.Resolve`
 ## Boundaries
 
 - **Called by:** `internal/adapters/cli` (all porcelain), the MCP server,
-  `internal/adapters/cli/tui`, and `internal/core/coord` (`AssignSession`, `MarkSessionEnded`,
-  `WatchSessionFeed`, `ResolveBackend`, `LaunchDepsFor`, `StartEngine`).
+  `internal/adapters/cli/tui` (`WatchSessionFeed`), and `internal/adapters/spawn` — the
+  composition of `core/coord`'s Spawner port (`ResolveBackend`, `LaunchDepsFor`, `StartEngine`).
+  `internal/core/coord` itself does not import `operations`.
 - **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/adapters/remote`, `internal/core/profiles`,
   `internal/core/trust`, `internal/adapters/signing`, `internal/adapters/agents`, `internal/core/sessions`, `internal/lm/*`,
   `internal/adapters/git`, `internal/core/paths`, `internal/adapters/projectroot`, `internal/shared/*`.
 - **Injected downward:** the content gate into `internal/core/bundles`, the executable gate into
   `internal/core/config` — so neither domain package imports the trust decision.
-- **One inward consumer:** `internal/core/coord` imports `operations`, so `sessionfeed.go`
-  cannot import `coord` back and speaks its gRPC service over a bare client with two duplicated
-  constants (`sessionfeed.go:158`).
+- **The live tap is a cross-process client:** `sessionfeed.go` dials a coordinator held by
+  ANOTHER process over `agentcoordpb.ConsumerService` with a bare gRPC client, so it reads the
+  proto's vocabulary as delivered rather than `core/coord`'s domain types; the one literal it
+  duplicates (`customEventTurnIdle` ↔ `coord.CustomTurnIdle`) is documented on both sides.
 
 ## Where documented and real behavior diverge
 

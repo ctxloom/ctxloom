@@ -278,19 +278,19 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			TurnEnd:      keep(bundles.HookEventTurnEnd, h.Unified.TurnEnd),
 		},
 	}
-	// Plugin-specific (backend-native) hooks gate too; keyed on
-	// itemRefFor(ref.Base, trust.KindHook, "<plugin>/<event>/<index>").
-	if len(h.Plugins) > 0 {
-		out.Plugins = make(map[string]wire.BackendHooks, len(h.Plugins))
-		for plugin, backend := range h.Plugins {
+	// Engine-native (ext) hooks gate too; keyed on
+	// itemRefFor(ref.Base, trust.KindHook, "<engine>/<event>/<index>").
+	if len(h.Ext) > 0 {
+		out.Ext = make(map[string]wire.BackendHooks, len(h.Ext))
+		for engine, backend := range h.Ext {
 			bh := make(wire.BackendHooks)
 			for event, hooks := range backend {
-				if kept := keep(plugin+"/"+event, hooks); len(kept) > 0 {
+				if kept := keep(engine+"/"+event, hooks); len(kept) > 0 {
 					bh[event] = kept
 				}
 			}
 			if len(bh) > 0 {
-				out.Plugins[plugin] = bh
+				out.Ext[engine] = bh
 			}
 		}
 	}

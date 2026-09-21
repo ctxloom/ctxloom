@@ -33,7 +33,7 @@ func TestMergeHooksConfig_NilSource_IsANoOp(t *testing.T) {
 func TestMergeHooksConfig_NilDestination_ReportsWhatItDropped(t *testing.T) {
 	src := &HooksConfig{
 		Unified: UnifiedHooks{PreTool: []Hook{{Command: "a"}}, TurnEnd: []Hook{{Command: "b"}}},
-		Plugins: map[string]BackendHooks{"x": {"ev": []Hook{{Command: "c"}}}},
+		Ext:     map[string]BackendHooks{"x": {"ev": []Hook{{Command: "c"}}}},
 	}
 	assert.Equal(t, 3, MergeHooksConfig(nil, src), "a merge with nowhere to go names the SIZE of what it dropped so the caller can say so")
 	assert.Zero(t, MergeHooksConfig(nil, &HooksConfig{}), "an empty source dropped is nothing dropped")

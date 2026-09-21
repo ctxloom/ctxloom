@@ -130,7 +130,7 @@ hooks:
     turn_end: []             # once per TURN, not once per session
     pre_shell: []
     post_file_edit: []
-  plugins:                    # backend-specific hooks
+  ext:                        # engine-specific hooks, by native event name
     claude-code:
       EventName: []
 

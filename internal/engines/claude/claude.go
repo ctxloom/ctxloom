@@ -219,7 +219,7 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 		w.addUnifiedHooks(settings, hooks.Unified)
 
 		// Add ctxloom hooks from backend-specific passthrough
-		if backendHooks, ok := hooks.Plugins[EngineName]; ok {
+		if backendHooks, ok := hooks.Ext[EngineName]; ok {
 			w.addBackendHooks(settings, backendHooks)
 		}
 
@@ -279,7 +279,7 @@ func (w *ClaudeCodeHookWriter) addToSettingsFile(path string, hooks *wire.HooksC
 		}
 		if hooks != nil {
 			w.addUnifiedHooks(settings, hooks.Unified)
-			if backendHooks, ok := hooks.Plugins[EngineName]; ok {
+			if backendHooks, ok := hooks.Ext[EngineName]; ok {
 				w.addBackendHooks(settings, backendHooks)
 			}
 		}

@@ -265,9 +265,9 @@ func hooksConfigToProto(c *wire.HooksConfig) *HooksConfig {
 		return nil
 	}
 	out := &HooksConfig{Unified: unifiedHooksToProto(c.Unified)}
-	if len(c.Plugins) > 0 {
-		out.Plugins = make(map[string]*BackendHooks, len(c.Plugins))
-		for name, bh := range c.Plugins {
+	if len(c.Ext) > 0 {
+		out.Plugins = make(map[string]*BackendHooks, len(c.Ext))
+		for name, bh := range c.Ext {
 			events := make(map[string]*HookList, len(bh))
 			for event, hooks := range bh {
 				events[event] = &HookList{Hooks: hooksToProto(hooks)}
@@ -282,17 +282,17 @@ func hooksConfigFromProto(c *HooksConfig) *wire.HooksConfig {
 	if c == nil {
 		return nil
 	}
-	// Match the substrate's assembled shape: a non-nil Plugins map even when empty.
+	// Match the substrate's assembled shape: a non-nil Ext map even when empty.
 	out := &wire.HooksConfig{
 		Unified: unifiedHooksFromProto(c.GetUnified()),
-		Plugins: make(map[string]wire.BackendHooks),
+		Ext:     make(map[string]wire.BackendHooks),
 	}
 	for name, bh := range c.GetPlugins() {
 		events := make(wire.BackendHooks)
 		for event, list := range bh.GetEvents() {
 			events[event] = hooksFromProto(list.GetHooks())
 		}
-		out.Plugins[name] = events
+		out.Ext[name] = events
 	}
 	return out
 }

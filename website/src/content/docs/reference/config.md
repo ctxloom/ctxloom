@@ -172,7 +172,7 @@ Hooks configuration
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `plugins` | map → map → hookArray | Backend-specific passthrough hooks (keyed by plugin name) |
+| `ext` | map → map → hookArray | Engine-namespaced passthrough hooks (keyed by engine name): each engine's NATIVE event names, written to its settings untranslated |
 | `unified` | unifiedHooks | Unified hooks (translated per-backend) |
 
 ### llmConfig

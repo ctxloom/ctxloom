@@ -136,7 +136,7 @@ func TestResolveHooks_UnknownEventIsRefusedNotAnsweredEmpty(t *testing.T) {
 func TestResolveHooks_BackendNativeHooksAreReportedNotSilentlyDropped(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
 		Cfg: cfgWithProfileHooks(t, afero.NewMemMapFs(), "/p/.ctxloom", wire.HooksConfig{
-			Plugins: map[string]wire.BackendHooks{
+			Ext: map[string]wire.BackendHooks{
 				"claude-code": {"PreCompact": []wire.Hook{{Type: "command", Command: "native"}}},
 			},
 		}, config.Fixture{}),

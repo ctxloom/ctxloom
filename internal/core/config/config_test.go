@@ -1110,7 +1110,7 @@ func TestHooksConfig_HasAny(t *testing.T) {
 	assert.False(t, wire.HooksConfig{}.HasAny())
 	withUnified := wire.HooksConfig{Unified: wire.UnifiedHooks{PostTool: []wire.Hook{{Command: "x"}}}}
 	assert.True(t, withUnified.HasAny())
-	withPlugin := wire.HooksConfig{Plugins: map[string]wire.BackendHooks{
+	withPlugin := wire.HooksConfig{Ext: map[string]wire.BackendHooks{
 		"claude-code": {"PostToolUse": []wire.Hook{{Command: "x"}}},
 	}}
 	assert.True(t, withPlugin.HasAny())

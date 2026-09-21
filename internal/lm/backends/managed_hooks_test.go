@@ -359,7 +359,7 @@ func TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError(t *testing.T) {
 // hook (gateProfileHooks) does not carry one onto the wire either.
 func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{
-		Plugins: map[string]wire.BackendHooks{
+		Ext: map[string]wire.BackendHooks{
 			"zed":    {"PreCompact": []wire.Hook{{Command: "z-native"}}},
 			"claude": {"PreToolUse": []wire.Hook{{Command: "c-native"}}, "PostToolUse": {}},
 			"mock":   {},
@@ -377,8 +377,8 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 	assert.Equal(t, "zed", native[1].Backend, "sorted by backend, so the report can be diffed between runs")
 
 	// ...and the gated wire projection carries no empty key either.
-	assert.NotContains(t, m.Wire().Plugins, "mock")
-	assert.NotContains(t, m.Wire().Plugins["claude"], "PostToolUse")
+	assert.NotContains(t, m.Wire().Ext, "mock")
+	assert.NotContains(t, m.Wire().Ext["claude"], "PostToolUse")
 }
 
 // TestHookSource_StringNamesWhateverTheOriginCarries keeps the human label
@@ -397,5 +397,5 @@ func TestManagedHooks_NilModelIsInert(t *testing.T) {
 	var m *ManagedHooks
 	assert.Nil(t, m.For("pre_tool"))
 	assert.Nil(t, m.BackendNative())
-	assert.Equal(t, &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{}}, m.Wire())
+	assert.Equal(t, &wire.HooksConfig{Ext: map[string]wire.BackendHooks{}}, m.Wire())
 }

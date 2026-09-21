@@ -64,7 +64,7 @@ func (l *BaseLifecycle) MergeManaged(rep report.Reporter, m *ManagedConfig, work
 func (l *BaseLifecycle) ensureHooks() {
 	if l.hooks == nil {
 		l.hooks = &wire.HooksConfig{
-			Plugins: make(map[string]wire.BackendHooks),
+			Ext: make(map[string]wire.BackendHooks),
 		}
 	}
 }

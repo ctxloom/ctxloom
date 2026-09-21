@@ -85,7 +85,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 	t.Run("creates plugin map if nil", func(t *testing.T) {
 		dest := &wire.HooksConfig{}
 		src := &wire.HooksConfig{
-			Plugins: map[string]wire.BackendHooks{
+			Ext: map[string]wire.BackendHooks{
 				"claude-code": {
 					"PreTool": []wire.Hook{{Command: "claude-hook"}},
 				},
@@ -94,20 +94,20 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 
 		MergeHooksConfig(termRep(), dest, src)
 
-		assert.NotNil(t, dest.Plugins)
-		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 1)
+		assert.NotNil(t, dest.Ext)
+		assert.Len(t, dest.Ext["claude-code"]["PreTool"], 1)
 	})
 
 	t.Run("merges into existing plugins", func(t *testing.T) {
 		dest := &wire.HooksConfig{
-			Plugins: map[string]wire.BackendHooks{
+			Ext: map[string]wire.BackendHooks{
 				"claude-code": {
 					"PreTool": []wire.Hook{{Command: "existing"}},
 				},
 			},
 		}
 		src := &wire.HooksConfig{
-			Plugins: map[string]wire.BackendHooks{
+			Ext: map[string]wire.BackendHooks{
 				"claude-code": {
 					"PreTool":  []wire.Hook{{Command: "new"}},
 					"PostTool": []wire.Hook{{Command: "post"}},
@@ -120,9 +120,9 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 
 		MergeHooksConfig(termRep(), dest, src)
 
-		assert.Len(t, dest.Plugins["claude-code"]["PreTool"], 2)
-		assert.Len(t, dest.Plugins["claude-code"]["PostTool"], 1)
-		assert.Len(t, dest.Plugins["mock"]["PreTool"], 1)
+		assert.Len(t, dest.Ext["claude-code"]["PreTool"], 2)
+		assert.Len(t, dest.Ext["claude-code"]["PostTool"], 1)
+		assert.Len(t, dest.Ext["mock"]["PreTool"], 1)
 	})
 }
 
@@ -142,14 +142,14 @@ func TestMergeHooksConfig_NilDestNamesTheDroppedHooks(t *testing.T) {
 			PreTool:      []wire.Hook{{Command: "pre"}},
 			SessionStart: []wire.Hook{{Command: "start"}},
 		},
-		Plugins: map[string]wire.BackendHooks{
+		Ext: map[string]wire.BackendHooks{
 			"claude": {"PreToolUse": []wire.Hook{{Command: "plugin"}}},
 		},
 	}
 	// The fixture must actually carry hooks, or the silence under test is
 	// legitimate and the pin proves nothing.
 	require.NotEmpty(t, src.Unified.PreTool)
-	require.NotEmpty(t, src.Plugins)
+	require.NotEmpty(t, src.Ext)
 
 	assert.NotPanics(t, func() { MergeHooksConfig(termRep(), nil, src) })
 

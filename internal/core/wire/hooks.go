@@ -4,6 +4,12 @@
 // from any ctxloom tool — the types carry only struct tags and pure methods.
 package wire
 
+import (
+	"errors"
+
+	"gopkg.in/yaml.v3"
+)
+
 // Hook defines a single hook action.
 //
 // SECURITY NOTE: Hooks execute arbitrary commands specified in config.yaml.
@@ -55,10 +61,44 @@ type UnifiedHooks struct {
 	PostFileEdit []Hook `yaml:"post_file_edit,omitempty" json:"post_file_edit,omitempty"`
 }
 
-// HooksConfig holds both unified and backend-specific hook configurations.
+// HooksConfig holds both unified and engine-specific hook configurations.
 type HooksConfig struct {
-	Unified UnifiedHooks            `yaml:"unified,omitempty" json:"unified,omitempty"`
-	Plugins map[string]BackendHooks `yaml:"plugins,omitempty" json:"plugins,omitempty"`
+	Unified UnifiedHooks `yaml:"unified,omitempty" json:"unified,omitempty"`
+	// Ext is the engine-namespace escape hatch: engine name → that engine's
+	// NATIVE event name → hooks, passed through to its settings untranslated.
+	// Named for what it is (an extension past the unified vocabulary) rather
+	// than "plugins": that word is a reserved, first-class concept in engines
+	// whose plugin systems ctxloom deliberately does not write, so
+	// `hooks.plugins.<engine>` read as authoring the very thing it refuses to.
+	Ext map[string]BackendHooks `yaml:"ext,omitempty" json:"ext,omitempty"`
+}
+
+// RetiredHooksExtKey is the pre-rename spelling of HooksConfig.Ext.
+const RetiredHooksExtKey = "plugins"
+
+// ErrRetiredHooksExtKey names the current spelling, because a rename that
+// leaves people guessing has moved the cost rather than paid it.
+var ErrRetiredHooksExtKey = errors.New(
+	"hooks use the retired key '" + RetiredHooksExtKey + ":'; it is now 'ext:' — " +
+		"the same engine-namespaced passthrough map (engine name → native event → hooks), renamed")
+
+// UnmarshalYAML refuses a hooks block still spelling RetiredHooksExtKey.
+// Refused at decode rather than ignored: yaml.v3 without KnownFields drops a
+// key it cannot map, so a renamed tag that silently stops matching leaves
+// every engine-specific hook unwritten with every signal green — the silent
+// no-op this codebase hunts. Living on the type, the guard holds at every
+// YAML surface the type is embedded in, not only the one loader that
+// remembered to check.
+func (h *HooksConfig) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == RetiredHooksExtKey {
+				return ErrRetiredHooksExtKey
+			}
+		}
+	}
+	type plain HooksConfig
+	return node.Decode((*plain)(h))
 }
 
 // HasAny reports whether any hook is configured. Used by config Save() to decide
@@ -68,7 +108,7 @@ func (h HooksConfig) HasAny() bool {
 	if len(u.PreTool)+len(u.PostTool)+len(u.SessionStart)+len(u.SessionEnd)+len(u.TurnEnd)+len(u.PreShell)+len(u.PostFileEdit) > 0 {
 		return true
 	}
-	for _, backend := range h.Plugins {
+	for _, backend := range h.Ext {
 		for _, hooks := range backend {
 			if len(hooks) > 0 {
 				return true
@@ -105,15 +145,15 @@ type BackendHooks map[string][]Hook
 func (h *HooksConfig) Append(other HooksConfig) {
 	h.Unified.Append(other.Unified)
 
-	if h.Plugins == nil {
-		h.Plugins = make(map[string]BackendHooks)
+	if h.Ext == nil {
+		h.Ext = make(map[string]BackendHooks)
 	}
-	for name, hooks := range other.Plugins {
-		if h.Plugins[name] == nil {
-			h.Plugins[name] = make(BackendHooks)
+	for name, hooks := range other.Ext {
+		if h.Ext[name] == nil {
+			h.Ext[name] = make(BackendHooks)
 		}
 		for event, eventHooks := range hooks {
-			h.Plugins[name][event] = appendUniqueHooks(h.Plugins[name][event], eventHooks)
+			h.Ext[name][event] = appendUniqueHooks(h.Ext[name][event], eventHooks)
 		}
 	}
 }

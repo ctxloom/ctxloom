@@ -226,7 +226,7 @@ func carriesAnyHook(h wire.HooksConfig) bool {
 			return true
 		}
 	}
-	for _, hs := range h.Plugins {
+	for _, hs := range h.Ext {
 		if len(hs) > 0 {
 			return true
 		}
@@ -247,7 +247,7 @@ func droppedHookDetail(name string, hooks wire.HooksConfig) string {
 		}
 	}
 	var native []string
-	for event, hs := range hooks.Plugins[name] {
+	for event, hs := range hooks.Ext[name] {
 		if len(hs) > 0 {
 			native = append(native, fmt.Sprintf("%d %s", len(hs), event))
 		}

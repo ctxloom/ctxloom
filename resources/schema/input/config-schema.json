@@ -655,9 +655,9 @@
           "$ref": "#/$defs/unifiedHooks",
           "description": "Unified hooks (translated per-backend)"
         },
-        "plugins": {
+        "ext": {
           "type": "object",
-          "description": "Backend-specific passthrough hooks (keyed by plugin name)",
+          "description": "Engine-namespaced passthrough hooks (keyed by engine name): each engine's NATIVE event names, written to its settings untranslated",
           "additionalProperties": {
             "type": "object",
             "description": "Backend-native hook events",

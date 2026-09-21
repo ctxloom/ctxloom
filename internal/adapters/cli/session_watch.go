@@ -1,17 +1,16 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os/signal"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -41,8 +40,8 @@ One feed, two sources behind it (--source, default auto):
 auto prefers the live tap and falls back to the store tail; forcing --source
 live errors when no orchestrator holds the harp.
 
-With --format json the stream is NDJSON: one event per line, in protojson
-field names, carrying exactly one of
+With --format json the stream is NDJSON: one event per line, carrying
+exactly one of
 
   {"entry": {...}}     a newly-appended normalized turn — type (user |
                        assistant | thinking | tool_use | tool_result |
@@ -86,8 +85,7 @@ func runSessionWatch(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Clean Ctrl-C: cancelling the stream context returns the watch (and tears
-	// the plugin down on the by-id store path).
+	// Clean Ctrl-C: cancelling the stream context returns the watch.
 	ctx, stop := signal.NotifyContext(cmd.Context(), shutdownSignals...)
 	defer stop()
 
@@ -136,11 +134,11 @@ func streamWatchEvents(out io.Writer, format string, events <-chan operations.Se
 	return nil
 }
 
-// writeWatchNDJSON emits each event as one compact JSON line. protojson encodes
-// the oneof and field names; json.Compact normalizes protojson's intentionally
-// unstable whitespace so each line is deterministic. Gap markers (live source)
-// are hand-rolled onto the same line vocabulary.
+// writeWatchNDJSON emits each event as one compact JSON line, discriminated
+// by its one populated key (watchEventJSON). Gap markers (live source) ride
+// the same line vocabulary.
 func writeWatchNDJSON(out io.Writer, events <-chan operations.SessionFeedEvent) error {
+	enc := json.NewEncoder(out)
 	for fe := range events {
 		if fe.Event == nil {
 			if fe.Gap > 0 {
@@ -150,19 +148,64 @@ func writeWatchNDJSON(out io.Writer, events <-chan operations.SessionFeedEvent) 
 			}
 			continue
 		}
-		raw, err := protojson.Marshal(fe.Event)
-		if err != nil {
+		if err := enc.Encode(watchEventJSON(fe.Event)); err != nil {
 			return fmt.Errorf("encode watch event: %w", err)
-		}
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, raw); err != nil {
-			return fmt.Errorf("compact watch event: %w", err)
-		}
-		if _, err := fmt.Fprintf(out, "%s\n", compact.Bytes()); err != nil {
-			return err
 		}
 	}
 	return nil
+}
+
+// watchEventLine is the NDJSON line of one watch event: exactly one of its
+// keys is set. The field names are the stream's documented vocabulary (the
+// command's long help); a rename here is a change of contract.
+type watchEventLine struct {
+	Entry     *watchEntryJSON     `json:"entry,omitempty"`
+	Boundary  *watchBoundaryJSON  `json:"boundary,omitempty"`
+	Heartbeat *watchHeartbeatJSON `json:"heartbeat,omitempty"`
+}
+
+type watchEntryJSON struct {
+	Type          string `json:"type"`
+	Content       string `json:"content,omitempty"`
+	ToolName      string `json:"toolName,omitempty"`
+	ToolInput     []byte `json:"toolInput,omitempty"` // the raw JSON arguments, base64-encoded
+	ToolOutput    string `json:"toolOutput,omitempty"`
+	IsError       bool   `json:"isError,omitempty"`
+	TimestampUnix int64  `json:"timestampUnix,omitempty"`
+	Sidechain     bool   `json:"sidechain,omitempty"`
+}
+
+type watchBoundaryJSON struct {
+	FromIndex int `json:"fromIndex,omitempty"`
+	ToIndex   int `json:"toIndex,omitempty"`
+}
+
+type watchHeartbeatJSON struct{}
+
+// watchEventJSON projects one transcript watch event onto its NDJSON line.
+func watchEventJSON(ev *transcript.WatchEvent) watchEventLine {
+	switch {
+	case ev.Entry != nil:
+		e := ev.Entry
+		var ts int64
+		if !e.Timestamp.IsZero() {
+			ts = e.Timestamp.Unix()
+		}
+		return watchEventLine{Entry: &watchEntryJSON{
+			Type:          string(e.Type),
+			Content:       e.Content,
+			ToolName:      e.ToolName,
+			ToolInput:     []byte(e.ToolInput),
+			ToolOutput:    e.ToolOutput,
+			IsError:       e.IsError,
+			TimestampUnix: ts,
+			Sidechain:     e.Sidechain,
+		}}
+	case ev.Boundary != nil:
+		return watchEventLine{Boundary: &watchBoundaryJSON{FromIndex: ev.Boundary.FromIndex, ToIndex: ev.Boundary.ToIndex}}
+	default:
+		return watchEventLine{Heartbeat: &watchHeartbeatJSON{}}
+	}
 }
 
 // writeWatchText pretty-prints turns, rules off response boundaries, and
@@ -176,12 +219,12 @@ func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) er
 			}
 			continue
 		}
-		switch e := fe.Event.GetEvent().(type) {
-		case *pb.WatchEvent_Entry:
-			renderWatchEntryText(w, e.Entry)
-		case *pb.WatchEvent_Boundary:
+		switch {
+		case fe.Event.Entry != nil:
+			renderWatchEntryText(w, fe.Event.Entry)
+		case fe.Event.Boundary != nil:
 			w.Println(watchBoundaryRule)
-		case *pb.WatchEvent_Heartbeat:
+		case fe.Event.Heartbeat:
 			// Idle keepalive — nothing to show a human.
 		}
 	}
@@ -197,21 +240,21 @@ func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) er
 // renderWatchEntryText writes one normalized entry in a human-readable shape.
 // Subagent-interior (sidechain) entries carry a "↳ " prefix so a human can
 // tell them from the main thread.
-func renderWatchEntryText(w *iox.ErrWriter, e *pb.SessionEntry) {
+func renderWatchEntryText(w *iox.ErrWriter, e *agent.SessionEntry) {
 	prefix := ""
-	if e.GetSidechain() {
+	if e.Sidechain {
 		prefix = "↳ "
 	}
-	switch e.GetType() {
-	case "tool_use":
-		w.Printf("  %s→ %s\n", prefix, e.GetToolName())
-	case "tool_result":
+	switch e.Type {
+	case agent.EntryTypeToolUse:
+		w.Printf("  %s→ %s\n", prefix, e.ToolName)
+	case agent.EntryTypeToolResult:
 		marker := "✓"
-		if e.GetIsError() {
+		if e.IsError {
 			marker = "✗"
 		}
-		w.Printf("  %s%s %s\n", prefix, marker, e.GetToolName())
+		w.Printf("  %s%s %s\n", prefix, marker, e.ToolName)
 	default:
-		w.Printf("%s%s: %s\n", prefix, e.GetType(), e.GetContent())
+		w.Printf("%s%s: %s\n", prefix, e.Type, e.Content)
 	}
 }

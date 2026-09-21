@@ -2,7 +2,7 @@ package cli
 
 import (
 	"context"
-	"io"
+	"errors"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -13,11 +13,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // pingTestHarp is any non-empty harp: these tests exercise the ping's own
@@ -73,87 +73,84 @@ func (sequenceMinter) MintMCP(_ context.Context, id sessions.Identity, _ launch.
 	return sessions.Endpoint{URL: "http://127.0.0.1:1/" + id.Harp, Credential: "c-" + id.Harp}, nil
 }
 
-// stubPingClient is a minimal pb.Client for pingEngineAuth/launchDiscovery
-// tests: Run returns the configured exit code/error and records the request
-// it received, so a test can assert what pingEngineAuth actually sent without
-// spawning a real engine subprocess.
-type stubPingClient struct {
-	exitCode int32
-	runErr   error
-	gotReq   *pb.RunStart
+// stubRunHost is a minimal operations.RunHost for pingEngineAuth /
+// launchDiscovery tests: StartOwnedRun records the launch the probe started
+// (never starting a runner), Turn records the prompt and answers "ok" or the
+// configured failure, so a test asserts what pingEngineAuth actually asked
+// for without a coordinator or an engine subprocess. A test installs it
+// through stubPingHosts.
+type stubRunHost struct {
+	turnErr   error
+	gotLaunch *launch.Launch
+	gotPrompt string
 }
 
-func (s *stubPingClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
-	s.gotReq = req
-	if s.runErr != nil {
-		return s.exitCode, s.runErr
+func (s *stubRunHost) Owner() coord.Identity { return coord.Identity{Harp: "test-owner"} }
+func (s *stubRunHost) StartOwnedRun(_ context.Context, _ coord.Identity, spec coord.OwnerRun, _ coord.OwnedRunStarter, _ string) (*coord.RunOutcome, error) {
+	l := spec.Launch
+	s.gotLaunch = &l
+	return &coord.RunOutcome{RunID: "run-probe", Harp: l.Identity.Harp}, nil
+}
+func (s *stubRunHost) Turn(_ context.Context, _ string, t engine.Turn) (engine.TurnResult, error) {
+	s.gotPrompt = t.Prompt
+	if s.turnErr != nil {
+		return engine.TurnResult{}, s.turnErr
 	}
-	_, _ = io.WriteString(stdout, "ok")
-	return s.exitCode, nil
+	return engine.TurnResult{Answer: "ok"}, nil
 }
-func (s *stubPingClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (s *stubPingClient) RunWithModelInfo(ctx context.Context, req *pb.RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	code, err := s.Run(ctx, req, stdin, stdout, stderr, resize)
-	return &pb.RunResult{ExitCode: code}, err
-}
-func (s *stubPingClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
-func (s *stubPingClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
-	return nil, nil, nil
-}
-func (s *stubPingClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-	return nil, nil, nil, nil
-}
-func (s *stubPingClient) ListSessions(context.Context) ([]agent.SessionMeta, error) { return nil, nil }
-func (s *stubPingClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
-	return nil, nil
-}
-func (s *stubPingClient) Kill() {}
 
-// TestPingEngineAuth_Succeeds: a healthy engine's oneshot round trip (exit 0)
+// stubPingHosts installs stub as the probe's RunHost for the test's duration.
+func stubPingHosts(t *testing.T, stub *stubRunHost) {
+	t.Helper()
+	orig := authPingHosts
+	authPingHosts = operations.RunHostFunc(func(context.Context, string, string) (operations.RunHost, error) { return stub, nil })
+	t.Cleanup(func() { authPingHosts = orig })
+}
+
+// errEngineDead is the failure a dead engine's turn reports (as a real
+// backend does when auth is missing).
+var errEngineDead = errors.New("engine exited with code 1")
+
+// TestPingEngineAuth_Succeeds: a healthy engine's one-shot turn (an answer)
 // clears the gate with no error — the ping is a liveness check, not a login
 // flow, so success just means "proceed."
 func TestPingEngineAuth_Succeeds(t *testing.T) {
-	stub := &stubPingClient{exitCode: 0}
-	orig := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = orig })
+	stub := &stubRunHost{}
+	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
 	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
 	require.NoError(t, err)
 
-	// The smallest possible prompt actually reached the engine.
-	require.NotNil(t, stub.gotReq)
-	require.NotNil(t, stub.gotReq.Prompt)
-	assert.Equal(t, authPingTask, stub.gotReq.Prompt.Content)
-	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
+	// The smallest possible prompt actually reached the engine, as a turn on
+	// a structured run.
+	require.NotNil(t, stub.gotLaunch)
+	assert.Equal(t, authPingTask, stub.gotPrompt)
+	assert.Equal(t, engine.Structured, stub.gotLaunch.Mode)
 }
 
 // TestPingEngineAuth_RequestsBypassPermissionExplicitly pins that the ping
-// asks for permissions: bypass on its RunOneshot request explicitly, rather
-// than riding whatever the chosen engine's llm label declares (or doesn't).
+// asks for permissions: bypass on its launch explicitly, rather than riding
+// whatever the chosen engine's llm label declares (or doesn't).
 // authPingTestConfig declares no llm permissions at all, so before
-// pingEngineAuth carried this override, its request depended entirely on
+// pingEngineAuth carried this override, its launch depended entirely on
 // operations.effectiveMemberPermission's floor for an unset posture — a
 // floor unroasted-spinning replaced with a refusal. This is a PAYLOAD
-// assertion on the actual wire request (Options.PermissionMode), not just
-// "the ping succeeded": a caller-side fallback that quietly caught a
+// assertion on the launch the run started with (Launch.Permission), not
+// just "the ping succeeded": a caller-side fallback that quietly caught a
 // refusal and retried some other way could still pass a success-only
-// assertion without this request ever carrying bypass.
+// assertion without this launch ever carrying bypass.
 func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
-	stub := &stubPingClient{exitCode: 0}
-	orig := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = orig })
+	stub := &stubRunHost{}
+	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
 	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
 	require.NoError(t, err)
 
-	require.NotNil(t, stub.gotReq)
-	require.NotNil(t, stub.gotReq.Options)
-	assert.Equal(t, agent.PermissionBypass.String(), stub.gotReq.Options.PermissionMode,
-		"the ping must carry an explicit bypass posture on the request, not rely on the label's configured (or unset) permissions")
+	require.NotNil(t, stub.gotLaunch)
+	assert.Equal(t, agent.PermissionBypass, stub.gotLaunch.Permission,
+		"the ping must carry an explicit bypass posture on the launch, not rely on the label's configured (or unset) permissions")
 }
 
 // discoveryLaunch drives launchDiscovery over stateless deps with a
@@ -161,24 +158,22 @@ func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
 func discoveryLaunch(t *testing.T, cfg *config.Config) launch.Launch {
 	t.Helper()
 	testLaunchDeps(t, cfg)
-	stub := &stubPingClient{exitCode: 0}
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = origFactory })
+	stub := &stubRunHost{}
+	stubPingHosts(t, stub)
 
 	var got launch.Launch
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(_ context.Context, l launch.Launch, _ operations.Opened) error { got = l; return nil }
+	launchEngineWithPromptFn = func(_ context.Context, _ *config.Config, _ string, l launch.Launch) error { got = l; return nil }
 	t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	_ = captureStdout(t, func() { require.NoError(t, launchDiscovery(cmd, "claude-code", t.TempDir()+"/.ctxloom", true)) })
 	require.NotEmpty(t, got.Identity.Harp, "the discovery session resolved")
-	// The probe stamped its OWN harp on the request it drove; the session the
-	// human works in is another identity.
-	require.NotNil(t, stub.gotReq)
-	assert.NotEqual(t, stub.gotReq.Options.Env[sessions.EnvHarp], got.Identity.Harp,
+	// The probe ran under its OWN harp; the session the human works in is
+	// another identity.
+	require.NotNil(t, stub.gotLaunch)
+	assert.NotEqual(t, stub.gotLaunch.Identity.Harp, got.Identity.Harp,
 		"the auth probe and the discovery session are two launches with two identities")
 	return got
 }
@@ -267,8 +262,8 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 	})
 }
 
-// TestPingEngineAuth_FailsLoud_NamesTheFix: a dead engine (nonzero exit, as a
-// real backend reports when auth is missing) fails the ping with an error
+// TestPingEngineAuth_FailsLoud_NamesTheFix: a dead engine (a failed turn, as
+// a real backend reports when auth is missing) fails the ping with an error
 // naming BOTH the engine and its specific fix — never a bare "failed."
 //
 // EVERY registered backend runs the SAME assertions: this is a conformance
@@ -284,10 +279,8 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 
 	for _, engine := range engines {
 		t.Run(engine, func(t *testing.T) {
-			stub := &stubPingClient{exitCode: 1}
-			orig := authPingFactory
-			authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-			t.Cleanup(func() { authPingFactory = orig })
+			stub := &stubRunHost{turnErr: errEngineDead}
+			stubPingHosts(t, stub)
 
 			cfg := authPingTestConfig(t)
 			err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, engine, t.TempDir())
@@ -303,10 +296,8 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 // registered still fails loud, with a generic-but-actionable fix, rather
 // than blanking on a missing declaration.
 func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
-	stub := &stubPingClient{exitCode: 1}
-	orig := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = orig })
+	stub := &stubRunHost{turnErr: errEngineDead}
+	stubPingHosts(t, stub)
 
 	cfg := authPingTestConfig(t)
 	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "some-future-engine", t.TempDir())
@@ -321,14 +312,12 @@ func TestPingEngineAuth_UnlistedEngine_GetsGenericFix(t *testing.T) {
 // far.
 func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 	testLaunchDeps(t, authPingTestConfig(t))
-	stub := &stubPingClient{exitCode: 1}
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = origFactory })
+	stub := &stubRunHost{turnErr: errEngineDead}
+	stubPingHosts(t, stub)
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
+	launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -349,14 +338,12 @@ func TestLaunchDiscovery_FailedPing_NeverLaunches(t *testing.T) {
 // relaunch prompt of its own — init hands off once and is done.
 func TestLaunchDiscovery_SuccessfulPing_LaunchesAndPrintsReentryHint(t *testing.T) {
 	testLaunchDeps(t, authPingTestConfig(t))
-	stub := &stubPingClient{exitCode: 0}
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = origFactory })
+	stub := &stubRunHost{}
+	stubPingHosts(t, stub)
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
+	launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -408,13 +395,11 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 	setup := func(t *testing.T) *cobra.Command {
 		t.Helper()
 		testLaunchDeps(t, authPingTestConfig(t))
-		stub := &stubPingClient{exitCode: 0}
-		origFactory := authPingFactory
-		authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-		t.Cleanup(func() { authPingFactory = origFactory })
+		stub := &stubRunHost{}
+		stubPingHosts(t, stub)
 
 		origLaunch := launchEngineWithPromptFn
-		launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
+		launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
 			return assert.AnError
 		}
 		t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
@@ -456,16 +441,16 @@ func TestLaunchDiscovery_SessionError_FailsLoudByDefaultDegradesUnderFlag(t *tes
 // no agent.
 func TestLaunchDiscovery_NonInteractive_SkipsPingAndLaunch(t *testing.T) {
 	pingCalled := false
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) {
+	origHosts := authPingHosts
+	authPingHosts = operations.RunHostFunc(func(context.Context, string, string) (operations.RunHost, error) {
 		pingCalled = true
-		return &stubPingClient{exitCode: 0}, nil
-	}
-	t.Cleanup(func() { authPingFactory = origFactory })
+		return &stubRunHost{}, nil
+	})
+	t.Cleanup(func() { authPingHosts = origHosts })
 
 	launchCalled := false
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(context.Context, launch.Launch, operations.Opened) error {
+	launchEngineWithPromptFn = func(context.Context, *config.Config, string, launch.Launch) error {
 		launchCalled = true
 		return nil
 	}
@@ -488,12 +473,12 @@ func TestLaunchDiscovery_SkipLaunch_SkipsPingToo(t *testing.T) {
 	t.Cleanup(func() { initSkipLaunch = origSkip })
 
 	pingCalled := false
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) {
+	origHosts := authPingHosts
+	authPingHosts = operations.RunHostFunc(func(context.Context, string, string) (operations.RunHost, error) {
 		pingCalled = true
-		return &stubPingClient{exitCode: 0}, nil
-	}
-	t.Cleanup(func() { authPingFactory = origFactory })
+		return &stubRunHost{}, nil
+	})
+	t.Cleanup(func() { authPingHosts = origHosts })
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())

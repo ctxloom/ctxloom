@@ -52,7 +52,7 @@ func ownerLabelArgs() []string {
 // initArgs asks the container runtime to put a real init at PID 1.
 //
 // Without it the image entrypoint's `exec "$@"` REPLACES the entrypoint, so the
-// engine itself becomes PID 1 — and PID 1 must reap orphans. `ctxloom llm host`
+// engine itself becomes PID 1 — and PID 1 must reap orphans. `ctxloom runner`
 // does not, so a delegated runner reparented to it becomes a permanent zombie.
 // That is not merely untidy: a zombie keeps its process-table entry, so
 // pidalive.Probe (which classifies with signal 0) reads it as ALIVE, its stale

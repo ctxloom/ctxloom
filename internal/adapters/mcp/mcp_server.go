@@ -59,7 +59,17 @@ type ctxServer struct {
 	// was otherwise unreachable without a live LLM, and a mutation swapping that
 	// key survived the entire package unnoticed.
 	compactorFactory func(memory.CompactionConfig) (*memory.Compactor, error)
+	// hosts yields the coordinator an internal one-shot this server starts
+	// (a distill, a triage) runs on: the session's own, on the coordinator's
+	// relay (HostApp). Nil on a bare stdio server, which then refuses the
+	// one-shot (operations.ErrNoRunHost) rather than hosting a coordinator
+	// of its own.
+	hosts operations.RunHosts
 }
+
+// hostsFor yields the one-shot host port for s; a nil port is the refusal
+// StartOneShot names.
+func (s *ctxServer) hostsFor() operations.RunHosts { return s.hosts }
 
 // ServeStdio is the whole body of `ctxloom mcp serve`: forward-mode
 // detection, local startup, and the stdio SDK server. The cobra command in

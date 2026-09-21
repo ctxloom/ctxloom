@@ -21,7 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // This file is the F1 termui<->tui COMPOSITION harness (Wave F playbook,
@@ -84,7 +84,7 @@ func waitForComposition(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-func recvWindowSize(t *testing.T, ch <-chan *pb.WindowSize) *pb.WindowSize {
+func recvWindowSize(t *testing.T, ch <-chan *agent.WindowSize) *agent.WindowSize {
 	t.Helper()
 	select {
 	case ws := <-ch:
@@ -198,7 +198,7 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	defer cancel()
 	src, watched := realOverlaySources("perky-same-chevy")
 
-	resize := make(chan *pb.WindowSize, 4)
+	resize := make(chan *agent.WindowSize, 4)
 	warns := make(chan string, 4)
 	c := termui.New(termui.Options{
 		Stdin:    slave,
@@ -219,9 +219,9 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 	defer c.Close()
 	engine := pumpEngineInput(c)
 
-	resize <- &pb.WindowSize{Rows: 24, Cols: 80}
+	resize <- &agent.WindowSize{Rows: 24, Cols: 80}
 	ws := recvWindowSize(t, c.Resize())
-	require.Equal(t, uint32(23), ws.Rows, "initial size reaches the engine reserved")
+	require.Equal(t, uint16(23), ws.Rows, "initial size reaches the engine reserved")
 	waitForComposition(t, "surround establish", func() bool { return strings.Contains(tty.String(), "\x1b[1;23r") })
 
 	// Engage: prefix + a viewer key, written to the pty's MASTER side (the
@@ -280,8 +280,8 @@ func TestOverlayComposition_EngageHoldReplayNudge(t *testing.T) {
 
 	first := recvWindowSize(t, c.Resize())
 	second := recvWindowSize(t, c.Resize())
-	assert.Equal(t, uint32(22), first.Rows, "repaint nudge wiggles a row")
-	assert.Equal(t, uint32(23), second.Rows)
+	assert.Equal(t, uint16(22), first.Rows, "repaint nudge wiggles a row")
+	assert.Equal(t, uint16(23), second.Rows)
 
 	// Interceptor is back to passthrough.
 	_, err = ptyDev.Write([]byte("typed-after"))
@@ -315,7 +315,7 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 			panic("composition test: induced overlay panic")
 		},
 	}
-	resize := make(chan *pb.WindowSize, 4)
+	resize := make(chan *agent.WindowSize, 4)
 	warns := make(chan string, 4)
 	c := termui.New(termui.Options{
 		Stdin:      slave,
@@ -330,7 +330,7 @@ func TestOverlayComposition_RealOverlayPanicDegradesPermanently(t *testing.T) {
 	defer c.Close()
 	engine := pumpEngineInput(c)
 
-	resize <- &pb.WindowSize{Rows: 24, Cols: 80}
+	resize <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvWindowSize(t, c.Resize())
 
 	_, err := ptyDev.Write([]byte{compPrefix, 'j'})

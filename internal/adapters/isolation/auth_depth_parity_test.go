@@ -72,7 +72,6 @@ func TestContainerMount_CredentialMountIsReadWriteAtEveryDelegationDepth(t *test
 			engineSpec: spec,
 			binaryPath: defaultContainerBinary,
 			home:       defaultContainerHome,
-			socketDir:  defaultContainerSocketDir,
 			base:       base,
 		}
 	}

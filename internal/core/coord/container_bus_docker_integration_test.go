@@ -95,12 +95,11 @@ func startFeedTail(feed *operations.SessionFeed) *feedTail {
 	ft := &feedTail{}
 	go func() {
 		for ev := range feed.Events {
-			entry := ev.Event.GetEntry()
-			if entry == nil || entry.GetContent() == "" {
+			if ev.Event == nil || ev.Event.Entry == nil || ev.Event.Entry.Content == "" {
 				continue
 			}
 			ft.mu.Lock()
-			ft.text.WriteString(entry.GetContent())
+			ft.text.WriteString(ev.Event.Entry.Content)
 			ft.text.WriteString("\n---\n")
 			ft.mu.Unlock()
 		}

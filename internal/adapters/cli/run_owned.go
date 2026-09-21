@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // The owner-owned run: `ctxloom run` mints a run in the coordinator it hosts
@@ -48,33 +47,12 @@ type ownedRunLaunch struct {
 }
 
 // processStarter is the owner run's starter for a launch whose runner is a
-// plain process: the cell's transport (Policy.StartRunner — a bare
-// self-invoked `ctxloom runner` on the host, `docker run … ctxloom runner`
-// for a container). A container is awaited HERE, inside the starter: the
-// very next thing StartOwnedRun does is wait for the runner to dial home,
-// which a container that never came up can never do. The handle is recorded
-// on the state so a container that failed to reach running is still torn
-// down.
+// plain process (operations.RunnerStarter over this run's cell); the handle
+// is recorded on the state so a container that failed to reach running is
+// still torn down.
 func (st *runState) processStarter() coord.OwnedRunStarter {
-	return func(sctx context.Context, spawnEnv map[string]string) (func(), string, error) {
-		h, err := st.policy.StartRunner(sctx, st.backendName, st.label, runVerbosity, st.ws, spawnEnv)
-		if err != nil {
-			return nil, "", err
-		}
-		st.runnerHandle = h
-		if h.Name == "" {
-			return h.Kill, "", nil
-		}
-		if rerr := isolation.AwaitContainerRunning(operations.RuntimeForPolicy(st.policy), h); rerr != nil {
-			// NON-DEGRADABLE: a boundary that was requested, accepted, and
-			// then died must not launch on the host in either mode.
-			strictness.FailAlways(strictness.ClassIsolation,
-				"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
-				"container %q was started but never reached running state, so the isolation it promised does not exist: %v", h.Name, rerr)
-			return h.Kill, h.Name, rerr
-		}
-		return h.Kill, h.Name, nil
-	}
+	return operations.RunnerStarter(operations.PreparedCell{Policy: st.policy, Workspace: st.ws}, st.backendName, st.label, runVerbosity,
+		func(h *isolation.RunnerHandle) { st.runnerHandle = h })
 }
 
 // startOwnedRun subscribes to the coordinator's event stream, then mints the
@@ -170,9 +148,8 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 	if text != "" && !strings.HasSuffix(text, "\n") {
 		fmt.Fprintln(stdout)
 	}
-	// BOTH --print arms close out through recordOneshotAnswer, so
-	// "the engine answered nothing" is one rule with one message rather than a
-	// warning on this arm and no check at all on the go-plugin one. Capture runs
+	// The --print arm closes out through recordOneshotAnswer, so "the engine
+	// answered nothing" is one rule with one message. Capture runs
 	// even on a nonzero exit (partial prose is still real memory of what
 	// happened), but the run's own failure takes precedence — it already said
 	// what went wrong.
@@ -193,8 +170,8 @@ type ownedRenderResult struct {
 
 // renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
 // forwards FINAL-channel message deltas (text mode → prose to out; json mode →
-// the same NDJSON entry contract renderChatEvents/chatEventToJSON emit for the
-// go-plugin arm — run_structured.go), signals each turn boundary on turnIdle
+// the NDJSON entry contract chatEventToJSON defines — run_structured.go),
+// signals each turn boundary on turnIdle
 // (non-blocking) carrying the answer text accumulated so far, and returns
 // that text plus nil at RunCompleted or ctx.Err() on cancellation.
 // REASONING/LOG channels are excluded — the host renders the answer, not the
@@ -207,11 +184,9 @@ type ownedRenderResult struct {
 // drives this renderer directly and several assert on the RETURNED text.
 func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
 	// Reject a format this renderer cannot honor BEFORE consuming the stream,
-	// on the same text/json pair renderChatEvents enforces (format.go). Which
-	// arm a container run takes is an isolation-policy decision, not the
-	// user's, so a --format value must mean the same thing on both: falling
-	// through to raw prose here made an unsupported format an error on the
-	// go-plugin arm and a silent downgrade on this one.
+	// on the text/json pair the streaming commands support (format.go):
+	// falling through to raw prose would make an unsupported format a silent
+	// downgrade.
 	switch format {
 	case formatJSON, formatText, "":
 	default:

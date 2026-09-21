@@ -75,9 +75,9 @@ func TestWatchStoreFeed_StreamsCanonical(t *testing.T) {
 	select {
 	case ev := <-feed.Events:
 		require.NotNil(t, ev.Event)
-		e := ev.Event.GetEntry()
+		e := ev.Event.Entry
 		require.NotNil(t, e, "first event must be the captured entry, got %+v", ev.Event)
-		assert.Equal(t, "WATCH-REAL-PAYLOAD", e.GetContent())
+		assert.Equal(t, "WATCH-REAL-PAYLOAD", e.Content)
 	case <-time.After(feedWait):
 		t.Fatal("timed out waiting for the canonical entry to stream")
 	}

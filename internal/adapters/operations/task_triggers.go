@@ -65,6 +65,9 @@ type EvaluateTriggersRequest struct {
 	// internal/shared/tasks/operations.TaskContext).
 	TaskContext tasksops.TaskContext
 
+	// Hosts yields the coordinator the triage one-shot runs on.
+	Hosts RunHosts
+
 	// RepoDir is the git working tree to gather commit evidence from. Empty
 	// skips git evidence entirely (the model still judges the trigger text
 	// and cross-references other tasks).
@@ -243,7 +246,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// escalation round are turns on it.
 		run := req.Run
 		if run == nil {
-			triage, err := StartInternalOneShot(ctx, cfg, req.TaskContext.Strictness, label, "", req.RepoDir, "", 0)
+			triage, err := StartInternalOneShot(ctx, req.Hosts, cfg, req.TaskContext.Strictness, label, "", req.RepoDir, "", 0)
 			if err != nil {
 				return nil, fmt.Errorf("start triage: %w", err)
 			}

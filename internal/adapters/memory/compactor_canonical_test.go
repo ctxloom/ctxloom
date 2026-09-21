@@ -20,7 +20,7 @@ import (
 // TestTranscriptSize_PrefersCanonicalOverLegacy pins the S4
 // staleness-fingerprint fix: once a harp has a captured canonical transcript,
 // that is the file Compact actually distills from (NewCompactor wraps the
-// production source in pb.CanonicalFallbackSource), so the size fingerprint
+// production source in transcript.CanonicalFallbackSource), so the size fingerprint
 // stamped into the essence — and later compared by Entry.SourceStale — must
 // be the CANONICAL file's size, not the legacy engine file's. The legacy and
 // canonical fixtures here are deliberately different, known sizes so a size

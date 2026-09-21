@@ -50,12 +50,9 @@ func TestContainerWorktree_RunSpecMountsWorktreeAndGitdir(t *testing.T) {
 		&git.Fake{CommonDirValue: common}, worktreeDir)
 	require.NoError(t, err)
 
-	// buildRunSpec is exactly what containerRunnerFunc renders: workDir = the
-	// worktree, extraMounts carrying the gitdir mirror.
-	spec := buildRunSpec("img", "name", worktreeDir, "/root",
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		[]string{}, nil, []Mount{gitMount}, nil)
+	// buildRunnerSpec is what the runner launch renders: workDir = the
+	// worktree, the workspace's mounts carrying the gitdir mirror.
+	spec := runnerSpecFor(Docker{}, "mock", worktreeDir, nil, []Mount{gitMount})
 
 	assert.Equal(t, worktreeDir, spec.WorkDir, "cwd is the member's worktree, not the live project")
 	assert.Contains(t, spec.Mounts, Mount{Host: worktreeDir, Container: worktreeDir},

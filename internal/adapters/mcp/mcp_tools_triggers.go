@@ -62,6 +62,7 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 	tc := evaluateTriggersTaskContext(s, cwd)
 	res, err := operations.EvaluateTriggers(ctx, s.cfg, operations.EvaluateTriggersRequest{
 		TaskContext: tc,
+		Hosts:       s.hostsFor(),
 		RepoDir:     cwd,
 		MaxCommits:  in.MaxCommits,
 		Refresh:     in.Refresh,

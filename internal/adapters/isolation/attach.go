@@ -15,13 +15,9 @@ import (
 )
 
 // AttachedContainer is a running container's foreground stdio for a caller
-// that speaks its OWN protocol directly with the in-container process — as
-// opposed to SpawnClient's go-plugin-over-socket transport, which serves the
-// `ctxloom llm serve` gRPC protocol. For a line protocol riding Stdin/Stdout
-// directly, with no go-plugin handshake involved, the heavier
-// RunnerFunc/AddrTranslator machinery SpawnClient uses would be pure overhead
-// — this is the minimal primitive underneath it (exec the runtime's `run`
-// argv, no daemon-specific socket dance).
+// that speaks its OWN protocol directly with the in-container process: a
+// line protocol riding Stdin/Stdout. It is the minimal primitive (exec the
+// runtime's `run` argv, no daemon-specific socket dance).
 type AttachedContainer struct {
 	Stdin  io.WriteCloser
 	Stdout io.Reader
@@ -74,11 +70,10 @@ func (a *AttachedContainer) Close() error {
 
 // interactiveRunArgs inserts `-i` right after RunArgs' leading "run" element,
 // keeping the container's stdin OPEN for this caller's piped writes. The
-// shared RunSpec/RunArgs never add it themselves: the go-plugin transport
-// (containerRunnerFunc/newContainerRunner) deliberately leaves stdin nil —
-// go-plugin never watches it, so `-i` would only hold the run process open
-// for nothing — but a caller speaking its OWN stdio protocol (RunAttached's
-// whole reason to exist) needs a live bidirectional stdin or the container
+// shared RunSpec/RunArgs never add it themselves (a detached runner's stdin
+// is nil, and `-i` would only hold the run process open for nothing) — but a
+// caller speaking its OWN stdio protocol (RunAttached's whole reason to
+// exist) needs a live bidirectional stdin or the container
 // sees EOF immediately and the engine's read loop exits before ever seeing a
 // request. A container runtime's args start with "run", so element 1 is the
 // insertion point — but NOT every Runtime renders a run argv at all: Host
@@ -95,12 +90,12 @@ func interactiveRunArgs(args []string) []string {
 }
 
 // RunAttached starts spec's container in the FOREGROUND (Runtime.RunArgs —
-// stdout/stderr attached, no -d/-t: a pty would mangle a piped protocol
-// exactly as it would the go-plugin handshake) with piped stdin/stdout for a
+// stdout/stderr attached, no -d/-t: a pty would mangle a piped protocol)
+// with piped stdin/stdout for a
 // caller that will speak its own protocol with the in-container process.
 //
-// Close force-removes the container by NAME — mirrors containerRunner.Kill's
-// doc (runner.go): merely killing the local `run` CLI process would not stop
+// Close force-removes the container by NAME — as every container teardown
+// here does: merely killing the local `run` CLI process would not stop
 // a container that raced ahead of us (no --rm, or a daemon detached from the
 // client), and a wedged daemon must not hang teardown forever, so the remove
 // runs under containerRemoveTimeout regardless of the caller's own ctx. A
@@ -109,8 +104,7 @@ func interactiveRunArgs(args []string) []string {
 // to confirm removal is surfaced, loudly, since the live container would
 // otherwise hold this session's workspace mounts invisibly.
 //
-// spawnEnv is the value-carrying env channel — the attached-transport
-// counterpart of LaunchSpec.SpawnEnv on the go-plugin path. Each key crosses as
+// spawnEnv is the value-carrying env channel. Each key crosses as
 // a bare-name `-e NAME` on the run argv while its VALUE is stamped onto the
 // `run` process's own environment, so a secret never lands in an argv that stays
 // world-readable (/proc/<pid>/cmdline) for the container's whole lifetime.
@@ -121,8 +115,8 @@ func RunAttached(ctx context.Context, rt Runtime, spec RunSpec, spawnEnv map[str
 	env := os.Environ()
 	// Per-spawn env values ride the `run` PROCESS env; the spec carries only
 	// their bare NAMES, which renderRunSpec emits as `-e NAME` for the runtime to
-	// forward. Same split newContainerRunner makes for the go-plugin transport
-	// and for the same reason: a `-e KEY=VAL` would put the value in the `run`
+	// forward. Same split buildRunnerSpec makes, and for the same reason: a
+	// `-e KEY=VAL` would put the value in the `run`
 	// process's argv, which is world-readable for the container's whole lifetime
 	// via /proc/<pid>/cmdline.
 	if len(spawnEnv) > 0 {

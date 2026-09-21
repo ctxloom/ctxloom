@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -208,8 +207,8 @@ func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a mock client that returns distilled content
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled: key decisions and outcomes"))
 			return 0, nil
 		},
@@ -232,8 +231,8 @@ func TestCompactor_RunDistill_WithMockClient(t *testing.T) {
 
 func TestCompactor_RunDistill_ClientError(t *testing.T) {
 	// Create a mock client that returns an error
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("connection failed")
 		},
 	}
@@ -251,8 +250,8 @@ func TestCompactor_RunDistill_ClientError(t *testing.T) {
 
 func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
 	// Create a mock client that returns non-zero exit code
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stderr.Write([]byte("LLM error"))
 			return 1, nil
 		},
@@ -273,8 +272,8 @@ func TestCompactor_RunDistill_NonZeroExit(t *testing.T) {
 // empty distillation. Treated as success it produced an empty body which
 // saveDistilled then atomically wrote over a previously good essence.md.
 func TestCompactor_RunDistill_EmptyOutputIsAFailure(t *testing.T) {
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, nil // exit 0, not one byte of output
 		},
 	}
@@ -296,16 +295,6 @@ func TestCompactor_SaveDistilled_RefusesEmptyBody(t *testing.T) {
 
 	_, err := c.saveDistilled("some-session", "   \n\n  ", distilledMeta{})
 	require.Error(t, err, "an empty distilled body must not be written over a good essence")
-}
-
-func TestMockClientFactory(t *testing.T) {
-	mock := &pb.MockClient{}
-	factory := pb.MockClientFactory(mock)
-
-	client, err := factory("any-backend", "", 0)
-	require.NoError(t, err)
-
-	assert.Same(t, mock, client)
 }
 
 // mockBackend implements agent.Backend for testing compactor.
@@ -435,8 +424,8 @@ func TestCompact_EmptySession(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("compaction pipeline invoked for an empty session; must short-circuit to a dump before any LLM call")
 			return 0, nil
 		},
@@ -481,10 +470,10 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 
 	var mu sync.Mutex
 	var prompts []string
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			mu.Lock()
-			prompts = append(prompts, req.GetPrompt().GetContent())
+			prompts = append(prompts, prompt)
 			mu.Unlock()
 			_, _ = stdout.Write([]byte("Distilled."))
 			return 0, nil
@@ -533,10 +522,10 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 
 	var mu sync.Mutex
 	var prompts []string
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			mu.Lock()
-			prompts = append(prompts, req.GetPrompt().GetContent())
+			prompts = append(prompts, prompt)
 			mu.Unlock()
 			_, _ = stdout.Write([]byte("Distilled."))
 			return 0, nil
@@ -581,8 +570,8 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("compaction pipeline invoked for an all-sidechain (empty main-thread) session")
 			return 0, nil
 		},
@@ -618,8 +607,8 @@ func TestCompact_EmptySessionDoesNotOverwriteExistingEssence(t *testing.T) {
 		currentSession: &agent.Session{ID: sessionID, Entries: []agent.SessionEntry{}},
 	}
 	mockBe := &mockBackend{history: mockHistory}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("empty session must not reach the LLM")
 			return 0, nil
 		},
@@ -657,8 +646,8 @@ func TestCompact_WithMockClient(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled: User greeted assistant, assistant responded positively."))
 			return 0, nil
 		},
@@ -708,8 +697,8 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 	}}
 
 	oversized := strings.Repeat("z", MaxEssenceChars+1)
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			// The distillation "succeeds" (exit 0) but its output is over the
 			// bound -- a model that ignored its character budget.
 			_, _ = stdout.Write([]byte(oversized))
@@ -744,7 +733,7 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 
 // TestCompact_DeliversSystemPromptOnTheMinimalForm pins the fragment-delivery
 // fix: distillation declares LaunchFormMinimal, which states it has no managed
-// surfaces, and the server hands req.Fragments to a backend through a delivered
+// surfaces, and the runner hands the package to the engine through a delivered
 // context surface — which this form declares away. So the distill
 // instructions must ride in the prompt itself, or the model never sees them and
 // just answers the transcript conversationally (no frontmatter, no Open Items).
@@ -760,9 +749,9 @@ func TestCompact_DeliversSystemPromptOnTheMinimalForm(t *testing.T) {
 	}}
 
 	var sawPrompt string
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			sawPrompt = req.Prompt.Content
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			sawPrompt = prompt
 			_, _ = stdout.Write([]byte("---\nsummary: ok\n---\n\n### Open Items\n- x"))
 			return 0, nil
 		},
@@ -810,9 +799,9 @@ func TestCompact_PreservesPlansVerbatim(t *testing.T) {
 	// Capture the prompt the LLM sees: plans live in files, so the transcript
 	// the LLM summarizes never carries the plan body.
 	var sawLLMInput string
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			sawLLMInput = req.Prompt.Content
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			sawLLMInput = prompt
 			_, _ = stdout.Write([]byte("### Summary\nUser asked for a plan."))
 			return 0, nil
 		},
@@ -862,8 +851,8 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 			},
 		},
 	}}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("backend down")
 		},
 	}
@@ -891,7 +880,7 @@ func TestCompact_DistillationFailed_KeepsPreviousEssence(t *testing.T) {
 	assert.Equal(t, prior, string(gotLegacy), "legacy mirror must survive too")
 }
 
-// refusingSessionSource is a pb.SessionSource whose every method fails the
+// refusingSessionSource is a transcript.Source whose every method fails the
 // test if called — used to prove PreloadedSession short-circuits
 // loadSessionToCompact entirely, without consulting source/CurrentSession.
 type refusingSessionSource struct{ t *testing.T }
@@ -950,8 +939,8 @@ func TestCompact_BySessionID(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},
@@ -1005,8 +994,8 @@ func TestCompact_CurrentSession_PrefersIdentityBoundOverMtime(t *testing.T) {
 	}
 	mockBe := &mockBackend{history: mockHistory}
 
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},
@@ -1042,8 +1031,8 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 		},
 	}
 	mockBe := &mockBackend{history: mockHistory}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},
@@ -1089,8 +1078,8 @@ func TestCompact_IdentityBoundStaleFallsBackToCurrentSession(t *testing.T) {
 		sessions: map[string]*agent.Session{},
 	}
 	mockBe := &mockBackend{history: mockHistory}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},
@@ -1126,8 +1115,8 @@ func TestCompact_ExplicitSessionIDStaleHardErrors(t *testing.T) {
 		sessions: map[string]*agent.Session{},
 	}
 	mockBe := &mockBackend{history: mockHistory}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled content"))
 			return 0, nil
 		},
@@ -1300,9 +1289,9 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	mockBe := &mockBackend{history: &mockSessionHistory{
 		currentSession: &agent.Session{ID: "thinking-only-session", Entries: thinkingOnly},
 	}}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			t.Fatalf("an LLM subprocess was spawned to distil an empty transcript; prompt was %q", req.Prompt.Content)
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			t.Fatalf("an LLM subprocess was spawned to distil an empty transcript; prompt was %q", prompt)
 			return 0, nil
 		},
 	}
@@ -1326,8 +1315,8 @@ func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
 	// down the ordinary pipeline — the short-circuit keys on the rendered
 	// output, not on the entry types.
 	var spawned int
-	includeClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	includeClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			spawned++
 			_, _ = io.WriteString(stdout, "distilled ok")
 			return 0, nil
@@ -1426,9 +1415,9 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 	testsupport.Isolate(t)
 
 	var sawPrompt *string
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			p := req.GetPrompt().GetContent()
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			p := prompt
 			sawPrompt = &p
 			_, _ = stdout.Write([]byte("distilled"))
 			return 0, nil
@@ -1479,8 +1468,8 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 		},
 	}}
 	const body = "Distilled: the write key and the read key must agree."
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte(body))
 			return 0, nil
 		},
@@ -1510,10 +1499,10 @@ func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) 
 // which part of the prompt is material rather than instruction; losing it
 // leaves the transcript indistinguishable from the instructions above it.
 func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
-	var captured *pb.RunStart
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			captured = req
+	var captured string
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			captured = prompt
 			_, _ = stdout.Write([]byte("distilled"))
 			return 0, nil
 		},
@@ -1524,22 +1513,41 @@ func TestCompactor_RunDistill_EnvelopesContentAsSessionLog(t *testing.T) {
 
 	_, err := c.runDistill(context.Background(), "SYSTEM PROMPT", "the transcript")
 	require.NoError(t, err)
-	require.NotNil(t, captured)
-	require.NotNil(t, captured.Prompt)
-	assert.Contains(t, captured.Prompt.Content, "<session_log>\nthe transcript\n</session_log>")
+	require.NotEmpty(t, captured)
+	assert.Contains(t, captured, "<session_log>\nthe transcript\n</session_log>")
 	assert.Less(t,
-		strings.Index(captured.Prompt.Content, "SYSTEM PROMPT"),
-		strings.Index(captured.Prompt.Content, "<session_log>"),
+		strings.Index(captured, "SYSTEM PROMPT"),
+		strings.Index(captured, "<session_log>"),
 		"the instruction must precede the material")
 }
 
+// scriptedDistiller is a scripted distiller engine: RunFunc receives the whole
+// prompt of one turn, writes its answer (and stderr), and reports an exit
+// code. RunCalls counts the turns (the compactor distills chunks
+// concurrently, so the count is guarded).
+type scriptedDistiller struct {
+	RunFunc  func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error)
+	mu       sync.Mutex
+	RunCalls int
+}
+
+func (m *scriptedDistiller) Run(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+	m.mu.Lock()
+	m.RunCalls++
+	m.mu.Unlock()
+	if m.RunFunc == nil {
+		return 0, nil
+	}
+	return m.RunFunc(ctx, prompt, stdout, stderr)
+}
+
 // runnerOver drives client as the distiller session's turn: the whole prompt
-// in, stdout out, a non-zero exit as an error — what the launch's one-shot
-// turn does over a real transport.
-func runnerOver(client pb.Client) Runner {
+// in, stdout out, a non-zero exit as an error — what the one-shot turn does
+// over a real runner.
+func runnerOver(client *scriptedDistiller) Runner {
 	return func(ctx context.Context, prompt string) (string, error) {
 		var stdout, stderr bytes.Buffer
-		code, err := client.Run(ctx, &pb.RunStart{Prompt: &pb.Fragment{Content: prompt}}, nil, &stdout, &stderr, nil)
+		code, err := client.Run(ctx, prompt, &stdout, &stderr)
 		if err != nil {
 			return "", err
 		}

@@ -5,9 +5,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -51,7 +51,7 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		Model:       turn.Launch.Label.Model,
 		Env:         turn.Launch.EngineEnv(),
 		Permissions: turn.Launch.Permission,
-		CellKind:    coordgrpc.CellKindOf(turn.Launch.Cell),
+		CellKind:    cellKindOf(turn.Launch.Cell),
 		Stdin:       stdin,
 		Resize:      turnResize(ctx, t.stdin),
 		Session:     &session,
@@ -76,7 +76,7 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 }
 
 // turnResize adapts the cross-platform watchResize (SIGWINCH-sourced
-// pb.WindowSize on unix; the single ConPTY size on Windows) to the engine's
+// agent.WindowSize on unix; the single ConPTY size on Windows) to the engine's
 // agent.WindowSize channel, closing when watchResize closes (ctx done). On
 // the runner's tty every resize the originator applies to the pty master —
 // or the daemon raises on a container's tty — lands here as a SIGWINCH.
@@ -86,7 +86,7 @@ func turnResize(ctx context.Context, f *os.File) <-chan agent.WindowSize {
 	go func() {
 		defer close(out)
 		for ws := range src {
-			s := agent.WindowSize{Rows: uint16(ws.GetRows()), Cols: uint16(ws.GetCols())}
+			s := *ws
 			select {
 			case out <- s:
 			default:
@@ -100,4 +100,17 @@ func turnResize(ctx context.Context, f *os.File) <-chan agent.WindowSize {
 		}
 	}()
 	return out
+}
+
+// cellKindOf projects the cell onto the writers' cell kind: a container is
+// process-isolated, a workspace apart from the project root is
+// directory-isolated, the project root itself is shared.
+func cellKindOf(c launch.Cell) agent.CellKind {
+	switch {
+	case c.Container != nil:
+		return agent.CellKindProcessIsolated
+	case c.Workspace != "" && c.Workspace != c.Paths.Paths().ProjectRoot.Host:
+		return agent.CellKindDirectoryIsolated
+	}
+	return agent.CellKindShared
 }

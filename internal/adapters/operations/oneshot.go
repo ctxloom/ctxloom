@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,133 +9,163 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// OneShot is a resolved internal one-shot session: ONE minted harp and ONE
-// resolved launch, driven a turn at a time. A distill, a triage batch and
-// the setup probe are real sessions — a session home, an endpoint, the
-// managed surfaces, hooks on — whose turns are frames on the same launch
-// with a different prompt. End releases the cell and ends the session.
+// OneShot is a resolved internal one-shot session: ONE minted harp, ONE
+// resolved launch, ONE owner-owned run on the coordinator that hosts it,
+// driven a turn at a time. A distill, a triage batch and the setup probe are
+// real sessions — a session home, an endpoint, the managed surfaces, hooks
+// on — whose turns are frames to the same runner with a different prompt.
+// The runner is the unit: the run's runner starts through the cell's
+// transport (RunnerStarter) and parks on an empty briefing; every turn is a
+// Coordinator.Turn frame to that same runner, answered at its boundary. End
+// ends the run, releases the cell and ends the session.
 type OneShot struct {
 	Launch launch.Launch
-	// opened is the launch's package as this process reads it, opened once:
-	// every turn delivers the same package.
-	opened    Opened
-	store     sessions.Store
-	verbosity int
-	// Factory overrides the transport (test seam): a non-nil factory drives
-	// the turn on the client it builds instead of the cell's own transport.
-	Factory pb.ClientFactory
-	ended   bool
+	host   RunHost
+	runID  string
+	// kill ends the runner the starter recorded; nil until it started.
+	kill  func()
+	store sessions.Store
+	ended bool
 }
 
-// StartOneShot mints and resolves the one-shot's session. src is the
-// caller's Source — Internal with a label for the engine, or an agent
-// binding — and is forced Structured, the only mode a turn is driven in.
-func StartOneShot(ctx context.Context, deps launch.Deps, seed sessions.Seed, src launch.Source, verbosity int) (*OneShot, error) {
+// RunHost is the coordinator surface an internal one-shot's run rides on.
+// *coord.Coordinator is the production value.
+type RunHost interface {
+	Owner() coord.Identity
+	StartOwnedRun(ctx context.Context, owner coord.Identity, spec coord.OwnerRun, start coord.OwnedRunStarter, prompt string) (*coord.RunOutcome, error)
+	Turn(ctx context.Context, runID string, t engine.Turn) (engine.TurnResult, error)
+}
+
+// RunHosts yields the coordinator a one-shot's run rides on, for the harp
+// the session was minted as: the session's own coordinator when the process
+// hosts one (the host tools of a live session), or one the command hosts for
+// the purpose (a distill, the setup probe) — a project has ONE coordinator,
+// owned by a session harp, so the harp comes first and the host after.
+type RunHosts interface {
+	RunHost(ctx context.Context, projectDir, ownerHarp string) (RunHost, error)
+}
+
+// RunHostFunc adapts a function to RunHosts.
+type RunHostFunc func(ctx context.Context, projectDir, ownerHarp string) (RunHost, error)
+
+// RunHost implements RunHosts.
+func (f RunHostFunc) RunHost(ctx context.Context, projectDir, ownerHarp string) (RunHost, error) {
+	return f(ctx, projectDir, ownerHarp)
+}
+
+// ErrNoRunHost refuses an internal one-shot with no coordinator to run on:
+// every engine turn is a runner's, and a runner is started and turned by a
+// coordinator; there is no second arm to drive one without.
+var ErrNoRunHost = errors.New("internal one-shot: no coordinator hosts this run (the runner is started and turned by one)")
+
+// StartOneShot mints and resolves the one-shot's session, then starts its
+// run on the coordinator hosts yields for it: the runner through the cell's
+// transport, parked with no briefing until the first Turn. src is the caller's Source — Internal with
+// a label for the engine, or an agent binding — and is forced Structured,
+// the only mode a turn is driven in.
+func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed sessions.Seed, src launch.Source, verbosity int) (*OneShot, error) {
+	if hosts == nil {
+		return nil, ErrNoRunHost
+	}
 	seed.OneShot = true
 	src.Mode = launch.StructuredMode()
 	l, err := StartRun(ctx, deps, seed, src)
 	if err != nil {
 		return nil, err
 	}
-	opened, err := OpenLaunch(ctx, ForSession(deps, l.Identity.Harp), l)
+	o := &OneShot{Launch: l, store: deps.Sessions}
+	host, err := hosts.RunHost(ctx, seed.ProjectDir, l.Identity.Harp)
 	if err != nil {
-		_ = launch.Discard(ctx, l)
-		if eerr := EndSessionIn(deps.Sessions, l.Identity.Harp, time.Now()); eerr != nil {
-			clidiag.Warn("ctxloom", "session %s: end after a refused launch: %v", l.Identity.Harp, eerr)
-		}
-		return nil, err
+		o.End()
+		return nil, fmt.Errorf("one-shot %s: %w", l.Identity.Harp, err)
 	}
-	return &OneShot{Launch: l, opened: opened, store: deps.Sessions, verbosity: verbosity}, nil
+	if host == nil {
+		o.End()
+		return nil, ErrNoRunHost
+	}
+	o.host = host
+	start := o.starter(verbosity)
+	// A structured run, not the coordinator's ONE-SHOT kind: that kind gets
+	// exactly one turn and must open with it, while this session takes each
+	// of its turns as a frame — the launch's identity already says it is a
+	// one-shot session (seed.OneShot).
+	outcome, err := host.StartOwnedRun(ctx, host.Owner(), coord.OwnerRun{Launch: l}, start, "")
+	if err != nil {
+		o.End()
+		return nil, fmt.Errorf("one-shot %s: start run: %w", l.Identity.Harp, err)
+	}
+	o.runID = outcome.RunID
+	return o, nil
 }
 
-// Turn drives one turn: the launch encoded with this turn's prompt, the
-// engine run once over the cell's transport, its answer captured and the
-// turn recorded on the session's transcript. Exit 0 with no output is a
-// failed turn, never an empty answer.
+// starter is the run's OwnedRunStarter: the cell's transport (RunnerStarter),
+// recording the runner's handle for End. A cell prepared elsewhere (a test
+// double) carries no transport, which is the starter's own refusal — the
+// coordinator asks for the runner only when it starts the run.
+func (o *OneShot) starter(verbosity int) coord.OwnedRunStarter {
+	l := o.Launch
+	cell, ok := TransportOf(l.Cell)
+	if !ok {
+		return func(context.Context, map[string]string) (func(), string, error) {
+			return nil, "", errors.New("one-shot: the cell carries no transport handle")
+		}
+	}
+	return RunnerStarter(cell, string(l.Engine), l.Label.Label, verbosity, func(h *isolation.RunnerHandle) { o.kill = h.Kill })
+}
+
+// Turn drives one turn on the parked runner — a fresh engine process resumed
+// by the key the runner learned — and returns its answer, recorded on the
+// session's transcript by the runner. An empty answer is a failed turn, never
+// an empty answer.
 func (o *OneShot) Turn(ctx context.Context, prompt string) (string, error) {
 	out, _, err := o.TurnWithModel(ctx, prompt)
 	return out, err
 }
 
-// TurnWithModel is Turn reporting the model the engine answered with, as the
-// engine names it (name, and version when it reports one), for a record that
-// attributes the answer.
+// TurnWithModel is Turn reporting the model the turn ran on as the launch
+// names it — the label's model when it configures one, else the engine —
+// for a record that attributes the answer.
 func (o *OneShot) TurnWithModel(ctx context.Context, prompt string) (answer, model string, err error) {
 	if o.ended {
 		return "", "", errors.New("one-shot: the session has ended")
 	}
 	l := o.Launch
-	l.Prompt = prompt
-	req := coordgrpc.EncodeRunStart(l, o.opened.Package, o.opened.Managed, o.verbosity)
-
-	factory := o.Factory
-	if factory == nil {
-		cell, ok := TransportOf(l.Cell)
-		if !ok {
-			return "", "", errors.New("one-shot: the cell carries no transport handle")
-		}
-		// A one-shot has no coordinator reach-back by design (its answer is
-		// bridged at the boundary), so no per-spawn runner env.
-		factory = isolation.FactoryForWorkspace(cell.Policy, cell.Workspace, nil)
-	}
-	client, err := factory(string(l.Engine), l.Label.Label, o.verbosity)
-	if err != nil {
-		return "", "", fmt.Errorf("start plugin: %w", err)
-	}
-	defer client.Kill()
-
-	var stdout, stderr bytes.Buffer
-	result, err := client.RunWithModelInfo(ctx, req, nil, &stdout, &stderr, nil)
+	res, err := o.host.Turn(ctx, o.runID, engine.Turn{Prompt: prompt})
 	if err != nil {
 		return "", "", fmt.Errorf("agent run: %w", err)
 	}
-	if result.ExitCode != 0 {
-		return "", "", fmt.Errorf("LLM exited with code %d: %s", result.ExitCode, strings.TrimSpace(stderr.String()))
-	}
-	out := strings.TrimSpace(stdout.String())
+	out := strings.TrimSpace(res.Answer)
 	if out == "" {
-		msg := fmt.Sprintf("agent produced no output: %s exited 0 with an empty stdout", l.Engine)
-		if e := strings.TrimSpace(stderr.String()); e != "" {
-			msg += ": " + e
-		}
-		return "", "", errors.New(msg)
+		return "", "", fmt.Errorf("agent produced no output: %s answered the turn with nothing", l.Engine)
 	}
 	model = string(l.Engine)
-	if info := result.ModelInfo; info != nil {
-		if info.ModelName != "" {
-			model = info.ModelName
-		}
-		if info.ModelVersion != "" {
-			model = fmt.Sprintf("%s:%s", model, info.ModelVersion)
-		}
-	}
-	// The turn returns prose on stdout with no event stream, so the
-	// structured capture never fires for it; record it on the session's own
-	// transcript. Best-effort: a capture failure must never fail the turn.
-	if terr := transcript.RecordOneshot(l.Identity.Harp, string(l.Engine), prompt, stdout.String()); terr != nil {
-		clidiag.Warn("ctxloom", "one-shot transcript capture: %v", terr)
+	if l.Label.Model != "" {
+		model = l.Label.Model
 	}
 	return out, model, nil
 }
 
-// End releases the cell and ends the session. Idempotent.
+// End ends the run's runner, releases the cell and ends the session.
+// Idempotent.
 func (o *OneShot) End() {
 	if o.ended {
 		return
 	}
 	o.ended = true
+	if o.kill != nil {
+		o.kill()
+	}
 	if err := launch.Discard(context.Background(), o.Launch); err != nil {
 		clidiag.Warn("ctxloom", "one-shot %s: release cell: %v", o.Launch.Identity.Harp, err)
 	}
@@ -156,9 +185,9 @@ type LazyOneShot struct {
 }
 
 // NewLazyOneShot defers StartInternalOneShot to the first turn.
-func NewLazyOneShot(cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
+func NewLazyOneShot(hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
 	return &LazyOneShot{start: func(ctx context.Context) (*OneShot, error) {
-		return StartInternalOneShot(ctx, cfg, mode, label, model, workDir, projectID, verbosity)
+		return StartInternalOneShot(ctx, hosts, cfg, mode, label, model, workDir, projectID, verbosity)
 	}}
 }
 
@@ -195,10 +224,10 @@ func InternalSource(label, model, workDir string) launch.Source {
 }
 
 // StartInternalOneShot mints and resolves an internal one-shot over the
-// generation cfg belongs to: the compactor's distiller, the trigger
-// evaluator's triage, the setup probe. projectID is the identity the
+// generation cfg belongs to, run on the coordinator hosts yields: the compactor's distiller, the
+// trigger evaluator's triage, the setup probe. projectID is the identity the
 // session serves (empty when the caller resolved none).
-func StartInternalOneShot(ctx context.Context, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
+func StartInternalOneShot(ctx context.Context, hosts RunHosts, cfg *config.Config, mode strictness.Mode, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
 	// A Config built outside the Owner carries no Trust: refuse here, at the
 	// entry point, rather than let the assembler withhold every executable
 	// with the "no authorizer" defect reason.
@@ -209,7 +238,7 @@ func StartInternalOneShot(ctx context.Context, cfg *config.Config, mode strictne
 	if err != nil {
 		return nil, err
 	}
-	return StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir, ProjectID: projectID}, InternalSource(label, model, workDir), verbosity)
+	return StartOneShot(ctx, deps, hosts, sessions.Seed{ProjectDir: workDir, ProjectID: projectID}, InternalSource(label, model, workDir), verbosity)
 }
 
 // runtimeCarrier is the narrow capability the container policy implements

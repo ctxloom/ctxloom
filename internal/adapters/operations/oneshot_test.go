@@ -2,73 +2,19 @@ package operations
 
 import (
 	"context"
-	"io"
-	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
-
-// stubClient is a canned pb.Client: it captures the request it was run with
-// and answers with out (or echoes the prompt, or emits the lead fragments).
-type stubClient struct {
-	out  string
-	echo bool // when true, write the request prompt back as output
-	// exitCode and stderr are what a failing engine reports.
-	exitCode int32
-	stderr   string
-	// emitFragments writes the run's assembled context (its lead fragments)
-	// back as output, so a composed profile-context is observable in the
-	// answer. Wins over echo/out.
-	emitFragments bool
-	gotReq        *pb.RunStart
-}
-
-func (s *stubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
-	s.gotReq = req
-	if s.exitCode != 0 {
-		_, _ = io.WriteString(stderr, s.stderr)
-		return s.exitCode, nil
-	}
-	switch {
-	case s.emitFragments:
-		var parts []string
-		for _, f := range req.Fragments {
-			parts = append(parts, f.Content)
-		}
-		_, _ = io.WriteString(stdout, strings.Join(parts, "\n"))
-	case s.echo && req.Prompt != nil:
-		_, _ = io.WriteString(stdout, req.Prompt.Content)
-	default:
-		_, _ = io.WriteString(stdout, s.out)
-	}
-	return 0, nil
-}
-func (s *stubClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (s *stubClient) RunWithModelInfo(ctx context.Context, req *pb.RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	code, err := s.Run(ctx, req, stdin, stdout, stderr, resize)
-	return &pb.RunResult{ExitCode: code}, err
-}
-func (s *stubClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
-func (s *stubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
-	return nil, nil, nil
-}
-func (s *stubClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-	return nil, nil, nil, nil
-}
-func (s *stubClient) ListSessions(context.Context) ([]agent.SessionMeta, error)  { return nil, nil }
-func (s *stubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) { return nil, nil }
-func (s *stubClient) Kill()                                                      {}
 
 func oneshotTestConfig(t *testing.T) *config.Config {
 	return cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, map[string]config.Profile{
@@ -94,9 +40,9 @@ func oneshotTestConfig(t *testing.T) *config.Config {
 // doubles: an in-memory session store, the isolation seam stubbed to a host
 // workspace, the pipeline seam for the assembler. HOME is isolated by the
 // callers' fixture setup.
-func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub pb.Client) launch.Deps {
+func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) launch.Deps {
 	t.Helper()
-	stubPrepareIsolation(t, nil, func() pb.Client { return stub })
+	stubPrepareIsolation(t, nil)
 	return launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
 		Engines:   backends.Engines(),
@@ -108,19 +54,19 @@ func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, st
 	}
 }
 
-// testOneShot resolves a one-shot session over cfg and drives its turns on
-// the stub client.
-func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub pb.Client, src launch.Source) (*OneShot, error) {
+// testOneShot resolves a one-shot session over cfg on a fake host whose
+// runs answer from stub.
+func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (*OneShot, error) {
 	t.Helper()
-	deps := testLaunchDeps(t, cfg, pipe, stub)
+	deps := testLaunchDeps(t, cfg, pipe)
 	if src.WorkDir == "" {
 		src.WorkDir = t.TempDir()
 	}
-	o, err := StartOneShot(context.Background(), deps, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	_, hosts := hostsFor(deps, stub)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
 	if err != nil {
 		return nil, err
 	}
-	o.Factory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	t.Cleanup(o.End)
 	return o, nil
 }
@@ -131,7 +77,7 @@ func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub 
 func TestOneShot_ProfileLLMAndContextFlow(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := oneshotTestConfig(t)
-	stub := &stubClient{out: "  REVIEW FINDINGS  \n"}
+	stub := &stubEngine{out: "  REVIEW FINDINGS  \n"}
 
 	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
 	require.NoError(t, err)
@@ -142,14 +88,19 @@ func TestOneShot_ProfileLLMAndContextFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "REVIEW FINDINGS", out)
 
-	require.NotNil(t, stub.gotReq.Prompt)
-	assert.Equal(t, "review this diff", stub.gotReq.Prompt.Content)
-	require.NotEmpty(t, stub.gotReq.Fragments)
-	assert.Contains(t, stub.gotReq.Fragments[0].Content, "Go Patterns")
-	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
-	assert.Equal(t, pb.LaunchForm_LAUNCH_FORM_DELIVER, stub.gotReq.Options.LaunchForm,
-		"a one-shot owns a harp and delivers its own surfaces")
-	assert.Equal(t, o.Launch.Identity.Harp, stub.gotReq.Options.Env[sessions.EnvHarp], "the turn carries the session's identity")
+	assert.Equal(t, "review this diff", stub.prompt())
+	l := stub.launched()
+	require.NotNil(t, l, "the run started on the host")
+	assert.Equal(t, engine.Structured, l.Mode, "a one-shot is driven structured")
+	assert.Equal(t, o.Launch.Identity.Harp, l.Identity.Harp, "the run carries the session's identity")
+
+	// The profile's context leads the turn: it rides the launch's package.
+	ctx := &stubEngine{emitContext: true}
+	o2, err := testOneShot(t, cfg, opPipe(cfg, loader), ctx, launch.Source{Profiles: []string{"rev"}})
+	require.NoError(t, err)
+	lead, err := o2.Turn(context.Background(), "review this diff")
+	require.NoError(t, err)
+	assert.Contains(t, lead, "Go Patterns")
 }
 
 // TestOneShot_TurnsShareOneSession: every turn rides the same harp and the
@@ -157,35 +108,37 @@ func TestOneShot_ProfileLLMAndContextFlow(t *testing.T) {
 func TestOneShot_TurnsShareOneSession(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := oneshotTestConfig(t)
-	stub := &stubClient{echo: true}
+	stub := &stubEngine{echo: true}
 
-	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
+	deps := testLaunchDeps(t, cfg, opPipe(cfg, loader))
+	host, hosts := hostsFor(deps, stub)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: t.TempDir()}, launch.Source{Profiles: []string{"rev"}, WorkDir: t.TempDir()}, 0)
 	require.NoError(t, err)
+	t.Cleanup(o.End)
 	first, err := o.Turn(context.Background(), "one")
 	require.NoError(t, err)
-	firstHarp := stub.gotReq.Options.Env[sessions.EnvHarp]
 	second, err := o.Turn(context.Background(), "two")
 	require.NoError(t, err)
 	assert.Equal(t, "one", first)
 	assert.Equal(t, "two", second)
-	assert.Equal(t, firstHarp, stub.gotReq.Options.Env[sessions.EnvHarp], "one session, many turns")
+	assert.Equal(t, 1, host.starts, "one run, many turns")
 	assert.NotEmpty(t, o.Launch.MCP.URL, "the session endpoint was minted once for every turn")
 }
 
-// TestOneShot_FailedTurnNamesTheExitCodeAndStderr: an engine that exits
-// non-zero fails the turn with the code and whatever it said on stderr —
-// the "LLM exited with code N" a distill's caller reports (the content
-// distiller leaves the item raw over it, naming this) and never a
-// successful empty answer.
-func TestOneShot_FailedTurnNamesTheExitCodeAndStderr(t *testing.T) {
+// TestOneShot_FailedTurnNamesTheEngineFailure: an engine whose turn fails
+// fails the turn with what the runner reported — the code and whatever it
+// said on stderr — which a distill's caller reports (the content distiller
+// leaves the item raw over it, naming this) and never a successful empty
+// answer.
+func TestOneShot_FailedTurnNamesTheEngineFailure(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := oneshotTestConfig(t)
-	stub := &stubClient{exitCode: 1, stderr: "quota exhausted"}
+	stub := &stubEngine{exitCode: 1, stderr: "quota exhausted"}
 	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
 	require.NoError(t, err)
 	_, err = o.Turn(context.Background(), "distill this")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "LLM exited with code 1")
+	assert.Contains(t, err.Error(), "exited with code 1")
 	assert.Contains(t, err.Error(), "quota exhausted")
 }
 
@@ -194,7 +147,7 @@ func TestOneShot_FailedTurnNamesTheExitCodeAndStderr(t *testing.T) {
 func TestOneShot_EndedSessionRefusesATurn(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := oneshotTestConfig(t)
-	stub := &stubClient{out: "x"}
+	stub := &stubEngine{out: "x"}
 	o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
 	require.NoError(t, err)
 	o.End()

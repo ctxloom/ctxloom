@@ -9,8 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // stateMount is a stand-in for one of the session-state mounts
@@ -28,7 +26,6 @@ func newRunnerTestWorkspace() *containerWorkspace {
 	return &containerWorkspace{
 		dir:         "/proj",
 		scratchRoot: "/scratch",
-		socketDir:   "/scratch/sock",
 		extraEnv:    []string{"ANTHROPIC_API_KEY=scoped", "TERM=xterm-256color"},
 		extraMounts: []Mount{
 			{Host: "/scratch/cfg0", Container: "/proj/.claude"}, // a config overlay
@@ -58,24 +55,9 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 	// Command: `runner <engine>` — the runner reads no config, so no label
 	// rides its argv; the label body arrives on the Launch.
 	assert.Equal(t, []string{defaultContainerBinary, "runner", "mock"}, spec.Command)
-	assert.NotContains(t, spec.Command, "serve", "the container runner never runs the plugin-serving `llm serve`")
-
-	// NO plugin socket mount (neither the host scratch socket dir nor the fixed
-	// in-container socket target crosses).
-	for _, m := range spec.Mounts {
-		assert.NotEqual(t, defaultContainerSocketDir, m.Container, "no plugin socket-dir mount target")
-		assert.NotEqual(t, cw.socketDir, m.Host, "the host plugin socket scratch is never mounted")
-	}
 
 	// NO published port — the listener never exists on this path
-	// (asserted on the rendered argv below; RunSpec has no port field since 0.7).
-
-	// NO go-plugin handshake env: no magic cookie, no PLUGIN_* of any kind.
-	for _, e := range spec.Env {
-		key, _, _ := strings.Cut(e, "=")
-		assert.NotEqual(t, pb.HandshakeConfig.MagicCookieKey, key, "no go-plugin magic cookie crosses")
-		assert.False(t, strings.HasPrefix(key, "PLUGIN_"), "no PLUGIN_* handshake env crosses (%s)", e)
-	}
+	// (asserted on the rendered argv below; RunSpec has no port field).
 
 	// The spawn env rides as BARE NAMES — the value stays on the run-process
 	// env, never in this (world-readable) argv/env-list.
@@ -91,10 +73,9 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 	assert.Contains(t, spec.Env, "ANTHROPIC_API_KEY=scoped", "scoped auth env preserved")
 	assert.Contains(t, spec.Env, "IS_SANDBOX=1", "the container-is-the-boundary base env is preserved")
 
-	// Rendered argv: no -p publish, no socket mount, and the trio is a bare -e.
+	// Rendered argv: no -p publish, and the trio is a bare -e.
 	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
 	assert.NotContains(t, argv, "-p ", "no port publish rendered")
-	assert.NotContains(t, argv, defaultContainerSocketDir, "no socket-dir mount rendered")
 	assert.Contains(t, argv, "-e CTXLOOM_COORD_CRED ", "the trio renders as a bare-name -e")
 	assert.NotContains(t, argv, "super-secret-token", "the credential value never enters the rendered argv")
 }
@@ -231,4 +212,13 @@ func TestRemoveContainer_AlreadyGoneIsNotALeak(t *testing.T) {
 
 	removeContainer(context.Background(), Docker{}, "ctxloom-iso-x")
 	assert.Empty(t, buf.String(), "already-gone is teardown success")
+}
+
+// runnerSpecFor renders the runner spec a Container over rt builds for a
+// workspace at dir carrying env/mounts — the one production spec builder
+// (buildRunnerSpec), driven without a daemon.
+func runnerSpecFor(rt Runtime, backend, dir string, env []string, mounts []Mount) RunSpec {
+	c := NewContainerFor(rt, backend).WithImage("img")
+	cw := &containerWorkspace{dir: dir, extraEnv: env, extraMounts: mounts, agentID: "m"}
+	return c.buildRunnerSpec(backend, "name", cw, nil)
 }

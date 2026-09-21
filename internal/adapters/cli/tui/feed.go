@@ -5,11 +5,10 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // feedItem is one rendered unit of the feed pane, converted from the
-// observation feed's WatchEvent/SessionEntry vocabulary.
+// observation feed's transcript.WatchEvent / agent.SessionEntry vocabulary.
 type feedItem struct {
 	role       string // user | assistant | thinking | tool_use | tool_result | system | notice
 	ts         time.Time
@@ -34,14 +33,13 @@ func itemsFromFeedEvent(ev operations.SessionFeedEvent) []feedItem {
 	if ev.Event == nil {
 		return nil
 	}
-	entry, ok := ev.Event.Event.(*pb.WatchEvent_Entry)
-	if !ok || entry.Entry == nil {
+	e := ev.Event.Entry
+	if e == nil {
 		return nil
 	}
-	e := entry.Entry
 	return []feedItem{{
-		role:       e.Type,
-		ts:         time.Unix(e.TimestampUnix, 0),
+		role:       string(e.Type),
+		ts:         e.Timestamp,
 		text:       e.Content,
 		toolName:   e.ToolName,
 		toolInput:  string(e.ToolInput),

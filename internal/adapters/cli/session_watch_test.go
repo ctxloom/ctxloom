@@ -25,14 +25,15 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // watchChan returns pre-filled, already-closed event/error channels modelling a
 // completed observation feed.
-func watchChan(events ...*pb.WatchEvent) (<-chan operations.SessionFeedEvent, <-chan error) {
+func watchChan(events ...*transcript.WatchEvent) (<-chan operations.SessionFeedEvent, <-chan error) {
 	ec := make(chan operations.SessionFeedEvent, len(events))
 	for _, e := range events {
 		ec <- operations.SessionFeedEvent{Event: e}
@@ -55,16 +56,16 @@ func feedChan(events ...operations.SessionFeedEvent) (<-chan operations.SessionF
 	return ec, errc
 }
 
-func entryEvent(typ, content string) *pb.WatchEvent {
-	return &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{Type: typ, Content: content}}}
+func entryEvent(typ, content string) *transcript.WatchEvent {
+	return &transcript.WatchEvent{Entry: &agent.SessionEntry{Type: agent.SessionEntryType(typ), Content: content}}
 }
 
-func boundaryEvent(from, to int32) *pb.WatchEvent {
-	return &pb.WatchEvent{Event: &pb.WatchEvent_Boundary{Boundary: &pb.ResponseBoundary{FromIndex: from, ToIndex: to}}}
+func boundaryEvent(from, to int) *transcript.WatchEvent {
+	return &transcript.WatchEvent{Boundary: &transcript.ResponseBoundary{FromIndex: from, ToIndex: to}}
 }
 
-func heartbeatEvent() *pb.WatchEvent {
-	return &pb.WatchEvent{Event: &pb.WatchEvent_Heartbeat{Heartbeat: &pb.Heartbeat{}}}
+func heartbeatEvent() *transcript.WatchEvent {
+	return &transcript.WatchEvent{Heartbeat: true}
 }
 
 // TestStreamWatchEvents_NDJSON: json mode emits one compact, valid JSON line per
@@ -104,9 +105,9 @@ func TestStreamWatchEvents_Text(t *testing.T) {
 // TestStreamWatchEvents_TextToolEntries: tool turns render compactly with a
 // success/error marker.
 func TestStreamWatchEvents_TextToolEntries(t *testing.T) {
-	use := &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{Type: "tool_use", ToolName: "Bash"}}}
-	okRes := &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{Type: "tool_result", ToolName: "Bash"}}}
-	errRes := &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{Type: "tool_result", ToolName: "Bash", IsError: true}}}
+	use := &transcript.WatchEvent{Entry: &agent.SessionEntry{Type: "tool_use", ToolName: "Bash"}}
+	okRes := &transcript.WatchEvent{Entry: &agent.SessionEntry{Type: "tool_result", ToolName: "Bash"}}
+	errRes := &transcript.WatchEvent{Entry: &agent.SessionEntry{Type: "tool_result", ToolName: "Bash", IsError: true}}
 	events, errs := watchChan(use, okRes, errRes)
 	var buf bytes.Buffer
 
@@ -118,9 +119,9 @@ func TestStreamWatchEvents_TextToolEntries(t *testing.T) {
 // must reach NDJSON consumers, so a viewer can tell interior entries from the
 // main thread.
 func TestStreamWatchEvents_NDJSONCarriesSidechain(t *testing.T) {
-	side := &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
+	side := &transcript.WatchEvent{Entry: &agent.SessionEntry{
 		Type: "assistant", Content: "interior", Sidechain: true,
-	}}}
+	}}
 	events, errs := watchChan(side)
 	var buf bytes.Buffer
 
@@ -142,12 +143,12 @@ func TestStreamWatchEvents_NDJSONCarriesSidechain(t *testing.T) {
 // TestStreamWatchEvents_TextSidechainPrefix: text mode prefixes
 // subagent-interior entries with "↳" so a human can tell them apart.
 func TestStreamWatchEvents_TextSidechainPrefix(t *testing.T) {
-	sideText := &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
+	sideText := &transcript.WatchEvent{Entry: &agent.SessionEntry{
 		Type: "assistant", Content: "interior", Sidechain: true,
-	}}}
-	sideTool := &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
+	}}
+	sideTool := &transcript.WatchEvent{Entry: &agent.SessionEntry{
 		Type: "tool_use", ToolName: "Grep", Sidechain: true,
-	}}}
+	}}
 	events, errs := watchChan(sideText, sideTool)
 	var buf bytes.Buffer
 

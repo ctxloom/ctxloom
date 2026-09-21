@@ -219,10 +219,7 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
 
-	spec := buildRunSpec("img", "name", "/proj", defaultContainerHome,
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claude-code"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123",
-		nil, nil, mounts, nil)
+	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", nil, mounts)
 	argv := strings.Join(Docker{}.RunArgs(spec), " ")
 
 	store := filepath.Join(home, ".ctxloom", "sessions", "brisk-teal-otter", "persist", "transcripts")
@@ -395,7 +392,6 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
-		socketDir:  defaultContainerSocketDir,
 		state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
 		base:       hostBase{},
 	}
@@ -450,7 +446,6 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
-		socketDir:  defaultContainerSocketDir,
 		state:      SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"},
 		base:       worktreeBase{wt: NewWorktree(&git.Fake{CommonDirValue: t.TempDir()})},
 	}

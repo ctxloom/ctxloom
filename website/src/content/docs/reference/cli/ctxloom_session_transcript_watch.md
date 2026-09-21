@@ -33,8 +33,8 @@ One feed, two sources behind it (--source, default auto):
 auto prefers the live tap and falls back to the store tail; forcing --source
 live errors when no orchestrator holds the harp.
 
-With --format json the stream is NDJSON: one event per line, in protojson
-field names, carrying exactly one of
+With --format json the stream is NDJSON: one event per line, carrying
+exactly one of
 
   {"entry": {...}}     a newly-appended normalized turn — type (user |
                        assistant | thinking | tool_use | tool_result |

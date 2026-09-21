@@ -4,22 +4,19 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // startHostRunner is StartRunner's seam onto the bare self-invoked host runner
 // spawn, a package var so the launch-failure path is unit-testable without
-// actually forking a `ctxloom llm host` subprocess. Mirrors the
+// actually forking a `ctxloom runner` subprocess. Mirrors the
 // selectRuntimeProbe / sharedFSCheck seams.
-var startHostRunner = pb.StartHostRunner
+var startHostRunner = StartHostRunner
 
-// None is the default, host isolation policy — behaviour-identical to today.
-// The workspace IS the live project directory (no worktree, no container), its
-// cleanup is a noop, the plugin is a bare self-invoked `ctxloom llm serve`
-// subprocess (exactly pb.DefaultClientFactory), and approvals stay Prompt. It is
-// the fault-tolerant floor: None never fails to prepare a workspace or spawn a
-// client, so a run always has a working policy to fall back to.
+// None is the default, host isolation policy. The workspace IS the live
+// project directory (no worktree, no container), its cleanup is a noop, and
+// the runner is a bare self-invoked `ctxloom runner` subprocess. It is the
+// fault-tolerant floor: None never fails to prepare a workspace or start a
+// runner, so a run always has a working policy to fall back to.
 type None struct{}
 
 // Ensure None satisfies the Policy interface.
@@ -42,14 +39,6 @@ func (None) Mount(context.Context, Workspace) (MountPlan, error) { return MountP
 // PrepareWorkspace resolves and maps in one step (see prepareWorkspace).
 func (n None) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	return prepareWorkspace(ctx, n, projectDir, agentID)
-}
-
-// SpawnClient launches the bare self-invoked plugin subprocess via the Host
-// runtime (the exact body of pb.DefaultClientFactory). The workspace is
-// expressed purely via the caller's RunOptions.WorkDir, so no per-workspace
-// launch machinery is needed here.
-func (None) SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error) {
-	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: spawnEnv})
 }
 
 // StartRunner launches the bare self-invoked `ctxloom runner <engine>`

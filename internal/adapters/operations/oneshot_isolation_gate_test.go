@@ -3,13 +3,13 @@ package operations
 import (
 	"context"
 	"os/exec"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -30,12 +30,22 @@ type stubWorkspace struct{ dir string }
 func (w stubWorkspace) Dir() string    { return w.dir }
 func (w stubWorkspace) Cleanup() error { return nil }
 
-// stubPolicy is a minimal isolation.Policy whose SpawnClient mints a canned
-// pb.Client per spawn — so a member that PASSES the gate still never spawns a
-// real plugin subprocess (and parallel members never share one client). Name
-// reports "none" so runResolvedAgent resolves the SHARED cell, and with it the
-// form that presents the session's surfaces rather than writing its own.
-type stubPolicy struct{ mk func() pb.Client }
+// stubPolicy is a minimal isolation.Policy whose StartRunner hands back an
+// inert handle — so a member that PASSES the gate still never starts a real
+// runner subprocess. seen, when set, records what StartRunner was asked.
+// Name reports "none" so runResolvedAgent resolves the SHARED cell, and with
+// it the form that presents the session's surfaces rather than writing its
+// own.
+type stubPolicy struct{ seen *stubSpawn }
+
+// stubSpawn records the runner starts a stubPolicy saw.
+type stubSpawn struct {
+	mu        sync.Mutex
+	calls     int
+	verbosity int
+	backend   string
+	spawnEnv  map[string]string
+}
 
 func (stubPolicy) Name() string { return isolation.None{}.Name() }
 func (p stubPolicy) ResolveWorkspace(_ context.Context, projectDir, _ string) (isolation.Workspace, error) {
@@ -54,10 +64,15 @@ func (p stubPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID st
 	}
 	return ws, nil
 }
-func (p stubPolicy) SpawnClient(string, string, int, isolation.Workspace, map[string]string) (pb.Client, error) {
-	return p.mk(), nil
-}
-func (stubPolicy) StartRunner(context.Context, string, string, int, isolation.Workspace, map[string]string) (*isolation.RunnerHandle, error) {
+func (p stubPolicy) StartRunner(_ context.Context, backend, _ string, verbosity int, _ isolation.Workspace, spawnEnv map[string]string) (*isolation.RunnerHandle, error) {
+	if p.seen != nil {
+		p.seen.mu.Lock()
+		p.seen.calls++
+		p.seen.verbosity = verbosity
+		p.seen.backend = backend
+		p.seen.spawnEnv = spawnEnv
+		p.seen.mu.Unlock()
+	}
 	return &isolation.RunnerHandle{Kill: func() {}, Wait: func() error { return nil }}, nil
 }
 func (stubPolicy) InteractiveRunner(context.Context, string, isolation.Workspace, map[string]string) (*exec.Cmd, string, error) {
@@ -69,7 +84,11 @@ func (stubPolicy) InteractiveRunner(context.Context, string, isolation.Workspace
 // simulating exactly what prepareChain/chainFor do when an explicitly-requested
 // container can't be satisfied — and always returns a host workspace (the
 // degrade chain never blocks). Restores the real Prepare on cleanup.
-func stubPrepareIsolation(t *testing.T, failFor map[string]bool, mk func() pb.Client) {
+func stubPrepareIsolation(t *testing.T, failFor map[string]bool, seen ...*stubSpawn) {
+	var rec *stubSpawn
+	if len(seen) > 0 {
+		rec = seen[0]
+	}
 	t.Helper()
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, _ isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, agentID string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
@@ -78,7 +97,7 @@ func stubPrepareIsolation(t *testing.T, failFor map[string]bool, mk func() pb.Cl
 				"install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox",
 				"container isolation was requested but could not start — running %q on the HOST without a container boundary (this session is NOT sandboxed): agent image absent", agentID)
 		}
-		return stubPolicy{mk: mk}, stubWorkspace{dir: projectDir}
+		return stubPolicy{seen: rec}, stubWorkspace{dir: projectDir}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 }

@@ -12,8 +12,7 @@ plugins:
   # `buf generate` — and therefore the whole build — fail non-deterministically.
   # Pinned via the Dockerfile to the versions that were producing this output.
   # `module=` routes each file's output next to its source via go_package
-  # (internal/lm/grpc, internal/adapters/coordgrpc/pb), replacing the single hardcoded
-  # `out` that predated the second proto module.
+  # (internal/adapters/coordgrpc/pb).
   - local: protoc-gen-go
     out: .
     opt:

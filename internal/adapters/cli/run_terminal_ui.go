@@ -10,10 +10,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -53,7 +53,7 @@ func validateTerminalUIConfig(cfg *config.Config) {
 // was skipped, e.g. no activeHarp) — D2: the terminal viewer reaches
 // roster/inject IN-PROCESS now (this run process IS the coordinator), never
 // over a socket.
-func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coord.Coordinator, id terminalUIIdentity, stdin io.Reader, resize <-chan *pb.WindowSize) *termui.Controller {
+func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coord.Coordinator, id terminalUIIdentity, stdin io.Reader, resize <-chan *agent.WindowSize) *termui.Controller {
 	prefix, err := termui.ParsePrefixKey(cfg.UIPrefixKey())
 	if err != nil {
 		// Only reachable in degraded mode (the gate aborts otherwise): run

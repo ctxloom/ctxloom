@@ -44,12 +44,13 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 	if pid, _, err := taskops.ResolveProjectIdentity(projectDir); err == nil {
 		key = pid
 	} // best-effort: "" falls back to a path-derived key inside coord.New
+	host := NewHostApp(cfg)
 	c, err := build(coord.Options{
 		ProjectDir: projectDir,
 		ProjectKey: key,
 		// The host-relayed tools (Verbs.Host) terminate in THIS process, on a
 		// per-caller-identity ctxServer.
-		Host: NewHostApp(cfg),
+		Host: host,
 		// A configurable RESOURCE ceiling (concurrent live engine
 		// processes), not a correctness gate — see coord.agentConcurrencyCap's
 		// doc. <= 0 (unset project config) falls back to the built-in
@@ -66,6 +67,7 @@ func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectD
 	if err != nil {
 		return nil, err
 	}
+	host.Bind(c)
 	if err := coordgrpc.Serve(c); err != nil {
 		c.Close()
 		return nil, err
@@ -85,7 +87,10 @@ type HostApp struct {
 	// duplicated. Owned here because Serve mints a fresh ctxServer per call —
 	// a group hung off that would dedupe nothing.
 	distill *singleflight.Group
-	tools   map[string]hostTool
+	// c is the coordinator whose relay this is, bound once it exists
+	// (Bind): the host an internal one-shot a relayed tool starts runs on.
+	c     *coord.Coordinator
+	tools map[string]hostTool
 }
 
 // hostTool serves one relayed tool: decode the args into the tool's own
@@ -147,7 +152,7 @@ func (a *HostApp) Serve(ctx context.Context, caller coord.Identity, req coord.Ho
 	if !ok {
 		return coord.HostResult{}, fmt.Errorf("%w: %q", coord.ErrUnknownHostTool, req.Tool)
 	}
-	s := &ctxServer{cfg: a.cfg, self: caller, distill: a.distill}
+	s := &ctxServer{cfg: a.cfg, self: caller, distill: a.distill, hosts: a}
 	out, err := tool(ctx, s, req.Args)
 	if err != nil {
 		return coord.HostResult{}, err
@@ -172,6 +177,20 @@ func decodeThen[In any](args json.RawMessage, h func(In) (any, error)) (any, err
 }
 
 var _ coord.HostApp = (*HostApp)(nil)
+
+// Bind names the coordinator this relay serves. Called once, by the host
+// that built both; the coordinator is constructed after its HostApp, so it
+// cannot be a constructor argument.
+func (a *HostApp) Bind(c *coord.Coordinator) { a.c = c }
+
+// RunHost implements operations.RunHosts: a relayed tool's one-shot runs on
+// the session's own coordinator, whatever harp it was minted as.
+func (a *HostApp) RunHost(context.Context, string, string) (operations.RunHost, error) {
+	if a.c == nil {
+		return nil, operations.ErrNoRunHost
+	}
+	return a.c, nil
+}
 
 // HostCoordinatorForSession is the run/acp hosting helper: coordinator up,
 // viewer socket bound under the owner harp, owner credential minted, and the

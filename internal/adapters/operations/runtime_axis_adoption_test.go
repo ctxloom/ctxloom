@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // =============================================================================
@@ -37,19 +36,19 @@ import (
 // =============================================================================
 
 // captureRuntimeAxis swaps the isolation seam for one that records the axes a
-// launch was prepared with and hands back a canned engine, so nothing spawns a
-// real plugin. The returned Axes is the zero value when the seam was never
-// reached at all, and the returned client's gotReq is nil when no engine ever
-// ran — the two effects a refusal has to produce.
-func captureRuntimeAxis(t *testing.T) (*isolation.Axes, *stubClient) {
+// launch was prepared with and hands back an inert policy, so nothing starts
+// a real runner. The returned Axes is the zero value when the seam was never
+// reached at all, and the returned engine's launched() is nil when no run
+// ever started — the two effects a refusal has to produce.
+func captureRuntimeAxis(t *testing.T) (*isolation.Axes, *stubEngine) {
 	t.Helper()
 	resetStrictness(t)
 	got := &isolation.Axes{}
-	engine := &stubClient{out: "ran"}
+	engine := &stubEngine{out: "ran"}
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
 		*got = axes
-		return stubPolicy{mk: func() pb.Client { return engine }}, stubWorkspace{dir: projectDir}
+		return stubPolicy{}, stubWorkspace{dir: projectDir}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 	return got, engine
@@ -157,7 +156,7 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 // testOneShotOn is testOneShot with the isolation seam the caller already
 // installed (captureRuntimeAxis) left in place; it resolves and drives one
 // turn.
-func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub pb.Client, src launch.Source) (string, error) {
+func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (string, error) {
 	t.Helper()
 	deps := launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
@@ -169,12 +168,12 @@ func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stu
 		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 	}
 	src.WorkDir = t.TempDir()
-	o, err := StartOneShot(context.Background(), deps, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
+	_, hosts := hostsFor(deps, stub)
+	o, err := StartOneShot(context.Background(), deps, hosts, sessions.Seed{ProjectDir: src.WorkDir}, src, 0)
 	if err != nil {
 		return "", err
 	}
 	defer o.End()
-	o.Factory = func(string, string, int) (pb.Client, error) { return stub, nil }
 	return o.Turn(context.Background(), "t")
 }
 
@@ -198,7 +197,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 
 		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.NoError(t, err)
-		require.NotNil(t, engine.gotReq, "sanity: the control really did launch an engine")
+		require.NotNil(t, engine.launched(), "sanity: the control really did launch an engine")
 		assert.Equal(t, isolation.RuntimeContainerRootless, got.Runtime,
 			"the project runtime default really does drive the member's axes — without this the refusal below could pass on a dead path")
 		assert.True(t, got.WantsContainer())
@@ -211,7 +210,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 
 		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.NoError(t, err)
-		require.NotNil(t, engine.gotReq, "sanity: the control really did launch an engine")
+		require.NotNil(t, engine.launched(), "sanity: the control really did launch an engine")
 		assert.Equal(t, isolation.RuntimeContainerRootful, got.Runtime)
 	})
 
@@ -224,7 +223,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "contianer-rootless")
 		assert.Contains(t, err.Error(), "host|container-rootless|container-rootful")
-		assert.Nil(t, engine.gotReq, "THE POINT: the engine must never have run")
+		assert.Nil(t, engine.launched(), "THE POINT: the engine must never have run")
 		assert.Equal(t, isolation.Axes{}, *got, "no isolation was prepared at all")
 	})
 
@@ -235,7 +234,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 
 		_, err := testOneShotOn(t, cfg, opPipe(cfg, loader), engine, launch.Source{Profiles: []string{"rev"}})
 		require.NoError(t, err, "a project that declares no runtime must behave exactly as it did before this key existed")
-		require.NotNil(t, engine.gotReq, "and the engine still ran")
+		require.NotNil(t, engine.launched(), "and the engine still ran")
 		assert.Equal(t, launch.RuntimeHost, got.Runtime, "unset resolves to the host")
 		assert.False(t, got.WantsContainer(), "and still means the host")
 	})

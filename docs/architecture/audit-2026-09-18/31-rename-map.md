@@ -42,7 +42,6 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/lm/conformance` | `internal/engines/conformance` | engines | JUDGMENT: test-only cross-engine equity suite over the engine implementations → engines ring |
 | `internal/lm/hosting` | `dies in place` | retired | slice 6b split lm/engine: the declarative Descriptor became core/engine.Definition and this is its hosting remainder (the instance half lm/backends still runs); retired with lm/backends (slice 11b); dies in place |
 | `internal/lm/engines` | `internal/engines` | engines | rename paragraph: lm/engines → engines (the registry build) |
-| `internal/lm/grpc` | `dies in place` | retired | rename paragraph: retired (slice 13); dies in place |
 | `internal/lm/isolation` | `internal/adapters/isolation` | adapters | rename paragraph: lm/isolation → adapters/isolation |
 | `internal/ltk/app` | stays | — | Part 0: a family product; this document does not restructure them |
 | `internal/ltk/engine` | stays | — | Part 0: a family product; this document does not restructure them |
@@ -140,8 +139,6 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/trust` | `internal/core/trust` | core | unit A core row; package table core/trust |
 | `internal/turnchange` | `internal/adapters/turnchange` | adapters | JUDGMENT: reads the engine's transcript through the vendor readers (an adapter over adapters); imported by cli → adapters |
 | `internal/version` | `internal/shared/version` | shared | JUDGMENT: a leaf with no ctxloom imports by its own doc comment → toolbox |
-| `internal/vpio` | `internal/adapters/vpio` | adapters | JUDGMENT: unit A adapters row; the rename paragraph's vpio/* → adapters/hostpty, adapters/attach is a split of one package into two (a code change, slice 13's), so the leaf name is kept |
-| `internal/vpio/goplugin` | `dies in place` | retired | rename paragraph: retired (slice 13); dies in place |
 | `cmd/archlint` | stays | — | Part 0: cmd/* are the composition roots; they do not move |
 | `cmd/ctxloom` | stays | — | Part 0: cmd/* are the composition roots; they do not move |
 | `cmd/gen-schemas` | stays | — | Part 0: cmd/* are the composition roots; they do not move |

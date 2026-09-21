@@ -96,8 +96,8 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 		{Host: cw.dir, Container: workDir},
 	}, cw.extraMounts...)
 
-	// No socket-dir mount, no published port, no curated handshake env — the
-	// transport-free spec that removes go-plugin from this spawn.
+	// No socket-dir mount, no published port: the runner dials home over the
+	// coordinator's reach-back, so this spec carries no transport of its own.
 	return RunSpec{
 		Image:   c.image,
 		Name:    name,
@@ -123,7 +123,7 @@ func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorksp
 const runnerWaitDelay = 10 * time.Second
 
 // startDirectRunner starts `rt.Binary() rt.RunArgs(spec)…` as a foreground
-// process (NO go-plugin handshake), capturing stderr into a bounded ring, and
+// process, capturing stderr into a bounded ring, and
 // returns a RunnerHandle. The per-spawn env values ride the run PROCESS env so
 // they never enter the world-readable argv. Kill force-removes the container
 // (reusing the same remove-with-timeout + removeReportsGone logic
@@ -217,8 +217,8 @@ func reapRunProcess(cmd *exec.Cmd) func() error {
 
 // removeContainer force-removes a named container under our OWN bounded timeout
 // (a wedged daemon must never hang teardown), surfacing a real leak LOUDLY —
-// the shared remove-with-timeout + removeReportsGone logic containerRunner.Kill
-// and the docker-direct RunnerHandle.Kill both use. A missing name/binary
+// the remove-with-timeout + removeReportsGone logic the RunnerHandle.Kill of
+// a container runner and Container.Remove both use. A missing name/binary
 // (a host-style runner) is a no-op. A racing --rm reporting already-gone is
 // teardown success, not a leak.
 func removeContainer(ctx context.Context, rt Runtime, name string) {

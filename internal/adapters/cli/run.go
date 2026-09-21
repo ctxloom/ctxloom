@@ -31,7 +31,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
@@ -352,7 +351,6 @@ type runState struct {
 	label       string
 	backendName string
 	labelModel  string
-	mode        pb.ExecutionMode
 	permMode    agent.PermissionMode
 	managed     *agent.ManagedConfig
 	activeHarp  string
@@ -578,10 +576,6 @@ func (st *runState) bindLaunch(l launch.Launch, opened operations.Opened) {
 	st.label = l.Label.Label
 	st.backendName = string(l.Engine)
 	st.labelModel = l.Label.Model
-	st.mode = pb.ExecutionMode_INTERACTIVE
-	if l.Mode == engine.Structured {
-		st.mode = pb.ExecutionMode_ONESHOT
-	}
 	st.permMode = l.Permission
 	st.managed = opened.Managed
 	if cell, ok := operations.TransportOf(l.Cell); ok {
@@ -628,7 +622,7 @@ func (st *runState) warnPosture() {
 			clidiag.Warn("ctxloom", "--permissions %q cannot be honoured as asked on %s; this run uses %q", requested, st.backendName, st.permMode)
 		}
 	}
-	if st.mode == pb.ExecutionMode_ONESHOT && st.permMode == agent.PermissionPlan {
+	if st.launch.Mode == engine.Structured && st.permMode == agent.PermissionPlan {
 		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
 	}
 	pf := backends.PermissionFactsFor(st.backendName)
@@ -1175,7 +1169,7 @@ func (st *runState) teardownTransport() {
 // exists, so a later StartOwnedRun failure still tears it down.
 func (st *runState) startTransport() error {
 	var starter coord.OwnedRunStarter
-	if st.mode == pb.ExecutionMode_INTERACTIVE {
+	if st.launch.Mode == engine.Interactive {
 		st.launch.Env = stampTerminalEnv(st.launch.Env)
 		starter = st.ptyStarter()
 	} else {
@@ -1219,7 +1213,7 @@ func (st *runState) drive() error {
 type sessionIO struct {
 	stdin  io.Reader
 	stdout io.Writer
-	resize <-chan *pb.WindowSize
+	resize <-chan *agent.WindowSize
 	// restore unwinds the terminal (raw mode, and the observation layer's
 	// scroll region + held output when one engaged). Idempotent, and a no-op
 	// for a run that never took the terminal.

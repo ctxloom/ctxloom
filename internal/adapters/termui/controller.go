@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // Overlay is the prefix-engaged viewer. The bubbletea implementation lives in
@@ -62,9 +62,9 @@ func panelRows(rows int) int {
 
 // Options configures the terminal layer for one interactive run.
 type Options struct {
-	Stdin  io.Reader             // the real tty reader (raw mode already set)
-	TTY    io.Writer             // the real tty writer
-	Resize <-chan *pb.WindowSize // the frontend's SIGWINCH channel (watchResize)
+	Stdin  io.Reader                // the real tty reader (raw mode already set)
+	TTY    io.Writer                // the real tty writer
+	Resize <-chan *agent.WindowSize // the frontend's SIGWINCH channel (watchResize)
 
 	Prefix     byte // from ParsePrefixKey
 	Surround   bool // persistent bar on reserved bottom row
@@ -170,7 +170,7 @@ func (c *Controller) Stdin() io.Reader { return c.ic }
 func (c *Controller) Stdout() io.Writer { return c.gate }
 
 // Resize is the translated size channel for client.Run.
-func (c *Controller) Resize() <-chan *pb.WindowSize { return c.rt.Out() }
+func (c *Controller) Resize() <-chan *agent.WindowSize { return c.rt.Out() }
 
 // Close restores the terminal on every exit path: aborts a live overlay,
 // flushes any held engine output, and hands back the full scroll region with
@@ -248,7 +248,7 @@ func (c *Controller) engage() io.Writer {
 	// (resizeTranslator.Translate is the single source of truth for that
 	// subtraction) — so its content can never reach the surround's reserved
 	// bottom row.
-	drawable := int(c.rt.Translate(&pb.WindowSize{Rows: uint32(rows), Cols: uint32(cols)}).Rows)
+	drawable := int(c.rt.Translate(&agent.WindowSize{Rows: uint16(rows), Cols: uint16(cols)}).Rows)
 	geo := OverlayGeometry{Cols: cols, Rows: drawable, PanelRows: panelRows(drawable)}
 	c.overlayMu.Lock()
 	c.overlay = ov

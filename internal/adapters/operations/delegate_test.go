@@ -19,7 +19,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -41,7 +40,7 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 
 	t.Run("strict: the cell is refused with the finding text", func(t *testing.T) {
 		resetStrictness(t)
-		stubPrepareIsolation(t, map[string]bool{"builder": true}, func() pb.Client { return &stubClient{} })
+		stubPrepareIsolation(t, map[string]bool{"builder": true})
 		_, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req(t))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, launch.ErrRuntimeUnavailable)
@@ -56,7 +55,7 @@ func TestCellsPrepare_ContainerDegradeGate(t *testing.T) {
 
 	t.Run("degraded: the cell proceeds on the degraded workspace", func(t *testing.T) {
 		resetStrictness(t)
-		stubPrepareIsolation(t, map[string]bool{"builder": true}, func() pb.Client { return &stubClient{} })
+		stubPrepareIsolation(t, map[string]bool{"builder": true})
 		cell, err := Cells{cfg: config.NewFixture(config.Fixture{}), mode: strictness.Mode{Degraded: true}}.Prepare(context.Background(), req(t))
 		require.NoError(t, err)
 		_ = cell.Cleanup()
@@ -232,7 +231,7 @@ func TestCellsPrepare_CleanParentTree_WorktreeAllowed(t *testing.T) {
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": false}}
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: projectDir}
+		return stubPolicy{}, stubWorkspace{dir: projectDir}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
@@ -329,7 +328,7 @@ func TestCellsPrepare_Copy_AppliesPatchAndCopiesUntrackedIntoWorktree(t *testing
 	}
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: target}
+		return stubPolicy{}, stubWorkspace{dir: target}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
@@ -373,7 +372,7 @@ func TestCellsPrepare_Copy_ApplyPatchFailureFailsLoud(t *testing.T) {
 	}
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: target}
+		return stubPolicy{}, stubWorkspace{dir: target}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
@@ -405,7 +404,7 @@ func TestCellsPrepare_Copy_UntrackedFileMissingFailsLoud(t *testing.T) {
 	}
 	prev := prepareIsolation
 	prepareIsolation = func(_ context.Context, axes isolation.Axes, _ string, _ isolation.ImageConfig, projectDir, _ string, _ isolation.SessionState) (isolation.Policy, isolation.Workspace) {
-		return stubPolicy{mk: func() pb.Client { return &stubClient{} }}, stubWorkspace{dir: target}
+		return stubPolicy{}, stubWorkspace{dir: target}
 	}
 	t.Cleanup(func() { prepareIsolation = prev })
 
@@ -715,7 +714,7 @@ func TestCellsPrepare_DirtyTreeHandler_UnsettledDoesNotCommit(t *testing.T) {
 func TestCellsPrepare_DirtyTree_OriginatorIsNotGated(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}, CurrentBranchValue: "main"}
-	stubPrepareIsolation(t, map[string]bool{}, func() pb.Client { return &stubClient{} })
+	stubPrepareIsolation(t, map[string]bool{})
 	cfg := config.NewFixture(config.Fixture{Workspace: "worktree"})
 	for _, handler := range []launch.DirtyTreeHandler{launch.DirtyTreeHandlerCommit, launch.DirtyTreeHandlerFail} {
 		t.Run(string(handler), func(t *testing.T) {

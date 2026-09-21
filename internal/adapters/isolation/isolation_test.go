@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	coreengine "github.com/ctxloom/ctxloom/internal/core/engine"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -42,9 +41,6 @@ func (failingPolicy) Mount(context.Context, Workspace) (MountPlan, error) {
 func (f failingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	return prepareWorkspace(ctx, f, projectDir, agentID)
 }
-func (failingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
-	return nil, errors.New("unused: the chain degrades before spawn")
-}
 func (failingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: the chain degrades before spawn")
 }
@@ -70,9 +66,6 @@ func (passingPolicy) Mount(context.Context, Workspace) (MountPlan, error) {
 func (p passingPolicy) PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error) {
 	return prepareWorkspace(ctx, p, projectDir, agentID)
 }
-func (passingPolicy) SpawnClient(string, string, int, Workspace, map[string]string) (pb.Client, error) {
-	return nil, errors.New("unused: prepareChain stops at the first success")
-}
 func (passingPolicy) StartRunner(context.Context, string, string, int, Workspace, map[string]string) (*RunnerHandle, error) {
 	return nil, errors.New("unused: prepareChain stops at the first success")
 }
@@ -93,18 +86,6 @@ func TestNone_IsHostIdentical(t *testing.T) {
 	assert.NoError(t, ws.Cleanup(), "none cleanup is a noop")
 	// Cleanup is idempotent — safe to call more than once.
 	assert.NoError(t, ws.Cleanup())
-}
-
-// TestFactoryForWorkspace_BindsPolicy proves the bridge yields a usable
-// pb.ClientFactory (the seam the fan-out injects). The None factory's spawn body
-// is verbatim pb.NewSelfInvokingClientForLabel — the same call
-// pb.DefaultClientFactory makes — so a live spawn is left to the operations /
-// conformance suites; here we assert the bridge wires a non-nil factory.
-func TestFactoryForWorkspace_BindsPolicy(t *testing.T) {
-	ws, err := None{}.PrepareWorkspace(context.Background(), "/project/root", "m")
-	require.NoError(t, err)
-	factory := FactoryForWorkspace(None{}, ws, nil)
-	require.NotNil(t, factory, "the bridge must produce a client factory")
 }
 
 // TestResolve_DefaultsAndDegrades: empty/"none"/"host" axes resolve to None;

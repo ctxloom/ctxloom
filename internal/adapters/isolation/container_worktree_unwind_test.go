@@ -130,7 +130,6 @@ func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
-		socketDir:  defaultContainerSocketDir,
 		base:       worktreeBase{wt: NewWorktree(f)},
 	}
 

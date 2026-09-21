@@ -45,11 +45,11 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	if d, ok := rt.(Docker); !ok || !d.rootless {
 		dockergate.SkipCapability(t, "rootful docker root-owns files the host-user teardown cannot remove; needs rootless docker")
 	}
-	buildGitIntegrationImage(t) // shared helper, container_worktree_integration_test.go (same package)
+	buildGitIntegrationImage(t) // shared helper, worktree_image_docker_integration_test.go (same package)
 
 	// No host credential is needed to clear PrepareWorkspace's auth gate: the
 	// policy is keyed on the mock engine, whose resolver authenticates against
-	// no vendor (a Vendorless declaration). This test never calls SpawnClient,
+	// no vendor (a Vendorless declaration). This test never starts a runner,
 	// only PrepareWorkspace.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

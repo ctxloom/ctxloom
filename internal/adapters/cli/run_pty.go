@@ -116,7 +116,7 @@ func (st *runState) driveOwnedInteractive() error {
 					if !ok {
 						return
 					}
-					_ = st.pty.Resize(uint16(ws.GetRows()), uint16(ws.GetCols()))
+					_ = st.pty.Resize(ws.Rows, ws.Cols)
 				case <-pumpCtx.Done():
 					return
 				}

@@ -13,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -45,10 +44,9 @@ const worktreeScratchPrefix = "ctxloom-wt"
 // per-agent git worktree, so the existing native writers (.mcp.json/.claude/
 // AGENTS.md) populate an isolated cwd instead of clobbering the one shared
 // project surface. It is NOT a security boundary — only container bypasses
-// approvals — so approvals stay Prompt. SpawnClient is the SAME bare self-invoked
+// approvals — so approvals stay Prompt. StartRunner is the SAME bare self-invoked
 // subprocess as None; the isolation is expressed purely via the worktree cwd
-// (RunOptions.WorkDir) plus the per-agent scratch and git identity its Env()
-// carries. The engine's config home is NOT this policy's to provide: it is
+// plus the per-agent scratch and git identity its Env() carries. The engine's config home is NOT this policy's to provide: it is
 // decided off the agent binding for every cell (operations.ResolveInTreeAgentHome),
 // so a worktree run and a live-tree run with the same binding share the same
 // answer. Not a git repo, or the worktree add fails → PrepareWorkspace errors
@@ -207,16 +205,7 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 	return dir
 }
 
-// SpawnClient launches the bare self-invoked plugin subprocess via the Host
-// runtime — identical to None. The worktree is expressed purely via the caller's
-// RunOptions.WorkDir, so no per-workspace launch machinery is needed here.
-func (Worktree) SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error) {
-	// Identical spawn to None (the workspace rides RunOptions.WorkDir, not
-	// the spawn) — call the one unit rather than duplicate it.
-	return None{}.SpawnClient(backendName, label, verbosity, ws, spawnEnv)
-}
-
-// StartRunner launches the bare `ctxloom llm host` runner — identical to None
+// StartRunner launches the bare `ctxloom runner` — identical to None
 // (the worktree rides RunOptions.WorkDir, not the spawn), so it defers to the
 // one unit rather than duplicate it.
 func (Worktree) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {

@@ -23,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -320,8 +319,7 @@ func TestAdaptConsumerFeed_SeqGapDetection(t *testing.T) {
 				entryEv := nextFeedEvent(t, feed.Events)
 				assert.Zero(t, entryEv.Gap, "seq %d: the entry event itself must not carry Gap", s.seq)
 				require.NotNil(t, entryEv.Event, "seq %d: expected an entry event", s.seq)
-				_, ok := entryEv.Event.GetEvent().(*pb.WatchEvent_Entry)
-				assert.True(t, ok, "seq %d: expected a WatchEvent_Entry, got %T", s.seq, entryEv.Event.GetEvent())
+				assert.NotNil(t, entryEv.Event.Entry, "seq %d: expected an entry event, got %+v", s.seq, entryEv.Event)
 			}
 		})
 	}
@@ -380,9 +378,9 @@ func nextFeedEvent(t *testing.T, events <-chan SessionFeedEvent) SessionFeedEven
 func feedEntryContent(t *testing.T, fe SessionFeedEvent) string {
 	t.Helper()
 	require.NotNil(t, fe.Event, "expected a watch event, got a gap")
-	e, ok := fe.Event.GetEvent().(*pb.WatchEvent_Entry)
-	require.True(t, ok, "expected an entry event, got %T", fe.Event.GetEvent())
-	return e.Entry.GetContent()
+	e := fe.Event.Entry
+	require.NotNil(t, e, "expected an entry event, got %+v", fe.Event)
+	return e.Content
 }
 
 func TestParseFeedSource(t *testing.T) {
@@ -416,10 +414,10 @@ func TestWatchSessionFeed_AutoPrefersLive(t *testing.T) {
 	turnIdle(t, f)
 	fe := nextFeedEvent(t, feed.Events)
 	require.NotNil(t, fe.Event)
-	b, ok := fe.Event.GetEvent().(*pb.WatchEvent_Boundary)
-	require.True(t, ok, "a live turn_idle maps to a boundary")
-	assert.Equal(t, int32(0), b.Boundary.GetFromIndex())
-	assert.Equal(t, int32(1), b.Boundary.GetToIndex())
+	b := fe.Event.Boundary
+	require.NotNil(t, b, "a live turn_idle maps to a boundary")
+	assert.Equal(t, 0, b.FromIndex)
+	assert.Equal(t, 1, b.ToIndex)
 
 	f.push(t, &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}})
 	select {
@@ -448,9 +446,9 @@ func TestWatchSessionFeed_LiveStitchesScrollback(t *testing.T) {
 	assert.Equal(t, "stored question", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
 	assert.Equal(t, "stored answer", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
 	fe := nextFeedEvent(t, feed.Events)
-	b, ok := fe.Event.GetEvent().(*pb.WatchEvent_Boundary)
-	require.True(t, ok, "scrollback closes with a boundary")
-	assert.Equal(t, int32(2), b.Boundary.GetToIndex())
+	b := fe.Event.Boundary
+	require.NotNil(t, b, "scrollback closes with a boundary")
+	assert.Equal(t, 2, b.ToIndex)
 
 	assistantMessage(t, f, "m-1", "and now live")
 	assert.Equal(t, "and now live", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
@@ -622,25 +620,25 @@ func TestAdaptConsumerFeed_ToolCallsAndBoundaries(t *testing.T) {
 	turnIdle(t, f) // an empty turn (no new material since the last boundary): no event
 
 	assert.Equal(t, "one", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
-	b1 := nextFeedEvent(t, feed.Events).Event.GetEvent().(*pb.WatchEvent_Boundary).Boundary
-	assert.Equal(t, int32(0), b1.GetFromIndex())
-	assert.Equal(t, int32(1), b1.GetToIndex())
+	b1 := nextFeedEvent(t, feed.Events).Event.Boundary
+	assert.Equal(t, 0, b1.FromIndex)
+	assert.Equal(t, 1, b1.ToIndex)
 
 	toolUse := nextFeedEvent(t, feed.Events)
-	use, ok := toolUse.Event.GetEvent().(*pb.WatchEvent_Entry)
-	require.True(t, ok)
-	assert.Equal(t, "tool_use", use.Entry.GetType())
-	assert.Equal(t, "Bash", use.Entry.GetToolName())
+	use := toolUse.Event.Entry
+	require.NotNil(t, use)
+	assert.Equal(t, agent.EntryTypeToolUse, use.Type)
+	assert.Equal(t, "Bash", use.ToolName)
 
 	toolResult := nextFeedEvent(t, feed.Events)
-	res, ok := toolResult.Event.GetEvent().(*pb.WatchEvent_Entry)
-	require.True(t, ok)
-	assert.Equal(t, "tool_result", res.Entry.GetType())
-	assert.Equal(t, "ok", res.Entry.GetToolOutput())
+	res := toolResult.Event.Entry
+	require.NotNil(t, res)
+	assert.Equal(t, agent.EntryTypeToolResult, res.Type)
+	assert.Equal(t, "ok", res.ToolOutput)
 
-	b2 := nextFeedEvent(t, feed.Events).Event.GetEvent().(*pb.WatchEvent_Boundary).Boundary
-	assert.Equal(t, int32(1), b2.GetFromIndex())
-	assert.Equal(t, int32(3), b2.GetToIndex())
+	b2 := nextFeedEvent(t, feed.Events).Event.Boundary
+	assert.Equal(t, 1, b2.FromIndex)
+	assert.Equal(t, 3, b2.ToIndex)
 
 	// The second, empty turn_idle must not produce a further event — assert
 	// by pushing one more distinguishable entry and confirming it arrives

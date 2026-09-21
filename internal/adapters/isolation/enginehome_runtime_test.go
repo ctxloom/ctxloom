@@ -55,16 +55,16 @@ func TestContainerInstanceHome_HostWorkspacesHaveNone(t *testing.T) {
 // actually carries: it lands in the workspace's extraMounts, read-write (the
 // engine writes its session state into its home), rendered through the
 // runtime's Expose so a path-mapping runtime maps it like every other mount.
-func TestMountEngineHome_ContainerCarriesTheMountIntoItsLaunchSpec(t *testing.T) {
+func TestMountEngineHome_ContainerCarriesTheMountIntoItsRunnerSpec(t *testing.T) {
 	cw := &containerWorkspace{instanceHome: "/ctxloom/home", runtime: fakeRuntime{}}
 	m := present.Mount{HostDir: hostEngineHome, TargetDir: "/home/ctxloom/.ctxloom/home/claude"}
 
 	require.NoError(t, MountEngineHome(cw, m, false))
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	spec := c.launchSpec("claude-code", "", 0, cw)
-	require.Len(t, spec.ExtraMounts, 1)
-	assert.Equal(t, Mount{Host: hostEngineHome, Container: m.TargetDir, ReadOnly: false}, spec.ExtraMounts[0])
+	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
+	require.Len(t, spec.Mounts, 2, "the project mount, then the engine home")
+	assert.Equal(t, Mount{Host: hostEngineHome, Container: m.TargetDir, ReadOnly: false}, spec.Mounts[1])
 }
 
 // A host-executing workspace cannot mount, and its own advice never produces
@@ -114,13 +114,14 @@ func TestMountEngineHome_AnAgentContainerMountsTheProjectedCopyReadOnly(t *testi
 	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: sessionHome, TargetDir: relocatedEngineHome}, true))
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	spec := c.launchSpec("claude-code", "", 0, cw)
-	require.Len(t, spec.ExtraMounts, 2, "the home directory, then the projected credential file over it")
-	assert.Equal(t, Mount{Host: sessionHome, Container: relocatedEngineHome, ReadOnly: false}, spec.ExtraMounts[0])
+	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
+	extra := spec.Mounts[1:] // after the project mount
+	require.Len(t, extra, 2, "the home directory, then the projected credential file over it")
+	assert.Equal(t, Mount{Host: sessionHome, Container: relocatedEngineHome, ReadOnly: false}, extra[0])
 	assert.Equal(t, Mount{Host: seeded, Container: relocatedEngineHome + "/.credentials.json", ReadOnly: true},
-		spec.ExtraMounts[1], "the PROJECTED copy under the agent's session, read-only")
+		extra[1], "the PROJECTED copy under the agent's session, read-only")
 	assert.Empty(t, cw.authMounts, "the real host file is never a mount source for an agent")
-	for _, m := range append(cw.authMounts, spec.ExtraMounts...) {
+	for _, m := range append(cw.authMounts, extra...) {
 		assert.NotContains(t, m.Host, filepath.Join(home, ".claude"), "the real host credential never crosses into an agent's container")
 		assert.NotContains(t, m.Host, ".claude.json", "the user's own top-level config never crosses")
 	}
@@ -141,9 +142,10 @@ func TestMountEngineHome_TheOrchestratorContainerMountsItsWholeHomeReadWrite(t *
 	require.NoError(t, MountEngineHome(cw, present.Mount{HostDir: sessionHome, TargetDir: relocatedEngineHome}, false))
 
 	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
-	spec := c.launchSpec("claude-code", "", 0, cw)
-	require.Len(t, spec.ExtraMounts, 1, "the home directory alone, read-write: the orchestrator's engine refreshes in place")
-	assert.Equal(t, Mount{Host: sessionHome, Container: relocatedEngineHome, ReadOnly: false}, spec.ExtraMounts[0])
+	spec := c.buildRunnerSpec("claude-code", "name", cw, nil)
+	extra := spec.Mounts[1:] // after the project mount
+	require.Len(t, extra, 1, "the home directory alone, read-write: the orchestrator's engine refreshes in place")
+	assert.Equal(t, Mount{Host: sessionHome, Container: relocatedEngineHome, ReadOnly: false}, extra[0])
 	assert.Empty(t, cw.authMounts, "the real host file is never a mount source once the home relocates")
 }
 

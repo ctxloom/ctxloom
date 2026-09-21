@@ -2,31 +2,27 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
-	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
 
 var initCmd = &cobra.Command{
@@ -622,10 +618,17 @@ func engineAuthFixHint(engine string) string {
 	return fix
 }
 
-// authPingFactory is a test seam: nil drives the probe over the cell's own
-// transport; tests inject a stub pb.ClientFactory so no real engine binary or
-// credential is required to exercise the gate.
-var authPingFactory pb.ClientFactory
+// authPingHosts is a test seam: nil runs the probe on the command's
+// internal coordinator (internalRunHosts); tests inject a RunHosts double so
+// no real engine binary or credential is required to exercise the gate.
+var authPingHosts operations.RunHosts
+
+func pingHosts() operations.RunHosts {
+	if authPingHosts != nil {
+		return authPingHosts
+	}
+	return internalRunHosts()
+}
 
 // pingEngineAuth probes the selected engine with the smallest possible
 // one-shot BEFORE init hands off to its raw CLI/TUI ("a dead first session
@@ -640,12 +643,11 @@ var authPingFactory pb.ClientFactory
 func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, engine, workDir string) error {
 	src := operations.InternalSource(engine, "", workDir)
 	src.Permission = agent.PermissionBypass
-	probe, err := operations.StartOneShot(ctx, deps, sessions.Seed{ProjectDir: workDir}, src, 0)
+	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src, 0)
 	if err != nil {
 		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
 	}
 	defer probe.End()
-	probe.Factory = authPingFactory
 	if _, err := probe.Turn(ctx, authPingTask); err != nil {
 		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
 	}
@@ -653,60 +655,46 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 }
 
 // launchEngineWithPrompt starts the engine's own raw CLI/TUI on the resolved
-// discovery launch (pty passthrough — the vendor's real interactive binary
-// on this terminal, exactly as `ctxloom run`'s interactive path). Errors are
+// discovery launch: an owner-owned INTERACTIVE run on the command's internal
+// coordinator, its runner on the pty this process holds and pumps the
+// terminal onto — exactly `ctxloom run`'s interactive path (ptyStarter,
+// driveOwnedInteractive) over a runState this launch fills. Errors are
 // returned to the caller, which reports them through strictness and refuses
 // by default rather than swallowing them.
-func launchEngineWithPrompt(ctx context.Context, l launch.Launch, opened operations.Opened) error {
-	client, err := pb.NewSelfInvokingClientForLabel(string(l.Engine), l.Label.Label, 0)
+func launchEngineWithPrompt(ctx context.Context, cfg *config.Config, workDir string, l launch.Launch) error {
+	cell, ok := operations.TransportOf(l.Cell)
+	if !ok {
+		return errors.New("the discovery launch's cell carries no transport handle")
+	}
+	c, err := internalCoordinator(workDir, l.Identity.Harp)
 	if err != nil {
 		return fmt.Errorf("failed to launch %s: %w", l.Engine, err)
 	}
-	defer client.Kill()
-
-	req := coordgrpc.EncodeRunStart(l, opened.Package, opened.Managed, 0)
-
-	// The discovery session is interactive, so the frontend must own the
-	// terminal exactly as `ctxloom run` does: raw-mode keystrokes and resize
-	// events are pumped over the bidi Run stream into the agent's pty (the
-	// plugin subprocess never inherits our terminal). Off a TTY this degrades
-	// to a non-interactive stream — warn and continue.
-	stdin, resize, restoreTerm := interactiveTerminal(ctx)
-	defer restoreTerm()
-	if stdin == nil {
-		clidiag.Warn("ctxloom", "stdin is not a terminal; discovery session will not accept input")
+	st := &runState{
+		ctx:          ctx,
+		cfg:          cfg,
+		workDir:      workDir,
+		launch:       l,
+		activeHarp:   l.Identity.Harp,
+		backendName:  string(l.Engine),
+		label:        l.Label.Label,
+		labelModel:   l.Label.Model,
+		policy:       cell.Policy,
+		ws:           cell.Workspace,
+		sessionCoord: c,
 	}
-
-	// Restore the terminal before dying on an interrupt delivered from
-	// outside (in raw mode a user's ^C is just bytes forwarded to the agent,
-	// not a SIGINT to us). restoreTerm is idempotent, so this races safely
-	// with the deferred and inline calls.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	go func() {
-		<-sigCh
-		restoreTerm()
-		signal.Stop(sigCh)
-		p, _ := os.FindProcess(os.Getpid())
-		_ = p.Signal(os.Interrupt)
-	}()
-	defer signal.Stop(sigCh)
-
-	// Run the discovery session over the vpio seam — the same go-plugin-
-	// wrapping goplugin.Launcher `ctxloom run`'s interactive path uses, so
-	// both callers share one transport implementation.
-	session, err := goplugin.NewLauncher(client, req).Start(ctx, vpio.ProcessSpec{
-		Stdin:  stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	})
+	st.launch.Env = stampTerminalEnv(st.launch.Env)
+	sess, err := startOwnedRun(ctx, c, ownedRunLaunch{Launch: st.launch}, st.ptyStarter())
 	if err != nil {
+		if st.pty != nil {
+			st.pty.Kill()
+		}
 		return fmt.Errorf("AI session failed to start: %w", err)
 	}
-	pumpResize(session, resize)
-	_, err = session.Wait()
-	restoreTerm()
-	if err != nil {
+	st.ownedRun = sess
+	defer sess.cancel()
+	defer st.pty.Kill()
+	if err := st.driveOwnedInteractive(); err != nil {
 		return fmt.Errorf("AI session ended: %w", err)
 	}
 	return nil
@@ -780,11 +768,7 @@ func launchDiscovery(cmd *cobra.Command, engine, appDir string, interactive bool
 		}
 	}()
 
-	opened, err := operations.OpenLaunch(cmd.Context(), operations.ForSession(deps, l.Identity.Harp), l)
-	if err != nil {
-		return reportSetupLaunchFailure(err)
-	}
-	if launchErr := launchEngineWithPromptFn(cmd.Context(), l, opened); launchErr != nil {
+	if launchErr := launchEngineWithPromptFn(cmd.Context(), cfg, workDir, l); launchErr != nil {
 		return reportSetupLaunchFailure(launchErr)
 	}
 

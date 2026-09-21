@@ -1,6 +1,5 @@
 version: v2
 modules:
-  - path: internal/lm/grpc
   - path: internal/adapters/coordgrpc/pb
 lint:
   use:

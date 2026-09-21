@@ -161,19 +161,6 @@ var LayeringRules = []LayeringRule{
 			// config carries (the edge above); it leaves with config's.
 			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
 
-			// core/coord — Part 1.0 also lists shared/agent, a from-package here (see
-			// profiles).
-			"internal/core/coord -> internal/adapters/coordgrpc/pb":       "slice 10 remainder: the gRPC/HTTP servers, channels and links leave core with their generated-type references",
-			"internal/core/coord -> internal/adapters/coordgrpc/discover": "slice 10 remainder: the endpoint file's writer (httpserver.go) leaves core with the servers",
-			"internal/core/coord -> internal/adapters/transcript":         "slice 14a: the engine-host files move to adapters/runner",
-
-			// coord/coordtest is the in-process runner double compiled into no binary;
-			// Part 1.0 does not mention it. It stands up the real runner half, so it
-			// imports what the runner imports until the runner is a package of its own.
-			"internal/core/coord/coordtest -> internal/lm/backends":        "slice 14a: the double stands up adapters/runner instead of the backends seam (measured; Part 1.0 does not mention coordtest)",
-			"internal/core/coord/coordtest -> internal/adapters/isolation": "slice 14a: the double stands up adapters/runner instead of reaching isolation (measured; Part 1.0 does not mention coordtest)",
-			"internal/core/coord/coordtest -> internal/adapters/runner":    "slice 14a: the double moves beside the runner it stands up (measured; Part 1.0 does not mention coordtest)",
-
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
 			// excepted, so those two are not violations.
@@ -420,7 +407,6 @@ var LayeringRules = []LayeringRule{
 		Allowed: map[string]string{
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":             "sanctioned: cli/tui is the watch UI on the coordination proto",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":          "sanctioned: runner/mcp is the session endpoint and speaks the wire",
-			"internal/core/coord -> internal/adapters/coordgrpc/pb":                   "slice 10 remainder: the servers, channels and links leave core with their generated-type references",
 			"internal/adapters/coordgrpc/mcpschema -> internal/adapters/coordgrpc/pb": "sanctioned: mcpschema projects the proto into the tool schemas, beside it under coordgrpc",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":           "sanctioned: the codec is the proto's owner",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":              "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",

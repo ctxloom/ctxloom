@@ -76,7 +76,7 @@ func TestEnsureWide_PersistsTheWidePortBeforeReturning(t *testing.T) {
 	stateDir := t.TempDir()
 	c := servedCoordinator(t, stateDir)
 
-	advertised, err := c.srv.Load().ensureWide()
+	advertised, err := c.boundTransport().(*coordServing).ensureWide()
 	require.NoError(t, err)
 	parsed, err := url.Parse(advertised)
 	require.NoError(t, err)

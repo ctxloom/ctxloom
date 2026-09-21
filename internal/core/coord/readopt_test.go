@@ -20,8 +20,8 @@ func crashCoordinator(c *Coordinator) {
 		c.tracked.seal()
 		c.closePartial() // journals and the owner lock go FIRST: nothing lands after this
 		c.cancel()
-		if srv := c.srv.Load(); srv != nil {
-			srv.close()
+		if t := c.takeTransport(); t != nil {
+			t.Close()
 		}
 	})
 }

@@ -104,7 +104,7 @@ func encodeStartRunLaunch(sr StartRun) *agentcoordpb.Launch {
 // verdict, and from then on only pumps and decodes.
 func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordpb.RunnerFrame, agentcoordpb.RuntimeFrame]) error {
 	c := s.c
-	done, ok := c.streams.enter()
+	done, ok := c.EnterStream()
 	if !ok {
 		return status.Error(codes.Unavailable, "coordinator is closing")
 	}
@@ -114,7 +114,7 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 	if !ok {
 		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
 	}
-	credHash := hashToken(mdToken(stream.Context()))
+	credHash := HashToken(mdToken(stream.Context()))
 
 	first, err := stream.Recv()
 	if err != nil {
@@ -153,14 +153,14 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 	// channel uses, reversed. goTracked: the pump only terminates once the
 	// underlying gRPC transport is actually cut (the server's
 	// GracefulStop/Stop), not on c.baseCtx cancellation alone.
-	c.goTracked(func() {
+	c.Track(func() {
 		rs.Pump(streamCtx, func(req RunnerRequest) error {
 			return stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_Request{Request: RunnerRequestToWire(req, encodeStartRunLaunch)}})
 		})
 	})
 
 	recvErr := make(chan error, 1)
-	c.goTracked(func() {
+	c.Track(func() {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {

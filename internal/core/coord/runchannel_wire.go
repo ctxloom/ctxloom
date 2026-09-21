@@ -20,7 +20,7 @@ import (
 // frame's meaning and every outbound frame's content are the coordinator's.
 func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.AgentFrame, agentcoordpb.CoordinatorFrame]) error {
 	c := s.c
-	done, ok := c.streams.enter()
+	done, ok := c.EnterStream()
 	if !ok {
 		return status.Error(codes.Unavailable, "coordinator is closing")
 	}
@@ -71,7 +71,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	// the underlying gRPC transport down (streamCtx derives from the STREAM's
 	// context, not c.baseCtx, so only the server actually cutting the
 	// transport unblocks a still-live channel — see Coordinator.Close's doc).
-	c.goTracked(func() {
+	c.Track(func() {
 		ch.Pump(streamCtx, func(f OutFrame) error {
 			frame := OutFrameToWire(f)
 			if frame == nil {
@@ -82,7 +82,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	})
 
 	recvErr := make(chan error, 1)
-	c.goTracked(func() {
+	c.Track(func() {
 		for {
 			frame, rerr := stream.Recv()
 			if rerr != nil {

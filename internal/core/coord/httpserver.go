@@ -64,9 +64,10 @@ type coordServing struct {
 type endpointState = discover.State
 
 // Serve stands the listeners up: loopback by default; widening happens on
-// demand when a container child spawns.
+// demand when a container child spawns. The bound listener set is published
+// to the coordinator as its Transport.
 func (c *Coordinator) Serve() error {
-	if c.srv.Load() != nil {
+	if c.Serving() {
 		return nil // already serving: idempotent no-op, not a new admission
 	}
 	if c.Draining() {
@@ -108,7 +109,7 @@ func (c *Coordinator) Serve() error {
 	// there is nothing to unwind: a Serve that returns an error must leave no
 	// listener and no serving goroutine behind, and c.srv is only assigned at
 	// the end, so anything left bound here would never be closed.
-	if _, err := c.consumerCreds.mint(); err != nil {
+	if _, err := c.MintConsumerCredential(); err != nil {
 		return fmt.Errorf("coord: mint consumer credential: %w", err)
 	}
 	ln, err := bindPreferring("127.0.0.1", ep.LoopbackPort)
@@ -120,15 +121,11 @@ func (c *Coordinator) Serve() error {
 	go func() { _ = s.httpSrv.Serve(ln) }()
 	s.saveEndpoint()
 
-	c.srv.Store(s)
-	if c.closed.Load() {
-		// Close ran while this was binding and found nothing to take down.
-		// It marked itself before looking, so this is the second of the
-		// two to act, and the listeners are this call's to unwind.
-		if c.srv.CompareAndSwap(s, nil) {
-			s.close()
-		}
-		return fmt.Errorf("coord: %w", ErrClosed)
+	if err := c.BindTransport(s); err != nil {
+		// Close ran while this was binding and found nothing to take down:
+		// the listeners are this call's to unwind.
+		s.Close()
+		return fmt.Errorf("coord: %w", err)
 	}
 	// A previous incarnation opened the wide listener for a container run;
 	// a container runner from before the restart redials that recorded
@@ -136,7 +133,7 @@ func (c *Coordinator) Serve() error {
 	// may never come — or the run it holds can only end as runner loss.
 	if ep.WidePort > 0 {
 		if _, err := s.ensureWide(); err != nil {
-			c.rep.Warnf("coord: re-open the container-reachable listener recorded at port %d: %v (a container runner from before the restart cannot be re-adopted)", ep.WidePort, err)
+			c.Reporter().Warnf("coord: re-open the container-reachable listener recorded at port %d: %v (a container runner from before the restart cannot be re-adopted)", ep.WidePort, err)
 		}
 	}
 	return nil
@@ -154,7 +151,7 @@ func bindPreferring(host string, port int) (net.Listener, error) {
 }
 
 func (s *coordServing) endpointPath() string {
-	return filepath.Join(s.c.stateDir, discover.FileName)
+	return filepath.Join(s.c.StateDir(), discover.FileName)
 }
 
 // loadEndpoint reads the recorded endpoint state. An ABSENT file is the
@@ -170,7 +167,7 @@ func (s *coordServing) loadEndpoint() endpointState {
 		return ep
 	}
 	if uerr := json.Unmarshal(raw, &ep); uerr != nil {
-		s.c.rep.Warnf("coordinator: %s does not decode (%v): re-binding on fresh ports, so a relaunched endpoint will not match the recorded one", discover.FileName, uerr)
+		s.c.Reporter().Warnf("coordinator: %s does not decode (%v): re-binding on fresh ports, so a relaunched endpoint will not match the recorded one", discover.FileName, uerr)
 		return endpointState{}
 	}
 	return ep
@@ -194,46 +191,28 @@ func (s *coordServing) saveEndpointLocked() {
 	if s.loopback != nil {
 		ep.LoopbackPort = s.loopback.Addr().(*net.TCPAddr).Port
 	}
-	ep.ConsumerCred = s.c.consumerCreds.token()
+	ep.ConsumerCred = s.c.ConsumerCredential()
 	raw, _ := json.Marshal(ep)
 	if err := os.WriteFile(s.endpointPath(), raw, 0o600); err != nil {
-		s.c.rep.Warnf("coordinator: persist endpoint: %v", err)
+		s.c.Reporter().Warnf("coordinator: persist endpoint: %v", err)
 	}
 }
 
-// LoopbackURL is the coordinator URL for host-side callers (the parent
-// harness's runner, host children's runners). Empty until Serve.
-//
-// test-only: no production call site — production reaches the
-// same value through ReachURL("host"). Kept as its own accessor rather than
-// deleted because it has a genuine cross-package test consumer
-// (internal/adapters/mcp/mcp_runner_artifact_test.go), and every one of its 8 call
-// sites would need to grow by a line to handle ReachURL's error return,
-// which costs more lines than this wrapper.
-func (c *Coordinator) LoopbackURL() string {
-	srv := c.srv.Load()
-	if srv == nil {
-		return ""
-	}
-	return srv.loopURL
-}
+// LoopbackURL is the loopback listener's URL — the coordinator's
+// Transport.LoopbackURL.
+func (s *coordServing) LoopbackURL() string { return s.loopURL }
 
 // ReachURL resolves the URL a caller on runtimeAxis dials: loopback for host
 // runs; the widened bridge/host-interface listener for container runs
-// (opened on demand, never 0.0.0.0). The hosting glue uses it for the parent
-// harness's env trio.
-func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
-	srv := c.srv.Load()
-	if srv == nil {
-		return "", errors.New("coordinator listeners are not up")
-	}
+// (opened on demand, never 0.0.0.0) — the coordinator's Transport.ReachURL.
+func (s *coordServing) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
 	// EITHER ownership mode is a container, and both need the widened
 	// listener: loopback inside a container is the container's own loopback,
 	// so handing one back is not a degraded URL, it is an unreachable one.
 	if !launch.IsContainerRuntimeAxis(runtimeAxis) {
-		return srv.loopURL, nil
+		return s.loopURL, nil
 	}
-	return srv.ensureWide()
+	return s.ensureWide()
 }
 
 // ensureWide resolves the container-reachable URL once and returns it, and it
@@ -349,7 +328,7 @@ func (s *coordServing) ensureWide() (string, error) {
 // RunChannel/RunnerChannel are perpetual streams anyway (they never
 // "finish" on their own), so a graceful drain would never resolve even if it
 // didn't panic — a hard Stop is the only correct choice for this transport.
-func (s *coordServing) close() {
+func (s *coordServing) Close() {
 	if s.grpcSrv != nil {
 		s.grpcSrv.Stop()
 	}

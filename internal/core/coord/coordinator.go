@@ -341,26 +341,26 @@ type Coordinator struct {
 	// goroutine racing that teardown is this package's worst flake class.
 	tracked trackedGroup
 
-	// srv is the listener set (httpserver.go), nil until Serve. ATOMIC, not
-	// mu-guarded: Serve publishes it while the spawn path (ReachURL, building
-	// a child's env) and Close read it from other goroutines, and those
-	// readers must not have to take the coordinator's big lock — nor can they
-	// be allowed to observe a half-published coordServing.
-	srv atomic.Pointer[coordServing]
+	// transport is the bound wire (Transport), nil until the adapter serves.
+	// Its own lock, not mu: BindTransport publishes it while the spawn path
+	// (ReachURL, building a child's env) and Close read it from other
+	// goroutines, and those readers must not have to take the coordinator's
+	// big lock.
+	transportMu sync.Mutex
+	transport   Transport
 
 	// admissionClosed is the application-layer DRAIN flag (task
 	// definite-phoniness): BeginDrain sets it once, and every admission
 	// site (AgentRun, StartOwnedRun, RunnerChannel's Hello for a runner
 	// with nothing already in flight, Serve) checks it and returns
 	// ErrDraining instead of admitting new work. It does NOT touch
-	// c.baseCtx, c.srv, or any live attachment — an already-admitted run
+	// c.baseCtx, the transport, or any live attachment — an already-admitted run
 	// keeps running exactly as it would without a drain in progress — and
 	// it is deliberately not consulted by Close(), which is the hard,
 	// immediate teardown (see its own doc): the caller flips this first,
 	// waits for nothing to be left in flight (Roster/WatchRuns), and only
-	// then calls Close(). ATOMIC, not mu-guarded, for the same reason srv
-	// is: every admission site must be able to check it without taking
-	// c.mu.
+	// then calls Close(). ATOMIC, not mu-guarded: every admission site must
+	// be able to check it without taking c.mu.
 	admissionClosed atomic.Bool
 	// drainBound is how long BeginDrain waits on a child's PROCESS before
 	// forcing it — resolved at construction (tunables.drainBound) from
@@ -837,8 +837,8 @@ func (c *Coordinator) Close() {
 				closeFn()
 			}
 		}
-		if srv := c.srv.Swap(nil); srv != nil {
-			srv.close()
+		if t := c.takeTransport(); t != nil {
+			t.Close()
 		}
 		// The stream handlers' deferred terminals run AFTER Stop returns;
 		// join them before the writers close so a runner dropped by the

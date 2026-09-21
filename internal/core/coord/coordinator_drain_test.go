@@ -144,7 +144,7 @@ func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
 	require.Error(t, err, "Serve must refuse to bind fresh listeners once draining")
 	assert.ErrorIs(t, err, ErrDraining)
 	assert.Contains(t, err.Error(), "draining")
-	assert.Nil(t, c.srv.Load(), "a refused Serve must leave no listener behind")
+	assert.False(t, c.Serving(), "a refused Serve must leave no listener behind")
 }
 
 // TestBeginDrain_ServeStaysIdempotentOnceAlreadyServing proves BeginDrain

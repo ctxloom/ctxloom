@@ -128,7 +128,7 @@ func TestServe_BindsLoopbackOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, net.ParseIP(host).IsLoopback(), "Serve binds loopback and nothing else: %q", host)
 
-	srv := c.srv.Load()
+	srv := c.boundTransport().(*coordServing)
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	assert.Empty(t, srv.wide, "no wide listener may exist before a container run asks for one")

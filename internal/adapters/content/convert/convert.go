@@ -115,31 +115,6 @@ type Report struct {
 	HookNames map[string]int
 }
 
-// hookEvents pairs each event's wire name with its list, in a FIXED order.
-//
-// It is a slice rather than a map so conversion output is deterministic, and it
-// is exhaustive over bundles.BundleHooks by construction — an eighth event
-// added to that struct and not added here is caught by
-// TestPlan_EverySixHookEventsConverts rather than by a user noticing their
-// hooks stopped firing.
-func hookEvents(h bundles.BundleHooks) []struct {
-	Event string
-	Hooks []bundles.BundleHook
-} {
-	return []struct {
-		Event string
-		Hooks []bundles.BundleHook
-	}{
-		{"pre_tool", h.PreTool},
-		{"post_tool", h.PostTool},
-		{"session_start", h.SessionStart},
-		{"session_end", h.SessionEnd},
-		{"pre_shell", h.PreShell},
-		{"post_file_edit", h.PostFileEdit},
-		{"turn_end", h.TurnEnd},
-	}
-}
-
 // Plan converts a bundle document into the ordered items it becomes, without
 // touching a filesystem.
 //
@@ -255,25 +230,30 @@ func (p *planner) mcp(b *bundles.Bundle) {
 	}
 }
 
+// hooks plans every bundle hook in bundles.BundleHooks.Entries() order — the
+// canonical event order then declared index, the same enumeration the trust
+// gate walks — so the planner has no event list of its own to fall behind.
 func (p *planner) hooks(b *bundles.Bundle) {
-	for _, ev := range hookEvents(b.Hooks) {
-		used := map[string]bool{}
-		for i, h := range ev.Hooks {
-			name := uniqueHookName(used, h)
-			p.rep.HookNames[ev.Event+"/"+name] = i
-			p.add(trust.KindHook, ev.Event+"/"+name, signing.FormRaw, content.Hook{
-				Event:           ev.Event,
-				Name:            name,
-				Order:           hookOrder(i, h),
-				Matcher:         h.Matcher,
-				Type:            h.Type,
-				Command:         h.Command,
-				Prompt:          h.Prompt,
-				Timeout:         h.Timeout,
-				Async:           h.Async,
-				PreToolFallback: h.PreToolFallback,
-			})
+	used := map[string]map[string]bool{}
+	for _, e := range b.Hooks.Entries() {
+		if used[e.Event] == nil {
+			used[e.Event] = map[string]bool{}
 		}
+		h := e.Hook
+		name := uniqueHookName(used[e.Event], h)
+		p.rep.HookNames[e.Event+"/"+name] = e.Index
+		p.add(trust.KindHook, e.Event+"/"+name, signing.FormRaw, content.Hook{
+			Event:           e.Event,
+			Name:            name,
+			Order:           hookOrder(e.Index, h),
+			Matcher:         h.Matcher,
+			Type:            h.Type,
+			Command:         h.Command,
+			Prompt:          h.Prompt,
+			Timeout:         h.Timeout,
+			Async:           h.Async,
+			PreToolFallback: h.PreToolFallback,
+		})
 	}
 }
 

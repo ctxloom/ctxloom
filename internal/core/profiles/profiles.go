@@ -744,11 +744,7 @@ func (p *Profile) HasContent() bool {
 		len(p.ExcludeMCP) > 0 ||
 		len(p.DenyTools) > 0 ||
 		len(p.Variables) > 0 ||
-		len(p.Hooks.Unified.PreTool)+len(p.Hooks.Unified.PostTool)+
-			len(p.Hooks.Unified.SessionStart)+len(p.Hooks.Unified.SessionEnd)+
-			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit)+
-			len(p.Hooks.Unified.TurnEnd) > 0 ||
-		len(p.Hooks.Ext) > 0 ||
+		p.Hooks.HasAny() ||
 		p.LLM != ""
 }
 

@@ -702,7 +702,7 @@ func TestPlan_EveryHookEventConverts(t *testing.T) {
 			items, err := Plan("vault", &bundles.Bundle{Name: "vault", Hooks: h}, Options{})
 			require.NoError(t, err)
 			require.Len(t, plannedHooks(items), 1, "a %s hook converts to nothing", event)
-			assert.Equal(t, []string{event + "/echo-" + event}, refNames(items, trust.KindHook))
+			assert.Equal(t, []string{event + "/echo-" + strings.ReplaceAll(event, "_", "-")}, refNames(items, trust.KindHook))
 		})
 	}
 }

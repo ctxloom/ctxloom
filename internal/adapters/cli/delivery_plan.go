@@ -63,8 +63,8 @@ const engineHomeLabel = "engine-home"
 // home, that selection. Empty for a launch that stays in its session.
 func unsafeLabels(l launch.Launch) []string {
 	out := unsafeRouteLabels(l.Plan)
-	if l.HomeMode == launch.HomeModeHost {
-		out = append(out, fmt.Sprintf("%s → %s", engineHomeLabel, l.HomeMode))
+	if l.Cell.HomeMode == launch.HomeModeHost {
+		out = append(out, fmt.Sprintf("%s → %s", engineHomeLabel, l.Cell.HomeMode))
 	}
 	return out
 }

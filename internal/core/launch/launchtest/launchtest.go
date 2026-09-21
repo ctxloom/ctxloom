@@ -390,7 +390,7 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
 		Scratch:     present.Root{Host: req.SessionDir},
 	})
-	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, Cleanup: func() error { return nil }}, nil
+	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
 }
 
 // Structured is a resolved structured-mode launch for one harp on the

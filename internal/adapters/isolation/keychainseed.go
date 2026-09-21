@@ -211,13 +211,12 @@ func provisionKeychainSeed(name string, store engine.KeychainStore, configDir st
 // keychainPoller re-reads the default item on keychainPollInterval and
 // rewrites the session's item when it changed.
 type keychainPoller struct {
-	seed    *keychainSeed
-	owner   bool
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	once    sync.Once
-	closeMu sync.Mutex
-	err     error
+	seed   *keychainSeed
+	owner  bool
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	once   sync.Once
+	err    error
 }
 
 func newKeychainPoller(k *keychainSeed, lastHost [sha256.Size]byte, owner bool) *keychainPoller {

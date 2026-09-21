@@ -875,7 +875,7 @@ func (st *runState) emitDryRun() error {
 		Fragments:  orEmpty(pkg.Loaded),
 		Context:    context,
 		Delivery:   deliveryRoutes(l.Plan),
-		EngineHome: engineHomeRoute(l.HomeMode),
+		EngineHome: engineHomeRoute(l.Cell.HomeMode),
 		Tokens:     tokens.Estimate(context),
 		Prompt:     st.prompt,
 	}
@@ -938,6 +938,7 @@ func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 			Scratch:     present.Root{Host: req.SessionDir},
 		}),
 		Workspace: req.ProjectRoot,
+		HomeMode:  req.HomeMode,
 		Cleanup:   func() error { return nil },
 	}, nil
 }

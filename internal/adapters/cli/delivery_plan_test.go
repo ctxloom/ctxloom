@@ -54,12 +54,12 @@ func TestPrintDeliveryRoutes_NamesTheUnsafeRoute(t *testing.T) {
 // writes outside its session, and neither is a default.
 func TestUnsafeLabels_TheHostHomeSelectionIsUnsafe(t *testing.T) {
 	assert.Equal(t, []string{"mcp → project-root", "engine-home → host"},
-		unsafeLabels(launch.Launch{Plan: twoRoutePlan(), HomeMode: launch.HomeModeHost}))
+		unsafeLabels(launch.Launch{Plan: twoRoutePlan(), Cell: launch.Cell{HomeMode: launch.HomeModeHost}}))
 	assert.Equal(t, []string{"engine-home → host"},
-		unsafeLabels(launch.Launch{HomeMode: launch.HomeModeHost}))
+		unsafeLabels(launch.Launch{Cell: launch.Cell{HomeMode: launch.HomeModeHost}}))
 	assert.Empty(t, unsafeLabels(launch.Launch{
-		Plan:     delivery.Plan{Static: []delivery.StaticItem{{Kind: present.Context, Root: present.RootSessionHome}}},
-		HomeMode: launch.HomeModeSession,
+		Plan: delivery.Plan{Static: []delivery.StaticItem{{Kind: present.Context, Root: present.RootSessionHome}}},
+		Cell: launch.Cell{HomeMode: launch.HomeModeSession},
 	}))
 }
 

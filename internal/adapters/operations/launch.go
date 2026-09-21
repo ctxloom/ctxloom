@@ -367,6 +367,7 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	cell := launch.Cell{
 		Workspace: ws.Dir(),
 		Env:       env,
+		HomeMode:  req.HomeMode,
 		Cleanup:   cleanup,
 		Handle:    PreparedCell{Policy: policy, Workspace: ws},
 	}

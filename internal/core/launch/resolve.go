@@ -162,7 +162,6 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 		Permission: perm,
 		Declared:   declared,
 		Axes:       axes,
-		HomeMode:   sel.homeMode,
 		Cell:       cell,
 		Home:       cell.Home,
 		Package:    carrier,

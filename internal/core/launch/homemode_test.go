@@ -54,7 +54,7 @@ func TestResolve_EngineHome_SessionByDefault_HostOnlyBySelection(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 			require.Equal(t, tc.want, env.LastCellRequest().HomeMode, "the cell is asked for the home mode the resolver settled")
-			require.Equal(t, tc.want, l.HomeMode, "the launch carries the settled home mode for whoever renders it")
+			require.Equal(t, tc.want, l.Cell.HomeMode, "the cell carries the home mode it was prepared under, for whoever renders it")
 		})
 	}
 }

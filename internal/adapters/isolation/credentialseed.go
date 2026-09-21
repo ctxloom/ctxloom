@@ -22,14 +22,20 @@ import (
 // logged out — silent unless something places material in the instance. That
 // "something" is this file, reached through CopyAmbient.
 //
-// IT IS A PROJECTION KEPT IN STEP, NOT A ONE-TIME COPY. The placement goes
-// through the material provisioner (Select, provisioner.go): the instance
-// holds the engine's declared projection of the host file (claude withholds
-// the single-use refresh token — a copy that could refresh would revoke the
-// host's login the first time it did), and the delivery re-applies that
-// projection on every host change, so the host's own refreshes reach the
-// instance for as long as the run lives. The instance never refreshes on its
-// own and never writes back.
+// WHO HOLDS WHAT (ruled 2026-09-21). The placement goes through the material
+// provisioner (Select, provisioner.go), and its shape is decided by whether
+// this instance is the ORCHESTRATOR — the root session, no orchestrator
+// named — or an AGENT of one:
+//
+//   - the orchestrator's instance holds the HOST credential whole and
+//     two-way: the engine's own refresh reaches the host file, the host's
+//     reaches the instance — exactly two holders of the refresh token;
+//   - an agent's instance holds the engine's declared PROJECTION of the
+//     ORCHESTRATOR's copy (claude withholds the single-use refresh token —
+//     a copy that could refresh would revoke the host's login the first time
+//     it did), read-only, re-projected on every change of the orchestrator's
+//     copy; the host file is never an agent's source, and an agent never
+//     writes back.
 //
 // WHICH mechanism is not decided here either. The engine DECLARES the
 // deliveries it accepts, best first (hosting.Hosting.Provisioning), Select

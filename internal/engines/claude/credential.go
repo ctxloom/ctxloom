@@ -5,15 +5,15 @@ import (
 	"fmt"
 )
 
-// The credential's projection into a session home.
+// The credential's projection into an AGENT's session home.
 //
 // claude stores its OAuth grant under the `claudeAiOauth` object of
 // .credentials.json (on Linux/Windows the file; on macOS the same JSON as a
 // Keychain item). Two of its fields are the REFRESH half — the single-use,
-// rotating grant — and the seed withholds exactly those, as claude's own
-// session-seeding path does (2.1.278). Every other field crosses: the
-// access token, its expiry, the scopes, the subscription fields claude
-// reads to pick its rate-limit tier.
+// rotating grant — and an agent's copy withholds exactly those, as claude's
+// own session-seeding path does (2.1.278); the orchestrator's copy is whole
+// (see Home). Every other field crosses: the access token, its expiry, the
+// scopes, the subscription fields claude reads to pick its rate-limit tier.
 
 // oauthKey is the object claude keeps its OAuth grant under.
 const oauthKey = "claudeAiOauth"

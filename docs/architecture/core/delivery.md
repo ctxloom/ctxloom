@@ -64,19 +64,28 @@ unsafe selection, named beside the project routes in the plan and the
 banner (`cli.unsafeLabels`) — leaves `SurfaceSelection.keepOrReroot` to
 select the project file there.
 
-The session home's credential is a PROJECTION of the host's, never a copy
-that can refresh: the engine declares which bytes cross
-(`engine.SeedFile.Project`; claude withholds `claudeAiOauth.refreshToken`,
-its own session-seeding precedent) and the replicator re-applies it on
-every host change, one way (`isolation.replicationProvisioner`; a projected
-`Material` is read-only by construction). On macOS the store is the
-Keychain: the seed is the session's own item, derived the way the engine
-derives it (`isolation.keychainService`), polled from the default item,
-deleted by the creating run's teardown and by the reaper for every reaped
-harp (`operations.sessionTriage`), and listed by doctor when neither reached
-it (`operations.doctorCheckKeychainOrphans`). A host with nothing seedable
-is refused (`strictness.ClassIsolation`, FailAlways) naming the engine's env
-tokens and the unsafe `engine_home: host`.
+Who holds the credential is decided by the launch's depth
+(`launch.Resolve`: `sessions.Identity.Depth`). The ORCHESTRATOR — the root
+session, the coordinator's own engine — holds it WHOLE in its session home,
+two-way with the host file through `isolation.replicationProvisioner`, and
+is the only ctxloom-side refresher. Every AGENT (a delegated child, on the
+host or in a container) names its orchestrator (`launch.Source.Orchestrator`,
+stamped from `coord.ownerHarp` on `SpawnStart`) and holds a read-only
+PROJECTION of the orchestrator's copy — never of the host file — with the
+engine's declared bytes withheld (`engine.SeedFile.Project`; claude withholds
+`claudeAiOauth.refreshToken`, its own session-seeding precedent),
+re-projected whenever the orchestrator's copy changes; an agent write
+reaches nothing (a projected `Material` is read-only by construction). A
+container agent mounts that projected file read-only from its session home
+(`isolation.MountEngineHome`, `projectedCredentialMounts`); the real host
+file is never a mount source once the home relocates. On macOS the store is
+the Keychain: the orchestrator's item is two-way with the default item, an
+agent's item projects the orchestrator's (`isolation.keychainService`), and
+items are deleted by the creating run's teardown and by the reaper for every
+reaped harp (`operations.sessionTriage`), listed by doctor when neither
+reached them (`operations.doctorCheckKeychainOrphans`). A host with nothing
+seedable is refused (`strictness.ClassIsolation`, FailAlways) naming the
+engine's env tokens and the unsafe `engine_home: host`.
 
 ## Who delivers, and under which writer
 

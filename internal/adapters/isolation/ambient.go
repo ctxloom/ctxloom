@@ -20,11 +20,12 @@ import (
 // is PLACED INTO an instance config home at instance time.
 //
 // CREDENTIAL material is placed by the provisioner and kept in step with
-// the host file for as long as the run lives: the instance holds the
-// engine's declared projection of the host bytes (claude withholds the
-// single-use refresh token, as its own session seeding does), re-applied on
-// every host change. The direction is host TO instance only — ctxloom never
-// writes the real home, and neither does the instance through this path.
+// its source for as long as the run lives. The ORCHESTRATOR's instance is
+// sourced from the host file, whole and two-way (the engine's refresh is
+// the one write that reaches the real home, and it is the engine's). An
+// AGENT's instance holds the engine's declared projection of the
+// orchestrator's copy (claude withholds the single-use refresh token, as
+// its own session seeding does), re-applied on every change, one way.
 //
 // The set of these per engine is an ALLOW-LIST, never a deny-list — see
 // AmbientSet.

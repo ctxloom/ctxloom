@@ -39,17 +39,16 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 // and the onboarding answers across by name and nothing else (the host's
 // own mcpServers registrations and history never cross).
 //
-// THE SEED IS A PROJECTION, and the projection is claude's own precedent:
-// claude's session-seeding path (the temp config dir it makes for a
-// resumed SDK session, read from the 2.1.278 bundle) copies the credential
-// with claudeAiOauth.refreshToken stripped. The refresh token is
-// SINGLE-USE and rotating — whichever holder refreshes consumes the grant —
-// so a copy that could refresh would revoke the user's own login the
-// first time it did. The instance runs on the access token alone, and the
-// host's refreshes reach it through the one accepted delivery: replication,
-// which re-copies (and re-projects) the host file on every change. A mount
-// is not accepted: it shares by identity and cannot project, so it would
-// hand the instance the very field the seed withholds.
+// WHO REFRESHES (ruled 2026-09-21): the refresh token is SINGLE-USE and
+// rotating — whichever holder refreshes consumes the grant — so exactly one
+// ctxloom-side holder may hold it: the ORCHESTRATOR, the root session,
+// whose copy is whole and kept two-way with the host file by replication.
+// Every AGENT holds this seed's PROJECTION of the orchestrator's copy
+// (projectCredential: claudeAiOauth.refreshToken stripped — claude's own
+// precedent, the temp config dir it makes for a resumed SDK session,
+// 2.1.278), read-only, re-projected whenever the orchestrator's changes.
+// A mount is not accepted: it shares by identity and cannot project, so it
+// would hand an agent the very field the seed withholds.
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},

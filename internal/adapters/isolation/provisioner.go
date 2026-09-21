@@ -15,13 +15,14 @@ import "github.com/ctxloom/ctxloom/internal/core/engine"
 //	mount              shared by IDENTITY      one inode, no window, cannot project
 //	watcher + sync     shared by REPLICATION   eventual, locked, re-projects on change
 //
-// A PROJECTED material (Material.Project) is the credential case: the engine
-// declares which bytes of the host file the instance may hold — claude
-// withholds the single-use refresh token — and the projection is applied on
-// every placement. Only replication can serve it, and it serves it ONE WAY:
-// an instance write through a lossy projection would strip the host's own
-// copy, so a projected material is read-only by construction and an
-// instance change is overwritten with the host's projection.
+// A PROJECTED material (Material.Project) is an AGENT's credential: the
+// engine declares which bytes of the orchestrator's copy the agent may hold
+// — claude withholds the single-use refresh token — and the projection is
+// applied on every placement. Only replication can serve it, and it serves
+// it ONE WAY: an instance write through a lossy projection would strip the
+// source, so a projected material is read-only by construction and an
+// instance change is overwritten with the projection. An UNPROJECTED shared
+// material — the orchestrator's own credential — is two-way.
 //
 // THE ROTATION WINDOW, stated here because it will bite someone. The host
 // refreshes; the old access token is revoked the moment the new one lands;

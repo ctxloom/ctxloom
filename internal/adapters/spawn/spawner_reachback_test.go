@@ -19,9 +19,10 @@ import (
 // no agent_send, no agent_recv and no agent_report: it launches, consumes its
 // budget, and can never answer its parent or be steered. Nothing reported it.
 //
-// The reachable cause is the builtin ctxloom bundle's server being WITHHELD —
-// a profile's `exclude_mcp: [ctxloom]`, or the item rejected. Builtins are
-// injected unconditionally otherwise, so the ordinary child always gets it.
+// The reachable cause is ctxloom's own loadout server being WITHHELD — a
+// profile's `exclude_mcp: [ctxloom]`, or the item rejected. A companion's
+// servers are registered unconditionally otherwise, so the ordinary child
+// always gets it.
 //
 // Asserted on the PAYLOAD — the composed set really has no ctxloom entry — plus
 // the report, because a warning about a set that did contain one would prove
@@ -83,7 +84,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.True(t, hasCtxloom(plan.MCPServers),
-			"the ordinary child gets its reach-back server from the builtin ctxloom bundle")
+			"the ordinary child gets its reach-back server from ctxloom's own loadout")
 		assert.NotContains(t, buf.String(), "agent_send/agent_recv/agent_report",
 			"the ordinary path must not warn")
 	})

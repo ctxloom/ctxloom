@@ -676,10 +676,10 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 	defer companions.AdmitEveryDiscoveredCompanionForTesting()()
 	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(
-		[]byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
+		testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
 	require.NoError(t, err)
 	taskloomEnvelope, err := signing.EncodeLoadoutEnvelope(
-		[]byte("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n"), nil, "")
+		testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  taskloom:\n    content: |\n      taskloom briefing\n"), nil, "")
 	require.NoError(t, err)
 
 	t.Run("companions present → fragments injected", func(t *testing.T) {

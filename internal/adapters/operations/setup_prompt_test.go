@@ -90,8 +90,8 @@ func TestResolveSetupPrompt_CompanionSetupGuidanceAugmentsBuiltin(t *testing.T) 
 func TestResolveSetupPrompt_TwoCompanionsComposeInStableOrder(t *testing.T) {
 	testsupport.Isolate(t)
 	fakeCompanions(t, map[string]string{
-		"ctxloom-companion-zebra": "init:\n  setup_guidance: ZEBRA-SETUP-CONTENT\n",
-		"ctxloom-companion-alpha": "init:\n  setup_guidance: ALPHA-SETUP-CONTENT\n",
+		"taskloom": "init:\n  setup_guidance: ZEBRA-SETUP-CONTENT\n",
+		"ltk":      "init:\n  setup_guidance: ALPHA-SETUP-CONTENT\n",
 	})
 	appDir, _ := regenTestApp(t)
 	cfg := published(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
@@ -103,7 +103,7 @@ func TestResolveSetupPrompt_TwoCompanionsComposeInStableOrder(t *testing.T) {
 	assert.Less(t, strings.Index(got, "BUILTIN"), strings.Index(got, "ALPHA-SETUP-CONTENT"),
 		"the built-in leads every contribution")
 	assert.Less(t, strings.Index(got, "ALPHA-SETUP-CONTENT"), strings.Index(got, "ZEBRA-SETUP-CONTENT"),
-		"ctxloom:companion@…alpha sorts before …zebra")
+		"ctxloom+companion:ltk sorts before ctxloom+companion:taskloom")
 
 	again := ResolveSetupPrompt(cfg, "BUILTIN")
 	assert.Equal(t, got, again, "composition order must be stable across repeated resolutions")

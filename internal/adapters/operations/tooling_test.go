@@ -30,7 +30,7 @@ func TestCollectTooling_CollectsCompanionToolingDeclarations(t *testing.T) {
 
 	got := CollectTooling(cfg, nil)
 	require.Len(t, got, 1, "only the companion declaring tooling is collected")
-	assert.Equal(t, "ctxloom:companion@ltk", got[0].Source, "source is the companion's ref")
+	assert.Equal(t, "ctxloom+companion:ltk", got[0].Source, "source is the companion's canonical ref")
 	assert.Equal(t, "Install golangci-lint v2 and gofumpt.", got[0].Content)
 }
 

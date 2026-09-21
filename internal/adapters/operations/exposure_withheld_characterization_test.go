@@ -30,7 +30,7 @@ import (
 //
 // So this file pins, per trust state, exactly which refs are exposed and which
 // are withheld, at the exposure surfaces (single-item resource fetch, context
-// assembly, the tooling sweep, and the real no-injection production path).
+// assembly, and the real no-injection production path).
 //
 // Every assertion goes through exposureProbe (seeded states) or the
 // realExposure* helpers (production wiring). Those are the ONLY parts of this
@@ -45,7 +45,6 @@ const (
 	charGateApprovedBody = "chargate approved fragment body"
 	charGateRejectedBody = "chargate rejected fragment body"
 	charGatePendingBody  = "chargate pending fragment body"
-	charGateToolingBody  = "chargate tooling command body"
 	charGateRejCmdBody   = "chargate rejected command body"
 )
 
@@ -59,8 +58,7 @@ const (
 	charGateRejectedRef = charGateBundle + "#fragments/rejected"
 	charGatePendingRef  = charGateBundle + "#fragments/pending"
 	// Commands gate under the "prompts" kind segment, never "commands".
-	charGateToolingGateRef = charGateBundle + "#prompts/tooling"
-	charGateRejCmdGateRef  = charGateBundle + "#prompts/rejected"
+	charGateRejCmdGateRef = charGateBundle + "#prompts/rejected"
 )
 
 // charGateSeed builds the fixture bundle, stamped with signer (pass "" for
@@ -88,11 +86,6 @@ func charGateSeed(signer string) map[string]*bundles.Bundle {
 			},
 		},
 		Commands: map[string]bundles.BundleCommand{
-			"tooling": {
-				ItemBody: bundles.ItemBody{
-					Content: charGateToolingBody,
-				},
-			},
 			"rejected": {
 				ItemBody: bundles.ItemBody{
 					Content: charGateRejCmdBody,
@@ -163,12 +156,6 @@ func (p *exposureProbe) assemble(t *testing.T, refs ...string) *AssembleContextR
 	return res
 }
 
-// tooling drives operations.CollectTooling — bundle-supplied text that drives
-// Containerfile edits, so its withholding is load-bearing.
-func (p *exposureProbe) tooling() []ToolingDeclaration {
-	return CollectTooling(p.cfg, p.pipe)
-}
-
 // withheld returns the refs the gate denied, deduplicated and sorted.
 func (p *exposureProbe) withheld() []string { return p.gate.withheldRefs() }
 
@@ -207,12 +194,10 @@ func TestExposureWithheld_Characterization_ReviewStates(t *testing.T) {
 		"exactly the denied refs are tallied, content-free, under their gate refs")
 }
 
-// TestExposureWithheld_Characterization_AssemblyAndTooling pins the same
-// review states at the BULK surfaces: assembled context carries the approved
-// body and neither denied one, and the tooling sweep drops a command it cannot
-// justify. Bundle-authored tooling text edits a Containerfile, so a withheld
-// tooling command that leaked would be a code-execution path.
-func TestExposureWithheld_Characterization_AssemblyAndTooling(t *testing.T) {
+// TestExposureWithheld_Characterization_Assembly pins the same review states
+// at the BULK surface: assembled context carries the approved body and
+// neither denied one.
+func TestExposureWithheld_Characterization_Assembly(t *testing.T) {
 	fx := newTrustFixture(t)
 	fx.approveFragment("chargate", "approved", charGateApprovedBody)
 	fx.rejectFragment("chargate", "rejected", charGateRejectedBody)
@@ -228,10 +213,6 @@ func TestExposureWithheld_Characterization_AssemblyAndTooling(t *testing.T) {
 	assert.Contains(t, res.FragmentsLoaded, canonicalWithheldRef(t, charGateApprovedRef))
 	assert.NotContains(t, res.FragmentsLoaded, canonicalWithheldRef(t, charGateRejectedRef))
 	assert.NotContains(t, res.FragmentsLoaded, canonicalWithheldRef(t, charGatePendingRef))
-
-	assert.Empty(t, p.tooling(), "an unreviewed tooling command must not be collected")
-	assert.Contains(t, p.withheld(), canonicalWithheldRef(t, charGateToolingGateRef),
-		"the withheld tooling command is tallied under its prompts-kind gate ref")
 }
 
 // TestExposureWithheld_Characterization_TrustedSignerExposes pins the signer
@@ -289,11 +270,6 @@ func TestExposureWithheld_Characterization_UnmintableSourceRefuses(t *testing.T)
 					Content: "unaddressable body",
 				},
 			}},
-			Commands: map[string]bundles.BundleCommand{"tooling": {
-				ItemBody: bundles.ItemBody{
-					Content: "unaddressable tooling",
-				},
-			}},
 		},
 	}
 	p := newExposureProbe(t, nil, newTrustFixture(t).records(), seed)
@@ -308,8 +284,6 @@ func TestExposureWithheld_Characterization_UnmintableSourceRefuses(t *testing.T)
 	res := p.assemble(t, unaddressable+"#fragments/frag")
 	assert.NotContains(t, res.Context, "unaddressable body",
 		"an unaddressable ref must not reach assembled context")
-
-	assert.Empty(t, p.tooling(), "an unaddressable tooling command must not be collected")
 
 	assert.Empty(t, p.withheld(),
 		"the gate decides nothing here: the reference was refused before any decision could key on it")
@@ -407,14 +381,12 @@ func TestExposureWithheld_Characterization_StoreErrorWithholdsEverything(t *test
 	assert.NotContains(t, res.Context, charGateApprovedBody)
 	assert.Empty(t, res.FragmentsLoaded, "an unreadable store exposes nothing at all")
 
-	assert.Empty(t, p.tooling())
 	assert.ElementsMatch(t,
 		// The always-on BUILTIN fragment is in this set too: builtin is its own
 		// allow step, and the store fault sits above every allow step.
 		[]string{
 			canonicalWithheldRef(t, "localdev#fragments/keep"),
 			canonicalWithheldRef(t, charGateApprovedRef),
-			canonicalWithheldRef(t, charGateToolingGateRef),
 			builtinIsolationFragmentRef,
 		},
 		p.withheld(),

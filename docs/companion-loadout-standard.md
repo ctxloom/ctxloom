@@ -1,8 +1,7 @@
 # Companion loadout standard
 
-A **companion** is a standalone binary — `taskloom`, `ltk` — that ctxloom discovers on
-PATH and that contributes content, tools and hooks to a session without any ctxloom code
-change. This is the contract between the two: what a companion must emit, how ctxloom
+A **companion** is a standalone binary that ctxloom discovers on PATH and that contributes
+content, tools and hooks to a session without any ctxloom code change. This is the contract between the two: what a companion must emit, how ctxloom
 asks for it, and what each side may assume.
 
 It is a standalone document because the contract is a CROSS-PROCESS one. It was previously
@@ -31,9 +30,35 @@ rebuilds.
 
 ## What the companion emits
 
-A `bundles.Bundle` document: the same shape a remote bundle takes, seeded into the trust
-gate under `ctxloom:companion@<name>`, and taking the same review path when unsigned. It
-carries whatever a bundle carries — fragments, commands, skills, MCP servers, hooks.
+A **loadout document**: one YAML document with two top-level sections, carried in the JSON
+envelope under the contract string `signing.LoadoutContract` (`ctxloom-loadout/2`), and
+parsed by `bundles.ParseLoadout`.
+
+- `run:` — the RUN loadout, consumed every session. It is a `bundles.Bundle` document:
+  the same shape a remote bundle takes, seeded into the trust gate under
+  `ctxloom:companion@<name>`, and taking the same review path when unsigned. It carries
+  whatever a bundle carries — fragments, commands, skills, MCP servers, hooks.
+- `init:` — the INIT loadout, consumed once at setup. Its fields are TYPED
+  (`bundles.InitLoadout`), read by name, and refused at parse when misspelled:
+  `setup_guidance` (text spliced into the `ctxloom init` prompt after the built-in body),
+  `tooling` (the tools the companion's content needs where agents run, for
+  `ctxloom container tooling`), `legacy_context` (where the companion's pre-existing
+  project context lives, for init to ingest), and `questions` (what init should put to the
+  human on the companion's behalf).
+
+Either section may be omitted; a document declaring neither is refused. The two sections
+have different lifecycles and that is why they are separate — but they are ONE document
+under ONE signature, so a companion's setup-time and session-time contributions cannot be
+signed, delivered or reviewed apart from each other.
+
+There are no well-known item names. A command that happens to be called `agent-setup` or
+`tooling` is an ordinary command; the previous convention that read those names silently
+no-op'd on a typo and was never actually used by any companion, and it was deleted rather
+than kept beside the typed fields.
+
+The contract string is an identity, not a constraint: a verifier refuses any contract it
+does not recognise outright, so an older ctxloom refuses `/2` loudly and this one refuses
+`/1` — there is no dual-read.
 
 Each companion OWNS its loadout and embeds it (`go:embed` cannot reach outside the
 embedding file's package, so the file lives beside the binary's own source, with its
@@ -66,8 +91,8 @@ because a probe broke looks identical to a companion that legitimately contribut
 
 A loadout fragment MAY declare a `premise`, and ctxloom honours it exactly as it honours
 one on any other fragment. Nothing about the loadout format, the probe or the envelope
-changes to allow this — a loadout IS a bundle, and `premise` has always been part of a
-bundle fragment.
+changes to allow this — a loadout's RUN section IS a bundle, and `premise` has always been
+part of a bundle fragment.
 
 A fragment WITHOUT a premise is unconditional, which is what makes this additive: every
 loadout that has never heard of premises keeps behaving as it did.

@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // --- DiscoverCompanions: first-party UNION ctxloom-companion-* on PATH -----
@@ -198,8 +199,8 @@ func TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld(t *testing
 
 	// Sign one payload, ship a DIFFERENT one under that signature — the exact
 	// shape a companion release with a stale .sig produces.
-	signed := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: OLD\n")
-	shipped := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: NEW\n")
+	signed := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: OLD\n")
+	shipped := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: NEW\n")
 	sig, err := signing.Sign(signed, sshSigner, signing.NamespacePublish)
 	require.NoError(t, err)
 	envelope, err := signing.EncodeLoadoutEnvelope(shipped, sig, "ltk@example.com")
@@ -243,7 +244,7 @@ func TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld(t *testing.
 	require.NoError(t, err)
 	sshSigner, err := ssh.NewSignerFromSigner(priv)
 	require.NoError(t, err)
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
 	require.NoError(t, err)
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "stranger@example.com")
@@ -279,7 +280,7 @@ func TestProbeCompanionLoadouts_UnsignedLoadoutSeededWithEmptySigner(t *testing.
 	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
 	require.NoError(t, err)
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
@@ -309,7 +310,7 @@ func TestProbeCompanionLoadouts_SignedByTrustedKeySeededWithPrincipal(t *testing
 	sshPub, err := ssh.NewPublicKey(pub)
 	require.NoError(t, err)
 
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
 	require.NoError(t, err)
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "ltk@example.com")
@@ -347,8 +348,8 @@ func TestProbeCompanionLoadouts_AdvisorySignerFieldNeverTrusted(t *testing.T) {
 		PublicKey:  sshPub,
 	})
 
-	bundleYAML := []byte("version: \"1.0.0\"\n")
-	forged := []byte(`{"contract":"ctxloom-loadout/1","bundle":"` + base64.StdEncoding.EncodeToString(bundleYAML) + `","signer":"ltk@example.com"}`)
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\n")
+	forged := []byte(`{"contract":"` + signing.LoadoutContract + `","loadout":"` + base64.StdEncoding.EncodeToString(bundleYAML) + `","signer":"ltk@example.com"}`)
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return forged, nil })
 	defer restoreProbe()
 
@@ -368,7 +369,7 @@ func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
 	defer restoreLook()
-	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	bundleYAML := testsupport.RunLoadout("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
 	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, nil, "")
 	require.NoError(t, err)
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
@@ -451,7 +452,7 @@ commands:
 
 func fakeCompanionEnvelope(t *testing.T, bundleYAML string) func(string) ([]byte, error) {
 	t.Helper()
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(bundleYAML), nil, "")
 	require.NoError(t, err)
 	return func(string) ([]byte, error) { return envelope, nil }
 }

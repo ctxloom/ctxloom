@@ -273,10 +273,11 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 // initPromptCmd's RunE (`ctxloom init prompt`); the `agent setup` spelling
 // that used to share it was deleted with the rest of the deprecated aliases.
 func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
-	// A bundle (or installed companion) can ship its own `agent-setup` command
-	// to AUGMENT the built-in onboarding/composition guidance (data, not
-	// baked into the binary); every match's content adds to the built-in,
-	// never replaces it. discoverySessionPrompt (init.go) is the single
+	// An installed companion can declare typed setup guidance in its loadout
+	// (bundles.InitLoadout.SetupGuidance) to AUGMENT the built-in
+	// onboarding/composition guidance (data, not baked into the binary);
+	// every contribution adds to the built-in, never replaces it.
+	// discoverySessionPrompt (init.go) is the single
 	// resolver every door shares, so this one cannot drift from the body the
 	// discovery session receives; it degrades to the built-in alone for the
 	// nil config GetConfig returns on a load failure.

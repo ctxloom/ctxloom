@@ -663,8 +663,8 @@ context.
 | Executable gate — MCP | bundle MCP servers — including builtin servers | omitted from backend settings |
 | Executable gate — hooks | bundle hooks — including builtin hooks | omitted from backend settings |
 | Executable gate — command export | command slash-commands | not exported |
-| Tooling collection (`CollectTooling`) | `tooling` declarations | withheld from Containerfile proposals |
-| Setup prompt (`ResolveSetupPrompt`) | `agent-setup` command text composed into the `ctxloom init` prompt | withheld from the init prompt; the built-in guidance still composes |
+| Tooling collection (`CollectTooling`) | a companion loadout's typed `init.tooling` declaration | withheld from Containerfile proposals |
+| Setup prompt (`ResolveSetupPrompt`) | a companion loadout's typed `init.setup_guidance`, composed into the `ctxloom init` prompt | withheld from the init prompt; the built-in guidance still composes |
 | Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
 
 There is one choke *above* all of these, and it is not a content decision at

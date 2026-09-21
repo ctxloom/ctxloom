@@ -30,7 +30,7 @@ import (
 // Only the fields this test exercises are modeled.
 type loadoutEnvelope struct {
 	Contract  string `json:"contract"`
-	Bundle    string `json:"bundle"` // base64(std, padded) of the exact bytes
+	Loadout   string `json:"loadout"` // base64(std, padded) of the exact bytes
 	Signature string `json:"signature"`
 	Signer    string `json:"signer"` // advisory only — never trusted (spec §4.3, trap #3)
 }
@@ -71,8 +71,8 @@ func TestTransportAgnostic_SameSignatureVerifiesThroughAllThreeChannels(t *testi
 
 	// --- Channel (b): JSON envelope on "stdout" -------------------------
 	envelope := loadoutEnvelope{
-		Contract:  "ctxloom-loadout/1",
-		Bundle:    base64.StdEncoding.EncodeToString(original),
+		Contract:  LoadoutContract,
+		Loadout:   base64.StdEncoding.EncodeToString(original),
 		Signature: string(armored),
 		Signer:    "releases@ctxloom.dev", // advisory; verification never reads this
 	}
@@ -81,7 +81,7 @@ func TestTransportAgnostic_SameSignatureVerifiesThroughAllThreeChannels(t *testi
 
 	var decodedEnvelope loadoutEnvelope
 	require.NoError(t, json.Unmarshal(envelopeJSON, &decodedEnvelope))
-	fromJSON, err := base64.StdEncoding.DecodeString(decodedEnvelope.Bundle)
+	fromJSON, err := base64.StdEncoding.DecodeString(decodedEnvelope.Loadout)
 	require.NoError(t, err)
 	armoredFromJSON := []byte(decodedEnvelope.Signature)
 

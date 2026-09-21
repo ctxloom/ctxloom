@@ -69,9 +69,9 @@ func TestParseLoadout_InitOnlyHasEmptyRun(t *testing.T) {
 // document, never load clean and contribute nothing.
 func TestParseLoadout_RefusesUnknownKeys(t *testing.T) {
 	for name, doc := range map[string]string{
-		"top-level":      "run:\n  version: 1.0.0\nsetup_guidance: STRAY\n",
-		"inside-init":    "init:\n  setup_guidence: TYPO\n",
-		"inside-run":     "run:\n  version: 1.0.0\n  fragmentz: {}\n",
+		"top-level":       "run:\n  version: 1.0.0\nsetup_guidance: STRAY\n",
+		"inside-init":     "init:\n  setup_guidence: TYPO\n",
+		"inside-run":      "run:\n  version: 1.0.0\n  fragmentz: {}\n",
 		"inside-question": "init:\n  questions:\n    - id: q\n      promt: TYPO\n",
 	} {
 		t.Run(name, func(t *testing.T) {

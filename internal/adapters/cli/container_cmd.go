@@ -226,19 +226,20 @@ func runContainerProvenance(cmd *cobra.Command, args []string) error {
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
 // toolingCmdLong documents `ctxloom container tooling`.
-const toolingCmdLong = `Collect every trusted bundle's 'tooling' command — the tools its
-content needs inside the agent container image — and emit them with
+const toolingCmdLong = `Collect every admitted companion's typed 'tooling' declaration — the
+tools its content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
 ('ctxloom container scaffold'), propose the additions as a diff, get the
 user's explicit approval per change, then rebuild ('ctxloom container build').
 
-Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
+Collection is TRUST-GATED: a rejected companion's declaration is withheld
 like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.`
 
 // runToolingListCmd is containerToolingListCmd's RunE. It emits the
-// agent-image tooling instructions plus every TRUSTED bundle's `tooling`
-// command: the LLM runs this, reads the declarations, and folds them — with
+// agent-image tooling instructions plus every admitted companion's typed
+// tooling declaration (bundles.InitLoadout.Tooling): the LLM runs this, reads
+// the declarations, and folds them — with
 // the user's explicit approval — into the scaffolded base Containerfile.
 // Read-only: collection goes through the trust gate and nothing is written
 // here.
@@ -260,7 +261,7 @@ func runToolingListCmd(cmd *cobra.Command, args []string) error {
 // already types (`ctxloom container tooling`) stops working.
 var containerToolingCmd = groupNodeDefault(&cobra.Command{
 	Use:   "tooling",
-	Short: "Agent-image tooling declarations from trusted bundles",
+	Short: "Agent-image tooling declarations from admitted companions",
 	Long:  toolingCmdLong,
 }, "list")
 
@@ -268,7 +269,7 @@ var containerToolingCmd = groupNodeDefault(&cobra.Command{
 // every trusted bundle's declared agent-image tooling for the LLM to apply.
 var containerToolingListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
+	Short: "Emit admitted companions' agent-image tooling declarations for the LLM to apply",
 	Args:  cobra.NoArgs,
 	RunE:  runToolingListCmd,
 }

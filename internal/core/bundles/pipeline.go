@@ -460,3 +460,47 @@ func (p *Pipeline) ListAllSkills() ([]SkillInfo, error) {
 func (p *Pipeline) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 	return deliverEach(p.loader.ReadBundleSkills(bundleRef), p.deliverSkill)
 }
+
+// AdmittedInit is one companion's INIT loadout as this pipeline delivers it:
+// the companion's ref, and the typed fields the gate admitted — a withheld
+// field is blank, never a stale copy.
+type AdmittedInit struct {
+	// Ref is the companion's bundle ref (ctxloom:companion@<bin>), the source
+	// a consumer attributes each field to.
+	Ref  string
+	Init InitLoadout
+}
+
+// InitLoadouts is the process stage for the INIT half of every companion
+// loadout the catalog read: the typed setup-time fields, ADMITTED through the
+// same gate as every session-time item, in ref order.
+//
+// Setup guidance and tooling text are exposure surfaces — text that reaches
+// an agent with tool access, or steers a Containerfile edit — so they ride
+// the same decision the RUN bundle's items do. The INIT section has no item
+// kind of its own: each field is decided under the companion's BUNDLE ref
+// with the field's own bytes as the payload, which is enough for the cascade
+// that matters here — a human's rejection (by ref or by bytes) beats the
+// companion exemption, and everything else admits as companion content.
+// Companions that declare no INIT section are skipped, not reported.
+func (p *Pipeline) InitLoadouts() []AdmittedInit {
+	var out []AdmittedInit
+	for _, read := range p.loader.Reads() {
+		if read.Provenance != ProvenanceCompanion || read.Init.IsZero() {
+			continue
+		}
+		ref := string(read.Key())
+		init := read.Init
+		if init.SetupGuidance != "" && !p.admit(read, ref, []byte(init.SetupGuidance), FormRaw) {
+			init.SetupGuidance = ""
+		}
+		if init.Tooling != "" && !p.admit(read, ref, []byte(init.Tooling), FormRaw) {
+			init.Tooling = ""
+		}
+		if init.IsZero() {
+			continue
+		}
+		out = append(out, AdmittedInit{Ref: ref, Init: init})
+	}
+	return out
+}

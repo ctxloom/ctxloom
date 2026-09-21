@@ -31,6 +31,10 @@ import (
 // signature covers BYTES, so the fixture has to hand out the same ones it wrote.
 var readerBundleYAML = []byte("version: \"1.0\"\nfragments:\n  keeper:\n    content: KEEPER-PAYLOAD\n")
 
+// readerLoadoutDoc is readerBundleYAML as a companion's loadout DOCUMENT —
+// the same bundle under run:, the shape ParseLoadout reads.
+var readerLoadoutDoc = []byte("run:\n  version: \"1.0\"\n  fragments:\n    keeper:\n      content: KEEPER-PAYLOAD\n")
+
 // readerTreeEnvelope and readerTreeFragments are readerBundleYAML's TREE
 // counterpart: the same bundle — one fragment "keeper" carrying
 // KEEPER-PAYLOAD — expressed the only way a bundle can now be published, with
@@ -185,7 +189,7 @@ func TestNewBuiltinReader_ReportsBuiltinProvenanceLocalAndUnsigned(t *testing.T)
 
 func TestNewCompanionReader_ReportsCompanionProvenanceAndLocalContext(t *testing.T) {
 	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML}),
+		loadoutProbe(CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc}),
 	).Read(context.Background())
 
 	require.NoError(t, err)
@@ -293,13 +297,13 @@ func TestNewRepoFSReader_SignatureFactsAreEstablishedNotAssumed(t *testing.T) {
 // companion's build error; the control that catches a swapped binary is the
 // hash-keyed exec consent, not this.
 func TestNewCompanionReader_InvalidSignatureIsReportedNotWithheld(t *testing.T) {
-	signed := []byte("version: \"1.0\"\nfragments:\n  ltk:\n    content: OLD\n")
-	shipped := []byte("version: \"1.0\"\nfragments:\n  ltk:\n    content: NEW\n")
+	signed := []byte("run:\n  version: \"1.0\"\n  fragments:\n    ltk:\n      content: OLD\n")
+	shipped := []byte("run:\n  version: \"1.0\"\n  fragments:\n    ltk:\n      content: NEW\n")
 	sig, root, _ := signFor(t, signed, "ltk@example.test")
 
 	var warnings bytes.Buffer
 	reads, err := NewCompanionReader(
-		loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: shipped, Signature: sig}),
+		loadoutProbe(CompanionLoadout{Bin: "ltk", Document: shipped, Signature: sig}),
 		WithTrustRoot(root),
 		captureWarnings(&warnings),
 	).Read(context.Background())
@@ -323,8 +327,8 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 	var warnings bytes.Buffer
 	reads, err := NewCompanionReader(
 		loadoutProbe(
-			CompanionLoadout{Bin: "broken", Bundle: []byte(":\n  not a bundle")},
-			CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML},
+			CompanionLoadout{Bin: "broken", Document: []byte(":\n  not a loadout")},
+			CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc},
 		),
 		captureWarnings(&warnings),
 	).Read(context.Background())

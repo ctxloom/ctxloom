@@ -31,8 +31,8 @@ var packageDir, _ = os.Getwd()
 // compiles in or ships alongside its own binaries:
 //   - every embedded builtin bundle (resources/builtin_bundles/*.yaml, via
 //     resources.ListBuiltinBundles/GetBuiltinBundle)
-//   - the two standalone companion loadouts (cmd/taskloom/loadout.yaml,
-//     cmd/ltk/loadout.yaml), which ship the same bundle document shape
+//   - every companion loadout this repo ships (cmd/*/loadout.yaml), whose
+//     RUN section is a bundle document
 //
 // It deliberately does NOT cover, and cannot cover from inside this repo:
 //   - remote-pulled bundle content (ctxloom-default or any other remote a
@@ -58,15 +58,18 @@ func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
 	}
 	var sources []fragmentSource
 
-	collect := func(label string, raw []byte) {
-		bundle, err := bundles.ParseBundle(raw)
-		require.NoError(t, err, "%s: must parse as a bundle document", label)
+	collectBundle := func(label string, bundle *bundles.Bundle) {
 		for name, frag := range bundle.Fragments {
 			sources = append(sources, fragmentSource{
 				label:   label + "#fragments/" + name,
 				content: frag.Content,
 			})
 		}
+	}
+	collect := func(label string, raw []byte) {
+		bundle, err := bundles.ParseBundle(raw)
+		require.NoError(t, err, "%s: must parse as a bundle document", label)
+		collectBundle(label, bundle)
 	}
 
 	builtinNames, err := resources.ListBuiltinBundles()
@@ -78,14 +81,15 @@ func TestShippedFragments_NoUnescapedForeignMustache(t *testing.T) {
 		collect("builtin_bundles/"+name, raw)
 	}
 
-	for _, rel := range []string{
-		filepath.Join("..", "..", "..", "cmd", "taskloom", "loadout.yaml"),
-		filepath.Join("..", "..", "..", "cmd", "ltk", "loadout.yaml"),
-	} {
-		path := filepath.Join(packageDir, rel)
+	loadouts, err := filepath.Glob(filepath.Join(packageDir, "..", "..", "..", "cmd", "*", "loadout.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, loadouts, "no companion loadouts found under cmd/*/ — this guard would silently check nothing")
+	for _, path := range loadouts {
 		raw, err := os.ReadFile(path)
-		require.NoError(t, err, "companion loadout must exist: %s", path)
-		collect(rel, raw)
+		require.NoError(t, err)
+		lo, err := bundles.ParseLoadout(raw)
+		require.NoError(t, err, "%s: must parse as a loadout document", path)
+		collectBundle(filepath.Base(filepath.Dir(path))+"/loadout.yaml", lo.Run)
 	}
 
 	require.NotEmpty(t, sources, "no fragment sources discovered — this guard would silently check nothing")

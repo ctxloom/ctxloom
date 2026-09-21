@@ -12,8 +12,11 @@ import (
 // LoadoutContract is the ONLY companion-loadout envelope contract version
 // this build understands (signature-envelope spec §4.3, §12). A verifier
 // MUST reject any other contract string outright — never best-effort parse
-// an unknown version (spec §12's contract-versioning rule).
-const LoadoutContract = "ctxloom-loadout/1"
+// an unknown version (spec §12's contract-versioning rule). /2 was a CLEAN
+// BREAK from /1: the payload became a two-section loadout document
+// (bundles.ParseLoadout) rather than a bare bundle, so reading a /1 payload
+// under this contract would deliver an empty RUN loadout without a word.
+const LoadoutContract = "ctxloom-loadout/2"
 
 // LoadoutEnvelope is the JSON object a companion binary emits on
 // `<bin> loadout --format json` (spec §4.3). It is the SAME shape recommended
@@ -27,15 +30,16 @@ type LoadoutEnvelope struct {
 	// version is an identity, not a constraint).
 	Contract string `json:"contract"`
 
-	// Bundle is the exact bundle YAML bytes, base64 (standard, padded) ONLY
-	// to survive JSON transport. The SIGNED payload — and the bytes ctxloom
+	// Loadout is the exact loadout DOCUMENT bytes (bundles.ParseLoadout's
+	// input: the run: and init: sections), base64 (standard, padded) ONLY to
+	// survive JSON transport. The SIGNED payload — and the bytes ctxloom
 	// parses — are the DECODED bytes, verbatim (identical in kind to the
 	// publisher-payload rule, spec §3.1): no re-serialization happens
-	// anywhere between decode and use (implementer trap "re-serializing
+	// anywhere between decode and verify (implementer trap "re-serializing
 	// between verify and use").
-	Bundle string `json:"bundle"`
+	Loadout string `json:"loadout"`
 
-	// Signature is an armored PROTOCOL.sshsig blob over the DECODED bundle
+	// Signature is an armored PROTOCOL.sshsig blob over the DECODED loadout
 	// bytes, under namespace NamespacePublish. Empty means unsigned — legal,
 	// ordinary, and takes the review path (spec §10.1). Produced at companion
 	// BUILD time and embedded in the binary; the companion holds no private
@@ -52,22 +56,22 @@ type LoadoutEnvelope struct {
 }
 
 // EncodeLoadoutEnvelope builds the JSON bytes a companion's `loadout
-// --format json` command writes to stdout. armoredSig may be nil/empty to
-// emit unsigned (the common case for a companion with no build-time signing
+// --format json` command writes to stdout over its loadout document bytes.
+// armoredSig may be nil/empty to emit unsigned (the common case for a companion with no build-time signing
 // pipeline yet — this is legal and takes the review path, spec §10.1); when
 // non-empty it is carried alongside signer (advisory only — see
 // LoadoutEnvelope.Signer) so the shape supports a companion attaching a
 // signature produced at build time without any change to this function.
-func EncodeLoadoutEnvelope(bundleBytes []byte, armoredSig []byte, signer string) ([]byte, error) {
-	// An empty bundle attests to nothing (the same principle applies to Sign
+func EncodeLoadoutEnvelope(loadoutBytes []byte, armoredSig []byte, signer string) ([]byte, error) {
+	// An empty loadout attests to nothing (the same principle applies to Sign
 	// itself) — floor it here so every caller of the envelope primitive gets
 	// the protection, not just loadout.Emit's own separate guard.
-	if len(bundleBytes) == 0 {
-		return nil, fmt.Errorf("encode loadout envelope: refusing to encode an empty bundle — a loadout contributing nothing must fail loud, not look like a healthy envelope")
+	if len(loadoutBytes) == 0 {
+		return nil, fmt.Errorf("encode loadout envelope: refusing to encode an empty loadout — a loadout contributing nothing must fail loud, not look like a healthy envelope")
 	}
 	env := LoadoutEnvelope{
 		Contract: LoadoutContract,
-		Bundle:   base64.StdEncoding.EncodeToString(bundleBytes),
+		Loadout:  base64.StdEncoding.EncodeToString(loadoutBytes),
 	}
 	if len(armoredSig) > 0 {
 		env.Signature = string(armoredSig)
@@ -95,14 +99,14 @@ func EncodeLoadoutEnvelope(bundleBytes []byte, armoredSig []byte, signer string)
 //   - (bytes, principal, nil) VERIFIED — a key root trusts for the publish
 //     namespace signed exactly these bytes.
 //   - (nil, "", err)          WITHHELD — the envelope is not valid JSON, the
-//     contract string is unrecognized, "bundle" is not valid base64, or a
+//     contract string is unrecognized, "loadout" is not valid base64, or a
 //     TRUSTED key's signature does not actually cover these bytes (tamper,
 //     spec §10.2). The caller must withhold the loadout entirely — never
 //     degrade a parse/tamper failure to "unsigned, please review" (that would
 //     let corrupting the envelope silently downgrade or forge trust), and
 //     never crash: a hostile or buggy companion binary must not be able to
 //     take ctxloom down by printing garbage.
-func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (bundleBytes []byte, verifiedSigner string, err error) {
+func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (loadoutBytes []byte, verifiedSigner string, err error) {
 	decoded, sig, _, err := ParseLoadoutEnvelope(raw)
 	if err != nil {
 		return nil, "", err
@@ -117,7 +121,7 @@ func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (bun
 }
 
 // ParseLoadoutEnvelope is the STRUCTURAL half of DecodeLoadoutEnvelope: it
-// unwraps the envelope and hands back the bundle bytes, the armored signature
+// unwraps the envelope and hands back the loadout document bytes, the armored signature
 // (empty when unsigned) and the advisory Signer field, WITHOUT verifying
 // anything. The advisory signer is returned for diagnostics only — it is a
 // value the companion wrote about itself and must never be treated as an
@@ -136,9 +140,9 @@ func DecodeLoadoutEnvelope(raw []byte, root trust.TrustRoot, now time.Time) (bun
 //
 // Structural failures are errors for BOTH callers, and stay that way: an
 // envelope that is not valid JSON, carries an unrecognized contract, whose
-// bundle is not valid base64, or that decodes to zero bytes has produced no
+// loadout is not valid base64, or that decodes to zero bytes has produced no
 // content to admit in the first place.
-func ParseLoadoutEnvelope(raw []byte) (bundleBytes, armoredSig []byte, advisorySigner string, err error) {
+func ParseLoadoutEnvelope(raw []byte) (loadoutBytes, armoredSig []byte, advisorySigner string, err error) {
 	var env LoadoutEnvelope
 	if uerr := json.Unmarshal(raw, &env); uerr != nil {
 		return nil, nil, "", fmt.Errorf("parse loadout envelope: %w", uerr)
@@ -146,17 +150,17 @@ func ParseLoadoutEnvelope(raw []byte) (bundleBytes, armoredSig []byte, advisoryS
 	if env.Contract != LoadoutContract {
 		return nil, nil, "", fmt.Errorf("unrecognized loadout contract %q (this build understands %q)", env.Contract, LoadoutContract)
 	}
-	decoded, derr := base64.StdEncoding.DecodeString(env.Bundle)
+	decoded, derr := base64.StdEncoding.DecodeString(env.Loadout)
 	if derr != nil {
-		return nil, nil, "", fmt.Errorf("decode loadout bundle: %w", derr)
+		return nil, nil, "", fmt.Errorf("decode loadout document: %w", derr)
 	}
-	// A well-formed envelope that decodes to ZERO bundle bytes is a
+	// A well-formed envelope that decodes to ZERO loadout bytes is a
 	// malfunctioning (or hostile) companion contributing nothing while still
 	// looking like a successfully-decoded, possibly-verified probe. Withhold
 	// it the same way an unparseable envelope is withheld, rather than handing
 	// the caller (bytes, signer, nil) for an empty payload.
 	if len(decoded) == 0 {
-		return nil, nil, "", fmt.Errorf("loadout envelope decodes to an empty bundle — a companion contributing nothing must fail loud, not decode successfully")
+		return nil, nil, "", fmt.Errorf("loadout envelope decodes to an empty document — a companion contributing nothing must fail loud, not decode successfully")
 	}
 	return decoded, []byte(env.Signature), env.Signer, nil
 }

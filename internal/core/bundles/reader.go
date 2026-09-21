@@ -185,6 +185,13 @@ type BundleRead struct {
 	// Bundle is the parsed content. Never nil in a read a reader emitted.
 	Bundle *Bundle
 
+	// Init is the typed INIT loadout that arrived beside Bundle in the same
+	// signed document — set only by the companion reader, the zero value for
+	// every other source class. It is content, not a trust axis, which is
+	// why it is exported like Bundle: the facts that decide whether it may
+	// be delivered are the read's, established once for both halves.
+	Init InitLoadout
+
 	// Provenance labels the source class. No reader takes it as a constructor
 	// argument: each hard-codes its own, so a caller cannot ask a reader for
 	// builtin-labelled content.
@@ -493,6 +500,17 @@ func (f SignatureFacts) stamp(b *Bundle) {
 	}
 	b.StampSigner("")
 	b.StampUntrustedSignerFingerprint(f.Fingerprint)
+}
+
+// withoutSigner returns the facts with the verified principal withheld while
+// both axes keep their truth: the signature still reads as valid and the key
+// as trusted, but stamp will write no publisher identity onto the bundle.
+// This is the circular-self-signature case (CompanionLoadout.Self): the fact
+// is real and reportable; the identity would be a claim of trust nothing
+// independent established.
+func (f SignatureFacts) withoutSigner() SignatureFacts {
+	f.Principal = ""
+	return f
 }
 
 // ReaderOption configures a reader with something that is NEITHER its

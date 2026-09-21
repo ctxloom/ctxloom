@@ -172,7 +172,18 @@ type Bundle struct {
 	// must not be able to write its own answer here
 	// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
 	untrustedSignerFingerprint string `yaml:"-"`
+
+	// selfLoadout marks the bundle as ctxloom's OWN companion loadout, whose
+	// signature is circular (companionReader.read explains why): it is
+	// verified but never stamped as a signer, and a surface that renders
+	// signing state must say so rather than showing it as unsigned or as
+	// publisher-verified — both would be false.
+	selfLoadout bool `yaml:"-"`
 }
+
+// SelfLoadout reports whether this bundle is ctxloom's own companion loadout,
+// whose signature is verified but circular — see companionReader.read.
+func (b *Bundle) SelfLoadout() bool { return b.selfLoadout }
 
 // Signer returns the bundle's verified publisher identity, or "" when the bundle
 // is unsigned (see the signer field). A non-empty value means: a key trusted by
@@ -1445,22 +1456,7 @@ func ParseBundle(data []byte) (*Bundle, error) {
 		return nil, err
 	}
 
-	// Initialize maps if nil
-	if bundle.Fragments == nil {
-		bundle.Fragments = make(map[string]BundleFragment)
-	}
-	if bundle.Commands == nil {
-		bundle.Commands = make(map[string]BundleCommand)
-	}
-	if bundle.MCP == nil {
-		bundle.MCP = make(map[string]BundleMCP)
-	}
-	if bundle.Profiles == nil {
-		bundle.Profiles = make(map[string]BundleProfile)
-	}
-	if bundle.Skills == nil {
-		bundle.Skills = make(map[string]BundleSkill)
-	}
+	bundle.initMaps()
 
 	// A document that declares NOTHING is a truncated/empty file, not a bundle.
 	// gopkg.in/yaml.v3 returns a nil error for "", whitespace, a comment-only
@@ -1485,6 +1481,34 @@ func ParseBundle(data []byte) (*Bundle, error) {
 	}
 
 	return &bundle, nil
+}
+
+// initMaps replaces every nil content map with an empty one, so a consumer
+// can range and index without a nil check per map.
+func (b *Bundle) initMaps() {
+	if b.Fragments == nil {
+		b.Fragments = make(map[string]BundleFragment)
+	}
+	if b.Commands == nil {
+		b.Commands = make(map[string]BundleCommand)
+	}
+	if b.MCP == nil {
+		b.MCP = make(map[string]BundleMCP)
+	}
+	if b.Profiles == nil {
+		b.Profiles = make(map[string]BundleProfile)
+	}
+	if b.Skills == nil {
+		b.Skills = make(map[string]BundleSkill)
+	}
+}
+
+// emptyBundle is a bundle declaring nothing, with its maps initialized — the
+// RUN loadout of a companion that only speaks at setup.
+func emptyBundle() *Bundle {
+	b := &Bundle{}
+	b.initMaps()
+	return b
 }
 
 // checkMCPTargets enforces wire.MCPServer's one-of-Command|URL rule over every

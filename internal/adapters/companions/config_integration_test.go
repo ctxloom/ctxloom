@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // companionSources is a config.Sources over a fixture Config whose readers
@@ -74,7 +75,7 @@ func fakeCompanion(t *testing.T, bin, loadoutYAML string) {
 		}
 		return "", exec.ErrNotFound
 	}))
-	envelope, err := signing.EncodeLoadoutEnvelope([]byte(loadoutYAML), nil, "")
+	envelope, err := signing.EncodeLoadoutEnvelope(testsupport.RunLoadout(loadoutYAML), nil, "")
 	require.NoError(t, err)
 	t.Cleanup(companions.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil }))
 }

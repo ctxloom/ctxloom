@@ -9,7 +9,7 @@ This page is generated from `ctxloom container tooling list --help`.
 
 ## ctxloom container tooling list
 
-Emit trusted bundles' agent-image tooling declarations for the LLM to apply
+Emit admitted companions' agent-image tooling declarations for the LLM to apply
 
 ```
 ctxloom container tooling list [flags]
@@ -27,5 +27,5 @@ ctxloom container tooling list [flags]
 
 ### SEE ALSO
 
-* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from trusted bundles
+* [ctxloom container tooling](/reference/cli/ctxloom_container_tooling/)	 - Agent-image tooling declarations from admitted companions
 

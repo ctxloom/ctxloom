@@ -18,12 +18,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
-// TestLoadout_YAML_IsAValidBundle proves the embedded loadout.yaml itself
-// parses as a well-formed bundles.Bundle and carries the ltk fragment plus
-// the task-runner command — the two required contents (S8, item 1/4).
-func TestLoadout_YAML_IsAValidBundle(t *testing.T) {
-	b, err := bundles.ParseBundle(loadoutYAML)
-	require.NoError(t, err, "ltk's loadout.yaml must be a well-formed bundle")
+// TestLoadout_YAML_IsAValidLoadout proves the embedded loadout.yaml itself
+// parses as a well-formed loadout document whose RUN bundle carries the ltk
+// fragment plus the task-runner command.
+func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
+	lo, err := bundles.ParseLoadout(loadoutYAML)
+	require.NoError(t, err, "ltk's loadout.yaml must be a well-formed loadout document")
+	assert.True(t, lo.Init.IsZero(), "ltk declares no INIT loadout today; a typed field appearing here is a content change to review")
+	b := lo.Run
 
 	require.Contains(t, b.Fragments, "ltk", "loadout must carry the ltk fragment")
 	assert.NotEmpty(t, b.Fragments["ltk"].Content)
@@ -46,13 +48,13 @@ func TestLoadout_YAMLFormat_EmitsRawBytesVerbatim(t *testing.T) {
 	assert.Equal(t, loadoutYAML, buf.Bytes())
 }
 
-// TestLoadout_JSONFormat_DecodesToIdenticalBundle proves the round trip a
+// TestLoadout_JSONFormat_DecodesToIdenticalDocument proves the round trip a
 // real companion-discovery probe depends on: `ltk loadout --format json`'s
 // stdout, fed through signing.DecodeLoadoutEnvelope, yields byte-identical
-// bundle content and (since this build ships unsigned) an empty verified
+// loadout document and (since this build ships unsigned) an empty verified
 // signer — legal, ordinary, and routes to ctxloom's review path rather than
 // an error.
-func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
+func TestLoadout_JSONFormat_DecodesToIdenticalDocument(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
 
@@ -63,8 +65,9 @@ func TestLoadout_JSONFormat_DecodesToIdenticalBundle(t *testing.T) {
 
 	// The decoded bytes must themselves parse as the same bundle a direct
 	// --format yaml read would produce.
-	b, err := bundles.ParseBundle(decoded)
+	lo, err := bundles.ParseLoadout(decoded)
 	require.NoError(t, err)
+	b := lo.Run
 	assert.Contains(t, b.Commands, "task-runner")
 }
 

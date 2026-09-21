@@ -93,7 +93,7 @@ func TestStartupFindingsReport_WithheldCompanionIsAFinding(t *testing.T) {
 	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{
 			Loadouts: []bundles.CompanionLoadout{
-				{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: []byte("version: \"1.0\"\n")},
+				{Bin: "ltk", Path: "/opt/bin/ltk", Document: []byte("run:\n  version: \"1.0\"\n")},
 			},
 			Candidates: []bundles.CompanionCandidate{
 				{Bin: "taskloom", Path: "/opt/bin/taskloom", Reason: bundles.CandidateUnconsented},
@@ -117,7 +117,7 @@ func TestStartupFindingsReport_CleanCompanionsAreNotAFinding(t *testing.T) {
 	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
 		return bundles.CompanionProbe{
 			Loadouts: []bundles.CompanionLoadout{
-				{Bin: "ltk", Path: "/opt/bin/ltk", Bundle: []byte("version: \"1.0\"\n")},
+				{Bin: "ltk", Path: "/opt/bin/ltk", Document: []byte("run:\n  version: \"1.0\"\n")},
 			},
 		}, nil
 	})

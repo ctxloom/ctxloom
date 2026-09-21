@@ -278,8 +278,8 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // ProbeCompanionLoadouts is the companion reader's EXEC seam: it discovers
 // companions (DiscoverCompanions), ADMITS the ones this machine's human agreed
 // ctxloom may execute (AdmitCompanions), and for each admitted one execs
-// `<bin> loadout --format json` and unwraps the envelope into the loadout's raw
-// bundle bytes and detached signature.
+// `<bin> loadout --format json` and unwraps the envelope into the loadout
+// document's raw bytes and detached signature.
 //
 // It stops at BYTES. Parsing them and establishing what their signature turned
 // out to be belongs to bundles.NewCompanionReader — one place, shared with
@@ -290,7 +290,7 @@ func (p Prober) ReaderSource() func(cfg *config.Config) []bundles.Reader {
 // fails or times out (including a first-party name that does not implement
 // `loadout` yet, e.g. reprise today), or whose loadout ENVELOPE is structurally
 // unusable — unparseable envelope, unrecognized contract, non-base64 or empty
-// bundle — is SKIPPED with a warning: NEVER fatal, NEVER a crash, NEVER a
+// document — is SKIPPED with a warning: NEVER fatal, NEVER a crash, NEVER a
 // stalled startup. Those cases produced no content in the first place, so there
 // is nothing to report.
 //
@@ -353,7 +353,7 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
 				return
 			}
-			bundleBytes, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
+			doc, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
 			if derr != nil {
 				// STRUCTURAL failure — no content was produced at all. Nothing
 				// to hand on, so this half still withholds.
@@ -361,7 +361,7 @@ func (p Prober) ProbeCompanionLoadouts(ctx context.Context, root trust.TrustRoot
 				failed[i] = &bundles.CompanionCandidate{Bin: bin, Path: path, Reason: bundles.CandidateProbeFailed}
 				return
 			}
-			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Bundle: bundleBytes, Signature: sig}
+			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Document: doc, Signature: sig}
 		}(i, adm.Bin, adm.Path)
 	}
 	wg.Wait()

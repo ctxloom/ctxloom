@@ -100,7 +100,7 @@ func TestNewRepoFSReader_UndeclaredNameFallsBackToTheCanonicalRef(t *testing.T) 
 // a companion loadout, whose ctxloom:companion@<bin> ref is likewise the
 // resolution identity and only the fallback for Name.
 func TestNewCompanionReader_DeclaredNameWinsOverTheCompanionRef(t *testing.T) {
-	probe := loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: []byte("version: \"1.0\"\nname: declared\n")})
+	probe := loadoutProbe(CompanionLoadout{Bin: "ltk", Document: []byte("run:\n  version: \"1.0\"\n  name: declared\n")})
 
 	reads, err := NewCompanionReader(probe).Read(context.Background())
 	require.NoError(t, err)
@@ -113,7 +113,7 @@ func TestNewCompanionReader_DeclaredNameWinsOverTheCompanionRef(t *testing.T) {
 // TestNewCompanionReader_UndeclaredNameFallsBackToTheCompanionRef is the other
 // half for companions.
 func TestNewCompanionReader_UndeclaredNameFallsBackToTheCompanionRef(t *testing.T) {
-	probe := loadoutProbe(CompanionLoadout{Bin: "ltk", Bundle: readerBundleYAML})
+	probe := loadoutProbe(CompanionLoadout{Bin: "ltk", Document: readerLoadoutDoc})
 
 	reads, err := NewCompanionReader(probe).Read(context.Background())
 	require.NoError(t, err)

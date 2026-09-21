@@ -694,17 +694,19 @@ channel (§4.5), because it keeps the pair together in one transportable object:
 
 ```json
 {
-  "contract": "ctxloom-loadout/1",
-  "bundle": "<base64(std, padded) of the exact bundle YAML bytes>",
+  "contract": "ctxloom-loadout/2",
+  "loadout": "<base64(std, padded) of the exact loadout document bytes>",
   "signature": "-----BEGIN SSH SIGNATURE-----\n...\n-----END SSH SIGNATURE-----\n",
   "signer": "releases@ctxloom.dev"
 }
 ```
 
-- `bundle` is base64 **only** to survive JSON transport. The signed payload is the
+- `loadout` is base64 **only** to survive JSON transport. The signed payload is the
   **decoded bytes**, verbatim — identical in kind to §3.1. The verifier decodes,
-  verifies the signature over the decoded bytes, and only then parses YAML.
-- `signature` is over the decoded bundle bytes under namespace
+  verifies the signature over the decoded bytes, and only then parses YAML. The
+  decoded document is a loadout document — a `run:` bundle and a typed `init:`
+  section under one signature (`docs/companion-loadout-standard.md`).
+- `signature` is over the decoded loadout bytes under namespace
   `publish.v1.ctxloom.dev`. It is produced at **companion build time** and embedded
   in the companion binary (the companion does not hold a private key at runtime).
 - `signer` is advisory — a hint for error messages. The **key** is resolved from
@@ -2006,7 +2008,7 @@ versioned independently, because they change for independent reasons:
 | Countersignature payload framing | header line `ctxloom-countersign/2` **and** namespace `approve.v1.ctxloom.dev` | all existing approvals invalidate → mass re-review |
 | Countersignature **`ref` serialization** (§3.2.1) | the framing above | a different `ref` string is a different signed payload — signatures will not verify |
 | Exec-item preimage | `"preimage":"ctxloom-exec/2"` **first field** (§3.3.2) | all MCP/hook approvals invalidate |
-| Companion loadout envelope | `"contract":"ctxloom-loadout/1"` | companions must re-emit |
+| Companion loadout envelope | `"contract":"ctxloom-loadout/2"` | companions must re-emit |
 | Sibling path convention | `<bundle>.yaml.sig` | a new path is a new contract |
 
 All six are emitted by the code today. A third party binding to any of them should

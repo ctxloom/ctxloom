@@ -276,6 +276,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Autho
 			PreShell:     keep(bundles.HookEventPreShell, h.Unified.PreShell),
 			PostFileEdit: keep(bundles.HookEventPostFileEdit, h.Unified.PostFileEdit),
 			TurnEnd:      keep(bundles.HookEventTurnEnd, h.Unified.TurnEnd),
+			TurnStart:    keep(bundles.HookEventTurnStart, h.Unified.TurnStart),
 		},
 	}
 	// Engine-native (ext) hooks gate too; keyed on

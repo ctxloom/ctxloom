@@ -133,7 +133,7 @@ type BackendHooks map[string][]Hook
 // The hooks half of this vocabulary owns its merge rule here, alongside the
 // types it merges, for the same reason MergeMCPConfig does. A caller one layer
 // up that re-spells the same appends by hand drifts in one direction only: a
-// eighth unified event reaches Append and is silently dropped by the copy.
+// new unified event reaches Append and is silently dropped by the copy.
 // Callers that need to say something about a nil destination wrap this; the
 // wire package has no diagnostic channel and is not the place to decide that.
 func (h *HooksConfig) Append(other HooksConfig) {

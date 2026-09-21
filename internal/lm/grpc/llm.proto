@@ -573,6 +573,7 @@ message UnifiedHooks {
   repeated Hook pre_shell = 5;
   repeated Hook post_file_edit = 6;
   repeated Hook turn_end = 7;
+  repeated Hook turn_start = 8;
 }
 
 // BackendHooks mirrors wire.BackendHooks (event name -> hooks).

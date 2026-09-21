@@ -235,7 +235,7 @@ func carriesAnyHook(h wire.HooksConfig) bool {
 }
 
 // droppedHookDetail names what a hookless backend loses, in the user's own
-// vocabulary: the seven unified events by their config keys (in HookEvents order,
+// vocabulary: the unified events by their config keys (in HookEvents order,
 // so the line is stable run to run) plus any backend-native passthrough hooks
 // addressed at THIS engine, which are equally undeliverable. "" when the config
 // carries nothing.

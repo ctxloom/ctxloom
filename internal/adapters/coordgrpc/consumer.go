@@ -9,10 +9,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
-// consumerService implements agentcoord.v1.ConsumerService (D1): additive,
-// read-only, no change to CoordinatorService. Both RPCs also work called
-// in-process (no gRPC hop) via the Coordinator methods below — D3's acp
-// session loop, hosting the coordinator library itself, uses that path.
+// consumerService implements agentcoord.v1.ConsumerService: additive,
+// read-only, no change to CoordinatorService. Each RPC projects the
+// coordinator's own in-process form (ListRuns, SpoolStats, WatchRuns).
 type consumerService struct {
 	agentcoordpb.UnimplementedConsumerServiceServer
 	c *coord.Coordinator

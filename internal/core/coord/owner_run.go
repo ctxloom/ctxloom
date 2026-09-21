@@ -138,7 +138,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// run's own credential, where it used to be true (depth was 1 before
 	// this depth parameter existed). That corrects three call sites that
 	// gate on IsChild() — peerSend's childSend/ownerSend split, AgentStop,
-	// and serveListRuns (roster) — each of which was refusing or
+	// and serveRoster — each of which was refusing or
 	// misrouting a call the owned run's OWN engine made about ITSELF
 	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
 	// and roster both explicitly refuse an IsChild() caller).

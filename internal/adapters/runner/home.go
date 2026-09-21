@@ -56,7 +56,7 @@ type Home struct {
 	// redial is closed and replaced by Redial: the kick a loop in its backoff
 	// wakes on (redialWake). Guarded by mu.
 	redial chan struct{}
-	// requests is the one bidiSession scaffold's correlation for the
+	// requests is the one BidiSession scaffold's correlation for the
 	// requests this Home issues over RunChannel (its send queue is unused:
 	// the stream reconnects, so frames are written directly under sendMu).
 	requests coord.BidiSession[*agentcoordpb.AgentFrame, *agentcoordpb.AgentRequest, *agentcoordpb.CoordinatorResponse]

@@ -30,8 +30,8 @@ const (
 	CustomHarnessSession = "ctxloom/harness_session"
 	// CustomTurnStarted / CustomTurnIdle are the engine host's turn-state
 	// transitions: started when engine output begins a turn, idle at its
-	// completion boundary. The coordinator folds them into the §6a roster
-	// state (executing/idle) and the D4 slot accounting.
+	// completion boundary. The coordinator folds them into the roster
+	// state (executing/idle) and the slot accounting.
 	CustomTurnStarted = "ctxloom/turn_started"
 	CustomTurnIdle    = "ctxloom/turn_idle"
 )
@@ -140,8 +140,8 @@ type RunChannel struct {
 	items      []Fact
 
 	// completed closes exactly once, the moment this channel's run_completed
-	// item has been FLUSHED (durably journaled) — D4's terminal-tail drain
-	// race fix waits on it before severing the channel.
+	// item has been FLUSHED (durably journaled) — drainTerminalTail waits on
+	// it before severing the channel.
 	// completedOnce guards the close (HandleEvent runs on this channel's
 	// single recv goroutine, but drainTerminalTail's safety-net timeout path
 	// must never double-close on a concurrent late arrival).
@@ -250,7 +250,7 @@ func (c *Coordinator) HandleEvent(ch *RunChannel, ev Event) {
 			c.captureRunFailure(ch.role, ev)
 			c.bufferItem(ch, ev, kind)
 			if kind == "run_completed" {
-				// D4: bufferItem flushes run_completed
+				// bufferItem flushes run_completed
 				// synchronously (it is not a delta kind) — mark the channel
 				// completed the moment it is DURABLE, so terminateRun's
 				// drain wait (drainTerminalTail) can stop waiting the
@@ -332,7 +332,7 @@ func (c *Coordinator) ReleaseRun(ch *RunChannel) {
 // shutdown indefinitely.
 const terminalDrainWindow = 500 * time.Millisecond
 
-// drainTerminalTail closes the terminal-tail race (D4): the
+// drainTerminalTail closes the terminal-tail race: the
 // runner emits a normal exit's final run_completed item on the RunChannel
 // and reports RunExited on the SEPARATE RunnerChannel back-to-back — two
 // different streams, no ordering guarantee between them. Cancelling the

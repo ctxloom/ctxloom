@@ -24,9 +24,9 @@ import (
 
 // MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
 // (http://<host>:<port>/mcp) for continuity — the runner derives its gRPC
-// dial target from the URL's host:port. The agent-facing HTTP-MCP handlers
-// were DELETED in B1.6 (deliverable 4): the gRPC RunChannel is the only
-// agent ingress now; the h2c listener stays for later frontends/watch APIs.
+// dial target from the URL's host:port. No HTTP-MCP handler is served on it:
+// the gRPC RunChannel is the only agent ingress; the h2c listener carries the
+// gRPC planes alone.
 // Declared in discover, which reads it back out of endpoint.json: advertised
 // path and discovered path are one constant.
 const MCPPath = discover.MCPPath
@@ -53,8 +53,8 @@ type coordServing struct {
 
 // endpointState persists the bound ports so a relaunched coordinator
 // re-binds the SAME endpoint (acceptance (4): adopted container
-// RunnerChannels re-Hello against a stable re-bindable endpoint). D1:
-// ConsumerCred is how an out-of-process viewer (the TUI, D2) discovers the
+// RunnerChannels re-Hello against a stable re-bindable endpoint).
+// ConsumerCred is how an out-of-process viewer (the TUI) discovers the
 // read-only watch credential — 0600, host-local, re-minted every Serve()
 // (consumer.go's consumerCreds is never journaled, so this file IS its only
 // persistence).
@@ -81,8 +81,8 @@ func Serve(c *coord.Coordinator) error {
 	s.grpcSrv = grpcSrv
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// gRPC (RunnerChannel/RunChannel) is plaintext HTTP/2 with the grpc
-		// content-type. Nothing else is served here since the B1.6 surface
-		// shrink — the MCP tool path terminates at each runner's local
+		// content-type. Nothing else is served here — the MCP tool path
+		// terminates at each runner's local
 		// socket; per-request credential auth lives in the gRPC
 		// interceptors.
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
@@ -104,13 +104,14 @@ func Serve(c *coord.Coordinator) error {
 	// The recorded wide port is what ensureWide prefers, so a container runner
 	// that redials after a restart lands on the address it was handed.
 	s.widePort = ep.WidePort
-	// D1: mint the consumer-class watch credential fresh for this process
+	// Mint the consumer-class watch credential fresh for this process
 	// and persist it into endpoint.json ALONGSIDE the ports it's saved
 	// with — the file is a viewer's one discovery point for both. Minted
 	// BEFORE anything is bound so that every step which can fail runs while
 	// there is nothing to unwind: a Serve that returns an error must leave no
-	// listener and no serving goroutine behind, and c.srv is only assigned at
-	// the end, so anything left bound here would never be closed.
+	// listener and no serving goroutine behind, and the transport is only
+	// bound (BindTransport) at the end, so anything left bound here would
+	// never be closed.
 	if _, err := c.MintConsumerCredential(); err != nil {
 		return fmt.Errorf("coord: mint consumer credential: %w", err)
 	}

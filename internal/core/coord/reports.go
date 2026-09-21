@@ -218,7 +218,7 @@ func (f *reportsFold) nextRevision(harp, artifactID, sha string) (uint32, bool) 
 // fact).
 //
 // A JOURNAL FAILURE LOSES THE REPORT. The runner's Ack advances on the event
-// regardless (handleAgentEvent raises ch.ackSeq before dispatching here, and
+// regardless (HandleEvent raises ch.ackSeq before dispatching here, and
 // the flush that follows acks through it), so the runner will not re-emit it and
 // nothing else re-sends it — there is no retry buffer on this path, unlike the
 // item path's flushItems, which restores its facts and holds the watermark

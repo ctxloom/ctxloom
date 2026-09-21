@@ -91,9 +91,9 @@ func SenderMailKinds() []string { return append([]string(nil), senderMailKinds..
 func ReservedMailKinds() []string { return append([]string(nil), reservedMailKinds...) }
 
 // ErrSenderMailKind rejects a sender-supplied mail kind outside the
-// sender-allowed vocabulary — including an absent one. Typed so the plane-2
-// ingress answers INVALID_ARGUMENT (statusFromErr) rather than an opaque
-// internal error.
+// sender-allowed vocabulary — including an absent one. Typed so the wire
+// adapter answers INVALID_ARGUMENT (coordgrpc.StatusFromErr) rather than an
+// opaque internal error.
 var ErrSenderMailKind = errors.New("agent_send: unusable message kind")
 
 // SenderMailKind validates one sender-supplied mail kind. `kind` is REQUIRED:

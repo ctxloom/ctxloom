@@ -178,7 +178,7 @@ type childRt struct {
 	// would otherwise learn only "exited (runner-exit)" with no cause — the
 	// exact silent dead-end the 49-minute incident was. terminateRun folds
 	// this into the parent's terminal notice so a dead engine can say WHY.
-	// Captured on the RunChannel receive path (handleAgentEvent), read once
+	// Captured on the RunChannel receive path (HandleEvent), read once
 	// at terminal.
 	runFailure string
 	// stderrTail reads the runner's bounded stderr tail (the container's

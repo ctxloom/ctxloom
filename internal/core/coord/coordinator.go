@@ -28,12 +28,12 @@ import (
 var ErrNotInjectable = errors.New("inject: target is not a child this coordinator holds or can resume")
 
 // ErrDraining is returned by every admission site (AgentRun, StartOwnedRun,
-// coordService.RunnerChannel's Hello for a runner with nothing already in
-// flight, Serve) once BeginDrain has been called: the coordinator refuses
-// new work, though already-admitted runs continue to completion. Mapped to
-// codes.Unavailable wherever a site answers over gRPC (statusFromErr,
-// runchannel.go) — the refusal is recoverable (retry against a coordinator
-// that isn't draining), never a permanent failure.
+// RunnerHello for a runner with nothing already in flight, BindTransport)
+// once BeginDrain has been called: the coordinator refuses new work, though
+// already-admitted runs continue to completion. The wire adapter maps it to
+// codes.Unavailable (coordgrpc.StatusFromErr) — the refusal is recoverable
+// (retry against a coordinator that isn't draining), never a permanent
+// failure.
 var ErrDraining = errors.New("coordinator is draining: refusing new work (already-admitted runs continue to completion)")
 
 // ErrClosed refuses a Serve that lands after Close has begun: the listeners
@@ -761,8 +761,8 @@ func (c *Coordinator) adopt() {
 // lists it so the park cannot be forgotten.
 //
 // This is deliberately an APPLICATION-layer drain, not a transport-level
-// one: coordServing.close's doc explains why grpc-go's GracefulStop cannot
-// be used on this server — its only transport (h2c via ServeHTTP) wraps
+// one: the wire adapter's Transport.Close explains why grpc-go's
+// GracefulStop cannot be used on this server — its only transport (h2c via ServeHTTP) wraps
 // every connection in a serverHandlerTransport whose Drain() is an
 // unconditional panic, and RunChannel/RunnerChannel are perpetual streams
 // a transport-level drain would never resolve against even without that

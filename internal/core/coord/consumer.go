@@ -12,7 +12,7 @@ import (
 // (consumerCreds) and the live event fan-out (watchHub); the wire surface
 // (ConsumerService) is the adapter's, projecting WatchRuns/ListRuns/SpoolStats.
 
-// consumerCreds mints and verifies the D1 read-only credential class: a
+// consumerCreds mints and verifies the read-only consumer credential class: a
 // SINGLE token per coordinator process lifetime (not per-watcher — every
 // consumer of one coordinator shares it, discovered via endpoint.json,
 // 0600, host-local). Deliberately NOT journaled: a viewer's ability to
@@ -73,15 +73,11 @@ func (cc *consumerCreds) verify(presented string) bool {
 // silently shorted.
 const watchRingSize = 256
 
-// watchHub is the D1 live consumer broadcast: every AgentEvent
-// handleAgentEvent processes on ANY live RunChannel is teed here for
-// ConsumerService.WatchRuns subscribers, full payload (including delta
-// text) — the durable journal stays counts-only for deltas (items.go); this
-// is a separate, additive read path, never the source of truth. Because it
-// covers the RunChannel uniformly (StartRun-migrated children included),
-// wiring it into handleAgentEvent is also the Recon #1 fix: a migrated
-// child's live activity becomes observable again, independent of the
-// legacy agentbus TapHub this hub does not replace until D2.
+// watchHub is the live consumer broadcast: every Event HandleEvent
+// processes on ANY live RunChannel is teed here for WatchRuns subscribers,
+// full payload (including delta text) — the durable journal stays
+// counts-only for deltas (items.go); this is a separate, additive read
+// path, never the source of truth.
 type watchHub struct {
 	rep  report.Reporter
 	mu   sync.Mutex
@@ -93,8 +89,8 @@ func newWatchHub(rep report.Reporter) *watchHub {
 }
 
 // watchSub is one WatchRuns call's subscription. runIDs nil/empty means
-// "every run visible to this credential" (D1 does not yet scope visibility
-// below the whole project — a consumer credential sees the whole
+// "every run visible to this credential" (visibility is not scoped below
+// the whole project — a consumer credential sees the whole
 // coordinator, matching its loopback-only, host-local trust boundary).
 //
 // lost is non-nil while this subscriber is LAGGED: events were not queued
@@ -160,7 +156,7 @@ func isEvictable(ev Event) bool {
 // this function, and both are load-bearing:
 //
 //  1. NEVER block the caller. This runs synchronously inside
-//     handleAgentEvent, on the goroutine that services a live RunChannel's
+//     HandleEvent, on the goroutine that services a live RunChannel's
 //     recv loop (runchannel.go) — stalling here stalls that runner's
 //     liveness. A full subscriber ring therefore loses ev for that
 //     subscriber only — but NEVER silently: the loss is recorded on the
@@ -332,9 +328,8 @@ func requeue(ch chan Event, evs []Event) {
 }
 
 // listRunsSnapshot is the roster projection shared by every caller of the
-// roster (the plane-2 agent_run ListRuns handler, runchannel.go, and D1's
-// ConsumerService ListRuns/WatchRuns snapshot below) — single state, N
-// transports.
+// roster (the plane-2 roster request, serveRoster, and the consumer plane's
+// ListRuns/WatchRuns snapshot below) — single state, N transports.
 func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) RunsSnapshot {
 	result := RunsSnapshot{}
 	c.runs.View(func() {
@@ -402,7 +397,7 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot RunsSnapshot, events 
 // ListRuns is the in-process form of ConsumerService.ListRuns.
 //
 // test-only: no production caller — production reaches
-// listRunsSnapshot directly (consumerService.ListRuns, serveListRuns). This
+// listRunsSnapshot directly (the roster verb; the wire's ConsumerService). This
 // was deleted once in this wave and reverted: repointing its in-package test
 // call sites at listRunsSnapshot compiled fine, but
 // internal/adapters/mcp/mcp_tools_agents_test.go (a different package) also calls it

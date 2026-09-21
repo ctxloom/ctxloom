@@ -24,18 +24,16 @@ import (
 // This file is the per-harp observation-feed resolver (agent-io plan §3): ONE
 // feed per harp, one vocabulary (WatchEvent/SessionEntry), two sources behind
 // it. The LIVE TAP — a coordinator currently holding the child's run, reached
-// over its D1 ConsumerService (internal/adapters/coordgrpc/discover finds candidate
-// coordinators; this package cannot import internal/core/coord
-// directly — that package imports operations, so the reverse import would
-// cycle) — is preferred; the STORE TAIL (the S0 locators: WatchSession by
-// bound session id, WatchHistoryByPath by located transcript) is the
-// workhorse fallback. Consumers never know which source fed them.
+// over its ConsumerService (internal/adapters/coordgrpc/discover finds
+// candidate coordinators) — is preferred; the STORE TAIL (the S0 locators:
+// WatchSession by bound session id, WatchHistoryByPath by located transcript)
+// is the workhorse fallback. Consumers never know which source fed them.
 //
-// D2 note: this package cannot import internal/core/coord (the cycle
-// above), so it cannot construct coord.Identity or read coord's exported
-// vocabulary directly — it speaks the wire contract (internal/adapters/coordgrpc/pb,
-// the generated proto package, which has no such cycle) over a bare gRPC
-// client instead.
+// The coordinator the tap reaches lives in ANOTHER process, so this file is a
+// wire client of it by construction: it dials agentcoordpb.ConsumerService
+// over a bare gRPC client and reads the proto's vocabulary as delivered —
+// coordgrpc.Serve's server side and core/coord's domain types are the other
+// process's, not this one's.
 
 // FeedSource selects how WatchSessionFeed sources a harp's feed.
 type FeedSource string
@@ -126,7 +124,7 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 		}
 		// Auto mode used to discard lerr entirely here — a
 		// coordinator that is up but rejecting the bearer credential (a real
-		// D1 auth problem) was indistinguishable from one that simply isn't
+		// auth problem) was indistinguishable from one that simply isn't
 		// holding the harp. Warn before falling back so the failure has SOME
 		// visible signal; the fallback itself is still the right behavior.
 		clidiag.Warn("ctxloom", "watch %s: live tap unavailable, using store tail: %v", req.Harp, lerr)
@@ -170,9 +168,10 @@ func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (
 // ends).
 const consumerDialTimeout = 5 * time.Second
 
-// bearerToken is a grpc.PerRPCCredentials carrying a D1 consumer credential
-// (mirrors coord/runnerlink.go's bearerCreds — that package cannot be
-// imported here, see the file header).
+// bearerToken is a grpc.PerRPCCredentials carrying a consumer credential
+// (the runner's link carries its runner credential the same way — see
+// runner's bearerCreds; this tap is a client of another process, see the
+// file header).
 type bearerToken string
 
 func (b bearerToken) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
@@ -238,7 +237,7 @@ func watchConsumerFeed(ctx context.Context, ep discover.Endpoint, entry *session
 		_ = conn.Close()
 		return nil, fmt.Errorf("watch: open WatchRuns at %s: %w", ep.URL, err)
 	}
-	// The first frame is always a RosterSnapshot (D1 contract) — this call
+	// The first frame is always a RosterSnapshot (the ConsumerService contract) — this call
 	// already has a fresher one from ListRuns above; discard it.
 	if _, err := stream.Recv(); err != nil {
 		_ = conn.Close()
@@ -287,15 +286,15 @@ func entryTypeFromRoute(role agentcoordpb.MessageRole, channel agentcoordpb.Mess
 	}
 }
 
-// customEventTurnIdle mirrors coord.CustomTurnIdle (internal/adapters/coordgrpc/pb/
-// coord/runchannel.go) — a literal string duplicate, documented on both
-// sides, because this package cannot import coord (see the file header).
+// customEventTurnIdle mirrors coord.CustomTurnIdle — a literal string
+// duplicate, documented on both sides: the marker is the wire's, and this tap
+// reads the wire as another process delivered it (see the file header).
 const customEventTurnIdle = "ctxloom/turn_idle"
 
 // adaptConsumerFeed normalizes a live ConsumerService.WatchRuns stream onto
-// the WatchEvent vocabulary, stitching scrollback from the store first (see
-// adaptLiveFeed's retired doc comment for the rationale — unchanged by D2).
-// The D1 watchHub broadcast this stream rides (consumer.go) is a
+// the WatchEvent vocabulary, stitching scrollback from the store first so a
+// consumer joining mid-run sees what preceded its subscription.
+// The coord watchHub broadcast this stream rides (coord/consumer.go) is a
 // non-blocking send on a bounded per-subscriber ring: a stalled subscriber
 // loses events at the HUB. agentcoordpb.SeqWatch accounts for that loss from
 // both signals the wire carries (the hub's EventsLost marker and a jump in

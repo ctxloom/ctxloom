@@ -113,7 +113,7 @@ func (c *Coordinator) flushItems(ch *RunChannel) {
 			// buffer, no journal, nowhere) AND let a LATER successful flush
 			// falsely certify durability for them: that flush's own
 			// `target := ch.ackSeq` keeps climbing independent of journal
-			// success (handleAgentEvent advances it on every event), so
+			// success (HandleEvent advances it on every event), so
 			// without restoring these facts, flushedSeq/ackThrough would
 			// jump straight past the seqs this failed write never wrote.
 			c.mu.Lock()

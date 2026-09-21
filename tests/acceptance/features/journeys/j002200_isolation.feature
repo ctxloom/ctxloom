@@ -392,14 +392,17 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | claude-code |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
-  # above, claude-code only. ADJUSTED, ruled 2026-09-21: engine_home session
-  # by default; the seed carries no refresh token. The seed is claude's own
-  # precedent: the engine reads its access token out of the controlled home
-  # and authenticates, but the single-use ROTATING refresh token is withheld
-  # — a copy that refreshes consumes the host's grant and revokes the
-  # human's own login (three children died 401 on 2026-09-20/21 while the
-  # host token rotated). Alice's own `~/.claude/.credentials.json` is READ,
-  # never rewritten, and still carries its refresh token in full.
+  # above, claude-code only. ADJUSTED, ruled 2026-09-21: the orchestrator is
+  # the single refresher; agents hold read-only projections of its
+  # credential. A `ctxloom run` is the ROOT session — the orchestrator — so
+  # its session home holds the WHOLE credential, refresh token included,
+  # kept two-way with Alice's own `~/.claude/.credentials.json` by the
+  # replicator: its refresh lands on the host, the host's lands on it,
+  # between exactly those two holders. Only its AGENTS (delegated children,
+  # which no scenario here spawns against a real engine) hold projections
+  # with the refresh token withheld — pinned in the isolation package
+  # (TestCopyAmbient_AnAgentsSeedIsAProjectionOfTheOrchestrators). Alice's
+  # own file is READ by the seed, never rewritten by ctxloom itself.
   #
   # The instance-side assertions are read from INSIDE the running engine: the
   # spy dumps what it was handed while it runs. The instance itself is an
@@ -409,12 +412,12 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # end: a reap bounded so the just-ended session counts as aged takes the
   # instance, credential copy and all, and this is the only place outside Go
   # tests that proves the reaper reaches it.
-  Scenario: An in-tree AGENT run's instance credential authenticates without the refresh token, and the host's own copy is untouched
+  Scenario: An in-tree run's instance credential is whole — the root is the orchestrator — and the host's own copy is untouched
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the isolated "claude-code" credential carries the access token and no refresh token
+    Then the isolated "claude-code" credential is whole and can renew
     And the host "claude-code" credential file was never modified
     And the copied "claude-code" credential was owner-only inside the run
     And the "claude-code" config-home instance is reaped once the session has aged out
@@ -524,19 +527,18 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
   # every commit; the probe is slow, costs a real paid call, and is the one
   # that catches a vendor-side regression a spy can never see.
-  # claude's seed withholds the refresh token (ADJUSTED, ruled 2026-09-21:
-  # engine_home session by default; the seed carries no refresh token): the
-  # SAME resolver and the SAME CopyAmbient seed as the in-tree cell — the
-  # home is orthogonal to the worktree — so the isolated copy authenticates
-  # but cannot rotate the host's single-use refresh token, and the host's
-  # own file keeps its refresh token in full.
-  Scenario: A worktree claude run's isolated config-home credential authenticates without the refresh token, and never touches the host's own copy
+  # ADJUSTED, ruled 2026-09-21: the orchestrator is the single refresher;
+  # agents hold read-only projections of its credential. This run is the
+  # root, so its copy is WHOLE: the SAME resolver and the SAME CopyAmbient
+  # seed as the in-tree cell — the home is orthogonal to the worktree — and
+  # the host's own file is never rewritten by ctxloom itself.
+  Scenario: A worktree claude run's isolated config-home credential is whole — the root is the orchestrator — and never touches the host's own copy
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
-    And the isolated "claude-code" credential carries the access token and no refresh token
+    And the isolated "claude-code" credential is whole and can renew
     And the host "claude-code" credential file was never modified
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own

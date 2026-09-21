@@ -1252,7 +1252,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the isolated "([^"]*)" credential carries the access token and no refresh token$`, func(c context.Context, engine string) error {
+	ctx.Step(`^the isolated "([^"]*)" credential is whole and can renew$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		body, err := isoReadSpyOut(j)
@@ -1264,18 +1264,19 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		got := isoParseSpySection(body, marker)
-		// The credential is a PROJECTION (ruled 2026-09-21, claude's own
-		// seeding precedent): the access half crosses, the single-use
-		// refresh token is withheld, so the session can never consume the
-		// host's grant and revoke Alice's login; the host's rotations reach
-		// the instance through the replicator instead.
+		// A `ctxloom run` is the ROOT — the orchestrator, the single
+		// ctxloom-side refresher (ruled 2026-09-21) — so its copy is WHOLE,
+		// refresh token included, two-way with the host file through the
+		// replicator. Its agents' projections (refresh token withheld) are
+		// pinned in the isolation package; no scenario here spawns a claude
+		// child against a real engine.
 		if !strings.Contains(got, isoFixtureAccessMarker) {
 			return fmt.Errorf("isolated %s credential lost its access token; it must still authenticate. spy read:\n%s", engine, got)
 		}
-		if strings.Contains(got, isoFixtureRefreshMarker) {
-			return fmt.Errorf("isolated %s credential carries the host's refresh token; a copy that can refresh revokes the host's login. spy read:\n%s", engine, got)
+		if !strings.Contains(got, isoFixtureRefreshMarker) {
+			return fmt.Errorf("isolated %s credential is MISSING its refresh token; the root is the orchestrator and holds the whole credential. spy read:\n%s", engine, got)
 		}
-		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — access token present, refresh token withheld:\n%s", engine, marker, got)
+		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — whole, refresh token intact:\n%s", engine, marker, got)
 		return nil
 	})
 

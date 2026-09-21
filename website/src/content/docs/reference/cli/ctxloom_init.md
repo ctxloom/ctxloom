@@ -31,6 +31,11 @@ this the project reads as initialized while composing less context than its
 configuration says. --no-pull suppresses it; a pull that cannot reach its remote
 never rolls the init back — it warns and leaves a usable project.
 
+init writes no engine file into the project. The setup interview below, like
+every 'ctxloom run', is a session that carries ctxloom's hooks and MCP server
+in its own session home; an engine launched directly in the project tree
+gets neither.
+
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine
   2. Optionally adding a personal ctxloom repository as a remote

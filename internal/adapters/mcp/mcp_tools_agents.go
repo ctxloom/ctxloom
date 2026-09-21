@@ -47,12 +47,14 @@ type agentDelegation struct {
 // (children run in forward mode and never reach this constructor).
 //
 // THE HARP IS NOT OPTIONAL, and an absent one used to be accepted silently.
-// `ctxloom run` exports CTXLOOM_SESSION_HARP into the engine's env, so an
-// engine it launched spawns this server WITH a harp. But that is only one of
-// the two shipping ways to reach here: `manage install` registers this server
-// in .mcp.json as a bare `ctxloom mcp` with NO env at all
-// (agent.WriteMCPConfig's generated entry), so a plain engine session — the
-// most common installation — starts a coordinator whose Harp is "".
+// `ctxloom run` is the only shipping way an engine sees ctxloom: it exports
+// CTXLOOM_SESSION_HARP into the engine's env and registers this server in
+// the session's own home, so an engine it launched spawns this server WITH
+// a harp. `manage install` and `init` write no project-side entry. A bare
+// `ctxloom mcp` entry with NO env still reaches here from a project where
+// an earlier ctxloom's install, or an explicit `manage hooks install`, left
+// one in .mcp.json — an engine launched directly there starts a coordinator
+// whose Harp is "".
 //
 // An empty owner harp does not fail; it silently breaks every child->parent
 // delivery, because the harp IS the coordinator's inbox address (the name of

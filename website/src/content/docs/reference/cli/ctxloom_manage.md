@@ -16,19 +16,21 @@ Install and manage ctxloom's project harness
 Install, inspect, and remove ctxloom's integration with a project.
 
 Everything that writes to the project harness lives here: the .ctxloom
-directory, backend hooks and statusline, MCP server registration, generated
-command files, .gitignore, and configuration.
+directory, .gitignore, configuration, and — only when asked for explicitly —
+backend hooks, statusline, MCP server registration and generated command
+files in the project tree.
 
-  ctxloom manage install      Scaffold and wire ctxloom into this project
-  ctxloom manage uninstall    Remove ctxloom's hooks, MCP entry, and commands
+  ctxloom manage install      Scaffold .ctxloom and git-ignore its private state
+  ctxloom manage uninstall    Remove hooks, MCP entry, and commands an earlier install wrote
   ctxloom manage check        Show what ctxloom has wired in
-  ctxloom manage hooks        Install/uninstall/inspect backend hooks
+  ctxloom manage hooks        Install/uninstall/inspect backend hooks in the project
   ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
 
-MCP registration lives at the top-level 'ctxloom mcp register'/'unregister';
-configuration lives at the top-level 'ctxloom config'; the duplicate
-'manage init' setup entry point was removed, root 'ctxloom init' is the sole
-bootstrap.
+A 'ctxloom run' session delivers hooks, the MCP entry and the statusline
+into its own session home; nothing here is needed for that. An engine
+launched directly in the project tree gets no ctxloom hooks and no ctxloom
+MCP server. Configuration lives at the top-level 'ctxloom config'; root
+'ctxloom init' is the sole bootstrap.
 
 ```
 ctxloom manage [flags]
@@ -51,7 +53,7 @@ ctxloom manage [flags]
 * [ctxloom manage commit](/reference/cli/ctxloom_manage_commit/)	 - Trust or untrust ctxloom to auto-commit a dirty tree on your behalf
 * [ctxloom manage gitignore](/reference/cli/ctxloom_manage_gitignore/)	 - Maintain ctxloom's .gitignore entries
 * [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Install, uninstall, or inspect ctxloom backend hooks
-* [ctxloom manage install](/reference/cli/ctxloom_manage_install/)	 - Scaffold .ctxloom and wire hooks, MCP, gitignore, and config
+* [ctxloom manage install](/reference/cli/ctxloom_manage_install/)	 - Scaffold .ctxloom and git-ignore its private state
 * [ctxloom manage statusline](/reference/cli/ctxloom_manage_statusline/)	 - Enable or disable ctxloom's HUD statusline
 * [ctxloom manage uninstall](/reference/cli/ctxloom_manage_uninstall/)	 - Remove ctxloom's hooks, statusline, MCP entry, and command files
 

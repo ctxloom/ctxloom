@@ -14,8 +14,10 @@ Remove ctxloom's hooks, statusline, MCP entry, and command files
 ### Synopsis
 
 Strip ctxloom-managed hooks, statusline, MCP servers, and generated command
-files from every supported backend. Leaves the .ctxloom directory and its
-contents (profiles, bundles, config) untouched.
+files from every supported backend — what an earlier ctxloom's install, or an
+explicit 'manage hooks install', wrote into the project. A project that only
+ever saw the current install has nothing to strip. Leaves the .ctxloom
+directory and its contents (profiles, bundles, config) untouched.
 
 ```
 ctxloom manage uninstall [flags]

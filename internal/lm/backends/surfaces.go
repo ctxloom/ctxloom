@@ -92,7 +92,7 @@ func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss 
 // LaunchOnlySurfaces is UncarriedSurfaces' sibling for the STATIC path: the
 // parts of a run's assembled loadout the named backend delivers ONLY at launch,
 // into a per-session engine home, and which a HARPLESS caller (`ctxloom profile
-// materialize`, `ctxloom manage install`, a hooks apply outside a run)
+// materialize`, `ctxloom manage hooks install`, a hooks apply outside a run)
 // therefore cannot write anywhere (hosting.Hosting.LaunchOnlySettingsReason —
 // the launch-delivered mock double declares it).
 //

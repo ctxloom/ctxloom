@@ -614,13 +614,17 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # it. Asserted on the files the install wrote, each one absent after the
     # run — a run that delivered into the project would put them back.
     #
-    # @wip, measured: the uninstall half holds (every file is gone before the
-    # run), and a DELEGATED run holds (runner.Execute delivers under the
-    # session writer — its identical-file-set probe). The HOST `ctxloom run`
-    # still rides the plugin run-start into the legacy mock backend's Setup,
-    # which writes MOCK_CONTEXT.md into the project on every run; that arm
-    # moves onto the runner tail in slice 13 (30-decided-architecture.md
-    # Part 4.1). UNTAG WHEN: the host arm delivers through delivery.Static.
+    # @wip, measured 2026-09-21: the uninstall half holds (every file is gone
+    # before the run), and a DELEGATED run holds (runner.Execute delivers
+    # under the session writer — its identical-file-set probe). The HOST
+    # `ctxloom run` still rides the plugin run-start (grpc.SetupFromRunStart)
+    # into agent.LaunchBackend.Setup, whose shared-cell arm
+    # (ResolvedSelection.deliverOneShared) writes a file-route engine's
+    # context — the mock's MOCK_CONTEXT.md — into the project on every run.
+    # That is the engines' delivery arm, not install's. UNTAG WHEN: the host
+    # arm delivers through delivery.Static under the session writer.
+    # (ruled 2026-09-21: sessions carry their surfaces — the project-side
+    # files this scenario removes are the explicit hooks install's)
     @wip
     Scenario: After an uninstall, a run delivers into its session and the project stays clean
       Given an initialized ctxloom project
@@ -631,6 +635,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       When Alice wires the mock in, takes it back out, and runs:
         """
         ctxloom manage install --engine mock
+        ctxloom manage hooks install
         ctxloom manage uninstall
         ctxloom run --one-shot --profile dev unicorn-prompt
         """

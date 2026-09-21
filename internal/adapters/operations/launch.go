@@ -144,8 +144,36 @@ func OpenLaunch(ctx context.Context, deps launch.Deps, l launch.Launch) (Opened,
 	agent.PreferSurfaces(report.To(deps.Reporter), managed, string(l.Engine), pkg.Selection.Preference, ResolveAgentSurfaces)
 	// The plan decides the roots; the plugin arm's name-keyed selection is
 	// its projection, so a binding's roots: reaches the host arm too.
-	agent.PreferPlanRoots(managed, l.Plan)
+	PreferPlanRoots(managed, l.Plan)
 	return Opened{Package: pkg, Loadout: l.Loadout(pkg), Managed: managed}, nil
+}
+
+// PreferPlanRoots projects the launch's plan onto the plugin arm's
+// name-keyed selection, so the binding's `roots:` governs the host arm as
+// it governs the runner: a kind the plan roots under the PROJECT root (the
+// shared root, selected on the binding and never fallen back to — the
+// unsafe door) is delivered by the engine's project form,
+// agent.ApproachUnsafeFile, unless the binding already named an approach
+// for that kind. A kind the plan roots under the session home is left to
+// the engine's declared default, which is its session form. It lives here
+// rather than in core/agent because it reads the plan, and the lean
+// binaries that link core/agent never link the package model behind it.
+func PreferPlanRoots(managed *agent.ManagedConfig, plan delivery.Plan) {
+	if managed == nil {
+		return
+	}
+	for _, it := range plan.Static {
+		if it.Root != present.RootProjectRoot && it.Root != present.RootWorkDir {
+			continue
+		}
+		if _, named := managed.Surfaces[it.Kind]; named {
+			continue
+		}
+		if managed.Surfaces == nil {
+			managed.Surfaces = map[agent.SurfaceKind]string{}
+		}
+		managed.Surfaces[it.Kind] = agent.ApproachUnsafeFile
+	}
 }
 
 // ForSession roots the claim check at the minted session: the package store

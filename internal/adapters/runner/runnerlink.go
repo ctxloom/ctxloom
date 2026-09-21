@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 
@@ -291,7 +292,7 @@ func (l *RunnerLink) serveRequest(req *agentcoordpb.RunnerRequest) {
 		resp = l.handler(req)
 	}
 	if resp == nil {
-		resp = &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.Unimplemented, "runner has no handler for this request")}
+		resp = &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unimplemented, "runner has no handler for this request")}
 	}
 	resp.RequestId = req.GetRequestId()
 	if err := l.send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Response{Response: resp}}); err != nil {

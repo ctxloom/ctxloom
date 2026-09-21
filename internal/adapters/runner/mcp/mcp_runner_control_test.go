@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
@@ -93,7 +94,7 @@ func TestRunnerServer_ControlToolsReachTheCoordinatorVerb(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	token, err := c.RegisterSessionOwner("owner-harp")
 	require.NoError(t, err)
 	home, err := runner.NewHome(context.Background(), runner.HomeConfig{

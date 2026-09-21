@@ -6,9 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // The coordinator IS the verb set: a transport that holds a Verbs holds the
@@ -75,49 +72,4 @@ func TestVerbs_SendRefusesTheBodyCapByName(t *testing.T) {
 	err := SendRequest{To: "child-1", Kind: KindMessage, Body: strings.Repeat("x", MaxSendBodyBytes+1)}.Validate()
 	require.ErrorIs(t, err, ErrBodyTooLarge)
 	assert.Contains(t, err.Error(), "MaxSendBodyBytes")
-}
-
-// TestSendRequestFromWire_KindIngress pins the wire-side ingress of the
-// closed kind vocabulary at the decode: an enum NUMBER this build does not
-// declare is refused by number (proto3 enums are open — 99 survives
-// Unmarshal as itself), the unset kind reaches Validate as "required", a
-// coordinator-reserved kind is refused as reserved, and every sender-allowed
-// kind passes.
-func TestSendRequestFromWire_KindIngress(t *testing.T) {
-	var unknown agentcoordpb.PeerSendRequest
-	require.NoError(t, proto.Unmarshal([]byte{7 << 3, 99}, &unknown), "field 7 (kind), varint 99")
-	require.EqualValues(t, 99, unknown.GetKind(), "proto3 keeps the unrecognised number")
-	_, err := SendRequestFromWire(&unknown)
-	require.ErrorIs(t, err, ErrInvalidRequest)
-	assert.Contains(t, err.Error(), "99", "the refusal names the offending value")
-
-	sr, err := SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x"})
-	require.NoError(t, err)
-	assert.ErrorContains(t, sr.Validate(), "kind is required")
-
-	for _, k := range []agentcoordpb.MessageKind{
-		agentcoordpb.MessageKind_MESSAGE_KIND_APPROVAL_REQUEST,
-		agentcoordpb.MessageKind_MESSAGE_KIND_USER_INJECTED,
-		agentcoordpb.MessageKind_MESSAGE_KIND_USER_CONTROL,
-		agentcoordpb.MessageKind_MESSAGE_KIND_EXITED,
-		agentcoordpb.MessageKind_MESSAGE_KIND_STEER,
-	} {
-		sr, err := SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x", Kind: k})
-		require.NoError(t, err)
-		err = sr.Validate()
-		require.ErrorIs(t, err, ErrInvalidRequest, "%v", k)
-		assert.Contains(t, err.Error(), "reserved", "%v", k)
-	}
-	for _, k := range []agentcoordpb.MessageKind{
-		agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
-		agentcoordpb.MessageKind_MESSAGE_KIND_RESULT,
-		agentcoordpb.MessageKind_MESSAGE_KIND_ERROR,
-		agentcoordpb.MessageKind_MESSAGE_KIND_QUESTION,
-	} {
-		sr, err := SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", Text: "x", Kind: k})
-		require.NoError(t, err)
-		assert.NoError(t, sr.Validate(), "%v", k)
-	}
-	_, err = SendRequestFromWire(&agentcoordpb.PeerSendRequest{ToAgentId: "child-1", ToRole: ParentAddress, Text: "x"})
-	assert.ErrorContains(t, err, "exactly one of")
 }

@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // RunChannel is the run-level stream: opened by the runner for each run it
@@ -42,7 +43,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	if err != nil {
 		cancel()
 		reason := fmt.Sprintf("run %q was not issued to this credential", hello.RunID)
-		if !errors.Is(err, ErrRunNotIssued) {
+		if !errors.Is(err, coord.ErrRunNotIssued) {
 			reason = err.Error()
 		}
 		_ = stream.Send(&agentcoordpb.CoordinatorFrame{Kind: &agentcoordpb.CoordinatorFrame_HelloAck{
@@ -72,7 +73,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	// context, not c.baseCtx, so only the server actually cutting the
 	// transport unblocks a still-live channel — see Coordinator.Close's doc).
 	c.Track(func() {
-		ch.Pump(streamCtx, func(f OutFrame) error {
+		ch.Pump(streamCtx, func(f coord.OutFrame) error {
 			frame := OutFrameToWire(f)
 			if frame == nil {
 				return nil
@@ -103,7 +104,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 
 // handleAgentFrame decodes one inbound frame and hands it to the
 // coordinator.
-func handleAgentFrame(c *Coordinator, ch *RunChannel, frame *agentcoordpb.AgentFrame) {
+func handleAgentFrame(c *coord.Coordinator, ch *coord.RunChannel, frame *agentcoordpb.AgentFrame) {
 	switch kind := frame.GetKind().(type) {
 	case *agentcoordpb.AgentFrame_Event:
 		c.HandleEvent(ch, EventFromWire(kind.Event))
@@ -132,8 +133,8 @@ func handleAgentFrame(c *Coordinator, ch *RunChannel, frame *agentcoordpb.AgentF
 // a request: an unsupported kind keeps its sentinel (UNIMPLEMENTED), every
 // other decode failure is the caller's argument (INVALID_ARGUMENT).
 func decodeRefusal(err error) error {
-	if errors.Is(err, ErrUnsupportedRequest) || errors.Is(err, ErrPeerSendIsLocal) {
+	if errors.Is(err, coord.ErrUnsupportedRequest) || errors.Is(err, coord.ErrPeerSendIsLocal) {
 		return err
 	}
-	return refusal(ErrInvalidRequest, "%s", err.Error())
+	return coord.Refusal(coord.ErrInvalidRequest, "%s", err.Error())
 }

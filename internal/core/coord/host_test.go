@@ -57,7 +57,7 @@ func newTestCoordinatorWithHost(t *testing.T, sp Spawner, host HostApp) *Coordin
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	return c
 }
@@ -131,6 +131,6 @@ func TestHost_AnOversizedAnswerIsRefusedUnderTheFrameCap(t *testing.T) {
 		return HostResult{Body: json.RawMessage(`{"blob":"` + string(big) + `"}`)}, nil
 	}}
 	c := newTestCoordinatorWithHost(t, newFakeSpawner(nil, nil), app)
-	resp := serveWire(c, ownerIdentity(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "list_sessions"}}})
-	assert.EqualValues(t, codes.ResourceExhausted, resp.GetStatus().GetCode())
+	reply := c.serveAgentRequest(ownerIdentity(), AgentRequest{Kind: HostRequest{Tool: "list_sessions"}})
+	assert.ErrorIs(t, reply.Err, ErrHostAnswerTooLarge)
 }

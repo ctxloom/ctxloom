@@ -66,7 +66,8 @@ func (c *Coordinator) takeTransport() Transport {
 	return t
 }
 
-func (c *Coordinator) boundTransport() Transport {
+// Transport is the bound wire, nil until the adapter serves.
+func (c *Coordinator) Transport() Transport {
 	c.transportMu.Lock()
 	defer c.transportMu.Unlock()
 	return c.transport
@@ -75,7 +76,7 @@ func (c *Coordinator) boundTransport() Transport {
 // LoopbackURL is the coordinator URL for host-side callers (the parent
 // harness's runner, host children's runners). Empty until served.
 func (c *Coordinator) LoopbackURL() string {
-	t := c.boundTransport()
+	t := c.Transport()
 	if t == nil {
 		return ""
 	}
@@ -85,7 +86,7 @@ func (c *Coordinator) LoopbackURL() string {
 // ReachURL resolves the URL a caller on runtimeAxis dials — the spawn path
 // uses it for the runner's env trio.
 func (c *Coordinator) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) {
-	t := c.boundTransport()
+	t := c.Transport()
 	if t == nil {
 		return "", ErrNotServing
 	}

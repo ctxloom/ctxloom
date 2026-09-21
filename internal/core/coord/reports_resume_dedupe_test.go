@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // The report dedupe key was (harp, seq), but seq is a PER-RUN
@@ -38,19 +36,19 @@ func TestReportDedupe_SurvivesResume(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 	// Run 1 files its report at the fresh runner's seq 1.
-	c.recordSummary(out.Harp, "run-1", 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, "run-1", 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "first run's finding",
-	}))
+	})
 	if !assert.Contains(t, c.LatestReport(out.Harp), "first run's finding", "precondition: run 1's report must land") {
 		return
 	}
 
 	// The resume: a NEW runner process, so its Home.seq restarts at 1.
-	c.recordSummary(out.Harp, "run-2", 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, "run-2", 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "second run's finding",
-	}))
+	})
 
 	assert.Contains(t, c.LatestReport(out.Harp), "second run's finding",
 		"the resumed run's report was silently discarded: the dedupe watermark is keyed by harp, "+
@@ -71,15 +69,15 @@ func TestReportDedupe_StillDropsRedeliveryWithinARun(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, "run-1", 2, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, "run-1", 2, Summary{
+		Scope: ScopeProgress,
 		Text:  "the real report",
-	}))
+	})
 	// The same run redelivers an EARLIER seq after a reconnect.
-	c.recordSummary(out.Harp, "run-1", 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, "run-1", 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "a stale redelivery",
-	}))
+	})
 
 	assert.Contains(t, c.LatestReport(out.Harp), "the real report",
 		"an at-least-once redelivery below the same run's watermark overwrote the latest report")
@@ -102,14 +100,14 @@ func TestReportDedupe_IsPerHarp(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return rosterState(c, b.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(a.Harp, "shared-run", 5, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(a.Harp, "shared-run", 5, Summary{
+		Scope: ScopeProgress,
 		Text:  "from a",
-	}))
-	c.recordSummary(b.Harp, "shared-run", 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	})
+	c.recordSummary(b.Harp, "shared-run", 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "from b",
-	}))
+	})
 
 	assert.Contains(t, c.LatestReport(b.Harp), "from b",
 		"one harp's report suppressed another's: the watermark must be keyed by (harp, run_id), not run_id alone")

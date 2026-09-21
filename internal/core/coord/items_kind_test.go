@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // TestItemKind_CoversEveryPayloadCase pins the whole classification: which
@@ -20,29 +18,29 @@ import (
 func TestItemKind_CoversEveryPayloadCase(t *testing.T) {
 	cases := []struct {
 		want string
-		ev   *agentcoordpb.AgentEvent
+		ev   Event
 	}{
-		{"run_started", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunStarted{RunStarted: &agentcoordpb.RunStarted{}}}},
-		{"step_started", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_StepStarted{StepStarted: &agentcoordpb.StepStarted{}}}},
-		{"step_completed", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_StepCompleted{StepCompleted: &agentcoordpb.StepCompleted{}}}},
-		{"status_changed", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_StatusChanged{StatusChanged: &agentcoordpb.StatusChanged{}}}},
-		{"run_completed", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{}}}},
-		{"message_started", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageStarted{MessageStarted: &agentcoordpb.MessageStarted{}}}},
-		{"message_delta", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageDelta{MessageDelta: &agentcoordpb.MessageDelta{}}}},
-		{"message_completed", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_MessageCompleted{MessageCompleted: &agentcoordpb.MessageCompleted{}}}},
-		{"tool_call_started", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallStarted{ToolCallStarted: &agentcoordpb.ToolCallStarted{}}}},
-		{"tool_call_args_delta", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallArgsDelta{ToolCallArgsDelta: &agentcoordpb.ToolCallArgsDelta{}}}},
-		{"tool_call_completed", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ToolCallCompleted{ToolCallCompleted: &agentcoordpb.ToolCallCompleted{}}}},
-		{"interaction", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Interaction{Interaction: &agentcoordpb.InteractionRecorded{}}}},
-		{"raw", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Raw{Raw: &agentcoordpb.RawEvent{}}}},
-		{"", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Custom{Custom: &agentcoordpb.CustomEvent{}}}},
-		{"", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_Summary{Summary: &agentcoordpb.Summary{}}}},
-		{"", &agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_ArtifactProduced{ArtifactProduced: &agentcoordpb.ArtifactProduced{}}}},
-		{"", &agentcoordpb.AgentEvent{}},
-		{"", nil},
+		{"run_started", Event{Payload: RunStarted{}}},
+		{"step_started", Event{Payload: StepStarted{}}},
+		{"step_completed", Event{Payload: StepCompleted{}}},
+		{"status_changed", Event{Payload: StatusChanged{}}},
+		{"run_completed", Event{Payload: RunCompleted{}}},
+		{"message_started", Event{Payload: MessageStarted{}}},
+		{"message_delta", Event{Payload: MessageDelta{}}},
+		{"message_completed", Event{Payload: MessageCompleted{}}},
+		{"tool_call_started", Event{Payload: ToolCallStarted{}}},
+		{"tool_call_args_delta", Event{Payload: ToolCallArgsDelta{}}},
+		{"tool_call_completed", Event{Payload: ToolCallCompleted{}}},
+		{"interaction", Event{Payload: InteractionRecorded{}}},
+		{"raw", Event{Payload: RawEvent{}}},
+		{"", Event{Payload: CustomEvent{}}},
+		{"", Event{Payload: Summary{}}},
+		{"", Event{Payload: ArtifactProduced{}}},
+		{"", Event{Payload: EventsLost{}}},
+		{"", Event{}},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, itemKind(EventFromWire(tc.ev)), "payload %T", tc.ev.GetPayload())
+		assert.Equal(t, tc.want, itemKind(tc.ev), "payload %T", tc.ev.Payload)
 	}
 }
 

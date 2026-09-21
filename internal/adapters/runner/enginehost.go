@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -256,7 +257,7 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 	select {
 	case <-eh.homeReady:
 	case <-time.After(homeBindTimeout):
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.FailedPrecondition, "runner engine host is not bound to its coordinator link yet")}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, "runner engine host is not bound to its coordinator link yet")}
 	}
 	switch kind := req.GetKind().(type) {
 	case *agentcoordpb.RunnerRequest_StartRun:
@@ -279,11 +280,11 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 			cancel()
 		}
 		if _, isKill := kind.(*agentcoordpb.RunnerRequest_KillRun); isKill {
-			return &agentcoordpb.RunnerResponse{Status: coord.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_KillRun{KillRun: &agentcoordpb.KillRunResult{}}}
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_KillRun{KillRun: &agentcoordpb.KillRunResult{}}}
 		}
-		return &agentcoordpb.RunnerResponse{Status: coord.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}}}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}}}
 	default:
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.Unimplemented, "request kind not offered by this runner")}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unimplemented, "request kind not offered by this runner")}
 	}
 }
 
@@ -301,16 +302,16 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 			return cached
 		}
 		eh.mu.Unlock()
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.ResourceExhausted, fmt.Sprintf("runner already hosts run %s (max_concurrent_runs=1)", eh.runID))}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.ResourceExhausted, fmt.Sprintf("runner already hosts run %s (max_concurrent_runs=1)", eh.runID))}
 	}
 	if sr.GetRunId() != eh.runID {
 		eh.mu.Unlock()
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.PermissionDenied, fmt.Sprintf("this runner was spawned for run %s, not %s (A9 correlation)", eh.runID, sr.GetRunId()))}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.PermissionDenied, fmt.Sprintf("this runner was spawned for run %s, not %s (A9 correlation)", eh.runID, sr.GetRunId()))}
 	}
 	runner := eh.runner
 	eh.mu.Unlock()
 	if runner == nil {
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, ErrNoRunner.Error())}
 	}
 	if err := runner.Execute(eh.baseCtx, sr.GetLaunch()); err != nil {
 		// The ONE refusal the coordinator answers with a rebind rides a code
@@ -318,15 +319,15 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		// process took the port between two incarnations). Everything else
 		// is the launch's own fault.
 		if errors.Is(err, delivery.ErrEndpointUnavailable) {
-			return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.Unavailable, err.Error())}
+			return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, err.Error())}
 		}
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.InvalidArgument, err.Error())}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.InvalidArgument, err.Error())}
 	}
 	eh.mu.Lock()
 	result := eh.result
 	eh.mu.Unlock()
 	if result == nil {
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.Internal, "the runner executed the launch but drove no engine")}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Internal, "the runner executed the launch but drove no engine")}
 	}
 	return result
 }
@@ -354,7 +355,7 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 	eh.nativeKey = t.Chat.ResumeSessionID
 	home := eh.home
 	result := &agentcoordpb.RunnerResponse{
-		Status: coord.OKStatus(""),
+		Status: coordgrpc.OKStatus(""),
 		Kind: &agentcoordpb.RunnerResponse_StartRun{StartRun: &agentcoordpb.StartRunResult{
 			// The runner process is the engine chain's root (killing it kills
 			// the harness); the harness-native session id rides the

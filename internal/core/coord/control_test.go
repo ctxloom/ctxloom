@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -104,11 +103,10 @@ func TestControlSteer_RefusesUnrecognisedInitiator(t *testing.T) {
 // callers at once — a wire caller reading a gRPC code, and an in-process caller
 // routing on the cause. Matching on the code alone cannot distinguish a
 // capability gap from the other FAILED_PRECONDITIONs, and matching on prose is
-// not a contract. The code is the wire adapter's (StatusFromErr); the cause
-// is the error's own.
-func TestCapUnavailable_IsBothAStatusAndACause(t *testing.T) {
+// not a contract. The code is the wire adapter's (coordgrpc.StatusFromErr,
+// pinned by its own table); the cause is the error's own.
+func TestCapUnavailable_IsACause(t *testing.T) {
 	err := capUnavailable("run %q does not offer %q", "child-a", "pause")
-	assert.EqualValues(t, codes.FailedPrecondition, StatusFromErr(err).GetCode())
 	assert.True(t, errors.Is(err, ErrCapabilityUnavailable))
 	assert.False(t, errors.Is(err, ErrRecvTimeout))
 	assert.Contains(t, err.Error(), "pause")

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
@@ -10,7 +11,7 @@ import (
 // same terms as the coordinator's: a down or absent stream drops it and
 // returns nil; only an unusable ref is an error.
 func (h *Home) RingSpool(ref spool.Ref) error {
-	msg, err := coord.SpoolChangedProto(ref)
+	msg, err := coordgrpc.SpoolChangedProto(ref)
 	if err != nil {
 		return err
 	}
@@ -41,7 +42,7 @@ func (h *Home) SetSpoolDoorbellHandler(fn coord.SpoolDoorbellHandler) {
 // one peer, and the harp a coordinator names is the harp whose spool it wrote
 // into. Validation is identical, and just as unconditional.
 func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
-	ref, err := coord.SpoolRefFromProto(msg)
+	ref, err := coordgrpc.SpoolRefFromProto(msg)
 	if err != nil {
 		h.rep.Warnf("runner: refusing an invalid spool doorbell from the coordinator: %v", err)
 		h.spoolDoorbell.Rejected.Add(1)

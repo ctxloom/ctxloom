@@ -11,8 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // D4 CHECKPOINT compaction — replay equivalence including the snapshot fold
@@ -131,11 +129,11 @@ func TestWriteItemsSnapshot_RoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, "run-1", 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope:            agentcoordpb.Summary_SCOPE_CHECKPOINT,
+	c.recordSummary(out.Harp, "run-1", 1, Summary{
+		Scope:            ScopeCheckpoint,
 		Text:             "checkpoint",
 		CoversThroughSeq: 1,
-	}))
+	})
 
 	snap, ok := loadItemsSnapshot(termRep(), c.stateDir)
 	require.True(t, ok, "a SCOPE_CHECKPOINT report must produce a loadable snapshot file")

@@ -186,6 +186,32 @@ var ErrNotAChild = errors.New("agent_stop: the run is not a child of this sessio
 // coordinating session may list its children.
 var ErrRosterIsTheOwners = errors.New("roster: only the coordinating session may list its children")
 
+// ErrUnsupportedRequest refuses a plane-2 request kind this coordinator does
+// not serve over the wire.
+var ErrUnsupportedRequest = errors.New("request kind not offered in this window")
+
+// ErrPeerSendIsLocal refuses agent_send over the wire: it is a local spool
+// write at the runner and never reaches the coordinator as a request.
+var ErrPeerSendIsLocal = errors.New("agent_send is a local spool write at the runner and is never served here; a runner that sent it over the wire is older than this coordinator")
+
+// ControlToolName is the wire tool a Control verb answers as; the reply's
+// disposition is worded by it.
+func ControlToolName(verb string) string {
+	switch verb {
+	case ControlVerbSteer:
+		return "agent_steer"
+	case ControlVerbQuestion:
+		return "agent_ask"
+	case ControlVerbSummarize:
+		return "agent_summarize"
+	case ControlVerbPause:
+		return "agent_pause"
+	case ControlVerbResume:
+		return "agent_resume"
+	}
+	return "control_run"
+}
+
 // AgentReply answers one AgentRequest. Err is the verb's refusal (nil on
 // success); Message is the disposition an accepted request reports beside
 // its result.
@@ -262,6 +288,16 @@ const (
 	InitiatorAgent       ControlInitiatorKind = "CONTROL_INITIATOR_KIND_AGENT"
 )
 
+// ControlInitiatorKinds is every member, in wire order.
+var ControlInitiatorKinds = []ControlInitiatorKind{InitiatorUnspecified, InitiatorHuman, InitiatorAgent}
+
+// ParseControlInitiatorKind resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseControlInitiatorKind(name string) (ControlInitiatorKind, bool) {
+	return parseMember(ControlInitiatorKinds, InitiatorUnspecified, name)
+}
+
 // ApprovalKind classifies a pending approval.
 type ApprovalKind string
 
@@ -274,3 +310,13 @@ const (
 	ApprovalArtifactReview       ApprovalKind = "APPROVAL_KIND_ARTIFACT_REVIEW"
 	ApprovalCustom               ApprovalKind = "APPROVAL_KIND_CUSTOM"
 )
+
+// ApprovalKinds is every member, in wire order.
+var ApprovalKinds = []ApprovalKind{ApprovalUnspecified, ApprovalCommandExecution, ApprovalFileChange, ApprovalToolUse, ApprovalPermissionEscalation, ApprovalArtifactReview, ApprovalCustom}
+
+// ParseApprovalKind resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseApprovalKind(name string) (ApprovalKind, bool) {
+	return parseMember(ApprovalKinds, ApprovalUnspecified, name)
+}

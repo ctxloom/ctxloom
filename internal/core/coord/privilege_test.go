@@ -204,7 +204,7 @@ func TestEnqueueRun_JournalCarriesNamesOnly_NeverCommandOrArgs(t *testing.T) {
 	teeHome(t)
 	c, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

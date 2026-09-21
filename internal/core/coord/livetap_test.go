@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli/tui"
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
@@ -302,7 +303,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 	sp := &liveTapSpawner{projectDir: projectDir, chat: chat}
 	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "livetap-proj", Spawner: sp, OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve(), "Serve must write endpoint.json where discover.List() looks")
+	require.NoError(t, coordgrpc.Serve(c), "Serve must write endpoint.json where discover.List() looks")
 	t.Cleanup(c.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())

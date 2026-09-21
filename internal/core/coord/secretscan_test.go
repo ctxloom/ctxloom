@@ -25,7 +25,7 @@ func TestSecretScan_TokenNeverOnDisk(t *testing.T) {
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	ownerToken, err := c.RegisterSessionOwner(ownerIdentity().Harp)

@@ -21,6 +21,7 @@ import (
 // through coord.SetRunnerHooks before any test runs.
 func init() {
 	coord.SetRunnerHooks(coord.TestRunnerHooks{
+		Serve: coordgrpc.Serve,
 		NewHome: func(ctx context.Context, cfg coord.TestHomeConfig) (coord.TestHome, error) {
 			h, err := runner.NewHome(ctx, runner.HomeConfig{
 				URL:                cfg.URL,

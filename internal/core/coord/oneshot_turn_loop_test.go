@@ -206,7 +206,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 		OwnerHarp:    ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

@@ -84,7 +84,7 @@ var ErrCapabilityUnavailable = errors.New("the target run does not advertise a c
 // advertisement as its whole message (so the wire adapter's status carries it
 // verbatim under FAILED_PRECONDITION — StatusFromErr's table).
 func capUnavailable(format string, a ...any) error {
-	return refusal(ErrCapabilityUnavailable, format, a...)
+	return Refusal(ErrCapabilityUnavailable, format, a...)
 }
 
 // ErrControlRefused marks every ownership refusal a control verb makes: the

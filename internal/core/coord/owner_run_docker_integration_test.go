@@ -16,7 +16,7 @@
 //
 //	just test-docker-integration
 //	GOWORK=off just test-pkg ./internal/core/coord/... -tags docker_integration -run CoordOwnerRun
-package coord
+package coord_test
 
 import (
 	"context"
@@ -27,9 +27,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -107,7 +110,7 @@ func (s *dockerOwnerRunStarter) containerNames() []string {
 //     carries the turn payload (the session-state-mount / silent-no-op guard).
 func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned top-level container integration test")
-	resetStrictness(t)
+	coord.ResetStrictness(t)
 	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
 	// mock's container-auth declaration (Vendorless) resolves
 	// unconditionally because mock authenticates against no vendor. Needing a
@@ -124,10 +127,10 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	ownerHarp := entry.HarpName
 
 	starter := &dockerOwnerRunStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	teeHome(t)
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "owner-itest", Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	coord.TeeHome(t)
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "owner-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
@@ -154,13 +157,13 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	collector := newDeltaCollector(events)
 	defer collector.stop()
 
-	seed := "OWNER-STRUCT-" + RandID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), false), starter.start, seed)
+	seed := "OWNER-STRUCT-" + coord.RandID("", 6)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(coord.OwnerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), false), starter.start, seed)
 	require.NoError(t, err)
 	require.Equal(t, ownerHarp, outcome.Harp)
 
 	// (2) Parent-less, owner-owned.
-	var info *RunInfo
+	var info *coord.RunInfo
 	for _, r := range c.ListRuns(true, "").Runs {
 		if r.RunID == outcome.RunID {
 			info = &r
@@ -179,7 +182,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	// PeerMessage delivery the plan (§5.B) specifies, so the engine sees the
 	// text inside the coordinator-delivery framing (frameCoordinatorMessage);
 	// the payload substring reaching the engine's echo is the round-trip proof.
-	second := "OWNER-STRUCT2-" + RandID("", 6)
+	second := "OWNER-STRUCT2-" + coord.RandID("", 6)
 	require.NoError(t, c.SendOwnedRunTurn(outcome.RunID, second))
 	require.True(t, collector.await(outcome.RunID, second, 90*time.Second),
 		"the second turn (SendOwnedRunTurn) payload never echoed over Transport 2 (want substring %q); saw:\n%s", second, collector.snapshot(outcome.RunID))
@@ -216,7 +219,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 // identical, so this asserts the payload + the negatives.
 func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the owner-owned oneshot container integration test")
-	resetStrictness(t)
+	coord.ResetStrictness(t)
 	// NO ANTHROPIC_API_KEY is set on purpose: this run's engine is mock, and
 	// mock's container-auth declaration (Vendorless) resolves
 	// unconditionally because mock authenticates against no vendor. Needing a
@@ -231,10 +234,10 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	ownerHarp := entry.HarpName
 
 	starter := &dockerOwnerRunStarter{image: image, projectDir: projectDir, harp: ownerHarp}
-	teeHome(t)
-	c, err := New(Options{ProjectDir: projectDir, ProjectKey: "owner-oneshot-itest", Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	coord.TeeHome(t)
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "owner-oneshot-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
@@ -260,8 +263,8 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	collector := newDeltaCollector(events)
 	defer collector.stop()
 
-	seed := "OWNER-ONESHOT-" + RandID("", 6)
-	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), true), starter.start, seed)
+	seed := "OWNER-ONESHOT-" + coord.RandID("", 6)
+	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnedRunOf(coord.OwnerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), true), starter.start, seed)
 	require.NoError(t, err)
 
 	want := "mock chat: " + seed
@@ -292,7 +295,7 @@ type deltaCollector struct {
 	cancel chan struct{}
 }
 
-func newDeltaCollector(events <-chan Event) *deltaCollector {
+func newDeltaCollector(events <-chan coord.Event) *deltaCollector {
 	dc := &deltaCollector{byRun: map[string]*strings.Builder{}, final: map[string]bool{}, cancel: make(chan struct{})}
 	go func() {
 		for {
@@ -310,15 +313,15 @@ func newDeltaCollector(events <-chan Event) *deltaCollector {
 	return dc
 }
 
-func (dc *deltaCollector) consume(ev Event) {
+func (dc *deltaCollector) consume(ev coord.Event) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 	switch p := ev.Payload.(type) {
-	case MessageStarted:
-		if p.Channel == ChannelFinal {
+	case coord.MessageStarted:
+		if p.Channel == coord.ChannelFinal {
 			dc.final[p.MessageID] = true
 		}
-	case MessageDelta:
+	case coord.MessageDelta:
 		if !dc.final[p.MessageID] {
 			return
 		}

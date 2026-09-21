@@ -140,7 +140,7 @@ func TestBeginDrain_ServeRefusesToStartFreshOnceDraining(t *testing.T) {
 
 	c.BeginDrain()
 
-	err = c.Serve()
+	err = runnerHooks.Serve(c)
 	require.Error(t, err, "Serve must refuse to bind fresh listeners once draining")
 	assert.ErrorIs(t, err, ErrDraining)
 	assert.Contains(t, err.Error(), "draining")
@@ -157,5 +157,5 @@ func TestBeginDrain_ServeStaysIdempotentOnceAlreadyServing(t *testing.T) {
 	c := newTestCoordinator(t, sp, nil) // Serve()'d once already
 
 	c.BeginDrain()
-	require.NoError(t, c.Serve(), "Serve on an already-serving coordinator stays a no-op even while draining")
+	require.NoError(t, runnerHooks.Serve(c), "Serve on an already-serving coordinator stays a no-op even while draining")
 }

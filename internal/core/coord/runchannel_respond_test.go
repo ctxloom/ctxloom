@@ -45,7 +45,7 @@ func TestRespond_ResponseIsDeliveredOnceTheFullPumpDrains(t *testing.T) {
 	send := ch.send
 	send <- OutFrame{} // occupy the only slot
 
-	c.respond(ch, AgentReply{Err: refusal(ErrInvalidRequest, "the payload")})
+	c.respond(ch, AgentReply{Err: Refusal(ErrInvalidRequest, "the payload")})
 
 	<-send // the writer pump catches up
 	select {

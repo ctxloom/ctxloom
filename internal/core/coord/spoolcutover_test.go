@@ -38,7 +38,7 @@ func TestSpoolCutover_MailRidesTheSpoolWithNothingAsked(t *testing.T) {
 		OwnerHarp:  ownerIdentity().Harp,
 	})
 	require.NoError(t, err, "a coordinator with an owner and nothing else said must come up on the spool")
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "first task", "", "")

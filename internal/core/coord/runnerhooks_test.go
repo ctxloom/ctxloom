@@ -87,6 +87,9 @@ type TestHomeConfig struct {
 // TestRunnerHooks is what the bridge registers: the runner half's
 // constructors and its frame vocabulary.
 type TestRunnerHooks struct {
+	// Serve stands the coordinator's wire up (the adapter's Serve): the
+	// listeners the runner half dials.
+	Serve         func(c *Coordinator) error
 	NewHome       func(ctx context.Context, cfg TestHomeConfig) (TestHome, error)
 	NewEngineHost func(ctx context.Context, rep report.Sink, backend agent.StructuredChat, harness, runID string) TestEngineHost
 	// BindTestRunner binds the suite's runner tail to an engine host: the

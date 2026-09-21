@@ -16,7 +16,7 @@
 // Run with:
 //
 //	just test-pkg ./internal/core/coord -tags docker_integration -run SpoolCrossBoundary
-package coord
+package coord_test
 
 import (
 	"context"
@@ -26,6 +26,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,7 +82,7 @@ const (
 //     point: the only delivery mechanism under test is the doorbell.
 func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) {
 	dockergate.RequireRuntime(t, (isolation.Docker{}).Available(), "the spool cross-boundary integration test")
-	resetStrictness(t)
+	coord.ResetStrictness(t)
 
 	// A real filesystem outside the checkout, for the same two reasons the
 	// spool package's own fixture uses one: /tmp is tmpfs on a stock Linux box
@@ -98,15 +100,13 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	})
 	t.Setenv("HOME", fixture)
 
-	sp := newFakeSpawner(map[string]fakeAgent{
-		"worker": {perm: "bypass"},
-	}, nil)
-	sp.engineCaps = RunnerCapabilities(true)
-	c := newTestCoordinator(t, sp, nil)
+	sp := coord.NewFakeSpawner(map[string]coord.FakeAgent{"worker": coord.BypassAgent()}, nil)
+	sp.SetEngineCaps(coord.RunnerCapabilities(true))
+	c := coord.NewTestCoordinator(t, sp, nil)
 
-	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "go", "", "")
+	out, err := c.AgentRun(context.Background(), coord.OwnerIdentity(), "worker", "go", "", "")
 	require.NoError(t, err)
-	home := awaitRunnerHome(t, c, sp, out.Harp)
+	home := coord.AwaitRunnerHome(t, c, sp, out.Harp)
 
 	// The RUNNER's handler is the receiving end: whatever lands here has
 	// already passed the wire, the proto conversion and the validation
@@ -115,7 +115,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 	home.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { rings <- ref })
 
 	const body = "cross-boundary body\n"
-	msgID, _, err := c.peerSend(ownerIdentity(), out.Harp, KindMessage, body, nil, "")
+	msgID, err := c.AgentSend(coord.OwnerIdentity(), out.Harp, coord.KindMessage, body, nil, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, msgID)
 
@@ -168,7 +168,7 @@ func TestSpoolCrossBoundary_DoorbellRefResolvesInTheContainerView(t *testing.T) 
 
 	msg, err := spool.Parse([]byte(got))
 	require.NoError(t, err, "the container must read a COMPLETE message, not a torn one")
-	assert.Equal(t, KindMessage, msg.Kind)
+	assert.Equal(t, coord.KindMessage, msg.Kind)
 	assert.Equal(t, body, msg.Body)
 	assert.Equal(t, msgID, msg.OriginID, "the file the doorbell named must be the twin of the mailbox delivery that caused it")
 }

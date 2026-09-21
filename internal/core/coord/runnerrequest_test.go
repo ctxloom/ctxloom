@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -34,7 +36,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 	handler := func(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
 		received <- req
 		return &agentcoordpb.RunnerResponse{
-			Status: OKStatus("started"),
+			Status: &rpcstatus.Status{Message: "started"},
 			Kind: &agentcoordpb.RunnerResponse_StartRun{StartRun: &agentcoordpb.StartRunResult{
 				HarnessSessionId: "native-sess-1",
 				Pid:              4242,

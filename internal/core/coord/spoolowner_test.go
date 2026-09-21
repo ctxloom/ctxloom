@@ -197,7 +197,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 		OwnerHarp: owner,
 	})
 	require.NoError(t, err)
-	require.NoError(t, first.Serve())
+	require.NoError(t, runnerHooks.Serve(first))
 	got := recvBody(t, first, "written while the owner was down", conformanceWait)
 	require.NotEmpty(t, got, "a cold coordinator must find what is already in the owner's in/")
 	assert.Equal(t, "m-durable", got[0].ID)
@@ -209,7 +209,7 @@ func TestSpoolOwner_UnackedMailSurvivesRelaunch(t *testing.T) {
 		OwnerHarp: owner,
 	})
 	require.NoError(t, err)
-	require.NoError(t, second.Serve())
+	require.NoError(t, runnerHooks.Serve(second))
 	t.Cleanup(second.Close)
 	again := recvBody(t, second, "written while the owner was down", conformanceWait)
 	require.NotEmpty(t, again, "an unacked delivery must be re-delivered after relaunch")
@@ -249,7 +249,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 		OwnerHarp: ownerIdentity().Harp, ConcurrencyCap: 1,
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 
 	// Child A holds the only slot mid-turn; child B queues behind the cap.

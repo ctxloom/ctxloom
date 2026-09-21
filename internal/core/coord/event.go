@@ -1,6 +1,10 @@
 package coord
 
-import "time"
+import (
+	"time"
+
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
+)
 
 // Event is one plane-1 event as the coordinator sees it: the run it belongs
 // to, its sequence number (the dedupe and ack key), and one payload. It is
@@ -275,6 +279,16 @@ const (
 	RunStatusTimedOut       RunStatus = "RUN_STATUS_TIMED_OUT"
 )
 
+// RunStatuses is every member, in wire order.
+var RunStatuses = []RunStatus{RunStatusUnspecified, RunStatusSucceeded, RunStatusFailed, RunStatusCancelled, RunStatusBudgetExceeded, RunStatusTimedOut}
+
+// ParseRunStatus resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseRunStatus(name string) (RunStatus, bool) {
+	return parseMember(RunStatuses, RunStatusUnspecified, name)
+}
+
 // StepOutcome is a step's outcome.
 type StepOutcome string
 
@@ -284,6 +298,16 @@ const (
 	StepOutcomeFailed      StepOutcome = "OUTCOME_FAILED"
 	StepOutcomeSkipped     StepOutcome = "OUTCOME_SKIPPED"
 )
+
+// StepOutcomes is every member, in wire order.
+var StepOutcomes = []StepOutcome{StepOutcomeUnspecified, StepOutcomeSucceeded, StepOutcomeFailed, StepOutcomeSkipped}
+
+// ParseStepOutcome resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseStepOutcome(name string) (StepOutcome, bool) {
+	return parseMember(StepOutcomes, StepOutcomeUnspecified, name)
+}
 
 // RunPhase is a StatusChanged phase.
 type RunPhase string
@@ -300,6 +324,16 @@ const (
 	PhaseFinalizing      RunPhase = "PHASE_FINALIZING"
 )
 
+// RunPhases is every member, in wire order.
+var RunPhases = []RunPhase{PhaseUnspecified, PhaseInitializing, PhasePlanning, PhaseExecuting, PhaseWaitingApproval, PhaseWaitingInput, PhaseWaitingPeer, PhasePaused, PhaseFinalizing}
+
+// ParseRunPhase resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseRunPhase(name string) (RunPhase, bool) {
+	return parseMember(RunPhases, PhaseUnspecified, name)
+}
+
 // InteractionResolution is how a recorded interaction resolved.
 type InteractionResolution string
 
@@ -311,6 +345,16 @@ const (
 	ResolutionCancelled   InteractionResolution = "RESOLUTION_CANCELLED"
 )
 
+// InteractionResolutions is every member, in wire order.
+var InteractionResolutions = []InteractionResolution{ResolutionUnspecified, ResolutionGranted, ResolutionDenied, ResolutionTimedOut, ResolutionCancelled}
+
+// ParseInteractionResolution resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseInteractionResolution(name string) (InteractionResolution, bool) {
+	return parseMember(InteractionResolutions, ResolutionUnspecified, name)
+}
+
 // MessageRole is who a message is from.
 type MessageRole string
 
@@ -321,6 +365,16 @@ const (
 	RoleSystem      MessageRole = "MESSAGE_ROLE_SYSTEM"
 )
 
+// MessageRoles is every member, in wire order.
+var MessageRoles = []MessageRole{RoleUnspecified, RoleAssistant, RoleTool, RoleSystem}
+
+// ParseMessageRole resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseMessageRole(name string) (MessageRole, bool) {
+	return parseMember(MessageRoles, RoleUnspecified, name)
+}
+
 // MessageChannel is which audience a message addresses.
 type MessageChannel string
 
@@ -330,6 +384,16 @@ const (
 	ChannelReasoning   MessageChannel = "MESSAGE_CHANNEL_REASONING"
 	ChannelLog         MessageChannel = "MESSAGE_CHANNEL_LOG"
 )
+
+// MessageChannels is every member, in wire order.
+var MessageChannels = []MessageChannel{ChannelUnspecified, ChannelFinal, ChannelReasoning, ChannelLog}
+
+// ParseMessageChannel resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseMessageChannel(name string) (MessageChannel, bool) {
+	return parseMember(MessageChannels, ChannelUnspecified, name)
+}
 
 // ArtifactKind classifies an artifact.
 type ArtifactKind string
@@ -348,6 +412,16 @@ const (
 	ArtifactKindOther              ArtifactKind = "ARTIFACT_KIND_OTHER"
 )
 
+// ArtifactKinds is every member, in wire order.
+var ArtifactKinds = []ArtifactKind{ArtifactKindUnspecified, ArtifactKindTaskList, ArtifactKindImplementationPlan, ArtifactKindCodeDiff, ArtifactKindWalkthrough, ArtifactKindScreenshot, ArtifactKindRecording, ArtifactKindReport, ArtifactKindDataset, ArtifactKindDocument, ArtifactKindOther}
+
+// ParseArtifactKind resolves a member by its wire name. An unknown name is the
+// vocabulary's unspecified member and ok is false — the receiving side's
+// posture toward a value a newer build may spell.
+func ParseArtifactKind(name string) (ArtifactKind, bool) {
+	return parseMember(ArtifactKinds, ArtifactKindUnspecified, name)
+}
+
 // SummaryScope is a report's scope.
 type SummaryScope string
 
@@ -362,13 +436,19 @@ const (
 // SummaryScopes is every scope the Report verb accepts, in wire order.
 var SummaryScopes = []SummaryScope{ScopeUnspecified, ScopeProgress, ScopeStep, ScopeCheckpoint, ScopeFinal}
 
-// ParseSummaryScope resolves a scope by its wire name; ok is false for a
-// name outside the table (an unspecified scope is a name, not a fallback).
+// ParseSummaryScope resolves a scope by its wire name. An unknown name is
+// the unspecified scope and ok is false.
 func ParseSummaryScope(name string) (SummaryScope, bool) {
-	for _, s := range SummaryScopes {
-		if string(s) == name {
-			return s, true
-		}
+	return parseMember(SummaryScopes, ScopeUnspecified, name)
+}
+
+// parseMember is the membership lookup under every Parse<Vocabulary> here:
+// a miss answers the vocabulary's unspecified member rather than the empty
+// string, because these vocabularies spell their unspecified member the way
+// the wire does.
+func parseMember[T ~string](members []T, unspecified T, name string) (T, bool) {
+	if m, ok := collections.Member(members, name); ok {
+		return m, true
 	}
-	return "", false
+	return unspecified, false
 }

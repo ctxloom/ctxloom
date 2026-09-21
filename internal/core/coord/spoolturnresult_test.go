@@ -306,7 +306,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	teeHome(t)
 	first, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, first.Serve())
+	require.NoError(t, runnerHooks.Serve(first))
 	out, _ := awaitCutoverChild(t, first, sp, "first task")
 	first.Close()
 
@@ -326,7 +326,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	teeHome(t)
 	second, err := New(Options{ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	require.NoError(t, err)
-	require.NoError(t, second.Serve())
+	require.NoError(t, runnerHooks.Serve(second))
 	t.Cleanup(second.Close)
 
 	got := recvBody(t, second, "reported across the restart", conformanceWait)

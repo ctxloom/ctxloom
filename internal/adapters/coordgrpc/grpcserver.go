@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"context"
@@ -10,8 +10,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // mdToken extracts the bearer token from gRPC metadata.
@@ -33,7 +33,7 @@ func mdToken(ctx context.Context) string {
 // the coordinator.
 type coordService struct {
 	agentcoordpb.UnimplementedCoordinatorServiceServer
-	c *Coordinator
+	c *coord.Coordinator
 }
 
 // coordinatorServiceMethodPrefix is every RPC a read-only consumer
@@ -60,7 +60,7 @@ const artifactUploadFullMethod = "/agentcoord.v1.ArtifactTransferService/UploadA
 // impersonate a runner/child (read-only scope enforced server-side). The same
 // rule covers UploadArtifact (mutating) while leaving DownloadArtifact open to
 // consumers (read-only).
-func (c *Coordinator) grpcServer() *grpc.Server {
+func grpcServer(c *coord.Coordinator) *grpc.Server {
 	auth := func(ctx context.Context, fullMethod string) error {
 		id, ok := c.Identify(mdToken(ctx))
 		if !ok {
@@ -91,10 +91,10 @@ func (c *Coordinator) grpcServer() *grpc.Server {
 	return srv
 }
 
-// encodeStartRunLaunch projects a StartRun's launch for the wire — the
-// launch codec is coordgrpc's.
-func encodeStartRunLaunch(sr StartRun) *agentcoordpb.Launch {
-	return coordgrpc.EncodeLaunch(sr.Launch)
+// encodeStartRunLaunch projects a StartRun's launch for the wire through the
+// one launch codec (EncodeLaunch).
+func encodeStartRunLaunch(sr coord.StartRun) *agentcoordpb.Launch {
+	return EncodeLaunch(sr.Launch)
 }
 
 // RunnerChannel is the runner-level control channel: one per runner process,
@@ -114,7 +114,7 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 	if !ok {
 		return status.Error(codes.Unauthenticated, "unknown or revoked credential")
 	}
-	credHash := HashToken(mdToken(stream.Context()))
+	credHash := coord.HashToken(mdToken(stream.Context()))
 
 	first, err := stream.Recv()
 	if err != nil {
@@ -130,7 +130,7 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 		// an unpopulated reject_reason is the only thing it has to
 		// report.
 		code := codes.PermissionDenied
-		if errors.Is(err, ErrDraining) {
+		if errors.Is(err, coord.ErrDraining) {
 			code = codes.Unavailable
 		}
 		_ = stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_HelloAck{
@@ -154,7 +154,7 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 	// underlying gRPC transport is actually cut (the server's
 	// GracefulStop/Stop), not on c.baseCtx cancellation alone.
 	c.Track(func() {
-		rs.Pump(streamCtx, func(req RunnerRequest) error {
+		rs.Pump(streamCtx, func(req coord.RunnerRequest) error {
 			return stream.Send(&agentcoordpb.RuntimeFrame{Kind: &agentcoordpb.RuntimeFrame_Request{Request: RunnerRequestToWire(req, encodeStartRunLaunch)}})
 		})
 	})

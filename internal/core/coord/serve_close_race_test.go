@@ -52,7 +52,7 @@ func TestCoordinator_ServeIsRaceFreeAgainstURLReaders(t *testing.T) {
 		}
 	}()
 
-	serveErr := c.Serve()
+	serveErr := runnerHooks.Serve(c)
 	close(stop)
 	wg.Wait()
 
@@ -70,7 +70,7 @@ func TestCoordinator_CloseIsRaceFreeAgainstServe(t *testing.T) {
 	var serveErr error
 	go func() {
 		defer wg.Done()
-		serveErr = c.Serve()
+		serveErr = runnerHooks.Serve(c)
 	}()
 	c.Close()
 	wg.Wait()

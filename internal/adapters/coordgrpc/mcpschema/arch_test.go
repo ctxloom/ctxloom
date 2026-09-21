@@ -78,16 +78,16 @@ var handlerScopes = map[string]handlerScope{
 	// and the decoders it calls); the verb never sees a wire field, so the
 	// decoder is where every wire field is read.
 	ToolAgentRun: {
-		funcs: []string{"../../../core/coord/wirecodec.go:AgentRequestFromWire"},
+		funcs: []string{"../codec.go:AgentRequestFromWire"},
 	},
 	ToolAgentSend: {
-		funcs: []string{"../../../core/coord/wirecodec.go:SendRequestFromWire"},
+		funcs: []string{"../codec.go:SendRequestFromWire"},
 	},
 	ToolAgentStop: {
-		funcs: []string{"../../../core/coord/wirecodec.go:AgentRequestFromWire"},
+		funcs: []string{"../codec.go:AgentRequestFromWire"},
 	},
 	ToolRoster: {
-		funcs: []string{"../../../core/coord/wirecodec.go:AgentRequestFromWire"},
+		funcs: []string{"../codec.go:AgentRequestFromWire"},
 	},
 	ToolAgentReport: {
 		// agent_report's Summary is consumed in two places: the runner-side
@@ -95,7 +95,7 @@ var handlerScopes = map[string]handlerScope{
 		// decode into the coordinator's Summary.
 		funcs: []string{
 			"../../runner/mcp/server.go:reportHandler",
-			"../../../core/coord/wirecodec.go:SummaryFromWire",
+			"../codec.go:SummaryFromWire",
 		},
 	},
 	ToolAgentRecv: {
@@ -107,19 +107,19 @@ var handlerScopes = map[string]handlerScope{
 	// The five control tools share one decoder: each arm's fields are read
 	// in its case of controlRequestFromWire.
 	ToolAgentSteer: {
-		funcs: []string{"../../../core/coord/wirecodec.go:controlRequestFromWire"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentAsk: {
-		funcs: []string{"../../../core/coord/wirecodec.go:controlRequestFromWire"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentSummarize: {
-		funcs: []string{"../../../core/coord/wirecodec.go:controlRequestFromWire"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentPause: {
-		funcs: []string{"../../../core/coord/wirecodec.go:controlRequestFromWire"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 	ToolAgentResume: {
-		funcs: []string{"../../../core/coord/wirecodec.go:controlRequestFromWire"},
+		funcs: []string{"../codec.go:controlRequestFromWire"},
 	},
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
@@ -99,7 +100,7 @@ func (h *Home) sweepSpoolIn() {
 			continue
 		}
 		msg.Structured = wire
-		pm, err := coord.PeerMessageToWire(msg)
+		pm, err := coordgrpc.PeerMessageToWire(msg)
 		if err != nil {
 			h.failSpoolEntry(e, fmt.Sprintf("cannot project spool message %s onto the delivery seam", e.Ref), err)
 			continue
@@ -224,7 +225,7 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	if h.Harp() == "" {
 		return spoolSendErr(codes.FailedPrecondition, "agent_send: "+ErrIdentityUnbound.Error()), true
 	}
-	sr, err := coord.SendRequestFromWire(send)
+	sr, err := coordgrpc.SendRequestFromWire(send)
 	if err != nil {
 		return spoolSendErr(codes.InvalidArgument, err.Error()), true
 	}
@@ -250,7 +251,7 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 	h.noteSelfReported()
 	return &agentcoordpb.CoordinatorResponse{
 		RequestId: req.GetRequestId(),
-		Status:    coord.OKStatus("written to this session's outbound spool"),
+		Status:    coordgrpc.OKStatus("written to this session's outbound spool"),
 		Kind: &agentcoordpb.CoordinatorResponse_PeerSend{PeerSend: &agentcoordpb.PeerSendResult{
 			// The FILENAME STEM is the message id, because the file is the
 			// message: there is no coordinator-minted id to quote, and an id
@@ -265,5 +266,5 @@ func (h *Home) sendPeerViaSpool(req *agentcoordpb.AgentRequest) (*agentcoordpb.C
 // spoolSendErr is the runner-local agent_send's refusal, shaped as the
 // plane-2 answer the tool reads.
 func spoolSendErr(code codes.Code, msg string) *agentcoordpb.CoordinatorResponse {
-	return &agentcoordpb.CoordinatorResponse{Status: coord.StatusErr(code, msg)}
+	return &agentcoordpb.CoordinatorResponse{Status: coordgrpc.StatusErr(code, msg)}
 }

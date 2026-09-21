@@ -39,7 +39,7 @@ func newTestCoordinatorOver(t *testing.T, stateDir string, sp Spawner) *Coordina
 		Reporter:   termSink(),
 	})
 	require.NoError(t, err)
-	require.NoError(t, c.Serve())
+	require.NoError(t, runnerHooks.Serve(c))
 	t.Cleanup(c.Close)
 	return c
 }

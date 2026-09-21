@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"context"
@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
@@ -37,7 +38,7 @@ const MCPPath = discover.MCPPath
 // requests answer 404 (the tool surface lives at each RUNNER's local
 // socket).
 type coordServing struct {
-	c       *Coordinator
+	c       *coord.Coordinator
 	handler http.Handler
 	httpSrv *http.Server
 	grpcSrv *grpc.Server
@@ -63,19 +64,20 @@ type coordServing struct {
 // indistinguishable from "no coordinator is running".
 type endpointState = discover.State
 
-// Serve stands the listeners up: loopback by default; widening happens on
-// demand when a container child spawns. The bound listener set is published
-// to the coordinator as its Transport.
-func (c *Coordinator) Serve() error {
+// Serve stands the coordinator's listeners up: loopback by default; widening
+// happens on demand when a container child spawns. The bound listener set is
+// published to the coordinator as its coord.Transport; a second Serve on a
+// serving coordinator is a no-op.
+func Serve(c *coord.Coordinator) error {
 	if c.Serving() {
 		return nil // already serving: idempotent no-op, not a new admission
 	}
 	if c.Draining() {
-		return fmt.Errorf("coord: %w", ErrDraining)
+		return fmt.Errorf("coord: %w", coord.ErrDraining)
 	}
 	s := &coordServing{c: c}
 
-	grpcSrv := c.grpcServer()
+	grpcSrv := grpcServer(c)
 	s.grpcSrv = grpcSrv
 	s.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// gRPC (RunnerChannel/RunChannel) is plaintext HTTP/2 with the grpc

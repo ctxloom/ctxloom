@@ -62,27 +62,27 @@ var ErrArtifactSizeMismatch = errArtifactSizeMismatch
 // ErrArtifactSizeMismatch — both ErrInvalidRequest too).
 func (c *Coordinator) ReceiveArtifact(caller Identity, h ArtifactUpload, body io.Reader) (ArtifactReceipt, error) {
 	if h.ArtifactID == "" {
-		return ArtifactReceipt{}, refusal(ErrInvalidRequest, "upload: artifact_id is required")
+		return ArtifactReceipt{}, Refusal(ErrInvalidRequest, "upload: artifact_id is required")
 	}
 	if caller.Consumer {
-		return ArtifactReceipt{}, refusal(ErrForbidden, "upload: a read-only consumer credential cannot upload")
+		return ArtifactReceipt{}, Refusal(ErrForbidden, "upload: a read-only consumer credential cannot upload")
 	}
 	if caller.RunID != h.RunID {
-		return ArtifactReceipt{}, refusal(ErrForbidden, "upload: run_id %q does not match this connection's credential", h.RunID)
+		return ArtifactReceipt{}, Refusal(ErrForbidden, "upload: run_id %q does not match this connection's credential", h.RunID)
 	}
 	if h.SizeBytes > ArtifactUploadSizeCap {
-		return ArtifactReceipt{}, refusal(ErrInvalidRequest, "upload: declared size %d exceeds the %d-byte cap", h.SizeBytes, ArtifactUploadSizeCap)
+		return ArtifactReceipt{}, Refusal(ErrInvalidRequest, "upload: declared size %d exceeds the %d-byte cap", h.SizeBytes, ArtifactUploadSizeCap)
 	}
 	if h.SizeBytes == 0 {
-		return ArtifactReceipt{}, refusal(ErrInvalidRequest, "upload: declared size is 0 — an empty artifact is a receipt for nothing, refusing it")
+		return ArtifactReceipt{}, Refusal(ErrInvalidRequest, "upload: declared size is 0 — an empty artifact is a receipt for nothing, refusing it")
 	}
 	shaHex, size, err := c.artifacts.writeAtomic(body, h.SHA256, h.SizeBytes)
 	if err != nil {
 		switch {
 		case errors.Is(err, errArtifactSHAMismatch):
-			return ArtifactReceipt{}, refusal(ErrArtifactSHAMismatch, "upload: received content (sha256 %s) does not match the declared sha256", shaHex)
+			return ArtifactReceipt{}, Refusal(ErrArtifactSHAMismatch, "upload: received content (sha256 %s) does not match the declared sha256", shaHex)
 		case errors.Is(err, errArtifactSizeMismatch):
-			return ArtifactReceipt{}, refusal(ErrArtifactSizeMismatch, "upload: declared size %d does not match the bytes actually received", h.SizeBytes)
+			return ArtifactReceipt{}, Refusal(ErrArtifactSizeMismatch, "upload: declared size %d does not match the bytes actually received", h.SizeBytes)
 		}
 		return ArtifactReceipt{}, fmt.Errorf("upload: %w", err)
 	}
@@ -111,7 +111,7 @@ func (c *Coordinator) authorizeArtifactDownload(caller Identity, ownerHarp strin
 	if allowed {
 		return nil
 	}
-	return refusal(ErrForbidden, "download: %q is not this session, its child, or a consumer credential", ownerHarp)
+	return Refusal(ErrForbidden, "download: %q is not this session, its child, or a consumer credential", ownerHarp)
 }
 
 // OpenArtifact resolves and opens one stored artifact for download: the
@@ -121,20 +121,20 @@ func (c *Coordinator) authorizeArtifactDownload(caller Identity, ownerHarp strin
 // or its content is gone). The caller closes the blob.
 func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string, offset uint64) (ArtifactRecord, *os.File, error) {
 	if ownerHarp == "" {
-		return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: agent_id is required")
+		return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: agent_id is required")
 	}
 	if artifactID == "" {
-		return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: artifact_id is required")
+		return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: artifact_id is required")
 	}
 	if err := c.authorizeArtifactDownload(caller, ownerHarp); err != nil {
 		return ArtifactRecord{}, nil, err
 	}
 	rec, ok := c.artifactRecord(ownerHarp, artifactID)
 	if !ok {
-		return ArtifactRecord{}, nil, refusal(ErrNotFound, "download: no artifact %q for %q", artifactID, ownerHarp)
+		return ArtifactRecord{}, nil, Refusal(ErrNotFound, "download: no artifact %q for %q", artifactID, ownerHarp)
 	}
 	if offset > 0 && offset >= rec.SizeBytes {
-		return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: offset %d is past the end of %q (%d bytes)", offset, artifactID, rec.SizeBytes)
+		return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: offset %d is past the end of %q (%d bytes)", offset, artifactID, rec.SizeBytes)
 	}
 	if _, err := hex.DecodeString(rec.SHA256); err != nil {
 		return ArtifactRecord{}, nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
@@ -144,12 +144,12 @@ func (c *Coordinator) OpenArtifact(caller Identity, ownerHarp, artifactID string
 		if errors.Is(err, errArtifactBadName) {
 			return ArtifactRecord{}, nil, fmt.Errorf("download: corrupt manifest sha256 for %q: %v", artifactID, err)
 		}
-		return ArtifactRecord{}, nil, refusal(ErrNotFound, "download: stored content missing for %q: %v", artifactID, err)
+		return ArtifactRecord{}, nil, Refusal(ErrNotFound, "download: stored content missing for %q: %v", artifactID, err)
 	}
 	if offset > 0 {
 		if _, err := f.Seek(int64(offset), io.SeekStart); err != nil {
 			_ = f.Close()
-			return ArtifactRecord{}, nil, refusal(ErrInvalidRequest, "download: seek to offset %d: %v", offset, err)
+			return ArtifactRecord{}, nil, Refusal(ErrInvalidRequest, "download: seek to offset %d: %v", offset, err)
 		}
 	}
 	return rec, f, nil

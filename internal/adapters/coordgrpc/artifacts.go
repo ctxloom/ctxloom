@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"encoding/hex"
@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // artifactService implements agentcoord.v1.ArtifactTransferService: the
@@ -22,7 +23,7 @@ import (
 // RunChannel).
 type artifactService struct {
 	agentcoordpb.UnimplementedArtifactTransferServiceServer
-	c *Coordinator
+	c *coord.Coordinator
 }
 
 // artifactStatus maps a refusal onto the transfer RPCs' codes: the
@@ -36,26 +37,26 @@ func artifactStatus(err error) error {
 		return err
 	}
 	switch {
-	case errors.Is(err, ErrArtifactSHAMismatch), errors.Is(err, ErrArtifactSizeMismatch), errors.Is(err, ErrInvalidRequest):
+	case errors.Is(err, coord.ErrArtifactSHAMismatch), errors.Is(err, coord.ErrArtifactSizeMismatch), errors.Is(err, coord.ErrInvalidRequest):
 		return status.Error(codes.InvalidArgument, err.Error())
-	case errors.Is(err, ErrForbidden):
+	case errors.Is(err, coord.ErrForbidden):
 		return status.Error(codes.PermissionDenied, err.Error())
-	case errors.Is(err, ErrNotFound):
+	case errors.Is(err, coord.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	}
 	return status.Error(codes.Internal, err.Error())
 }
 
-func recvUploadHeader(stream grpc.ClientStreamingServer[agentcoordpb.ArtifactUploadRequest, agentcoordpb.ArtifactReceipt]) (ArtifactUpload, error) {
+func recvUploadHeader(stream grpc.ClientStreamingServer[agentcoordpb.ArtifactUploadRequest, agentcoordpb.ArtifactReceipt]) (coord.ArtifactUpload, error) {
 	first, err := stream.Recv()
 	if err != nil {
-		return ArtifactUpload{}, err
+		return coord.ArtifactUpload{}, err
 	}
 	header := first.GetHeader()
 	if header == nil {
-		return ArtifactUpload{}, status.Error(codes.InvalidArgument, "upload: first ArtifactUploadRequest must be header")
+		return coord.ArtifactUpload{}, status.Error(codes.InvalidArgument, "upload: first ArtifactUploadRequest must be header")
 	}
-	return ArtifactUpload{
+	return coord.ArtifactUpload{
 		RunID:      header.GetRunId(),
 		ArtifactID: header.GetArtifactId(),
 		Name:       header.GetName(),
@@ -124,15 +125,15 @@ func (s *artifactService) UploadArtifact(stream grpc.ClientStreamingServer[agent
 				return
 			}
 			data := chunk.GetData()
-			if len(data) > ArtifactChunkCap {
-				cerr := status.Errorf(codes.InvalidArgument, "upload: chunk of %d bytes exceeds the %d-byte cap", len(data), ArtifactChunkCap)
+			if len(data) > coord.ArtifactChunkCap {
+				cerr := status.Errorf(codes.InvalidArgument, "upload: chunk of %d bytes exceeds the %d-byte cap", len(data), coord.ArtifactChunkCap)
 				_ = pw.CloseWithError(cerr)
 				chunkErrCh <- cerr
 				return
 			}
 			total += uint64(len(data))
-			if total > ArtifactUploadSizeCap {
-				cerr := status.Errorf(codes.InvalidArgument, "upload: total size exceeds the %d-byte cap", ArtifactUploadSizeCap)
+			if total > coord.ArtifactUploadSizeCap {
+				cerr := status.Errorf(codes.InvalidArgument, "upload: total size exceeds the %d-byte cap", coord.ArtifactUploadSizeCap)
 				_ = pw.CloseWithError(cerr)
 				chunkErrCh <- cerr
 				return
@@ -181,7 +182,7 @@ func (s *artifactService) DownloadArtifact(req *agentcoordpb.ArtifactDownloadReq
 	return streamArtifactBody(f, req.GetOffset(), stream)
 }
 
-func downloadHeaderFrame(rec ArtifactRecord, shaBytes []byte) *agentcoordpb.ArtifactDownloadFrame {
+func downloadHeaderFrame(rec coord.ArtifactRecord, shaBytes []byte) *agentcoordpb.ArtifactDownloadFrame {
 	kind := agentcoordpb.ArtifactKind_ARTIFACT_KIND_UNSPECIFIED
 	if v, ok := agentcoordpb.ArtifactKind_value[rec.Kind]; ok {
 		kind = agentcoordpb.ArtifactKind(v)
@@ -198,7 +199,7 @@ func downloadHeaderFrame(rec ArtifactRecord, shaBytes []byte) *agentcoordpb.Arti
 }
 
 func streamArtifactBody(f *os.File, offset uint64, stream grpc.ServerStreamingServer[agentcoordpb.ArtifactDownloadFrame]) error {
-	buf := make([]byte, ArtifactChunkCap)
+	buf := make([]byte, coord.ArtifactChunkCap)
 	for {
 		n, rerr := f.Read(buf)
 		if n > 0 {

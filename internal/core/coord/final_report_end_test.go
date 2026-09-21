@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -159,10 +158,10 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-	c.recordSummary(out.Harp, out.RunID, 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "still working",
-	}))
+	})
 
 	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"only FINAL is the completion contract; a heartbeat must never end a working agent")

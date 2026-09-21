@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
@@ -82,7 +83,7 @@ func serveAckDroppingCoordinator(t *testing.T) (*ackDroppingCoordinator, string)
 	agentcoordpb.RegisterCoordinatorServiceServer(srv, fake)
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(srv.Stop)
-	return fake, "http://" + ln.Addr().String() + MCPPath
+	return fake, "http://" + ln.Addr().String() + discover.MCPPath
 }
 
 // TestReport_SurvivesADroppedAck: a report the coordinator has durably

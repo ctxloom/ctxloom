@@ -7,10 +7,10 @@ import (
 
 	"google.golang.org/grpc/codes"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -179,7 +179,7 @@ func (eh *EngineHost) pauseRun(req *agentcoordpb.PauseRun) *agentcoordpb.RunnerR
 	}
 	eh.mu.Unlock()
 	return &agentcoordpb.RunnerResponse{
-		Status: coord.OKStatus(""),
+		Status: coordgrpc.OKStatus(""),
 		Kind:   &agentcoordpb.RunnerResponse_PauseRun{PauseRun: &agentcoordpb.PauseRunResult{NewlyPaused: newly}},
 	}
 }
@@ -201,7 +201,7 @@ func (eh *EngineHost) resumeRun(req *agentcoordpb.ResumeRun) *agentcoordpb.Runne
 		close(gate)
 	}
 	return &agentcoordpb.RunnerResponse{
-		Status: coord.OKStatus(""),
+		Status: coordgrpc.OKStatus(""),
 		Kind:   &agentcoordpb.RunnerResponse_ResumeRun{ResumeRun: &agentcoordpb.ResumeRunResult{NewlyResumed: gate != nil}},
 	}
 }
@@ -214,7 +214,7 @@ func (eh *EngineHost) checkRunID(runID, what string) *agentcoordpb.RunnerRespons
 	if runID == eh.runID {
 		return nil
 	}
-	return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.PermissionDenied, fmt.Sprintf(
+	return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.PermissionDenied, fmt.Sprintf(
 		"%s named run %s, but this runner hosts run %s (A9 correlation)", what, runID, eh.runID))}
 }
 
@@ -231,19 +231,19 @@ func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerRespon
 	}
 	eh.mu.Unlock()
 	if !started {
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.FailedPrecondition, "turn: no run is driven on this runner yet")}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.FailedPrecondition, "turn: no run is driven on this runner yet")}
 	}
 	if t.GetPrompt() == "" {
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.InvalidArgument, "turn: a turn needs a prompt")}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.InvalidArgument, "turn: a turn needs a prompt")}
 	}
 	done := make(chan engine.TurnResult, 1)
 	if err := eh.enqueueTurn(eh.baseCtx, turnTag{done: done}, t.GetPrompt()); err != nil {
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.Unavailable, "turn: "+err.Error())}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Unavailable, "turn: "+err.Error())}
 	}
 	select {
 	case res := <-done:
-		return &agentcoordpb.RunnerResponse{Status: coord.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.OKStatus(""), Kind: &agentcoordpb.RunnerResponse_Turn{Turn: &agentcoordpb.TurnResult{NativeKey: res.NativeKey, Answer: res.Answer}}}
 	case <-eh.baseCtx.Done():
-		return &agentcoordpb.RunnerResponse{Status: coord.StatusErr(codes.Canceled, "turn: the runner is shutting down")}
+		return &agentcoordpb.RunnerResponse{Status: coordgrpc.StatusErr(codes.Canceled, "turn: the runner is shutting down")}
 	}
 }

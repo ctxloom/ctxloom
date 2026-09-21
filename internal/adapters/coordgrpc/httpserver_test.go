@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"net"
@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/coordharness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -118,9 +119,9 @@ func TestContainerReachIPs_ReturnsOnlyRoutableHostAddresses(t *testing.T) {
 // for it. This is the invariant that keeps a plain host session off the
 // machine's network entirely.
 func TestServe_BindsLoopbackOnly(t *testing.T) {
-	c := newTestCoordinatorAt(t, t.TempDir())
+	c := coordharness.New(t, t.TempDir())
 	t.Cleanup(c.Close)
-	require.NoError(t, c.Serve())
+	require.NoError(t, Serve(c))
 
 	parsed, err := url.Parse(c.LoopbackURL())
 	require.NoError(t, err)
@@ -128,7 +129,7 @@ func TestServe_BindsLoopbackOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, net.ParseIP(host).IsLoopback(), "Serve binds loopback and nothing else: %q", host)
 
-	srv := c.boundTransport().(*coordServing)
+	srv := c.Transport().(*coordServing)
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	assert.Empty(t, srv.wide, "no wide listener may exist before a container run asks for one")

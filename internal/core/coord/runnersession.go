@@ -84,7 +84,7 @@ func (c *Coordinator) RunnerHello(credHash string, hello RunnerHello) error {
 			}
 		})
 		if !owned {
-			return refusal(ErrRunNotIssued, "run %s was not issued to this credential", runID)
+			return Refusal(ErrRunNotIssued, "run %s was not issued to this credential", runID)
 		}
 	}
 	for _, runID := range hello.ActiveRunIDs {

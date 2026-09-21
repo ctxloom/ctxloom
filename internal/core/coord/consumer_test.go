@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
@@ -411,7 +412,7 @@ func TestConsumer_CredentialPersistedInEndpointFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "endpoint.json must stay 0600 — it now carries a credential")
 
-	var ep endpointState
+	var ep discover.State
 	require.NoError(t, json.Unmarshal(raw, &ep))
 	assert.NotEmpty(t, ep.ConsumerCred)
 	assert.Equal(t, c.consumerCreds.token(), ep.ConsumerCred)

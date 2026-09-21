@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
@@ -161,12 +162,7 @@ func ItemKinds() []ItemKind {
 // ParseItemKind is the one entry from a runtime string into the closed
 // core: a spelling that names none of ItemKinds is refused.
 func ParseItemKind(s string) (ItemKind, bool) {
-	for _, k := range ItemKinds() {
-		if string(k) == s {
-			return k, true
-		}
-	}
-	return "", false
+	return collections.Member(ItemKinds(), s)
 }
 
 // Dir returns the selector directory segment for the kind, matching the ref

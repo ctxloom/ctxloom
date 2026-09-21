@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"encoding/json"
@@ -13,14 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/testsupport/coordharness"
 )
 
 // servedCoordinator stands a coordinator's listeners up over stateDir.
-func servedCoordinator(t *testing.T, stateDir string) *Coordinator {
+func servedCoordinator(t *testing.T, stateDir string) *coord.Coordinator {
 	t.Helper()
-	c := newTestCoordinatorAt(t, stateDir)
-	t.Cleanup(c.Close)
-	require.NoError(t, c.Serve())
+	c := coordharness.New(t, stateDir)
+	require.NoError(t, Serve(c))
 	return c
 }
 
@@ -76,7 +77,7 @@ func TestEnsureWide_PersistsTheWidePortBeforeReturning(t *testing.T) {
 	stateDir := t.TempDir()
 	c := servedCoordinator(t, stateDir)
 
-	advertised, err := c.boundTransport().(*coordServing).ensureWide()
+	advertised, err := c.Transport().(*coordServing).ensureWide()
 	require.NoError(t, err)
 	parsed, err := url.Parse(advertised)
 	require.NoError(t, err)

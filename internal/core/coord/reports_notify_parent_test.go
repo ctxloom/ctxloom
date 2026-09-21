@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
 // A REPORT AND A MESSAGE LIVE IN DIFFERENT STORES, and that divergence read as
@@ -33,10 +31,10 @@ func TestFinalReport_IsQueuedToTheParent(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
 	before := c.pendingCount(owner.Harp)
-	c.recordSummary(out.Harp, out.RunID, 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_FINAL,
+	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+		Scope: ScopeFinal,
 		Text:  "FINAL: the finding the parent is waiting for",
-	}))
+	})
 
 	assert.Greater(t, c.pendingCount(owner.Harp), before,
 		"a child's FINAL report must reach its parent's MAILBOX, not only the reports fold")
@@ -62,10 +60,10 @@ func TestProgressReport_IsNotQueuedToTheParent(t *testing.T) {
 	require.NotEmpty(t, recvKind(t, c, KindResult, conformanceWait), "the turn's automatic report reaches the parent first")
 
 	before := c.pendingCount(owner.Harp)
-	c.recordSummary(out.Harp, out.RunID, 1, SummaryFromWire(&agentcoordpb.Summary{
-		Scope: agentcoordpb.Summary_SCOPE_PROGRESS,
+	c.recordSummary(out.Harp, out.RunID, 1, Summary{
+		Scope: ScopeProgress,
 		Text:  "still working",
-	}))
+	})
 
 	assert.Equal(t, before, c.pendingCount(owner.Harp),
 		"a PROGRESS report must not wake the parent; only FINAL is the completion contract")

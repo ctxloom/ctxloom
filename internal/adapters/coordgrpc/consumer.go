@@ -1,4 +1,4 @@
-package coord
+package coordgrpc
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
 // consumerService implements agentcoord.v1.ConsumerService (D1): additive,
@@ -14,7 +15,7 @@ import (
 // session loop, hosting the coordinator library itself, uses that path.
 type consumerService struct {
 	agentcoordpb.UnimplementedConsumerServiceServer
-	c *Coordinator
+	c *coord.Coordinator
 }
 
 func (s *consumerService) ListRuns(_ context.Context, req *agentcoordpb.ListRunsRequest) (*agentcoordpb.ListRunsResult, error) {
@@ -37,17 +38,10 @@ func (s *consumerService) SpoolStats(context.Context, *agentcoordpb.SpoolStatsRe
 // ordered, right after the snapshot frame instead of before).
 func (s *consumerService) WatchRuns(req *agentcoordpb.WatchRunsRequest, stream grpc.ServerStreamingServer[agentcoordpb.WatchEvent]) error {
 	c := s.c
-	var filter map[string]bool
-	if ids := req.GetRunIds(); len(ids) > 0 {
-		filter = make(map[string]bool, len(ids))
-		for _, id := range ids {
-			filter[id] = true
-		}
-	}
-	events, cancel, _ := c.watch.subscribe(filter)
+	snapshot, events, cancel, _ := c.WatchRuns(req.GetRunIds())
 	defer cancel()
 
-	snap := RunsSnapshotToWire(c.listRunsSnapshot(true, ""))
+	snap := RunsSnapshotToWire(snapshot)
 	if err := stream.Send(&agentcoordpb.WatchEvent{Kind: &agentcoordpb.WatchEvent_Snapshot{Snapshot: &agentcoordpb.RosterSnapshot{Runs: snap.GetRuns()}}}); err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -334,7 +335,7 @@ func wireEvents(events <-chan coord.Event, stop <-chan struct{}) <-chan *agentco
 			select {
 			case ev := <-events:
 				select {
-				case out <- coord.EventToWire(ev):
+				case out <- coordgrpc.EventToWire(ev):
 				case <-stop:
 					return
 				}

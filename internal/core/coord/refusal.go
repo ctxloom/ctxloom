@@ -25,7 +25,9 @@ type refused struct {
 func (e refused) Error() string        { return e.msg }
 func (e refused) Is(target error) bool { return target == e.sentinel }
 
-// refusal builds a refused error carrying sentinel and the formatted text.
-func refusal(sentinel error, format string, a ...any) error {
+// Refusal builds a refused error carrying sentinel and the formatted text:
+// the wire adapter uses it for a transport-side refusal that must carry a
+// verb's sentinel (a frame that cannot mean a request is ErrInvalidRequest).
+func Refusal(sentinel error, format string, a ...any) error {
 	return refused{sentinel: sentinel, msg: fmt.Sprintf(format, a...)}
 }

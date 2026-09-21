@@ -46,7 +46,7 @@ func newCutoverCoordinator(t *testing.T, sp Spawner, sweep time.Duration) *Coord
 		SpoolSweepInterval: sweep,
 	})
 	require.NoError(t, err, "new cutover coordinator")
-	require.NoError(t, c.Serve(), "serve cutover coordinator")
+	require.NoError(t, runnerHooks.Serve(c), "serve cutover coordinator")
 	t.Cleanup(c.Close)
 	return c
 }
@@ -470,7 +470,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: sp, OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, first.Serve())
+	require.NoError(t, runnerHooks.Serve(first))
 	out, _ := awaitCutoverChild(t, first, sp, "first task")
 	first.Close()
 
@@ -488,7 +488,7 @@ func TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut(t *testing.T) {
 		ProjectDir: t.TempDir(), StateDir: stateDir, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp,
 	})
 	require.NoError(t, err)
-	require.NoError(t, second.Serve())
+	require.NoError(t, runnerHooks.Serve(second))
 	t.Cleanup(second.Close)
 
 	got := recvBody(t, second, "written while the coordinator was down", conformanceWait)

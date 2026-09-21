@@ -638,7 +638,7 @@ func (c *Coordinator) serveStopRun(ctx context.Context, caller Identity, req Sto
 			}
 		})
 		if rec == nil || rec.ParentHarp != caller.Harp {
-			return AgentReply{Err: refusal(ErrNotAChild, "agent_stop: run %q is not a child of this session", runID)}
+			return AgentReply{Err: Refusal(ErrNotAChild, "agent_stop: run %q is not a child of this session", runID)}
 		}
 		sr.Harp = rec.Harp
 	}

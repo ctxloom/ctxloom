@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -29,13 +28,7 @@ import (
 // runner/run channels); ConsumerService is a third, independent client.
 func dialConsumer(t *testing.T, coordURL, token string) (agentcoordpb.ConsumerServiceClient, *grpc.ClientConn) {
 	t.Helper()
-	target, err := grpcTarget(coordURL)
-	require.NoError(t, err)
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(token)),
-	)
-	require.NoError(t, err)
+	conn := dialCoordinator(t, coordURL, token)
 	t.Cleanup(func() { _ = conn.Close() })
 	return agentcoordpb.NewConsumerServiceClient(conn), conn
 }
@@ -378,13 +371,7 @@ func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	token := c.consumerCreds.token()
 	require.NotEmpty(t, token)
 
-	target, err := grpcTarget(c.LoopbackURL())
-	require.NoError(t, err)
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(token)),
-	)
-	require.NoError(t, err)
+	conn := dialCoordinator(t, c.LoopbackURL(), token)
 	t.Cleanup(func() { _ = conn.Close() })
 	coordClient := agentcoordpb.NewCoordinatorServiceClient(conn)
 

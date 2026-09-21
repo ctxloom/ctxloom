@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -60,7 +60,7 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 	// inject into: a Home with no EngineHost (this run hosts no
 	// StructuredChat turn sink — see standUpRunner) means deliverNotice's
 	// third case can only buffer an arrival, never hand it to an engine.
-	// coord.NewTerminalInjector gives that Home's nudge a live stdin to write
+	// runner.NewTerminalInjector gives that Home's nudge a live stdin to write
 	// into whenever this process actually drives one interactively. This is a
 	// func value threaded through the plugin/server, not a Backend decorator,
 	// so it cannot erase an optional capability interface (agent.StructuredChat,
@@ -81,9 +81,9 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 		// agent.StateReader, agent.EngineCLIProvider). A backend that does not
 		// implement it yields nil, and a nil gate makes the injector REFUSE to
 		// inject rather than assume the terminal is safe to write into — see
-		// coord.TerminalInjector.run.
+		// runner.TerminalInjector.run.
 		gate, _ := backend.(agent.InputGate)
-		ti := coord.NewTerminalInjector(standup.home, gate)
+		ti := runner.NewTerminalInjector(standup.home, gate)
 		wrapStreams = ti.Wrap
 	}
 

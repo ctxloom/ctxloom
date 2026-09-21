@@ -1014,7 +1014,7 @@ func (c *Coordinator) peerSend(caller Identity, to, kind, body string, structure
 	// cooperative reply there is — this project's characteristic defect, newly
 	// installed. Only the writer knows whether the agent chose to send, so the
 	// writer marks it and this chokepoint reads the mark.
-	if inReplyTo != "" && !isAutoReport(structured) {
+	if inReplyTo != "" && !IsAutoReport(structured) {
 		// The CORRELATED ASK's answer (spoolcontrol.go): a reply to a
 		// coordinator question/summarize resolves the parked ask and does NOT
 		// also become mail — the asker is this coordinator, not a mailbox, and

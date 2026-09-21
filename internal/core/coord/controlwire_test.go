@@ -50,7 +50,7 @@ func controlFrame(t *testing.T, verb any) *agentcoordpb.AgentRequest {
 }
 
 // controlRun sends one ControlRun on home and returns the response.
-func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorResponse {
+func controlRun(t *testing.T, home TestHome, verb any) *agentcoordpb.CoordinatorResponse {
 	t.Helper()
 	resp, err := home.Request(context.Background(), controlFrame(t, verb))
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func controlRun(t *testing.T, home *Home, verb any) *agentcoordpb.CoordinatorRes
 // ask): the wire call runs on its own goroutine and the response — or the
 // transport error — lands on the returned channel, so no assertion runs off
 // the test goroutine.
-func controlRunAsync(t *testing.T, home *Home, verb any) <-chan *agentcoordpb.CoordinatorResponse {
+func controlRunAsync(t *testing.T, home TestHome, verb any) <-chan *agentcoordpb.CoordinatorResponse {
 	t.Helper()
 	frame := controlFrame(t, verb)
 	out := make(chan *agentcoordpb.CoordinatorResponse, 1)

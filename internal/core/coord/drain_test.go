@@ -28,7 +28,7 @@ import (
 func TestTerminateRun_DrainsInFlightRunCompleted(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")

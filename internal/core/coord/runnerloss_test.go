@@ -20,7 +20,7 @@ import (
 
 // dialFakeRunner opens a RunnerChannel to the coordinator's real gRPC endpoint
 // using the credential the coordinator minted for runID.
-func dialFakeRunner(t *testing.T, c *Coordinator, runID string) *RunnerLink {
+func dialFakeRunner(t *testing.T, c *Coordinator, runID string) TestRunnerLink {
 	t.Helper()
 	// The child's credential is the one enqueueRun minted; the test reaches
 	// it via the run record's cred hash → we can't recover the token from the
@@ -28,7 +28,7 @@ func dialFakeRunner(t *testing.T, c *Coordinator, runID string) *RunnerLink {
 	// engine would have received. The conformance path already asserts the
 	// engine gets EnvCoordCred; here we reuse that exact token.
 	env := waitForChildEnv(t, c, runID)
-	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err)
 	return link
 }
@@ -42,7 +42,7 @@ func waitForChildEnv(t *testing.T, c *Coordinator, runID string) map[string]stri
 	for time.Now().Before(deadline) {
 		sp.mu.Lock()
 		for _, e := range sp.chats {
-			env := e.runnerEnv()
+			env := e.RunnerEnv()
 			if env[EnvRunID] == runID {
 				sp.mu.Unlock()
 				return env
@@ -63,14 +63,14 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
-		return e != nil && len(e.recordedTexts()) == 1
+		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
 	// A second run queues behind the cap.
@@ -85,7 +85,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	// Close the harness-side turn too so the fake engine doesn't also emit a
 	// chat-close terminal that races (the exactly-once seam handles either,
 	// but we want to observe the RUNNER-LOSS cause deterministically).
-	link.cancel()
+	link.Abort()
 
 	require.Eventually(t, func() bool { return rosterState(c, first.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a RunnerChannel disconnect must synthesize the terminal")
@@ -117,14 +117,14 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 	clockMu.set(now)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 
 	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		e := sp.chat(0)
-		return e != nil && len(e.recordedTexts()) == 1
+		return e != nil && len(e.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 
 	link := dialFakeRunner(t, c, run.RunID)
@@ -142,7 +142,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, run.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a runner silent past the loss bound is declared lost")
 	// Keep the link referenced so its goroutines don't get GC'd mid-test.
-	link.cancel()
+	link.Abort()
 }
 
 // chanClock is a tiny mutable clock for deterministic watchdog tests.

@@ -242,7 +242,7 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	teeHome(t)
 	gate := make(chan struct{})
 	sp := cutoverSpawner(0)
-	sp.nextChat = func() *scriptedChat { return &scriptedChat{turnGate: gate} }
+	sp.nextChat = func() *scriptedChat { return &scriptedChat{TurnGate: gate} }
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(), StateDir: t.TempDir(), Spawner: sp,

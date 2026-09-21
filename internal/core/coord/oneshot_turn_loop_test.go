@@ -54,9 +54,9 @@ func TestSlotYield_MidTurnParkYieldsSlotToPeer(t *testing.T) {
 	sp := startRunSpawner(func() *scriptedChat {
 		spawns++
 		if spawns == 1 {
-			return &scriptedChat{turnGate: aGate} // A: held mid-turn, then parks
+			return &scriptedChat{TurnGate: aGate} // A: held mid-turn, then parks
 		}
-		return &scriptedChat{turnGate: bGate} // B: held mid-turn until released
+		return &scriptedChat{TurnGate: bGate} // B: held mid-turn until released
 	})
 	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
 
@@ -195,7 +195,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} }, // ends its run after each turn
+		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // ends its run after each turn
 	)
 	teeHome(t)
 	c, err := New(Options{
@@ -242,14 +242,14 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code"}, // oneshot:false
 	}, nil)
-	sp.nextChat = func() *scriptedChat { return &scriptedChat{resumable: true} }
+	sp.nextChat = func() *scriptedChat { return &scriptedChat{Resumable: true} }
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
-		return sc != nil && len(sc.recordedTexts()) == 1
+		return sc != nil && len(sc.RecordedTexts()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	// The turn boundary parks the child idle (warm), NOT ended.
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
@@ -261,13 +261,13 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
-		return sc != nil && len(sc.recordedTexts()) == 2
+		return sc != nil && len(sc.RecordedTexts()) == 2
 	}, conformanceWait, 10*time.Millisecond, "the warm engine handles turn 2 itself")
 	assert.Equal(t, 1, sp.chatCount(), "a persistent child must never spawn a second engine for a follow-up turn")
 	// The second turn was a plain follow-up, not a resume-by-key.
 	sc := sp.chat(0)
-	sc.mu.Lock()
-	require.Len(t, sc.requests, 1)
-	assert.Empty(t, sc.requests[0].ResumeSessionID, "a persistent turn never rides a resume id")
-	sc.mu.Unlock()
+	sc.Mu.Lock()
+	require.Len(t, sc.Requests, 1)
+	assert.Empty(t, sc.Requests[0].ResumeSessionID, "a persistent turn never rides a resume id")
+	sc.Mu.Unlock()
 }

@@ -58,7 +58,7 @@ func run(w io.Writer, args []string, build func() (*docsgen.Product, func(), err
 // ctxloomProduct describes ctxloom to the generator: its cobra tree, its
 // documentation-time MCP server, and where each lives (cited in the generated
 // banners so a reader knows what to edit). The returned closer releases the
-// MCP server's backing coord.Home, whose construction opens a gRPC client and
+// MCP server's backing runner.Home, whose construction opens a gRPC client and
 // two background loops.
 func ctxloomProduct() (*docsgen.Product, func(), error) {
 	mcpServer, closeMCP, err := runnermcp.NewDocServer()

@@ -11,9 +11,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner/coordtest"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/coord/coordtest"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 )
 

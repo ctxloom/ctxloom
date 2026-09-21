@@ -242,7 +242,7 @@ func TestExportRunnerMCPSocket(t *testing.T) {
 //
 // The arms deliberately NOT covered here, and why: dial-home failure,
 // EngineHost creation, and mcp.ServeRunnerMCP failure all need a real coordinator
-// endpoint (coord.NewHome retries with backoff), which is integration territory,
+// endpoint (runner.NewHome retries with backoff), which is integration territory,
 // not a unit gate. The two fail-loud decisions those arms guard are pinned
 // directly instead — exportRunnerMCPSocket, above; a config the reader
 // refuses aborts the standup before any of them (loadAndConfigureBackend).

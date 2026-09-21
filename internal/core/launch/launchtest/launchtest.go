@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -385,4 +386,28 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 		Scratch:     present.Root{Host: req.SessionDir},
 	})
 	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, Cleanup: func() error { return nil }}, nil
+}
+
+// Structured is a resolved structured-mode launch for one harp on the
+// host, carrying an empty package inline: the fixture a test hands a runner
+// half (or a coordinator's spawner double) when the launch's contents are
+// not what the test is about.
+func Structured(harp, backend, label, model, workDir string, perm agent.PermissionMode) launch.Launch {
+	enc, err := composite.Encode(composite.Package{})
+	if err != nil {
+		panic(err)
+	}
+	carrier, err := composite.Inline{}.Carry(context.Background(), enc)
+	if err != nil {
+		panic(err)
+	}
+	return launch.Launch{
+		Identity:   sessions.Identity{Harp: harp},
+		Engine:     engine.Name(backend),
+		Label:      engine.LabelConfig{Label: label, Model: model},
+		Mode:       engine.Structured,
+		Permission: perm,
+		Cell:       launch.Cell{Paths: present.OnHost(present.Paths{ProjectRoot: present.Root{Host: workDir}}), Workspace: workDir, Cleanup: func() error { return nil }},
+		Package:    carrier,
+	}
 }

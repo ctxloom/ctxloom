@@ -21,7 +21,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -64,7 +63,7 @@ type Deps struct {
 
 // Driver is the engine-drive port: coord.EngineHost implements it.
 type Driver interface {
-	Drive(ctx context.Context, t coord.Turn) error
+	Drive(ctx context.Context, t Turn) error
 }
 
 // Outcome is what Execute reports once the engine is driven.
@@ -146,7 +145,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	env := l.EngineEnv()
 	servers := bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP)
 	mcpConfig := mcpFileOf(delivered)
-	turn := coord.Turn{
+	turn := Turn{
 		Launch: l,
 		Chat: agent.ChatRequest{
 			WorkDir:     l.Cell.Workspace,

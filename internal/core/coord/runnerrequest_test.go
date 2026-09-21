@@ -41,7 +41,7 @@ func TestRequestRunner_RoundTrip(t *testing.T) {
 			}},
 		}
 	}
-	link, err := DialRunner(context.Background(), termSink(), c.LoopbackURL(), token, "", "mock", "test", handler)
+	link, err := runnerHooks.DialRunner(context.Background(), termSink(), c.LoopbackURL(), token, "", "mock", "test", handler)
 	require.NoError(t, err)
 	t.Cleanup(link.Abort)
 
@@ -92,7 +92,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -111,7 +111,7 @@ func TestAwaitRunner_WakesOnRegistration(t *testing.T) {
 	// Give the waiter a moment to register before the runner dials in.
 	time.Sleep(20 * time.Millisecond)
 
-	link, err := DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(context.Background(), termSink(), env[EnvCoordURL], env[EnvCoordCred], env[EnvRunID], "mock", "test", nil)
 	require.NoError(t, err)
 	t.Cleanup(link.Abort)
 

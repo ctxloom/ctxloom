@@ -24,7 +24,7 @@
 // the coordinator->child half of requirement 4 (a real agent_send call,
 // content verified in the child's own recorded next turn); the coordinator's
 // own mailbox, read through agent_recv, proves the child->coordinator half
-// through the runner's automatic turn report (coord.EngineHost,
+// through the runner's automatic turn report (runner.EngineHost,
 // spoolturnresult.go). The @negative-probe scenario is what makes that
 // dependency checkable rather than asserted: withhold the runner and neither
 // observable appears.

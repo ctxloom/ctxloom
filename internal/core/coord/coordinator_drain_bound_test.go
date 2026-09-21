@@ -67,7 +67,7 @@ func spawnGatedChild(t *testing.T, sp *fakeSpawner, c *Coordinator) string {
 		if len(sp.chats) == 0 {
 			return false
 		}
-		return len(sp.chats[0].recordedTexts()) == 1
+		return len(sp.chats[0].RecordedTexts()) == 1
 	}, conformanceWait, 5*time.Millisecond, "the first turn must reach the engine before the test acts")
 	return out.Harp
 }
@@ -90,7 +90,7 @@ func TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the turn never yields
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 300 * time.Millisecond
 
@@ -133,7 +133,7 @@ func TestBeginDrain_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute // far past the test: a drain that waits for it fails
 
@@ -186,7 +186,7 @@ func TestBeginDrain_QueuedChildEndsImmediately(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1)
 	c.drainBound = 300 * time.Millisecond
 
@@ -216,7 +216,7 @@ func TestBeginDrain_ChildDyingDuringDrainIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -259,7 +259,7 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnGatedChild(t, sp, c)
@@ -274,9 +274,9 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 
 	require.Eventually(t, func() bool { return sp.chatCount() == 2 }, conformanceWait, 5*time.Millisecond,
 		"a child that dies with mail pending must be relaunched exactly once")
-	require.Eventually(t, func() bool { return len(sp.chat(1).recordedTexts()) > 0 }, conformanceWait, 5*time.Millisecond,
+	require.Eventually(t, func() bool { return len(sp.chat(1).RecordedTexts()) > 0 }, conformanceWait, 5*time.Millisecond,
 		"the relaunched run must receive a first turn")
-	texts := sp.chat(1).recordedTexts()
+	texts := sp.chat(1).RecordedTexts()
 	assert.Len(t, texts, 1, "the leftover mail is one turn, not several")
 	assert.Contains(t, texts[0], leftover, "the relaunched run's first turn must carry the message that raced the death")
 	// The consume-rename is the runner's ACCEPTANCE of the turn, and it
@@ -342,7 +342,7 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 	testsupport.Isolate(t)
 	gate := make(chan struct{})
 	sp := &lockingSpawner{fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{turnGate: gate} })}
+		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })}
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 100 * time.Millisecond
 

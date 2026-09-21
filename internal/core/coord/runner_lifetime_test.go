@@ -42,7 +42,7 @@ func newTestCoordinatorIdle(t *testing.T, sp Spawner, clock func() time.Time, id
 // process resumed by the captured native key. One spawn for two turns.
 func TestRunnerLifetime_OneShotBoundaryParksTheRunner_MailRidesTheSameRunner(t *testing.T) {
 	resetStrictness(t)
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true} })
+	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{Resumable: true} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -67,9 +67,9 @@ func TestRunnerLifetime_OneShotBoundaryParksTheRunner_MailRidesTheSameRunner(t *
 	assert.Equal(t, out.RunID, currentRunID(c, out.Harp), "the run incarnation is unchanged across the boundary")
 	sc := sp.chat(0)
 	require.NotNil(t, sc)
-	sc.mu.Lock()
-	requests := append([]agent.ChatRequest(nil), sc.requests...)
-	sc.mu.Unlock()
+	sc.Mu.Lock()
+	requests := append([]agent.ChatRequest(nil), sc.Requests...)
+	sc.Mu.Unlock()
 	require.Len(t, requests, 2, "a discrete engine process per turn, inside one runner")
 	assert.Equal(t, "", requests[0].ResumeSessionID)
 	assert.Equal(t, "native-sess-42", requests[1].ResumeSessionID, "turn 2 resumes the engine by the key turn 1 reported")
@@ -82,7 +82,7 @@ func TestRunnerLifetime_OneShotBoundaryParksTheRunner_MailRidesTheSameRunner(t *
 // result and the key the next turn resumes by.
 func TestRunnerLifetime_TurnFrameDrivesAParkedRunner(t *testing.T) {
 	resetStrictness(t)
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{resumable: true} })
+	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{Resumable: true} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")

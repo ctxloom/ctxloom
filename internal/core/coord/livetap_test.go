@@ -211,7 +211,7 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	sctx, cancel := context.WithCancel(context.Background())
 	backend := string(l.Engine)
-	host := coord.NewEngineHost(sctx, nil, s.chat, backend, runnerEnv[coord.EnvRunID])
+	host := runner.NewEngineHost(sctx, nil, s.chat, backend, runnerEnv[coord.EnvRunID])
 	host.BindRunner(runner.Host{Deps: runner.Deps{
 		Kind:       mock.NewNamed(l.Engine),
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
@@ -219,7 +219,7 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 		Static:     noDelivery{},
 		Driver:     host,
 	}})
-	home, err := coord.NewHome(sctx, coord.HomeConfig{
+	home, err := runner.NewHome(sctx, runner.HomeConfig{
 		URL:     runnerEnv[coord.EnvCoordURL],
 		Token:   runnerEnv[coord.EnvCoordCred],
 		RunID:   runnerEnv[coord.EnvRunID],

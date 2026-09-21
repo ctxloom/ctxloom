@@ -65,7 +65,7 @@ func cutoverSpawner(sweep time.Duration) *fakeSpawner {
 // up, and returns the run plus its Home. It asserts the CUTOVER reached the
 // runner: a coordinator cut over alone would write files nothing reads, and
 // every test below would then be measuring the sweep of an empty directory.
-func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt string) (*RunOutcome, *Home) {
+func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt string) (*RunOutcome, TestHome) {
 	t.Helper()
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", prompt, "", "")
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func awaitCutoverChild(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt str
 // be delivered and consumed by it, and the test would be measuring which of
 // the two happened to go first. After it, the next sweep is a production
 // interval away and the test owns the directory.
-func awaitCutoverChildIdle(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt string) (*RunOutcome, *Home) {
+func awaitCutoverChildIdle(t *testing.T, c *Coordinator, sp *fakeSpawner, prompt string) (*RunOutcome, TestHome) {
 	t.Helper()
 	out, home := awaitCutoverChild(t, c, sp, prompt)
 	require.Eventually(t, func() bool {
@@ -136,7 +136,7 @@ func awaitChatText(t *testing.T, sp *fakeSpawner, i int, want string) []string {
 		if sc == nil {
 			return false
 		}
-		texts = sc.recordedTexts()
+		texts = sc.RecordedTexts()
 		for _, got := range texts {
 			if strings.Contains(got, want) {
 				return true
@@ -154,7 +154,7 @@ func countChatText(sp *fakeSpawner, i int, want string) int {
 		return 0
 	}
 	n := 0
-	for _, got := range sc.recordedTexts() {
+	for _, got := range sc.RecordedTexts() {
 		if strings.Contains(got, want) {
 			n++
 		}
@@ -346,7 +346,7 @@ func TestSpoolDelivery_ColdRunnerDrainsItsSpoolBeforeAnyChannel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	home, err := NewHome(ctx, HomeConfig{
+	home, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		// An address nothing serves: NewHome never fails hard, so the
 		// channel loops just keep reconnecting and no doorbell is possible.
@@ -399,7 +399,7 @@ func TestSpoolDelivery_AwaitMailAckedWaitsForTheConsumeRename(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	home, err := NewHome(ctx, HomeConfig{
+	home, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-await", Harness: "mock", Harp: harp,
 	})
@@ -454,46 +454,6 @@ func TestSpoolDelivery_AwaitMailAckedWaitsForTheConsumeRename(t *testing.T) {
 
 	require.NoError(t, home.AwaitMailAcked(context.Background(), []string{"never-delivered"}),
 		"an id this runner never delivered has no ack in flight: nothing to wait for")
-}
-
-// TestSpoolDelivery_ExitedRunnerStopsSweepingIn: a runner that has reported
-// RunExited has no engine to hand a turn to. If it kept sweeping in/, mail
-// written for the harp's NEXT run (the resume the coordinator is about to
-// launch) could be delivered into this dead sink and consumed — the next run
-// then finds nothing and idles forever.
-func TestSpoolDelivery_ExitedRunnerStopsSweepingIn(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	const harp = "exited-runner-harp"
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	home, err := NewHome(ctx, HomeConfig{
-		Reporter: termSink(),
-		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-exited", Harness: "mock", Harp: harp,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { home.Crash() })
-	delivered := make(chan string, 4)
-	home.SetTurnSink(func(pm *agentcoordpb.PeerMessage) bool {
-		delivered <- pm.GetText()
-		return true
-	})
-
-	home.ReportRunExited(0, "") // no link to send on; the exit is still this runner's state
-
-	w, err := spool.NewWriter(spool.NewHomeMapper(), harp, spool.DirIn, spoolWriterIDCoordinator)
-	require.NoError(t, err)
-	_, err = w.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: harp, Body: "for the next run"})
-	require.NoError(t, err)
-
-	home.sweepSpoolIn() // the reactor's body, called directly: synchronous, so the assertion below is not a timing guess
-	select {
-	case text := <-delivered:
-		t.Fatalf("an exited runner delivered %q into its dead engine", text)
-	default:
-	}
-	assert.Len(t, spoolEntries(t, harp, spool.DirIn), 1, "the file stays in in/ for the run that will actually answer it")
 }
 
 // TestSpoolDelivery_ColdCoordinatorRoutesWhatItFindsInOut is the startup scan's
@@ -573,7 +533,7 @@ func TestSpoolDelivery_ConsumedMailIsNeverDeliveredTwice(t *testing.T) {
 	// runner's in-memory dedupe is gone and only the rename remains.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	fresh, err := NewHome(ctx, HomeConfig{
+	fresh, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh",
 		Harness: "mock", Harp: out.Harp,
@@ -616,23 +576,9 @@ func TestSpoolDelivery_ConsumeThatLostItsRaceIsNotAFailure(t *testing.T) {
 	// can reach the fixture file before the test's own "other path wins"
 	// consume does, and this call fails with the very race the test exists to
 	// pin, instead of the arranged one.
-	out, home := awaitCutoverChildIdle(t, c, sp, "first task")
+	out, _ := awaitCutoverChildIdle(t, c, sp, "first task")
 
 	mapper := spool.NewHomeMapper()
-
-	// Runner side: a file whose consume the other path already won.
-	inW, err := spool.NewWriter(mapper, out.Harp, spool.DirIn, spoolWriterIDCoordinator)
-	require.NoError(t, err)
-	inRef, err := inW.Write(&spool.Message{Kind: KindMessage, FromHarp: "coordinator-harp", To: out.Harp, Body: "raced"})
-	require.NoError(t, err)
-	_, err = spool.Consume(mapper, inRef) // the other path wins
-	require.NoError(t, err)
-
-	failedBefore := home.SpoolDeliveryStats().Failed
-	home.rememberSpoolRef("m-raced", inRef)
-	home.ackMailConsumed([]string{"m-raced"})
-	assert.Equal(t, failedBefore, home.SpoolDeliveryStats().Failed,
-		"a consume that lost its race is the other path having won, never a failed delivery")
 
 	// Coordinator side: the same, for an out/ file.
 	outW, err := spool.NewWriter(mapper, out.Harp, spool.DirOut, out.Harp)
@@ -685,27 +631,6 @@ func TestSpoolDelivery_SenderIdentityIsTheDirectoryNotTheFile(t *testing.T) {
 
 	require.Eventually(t, func() bool { return len(spoolEntries(t, out.Harp, spool.DirOut)) == 0 }, conformanceWait, 10*time.Millisecond)
 	_ = ref
-}
-
-// TestSpoolDelivery_ForeignHarpDoorbellIsRefused is the same discipline on the
-// runner's inbound side: a runner has exactly one spool, and a doorbell naming
-// any other harp is refused rather than followed.
-func TestSpoolDelivery_ForeignHarpDoorbellIsRefused(t *testing.T) {
-	resetStrictness(t)
-	teeHome(t)
-	sp := cutoverSpawner(0)
-	c := newCutoverCoordinator(t, sp, 0)
-	out, home := awaitCutoverChild(t, c, sp, "first task")
-
-	before := home.SpoolDoorbellStats().Rejected
-	home.handleSpoolChanged(&agentcoordpb.SpoolChanged{
-		Harp: "somebody-elses-harp",
-		Dir:  agentcoordpb.SpoolDir_SPOOL_DIR_IN,
-		Name: "00000000000000000001.00000001.coord.md",
-	})
-	assert.Equal(t, before+1, home.SpoolDoorbellStats().Rejected,
-		"a runner pointed at another session's spool must refuse, loudly and countably")
-	assert.NotEqual(t, "somebody-elses-harp", out.Harp)
 }
 
 // TestSpoolDelivery_NonObjectStructuredSurvivesTheDelivery pins the wrapper on
@@ -852,7 +777,7 @@ func TestSpoolDelivery_UnmappableKindReachesATerminalState(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	home, err := NewHome(ctx, HomeConfig{
+	home, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      "http://127.0.0.1:1/mcp",
 		Token:    "unused",

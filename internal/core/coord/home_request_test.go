@@ -15,9 +15,9 @@ import (
 
 // attachedHome stands up a Home whose run channel has actually attached, so a
 // request failure can only be a budget expiry — never "we never got through".
-func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]string) *Home {
+func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]string) TestHome {
 	t.Helper()
-	h, err := NewHome(context.Background(), HomeConfig{
+	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
 		Reporter: termSink(),
 		URL:      env[EnvCoordURL],
 		Token:    env[EnvCoordCred],
@@ -34,7 +34,7 @@ func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]str
 }
 
 // TestRequest_DeliveredButSlowIsADeadlineNotUnreachable pins the distinction a
-// single ErrCoordinatorUnreachable collapsed: a request the coordinator
+// single runnerHooks.ErrCoordinatorUnreachable collapsed: a request the coordinator
 // ACCEPTED and is still working on, whose caller budget then expires, is a
 // blown budget — not a down coordinator. Reporting it as "unreachable (the
 // runner keeps reconnecting)" sent recover_session's caller chasing a phantom
@@ -61,20 +61,20 @@ func TestRequest_DeliveredButSlowIsADeadlineNotUnreachable(t *testing.T) {
 	require.Error(t, rerr)
 	assert.ErrorIs(t, rerr, context.DeadlineExceeded,
 		"a delivered-but-slow request is a blown budget, and must surface as one")
-	assert.NotErrorIs(t, rerr, ErrCoordinatorUnreachable,
+	assert.NotErrorIs(t, rerr, runnerHooks.ErrCoordinatorUnreachable,
 		"the coordinator was reachable and running the request — calling it unreachable is a misdiagnosis")
 }
 
 // TestRequest_NeverAttachedIsUnreachable keeps the other half honest: when the
 // run channel never attached, the caller genuinely could not get through, and
-// ErrCoordinatorUnreachable remains the right answer.
+// runnerHooks.ErrCoordinatorUnreachable remains the right answer.
 func TestRequest_NeverAttachedIsUnreachable(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, researcherSpawner(), nil)
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 
-	h, err := NewHome(context.Background(), HomeConfig{
+	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
 		Reporter: termSink(),
 		URL:      env[EnvCoordURL],
 		Token:    env[EnvCoordCred],
@@ -93,5 +93,5 @@ func TestRequest_NeverAttachedIsUnreachable(t *testing.T) {
 	})
 
 	assert.False(t, h.Attached(), "the rejected Hello must not count as an attach")
-	require.ErrorIs(t, rerr, ErrCoordinatorUnreachable)
+	require.ErrorIs(t, rerr, runnerHooks.ErrCoordinatorUnreachable)
 }

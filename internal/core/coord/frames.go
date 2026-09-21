@@ -18,6 +18,10 @@ import (
 // for each (its own table, keyed by the sentinel errors this package
 // exports).
 
+// DefaultRequestTimeout bounds a request on either plane when the caller's ctx
+// carries no deadline.
+const DefaultRequestTimeout = 60 * time.Second
+
 // --- the runner plane (RunnerChannel) ---------------------------------------
 
 // RunnerHello is what a runner says on every (re)connect: its

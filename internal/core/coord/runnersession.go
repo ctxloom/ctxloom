@@ -269,7 +269,7 @@ func (c *Coordinator) requestRunner(ctx context.Context, credHash string, req Ru
 
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
+		ctx, cancel = context.WithTimeout(ctx, DefaultRequestTimeout)
 		defer cancel()
 	}
 	select {

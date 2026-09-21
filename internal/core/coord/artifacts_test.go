@@ -12,9 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
@@ -32,13 +30,7 @@ import (
 // chunk).
 func dialArtifactClient(t *testing.T, c *Coordinator, token string) agentcoordpb.ArtifactTransferServiceClient {
 	t.Helper()
-	target, err := grpcTarget(c.LoopbackURL())
-	require.NoError(t, err)
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithPerRPCCredentials(bearerCreds(token)),
-	)
-	require.NoError(t, err)
+	conn := dialCoordinator(t, c.LoopbackURL(), token)
 	t.Cleanup(func() { _ = conn.Close() })
 	return agentcoordpb.NewArtifactTransferServiceClient(conn)
 }
@@ -93,7 +85,7 @@ func uploadRaw(t *testing.T, client agentcoordpb.ArtifactTransferServiceClient, 
 // reportArtifact journals the manifest fact for an already-uploaded
 // artifact (the produce path's second half — mcp_runner.go's reportHandler
 // does both steps together; this test drives them explicitly).
-func reportArtifact(t *testing.T, home *Home, artifactID string, data []byte, receipt *agentcoordpb.ArtifactReceipt) {
+func reportArtifact(t *testing.T, home TestHome, artifactID string, data []byte, receipt *agentcoordpb.ArtifactReceipt) {
 	t.Helper()
 	sum := sha256.Sum256(data)
 	err := home.Report(context.Background(), nil, []*agentcoordpb.ArtifactProduced{{

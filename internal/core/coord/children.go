@@ -286,7 +286,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// separate steps below can block for an unbounded time (agent
 	// resolution, the session-index flock inside AssignSession, the
 	// reach-back endpoint). Measured once at 6m59s, against a caller budget
-	// of defaultRequestTimeout: the caller times out, sees nothing anywhere,
+	// of DefaultRequestTimeout: the caller times out, sees nothing anywhere,
 	// concludes the spawn never happened, and retries — which is how one
 	// brief came to be executed by three concurrent children in one checkout
 	// (task affected-yearly).
@@ -393,7 +393,7 @@ func (c *Coordinator) releaseAssignedHarp(harp string, cause error) {
 }
 
 // defaultSpawnNoticeAfter is how long agent_run's pre-registration span may
-// run before it reports itself. Well inside defaultRequestTimeout, the
+// run before it reports itself. Well inside DefaultRequestTimeout, the
 // caller's own budget: the point is that a notice exists BEFORE the caller
 // gives up and starts deciding whether to retry, not after.
 const defaultSpawnNoticeAfter = 15 * time.Second
@@ -947,9 +947,9 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 	// dies only on coordinator shutdown, so binding the request to it left a
 	// stop issued after the dial-home wait — the runner is up, StartRun is on
 	// the wire, the engine has not answered — with nothing to cancel: the
-	// coordinator stayed parked for the whole defaultRequestTimeout while the
+	// coordinator stayed parked for the whole DefaultRequestTimeout while the
 	// operator's stop reported success.
-	rctx, rcancel := context.WithTimeout(ctx, defaultRequestTimeout)
+	rctx, rcancel := context.WithTimeout(ctx, DefaultRequestTimeout)
 	resp, err := c.requestRunner(rctx, credHash, RunnerRequest{Kind: StartRun{RunID: rt.runID, Launch: l}})
 	rcancel()
 	if err != nil {

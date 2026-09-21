@@ -428,7 +428,7 @@ func (c *Coordinator) runnerControl(ctx context.Context, by ControlInitiator, ha
 	}
 	if _, has := ctx.Deadline(); !has {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultRequestTimeout)
+		ctx, cancel = context.WithTimeout(ctx, DefaultRequestTimeout)
 		defer cancel()
 	}
 	resp, err := c.requestRunner(ctx, rec.CredHash, req)

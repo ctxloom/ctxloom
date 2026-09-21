@@ -24,11 +24,11 @@ import (
 
 // ownerHome registers a session-owner credential and opens a Home on it
 // (Hello with an empty run_id — the owner attach).
-func ownerHome(t *testing.T, c *Coordinator) *Home {
+func ownerHome(t *testing.T, c *Coordinator) TestHome {
 	t.Helper()
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
-	h, err := NewHome(context.Background(), HomeConfig{
+	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
 		Reporter: termSink(),
 		URL:      c.LoopbackURL(),
 		Token:    token,
@@ -49,15 +49,15 @@ func ownerHome(t *testing.T, c *Coordinator) *Home {
 // one runner: dialing a second Home with the same credential would
 // supersede the first, and the coordinator would refuse the StartRun it was
 // about to issue.
-func childHome(t *testing.T, c *Coordinator, runID string) *Home {
+func childHome(t *testing.T, c *Coordinator, runID string) TestHome {
 	t.Helper()
 	sp := c.spawner.(*fakeSpawner)
-	var h *Home
+	var h TestHome
 	require.Eventually(t, func() bool {
 		sp.mu.Lock()
 		defer sp.mu.Unlock()
 		for _, home := range sp.engineHomes {
-			if home.cfg.RunID == runID {
+			if home.RunID() == runID {
 				h = home
 				return home.Harp() != ""
 			}
@@ -152,9 +152,7 @@ func TestRunChannel_RecvPreemptionAndTimeout(t *testing.T) {
 		firstErr <- err
 	}()
 	require.Eventually(t, func() bool {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		return h.park != nil
+		return h.RecvParked()
 	}, conformanceWait, 10*time.Millisecond)
 
 	// The newer receive preempts the parked one...
@@ -290,7 +288,7 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 	out := spawnResearcher(t, c)
 	env := waitForChildEnv(t, c, out.RunID)
 
-	h, err := NewHome(context.Background(), HomeConfig{
+	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
 		Reporter: termSink(),
 		URL:      env[EnvCoordURL],
 		Token:    env[EnvCoordCred],
@@ -308,7 +306,7 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 	_, rerr := h.Request(ctx, &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_ListRuns{ListRuns: &agentcoordpb.ListRunsRequest{}},
 	})
-	require.ErrorIs(t, rerr, ErrCoordinatorUnreachable)
+	require.ErrorIs(t, rerr, runnerHooks.ErrCoordinatorUnreachable)
 }
 
 // TestServePeerSend_UnmarshalableStructuredIsRefused is the regression guard:

@@ -9,7 +9,7 @@ import (
 )
 
 // TestNewDocServer_ClosesItsHome pins the leak. The doc server
-// is built on a coord.Home, and constructing one is not free: it opens a gRPC
+// is built on a runner.Home, and constructing one is not free: it opens a gRPC
 // client and dispatches two background loops that go on redialling the
 // deliberately-dead endpoint. Every call to NewDocServer therefore leaked a
 // connection and two goroutines for the life of the process — and the two list

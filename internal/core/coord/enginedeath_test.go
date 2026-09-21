@@ -35,7 +35,7 @@ const engineDeathTail = "acp: connection closed (engine stderr tail: SyntaxError
 func TestTerminateRun_DeadEngineReasonReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -110,7 +110,7 @@ func TestRunnerLoss_StderrTailReachesParentMailbox(t *testing.T) {
 	resetStrictness(t)
 	const containerTail = "FATAL: node: bad option: --nonsense (container entrypoint died)"
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{turnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
 	sp.engineStderrTail = func() string { return containerTail }
 	c := newTestCoordinator(t, sp, nil)
 

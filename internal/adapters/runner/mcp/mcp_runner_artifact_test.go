@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -39,7 +40,7 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	const harp = "owner-harp"
 	token, err := c.RegisterSessionOwner(harp)
 	require.NoError(t, err)
-	home, err := coord.NewHome(context.Background(), coord.HomeConfig{
+	home, err := runner.NewHome(context.Background(), runner.HomeConfig{
 		URL:     c.LoopbackURL(),
 		Token:   token,
 		RunID:   "", // depth-0 session owner
@@ -144,7 +145,7 @@ func TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir(t *testing.T) {
 	const harp = "owner-harp"
 	token, err := c.RegisterSessionOwner(harp)
 	require.NoError(t, err)
-	home, err := coord.NewHome(context.Background(), coord.HomeConfig{
+	home, err := runner.NewHome(context.Background(), runner.HomeConfig{
 		URL:     c.LoopbackURL(),
 		Token:   token,
 		RunID:   "",

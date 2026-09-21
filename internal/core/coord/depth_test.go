@@ -109,7 +109,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	sp.nextChat = func() *scriptedChat {
 		spawned++
 		if spawned == 2 {
-			return &scriptedChat{turnGate: make(chan struct{})}
+			return &scriptedChat{TurnGate: make(chan struct{})}
 		}
 		return &scriptedChat{}
 	}
@@ -164,9 +164,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 		childRecv <- msgs
 	}()
 	require.Eventually(t, func() bool {
-		childH.mu.Lock()
-		defer childH.mu.Unlock()
-		return childH.parked
+		return childH.RecvParked()
 	}, conformanceWait, 10*time.Millisecond, "the child's receive must be parked before the grandchild sends")
 
 	// Hop 1: grandchild -> ITS OWN direct parent (the child), never root

@@ -111,7 +111,7 @@ func TestDialReachBackSocket_UnixDefault(t *testing.T) {
 // twice via the discovery marker) with zero diagnostic either way.
 func TestPrepareForward_EmitsPreForwardDiagnostic(t *testing.T) {
 	testsupport.Isolate(t) // no CTXLOOM_SESSION_HARP set: nothing to mismatch, forward is accepted
-	// Race guard: testHome's coord.Home runs a background reconnect-loop
+	// Race guard: testHome's runner.Home runs a background reconnect-loop
 	// goroutine that calls clidiag.WarnOnce, which falls back to reading the
 	// bare os.Stderr var when no sink is installed — racing captureStderr's
 	// os.Stderr reassignment below. Installing a sink first routes that

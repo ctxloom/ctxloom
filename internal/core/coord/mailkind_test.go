@@ -1,6 +1,7 @@
 package coord
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -60,8 +61,8 @@ func childSpoolSend(t *testing.T, req *agentcoordpb.PeerSendRequest) (*Coordinat
 	sp := cutoverSpawner(0)
 	c := newTestCoordinator(t, sp, nil)
 	out, home := awaitCutoverChild(t, c, sp, "do the thing")
-	resp, handled := home.sendPeerViaSpool(&agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: req}})
-	require.True(t, handled, "every agent_send is handled locally")
+	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: req}})
+	require.NoError(t, err, "every agent_send is handled locally")
 	return c, out, resp
 }
 

@@ -56,7 +56,7 @@ func TestSpoolDoorbell_RunnerToCoordinatorRoundTrip(t *testing.T) {
 			})
 
 			want := spool.Ref{Harp: doorbellHarp, Dir: dir, Name: doorbellName}
-			require.NoError(t, h.ringSpool(want))
+			require.NoError(t, h.RingSpool(want))
 
 			assert.Equal(t, want, waitRef(t, got),
 				"the doorbell must arrive as the IDENTICAL ref: every field is a coordinate the receiver joins into a path, so a lost or altered one resolves somewhere else")
@@ -224,7 +224,7 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-			h := dialHome(t, c, doorbellHarp)
+			_ = dialHome(t, c, doorbellHarp) // the child's channel is what the doorbell arrives on
 
 			fired := make(chan spool.Ref, 1)
 			c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { fired <- ref })
@@ -244,7 +244,11 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 				require.NotNil(t, ch)
 				handleAgentFrame(c, ch, &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: nil}})
 			} else {
-				h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: tc.msg}})
+				c.mu.Lock()
+				ch := c.chans[doorbellHarp]
+				c.mu.Unlock()
+				require.NotNil(t, ch)
+				handleAgentFrame(c, ch, &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{SpoolChanged: tc.msg}})
 			}
 
 			require.Eventually(t, func() bool {
@@ -278,7 +282,7 @@ func TestSpoolDoorbell_InvalidRefRejectedAtTheChokepoint(t *testing.T) {
 // latency (see TestSpoolDoorbell_RefusedForgedHarpStillDeliveredByTheSweep).
 func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
 	c := newTestCoordinator(t, newFakeSpawner(nil, nil), nil)
-	h := dialHome(t, c, doorbellHarp)
+	_ = dialHome(t, c, doorbellHarp) // the child's channel is what the doorbell arrives on
 
 	got := make(chan spool.Ref, 1)
 	c.SetSpoolDoorbellHandler(func(_ string, ref spool.Ref) { got <- ref })
@@ -287,8 +291,13 @@ func TestSpoolDoorbell_ForgedHarpIsRefused(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	// Syntactically perfect, and about somebody else's spool.
-	h.send(&agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{
+	// Syntactically perfect, and about somebody else's spool — arriving on
+	// the child's own channel, the way the runner would send it.
+	c.mu.Lock()
+	ch := c.chans[doorbellHarp]
+	c.mu.Unlock()
+	require.NotNil(t, ch)
+	handleAgentFrame(c, ch, &agentcoordpb.AgentFrame{Kind: &agentcoordpb.AgentFrame_SpoolChanged{
 		SpoolChanged: &agentcoordpb.SpoolChanged{
 			Harp: "innocent-sibling-session",
 			Dir:  agentcoordpb.SpoolDir_SPOOL_DIR_OUT,
@@ -428,7 +437,7 @@ func TestSpoolDoorbell_DropsWhenItCannotBeSent(t *testing.T) {
 		h.Close(0, "")
 
 		done := make(chan error, 1)
-		go func() { done <- h.ringSpool(ref) }()
+		go func() { done <- h.RingSpool(ref) }()
 		select {
 		case err := <-done:
 			assert.NoError(t, err)
@@ -455,7 +464,7 @@ func TestSpoolDoorbell_InvalidRefNeverReachesTheWire(t *testing.T) {
 	}
 	for _, ref := range bad {
 		assert.Error(t, c.ringSpool(doorbellHarp, ref), "coordinator must refuse to ring about %s", ref)
-		assert.Error(t, h.ringSpool(ref), "runner must refuse to ring about %s", ref)
+		assert.Error(t, h.RingSpool(ref), "runner must refuse to ring about %s", ref)
 	}
 	assert.Zero(t, c.SpoolDoorbellStats().Dropped,
 		"a refused ref was never a doorbell, so it is not a DROP — conflating the two would hide real drops in the count")
@@ -480,7 +489,7 @@ func TestSpoolDoorbell_CarriesNothingButTheReference(t *testing.T) {
 // dialHome stands up a REAL runner Home against c, attached as harp,
 // advertising exactly caps. The end-to-end dial is the point: only a real
 // Hello attaches a real run channel on both sides.
-func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
+func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) TestHome {
 	t.Helper()
 	url, err := c.ReachURL("host")
 	require.NoError(t, err)
@@ -489,7 +498,7 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	h, err := NewHome(ctx, HomeConfig{
+	h, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      url, Token: token, Harness: "test", Version: "test",
 		Capabilities: caps,
@@ -511,10 +520,6 @@ func dialHome(t *testing.T, c *Coordinator, harp string, caps ...string) *Home {
 	// arm) — silently, because fire-and-forget is the design. That is a
 	// fixture defect, not a product one: it turns "the doorbell arrived" into
 	// a race against the scheduler, lost whenever the box is busy.
-	require.Eventually(t, func() bool {
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		return h.stream != nil
-	}, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
+	require.Eventually(t, h.Attached, 10*time.Second, 10*time.Millisecond, "the runner's own end of the run channel must be attached, or a send made now is dropped as 'run channel down'")
 	return h
 }

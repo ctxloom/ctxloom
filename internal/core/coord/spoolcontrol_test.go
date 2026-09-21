@@ -123,7 +123,7 @@ func TestSpoolSteer_WithdrawnBeforeReadNeverReachesTheEngine(t *testing.T) {
 	// runner's in-memory state is gone and only the directories remain.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	fresh, err := NewHome(ctx, HomeConfig{
+	fresh, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      "http://127.0.0.1:1/mcp", Token: "unused", RunID: "run-fresh-steer",
 		Harness: "mock", Harp: out.Harp,
@@ -177,7 +177,7 @@ func TestSpoolSteer_WithdrawAfterConsumeSaysSoHonestly(t *testing.T) {
 // answerAsk replies to a delivered ask from the CHILD's own runner — an
 // ordinary agent_send quoting the ask's id, which under the cutover is a local
 // write into the child's out/ spool.
-func answerAsk(t *testing.T, home *Home, askID, text string, structured *structpb.Struct) {
+func answerAsk(t *testing.T, home TestHome, askID, text string, structured *structpb.Struct) {
 	t.Helper()
 	resp, err := home.Request(context.Background(), &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{

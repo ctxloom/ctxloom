@@ -74,7 +74,7 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	second := newTestCoordinatorOver(t, stateDir, sp)
 	// The endpoint is back: the runner is told to redial NOW rather than at
 	// the end of its backoff (a dial that landed before Serve costs another
-	// homeRedialBackoff, and two of them outrun the window under load). The
+	// runnerHooks.HomeRedialBackoff, and two of them outrun the window under load). The
 	// Hello then lands on the re-bound endpoint and names the run.
 	sp.engineHome(0).Redial()
 	require.Eventually(t, func() bool { return second.runnerConnected(out.RunID) }, conformanceWait, 10*time.Millisecond,

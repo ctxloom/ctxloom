@@ -9,7 +9,7 @@ package archrules
 // fail an entry the scan no longer reports.
 var WriteDisciplineAllowed = map[string]string{
 	"internal/core/coord/artifactstore.go#artifactStore.publish":             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
-	"internal/core/coord/homeartifacts.go#Home.DownloadArtifact":             "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
+	"internal/adapters/runner/homeartifacts.go#Home.DownloadArtifact":        "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/coord/httpserver.go#coordServing.saveEndpointLocked":      "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/coord/journal.go#openStoreFromOffset":                     "pre-ratchet baseline — migrate to iox (fs-consolidation plan C3/C10)",
 	"internal/core/coord/statedir.go#claimOwner":                             "advisory lock file's own O_EXCL create — mechanically parallel to the old filelock package's (deleted) exemption but never itself part of it (fs-consolidation plan C10 to decide: fold into a shared lock-file-create helper or exempt structurally)",

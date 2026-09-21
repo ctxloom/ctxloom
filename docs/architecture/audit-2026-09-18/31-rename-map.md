@@ -8,7 +8,7 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 |---|---|---|---|
 | `internal/agentcoord` | `internal/adapters/coordgrpc/pb` | adapters | rename paragraph: the generated proto → adapters/coordgrpc/pb |
 | `internal/agentcoord/coord` | `internal/core/coord` | core | rename paragraph: agentcoord/coord → core/coord |
-| `internal/agentcoord/coord/coordtest` | `internal/core/coord/coordtest` | core | subpackage keeps its relative path under core/coord |
+| `internal/agentcoord/coord/coordtest` | `internal/adapters/runner/coordtest` | adapters | slice 14a (5): the in-process runner double moves beside the runner it stands up |
 | `internal/agentcoord/discover` | `internal/adapters/coordgrpc/discover` | adapters | Part 1.1: discover moves to adapters/coordgrpc (slice 10) |
 | `internal/agentcoord/mcpschema` | `internal/adapters/coordgrpc/mcpschema` | adapters | JUDGMENT: Part 4.1 row 10 folds mcpschema into adapters/coordgrpc; until then it sits beside the proto it binds |
 | `internal/agentcoord/mcpschema/gen` | `internal/adapters/coordgrpc/mcpschema/gen` | adapters | subpackage keeps its relative path under mcpschema |

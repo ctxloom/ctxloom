@@ -37,8 +37,9 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
 		*started = true
 		sctx, cancel := context.WithCancel(ctx)
-		host := newTestEngineHost(sctx, sc, backend, spawnEnv[EnvRunID])
-		home, err := NewHome(sctx, HomeConfig{
+		host := runnerHooks.NewEngineHost(sctx, nil, sc, backend, spawnEnv[EnvRunID])
+		runnerHooks.BindTestRunner(host, nil)
+		home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 			Reporter: termSink(),
 			URL:      spawnEnv[EnvCoordURL],
 			Token:    spawnEnv[EnvCoordCred],
@@ -216,11 +217,11 @@ func TestStartOwnedRun_OwnerHarpRoleNoCollision(t *testing.T) {
 	// (each completed turn re-queued as a new turn), so an exact 2 is the
 	// no-collision, no-self-loop proof.
 	require.Eventually(t, func() bool {
-		return len(sc.recordedTexts()) == 2
+		return len(sc.RecordedTexts()) == 2
 	}, 10*time.Second, 50*time.Millisecond, "exactly the two sent turns reach the engine")
 	// And it never grows past two (no self-loop) over a further window.
 	time.Sleep(500 * time.Millisecond)
-	assert.Len(t, sc.recordedTexts(), 2, "no extra turns — the owner-owned run does not self-report into its own mailbox")
+	assert.Len(t, sc.RecordedTexts(), 2, "no extra turns — the owner-owned run does not self-report into its own mailbox")
 
 	// The owner's own mailbox never accumulated a bridged "result": the bridge
 	// is suppressed for an owner-owned run (nothing to report to — the host

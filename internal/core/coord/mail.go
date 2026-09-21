@@ -1,6 +1,9 @@
 package coord
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // The owner's receive verb: agent_recv is the bounded long poll on the ONE
 // inbox (spoolInbox) for the one recipient whose spool THIS PROCESS reads —
@@ -58,3 +61,42 @@ const KindExited = "exited"
 
 // newMessageID mints a message id (the dedupe key).
 func newMessageID() string { return RandID("m-", 12) }
+
+// autoReportKey marks a message as the runner's AUTOMATIC turn report rather
+// than something the agent chose to send. It rides the structured companion
+// because the KIND must stay `result` — that is what the bridge's mailbox copy
+// carried and what every parent already reads.
+//
+// It exists because the report now carries a CORRELATION, and correlation is
+// authority: a message quoting an outstanding ask's id resolves that ask. An
+// automatic report must not. The cooperative-reply ruling is that an ask is
+// answered by what the child CHOSE to send; a report the runner composed from
+// whatever the model happened to say is the involuntary capture that ruling
+// excludes, and without this marker it would arrive through the back door
+// wearing the right correlation.
+//
+// The marker only ever REMOVES authority from the message carrying it, never
+// grants any, so a sender setting it on its own send can only decline to
+// answer its own ask — which is not an attack, just a wasted send.
+const autoReportKey = "auto_report"
+
+// AutoReportStructured is the marker payload, written as literal JSON rather
+// than marshalled: it is one constant object, and a literal cannot acquire a
+// field by accident.
+func AutoReportStructured() json.RawMessage { return json.RawMessage(`{"` + autoReportKey + `":true}`) }
+
+// IsAutoReport reports whether structured marks this message as an automatic
+// turn report. Anything that is not an object with that key set to true is
+// not one — an unparsable payload is emphatically not a reason to grant the
+// exemption.
+func IsAutoReport(structured json.RawMessage) bool {
+	if len(structured) == 0 {
+		return false
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(structured, &obj); err != nil {
+		return false
+	}
+	marked, _ := obj[autoReportKey].(bool)
+	return marked
+}

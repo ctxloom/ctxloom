@@ -26,15 +26,6 @@ func TestRunnerCapabilities_EnginePresenceDecidesTheAdvertisement(t *testing.T) 
 		"a runner that hosts an engine is driven structurally; its turn boundary owns delivery")
 }
 
-// TestHomeHelloCapabilities_IsTheConfiguredAdvertisement: HomeConfig.Capabilities
-// is what the Hello carries — empty advertises nothing, since the mailbox
-// surface every runner has is not a capability.
-func TestHomeHelloCapabilities_IsTheConfiguredAdvertisement(t *testing.T) {
-	assert.Empty(t, (&Home{}).helloCapabilities())
-	h := &Home{cfg: HomeConfig{Capabilities: RunnerCapabilities(true)}}
-	assert.Equal(t, RunnerCapabilities(true), h.helloCapabilities())
-}
-
 // TestRunChannel_CapturesHelloCapabilities is the round trip: what a runner
 // advertises on its Hello is what the coordinator holds for that run. Written as
 // an end-to-end dial because the two ends are the point — the field has been in
@@ -50,7 +41,7 @@ func TestRunChannel_CapturesHelloCapabilities(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	h, err := NewHome(ctx, HomeConfig{
+	h, err := runnerHooks.NewHome(ctx, TestHomeConfig{
 		Reporter: termSink(),
 		URL:      url, Token: token, Harness: "test", Version: "test",
 		Capabilities: RunnerCapabilities(false), // the one advertisement that carries a string today

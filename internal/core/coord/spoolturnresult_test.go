@@ -123,7 +123,7 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 	reports := ownerResultsFrom(t, out.Harp)
 	require.Len(t, reports, 1,
 		"the coordinator must not ALSO bridge a cut-over child's turn: the parent would read the same turn twice")
-	assert.True(t, isAutoReport(reports[0].Structured),
+	assert.True(t, IsAutoReport(reports[0].Structured),
 		"the surviving report must be the one the RUNNER wrote; an unmarked one is the bridge having fired")
 
 	// Hammer every in-process trigger. The consume-rename is the arbiter.
@@ -180,7 +180,7 @@ func TestSpoolTurnResult_AskStaysParkedUntilTheDeliberateReply(t *testing.T) {
 	}, conformanceWait)
 	require.NotEmpty(t, report, "the automatic report must still reach the parent, correlation and all")
 	assert.Contains(t, report[0].Body, "why sqlx?")
-	assert.True(t, isAutoReport(report[0].Structured), "and it must be marked as the runner's composition")
+	assert.True(t, IsAutoReport(report[0].Structured), "and it must be marked as the runner's composition")
 
 	// AND THE ASK IS STILL PARKED. This is the whole collision: that report
 	// quoted the ask's id, and correlation is what resolves an ask.
@@ -235,7 +235,7 @@ func TestSpoolAsk_DeliberateResultKindReplyStillAnswers(t *testing.T) {
 	ans, err := c.ControlQuestion(ctx, humanInitiator(), out.Harp, "which driver?")
 	require.NoError(t, err, "a deliberate reply must answer the ask whatever kind the child chose")
 	assert.Equal(t, "sqlx, for the compile-time checks", ans.Text)
-	assert.False(t, isAutoReport(ans.Structured), "and it is the CHILD's message, not a composed report")
+	assert.False(t, IsAutoReport(ans.Structured), "and it is the CHILD's message, not a composed report")
 }
 
 // TestSpoolTurnResult_SelfReportSuppressesIt pins the no-double-delivery rule
@@ -332,7 +332,7 @@ func TestSpoolTurnResult_RestartWindowDeliversByOneCarrier(t *testing.T) {
 	got := recvBody(t, second, "reported across the restart", conformanceWait)
 	require.Len(t, got, 1, "a report written in the restart window must arrive exactly once")
 	assert.Equal(t, out.Harp, got[0].From)
-	assert.True(t, isAutoReport(got[0].Structured), "and it must still be recognisable as the runner's composition")
+	assert.True(t, IsAutoReport(got[0].Structured), "and it must still be recognisable as the runner's composition")
 	assert.Empty(t, recvBody(t, second, "reported across the restart", 300*time.Millisecond),
 		"and not a second time on the next sweep")
 }

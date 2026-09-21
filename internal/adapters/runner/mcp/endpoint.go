@@ -20,7 +20,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -29,7 +29,7 @@ import (
 type Endpoint struct {
 	// Home is the runner's reach-back link: the coordination frames, the
 	// host relays and artifact fetch ride it.
-	Home *coord.Home
+	Home *runner.Home
 	// Reporter receives the endpoint's diagnostics; nil discards.
 	Reporter report.Sink
 }

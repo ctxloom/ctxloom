@@ -22,7 +22,7 @@ func TestResume_OneMessageOneLaunch(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} }, // ends its run after each turn
+		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // ends its run after each turn
 	)
 	teeHome(t)
 	c, err := New(Options{
@@ -61,7 +61,7 @@ func TestResume_OneMessageOneLaunch(t *testing.T) {
 func launchDiagnostic(c *Coordinator, sp *fakeSpawner, harp string) string {
 	s := fmt.Sprintf("pending=%d launches=%d", c.pendingCount(harp), sp.chatCount())
 	for i := 0; i < sp.chatCount(); i++ {
-		s += fmt.Sprintf(" chat%d=%v", i, sp.chat(i).recordedTexts())
+		s += fmt.Sprintf(" chat%d=%v", i, sp.chat(i).RecordedTexts())
 	}
 	return s
 }
@@ -79,7 +79,7 @@ func TestResumeChild_StaleAttemptStandsDownWhenTheHarpHasMovedOn(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{endAfterTurns: 1} },
+		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} },
 	)
 	teeHome(t)
 	c := newTestCoordinator(t, sp, nil)

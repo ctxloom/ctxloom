@@ -330,7 +330,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
 			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
 			"internal/adapters/spawn -> internal/adapters/agents":     "measured: agents.DrivingMode/ValidateDriving on the binding; leaves when config's own agents edge does",
-			"internal/adapters/spawn -> internal/adapters/coordgrpc":  "slice 10: RunnerTransport.StartRun takes the launch.Launch and the coordgrpc adapter encodes it; spawn stops projecting the wire form itself",
 
 			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
 			// contract and the shared DTOs it advertises live in operations
@@ -339,7 +338,11 @@ var LayeringRules = []LayeringRule{
 			// the stdio server and the plugin-hosted owner arm reach the endpoint's
 			// surface for the one server they still build (ServeRunnerMCP)
 			"internal/adapters/mcp -> internal/adapters/runner/mcp": "slice 13: the owner arm's socket endpoint and the stdio server die with the plugin protocol",
-			"internal/adapters/cli -> internal/adapters/runner/mcp": "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/mcp -> internal/adapters/runner":     "slice 13: the owner arm's socket endpoint holds the runner's Home; it dies with the plugin protocol",
+			// runner/mcp is the runner's own subpackage: the endpoint serves over
+			// the Home the runner owns
+			"internal/adapters/runner/mcp -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
+			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
 
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
@@ -348,6 +351,17 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/mcp -> internal/adapters/memory":       "slice 14a: memory off the plugin; the compactor is an operation",
 			"internal/adapters/mcp -> internal/adapters/operations":   "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
 			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
+			// the engine host records the canonical transcript through
+			// adapters/transcript's recorder; the composition hands the runner a
+			// recorder port instead when runner.Main is composed under cmd/*
+			"internal/adapters/runner -> internal/adapters/transcript": "slice 13: the transcript recorder is a port runner.Deps carries, injected at cmd/*; until then the engine host opens it",
+
+			// runner/coordtest is the in-process runner double compiled into no
+			// binary (PATH A's stdio-server tests stand it up); it imports what
+			// the runner it stands up imports, and dies with those tests.
+			"internal/adapters/runner/coordtest -> internal/adapters/runner":    "sanctioned: a package's own parent tree (runner/*)",
+			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "slice 13: the double dies with the stdio server's tests (measured)",
+			"internal/adapters/runner/coordtest -> internal/lm/backends":        "slice 13: the double dies with the stdio server's tests (measured)",
 
 			// isolation, memory, and the leaf adapters
 			"internal/adapters/isolation -> internal/lm/grpc":                             "slice 13: the go-plugin protocol is deleted whole",

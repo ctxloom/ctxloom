@@ -12,7 +12,7 @@ import (
 )
 
 // TestHome_RedialPreemptsThePendingBackoff pins the product's redial bound:
-// a Home whose coordinator is unreachable waits homeRedialBackoff between
+// a Home whose coordinator is unreachable waits runnerHooks.HomeRedialBackoff between
 // attempts, and Redial makes the NEXT attempt happen now. Forced against a
 // listener that refuses every connection (each accept is one dial
 // attempt): after the first attempts have been refused and the loops are
@@ -35,7 +35,7 @@ func TestHome_RedialPreemptsThePendingBackoff(t *testing.T) {
 		}
 	}()
 
-	h, err := NewHome(context.Background(), HomeConfig{
+	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
 		Reporter: termSink(),
 		URL:      fmt.Sprintf("http://%s/mcp", ln.Addr().String()),
 		Token:    "t", RunID: "run-1", Harness: "mock", Version: "test",
@@ -48,6 +48,6 @@ func TestHome_RedialPreemptsThePendingBackoff(t *testing.T) {
 	before := accepts.Load()
 
 	h.Redial()
-	require.Eventually(t, func() bool { return accepts.Load() > before }, homeRedialBackoff/4, 5*time.Millisecond,
-		"a kicked Home must redial now, not after homeRedialBackoff (%s)", homeRedialBackoff)
+	require.Eventually(t, func() bool { return accepts.Load() > before }, runnerHooks.HomeRedialBackoff/4, 5*time.Millisecond,
+		"a kicked Home must redial now, not after runnerHooks.HomeRedialBackoff (%s)", runnerHooks.HomeRedialBackoff)
 }

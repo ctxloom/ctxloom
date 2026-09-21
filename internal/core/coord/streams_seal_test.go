@@ -24,7 +24,7 @@ func TestRunnerChannel_RefusedOnceTheCoordinatorSeals(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()
-	link, err := DialRunner(ctx, termSink(), c.LoopbackURL(), token, "", "mock", "test", nil)
+	link, err := runnerHooks.DialRunner(ctx, termSink(), c.LoopbackURL(), token, "", "mock", "test", nil)
 	if link != nil {
 		t.Cleanup(link.Abort)
 	}

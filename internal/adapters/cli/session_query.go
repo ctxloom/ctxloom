@@ -78,17 +78,17 @@ func runSessionQuery(cmd *cobra.Command, args []string) error {
 }
 
 // sessionMatchesQuery reports whether every word in words is found
-// case-insensitively in entry's metadata (harp name, summary, formatted
-// start/end) OR — only when the metadata search misses — the entry's
-// distilled essence body. Metadata is checked first so an entry that
-// already matches, or one that was never distilled, never pays the cost of
-// reading an essence file off disk; only the entries that genuinely need
-// the content fallback do.
+// case-insensitively in the session's metadata (harp name, summary,
+// formatted start/end) OR — only when the metadata search misses — its
+// distilled essence body, read the same way `session show` reads it
+// (readSessionEssence). Metadata is checked first so a session that already
+// matches, or one that was never distilled, never pays the cost of reading
+// an essence file off disk.
 func sessionMatchesQuery(v operations.SessionView, words []string) bool {
 	if allWordsMatch(sessionMetadataHaystack(v), words) {
 		return true
 	}
-	body, ok := readEssenceForQuery(v)
+	body, ok := readSessionEssence(v)
 	if !ok {
 		return false
 	}
@@ -111,22 +111,6 @@ func sessionMetadataHaystack(v operations.SessionView) string {
 		b.WriteString(sessionTime(*v.EndedAt).String())
 	}
 	return strings.ToLower(b.String())
-}
-
-// readEssenceForQuery reads a session's distilled essence body for the
-// content-search fallback, from the path the view resolved. ok is false
-// when the session was never distilled or the file can't be read — the
-// query fallback is best-effort, never an error (a dead or unreadable
-// essence just doesn't contribute a content match).
-func readEssenceForQuery(v operations.SessionView) (string, bool) {
-	if !v.Distilled {
-		return "", false
-	}
-	data, err := os.ReadFile(v.EssencePath)
-	if err != nil {
-		return "", false
-	}
-	return string(data), true
 }
 
 // allWordsMatch reports whether every word appears case-insensitively in

@@ -9,14 +9,17 @@ This page is generated from `ctxloom manage install --help`.
 
 ## ctxloom manage install
 
-Scaffold .ctxloom and wire hooks, MCP, gitignore, and config
+Scaffold .ctxloom and git-ignore its private state
 
 ### Synopsis
 
-One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent),
-exclude ctxloom's private state from git, and apply hooks/MCP/statusline to
-every supported backend. Unlike root 'ctxloom init', it never prompts and never
-launches an AI, so it is the form to use from a script or CI.
+One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent)
+and exclude ctxloom's private state from git. Nothing else is written into
+the project: a 'ctxloom run' session delivers hooks, the MCP entry and the
+statusline into its own session home, so an engine launched directly in the
+project tree gets no ctxloom hooks and no ctxloom MCP server. Unlike root
+'ctxloom init', it never prompts and never launches an AI, so it is the form
+to use from a script or CI.
 
 ```
 ctxloom manage install [flags]

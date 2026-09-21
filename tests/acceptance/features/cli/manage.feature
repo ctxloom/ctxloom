@@ -2,10 +2,17 @@
 Feature: manage — wiring ctxloom into a project, and taking it back out
 
   `ctxloom manage` is the noun that owns a project's HARNESS: the `.ctxloom`
-  scaffold, the engine's own hooks and statusline, MCP registration, and the
-  gitignore entries that keep ctxloom's private state out of source control.
-  It is the first command anyone runs and the one they run again when they
-  want to leave.
+  scaffold, the gitignore entries that keep ctxloom's private state out of
+  source control, and — only when asked for explicitly — the engine's own
+  hooks and statusline and MCP registration in the project tree. It is the
+  first command anyone runs and the one they run again when they want to
+  leave.
+
+  A `ctxloom run` session carries every runtime surface in its own session
+  home, so `manage install` writes no engine file; an engine launched
+  directly in the project tree gets no ctxloom hooks and no ctxloom MCP
+  server. The project-side copy exists only where `manage hooks install`
+  was asked for, and `manage uninstall` is how it leaves.
 
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the refusals and the shapes that only matter to a machine. The
@@ -13,19 +20,50 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
   out — is journeys/j000100_adopt_and_back_out.feature, which asserts what a PERSON
   sees.
 
-  Rule: Installing wires the project for one engine, and validates which
+  Rule: Installing scaffolds the project for one engine, and validates which
 
-    `manage install` scaffolds `.ctxloom` and writes the chosen engine's own
-    native configuration. Which files those are differs per engine and is the
-    whole point of the engine axis; what they must all do is put the project's
-    context in front of that engine and register ctxloom as an MCP server.
+    `manage install` scaffolds `.ctxloom`, records the chosen engine, and
+    git-ignores ctxloom's private state. It writes NO engine file: the
+    engine's own native configuration is delivered into a `ctxloom run`
+    session's home, and reaches the project tree only through the explicit
+    `manage hooks install`. Which files THAT writes differs per engine and is
+    the whole point of the engine axis; what they must all do is put the
+    project's context in front of that engine and register ctxloom as an MCP
+    server.
+
+    # ABSENCE, ON THE FILESYSTEM. Install's exit code and its report both
+    # say "no engine file was written"; only the tree can prove it. Every
+    # engine's own well-known files are named, so an install that wrote one
+    # of them for its recorded engine fails here.
+    # (ruled 2026-09-21: sessions carry their surfaces)
+    Scenario Outline: Installing scaffolds the project and writes no engine file
+      Given an empty project directory
+      When Alice installs ctxloom for <engine>:
+        """
+        ctxloom manage install --engine <engine>
+        """
+      Then the command succeeds
+      And the file ".ctxloom/config.yaml" is valid YAML
+      And the file ".ctxloom/config.yaml" contains "<engine>"
+      And the file ".ctxloom/.gitignore" contains "ctxloom"
+      And the file ".claude/settings.json" does not exist
+      And the file ".mcp.json" does not exist
+      And the file "CLAUDE.md" does not exist
+      And the file "MOCK_CONTEXT.md" does not exist
+      And the file ".mock/mcp.json" does not exist
+      And the file ".mock/commands/discover.md" does not exist
+
+      Examples:
+        | engine      |
+        | claude-code |
+        | mock        |
 
     # PAYLOAD, NOT EXISTENCE. An empty file exists just as convincingly as a
     # wired one, so every row names content the surface must actually carry.
     #
-    # EVERY ROW IS UNTAGGED because every row is hermetic: `manage install`
-    # WRITES an engine's config files and never launches the engine, so no
-    # credential is needed and nothing gates behind @live. `mock` is a
+    # EVERY ROW IS UNTAGGED because every row is hermetic: `manage hooks
+    # install` WRITES an engine's config files and never launches the engine,
+    # so no credential is needed and nothing gates behind @live. `mock` is a
     # first-class row — a registered engine with real surfaces of its own.
     #
     # CONTEXT ARRIVES TWO WAYS, and the table says which each engine uses. An
@@ -34,11 +72,15 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # without one reads a file ctxloom materialized earlier. Where the hook is
     # available it is what this asserts, because it is the delivery path that
     # actually runs.
+    # (ruled 2026-09-21: sessions carry their surfaces — the project-side
+    # copy is the explicit hooks install's, so it is spelled out after the
+    # scaffold)
     Scenario Outline: Alice wires an empty project for her engine
       Given an empty project directory
-      When Alice installs ctxloom for <engine>:
+      When Alice installs ctxloom for <engine> and wires its files in:
         """
         ctxloom manage install --engine <engine>
+        ctxloom manage hooks install
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
@@ -68,11 +110,14 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # cannot tell that apart from a working one.
     # TWO engines carry an MCP surface, which is what makes this a fan-out
     # rather than a single-row claim that proves no dialect at all.
+    # (ruled 2026-09-21: sessions carry their surfaces — the project-side
+    # registration is the explicit hooks install's)
     Scenario Outline: Every engine gets ctxloom registered as an MCP server, in its own dialect
       Given an empty project directory
-      When Alice installs ctxloom for <engine>:
+      When Alice installs ctxloom for <engine> and wires its files in:
         """
         ctxloom manage install --engine <engine>
+        ctxloom manage hooks install
         """
       Then the command succeeds
       And the file "<mcp_surface>" contains "<server_key>"
@@ -103,11 +148,14 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     #
     # Two engines carry a command surface, which is what makes "in its own
     # idiom" a claim two rows can disagree about.
+    # (ruled 2026-09-21: sessions carry their surfaces — the project-side
+    # command files are the explicit hooks install's)
     Scenario Outline: Every engine gets ctxloom's shipped commands in its own idiom
       Given an empty project directory
-      When Alice installs ctxloom for <engine>:
+      When Alice installs ctxloom for <engine> and wires its files in:
         """
         ctxloom manage install --engine <engine>
+        ctxloom manage hooks install
         """
       Then the command succeeds
       And the file "<command_surface>" contains "Scan the current project and discover matching ctxloom content"
@@ -535,11 +583,14 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # is `'<abs>/ctxloom' hook inject-context`, quoted between the two words.
     # The MCP claim PARSES the file rather than checking for the bare
     # substring "ctxloom".
+    # (ruled 2026-09-21: sessions carry their surfaces — the harness this
+    # strips is what the explicit hooks install wrote)
     Scenario: Uninstall strips the harness but keeps the project's own content
       Given an empty project directory
       When Alice wires ctxloom in:
         """
         ctxloom manage install --engine claude-code
+        ctxloom manage hooks install
         """
       Then the command succeeds
       And the file ".claude/settings.json" contains "hook inject-context"
@@ -563,13 +614,17 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # it. Asserted on the files the install wrote, each one absent after the
     # run — a run that delivered into the project would put them back.
     #
-    # @wip, measured: the uninstall half holds (every file is gone before the
-    # run), and a DELEGATED run holds (runner.Execute delivers under the
-    # session writer — its identical-file-set probe). The HOST `ctxloom run`
-    # still rides the plugin run-start into the legacy mock backend's Setup,
-    # which writes MOCK_CONTEXT.md into the project on every run; that arm
-    # moves onto the runner tail in slice 13 (30-decided-architecture.md
-    # Part 4.1). UNTAG WHEN: the host arm delivers through delivery.Static.
+    # @wip, measured 2026-09-21: the uninstall half holds (every file is gone
+    # before the run), and a DELEGATED run holds (runner.Execute delivers
+    # under the session writer — its identical-file-set probe). The HOST
+    # `ctxloom run` still rides the plugin run-start (grpc.SetupFromRunStart)
+    # into agent.LaunchBackend.Setup, whose shared-cell arm
+    # (ResolvedSelection.deliverOneShared) writes a file-route engine's
+    # context — the mock's MOCK_CONTEXT.md — into the project on every run.
+    # That is the engines' delivery arm, not install's. UNTAG WHEN: the host
+    # arm delivers through delivery.Static under the session writer.
+    # (ruled 2026-09-21: sessions carry their surfaces — the project-side
+    # files this scenario removes are the explicit hooks install's)
     @wip
     Scenario: After an uninstall, a run delivers into its session and the project stays clean
       Given an initialized ctxloom project
@@ -580,6 +635,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       When Alice wires the mock in, takes it back out, and runs:
         """
         ctxloom manage install --engine mock
+        ctxloom manage hooks install
         ctxloom manage uninstall
         ctxloom run --one-shot --profile dev unicorn-prompt
         """

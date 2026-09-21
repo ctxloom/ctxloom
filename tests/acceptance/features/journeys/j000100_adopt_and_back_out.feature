@@ -20,14 +20,18 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
   Background:
     Given an empty project directory
 
-  # Installing is the subject here, so the command is spelled out. Alice's
-  # question ten minutes in is not "did it report success" — that is the thing
-  # she is suspicious of — but whether a fresh assistant session actually
-  # receives the project's context.
+  # Installing is the subject here, so the commands are spelled out: the
+  # scaffold, then the explicit wiring of her assistant's own files into the
+  # project (install alone writes none — a `ctxloom run` session carries its
+  # own; ruled 2026-09-21: sessions carry their surfaces). Alice's question
+  # ten minutes in is not "did it report success" — that is the thing she is
+  # suspicious of — but whether a fresh assistant session actually receives
+  # the project's context.
   Scenario: Alice wires ctxloom in and her assistant starts receiving the project's context
     When Alice wires ctxloom into her project:
       """
       ctxloom manage install --engine claude-code
+      ctxloom manage hooks install
       """
     Then the command succeeds
     And her assistant is wired to receive the project's context at the start of every session

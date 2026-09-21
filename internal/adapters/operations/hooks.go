@@ -62,10 +62,14 @@ type ApplyHooksResult struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// ApplyHooks applies ctxloom hooks to backend configuration files, from the
-// generation req.Cfg carries. It never re-reads: a caller that has just
-// written config.yaml (`manage install`) did so through the config Owner's
-// Update, which published the generation it then passes here.
+// ApplyHooks applies ctxloom hooks to backend configuration files IN THE
+// PROJECT, from the generation req.Cfg carries. It never re-reads: a caller
+// that has just written config (a post-sync refresh, a trust change) did so
+// through the config Owner's Update, which published the generation it then
+// passes here. It is the explicit project-side writer (`manage hooks
+// install`, the MCP server's startup apply, the sync and trust refreshes);
+// `manage install` and `init` write no engine file and never call it — a
+// `ctxloom run` session delivers the same surfaces into its own home.
 func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error) {
 	// Bracket the WHOLE call, config load included, so a TRUST-CLASS finding
 	// recorded anywhere under it becomes an error here rather than a warning

@@ -102,7 +102,8 @@ func TestManageInstallUninstall_FormatJSON(t *testing.T) {
 	// — pass it explicitly so this call takes the real install branch.
 	installed := runCLIJSON(t, "manage", "install", "--print=false")
 	require.Equal(t, true, installed["initialized"])
-	require.NotEmpty(t, installed["status"])
+	require.NotEmpty(t, installed["gitignore"])
+	require.NotEmpty(t, installed["gitignore_status"])
 
 	removed := runCLIJSON(t, "manage", "uninstall")
 	require.NotEmpty(t, removed["status"])

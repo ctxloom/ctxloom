@@ -50,6 +50,11 @@ this the project reads as initialized while composing less context than its
 configuration says. --no-pull suppresses it; a pull that cannot reach its remote
 never rolls the init back — it warns and leaves a usable project.
 
+init writes no engine file into the project. The setup interview below, like
+every 'ctxloom run', is a session that carries ctxloom's hooks and MCP server
+in its own session home; an engine launched directly in the project tree
+gets neither.
+
 When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine
   2. Optionally adding a personal ctxloom repository as a remote
@@ -285,9 +290,12 @@ func ctxloomDefaultTrusted(cfg *config.Config) bool {
 
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
 // resolve the engine (with interactive prompts), write the skeleton, register
-// personal/discovery remotes, apply hooks, and update .gitignore. Returns the
-// resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn and
-// continue; only directory/config creation failures are fatal.
+// personal/discovery remotes, pull the seeded dependencies, and write the
+// nested .gitignore. It writes NO engine file: the runtime surfaces reach an
+// engine through a `ctxloom run` session's own home (launchDiscovery's
+// interview session included), never through the project tree. Returns the
+// resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn
+// and continue; only directory/config creation failures are fatal.
 func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, interactive bool) (string, error) {
 	engine, personalRepos, dirtyTreeHandler, dirtyTreeCommitAck, err := resolveSetupEngine(selectedEngine, interactive)
 	if err != nil {
@@ -324,9 +332,8 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
 	addPersonalRemotesFn(cmd, appDir, append(append([]string{}, initRemotes...), personalRepos...), initForge)
-	cloneConfiguredRemotes(cmd, appDir)
+	cloneConfiguredRemotesFn(cmd, appDir)
 	pullSeededDependencies(cmd, appDir)
-	applyInitHooks(cmd, appDir)
 
 	// Exclude ctxloom's private working state from version control, in the
 	// nested .ctxloom/.gitignore ctxloom owns rather than by appending to the
@@ -439,6 +446,12 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 	}
 }
 
+// cloneConfiguredRemotesFn is a package var seam over cloneConfiguredRemotes:
+// a fresh init clones the seeded default remote, which is the one step of
+// the fresh branch that reaches the network, so tests of that branch stub it
+// out. Defaults to the real function.
+var cloneConfiguredRemotesFn = cloneConfiguredRemotes
+
 // cloneConfiguredRemotes eagerly clones every remote configured in the .ctxloom
 // at appDir (see addPersonalRemotes on why the dir is passed, not discovered) so
 // discovery (search_library, browse) can read them offline. Fault-tolerant:
@@ -467,9 +480,9 @@ func cloneConfiguredRemotes(cmd *cobra.Command, appDir string) {
 // first `ctxloom run` after init composes less context than the configuration
 // says it should, and `ctxloom doctor` reports the skip.
 //
-// It runs before applyInitHooks because hooks are materialized from the
-// installed bundles: hooks applied over a closure that is not there yet
-// register nothing the pulled content ships.
+// It runs before launchDiscovery because the interview session composes
+// from the installed bundles: a launch over a closure that is not there yet
+// carries nothing the pulled content ships.
 //
 // --no-pull suppresses it, and the pull is the ONLY thing that flag decides; it
 // configures this invocation and is never bridged to a config key.
@@ -524,44 +537,6 @@ func warnDependencyPullFailed(reason string) {
 			"  them (`ctxloom doctor` reports this). Once the remote is reachable, run:\n"+
 			"    ctxloom deps pull",
 		reason)
-}
-
-// applyHooksFn is a package var seam over operations.ApplyHooks: tests stub it
-// to drive applyInitHooks' reporting branches (most importantly the empty
-// backend list, which is a failure to report rather than a success line to
-// print) without writing real backend settings files. Defaults to the real
-// function.
-var applyHooksFn = operations.ApplyHooks
-
-// applyInitHooks registers the ctxloom MCP server with every backend, from the
-// config at appDir (see addPersonalRemotes on why the dir is passed, not
-// discovered). Failures
-// warn and continue (fault tolerant). An apply that touched NO backend is
-// reported as the failure it is: the engine settings surfaces are what make
-// ctxloom reachable from a session at all, so "applied to nothing" must never
-// render as a success line with an empty payload.
-func applyInitHooks(cmd *cobra.Command, appDir string) {
-	// The generation to apply from is the one the scaffold produced: the
-	// process's composition is pinned to appDir (pinAppDir), so this is the
-	// target project even when init runs inside another project's tree.
-	cfg, err := GetConfig()
-	if err != nil {
-		clidiag.Warn("ctxloom", "failed to apply hooks: %v", err)
-		return
-	}
-	result, applyErr := applyHooksFn(context.Background(), operations.ApplyHooksRequest{
-		Cfg:               cfg,
-		RegenerateContext: false,
-	})
-	if applyErr != nil {
-		clidiag.Warn("ctxloom", "failed to apply hooks: %v", applyErr)
-		return
-	}
-	if result == nil || len(result.Backends) == 0 {
-		clidiag.Warn("ctxloom", "applied hooks to no backends — no engine settings were written, so ctxloom's MCP server and context hook are not registered anywhere; install an engine and re-run `ctxloom manage hooks install`")
-		return
-	}
-	fmt.Printf("Applied hooks for: %v\n", result.Backends)
 }
 
 // The setup launch: the auth probe and the discovery session are TWO

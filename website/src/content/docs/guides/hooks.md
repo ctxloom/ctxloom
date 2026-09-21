@@ -18,7 +18,7 @@ For Claude Code, this rides a **SessionStart hook**: ctxloom assembles your conf
 
 ## Automatic Hook Setup
 
-When you run `ctxloom init` or `ctxloom mcp serve`, ctxloom automatically configures hooks in your AI tool's settings:
+A `ctxloom run` session delivers its hooks into the session's own home, so nothing in your project tree is needed for them. `ctxloom init` and `ctxloom manage install` write no engine file; an engine you launch directly in the project gets no ctxloom hooks unless you wired them in explicitly with `ctxloom manage hooks install`. Where they are written, they take the engine's own shape:
 
 ### Claude Code
 
@@ -55,19 +55,19 @@ Antigravity has **no SessionStart event**, so context injection works differentl
 
 ### Apply Hooks
 
-Hooks are applied automatically when you run `ctxloom init` or start `ctxloom mcp serve`.
+A `ctxloom run` session carries its own hooks; you never apply them for it. `ctxloom init` and `ctxloom manage install` scaffold ctxloom's configuration and write nothing into your engine's files.
 
-To manually reapply hooks:
+To write ctxloom's hooks into the project tree explicitly — for an engine you launch directly rather than through `ctxloom run` — apply them yourself:
 
 ```bash
-# Reapply hooks and regenerate context (all backends)
+# Write hooks and regenerate context (the engines this project configures)
 ctxloom manage hooks install
 
 # Target one backend
 ctxloom manage hooks install --backend claude-code
 
-# Or run the full one-shot setup (hooks, MCP, statusline, gitignore)
-ctxloom manage install
+# Take them back out
+ctxloom manage uninstall
 ```
 
 Applying hooks also writes the command files exported from commands, the MCP server config, and the HUD statusline (honoring `config.statusline`). There is no MCP tool for this — hook management is CLI-only.

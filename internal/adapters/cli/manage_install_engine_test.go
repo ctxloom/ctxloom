@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -98,61 +97,12 @@ func TestManageInstall_UnknownEngineRefusesLoud(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "a rejected engine must leave no .ctxloom directory behind")
 }
 
-// TestManageInstall_EngineScopesWrites pins the fix for the second defect on
-// the same flag: an explicit `--engine` used to write EVERY registered
-// engine's surfaces (every backend's dot-dir materializing in a project that
-// uses only one) because ApplyHooks was always called with Backend: "all",
-// ignoring the flag entirely except for the config's recorded default. An
-// explicit --engine must scope the hook apply to that one backend.
-func TestManageInstall_EngineScopesWrites(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-
-	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
-	require.NoError(t, err)
-
-	// The POSITIVE assertion is what keeps this scoping test honest — with
-	// only the negatives below, an install that wrote nothing anywhere would
-	// pass.
-	assert.DirExists(t, filepath.Join(dir, ".claude"), "the named engine's surface must be written")
-	assert.NoDirExists(t, filepath.Join(dir, ".ctxloom", "state", "engines"),
-		"nor the retired durable per-project engine home")
-	for _, other := range []string{backends.MockConfigDirName, ".agents"} {
-		_, statErr := os.Stat(filepath.Join(dir, other))
-		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when another --engine was asked for", other)
-	}
-}
-
-// TestManageInstall_NoEngineFlagAppliesAllBackends is the guard on the
-// scoping fix: omitting --engine is the documented "wire everything" install
-// and must keep writing every backend's surface, exactly as before — the
-// flag's ABSENCE, not its default value, is what selects "all".
-func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
-	dir := testsupport.ProjectDir(t)
-
-	// pflag's Changed sticks on the shared FlagSet across Execute() calls in
-	// the same process (TestManageInstall_RerunWithoutEngineStillWorks above
-	// documents the same artefact) — reset it so this run is the "no --engine
-	// passed" invocation a real process would make, regardless of what an
-	// earlier test in this binary left behind.
-	require.NoError(t, manageInstallCmd.Flags().Set("engine", "claude-code"))
-	manageInstallCmd.Flags().Lookup("engine").Changed = false
-
-	_, err := runCLIErr(t, "manage", "install", "--print=false")
-	require.NoError(t, err)
-
-	// "all" is backends.BackendsWithSettings() — the backends that HAVE a
-	// settings surface to wire. mock is deliberately not among them (it
-	// declares noHooksReason: no settings/hook surface), so its absence here
-	// is the correct outcome, not a gap.
-	assert.DirExists(t, filepath.Join(dir, ".claude"), "omitting --engine must still wire every backend with a settings surface")
-}
-
 // TestCheckInstallEngineApplies covers the decision itself, free of the cobra
 // flag plumbing: only the explicit-flag-plus-existing-dir combination is an
 // error, so neither a first install nor a plain re-run is affected.
 func TestCheckInstallEngineApplies(t *testing.T) {
 	assert.NoError(t, checkInstallEngineApplies(false, true, "mock"), "scaffolding honours --engine")
 	assert.NoError(t, checkInstallEngineApplies(false, false, "claude-code"), "scaffolding without the flag uses the default")
-	assert.NoError(t, checkInstallEngineApplies(true, false, "claude-code"), "a plain re-run re-applies hooks")
+	assert.NoError(t, checkInstallEngineApplies(true, false, "claude-code"), "a plain re-run refreshes the git-ignore")
 	assert.Error(t, checkInstallEngineApplies(true, true, "mock"), "an --engine that cannot be recorded must fail loud")
 }

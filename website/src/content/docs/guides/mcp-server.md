@@ -14,7 +14,7 @@ This starts ctxloom as an MCP server over stdio.
 
 ## Claude Code Configuration
 
-Claude Code doesn't read `mcpServers` from `~/.claude/settings.json` — it reads `.mcp.json` (project scope) or `~/.claude.json` (user scope). The easiest path is to let ctxloom write that entry for you:
+A `ctxloom run` session registers this server in its own session home (passed on `--mcp-config`), so nothing in your project is needed for it. For a Claude Code you launch directly: it doesn't read `mcpServers` from `~/.claude/settings.json` — it reads `.mcp.json` (project scope) or `~/.claude.json` (user scope). The easiest path is to let ctxloom write that entry for you:
 
 ```bash
 ctxloom manage hooks install

@@ -344,11 +344,10 @@ func TestEngineForExistingDir(t *testing.T) {
 // remotes, dependencies and hooks against a DIFFERENT one — a whole init's
 // worth of work landing in the wrong project, reported as success.
 //
-// Both halves are asserted at the two sites whose resolved config is
-// observable: the engine resolver (its return value) and the hook apply (the
-// config handed to operations.ApplyHooks). cloneConfiguredRemotes,
-// pullSeededDependencies and addPersonalRemotes take the identical one-line
-// change.
+// Asserted at the site whose resolved config is observable without a
+// network: the engine resolver's return value. cloneConfiguredRemotes,
+// pullSeededDependencies and addPersonalRemotes read the same pinned
+// composition.
 func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	testsupport.Isolate(t)
 
@@ -373,20 +372,6 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 
 	assert.Equal(t, "mock", engineForExistingDir("", targetApp),
 		"the engine must come from the .ctxloom this init targets")
-
-	var gotAppDir string
-	orig := applyHooksFn
-	applyHooksFn = func(_ context.Context, req operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		// The generation rides the request; ApplyHooks reads nothing else.
-		require.NotNil(t, req.Cfg, "the target generation must ride the request")
-		gotAppDir = req.Cfg.GetAppDir()
-		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"mock"}}, nil
-	}
-	t.Cleanup(func() { applyHooksFn = orig })
-
-	captureStdout(t, func() { applyInitHooks(cmd, targetApp) })
-	assert.Equal(t, targetApp, gotAppDir,
-		"hooks must be applied from the config this init wrote, not the ambient one")
 }
 
 // TestDirtyTreeHandlerOptions_AreTheOperationsHandlers pins the

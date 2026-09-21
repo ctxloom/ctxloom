@@ -613,7 +613,7 @@ func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail st
 	sort.Strings(present)
 	sort.Strings(missing)
 	if len(missing) > 0 {
-		return "hooks/MCP NOT registered for: " + strings.Join(missing, ", ") + " (run `ctxloom manage install`)", false
+		return "hooks/MCP NOT registered in the project for: " + strings.Join(missing, ", ") + " (a `ctxloom run` session carries its own; `ctxloom manage hooks install` writes them into the project)", false
 	}
 	return "hooks/MCP registered for: " + strings.Join(present, ", "), true
 }

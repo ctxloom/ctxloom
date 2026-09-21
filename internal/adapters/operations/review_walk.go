@@ -121,7 +121,9 @@ func reviewApplier(cfg *config.Config, project bool, signer ssh.Signer, obs Revi
 func reviewWalk(pending *PendingReviewResult, apply reviewApplyFuncs, obs ReviewWalkObserver) ReviewWalkResult {
 	sum := ReviewWalkResult{Total: pending.Total}
 	trust := func(ref string) { applyReviewDecision(obs, apply.accept, ref, ReviewTrust, &sum.Trusted, &sum.Skipped) }
-	reject := func(ref string) { applyReviewDecision(obs, apply.reject, ref, ReviewReject, &sum.Rejected, &sum.Skipped) }
+	reject := func(ref string) {
+		applyReviewDecision(obs, apply.reject, ref, ReviewReject, &sum.Rejected, &sum.Skipped)
+	}
 	for _, b := range pending.Bundles {
 		obs.BundleStart(b)
 		var rest func(string)

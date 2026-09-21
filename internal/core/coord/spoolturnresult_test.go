@@ -46,7 +46,7 @@ func ownerResultsFrom(t *testing.T, harp string) []Message {
 			if e.Message.FromHarp != harp {
 				continue
 			}
-			m, err := mailFromSpool(e, e.Message.FromHarp)
+			m, err := MailFromSpool(e, e.Message.FromHarp)
 			require.NoError(t, err)
 			if m.Kind == KindResult {
 				out = append(out, m)
@@ -128,7 +128,7 @@ func TestSpoolTurnResult_ExactlyOnceFileXorBridge(t *testing.T) {
 
 	// Hammer every in-process trigger. The consume-rename is the arbiter.
 	for i := 0; i < 20; i++ {
-		c.spoolReactor.mark(out.Harp)
+		c.spoolReactor.Mark(out.Harp)
 		home.SweepSpoolIn()
 	}
 	require.Never(t, func() bool {

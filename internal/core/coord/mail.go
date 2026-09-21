@@ -57,4 +57,4 @@ const KindUserInjected = "user_injected"
 const KindExited = "exited"
 
 // newMessageID mints a message id (the dedupe key).
-func newMessageID() string { return randID("m-", 12) }
+func newMessageID() string { return RandID("m-", 12) }

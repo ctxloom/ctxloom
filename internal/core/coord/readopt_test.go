@@ -17,7 +17,7 @@ import (
 // Close is the graceful path and kills children first; a crash does neither.
 func crashCoordinator(c *Coordinator) {
 	c.closeOnce.Do(func() {
-		c.tracked.seal()
+		c.tracked.Seal()
 		c.closePartial() // journals and the owner lock go FIRST: nothing lands after this
 		c.cancel()
 		if t := c.takeTransport(); t != nil {

@@ -168,7 +168,7 @@ type EngineHost struct {
 	// mirrored here for the runner-hosted engine half. A still-in-flight
 	// tracked goroutine, or a startRun reissue landing exactly as Close
 	// begins, is what the seal in trackedGroup is for.
-	tracked   trackedGroup
+	tracked   TrackedGroup
 	closeOnce sync.Once
 }
 
@@ -192,11 +192,11 @@ const engineHostCloseJoinBudget = 3 * time.Second
 
 // goTracked runs fn on a new goroutine Close joins before returning — see
 // trackedGroup.
-func (eh *EngineHost) goTracked(fn func()) { eh.tracked.dispatch(fn) }
+func (eh *EngineHost) goTracked(fn func()) { eh.tracked.Dispatch(fn) }
 
 // waitTracked joins every eh.goTracked goroutine, with a bounded escape.
 func (eh *EngineHost) waitTracked() {
-	eh.tracked.wait(engineHostCloseJoinBudget, "engine host close", "a leaked goroutine may still touch home/backend state")
+	eh.tracked.Wait(engineHostCloseJoinBudget, "engine host close", "a leaked goroutine may still touch home/backend state")
 }
 
 // Close cancels the hosted run (if StartRun ever launched one) and joins
@@ -205,7 +205,7 @@ func (eh *EngineHost) waitTracked() {
 // (closeOnce-guarded) and safe to call even when no run was ever started.
 func (eh *EngineHost) Close() {
 	eh.closeOnce.Do(func() {
-		eh.tracked.seal()
+		eh.tracked.Seal()
 		eh.mu.Lock()
 		cancel := eh.cancel
 		eh.mu.Unlock()
@@ -928,7 +928,7 @@ func FrameCoordinatorDelivery(from, kind, body string) string {
 	if f := frameHeaderToken(from); f != "" {
 		fmt.Fprintf(&b, " from=%s", f)
 	}
-	if knownMailKind(kind) {
+	if KnownMailKind(kind) {
 		fmt.Fprintf(&b, " kind=%s", kind)
 	}
 	b.WriteString("]\n")

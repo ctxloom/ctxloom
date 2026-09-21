@@ -202,7 +202,7 @@ func (s *progressSpawner) Adopt(context.Context, RunRecord) (func() error, error
 // keeping every cheap signal (a spawn that returns success, a container in
 // `docker ps`) truthful-looking.
 func (s *progressSpawner) startDark(ctx context.Context) (*EngineSpawn, error) {
-	name := "ctxloom-progress-dark-" + randID("", 8)
+	name := "ctxloom-progress-dark-" + RandID("", 8)
 	run := exec.CommandContext(ctx, "docker", "run", "-d", "--name", name, s.image, "sleep", "300")
 	if out, err := run.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("start dark container: %v\n%s", err, out)
@@ -405,7 +405,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 // satisfied only by {user, assistant} would pass against a stub too weak to
 // exercise it, which is the same blind spot one level up.
 func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
-	seed := "PROGRESS-SEED-" + randID("", 6)
+	seed := "PROGRESS-SEED-" + RandID("", 6)
 	harp, startedAt, sp := startProgressChild(t, progressSpawnReal, 0, "TOOLS "+seed)
 
 	// A real container is up (the cheap signal — necessary, never sufficient).
@@ -451,7 +451,7 @@ func TestCoordContainerProgress_DelegatedChildAdvances(t *testing.T) {
 // measured on a compressed clock, and the package comment for why the silence
 // gate is REQUIRED rather than incidental).
 func TestCoordContainerProgress_CatchesStalledEngine(t *testing.T) {
-	seed := "STALL-SEED-" + randID("", 6)
+	seed := "STALL-SEED-" + RandID("", 6)
 	harp, startedAt, _ := startProgressChild(t, progressSpawnReal, 0, "HANG "+seed)
 
 	// The transcript must first EXIST — otherwise this would be testing the
@@ -486,7 +486,7 @@ func TestCoordContainerProgress_CatchesStalledEngine(t *testing.T) {
 // Every cheap signal here is green. Only the progress question is red, and only
 // because a missing transcript is treated as a VERDICT rather than an error.
 func TestCoordContainerProgress_CatchesContainerThatNeverDialsHome(t *testing.T) {
-	seed := "DARK-SEED-" + randID("", 6)
+	seed := "DARK-SEED-" + RandID("", 6)
 	// A deliberately tiny dial-home budget: the fault is permanent, so waiting
 	// out the production 5-minute budget would only make the test slow.
 	harp, startedAt, sp := startProgressChild(t, progressSpawnDark, 15*time.Second, "TOOLS "+seed)

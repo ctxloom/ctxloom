@@ -339,11 +339,11 @@ func TestConsumerService_SpoolStats_ReportsLiveCounters(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, startRunSpawner(nil), nil)
 	// Five distinct values so a field crossed with any other is caught.
-	c.spoolDeliveryCount.delivered.Add(11)
-	c.spoolDeliveryCount.consumed.Add(12)
-	c.spoolDeliveryCount.failed.Add(13)
-	c.spoolDoorbell.dropped.Add(14)
-	c.spoolDoorbell.rejected.Add(15)
+	c.spoolDeliveryCount.Delivered.Add(11)
+	c.spoolDeliveryCount.Consumed.Add(12)
+	c.spoolDeliveryCount.Failed.Add(13)
+	c.spoolDoorbell.Dropped.Add(14)
+	c.spoolDoorbell.Rejected.Add(15)
 
 	client, _ := dialConsumer(t, c.LoopbackURL(), c.consumerCreds.token())
 	res, err := client.SpoolStats(context.Background(), &agentcoordpb.SpoolStatsRequest{})

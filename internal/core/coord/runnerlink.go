@@ -77,7 +77,7 @@ type RunnerLink struct {
 	// EngineHost's groups: an unjoined
 	// serveRequest racing Shutdown's conn.Close could still be mid-Send on a
 	// torn-down transport.
-	tracked trackedGroup
+	tracked TrackedGroup
 }
 
 // ErrLinkSendClosed refuses a frame written after the link's send side was
@@ -230,11 +230,11 @@ const runnerLinkCloseJoinBudget = 3 * time.Second
 // goTracked runs fn on a new goroutine Shutdown joins before closing the conn —
 // see trackedGroup. receiveLoop can dispatch a serveRequest that arrives just as
 // Shutdown begins, which is what the seal is for.
-func (l *RunnerLink) goTracked(fn func()) { l.tracked.dispatch(fn) }
+func (l *RunnerLink) goTracked(fn func()) { l.tracked.Dispatch(fn) }
 
 // waitTracked joins every l.goTracked goroutine, with a bounded escape.
 func (l *RunnerLink) waitTracked() {
-	l.tracked.wait(runnerLinkCloseJoinBudget, "runner link shutdown", "")
+	l.tracked.Wait(runnerLinkCloseJoinBudget, "runner link shutdown", "")
 }
 
 func (l *RunnerLink) heartbeatLoop(ctx context.Context) {
@@ -316,7 +316,7 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 			},
 		}})
 	}
-	l.tracked.seal()
+	l.tracked.Seal()
 	// SERIALIZED WITH EVERY SENDER (closeSend). The heartbeat loop is still
 	// ticking at this point — deliberately, because the half-close below is
 	// what makes this a graceful end rather than a cancellation, so it must
@@ -333,7 +333,7 @@ func (l *RunnerLink) Shutdown(exitCode int, harnessSessionID string) {
 // the process: a ClientConn left open keeps its goroutines and buffers for
 // the life of the process, which is a leak per reconnect and per run.
 func (l *RunnerLink) Abort() {
-	l.tracked.seal()
+	l.tracked.Seal()
 	l.cancel()
 	<-l.done
 	l.waitTracked()

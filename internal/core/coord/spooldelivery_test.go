@@ -674,7 +674,7 @@ func TestSpoolDelivery_SenderIdentityIsTheDirectoryNotTheFile(t *testing.T) {
 		Body:     "whose message is this",
 	})
 	require.NoError(t, err)
-	c.spoolReactor.mark(out.Harp)
+	c.spoolReactor.Mark(out.Harp)
 
 	got := recvBody(t, c, "whose message is this", conformanceWait)
 	require.NotEmpty(t, got,

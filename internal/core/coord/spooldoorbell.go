@@ -56,14 +56,14 @@ type SpoolDoorbellStats struct {
 	Rejected uint64
 }
 
-// spoolDoorbellCounters is the shared counter pair, embedded by both ends.
-type spoolDoorbellCounters struct {
-	dropped  atomic.Uint64
-	rejected atomic.Uint64
+// SpoolDoorbellCounters is the shared counter pair, embedded by both ends.
+type SpoolDoorbellCounters struct {
+	Dropped  atomic.Uint64
+	Rejected atomic.Uint64
 }
 
-func (s *spoolDoorbellCounters) stats() SpoolDoorbellStats {
-	return SpoolDoorbellStats{Dropped: s.dropped.Load(), Rejected: s.rejected.Load()}
+func (s *SpoolDoorbellCounters) Stats() SpoolDoorbellStats {
+	return SpoolDoorbellStats{Dropped: s.Dropped.Load(), Rejected: s.Rejected.Load()}
 }
 
 // SpoolDoorbellHandler is what a consumer registers to be told about validated
@@ -128,7 +128,7 @@ func (c *Coordinator) ringSpool(role string, ref spool.Ref) error {
 func (c *Coordinator) noteSpoolDrop(role string, ref spool.Ref, why string) {
 	c.rep.WarnOncef("coordinator: spool doorbell for %s dropped (%s); %s is still on disk and will be delivered by the next sweep",
 		role, why, ref)
-	c.spoolDoorbell.dropped.Add(1)
+	c.spoolDoorbell.Dropped.Add(1)
 }
 
 // SetSpoolDoorbellHandler registers THE consumer for validated inbound
@@ -147,7 +147,7 @@ func (c *Coordinator) SetSpoolDoorbellHandler(fn SpoolDoorbellHandler) {
 // Report, then count — see noteSpoolDrop.
 func (c *Coordinator) RefuseSpoolChanged(ch *RunChannel, err error) {
 	c.rep.Warnf("coordinator: refusing an invalid spool doorbell from %s: %v", ch.role, err)
-	c.spoolDoorbell.rejected.Add(1)
+	c.spoolDoorbell.Rejected.Add(1)
 }
 
 // HandleSpoolChanged is the coordinator's receive chokepoint for a validated
@@ -167,7 +167,7 @@ func (c *Coordinator) HandleSpoolChanged(ch *RunChannel, ref spool.Ref) {
 		// sweeps ch.role's spool regardless.
 		c.rep.Warnf("coordinator: refusing a spool doorbell from %s that names %q's spool; %s's own spool is swept regardless",
 			ch.role, ref.Harp, ch.role)
-		c.spoolDoorbell.rejected.Add(1)
+		c.spoolDoorbell.Rejected.Add(1)
 		return
 	}
 	// THE WAKE. A doorbell means "look at that spool", never
@@ -180,7 +180,7 @@ func (c *Coordinator) HandleSpoolChanged(ch *RunChannel, ref spool.Ref) {
 		// A doorbell with no consumer IS a drop, and this counter now means
 		// only that. Production registers the reactor in startSpoolReactor, so
 		// reaching here means delivery is off or registration was missed.
-		c.spoolDoorbell.dropped.Add(1)
+		c.spoolDoorbell.Dropped.Add(1)
 		return
 	}
 	fn(ch.role, ref)
@@ -188,7 +188,7 @@ func (c *Coordinator) HandleSpoolChanged(ch *RunChannel, ref spool.Ref) {
 
 // SpoolDoorbellStats reports this coordinator's cumulative doorbell drops and
 // rejections.
-func (c *Coordinator) SpoolDoorbellStats() SpoolDoorbellStats { return c.spoolDoorbell.stats() }
+func (c *Coordinator) SpoolDoorbellStats() SpoolDoorbellStats { return c.spoolDoorbell.Stats() }
 
 // ---- runner side -------------------------------------------------------
 
@@ -204,7 +204,7 @@ func (h *Home) ringSpool(ref spool.Ref) error {
 	if !h.trySend(frame) {
 		// Report, then count — see Coordinator.noteSpoolDrop.
 		h.rep.WarnOncef("runner: spool doorbell dropped (run channel down); %s is still on disk and will be delivered by the next sweep", ref)
-		h.spoolDoorbell.dropped.Add(1)
+		h.spoolDoorbell.Dropped.Add(1)
 	}
 	return nil
 }
@@ -230,7 +230,7 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	ref, err := SpoolRefFromProto(msg)
 	if err != nil {
 		h.rep.Warnf("runner: refusing an invalid spool doorbell from the coordinator: %v", err)
-		h.spoolDoorbell.rejected.Add(1)
+		h.spoolDoorbell.Rejected.Add(1)
 		return
 	}
 	// INTERIOR-CLAIM DISCIPLINE, runner side. A runner has exactly one spool,
@@ -241,7 +241,7 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 	switch {
 	case ref.Harp != h.Harp():
 		h.rep.Warnf("runner: refusing a spool doorbell for %q; this run's spool is %q", ref.Harp, h.Harp())
-		h.spoolDoorbell.rejected.Add(1)
+		h.spoolDoorbell.Rejected.Add(1)
 		return
 	case ref.Dir == spool.DirInWithdrawn:
 		// ACCEPTED, and consumed below by the one seam.
@@ -256,14 +256,14 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 		// out/ and the remaining terminal directories are this runner's
 		// own writes coming back at it; nothing to read there.
 		h.rep.Warnf("runner: ignoring a spool doorbell for %s: only inbound mail is delivered to this run", ref.Dir)
-		h.spoolDoorbell.rejected.Add(1)
+		h.spoolDoorbell.Rejected.Add(1)
 		return
 	}
 	h.mu.Lock()
 	fn := h.spoolHandler
 	h.mu.Unlock()
 	if fn == nil {
-		h.spoolDoorbell.dropped.Add(1)
+		h.spoolDoorbell.Dropped.Add(1)
 		return
 	}
 	fn("", ref)
@@ -271,4 +271,4 @@ func (h *Home) handleSpoolChanged(msg *agentcoordpb.SpoolChanged) {
 
 // SpoolDoorbellStats reports this runner's cumulative doorbell drops and
 // rejections.
-func (h *Home) SpoolDoorbellStats() SpoolDoorbellStats { return h.spoolDoorbell.stats() }
+func (h *Home) SpoolDoorbellStats() SpoolDoorbellStats { return h.spoolDoorbell.Stats() }

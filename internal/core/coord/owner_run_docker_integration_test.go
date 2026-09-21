@@ -154,7 +154,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	collector := newDeltaCollector(events)
 	defer collector.stop()
 
-	seed := "OWNER-STRUCT-" + randID("", 6)
+	seed := "OWNER-STRUCT-" + RandID("", 6)
 	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), false), starter.start, seed)
 	require.NoError(t, err)
 	require.Equal(t, ownerHarp, outcome.Harp)
@@ -179,7 +179,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	// PeerMessage delivery the plan (§5.B) specifies, so the engine sees the
 	// text inside the coordinator-delivery framing (frameCoordinatorMessage);
 	// the payload substring reaching the engine's echo is the round-trip proof.
-	second := "OWNER-STRUCT2-" + randID("", 6)
+	second := "OWNER-STRUCT2-" + RandID("", 6)
 	require.NoError(t, c.SendOwnedRunTurn(outcome.RunID, second))
 	require.True(t, collector.await(outcome.RunID, second, 90*time.Second),
 		"the second turn (SendOwnedRunTurn) payload never echoed over Transport 2 (want substring %q); saw:\n%s", second, collector.snapshot(outcome.RunID))
@@ -260,7 +260,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	collector := newDeltaCollector(events)
 	defer collector.stop()
 
-	seed := "OWNER-ONESHOT-" + randID("", 6)
+	seed := "OWNER-ONESHOT-" + RandID("", 6)
 	outcome, err := c.StartOwnedRun(ctx, owner, ownerRun(ownerLaunch(ownerHarp, "mock", "fast", "mock", "/work", agent.PermissionBypass), true), starter.start, seed)
 	require.NoError(t, err)
 

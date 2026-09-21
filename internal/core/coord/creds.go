@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-// randID mints a short random hex id with prefix and n random bytes, falling
+// RandID mints a short random hex id with prefix and n random bytes, falling
 // back to a nanosecond stamp on the (astronomically unlikely) rand failure —
 // uniqueness matters, cryptographic quality does not. Shared by the run-id and
 // message-id minters (identical shape).
-func randID(prefix string, n int) string {
+func RandID(prefix string, n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
 		return fmt.Sprintf("%s%d", prefix, time.Now().UnixNano())

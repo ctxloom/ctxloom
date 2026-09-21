@@ -211,7 +211,7 @@ type childRt struct {
 }
 
 // newRunID mints a run attempt id (UUID-shaped; retries get a fresh one).
-func newRunID() string { return randID("run-", 16) }
+func newRunID() string { return RandID("run-", 16) }
 
 // RunOutcome is agent_run's return payload, fixed at enqueue.
 type RunOutcome struct {

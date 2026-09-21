@@ -104,7 +104,7 @@ type Home struct {
 	// counts what the doorbell deliberately does not retry — see
 	// spooldoorbell.go.
 	spoolHandler  SpoolDoorbellHandler
-	spoolDoorbell spoolDoorbellCounters
+	spoolDoorbell SpoolDoorbellCounters
 	// identity is this run's, bound ONCE: from the Launch the coordinator's
 	// StartRun carries (BindIdentity, called by the engine host as it
 	// drives), or at dial for the plugin-hosted owner (HomeConfig.Harp). Its
@@ -114,7 +114,7 @@ type Home struct {
 	// yet know which run it is.
 	identity Identity
 	// spoolOut lends this harp's out/ writer: where this agent's sends go.
-	spoolOut *spoolWriterCache
+	spoolOut *SpoolWriterCache
 	// spoolRefs maps a delivered message's dedupe id to the in/ file it came
 	// from, so the CONSUME-RENAME can happen at the existing acknowledgement
 	// moments (the engine accepted the turn / a later Recv proved the harness
@@ -122,8 +122,8 @@ type Home struct {
 	// this path's at-least-once guarantee into at-most-once silently.
 	spoolRefs map[string]spool.Ref
 	// spoolIn serialises this runner's own in/ sweeps — see spoolReactor.
-	spoolIn            *spoolReactor
-	spoolDeliveryCount spoolDeliveryCounters
+	spoolIn            *SpoolReactor
+	spoolDeliveryCount SpoolDeliveryCounters
 	// selfReported records that this run sent its parent a message during the
 	// CURRENT turn, which suppresses the automatic turn report for that turn
 	// (spoolturnresult.go) — the runner-side home of the no-double-delivery
@@ -142,7 +142,7 @@ type Home struct {
 	// crash-redelivery test's determinism depends on). SetTurnSink can dispatch
 	// a fresh turnPump concurrently with crash()/Close(), which is why the seal
 	// in trackedGroup is not theoretical here.
-	tracked trackedGroup
+	tracked TrackedGroup
 }
 
 // HomeConfig carries the spawn-injected coordinator trio plus the runner's
@@ -266,7 +266,7 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	if h.cfg.Mapper == nil {
 		h.cfg.Mapper = spool.NewHomeMapper()
 	}
-	h.spoolOut = newSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
+	h.spoolOut = NewSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
 	h.startSpoolReactor()
 	if cfg.Harp != "" {
@@ -296,7 +296,7 @@ func (h *Home) BindIdentity(id Identity) {
 		return
 	}
 	h.identity = id
-	h.spoolOut.setWriterID(id.Harp)
+	h.spoolOut.SetWriterID(id.Harp)
 	h.mu.Unlock()
 	h.SweepSpoolIn()
 }
@@ -323,7 +323,7 @@ func (h *Home) Depth() int {
 func (h *Home) RunID() string { return h.cfg.RunID }
 
 // goTracked runs fn on a new goroutine Close/crash join — see trackedGroup.
-func (h *Home) goTracked(fn func()) { h.tracked.dispatch(fn) }
+func (h *Home) goTracked(fn func()) { h.tracked.Dispatch(fn) }
 
 // homeCloseJoinBudget bounds Close/crash's wait for Home's tracked
 // goroutines — see Coordinator's closeJoinBudget for the identical reasoning
@@ -333,7 +333,7 @@ const homeCloseJoinBudget = 3 * time.Second
 
 // waitTracked joins every h.goTracked goroutine, with a bounded escape.
 func (h *Home) waitTracked() {
-	h.tracked.wait(homeCloseJoinBudget, "runner home close", "")
+	h.tracked.Wait(homeCloseJoinBudget, "runner home close", "")
 }
 
 // Redial asks both channel loops to redial NOW rather than at the end of
@@ -826,7 +826,7 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 // budget.
 func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
 	if req.GetRequestId() == "" {
-		req.RequestId = randID("req-", 12)
+		req.RequestId = RandID("req-", 12)
 	}
 	// agent_send is a LOCAL durable file write plus a doorbell, with no
 	// coordinator round trip — so it also succeeds while the coordinator is
@@ -1121,7 +1121,7 @@ func (h *Home) Crash() {
 	// with). Marked BEFORE the join, so a caller the join gives up on still
 	// sees it.
 	h.exited.Store(true)
-	h.tracked.seal()
+	h.tracked.Seal()
 	h.cancel()
 	_ = h.conn.Close()
 	h.waitTracked()
@@ -1133,7 +1133,7 @@ func (h *Home) Crash() {
 	// TempDir cleanup failing on a directory that filled up under it.
 	// After waitTracked so an in-flight write completes rather than being
 	// refused.
-	h.spoolOut.close()
+	h.spoolOut.Close()
 }
 
 // Close tears the home down: best-effort final cursor-ack (a CLEAN exit
@@ -1144,7 +1144,7 @@ func (h *Home) Crash() {
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
 	h.exited.Store(true) // see Crash: nothing here takes a turn past this point
-	h.tracked.seal()
+	h.tracked.Seal()
 	h.mu.Lock()
 	link := h.link
 	h.link = nil

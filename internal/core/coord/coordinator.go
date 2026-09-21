@@ -231,7 +231,7 @@ type Coordinator struct {
 	// retry (spooldoorbell.go). Atomics, not mu-guarded: a counter that
 	// needed the coordinator lock would put contention on the exact path
 	// whose whole point is to cost nothing when it fails.
-	spoolDoorbell spoolDoorbellCounters
+	spoolDoorbell SpoolDoorbellCounters
 	// ownerHarp is Options.OwnerHarp: the recipient class "the owner, drained
 	// in-process" (spoolDeliverTo). Read-only after New.
 	ownerHarp string
@@ -244,20 +244,20 @@ type Coordinator struct {
 	// group first (a handler arriving later is refused at enter) and joins
 	// it after the server is down, or a shutdown races its own last
 	// terminals against whatever removes the state dir next.
-	streams trackedGroup
+	streams TrackedGroup
 	// spoolIn lends the per-child in/ writers. The writers themselves are
 	// lazy (one per child, on its first message), so a run that never sends
 	// never gets a spool directory.
-	spoolIn *spoolWriterCache
+	spoolIn *SpoolWriterCache
 	// spoolReactor serialises the coordinator's own spool reading (out/ and
 	// in/consumed sweeps) — see its type.
-	spoolReactor *spoolReactor
+	spoolReactor *SpoolReactor
 	// spoolSweepInterval overrides the reconciliation cadence
 	// (Options.SpoolSweepInterval; 0 = spoolSweepInterval). Test seam: a
 	// missed-doorbell test has to prove the sweep RECOVERS delivery, and the
 	// only honest way to do that is to let the sweep actually run.
 	spoolSweepInterval time.Duration
-	spoolDeliveryCount spoolDeliveryCounters
+	spoolDeliveryCount SpoolDeliveryCounters
 	// spoolSeen remembers which in/consumed entries have already been credited
 	// as progress, per role. consumed/ is an audit trail nothing prunes yet, so
 	// without this every sweep would re-credit the whole history.
@@ -339,7 +339,7 @@ type Coordinator struct {
 	// RunnerChannel pumps). Close() joins it BEFORE closing the journals and
 	// removing an ephemeral state dir — see trackedGroup for why an unjoined
 	// goroutine racing that teardown is this package's worst flake class.
-	tracked trackedGroup
+	tracked TrackedGroup
 
 	// transport is the bound wire (Transport), nil until the adapter serves.
 	// Its own lock, not mu: BindTransport publishes it while the spawn path
@@ -435,8 +435,8 @@ func New(opts Options) (*Coordinator, error) {
 	}
 	c := &Coordinator{
 		rep:                rep,
-		tracked:            trackedGroup{rep: rep},
-		streams:            trackedGroup{rep: rep},
+		tracked:            TrackedGroup{rep: rep},
+		streams:            TrackedGroup{rep: rep},
 		projectDir:         opts.ProjectDir,
 		stateDir:           claim.dir,
 		ephemeral:          claim.ephemeral,
@@ -468,7 +468,7 @@ func New(opts Options) (*Coordinator, error) {
 		ownerHarp:          opts.OwnerHarp,
 		mapper:             mapper,
 		spoolSweepInterval: opts.SpoolSweepInterval,
-		spoolIn:            newSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
+		spoolIn:            NewSpoolWriterCache(mapper, spool.DirIn, spoolWriterIDCoordinator),
 	}
 	c.inbox = newSpoolInbox(rep, mapper, &c.spoolDeliveryCount, c.onRolePark, c.onRoleUnpark)
 	c.baseCtx, c.cancel = context.WithCancel(context.Background())
@@ -660,7 +660,7 @@ func (c *Coordinator) openJournals() error {
 // tearing the journals and state dir down. EVERY bare `go` in this package whose
 // goroutine can outlive its spawning call must ride its owner's equivalent — see
 // trackedGroup.
-func (c *Coordinator) goTracked(fn func()) { c.tracked.dispatch(fn) }
+func (c *Coordinator) goTracked(fn func()) { c.tracked.Dispatch(fn) }
 
 // every runs sweep on a ticker until the coordinator's base context ends —
 // the one loop shape under the runner watchdog and the idle reaper.
@@ -687,7 +687,7 @@ const closeJoinBudget = 5 * time.Second
 
 // waitTracked joins every c.goTracked goroutine, with a bounded escape.
 func (c *Coordinator) waitTracked() {
-	c.tracked.wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
+	c.tracked.Wait(closeJoinBudget, "coordinator close", "a leaked goroutine may still touch the state dir")
 }
 
 // adopt reconciles state read from disk with the fresh process: queued mail
@@ -820,8 +820,8 @@ func (c *Coordinator) Draining() bool {
 func (c *Coordinator) Close() {
 	c.closeOnce.Do(func() {
 		c.closed.Store(true)
-		c.tracked.seal()
-		c.streams.seal()
+		c.tracked.Seal()
+		c.streams.Seal()
 		c.cancel()
 		c.mu.Lock()
 		attachments := make([]*childRt, 0, len(c.attach))
@@ -843,7 +843,7 @@ func (c *Coordinator) Close() {
 		// The stream handlers' deferred terminals run AFTER Stop returns;
 		// join them before the writers close so a runner dropped by the
 		// shutdown still gets its terminal recorded, not raced.
-		c.streams.wait(closeJoinBudget, "coordinator close: stream handlers", "a late terminal may still touch the state dir")
+		c.streams.Wait(closeJoinBudget, "coordinator close: stream handlers", "a late terminal may still touch the state dir")
 		// The spool writers close BEFORE the join, not after it. waitTracked is
 		// BOUNDED (closeJoinBudget) and says so when it gives up — "a leaked
 		// goroutine may still touch the state dir" — so a child teardown that
@@ -859,7 +859,7 @@ func (c *Coordinator) Close() {
 		//
 		// Raising closeJoinBudget instead would be tuning a threshold until a
 		// gate goes quiet, which measures nothing.
-		c.spoolIn.close()
+		c.spoolIn.Close()
 		c.waitTracked()
 		c.closePartial()
 		if c.ephemeral {
@@ -889,7 +889,7 @@ func (c *Coordinator) closePartial() {
 	shut("runs.jsonl", c.runs)
 	shut("items.jsonl", c.items)
 	shut("interactions.jsonl", c.auditJ)
-	c.spoolIn.close() // idempotent: Close already closed it before the join
+	c.spoolIn.Close() // idempotent: Close already closed it before the join
 	if len(errs) > 0 {
 		c.rep.Warnf("coordinator: closing journals under %s: %v", c.stateDir, errors.Join(errs...))
 	}

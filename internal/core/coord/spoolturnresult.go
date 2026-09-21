@@ -119,10 +119,10 @@ func (h *Home) ReportTurnResult(text, inReplyTo string) error {
 		// already been taken — there is nothing to retry from, so the failure
 		// is the only trace and it must exist.
 		h.rep.Warnf("runner: could not write this turn's report for %s: %v (the parent will not hear about this turn)", h.Harp(), err)
-		h.spoolDeliveryCount.failed.Add(1)
+		h.spoolDeliveryCount.Failed.Add(1)
 		return err
 	}
-	h.spoolDeliveryCount.delivered.Add(1)
+	h.spoolDeliveryCount.Delivered.Add(1)
 	return nil
 }
 
@@ -168,12 +168,12 @@ func (h *Home) writeOutbound(msg Message) (spool.Ref, error) {
 
 // outboundCourier writes into THIS RUN's outbound spool, whoever the message is
 // addressed to — the runner owns one spool, not one per recipient.
-func (h *Home) outboundCourier() *spoolCourier {
-	return &spoolCourier{
-		rep:     h.rep,
-		writers: h.spoolOut,
-		keyFor:  func(string) string { return h.Harp() },
-		ring:    func(_ string, ref spool.Ref) error { return h.ringSpool(ref) },
-		side:    "runner",
+func (h *Home) outboundCourier() *SpoolCourier {
+	return &SpoolCourier{
+		Rep:     h.rep,
+		Writers: h.spoolOut,
+		KeyFor:  func(string) string { return h.Harp() },
+		Ring:    func(_ string, ref spool.Ref) error { return h.ringSpool(ref) },
+		Side:    "runner",
 	}
 }

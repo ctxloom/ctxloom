@@ -204,7 +204,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	})
 
 	owner := ownerIdentity()
-	seedPayload := "DIRECT-SEED-" + randID("", 6)
+	seedPayload := "DIRECT-SEED-" + RandID("", 6)
 	out, err := c.AgentRun(ctx, owner, directAgentName, seedPayload, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)

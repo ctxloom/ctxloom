@@ -251,7 +251,7 @@ func (c *Coordinator) awaitRunner(ctx context.Context, credHash string) (*Runner
 // never completed are different outcomes with different remedies.
 func (c *Coordinator) requestRunner(ctx context.Context, credHash string, req RunnerRequest) (RunnerResponse, error) {
 	if req.RequestID == "" {
-		req.RequestID = randID("rreq-", 12)
+		req.RequestID = RandID("rreq-", 12)
 	}
 	c.mu.Lock()
 	rs := c.runners[credHash]

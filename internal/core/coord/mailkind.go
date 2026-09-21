@@ -234,11 +234,11 @@ func MailKindForSpool(kind string) (string, error) {
 	return k, nil
 }
 
-// knownMailKind reports whether kind is a name from the closed vocabulary —
+// KnownMailKind reports whether kind is a name from the closed vocabulary —
 // sender-allowed or coordinator-reserved. It gates what may render into a
 // delivered turn's provenance header: a value from a closed set is unforgeable
 // as header text, an arbitrary string is not.
-func knownMailKind(kind string) bool {
+func KnownMailKind(kind string) bool {
 	for _, ok := range senderMailKinds {
 		if kind == ok {
 			return true

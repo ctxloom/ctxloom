@@ -108,13 +108,13 @@ func sealTracking(t *testing.T, owner trackedOwner) {
 	t.Helper()
 	switch o := owner.(type) {
 	case *Coordinator:
-		o.tracked.seal()
+		o.tracked.Seal()
 	case *Home:
-		o.tracked.seal()
+		o.tracked.Seal()
 	case *EngineHost:
-		o.tracked.seal()
+		o.tracked.Seal()
 	case *RunnerLink:
-		o.tracked.seal()
+		o.tracked.Seal()
 	default:
 		require.Fail(t, "unknown tracked owner", "%T", owner)
 	}
@@ -128,13 +128,13 @@ func TestTrackedGroup_BoundedJoinGivesUpAndSaysSo(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	g := trackedGroup{rep: termRep()}
+	g := TrackedGroup{rep: termRep()}
 	block := make(chan struct{})
 	defer close(block)
-	g.dispatch(func() { <-block })
+	g.Dispatch(func() { <-block })
 
 	start := time.Now()
-	g.wait(50*time.Millisecond, "test teardown", "a leaked goroutine may still touch test state")
+	g.Wait(50*time.Millisecond, "test teardown", "a leaked goroutine may still touch test state")
 	assert.Less(t, time.Since(start), 2*time.Second, "the join must give up on its budget, not block on the goroutine")
 	assert.Contains(t, buf.String(), "test teardown")
 	assert.Contains(t, buf.String(), "a leaked goroutine may still touch test state")
@@ -147,11 +147,11 @@ func TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	g := trackedGroup{rep: termRep()}
+	g := TrackedGroup{rep: termRep()}
 	block := make(chan struct{})
 	defer close(block)
-	g.dispatch(func() { <-block })
-	g.wait(50*time.Millisecond, "test teardown", "")
+	g.Dispatch(func() { <-block })
+	g.Wait(50*time.Millisecond, "test teardown", "")
 
 	assert.Contains(t, buf.String(), "test teardown")
 	assert.NotContains(t, buf.String(), "()")
@@ -163,8 +163,8 @@ func TestTrackedGroup_BoundedJoinOmitsAnEmptyRiskClause(t *testing.T) {
 // owner sealed is REFUSED, never counted: a WaitGroup.Add racing an in-progress
 // Wait is the -race finding Coordinator.Close used to produce.
 func TestTrackedGroup_EnterAfterSealIsRefused(t *testing.T) {
-	g := trackedGroup{rep: termRep()}
-	g.seal()
+	g := TrackedGroup{rep: termRep()}
+	g.Seal()
 	done, ok := g.enter()
 	assert.False(t, ok, "a slot taken after the seal would Add into the join")
 	assert.Nil(t, done)
@@ -174,14 +174,14 @@ func TestTrackedGroup_EnterAfterSealIsRefused(t *testing.T) {
 // the join until it is released, so a handler's deferred teardown finishes
 // before the owner proceeds past wait.
 func TestTrackedGroup_EnterBeforeSealIsJoined(t *testing.T) {
-	g := trackedGroup{rep: termRep()}
+	g := TrackedGroup{rep: termRep()}
 	done, ok := g.enter()
 	require.True(t, ok)
 
-	g.seal()
+	g.Seal()
 	joined := make(chan struct{})
 	go func() {
-		g.wait(time.Second, "test teardown", "")
+		g.Wait(time.Second, "test teardown", "")
 		close(joined)
 	}()
 	select {

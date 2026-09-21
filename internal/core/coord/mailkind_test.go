@@ -225,7 +225,7 @@ func TestMailKinds_AgreeWithTheWireEnum(t *testing.T) {
 			continue
 		}
 		spelling := agentcoordpb.LegacyKindName(wire)
-		assert.True(t, knownMailKind(spelling), "wire member %s (%q) is not a mailbox kind; the vocabularies must agree 1:1", name, spelling)
+		assert.True(t, KnownMailKind(spelling), "wire member %s (%q) is not a mailbox kind; the vocabularies must agree 1:1", name, spelling)
 		assert.Equal(t, spelling, seen[wire], "wire member %s must be reached from its mailbox spelling", name)
 	}
 
@@ -255,7 +255,7 @@ func TestReservedMailKinds_AreTheEnumsReservedMembers(t *testing.T) {
 		err := SenderMailKind(kind)
 		require.Error(t, err, "kind %q is coordinator-reserved on the wire and must be refused from a sender", kind)
 		assert.Contains(t, err.Error(), "reserved", "the refusal for %q must say reserved, not merely invalid", kind)
-		assert.True(t, knownMailKind(kind), "reserved kind %q must be renderable as a header name", kind)
+		assert.True(t, KnownMailKind(kind), "reserved kind %q must be renderable as a header name", kind)
 	}
 	assert.Contains(t, reservedMailKinds, KindUserControl)
 }

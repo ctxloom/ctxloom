@@ -197,7 +197,7 @@ func (c *Coordinator) AttachRun(id Identity, hello RunHello, cancel context.Canc
 	// child wrote or consumed while its channel was down is picked up now
 	// rather than at the slow timer. (The runner's own startup sweep is what
 	// delivers mail written for it before it dialed home.)
-	c.spoolReactor.mark(id.Harp)
+	c.spoolReactor.Mark(id.Harp)
 	return ch, nil
 }
 

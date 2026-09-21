@@ -20,7 +20,7 @@ func TestRunnerChannel_RefusedOnceTheCoordinatorSeals(t *testing.T) {
 	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
 	require.NoError(t, err)
 
-	c.streams.seal()
+	c.streams.Seal()
 
 	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
 	defer cancel()

@@ -424,3 +424,27 @@ func TestDirtyTreeHandlerOptions_AreTheOperationsHandlers(t *testing.T) {
 			"only the commit handler mutates the user's repo, so only it carries the ack")
 	}
 }
+
+// TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance asserts the PROMPT
+// BYTES the discovery session is launched with: a companion's typed
+// `init.setup_guidance` is spliced into the one body the session receives,
+// after the built-in six-phase text. It pins the deterministic-composition
+// contract end to end — the guidance arrives because the loadout declared
+// it, not because a model asked for it.
+func TestDiscoverySessionPrompt_CarriesCompanionSetupGuidance(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+	cfg = withCompanionProbe(t, cfg, func(context.Context) (bundles.CompanionProbe, error) {
+		return bundles.CompanionProbe{Loadouts: []bundles.CompanionLoadout{{
+			Bin:      "ltk",
+			Path:     "/opt/bin/ltk",
+			Document: []byte("run:\n  version: 1.0.0\ninit:\n  setup_guidance: COMPANION-INIT-GUIDANCE-MARKER\n"),
+		}}}, nil
+	})
+
+	got := discoverySessionPrompt(cfg)
+
+	require.True(t, strings.HasPrefix(got, ctxloomInitPrompt),
+		"the built-in six-phase body leads the composed prompt verbatim")
+	assert.Contains(t, got, "COMPANION-INIT-GUIDANCE-MARKER",
+		"the companion's setup_guidance must reach the launched prompt's bytes")
+}

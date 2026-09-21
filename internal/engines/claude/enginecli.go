@@ -87,6 +87,11 @@ const (
 	// TranscriptsDirName is the subdirectory of ConfigDirName claude stores
 	// its native per-project session transcripts under (~/.claude/projects).
 	TranscriptsDirName = "projects"
+	// KeychainService is the macOS Keychain generic-password service claude
+	// keeps its credential under for the DEFAULT config dir; a relocated
+	// config dir's item is this name suffixed with "-" and the first eight
+	// hex digits of the sha256 of the dir (2.1.278).
+	KeychainService = "Claude Code-credentials"
 )
 
 // relSettings, relCommands, relSkills, relAgents are the ConfigDirName-relative

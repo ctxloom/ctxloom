@@ -79,6 +79,28 @@ type CredentialSeed struct {
 	// existence and the way it may reach the instance are ONE declaration,
 	// so "material to place but no delivery it accepts" cannot be authored.
 	Accept []MaterialDelivery
+	// Keychain, when set, is the engine's macOS credential store: on darwin
+	// the seed is a Keychain item rather than a file, read from the store's
+	// default item and written as the session's own. nil for an engine
+	// whose macOS store is the same file as everywhere else.
+	Keychain *KeychainStore
+}
+
+// KeychainStore describes an engine whose macOS credential lives in the
+// login Keychain as a generic password, keyed the way claude keys it: the
+// account is the user's name, the service is a fixed name for the default
+// config dir and that name suffixed with a hash of the config dir when the
+// engine's home var relocates it.
+type KeychainStore struct {
+	// Service is the default item's service name (e.g. "Claude
+	// Code-credentials"). The session item's service is this name, a dash,
+	// and the first eight hex digits of the sha256 of the NFC-normalised
+	// config dir — the engine's own derivation, which is what makes the
+	// item findable by the engine and recomputable by the reaper.
+	Service string
+	// Project transforms the default item's bytes into the session item's,
+	// on every placement; nil copies them as they are.
+	Project func(host []byte) ([]byte, error)
 }
 
 // SeedFile is one host file a CredentialSeed copies.

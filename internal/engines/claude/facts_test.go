@@ -99,3 +99,16 @@ func TestHooks_DecodesTheNativePayload(t *testing.T) {
 	_, err = codec.Decode("Stop", []byte(`not json`))
 	require.Error(t, err)
 }
+
+// On macOS the store is the Keychain: the seed declares the default item's
+// service and the same projection the file arm applies.
+func TestHome_DeclaresTheMacOSKeychainStore(t *testing.T) {
+	seed, ok := claudeKind(t).Home().Credentials.Get()
+	require.True(t, ok)
+	require.NotNil(t, seed.Keychain)
+	assert.Equal(t, "Claude Code-credentials", seed.Keychain.Service)
+	require.NotNil(t, seed.Keychain.Project)
+	got, err := seed.Keychain.Project([]byte(`{"claudeAiOauth":{"accessToken":"a","refreshToken":"r"}}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"claudeAiOauth":{"accessToken":"a"}}`, string(got))
+}

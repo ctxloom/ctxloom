@@ -67,6 +67,12 @@ func (c Claude) Home() engine.HomeSpec {
 				Project:     projectCredential,
 			}},
 			Accept: []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
+			// macOS: the store is the login Keychain, not the file (2.1.278):
+			// the default config dir's item is "Claude Code-credentials", a
+			// relocated dir's is that name suffixed with the dir's hash, and
+			// a relocated dir does NOT see the default item — so the seed
+			// there is the session's own item, projected the same way.
+			Keychain: &engine.KeychainStore{Service: KeychainService, Project: projectCredential},
 		}),
 		InstanceConfig: claudeInstanceConfig{},
 	}

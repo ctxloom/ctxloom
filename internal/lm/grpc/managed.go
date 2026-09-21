@@ -267,6 +267,7 @@ func hooksConfigToProto(c *wire.HooksConfig) *HooksConfig {
 		return nil
 	}
 	out := &HooksConfig{Unified: unifiedHooksToProto(c.Unified)}
+	// wire's Ext rides the proto field still named plugins; see llm.proto.
 	if len(c.Ext) > 0 {
 		out.Plugins = make(map[string]*BackendHooks, len(c.Ext))
 		for name, bh := range c.Ext {

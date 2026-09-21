@@ -295,6 +295,7 @@ Hook types available:
 | `session_start` | Session initialization |
 | `session_end` | Session cleanup |
 | `turn_end` | The agent finished a turn (once per response) |
+| `turn_start` | A prompt was submitted, before the agent acts on it (once per turn) |
 | `pre_shell` | Before shell execution |
 | `post_file_edit` | After file edit |
 

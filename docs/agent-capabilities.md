@@ -62,6 +62,7 @@ engine with no hook mechanism at all declares that on its registry descriptor
 | `session_start` | `SessionStart` |
 | `session_end` | `SessionEnd` |
 | `turn_end` | `Stop`, no matcher |
+| `turn_start` | `UserPromptSubmit`, no matcher |
 | `pre_tool` | `PreToolUse` |
 | `post_tool` | `PostToolUse` |
 | `pre_shell` | `PreToolUse` matcher `Bash` |
@@ -70,7 +71,10 @@ engine with no hook mechanism at all declares that on its registry descriptor
 `session_end` and `turn_end` are not interchangeable, and the difference is why
 `turn_end` exists. `session_end` fires ONCE, at teardown; `turn_end` fires every
 time the agent finishes a response, which is the only point at which a close-out
-contract can still be acted on.
+contract can still be acted on. `turn_start` is its mirror: it fires when a
+prompt is submitted, before the agent acts on it, and a command hook's stdout
+becomes that turn's own context — the one moment something can be put in front
+of the agent as part of the turn rather than as a later interruption.
 
 No engine honours a matcher on its turn-end event — there is no tool to match
 against at a turn boundary. The route declares none, and a hook that carried

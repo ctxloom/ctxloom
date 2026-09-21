@@ -286,8 +286,8 @@ type toolingJSON struct {
 func renderTooling(out io.Writer, entries []operations.ToolingDeclaration) error {
 	w := iox.NewErrWriter(out)
 	if len(entries) == 0 {
-		w.Println("No trusted bundles declare container tooling (a bundle ships it as a 'tooling' command).")
-		w.Println("Untrusted declarations are withheld — review with `ctxloom review`, then re-run.")
+		w.Println("No admitted companion declares container tooling (a companion declares it as `tooling` in its loadout's init section).")
+		w.Println("A companion ctxloom may not execute, or one you rejected, declares nothing — see `ctxloom doctor`.")
 		return w.Err()
 	}
 	w.Println(toolingPrompt)

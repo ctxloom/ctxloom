@@ -59,7 +59,7 @@ func TestRenderTooling(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		var buf bytes.Buffer
 		assert.NoError(t, renderTooling(&buf, nil))
-		assert.Contains(t, buf.String(), "No trusted bundles declare container tooling")
+		assert.Contains(t, buf.String(), "No admitted companion declares container tooling")
 	})
 
 	t.Run("declarations", func(t *testing.T) {

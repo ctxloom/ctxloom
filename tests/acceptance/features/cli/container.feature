@@ -253,48 +253,56 @@ Feature: container — the images isolated agents run in, and the questions you 
 
   Rule: Tooling collection is trust-gated, and never applies anything itself
 
-    A bundle declares the tools its content needs inside the agent image as a
-    well-known `tooling` command. `container tooling list` collects those
-    declarations from TRUSTED bundles and emits them with instructions for the
-    LLM: locate or scaffold the base Containerfile, propose the additions as a
-    diff, get the user's explicit approval per change, then rebuild.
+    A companion declares the tools its content needs inside the agent image as
+    the typed `tooling` field of its loadout's init section. `container tooling
+    list` collects those declarations from ADMITTED companions and emits them
+    with instructions for the LLM: locate or scaffold the base Containerfile,
+    propose the additions as a diff, get the user's explicit approval per
+    change, then rebuild.
 
-    Collection goes through the same trust gate as any other content —
-    declarations from unreviewed bundles are withheld — and nothing is ever
-    written here. The edit is the LLM's, gated by the user.
+    Collection goes through the same trust gate as any other content — a
+    companion ctxloom may not execute declares nothing, and a rejected one is
+    withheld — and nothing is ever written here. The edit is the LLM's, gated
+    by the user.
 
+    # Adjusted under the loadout contract v2 (ugly-yodel): a bundle no longer
+    # declares tooling — the well-known `tooling` command is gone. A companion
+    # declares it, typed, in its loadout; "untrusted" is therefore a companion
+    # whose binary is signed by a key this project does not trust, which is
+    # refused at EXEC (the companion model's control point) and so declares
+    # nothing at all.
+    #
     # ABSENCE SATISFIED ABSENCE. With nothing declared anywhere, "none
     # reported" was equally consistent with the trust gate working and with
     # collection being broken outright — a render that dropped EVERY
     # declaration, trusted or not, left this green. So the fixture declares
-    # tooling twice: once from a bundle whose declaration has been rejected
-    # (must be withheld, and the summary line is then a fact about the GATE),
-    # and once from a bundle that is trusted (must come through — the positive
+    # tooling twice: once from a companion ctxloom refuses to run (must be
+    # withheld, and the summary line is then a fact about the GATE), and once
+    # from a companion that is trusted (must come through — the positive
     # control that makes "none reported" mean something).
     #
     # DECIDED 2026-08-08 (taskloom vivacious-overlook), NOT YET IMPLEMENTED:
     # `container tooling` will gain a section naming what was withheld BY
-    # BUNDLE AND ITEM REF ("shady#commands/tooling") — never the
-    # publisher-authored declaration body. A ref is a ctxloom-controlled
-    # identifier; the body is attacker-controlled text, and rendering it to an
-    # operator's terminal is a confirmed hazard (taskloom delicious-goatskin:
-    # publisher content reaches the terminal with no sanitiser, measured).
+    # REF — never the publisher-authored declaration body. A ref is a
+    # ctxloom-controlled identifier; the body is attacker-controlled text, and
+    # rendering it to an operator's terminal is a confirmed hazard (taskloom
+    # delicious-goatskin: publisher content reaches the terminal with no
+    # sanitiser, measured).
     #
     # So the "does not contain TOOLING-DECL-SHADY" assertion below becomes MORE
     # load-bearing when that lands, not less: it is what pins that adding the
     # ref section did not start leaking the body.
     Scenario Outline: An untrusted declaration is withheld, and a trusted one comes through
       Given an initialized ctxloom project
-      And a bundle "shady" declaring container tooling "TOOLING-DECL-SHADY"
-      And I run "ctxloom bundle reject shady#commands/tooling"
+      And a companion "shady" declaring container tooling "TOOLING-DECL-SHADY", signed by a key this project does not trust
       When Alice collects what her installed content needs in the image:
         """
         ctxloom container tooling list <flags>
         """
       Then the command succeeds
-      And the output reports "declarations" as empty, saying "No trusted bundles declare container tooling"
+      And the output reports "declarations" as empty, saying "No admitted companion declares container tooling"
       And the output does not contain "TOOLING-DECL-SHADY"
-      Given a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
+      Given a companion "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
       When Alice collects again now that a trusted bundle declares tooling:
         """
         ctxloom container tooling list <flags>
@@ -315,7 +323,7 @@ Feature: container — the images isolated agents run in, and the questions you 
     # nothing a caller already types stops working.
     Scenario: Bare container tooling lists the declarations
       Given an initialized ctxloom project
-      And a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
+      And a companion "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
       When I run "ctxloom container tooling"
       Then the command succeeds
       And the output contains "TOOLING-DECL-TOOLED"
@@ -326,7 +334,7 @@ Feature: container — the images isolated agents run in, and the questions you 
     # a working response and carry no content to apply.
     Scenario: The machine-readable form carries the instructions and the declarations
       Given an initialized ctxloom project
-      And a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
+      And a companion "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
       When I run "ctxloom --format json container tooling list"
       Then the command succeeds
       And the output is valid JSON

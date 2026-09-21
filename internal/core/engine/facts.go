@@ -88,6 +88,18 @@ type SeedFile struct {
 	DestName string
 	// Required marks the file whose absence means nothing is seedable.
 	Required bool
+	// Project, when set, is the ENGINE's transform of the host bytes into
+	// the instance's: what the instance may hold is a projection of the
+	// host file, applied on every placement, never only the first. nil
+	// means the instance holds the host's bytes as they are.
+	//
+	// A projected file is delivered ONE WAY, and the machinery enforces
+	// it: the instance cannot write back through a lossy projection
+	// without destroying what the projection withheld. It is the engine's
+	// own knowledge of its format — which field is the single-use refresh
+	// token — so it is declared here, by the engine, and the isolation
+	// machinery applies it without reading a byte of the format itself.
+	Project func(host []byte) ([]byte, error)
 }
 
 // Validate refuses a non-zero spec the cells adapter could not act on

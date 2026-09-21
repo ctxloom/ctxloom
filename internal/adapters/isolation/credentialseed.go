@@ -55,6 +55,7 @@ type seedFile struct {
 	host     string // absolute host source path
 	destName string // filename under the destination directory
 	required bool
+	project  func(host []byte) ([]byte, error) // the engine's projection, or nil
 }
 
 // resolveSeedFiles resolves seed's declared files against hostHome, in copy
@@ -66,6 +67,7 @@ func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 			host:     filepath.Join(hostHome, filepath.FromSlash(f.HostRelHome)),
 			destName: f.DestName,
 			required: f.Required,
+			project:  f.Project,
 		})
 	}
 	return out
@@ -128,11 +130,12 @@ func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome stri
 // provisionSeedFiles turns the resolved host files into declared Materials and
 // has the engine's chosen provisioner place them.
 //
-// Every credential material asks for SharingShared, and it is not a choice
-// this function makes: a credential that must RENEW has to reach the host, and
-// a private one is the copy being deleted wearing a different name. Material
-// deliberately isolated from the real thing is a different declaration, not a
-// weaker version of this one.
+// Every credential material asks for SharingShared: the host's refreshes
+// must reach the instance for as long as the run lives. A file the engine
+// projects (a withheld refresh token) is placed READ-ONLY, because its
+// instance bytes are a lossy view of the host's and a write back through
+// that view would strip the host's own copy — the projection decides the
+// direction, not this function.
 //
 // Placing nothing reports seedNoSource, never seedOK: a placement that
 // delivered zero bytes must not report success.
@@ -147,8 +150,10 @@ func provisionSeedFiles(name string, seed engine.CredentialSeed, files []seedFil
 			// Slash form, and the DECLARED destination name rather than one
 			// re-derived from the host path: an name that renames material
 			// on placement must be served at the name it actually reads.
-			DestRel: path.Join(seed.Subdir, f.destName),
-			Sharing: SharingShared,
+			DestRel:  path.Join(seed.Subdir, f.destName),
+			Sharing:  SharingShared,
+			ReadOnly: f.project != nil,
+			Project:  f.project,
 		})
 	}
 	if len(materials) == 0 {

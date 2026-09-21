@@ -39,9 +39,9 @@ const hostConfigRelPath = InstanceConfigFileName
 // the default direction of a mistake there is a CONFIDENTIALITY LEAK: on a real
 // host this file is claude's whole top-level config, carrying the user's own
 // `mcpServers` registrations (and whatever secrets those hold), their
-// `oauthAccount` identity, their accumulated per-project history and their
-// telemetry keys. None of that is ever copied. Only the onboarding answers
-// below cross, and they cross BY NAME.
+// accumulated per-project history and their telemetry keys. None of that is
+// ever copied. Only the onboarding answers and the account half below cross,
+// and they cross BY NAME.
 type ambientConfigKey struct {
 	// name is the exact JSON key.
 	name string
@@ -56,20 +56,26 @@ type ambientConfigKey struct {
 }
 
 // ambientConfigKeys is claude's ambient set: the onboarding answers, and
-// nothing else.
+// the account half claude's own session-seeding path copies.
 //
-// WHY THESE AND NOTHING ELSE: key names probe-verified against claude 2.1.228
-// and the vendor's own headless fixture inside it. Under `engine_home: session` the instance is thrown away at
-// session end, so an onboarding answer given inside one dies with it and the
-// dialog re-prompts every interactive session. Copying the host file wholesale
+// WHY THESE AND NOTHING ELSE: the onboarding key names are probe-verified
+// against claude 2.1.228 and the vendor's own headless fixture inside it.
+// Under `engine_home: session` the instance is thrown away at session end,
+// so an onboarding answer given inside one dies with it and the dialog
+// re-prompts every interactive session. Copying the host file wholesale
 // would fix that and re-open the leak above; copying these keys by name fixes
-// it and cannot.
+// it and cannot. oauthAccount and primaryApiKey are what claude's own seeding
+// of a temp config dir copies out of the host file (2.1.278): the identity
+// it shows and checks for a subscription token, and the credential of an
+// API-key login, which has no .credentials.json to seed beside it.
 var ambientConfigKeys = []ambientConfigKey{
 	{name: "hasCompletedOnboarding", fallback: true, expected: true},
 	{name: "lastOnboardingVersion", expected: true},
 	{name: "hasIdeOnboardingBeenShown"},
 	{name: "hasClaudeMdExternalIncludesApproved"},
 	{name: "hasClaudeMdExternalIncludesWarningShown"},
+	{name: "oauthAccount"},
+	{name: "primaryApiKey"},
 }
 
 // hardenedConfigKeys are written UNCONDITIONALLY, host file or not — they are

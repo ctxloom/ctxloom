@@ -60,9 +60,9 @@ func readInstanceConfig(t *testing.T, instanceHome string) map[string]any {
 }
 
 // TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList is the PAYLOAD test
-// for D4: the generated instance file carries the onboarding answers by name
-// and NOT ONE of the confidential keys sitting beside them in the same host
-// file.
+// for D4: the generated instance file carries the onboarding answers and the
+// account identity by name and NOT ONE of the confidential keys sitting
+// beside them in the same host file.
 //
 // MUTATION TARGET (m1): add "mcpServers" to ambientConfigKeys — or replace the
 // per-key loop with a wholesale copy of the host table — and the mcpServers
@@ -88,7 +88,7 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 
 	// NEVER copied. Each of these is a live confidentiality question, not a
 	// tidiness preference.
-	for _, forbidden := range []string{"mcpServers", "oauthAccount", "userID", "firstStartTime"} {
+	for _, forbidden := range []string{"mcpServers", "userID", "firstStartTime"} {
 		assert.NotContains(t, cfg, forbidden,
 			"%q is the user's own data and must never cross into an agent's instance", forbidden)
 	}
@@ -99,7 +99,6 @@ func TestWriteInstanceConfig_CopiesOnlyTheOnboardingAllowList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "SECRET-SPOTIFY-TOKEN")
 	assert.NotContains(t, string(raw), "SECRET-GMAIL-TOKEN")
-	assert.NotContains(t, string(raw), "user@example.com")
 	assert.NotContains(t, string(raw), "a private prompt")
 }
 

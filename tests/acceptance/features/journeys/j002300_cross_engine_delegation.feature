@@ -44,15 +44,16 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # guidance and this scenario goes red for exactly that reason.
   Scenario: Two children delegated to the same engine each report guidance found only in their OWN composed profile
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | librarian |
-      | prompt | go        |
+      | role         | librarian |
+      | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
     And "librarian"'s reported turn carries its own guidance, not "cartographer"'s
     When the agent calls tool "agent_run" with:
-      | agent  | cartographer |
-      | prompt | go           |
+      | role         | cartographer |
+      | input.prompt | go           |
     Then the tool call succeeds
     And "cartographer"'s session harp is remembered
     And "cartographer"'s reported turn carries its own guidance, not "librarian"'s
@@ -68,15 +69,16 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   @reach-back @R1
   Scenario: A message the coordinator sends via agent_send reaches its child, verified in the child's own next reported turn
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | librarian |
-      | prompt | go        |
+      | role         | librarian |
+      | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
     And "librarian"'s reported turn carries its own guidance, not "cartographer"'s
     When the agent calls tool "agent_send" addressed to "librarian"'s session with body "J002300-ROUNDTRIP-ECHO-TOKEN-6d2e73"
     Then the tool call succeeds
-    And the tool result field "disposition" is set
+    And the tool result field "delivery" is set
     And "librarian"'s next reported turn carries "J002300-ROUNDTRIP-ECHO-TOKEN-6d2e73"
 
   # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. A
@@ -96,9 +98,10 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   @reach-back @R2
   Scenario: A delegated child's own turn result reaches the coordinator's mailbox over the bus
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | librarian |
-      | prompt | go        |
+      | role         | librarian |
+      | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
@@ -118,9 +121,9 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # nothing is left pending), and by a second turn-start that finds nothing —
   # once per delivery, which a receive loop never had.
   #
-  # The owner's harp is pinned by the scenario BEFORE the coordinator starts:
-  # the stdio coordinator takes its own identity from CTXLOOM_SESSION_HARP
-  # (selfIdentityFromEnv), and that identity IS the spool the hook reads.
+  # The owner's harp is the one the standing `ctxloom run` minted: the fixture
+  # exports it as CTXLOOM_SESSION_HARP to every process the scenario spawns
+  # after it, and that identity IS the spool the hook reads.
   #
   # CONTAINER AXIS EXCLUDED, stated rather than discovered: a containerized
   # claude never receives ctxloom's hooks at all (pulmonary-eternity), so this
@@ -129,10 +132,10 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   @reach-back @R2
   Scenario: A delegated child's report reaches the coordinator's next turn through the turn-start hook, with no receive
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
-    And the session harp is "quiet-copper-heron"
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | librarian |
-      | prompt | go        |
+      | role         | librarian |
+      | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
     And the coordinator's own spool holds "librarian"'s report within 20s
@@ -163,12 +166,13 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # runner's own dying words in the body and no result at all, and the child's
   # transcript never gains a turn.
   #
-  # HOW THE RUNNER IS WITHHELD, with no product seam: the coordinator is
-  # started from a copy of the binary that is unlinked once its MCP handshake
-  # completes, so its self-lookup (selfexec.Path) takes its documented
-  # upgrade-in-place fallback — a PATH lookup — and PATH is led by a decoy
-  # `ctxloom` that prints a marker and exits non-zero. Everything else about
-  # the fixture is R1/R2's.
+  # HOW THE RUNNER IS WITHHELD, with no product seam: the session owner (the
+  # `ctxloom run` hosting the coordinator) is started from a copy of the
+  # binary that is unlinked once the owner is standing — its OWN runner is
+  # already up by then — so the coordinator's self-lookup (selfexec.Path) for
+  # every CHILD runner takes its documented upgrade-in-place fallback — a PATH
+  # lookup — and PATH is led by a decoy `ctxloom` that prints a marker and
+  # exits non-zero. Everything else about the fixture is R1/R2's.
   #
   # FORCED, NOT AWAITED: the failure notice is queued by the run's terminal,
   # after which nothing can write that child's transcript, so "recorded no
@@ -178,8 +182,8 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
     And the coordinator's runner is withheld
     When the agent calls tool "agent_run" with:
-      | agent  | librarian |
-      | prompt | go        |
+      | role         | librarian |
+      | input.prompt | go        |
     Then the tool call succeeds
     And "librarian"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
@@ -273,17 +277,18 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   @live @wip
   Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
     Given real "claude" and a second agent-capable engine are both available for cross-engine delegation
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | claude-child |
-      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+      | role         | claude-child |
+      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "claude-child"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "claude-child" reports
     Then the tool call succeeds
     And the received message is from "claude-child" and its body carries its own guidance, not "second-child"'s
     When the agent calls tool "agent_run" with:
-      | agent  | second-child |
-      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+      | role         | second-child |
+      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "second-child"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "second-child" reports
@@ -344,9 +349,10 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   @live @delegation
   Scenario Outline: A delegated child on a real <engine> reports back a marker only its own composed context could supply
     Given a real "<engine>" engine is available for a delegated child carrying marker "<marker>"
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | delegate |
-      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+      | role         | delegate |
+      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "delegate"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"
@@ -436,9 +442,10 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   @live @probe-p6-steer-echo
   Scenario Outline: A delegated child on a real <engine> echoes back a harp the coordinator steered into its live session
     Given a real "<engine>" engine on runtime "<runtime>" with workspace "<workspace>" is available for a steer-echo child carrying wake marker "<marker>"
+    And a session owner is standing
     When the agent calls tool "agent_run" with:
-      | agent  | delegate |
-      | prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
+      | role         | delegate |
+      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
     Then the tool call succeeds
     And "delegate"'s session harp is remembered
     When the agent calls tool "agent_recv" repeatedly, waiting up to 240s total, until "delegate" reports a body containing "<marker>"

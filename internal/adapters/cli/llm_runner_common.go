@@ -196,9 +196,11 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 // harp and publishes its socket into this process's environment, recording
 // the endpoint's closer on standup. The owner's stdio shim (`ctxloom mcp
 // serve`, launched by the interactive engine) forwards to it by
-// CTXLOOM_MCP_SOCKET; the arm dies with the plugin protocol. Without a hosted
-// run there is nothing to refuse for and the shim's own local fallback is
-// correct, so a failed endpoint degrades with a warning.
+// CTXLOOM_MCP_SOCKET; the arm dies with the plugin protocol. A failed
+// endpoint degrades with a warning: the shim then serves its own cell-local
+// surface and REFUSES the agent tools — it never hosts a coordinator of its
+// own (mcp.ServeStdio) — so the cost is this session's delegation, not a
+// rival owner.
 func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *runner.Home, harp string) error {
 	endpoint, merr := mcp.ServeRunnerMCP(App().Reporter, cfg, harp, h)
 	if merr == nil {
@@ -211,7 +213,7 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, h *runner.Home,
 		}
 	}
 	if merr != nil {
-		clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will fall back to its local mode): %v", merr)
+		clidiag.Warn("ctxloom", "runner MCP endpoint failed (the harness shim will serve its local surface and refuse agent delegation): %v", merr)
 		return nil
 	}
 	standup.endpointClose = endpoint.Close

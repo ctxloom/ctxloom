@@ -12,6 +12,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/gofrs/flock"
 
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -22,6 +23,7 @@ type World struct {
 	env   *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
 	mock  *testenv.MockLM          // deterministic LLM backend (set by fixtures)
 	mcp   *testenv.MCPSession      // mock agent: SDK client session to `ctxloom mcp` (lazy)
+	owner *sessionOwner            // the standing `ctxloom run` the shim forwards to, when a scenario stood one (session_owner_fixture.go)
 	tlMCP *testenv.MCPSession      // J002500: taskloom's own MCP server (see steps_j002500_taskloom.go), eager (started explicitly, not lazily)
 
 	lastTool     toolOutcome    // last tools/call outcome (see steps_mcp.go)
@@ -107,12 +109,20 @@ func worldFrom(ctx context.Context) *World {
 }
 
 // agent returns the mock-agent MCP session, starting it (handshake included)
-// on first use so scenarios that never touch the agent pay nothing.
+// on first use so scenarios that never touch the agent pay nothing. When a
+// session owner is standing, the shim is started with the owner's runner
+// socket and FORWARDS to it — the shape a `ctxloom run` engine's shim has —
+// so the agent tools reach a real coordinator; without one the shim serves
+// its own cell-local surface and refuses them.
 func (w *World) agent() (*testenv.MCPSession, error) {
 	if w.mcp != nil {
 		return w.mcp, nil
 	}
-	s, err := w.env.StartMCP()
+	var extraEnv []string
+	if w.owner != nil {
+		extraEnv = append(extraEnv, coord.EnvMCPSocket+"="+w.owner.socket)
+	}
+	s, err := w.env.StartMCP(extraEnv...)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +169,9 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		if cerr := w.mcp.Close(); cerr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("mcp client close: %w", cerr)
 		}
+		// The shim closes BEFORE the owner it forwards to, so its forward
+		// session ends against a live runner rather than a dead socket.
+		w.owner.stop()
 		if cerr := w.tlMCP.Close(); cerr != nil && firstErr == nil {
 			firstErr = fmt.Errorf("taskloom mcp client close: %w", cerr)
 		}
@@ -172,6 +185,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerCLISteps(ctx)
 	registerFileSteps(ctx)
 	registerMCPSteps(ctx)
+	registerSessionOwnerSteps(ctx)
 	registerCoordinationContractSteps(ctx)
 	registerLiveSteps(ctx)
 	registerJ000200SetupSteps(ctx)

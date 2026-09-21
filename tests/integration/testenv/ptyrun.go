@@ -82,6 +82,15 @@ type PTYSession struct {
 // sequences, which internal/adapters/termui writes unconditionally and never gates on
 // TERM.
 func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
+	return e.RunPTYFrom(e.AppBinary, cols, rows, extraEnv, args...)
+}
+
+// RunPTYFrom is RunPTY with the binary named by the caller instead of
+// AppBinary: same pty, same directory, same isolated environment. It exists
+// for a scenario that must run a session from a binary it controls the
+// lifetime of (a copy it can unlink while the process lives), which
+// AppBinary — shared by every scenario in the run — can never be.
+func (e *TestEnvironment) RunPTYFrom(bin string, cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
 	p, err := pty.New()
 	if err != nil {
 		return nil, fmt.Errorf("open pty: %w", err)
@@ -91,7 +100,7 @@ func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...stri
 		return nil, fmt.Errorf("resize pty to %dx%d: %w", cols, rows, err)
 	}
 
-	cmd := p.CommandContext(context.Background(), e.AppBinary, args...)
+	cmd := p.CommandContext(context.Background(), bin, args...)
 	cmd.Dir = e.ProjectDir
 	cmd.Env = append(append(e.isolatedEnv(), "TERM=dumb"), extraEnv...)
 	cmd.SysProcAttr = pdeathsigSysProcAttr()
@@ -101,7 +110,7 @@ func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...stri
 
 	if err := cmd.Start(); err != nil {
 		_ = p.Close()
-		return nil, fmt.Errorf("start %s: %w", e.AppBinary, err)
+		return nil, fmt.Errorf("start %s: %w", bin, err)
 	}
 	go func() {
 		s.exitErr = cmd.Wait()

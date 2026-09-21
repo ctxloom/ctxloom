@@ -43,7 +43,7 @@ hidden couplings through the environment or the filesystem.
 flowchart TD
   CLI["internal/adapters/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
   TUI["internal/adapters/cli/tui"]
-  MCP["internal/adapters/mcp<br/>(the stdio server; owner_socket.go the plugin arm's socket;<br/>coord_host.go HostCoordinator)"]
+  MCP["internal/adapters/mcp<br/>(the stdio server; owner_socket.go the plugin arm's socket;<br/>coord_host.go HostCoordinatorForSession — the one hosting path)"]
   RMCP["internal/adapters/runner/mcp<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
   SPAWN["internal/adapters/spawn<br/>(coord.Spawner: Resolve/ResolveLaunch/Start/Adopt;<br/>StartRunner and its context contract)"]
   COORD["internal/core/coord<br/>(Coordinator, Verbs, Transport port, Event + frames — no proto)"]
@@ -105,16 +105,21 @@ flowchart TD
 
 Two processes per run, joined by gRPC and by the filesystem.
 
-**The coordinator process** (the session owner, `ctxloom run`) constructs one
-`coord.Coordinator` (`coord.New`) which owns the journals, the state-dir lock, the
+**The coordinator process** (the session owner, `ctxloom run`, and ONLY that:
+a coordinator is hosted by a runner-bearing session, never by an MCP shim —
+`mcp.HostCoordinatorForSession` is the one hosting path, its constructor
+private; a bare `ctxloom mcp` refuses the agent tools instead) constructs one
+`coord.Coordinator` (`coord.New`) which owns the journals, the state-dir lock
+(a second session claiming an owned project is refused with
+`coord.ErrStateOwned`, never degraded to a rival coordinator), the
 `in/` spool writers, and binds its `coord.Transport` — the h2c listener
 (`coordgrpc.Serve`, `coordServing`, `httpserver.go`) that serves `coordService`,
 `consumerService` and `artifactService` (`grpcserver.go`, all `adapters/coordgrpc`).
 Its long-lived goroutines are `runnerWatchdog`, `livenessWatchdog` and the
 coordinator-side `SpoolReactor`. Every LLM-facing verb lands on one of
 `Coordinator.AgentRun`, `AgentSend`, `AgentRecv`, `AgentStop`, `StopChildren`,
-`Roster`/`ListRuns` — whether it arrived in-process (the coordinator-local MCP
-surface, `mcp.HostCoordinator` over the composition's constructor) or over the wire (`coordgrpc`'s `handleAgentFrame` decodes
+`Roster`/`ListRuns` — whether it arrived in-process (the host-relayed tools,
+`coord.HostApp`) or over the wire (`coordgrpc`'s `handleAgentFrame` decodes
 `AgentRequestFromWire` → `Coordinator.HandleRequest → serveAgentRequest` →
 `spawnDisposition` / `serveRoster` / `serveStopRun`).
 

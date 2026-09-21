@@ -45,6 +45,7 @@ import (
 
 	"github.com/cucumber/godog"
 
+	pb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
@@ -359,16 +360,18 @@ func j002300TranscriptAssistantCount(w *World, harp string, want int) ([]j002300
 // run.
 const j002300WithheldRunnerMarker = "J002300-RUNNER-WITHHELD-BY-NEGATIVE-PROBE-7f3a1c"
 
-// j002300WithholdRunner starts this scenario's coordinator so that no runner
-// can stand for any child it spawns, using only behaviour the product already
-// has — no test-only seam is compiled into the binary:
+// j002300WithholdRunner stands this scenario's session owner so that no
+// runner can stand for any child it spawns, using only behaviour the product
+// already has — no test-only seam is compiled into the binary:
 //
-//  1. The coordinator runs from a COPY of the binary under test, and the copy
-//     is unlinked as soon as the MCP handshake completes. The process keeps
-//     running (the inode lives on), but its own executable path no longer
-//     resolves, so selfexec.Path — the one resolver every self-exec of a
-//     runner goes through — takes its documented upgrade-in-place fallback:
-//     a bare PATH lookup for "ctxloom".
+//  1. The owner (`ctxloom run`, the process that hosts the coordinator) runs
+//     from a COPY of the binary under test, and the copy is unlinked as soon
+//     as the owner is standing — by which point its OWN runner has already
+//     been self-exec'd from the still-present copy. From then on the
+//     coordinator's executable path no longer resolves, so selfexec.Path —
+//     the one resolver every self-exec of a child's runner goes through —
+//     takes its documented upgrade-in-place fallback: a bare PATH lookup
+//     for "ctxloom".
 //  2. PATH is led by a directory holding a decoy `ctxloom`: a script that
 //     prints j002300WithheldRunnerMarker to stderr and exits non-zero. The
 //     spawn therefore starts a process that dies at once, so the coordinator
@@ -376,10 +379,10 @@ const j002300WithheldRunnerMarker = "J002300-RUNNER-WITHHELD-BY-NEGATIVE-PROBE-7
 //     rather than to a missing file or to its own dial-home clock.
 //
 // Nothing about the fixture, the tool calls or the child's config differs
-// from the scenarios this probes; only the runner is gone.
+// from the scenarios this probes; only the child's runner is gone.
 func j002300WithholdRunner(w *World) error {
-	if w.mcp != nil {
-		return errors.New("j002300: the coordinator is already running; the runner must be withheld before its first tool call")
+	if w.owner != nil {
+		return errors.New("j002300: the session owner is already standing; the runner must be withheld before it stands")
 	}
 	root := filepath.Join(w.env.Root, "withheld-runner")
 	decoyDir := filepath.Join(root, "path")
@@ -390,21 +393,18 @@ func j002300WithholdRunner(w *World) error {
 	if err := os.WriteFile(filepath.Join(decoyDir, "ctxloom"), []byte(decoy), 0o755); err != nil {
 		return fmt.Errorf("j002300: withhold runner: write decoy: %w", err)
 	}
-	coordinator := filepath.Join(root, "ctxloom")
-	if err := j002300CopyExecutable(w.env.AppBinary, coordinator); err != nil {
+	owner := filepath.Join(root, "ctxloom")
+	if err := j002300CopyExecutable(w.env.AppBinary, owner); err != nil {
 		return fmt.Errorf("j002300: withhold runner: %w", err)
 	}
-	s, err := w.env.StartMCPFrom(coordinator, "PATH="+decoyDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if err != nil {
+	if err := w.standSessionOwner(owner, "PATH="+decoyDir+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
 		return err
 	}
-	// The handshake is done: from here the coordinator's own path is gone and
-	// every runner spawn falls through to the decoy.
-	if err := os.Remove(coordinator); err != nil {
-		_ = s.Close()
-		return fmt.Errorf("j002300: withhold runner: unlink the coordinator's binary: %w", err)
+	// The owner is standing, its own runner up: from here the owner's path
+	// is gone and every child runner spawn falls through to the decoy.
+	if err := os.Remove(owner); err != nil {
+		return fmt.Errorf("j002300: withhold runner: unlink the owner's binary: %w", err)
 	}
-	w.mcp = s
 	return nil
 }
 
@@ -610,14 +610,14 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("j002300: no session harp remembered for %q", self)
 			}
 			if msg, err := j002300FindMessageFrom(w, harp, coord.KindResult); err == nil {
-				body, _ := msg["body"].(string)
+				body, _ := msg[recvTextField].(string)
 				return fmt.Errorf("a %q-kind message from %s arrived with no runner standing — something answered for the runner; body:\n%s", coord.KindResult, self, body)
 			}
 			msg, err := j002300FindMessageFrom(w, harp, coord.KindError)
 			if err != nil {
 				return err
 			}
-			body, _ := msg["body"].(string)
+			body, _ := msg[recvTextField].(string)
 			w.docStepMaterialized = fmt.Sprintf("agent_recv — launch failure from %s (harp %s):\n  body: %s", self, harp, body)
 			if !strings.Contains(body, j002300WithheldRunnerMarker) {
 				return fmt.Errorf("%s's launch failure does not carry the withheld runner's own dying words %q — it failed, but not for the runner's absence; body:\n%s", self, j002300WithheldRunnerMarker, body)
@@ -660,9 +660,9 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^"([^"]*)"'s session harp is remembered$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		j002300 := j002300Of(w)
-		harp, ok := w.lastInner["harp"].(string)
+		harp, ok := w.lastInner[spawnChildAgentIDField].(string)
 		if !ok || harp == "" {
-			return fmt.Errorf("j002300: last tool result carries no harp field for %q; result:\n%s", name, w.lastTool.JSON())
+			return fmt.Errorf("j002300: last tool result carries no %s field for %q; result:\n%s", spawnChildAgentIDField, name, w.lastTool.JSON())
 		}
 		j002300.harps[name] = harp
 		return nil
@@ -719,7 +719,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			// kind is REQUIRED on an ordinary send: an absent one is refused,
 			// naming the four sender-allowed values. This is plain prose from
 			// the coordinator to a child, claiming no special authority.
-			return callTool(c, "agent_send", map[string]any{"to": harp, "body": body, "kind": "message"})
+			return callTool(c, "agent_send", map[string]any{"to_agent_id": harp, "text": body, "kind": pb.MessageKind_MESSAGE_KIND_MESSAGE.String()})
 		})
 
 	ctx.Step(`^"([^"]*)"'s next reported turn carries "([^"]*)"$`,
@@ -759,21 +759,31 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// this as real coverage.
 	ctx.Step(`^the agent calls tool "agent_recv" repeatedly, waiting up to (\d+)s total, until "([^"]*)" reports$`,
 		func(c context.Context, budgetSec int, name string) error {
+			w := worldFrom(c)
+			j002300 := j002300Of(w)
+			harp, ok := j002300.harps[name]
+			if !ok {
+				return fmt.Errorf("j002300: no session harp remembered for %q — spawn it first", name)
+			}
 			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
 			var lastErr error
 			for {
 				if err := callTool(c, "agent_recv", map[string]any{"wait": 12}); err != nil {
 					return fmt.Errorf("j002300: agent_recv transport error while waiting for %q: %w", name, err)
 				}
-				w := worldFrom(c)
+				// A coordinator's receive that times out is a SUCCESSFUL empty
+				// result carrying a disposition, not an error — so "until X
+				// reports" waits on the payload: a message from X's harp.
 				if isErr, msg := w.lastTool.IsError(); isErr {
 					lastErr = fmt.Errorf("%s", msg)
-					if time.Now().After(deadline) {
-						return fmt.Errorf("j002300: agent_recv never returned a message from %q within %ds: %w", name, budgetSec, lastErr)
-					}
-					continue
+				} else if _, ferr := j002300FindMessageFrom(w, harp, ""); ferr == nil {
+					return nil // subsequent Then steps assert its content
+				} else {
+					lastErr = ferr
 				}
-				return nil // a real, non-error result — subsequent Then steps assert its content
+				if time.Now().After(deadline) {
+					return fmt.Errorf("j002300: agent_recv never returned a message from %q within %ds: %w", name, budgetSec, lastErr)
+				}
 			}
 		})
 
@@ -819,10 +829,10 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 						return merr
 					}
 					for _, m := range msgs {
-						if from, _ := m["from"].(string); from != harp {
+						if from, _ := m[recvFromAgentIDField].(string); from != harp {
 							continue
 						}
-						body, _ := m["body"].(string)
+						body, _ := m[recvTextField].(string)
 						seen = append(seen, body)
 						if strings.Contains(body, want) {
 							w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", name, harp, body)
@@ -863,7 +873,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			body, _ := msg["body"].(string)
+			body, _ := msg[recvTextField].(string)
 			w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", self, harp, body)
 			if !strings.Contains(body, selfSpec.Guidance) {
 				return fmt.Errorf("%s's reported body does not carry its OWN guidance %q; body:\n%s", self, selfSpec.Guidance, body)
@@ -886,7 +896,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return err
 			}
-			body, _ := msg["body"].(string)
+			body, _ := msg[recvTextField].(string)
 			w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", self, harp, body)
 			if !strings.Contains(body, want) {
 				return fmt.Errorf("%s's reported body does not contain %q; body:\n%s", self, want, body)
@@ -911,9 +921,9 @@ func j002300Messages(w *World) ([]map[string]any, error) {
 	return out, nil
 }
 
-// j002300FindMessageFrom returns the received message whose "from" is harp and,
-// when kind is non-empty, whose "kind" matches it (@live only). Pass "" to
-// accept any kind.
+// j002300FindMessageFrom returns the received message whose sender is harp
+// and, when kind (a coord mailbox spelling, e.g. coord.KindResult) is
+// non-empty, whose kind is that one's wire name. Pass "" to accept any kind.
 //
 // The kind filter is not a refinement, it is the correctness condition: one
 // harp can have several messages pending, so POSITION selects nothing
@@ -924,8 +934,16 @@ func j002300FindMessageFrom(w *World, harp, kind string) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
+	wantKind := ""
+	if kind != "" {
+		k, err := pb.MessageKindForLegacyName(kind)
+		if err != nil {
+			return nil, fmt.Errorf("j002300: %w", err)
+		}
+		wantKind = k.String()
+	}
 	for _, m := range msgs {
-		if f, _ := m["from"].(string); f != harp {
+		if f, _ := m[recvFromAgentIDField].(string); f != harp {
 			continue
 		}
 		// One harp can have SEVERAL messages pending, so position is not a
@@ -934,8 +952,8 @@ func j002300FindMessageFrom(w *World, harp, kind string) (map[string]any, error)
 		// and taking the first match silently asserted against whichever
 		// came first — reporting "the body does not carry its own guidance"
 		// for a body that was never the result at all.
-		if kind != "" {
-			if k, _ := m["kind"].(string); k != kind {
+		if wantKind != "" {
+			if k, _ := m["kind"].(string); k != wantKind {
 				continue
 			}
 		}

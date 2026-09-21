@@ -27,15 +27,29 @@ type toolOutcome struct {
 	rpcErr *jsonrpc.Error
 }
 
-// Inner unwraps the embedded operation-result JSON the server embeds in the
-// first text content. It returns an error when the call produced a JSON-RPC
-// error or the result carries no such text.
+// Inner unwraps the operation result: the result's structuredContent when
+// the server set one (the SDK's typed slot — every typed tool fills it, and
+// the coordination tools carry their payload ONLY there, their text content
+// being a status line), else the JSON the server embeds in the first text
+// content. It returns an error when the call produced a JSON-RPC error or
+// the result carries neither.
 func (o toolOutcome) Inner() (map[string]any, error) {
 	if o.rpcErr != nil {
 		return nil, fmt.Errorf("tool error: %v", o.rpcErr)
 	}
 	if o.res == nil {
 		return nil, errors.New("no tool call has been made")
+	}
+	if o.res.StructuredContent != nil {
+		raw, err := json.Marshal(o.res.StructuredContent)
+		if err != nil {
+			return nil, fmt.Errorf("re-marshal structured content: %w", err)
+		}
+		var inner map[string]any
+		if err := json.Unmarshal(raw, &inner); err != nil {
+			return nil, fmt.Errorf("unwrap structured content: %w", err)
+		}
+		return inner, nil
 	}
 	text, ok := firstText(o.res)
 	if !ok {
@@ -77,6 +91,22 @@ func (o toolOutcome) JSON() string {
 		return string(data)
 	}
 	return ""
+}
+
+// Text joins every text content of a successful result — the status line a
+// coordination tool answers beside its structured payload, or the whole
+// answer of a tool that speaks text. Empty for a JSON-RPC error or no call.
+func (o toolOutcome) Text() string {
+	if o.res == nil {
+		return ""
+	}
+	var parts []string
+	for _, c := range o.res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			parts = append(parts, tc.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // firstText returns the text of a result's first content when that content
@@ -167,11 +197,17 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		// This used to substring-match the WHOLE re-marshalled
 		// JSON-RPC envelope (w.lastTool.JSON()) -- field names, the isError
 		// flag, and any error text included -- so a tool call that FAILED
-		// with an error message quoting `want` would pass. Match against the
-		// unwrapped inner payload instead (the same one "the tool result
-		// field … equals …" already trusts), and fail loud if the envelope
-		// could not be unwrapped at all rather than silently falling through
-		// to the raw envelope.
+		// with an error message quoting `want` would pass. Match against
+		// what a SUCCESSFUL result says instead: the unwrapped payload (the
+		// same one "the tool result field … equals …" already trusts) and
+		// the result's own text — a coordination tool answers with its
+		// payload as structured content and a status line as text, and a
+		// model reads both. A failed call never matches, and an envelope
+		// that could not be unwrapped fails loud rather than silently
+		// falling through to the raw envelope.
+		if isErr, msg := w.lastTool.IsError(); isErr {
+			return fmt.Errorf("the tool call failed, so its result cannot contain %q: %s", want, msg)
+		}
 		if w.lastInnerErr != nil {
 			return fmt.Errorf("tool result envelope could not be unwrapped: %v; result:\n%s", w.lastInnerErr, w.lastTool.JSON())
 		}
@@ -179,8 +215,9 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("re-marshal unwrapped tool result: %w; result:\n%s", err, w.lastTool.JSON())
 		}
-		if !strings.Contains(string(innerJSON), want) {
-			return fmt.Errorf("tool result does not contain %q; unwrapped result:\n%s", want, innerJSON)
+		surface := string(innerJSON) + "\n" + w.lastTool.Text()
+		if !strings.Contains(surface, want) {
+			return fmt.Errorf("tool result does not contain %q; unwrapped result:\n%s\ntext:\n%s", want, innerJSON, w.lastTool.Text())
 		}
 		return nil
 	})
@@ -334,16 +371,42 @@ func assertToolCallSucceeds(w *World) error {
 }
 
 // tableToArgs turns a two-column Gherkin table (key | value) into a tool-argument
-// map. Values pass as strings; the server coerces per its schema.
+// map. Values pass as strings; the server coerces per its schema. A dotted
+// key ("input.prompt") nests, mirroring the dotted path lookupField reads
+// results with — the coordination tools take their task input as an object.
 func tableToArgs(table *godog.Table) (map[string]any, error) {
 	args := map[string]any{}
 	for _, row := range table.Rows {
 		if len(row.Cells) != 2 {
 			return nil, fmt.Errorf("argument table rows must have exactly 2 cells, got %d", len(row.Cells))
 		}
-		args[row.Cells[0].Value] = row.Cells[1].Value
+		if err := setField(args, row.Cells[0].Value, row.Cells[1].Value); err != nil {
+			return nil, err
+		}
 	}
 	return args, nil
+}
+
+// setField writes value at a dotted path, creating intermediate objects.
+func setField(obj map[string]any, path string, value any) error {
+	segs := strings.Split(path, ".")
+	cur := obj
+	for _, seg := range segs[:len(segs)-1] {
+		next, ok := cur[seg]
+		if !ok {
+			m := map[string]any{}
+			cur[seg] = m
+			cur = m
+			continue
+		}
+		m, ok := next.(map[string]any)
+		if !ok {
+			return fmt.Errorf("argument %q: %q is already a scalar, cannot nest under it", path, seg)
+		}
+		cur = m
+	}
+	cur[segs[len(segs)-1]] = value
+	return nil
 }
 
 // lookupField walks a dotted path (e.g. "result.name") through a decoded JSON

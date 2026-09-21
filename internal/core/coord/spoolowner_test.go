@@ -275,3 +275,71 @@ func TestSpoolOwner_MailToAQueuedChildIsNotStranded(t *testing.T) {
 	awaitChatText(t, sp, 1, "task B")
 	awaitChatText(t, sp, 1, "early")
 }
+
+// TestSpoolOwner_TheOwnersRunnerSendReachesTheChild pins the OWNER->child
+// half over the owner's OWN RUNNER: a `ctxloom run` session's engine reaches
+// the coordinator through its runner (the plugin-hosted owner arm), whose
+// agent_send is a file in the OWNER's out/ — no coordinator round trip. The
+// coordinator must route that file under the owner's identity exactly as it
+// routes a child's, or the owner's every send is a message written to a
+// directory nothing reads, with DELIVERY_QUEUED reported back.
+//
+// Asserted on the child's receive and on the owner's out/ being routed
+// (consumed), never on the send's own status.
+func TestSpoolOwner_TheOwnersRunnerSendReachesTheChild(t *testing.T) {
+	resetStrictness(t)
+	teeHome(t)
+	sp := cutoverSpawner(0)
+	c := newCutoverCoordinator(t, sp, 0)
+	out, childHome := awaitCutoverChildIdle(t, c, sp, "first task")
+
+	url, err := c.ReachURL("host")
+	require.NoError(t, err)
+	token, err := c.RegisterSessionOwner(ownerIdentity().Harp)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), conformanceWait)
+	defer cancel()
+	// The owner's runner: no RunID (no launch minted it), its harp from its
+	// config — the plugin-hosted arm's shape.
+	ownerHome, err := runnerHooks.NewHome(ctx, TestHomeConfig{
+		Reporter: termSink(), URL: url, Token: token, Harness: "test", Version: "test",
+		Harp: ownerIdentity().Harp,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { ownerHome.Close(0, "") })
+
+	const body = "a steer from the owner, via its runner"
+	resp, err := ownerHome.Request(ctx, &agentcoordpb.AgentRequest{
+		Kind: &agentcoordpb.AgentRequest_PeerSend{PeerSend: &agentcoordpb.PeerSendRequest{
+			ToAgentId: out.Harp, Text: body, Kind: agentcoordpb.MessageKind_MESSAGE_KIND_MESSAGE,
+		}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 0, resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+
+	// THE PAYLOAD: the child's runner receives the owner's words.
+	var got []*agentcoordpb.PeerMessage
+	require.Eventually(t, func() bool {
+		msgs, rerr := childHome.Recv(ctx, 50*time.Millisecond)
+		if rerr != nil {
+			return false
+		}
+		for _, m := range msgs {
+			if m.GetText() == body {
+				got = append(got, m)
+			}
+		}
+		return len(got) > 0
+	}, conformanceWait, 20*time.Millisecond, "the owner's send never reached the child's runner")
+	assert.Equal(t, ownerIdentity().Harp, got[0].GetFromAgentId(), "the message is authored by the owner — the identity of the spool it was found in")
+
+	// AND THE ROUTE: the owner's out/ file was routed and consumed, not left
+	// in place for a sweep that never comes. Deliver-then-consume is the
+	// coordinator's ordering (routeSpoolOut), so the child can see the
+	// message a moment before the rename lands.
+	require.Eventually(t, func() bool {
+		_, pending := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirOut, body)
+		return !pending
+	}, conformanceWait, 20*time.Millisecond, "the routed message must not remain in the owner's out/")
+	assertNoMailboxJournal(t, c)
+}

@@ -1,9 +1,9 @@
 // Package coord is the agentcoord.v1 runtime coordinator library (Wave B1).
 //
-// It is stood up as a LIBRARY by every session-owning process — `ctxloom run`
-// and (as the orphaned-orchestrator fallback) a bare
-// `ctxloom mcp` — and owns everything runtime-state-shaped about agent
-// delegation:
+// It is stood up as a LIBRARY by the session-owning process — `ctxloom run`,
+// and ONLY that: a project has one coordinator, its owner lock refuses a
+// second claimant (claimOwner), and an MCP server is a client of it, never a
+// host — and owns everything runtime-state-shaped about agent delegation:
 //
 //   - the durable CQRS stores (run registry, spawn queue, roster, role
 //     mailboxes, interaction journal): append-only JSONL journals, a single

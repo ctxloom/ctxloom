@@ -93,7 +93,11 @@ func TestDocComments_NameOnlyConstructorsThatExist(t *testing.T) {
 		}
 	}
 
-	require.NotEmpty(t, refs, "found no constructor references at all — the scanner is broken, not the package")
+	// The vacuity guard is on the SCAN, not on the references: a package may
+	// legitimately name no constructor in its prose, but a scan that parsed
+	// no declarations at all is looking at the wrong directory (the sandboxed
+	// cwd), not at this package.
+	require.NotEmpty(t, declared, "the scan found no declarations at all — the scanner is looking at the wrong directory, not at this package")
 
 	var dangling []string
 	for _, r := range refs {

@@ -1019,16 +1019,22 @@ func (st *runState) markSessionEnded() {
 // terminates MCP on a local socket; the harness's stdio `ctxloom mcp` forwards
 // there, and every coordination tool becomes a typed plane-2 frame back HERE.
 // A standup failure is a fatal finding (fail-loud): --degraded downgrades it
-// and the harness's shim falls back to its own local orchestrator.
+// and the session runs without delegation — the harness's shim refuses the
+// agent tools rather than hosting a coordinator of its own.
 //
 // Print (oneshot) runs host the coordinator too: the parent routes through its
 // own runner in every topology, so a headless coordinator brief (the echo
-// smoke) exercises the same runner-terminated path as an interactive session —
-// the bare-mcp shim fallback is for externally-launched harnesses only.
+// smoke) exercises the same runner-terminated path as an interactive session.
 // recordCoordinatorStartupFinding raises the finding for a coordinator that
 // could not stand up. It is DEGRADABLE: a session without a coordinator
 // cannot delegate, but every child's mail is a file spool, so nothing already
 // spawned is stranded and no work is lost by launching anyway.
+//
+// Two shapes, by cause. A project ANOTHER live session already owns
+// (coord.ErrStateOwned) is its own class: a project has one coordinator, so
+// the second claimant is refused BY NAME rather than degraded into a rival
+// on state of its own; --degraded still launches it, without delegation.
+// Every other cause (listeners, the state dir) is an apply failure.
 //
 // Split out of hostCoordinator as its own function purely so it is TESTABLE:
 // the call site needs a live session, a state dir and a real listener
@@ -1036,6 +1042,12 @@ func (st *runState) markSessionEnded() {
 // finding — the one that must not silently regress into a refusal —
 // asserted by nothing.
 func recordCoordinatorStartupFinding(cerr error) {
+	if errors.Is(cerr, coord.ErrStateOwned) {
+		strictness.Fail(strictness.ClassOwner,
+			"end the session that owns this project (its pid is stamped in the state dir's "+coord.OwnerLockFileName+"), or pass --degraded (env CTXLOOM_DEGRADED=1) to launch this one without agent delegation",
+			"a project has one session owner and this one is already owned: %v — this session is refused as a second coordinator; nothing the owner has spawned is affected", cerr)
+		return
+	}
 	strictness.Fail(strictness.ClassApply,
 		"check the coordinator listeners/state dir, or pass --degraded (env CTXLOOM_DEGRADED=1) to launch without agent delegation",
 		"agent coordinator startup failed: %v — this session cannot delegate; nothing it has already spawned is affected, their mail is a file spool", cerr)
@@ -1216,6 +1228,15 @@ func (st *runState) startTransport() error {
 		}
 
 	case armGoPlugin:
+		// Gate BEFORE the spawn: everything recorded since the startup gate
+		// (above all a coordinator that could not stand up — a project another
+		// live session owns is refused here) is acted on in this window. The
+		// container arms gate the same window; without this close the host
+		// arm recorded the finding and checked it with nothing, so a refused
+		// second owner warned and then launched its engine anyway.
+		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
+			return ferr
+		}
 		// Spawn through the policy, carrying the resolved label so serve
 		// configures exactly this entry (not the first map-ordered entry of the
 		// same type). Assigned into the state before the error check for the

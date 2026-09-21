@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -150,7 +149,6 @@ type Coordinator struct {
 	rep        report.Reporter
 	projectDir string
 	stateDir   string
-	ephemeral  bool // state dir is per-process (owner lock lost); no adoption
 	now        func() time.Time
 
 	baseCtx context.Context
@@ -336,9 +334,9 @@ type Coordinator struct {
 	// tracked owns every goroutine this coordinator dispatches beyond its
 	// spawning call's own return (delegation launches/resumes, the runner
 	// watchdog, adopt's runner-loss grace timers, and the RunChannel/
-	// RunnerChannel pumps). Close() joins it BEFORE closing the journals and
-	// removing an ephemeral state dir — see trackedGroup for why an unjoined
-	// goroutine racing that teardown is this package's worst flake class.
+	// RunnerChannel pumps). Close() joins it BEFORE closing the journals —
+	// see trackedGroup for why an unjoined goroutine racing that teardown is
+	// this package's worst flake class.
 	tracked TrackedGroup
 
 	// transport is the bound wire (Transport), nil until the adapter serves.
@@ -439,7 +437,6 @@ func New(opts Options) (*Coordinator, error) {
 		streams:            TrackedGroup{rep: rep},
 		projectDir:         opts.ProjectDir,
 		stateDir:           claim.dir,
-		ephemeral:          claim.ephemeral,
 		now:                t.now,
 		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
@@ -498,20 +495,11 @@ func New(opts Options) (*Coordinator, error) {
 }
 
 // abortNew unwinds a coordinator New never returned: cancel the base context,
-// release the journals and the owner lock (closePartial), and REMOVE an
-// ephemeral state dir this call itself created. Returns err unchanged so every
-// failure path reads `return nil, c.abortNew(err)`.
-//
-// The ephemeral removal is the part that mattered: the fallback mints a fresh
-// os.MkdirTemp dir, and a New that then failed left it behind with nobody
-// holding a reference to it — one stranded 0700 directory per attempt, since
-// nothing else knows the name.
+// release the journals and the owner lock (closePartial). Returns err
+// unchanged so every failure path reads `return nil, c.abortNew(err)`.
 func (c *Coordinator) abortNew(err error) error {
 	c.cancel()
 	c.closePartial()
-	if c.ephemeral {
-		_ = os.RemoveAll(c.stateDir)
-	}
 	return err
 }
 
@@ -576,20 +564,22 @@ func resolveTunables(opts Options) tunables {
 	return t
 }
 
-// stateDirClaim is an acquired state dir plus how it was acquired: release
-// frees the exclusive-owner lock (nil when there is none), and ephemeral marks
-// a per-process dir whose contents die with this coordinator.
+// stateDirClaim is an acquired state dir plus its release, which frees the
+// exclusive-owner lock (nil when there is none).
 type stateDirClaim struct {
-	dir       string
-	release   func()
-	ephemeral bool
+	dir     string
+	release func()
 }
 
 // acquireStateDir resolves and claims the coordinator's state dir: an explicit
 // Options.StateDir verbatim (tests), otherwise the project's durable dir under
-// its exclusive-owner lock, otherwise an ephemeral fallback.
+// its exclusive-owner lock. A project has ONE coordinator: when another live
+// session-owning process holds the lock, this one is refused (ErrStateOwned)
+// rather than run on state of its own — a second coordinator on the same
+// project is the rival-coordinator class the owner lock exists to make
+// impossible, and its cost (a doubled spool reactor over one owner inbox,
+// consume races on the owner's mail) is paid by the session that DID win.
 func acquireStateDir(opts Options) (stateDirClaim, error) {
-	rep := report.To(opts.Reporter)
 	if opts.StateDir != "" {
 		return stateDirClaim{dir: opts.StateDir}, nil
 	}
@@ -601,21 +591,11 @@ func acquireStateDir(opts Options) (stateDirClaim, error) {
 	if err != nil {
 		return stateDirClaim{}, err
 	}
-	release, err := claimOwner(rep, dir)
-	if err == nil {
-		return stateDirClaim{dir: dir, release: release}, nil
+	release, err := claimOwner(report.To(opts.Reporter), dir)
+	if err != nil {
+		return stateDirClaim{}, err
 	}
-	// Another live session-owning process holds this project's journals:
-	// single writer per journal holds across processes, so this coordinator
-	// runs on an ephemeral state dir (no adoption; its own state dies with
-	// it). Warned, not fatal — concurrent sessions in one project are
-	// legitimate.
-	rep.Warnf("coordinator state for this project is owned by another live session; running this session's coordinator on ephemeral state (no cross-relaunch adoption)")
-	tmp, terr := os.MkdirTemp("", "ctxloom-coord-")
-	if terr != nil {
-		return stateDirClaim{}, fmt.Errorf("coord: ephemeral state dir: %w", terr)
-	}
-	return stateDirClaim{dir: tmp, ephemeral: true}, nil
+	return stateDirClaim{dir: dir, release: release}, nil
 }
 
 // openJournals builds the folds and opens every journal (plus the artifact
@@ -682,7 +662,7 @@ func (c *Coordinator) every(interval time.Duration, sweep func()) {
 // runner awaits, request round-trips all key off c.baseCtx, already cancelled by
 // the time waitTracked runs), short enough that one wedged handler cannot hang
 // shutdown forever. The most generous of the package's four, because the
-// journals and an ephemeral state dir's removal wait behind it.
+// journals' close waits behind it.
 const closeJoinBudget = 5 * time.Second
 
 // waitTracked joins every c.goTracked goroutine, with a bounded escape.
@@ -806,9 +786,9 @@ func (c *Coordinator) Draining() bool {
 // exactly what the wg join below catches) → srv.close (Stop the gRPC server
 // — this is what actually unblocks the RunChannel/RunnerChannel pump
 // goroutines, which key off the STREAM's own context, not baseCtx) → close
-// the spool writers → wg.Wait (bounded escape) → close journals → remove an
-// ephemeral state dir. This guarantees no tracked goroutine touches the state
-// dir after Close() returns (barring the logged bounded-escape case).
+// the spool writers → wg.Wait (bounded escape) → close journals. This
+// guarantees no tracked goroutine touches the state dir after Close()
+// returns (barring the logged bounded-escape case).
 //
 // The spool writers close BEFORE the join and the journals AFTER it, and the
 // asymmetry is the point: the join is BOUNDED, so "no writes after Close" is
@@ -862,9 +842,6 @@ func (c *Coordinator) Close() {
 		c.spoolIn.Close()
 		c.waitTracked()
 		c.closePartial()
-		if c.ephemeral {
-			_ = os.RemoveAll(c.stateDir)
-		}
 	})
 }
 

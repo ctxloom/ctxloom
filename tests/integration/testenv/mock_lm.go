@@ -144,6 +144,47 @@ func (m *MockLM) WriteConfig() error {
 // quotedYAMLString builds a double-quoted string scalar node, letting the
 // yaml library own the escaping rather than hand-rolling it (the old
 // escapeYAMLString covered only backslash/quote/newline).
+// EnsureHomeMockLabel merges an `llm.configs.<label>: {type: mock}` entry into
+// the isolated HOME's config.yaml (the machine layer), leaving everything
+// else in that file as it was. It exists for a fixture that must launch a
+// mock-engine session in a project whose OWN config names some other engine
+// as primary — the session owner a delegation scenario stands up (its
+// project config is the scenario's, and the live tiers make a real engine
+// primary there). The label rides the machine layer because no scenario
+// fixture rewrites that file, so it survives a later rewrite of the
+// project's config.
+func (e *TestEnvironment) EnsureHomeMockLabel(label string) error {
+	configPath := filepath.Join(e.HomeDir, ".ctxloom", "config.yaml")
+	var doc yaml.Node
+	if data, err := os.ReadFile(configPath); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if uerr := yaml.Unmarshal(data, &doc); uerr != nil {
+			return fmt.Errorf("parse existing home config.yaml: %w", uerr)
+		}
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		doc.Kind = yaml.DocumentNode
+		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	root := doc.Content[0]
+	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
+	configs := yamlx.EnsureMap(yamlx.EnsureMap(root, "llm"), "configs")
+	mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	yamlx.MapSet(mockNode, "type", yamlx.ScalarNode("mock"))
+	yamlx.MapSet(configs, label, mockNode)
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return fmt.Errorf("marshal home config.yaml: %w", err)
+	}
+	_ = enc.Close()
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, buf.Bytes(), 0o644)
+}
+
 func quotedYAMLString(v string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v, Style: yaml.DoubleQuotedStyle}
 }

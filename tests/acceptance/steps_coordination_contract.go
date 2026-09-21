@@ -17,20 +17,19 @@ import (
 // ADVERTISE on the surface a real harness actually talks to.
 //
 // WHAT THIS CAN AND CANNOT SEE — the same honesty constraint j002100_delegation.feature
-// documents, and the reason these steps do not go through w.agent(). The rest of
-// this suite drives a `ctxloom mcp serve` SUBPROCESS, whose agent-delegation
-// tools are a deliberately reduced surface with DIFFERENT, hand-written schemas
-// (internal/adapters/mcp/mcp_tools_agents.go) and no output schemas at all. The
-// proto-canonical surface — the one `ctxloom run` gives a real
-// harness, generated from coordination.proto — is a spawned session's own
-// per-cell runner socket, which no external MCP client here can reach.
+// documents, and the reason these steps do not go through w.agent(). The
+// delegation journeys drive the proto-canonical surface through a shim that
+// forwards to a standing session owner's runner (session_owner_fixture.go),
+// but a scenario that stands no owner has only the shim's own local surface,
+// which advertises the agent tools with hand-written schemas and refuses
+// every one of them.
 //
-// So these steps enumerate that surface the way the published reference page
-// does: the in-memory MCP client round trip against the registered runner tool
-// set (internal/adapters/runner/mcp's NewDocServer, no handler invoked, nothing dialed). It is
-// a genuine ListTools response over a real MCP transport, not a Go struct
-// capture — and it is the ONLY thing in the repo that can observe a coordination
-// tool's advertised RESULT shape.
+// So these steps enumerate the canonical surface the way the published
+// reference page does: the in-memory MCP client round trip against the
+// registered runner tool set (internal/adapters/runner/mcp's NewDocServer, no
+// handler invoked, nothing dialed). It is a genuine ListTools response over
+// a real MCP transport, not a Go struct capture — and it observes a
+// coordination tool's advertised RESULT shape without spawning anything.
 //
 // What it deliberately does NOT claim: that a delivered message's runtime
 // payload matches. That needs the runner topology, and the delivery half of

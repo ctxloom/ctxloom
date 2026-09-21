@@ -573,6 +573,7 @@ message UnifiedHooks {
   repeated Hook pre_shell = 5;
   repeated Hook post_file_edit = 6;
   repeated Hook turn_end = 7;
+  repeated Hook turn_start = 8;
 }
 
 // BackendHooks mirrors wire.BackendHooks (event name -> hooks).
@@ -583,6 +584,9 @@ message BackendHooks {
 // HooksConfig mirrors wire.HooksConfig.
 message HooksConfig {
   UnifiedHooks unified = 1;
+  // Carries wire.HooksConfig.Ext. The field keeps its pre-rename name on
+  // purpose: this vocabulary changes additively only, and a field rename is
+  // not additive. The on-disk key is `ext`; the converters bridge the two.
   map<string, BackendHooks> plugins = 2;
 }
 

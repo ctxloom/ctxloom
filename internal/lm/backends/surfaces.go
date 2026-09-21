@@ -226,7 +226,7 @@ func carriesAnyHook(h wire.HooksConfig) bool {
 			return true
 		}
 	}
-	for _, hs := range h.Plugins {
+	for _, hs := range h.Ext {
 		if len(hs) > 0 {
 			return true
 		}
@@ -235,7 +235,7 @@ func carriesAnyHook(h wire.HooksConfig) bool {
 }
 
 // droppedHookDetail names what a hookless backend loses, in the user's own
-// vocabulary: the seven unified events by their config keys (in HookEvents order,
+// vocabulary: the unified events by their config keys (in HookEvents order,
 // so the line is stable run to run) plus any backend-native passthrough hooks
 // addressed at THIS engine, which are equally undeliverable. "" when the config
 // carries nothing.
@@ -247,7 +247,7 @@ func droppedHookDetail(name string, hooks wire.HooksConfig) string {
 		}
 	}
 	var native []string
-	for event, hs := range hooks.Plugins[name] {
+	for event, hs := range hooks.Ext[name] {
 		if len(hs) > 0 {
 			native = append(native, fmt.Sprintf("%d %s", len(hs), event))
 		}

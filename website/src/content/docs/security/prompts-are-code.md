@@ -44,8 +44,8 @@ hooks:
 No model interprets that. No agent decides whether to call it. The harness runs it, because
 that is what a hook is. Pulling what looks like a prompt library is enough to get it
 installed. The available events are `pre_tool`, `post_tool`, `session_start`, `session_end`,
-`turn_end`, `pre_shell`, and `post_file_edit` — so "before every shell command" and "at every session
-start" are both purchasable with a `git clone`.
+`turn_end`, `pre_shell`, `post_file_edit`, and `turn_start` — so "before every shell command", "at every
+session start" and "on every prompt" are all purchasable with a `git clone`.
 
 ### Tier 2 — direct and mediated: `mcp`
 

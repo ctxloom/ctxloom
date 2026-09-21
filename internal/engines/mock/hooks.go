@@ -18,9 +18,9 @@ import (
 // The mock IMPLEMENTS AND USES hooks: a hook delivered through its hooks
 // surface fires when the event it names happens in a turn, exactly as a
 // vendor engine's would. Each turn is one engine process, so a turn fires
-// session_start first, the tool's events around a tool call (pre_shell for
-// a shell tool, pre_tool, then post_tool and post_file_edit for an editing
-// tool), turn_end, and session_end last. The turn reads the hook file its
+// session_start first, turn_start for the prompt, the tool's events around
+// a tool call (pre_shell for a shell tool, pre_tool, then post_tool and
+// post_file_edit for an editing tool), turn_end, and session_end last. The turn reads the hook file its
 // argv names (--hooks, announced by the hooks approach), runs every command
 // hook registered for the event whose matcher admits the tool, and writes
 // the mock's own payload to the hook's stdin. Hooks() decodes that payload.
@@ -28,7 +28,7 @@ import (
 
 // The unified events the mock can fire, in the order a turn fires them.
 // The lossy double drops session_start and session_end (WithoutHookEvents).
-var hookEvents = []string{"session_start", "pre_shell", "pre_tool", "post_tool", "post_file_edit", "turn_end", "session_end"}
+var hookEvents = []string{"session_start", "turn_start", "pre_shell", "pre_tool", "post_tool", "post_file_edit", "turn_end", "session_end"}
 
 // shellTools and editTools are the tools that narrow pre_tool to pre_shell
 // and post_tool to post_file_edit.
@@ -39,7 +39,7 @@ var (
 
 // eventsOfTurn lists the events one turn fires, in order.
 func eventsOfTurn(tool string, hasTool bool) []string {
-	out := []string{"session_start"}
+	out := []string{"session_start", "turn_start"}
 	if hasTool {
 		if shellTools[tool] {
 			out = append(out, "pre_shell")
@@ -98,7 +98,7 @@ func (c hookCodec) Decode(event string, payload []byte) (engine.HookEvent, error
 // was composed without a hooks surface.
 func hooksFileOf(ex engine.Exec) string {
 	for i, a := range ex.Args {
-		if a == hooksFlag && i+1 < len(ex.Args) {
+		if a == HooksFlag && i+1 < len(ex.Args) {
 			return ex.Args[i+1]
 		}
 	}
@@ -108,11 +108,17 @@ func hooksFileOf(ex engine.Exec) string {
 // deliveredHooks reads the hook file the exec's argv names; the zero set
 // when the turn was composed without a hooks surface.
 func deliveredHooks(ex engine.Exec) (wire.UnifiedHooks, error) {
-	var hooks wire.UnifiedHooks
 	file := hooksFileOf(ex)
 	if file == "" {
-		return hooks, nil
+		return wire.UnifiedHooks{}, nil
 	}
+	return DeliveredHooksFile(file)
+}
+
+// DeliveredHooksFile decodes a hook file the mock's hooks surface wrote: the
+// unified set as JSON, one key per event.
+func DeliveredHooksFile(file string) (wire.UnifiedHooks, error) {
+	var hooks wire.UnifiedHooks
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return hooks, fmt.Errorf("mock: read the delivered hook file: %w", err)
@@ -141,14 +147,24 @@ func registered(hooks wire.UnifiedHooks, event string) []wire.Hook {
 		return hooks.TurnEnd
 	case "session_end":
 		return hooks.SessionEnd
+	case "turn_start":
+		return hooks.TurnStart
 	}
 	return nil
 }
 
 // fireHooks runs every command hook the delivered set registers for event
-// whose matcher admits tool, with the mock's payload on stdin.
+// whose matcher admits tool, with the mock's payload on stdin, in the turn's
+// working directory and environment.
 func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, event, tool string) error {
-	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: ex.WorkDir})
+	return FireHooks(ctx, hooks, event, tool, ex.WorkDir, ex.Env)
+}
+
+// FireHooks is fireHooks for a caller that is not a hosted turn — the mock
+// binary's interactive loop, which fires turn_start for each line it reads
+// in its own working directory. The payload names the mock's one session.
+func FireHooks(ctx context.Context, hooks wire.UnifiedHooks, event, tool, workDir string, env map[string]string) error {
+	payload, err := json.Marshal(hookPayload{Event: event, SessionID: sessionKey, ToolName: tool, Cwd: workDir})
 	if err != nil {
 		return err
 	}
@@ -166,7 +182,7 @@ func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, eve
 				continue
 			}
 		}
-		if err := runHook(ctx, ex, h.Command, payload); err != nil {
+		if err := runHook(ctx, h.Command, payload, workDir, env); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -174,13 +190,13 @@ func fireHooks(ctx context.Context, ex engine.Exec, hooks wire.UnifiedHooks, eve
 }
 
 // runHook execs one command hook through the shell with the payload on
-// stdin, in the turn's working directory and environment.
-func runHook(ctx context.Context, ex engine.Exec, command string, payload []byte) error {
+// stdin, in the given working directory with env laid over the process's.
+func runHook(ctx context.Context, command string, payload []byte, workDir string, env map[string]string) error {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Stdin = bytes.NewReader(payload)
-	cmd.Dir = ex.WorkDir
+	cmd.Dir = workDir
 	cmd.Env = os.Environ()
-	for k, v := range ex.Env {
+	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	var stderr strings.Builder

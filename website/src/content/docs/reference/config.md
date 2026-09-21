@@ -172,7 +172,7 @@ Hooks configuration
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `plugins` | map → map → hookArray | Backend-specific passthrough hooks (keyed by plugin name) |
+| `ext` | map → map → hookArray | Engine-namespaced passthrough hooks (keyed by engine name): each engine's NATIVE event names, written to its settings untranslated |
 | `unified` | unifiedHooks | Unified hooks (translated per-backend) |
 
 ### llmConfig
@@ -240,4 +240,5 @@ Unified hook events (translated to backend-specific format)
 | `session_end` | hookArray | When session ends |
 | `session_start` | hookArray | When session starts |
 | `turn_end` | hookArray | When the agent finishes a turn |
+| `turn_start` | hookArray | When a prompt is submitted, before the agent acts on it — once per turn; a command hook's stdout becomes that turn's context |
 

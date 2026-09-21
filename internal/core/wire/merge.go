@@ -27,16 +27,14 @@ func MergeHooksConfig(dest *HooksConfig, src *HooksConfig) (dropped int) {
 }
 
 // Count totals every hook the config carries — the unified lifecycles plus
-// every plugin-specific list — so a merge that cannot happen can report the
+// every engine-specific list — so a merge that cannot happen can report the
 // SIZE of what it dropped rather than a bare "some hooks".
 func (h *HooksConfig) Count() int {
 	if h == nil {
 		return 0
 	}
-	n := len(h.Unified.PreTool) + len(h.Unified.PostTool) +
-		len(h.Unified.SessionStart) + len(h.Unified.SessionEnd) +
-		len(h.Unified.PreShell) + len(h.Unified.PostFileEdit) + len(h.Unified.TurnEnd)
-	for _, backend := range h.Plugins {
+	n := len(h.Unified.All())
+	for _, backend := range h.Ext {
 		for _, hooks := range backend {
 			n += len(hooks)
 		}

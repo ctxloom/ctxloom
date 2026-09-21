@@ -764,6 +764,7 @@ func filterMissingCompanionHooks(rep report.Reporter, in wire.UnifiedHooks) wire
 		PreShell:     keep(in.PreShell),
 		PostFileEdit: keep(in.PostFileEdit),
 		TurnEnd:      keep(in.TurnEnd),
+		TurnStart:    keep(in.TurnStart),
 	}
 }
 
@@ -890,15 +891,9 @@ func fragmentsFromBundle(rep report.Reporter, out []BuiltinFragment, read bundle
 // ctxloom itself) and whether it is absent from PATH. A bundle with no companion
 // returns ("", false). Mirrors the gating applied to the bundle's hooks/MCP.
 func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
-	for _, hs := range [][]bundles.BundleHook{
-		b.Hooks.PreTool, b.Hooks.PostTool, b.Hooks.SessionStart,
-		b.Hooks.SessionEnd, b.Hooks.PreShell, b.Hooks.PostFileEdit,
-		b.Hooks.TurnEnd,
-	} {
-		for _, h := range hs {
-			if bin, missing := missingCompanion(h.Command); missing {
-				return bin, true
-			}
+	for _, e := range b.Hooks.Entries() {
+		if bin, missing := missingCompanion(e.Hook.Command); missing {
+			return bin, true
 		}
 	}
 	for _, m := range b.MCP {

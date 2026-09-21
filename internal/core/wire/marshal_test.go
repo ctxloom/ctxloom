@@ -103,8 +103,9 @@ func TestContainerMarshalUsesSnakeCase(t *testing.T) {
 			TurnEnd:      []Hook{{Command: "t"}},
 			PreShell:     []Hook{{Command: "e"}},
 			PostFileEdit: []Hook{{Command: "f"}},
+			TurnStart:    []Hook{{Command: "s"}},
 		},
-		Plugins: map[string]BackendHooks{
+		Ext: map[string]BackendHooks{
 			"claude-code": {"PreToolUse": []Hook{{Command: "g"}}},
 		},
 	}
@@ -112,7 +113,7 @@ func TestContainerMarshalUsesSnakeCase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal(HooksConfig): %v", err)
 	}
-	wantHooks := `{"unified":{"pre_tool":[{"command":"a"}],"post_tool":[{"command":"b"}],"session_start":[{"command":"c"}],"session_end":[{"command":"d"}],"turn_end":[{"command":"t"}],"pre_shell":[{"command":"e"}],"post_file_edit":[{"command":"f"}]},"plugins":{"claude-code":{"PreToolUse":[{"command":"g"}]}}}`
+	wantHooks := `{"unified":{"pre_tool":[{"command":"a"}],"post_tool":[{"command":"b"}],"session_start":[{"command":"c"}],"session_end":[{"command":"d"}],"turn_end":[{"command":"t"}],"pre_shell":[{"command":"e"}],"post_file_edit":[{"command":"f"}],"turn_start":[{"command":"s"}]},"ext":{"claude-code":{"PreToolUse":[{"command":"g"}]}}}`
 	if string(gotHooks) != wantHooks {
 		t.Errorf("HooksConfig JSON\n got: %s\nwant: %s", gotHooks, wantHooks)
 	}

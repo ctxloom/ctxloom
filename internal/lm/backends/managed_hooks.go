@@ -123,8 +123,8 @@ type ResolvedHook struct {
 	Declared int
 }
 
-// BackendNativeHooks is one backend-native (plugin passthrough) event's hooks.
-// These bypass the seven unified events entirely, so they are kept — and reported
+// BackendNativeHooks is one engine-native (ext passthrough) event's hooks.
+// These bypass the unified events entirely, so they are kept — and reported
 // — separately: folding them in would imply an ordering relationship with
 // unified hooks that does not exist.
 type BackendNativeHooks struct {
@@ -147,15 +147,16 @@ type ManagedHooks struct {
 	// absent key and an empty slice mean the same thing (no hooks).
 	events map[string][]ResolvedHook
 
-	// plugins maps backend → native event → hooks. Key PRESENCE is meaningful
-	// and is preserved: the append merge creates a backend key for a source
-	// that declares one even with no events, and an event key whose value is a
-	// nil slice for an event declared empty. Wire reproduces that skeleton, so
-	// a writer sees the same structure it always did.
-	plugins map[string]map[string][]ResolvedHook
+	// ext maps engine → native event → hooks, the model of wire.HooksConfig.Ext.
+	// Key PRESENCE is meaningful and is preserved: the append merge creates an
+	// engine key for a source that declares one even with no events, and an
+	// event key whose value is a nil slice for an event declared empty. Wire
+	// reproduces that skeleton, so a writer sees the same structure it always
+	// did.
+	ext map[string]map[string][]ResolvedHook
 }
 
-// HookEvents returns the seven unified lifecycle event names in canonical order —
+// HookEvents returns the unified lifecycle event names in canonical order —
 // bundles' own hook-identity order, so a reader comparing this against a
 // bundle's hooks does not have to re-map anything. A fresh slice each call:
 // callers range over it, and a shared package-level slice is one stray
@@ -164,11 +165,11 @@ func HookEvents() []string {
 	return []string{
 		bundles.HookEventPreTool, bundles.HookEventPostTool, bundles.HookEventSessionStart,
 		bundles.HookEventSessionEnd, bundles.HookEventPreShell, bundles.HookEventPostFileEdit,
-		bundles.HookEventTurnEnd,
+		bundles.HookEventTurnEnd, bundles.HookEventTurnStart,
 	}
 }
 
-// IsHookEvent reports whether name is one of the seven unified events.
+// IsHookEvent reports whether name is one of the unified events.
 func IsHookEvent(name string) bool {
 	for _, e := range HookEvents() {
 		if e == name {
@@ -181,8 +182,8 @@ func IsHookEvent(name string) bool {
 // newManagedHooks returns an empty model.
 func newManagedHooks() *ManagedHooks {
 	return &ManagedHooks{
-		events:  make(map[string][]ResolvedHook),
-		plugins: make(map[string]map[string][]ResolvedHook),
+		events: make(map[string][]ResolvedHook),
+		ext:    make(map[string]map[string][]ResolvedHook),
 	}
 }
 
@@ -211,7 +212,7 @@ func (m *ManagedHooks) BackendNative() []BackendNativeHooks {
 		return nil
 	}
 	var out []BackendNativeHooks
-	for backend, events := range m.plugins {
+	for backend, events := range m.ext {
 		for event, hooks := range events {
 			if len(hooks) == 0 {
 				continue
@@ -326,19 +327,19 @@ func (m *ManagedHooks) Reorder(event string, rank HookRanker) error {
 // model existed. TestAssembleManagedHooks_WireMatchesFrozenReference holds this
 // to deep equality against a frozen copy of that merge.
 func (m *ManagedHooks) Wire() *wire.HooksConfig {
-	out := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
+	out := &wire.HooksConfig{Ext: make(map[string]wire.BackendHooks)}
 	if m == nil {
 		return out
 	}
 	for _, event := range HookEvents() {
 		setUnifiedEventHooks(&out.Unified, event, wireHooks(m.events[event]))
 	}
-	for backend, events := range m.plugins {
+	for backend, events := range m.ext {
 		bh := make(wire.BackendHooks, len(events))
 		for event, hooks := range events {
 			bh[event] = wireHooks(hooks)
 		}
-		out.Plugins[backend] = bh
+		out.Ext[backend] = bh
 	}
 	return out
 }
@@ -358,19 +359,19 @@ func (m *ManagedHooks) Wire() *wire.HooksConfig {
 // Delivery still uses Wire: a managed hook that CAN be carried must be, and
 // this projection is not a filter on what gets written.
 func (m *ManagedHooks) WireDeclared() *wire.HooksConfig {
-	out := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
+	out := &wire.HooksConfig{Ext: make(map[string]wire.BackendHooks)}
 	if m == nil {
 		return out
 	}
 	for _, event := range HookEvents() {
 		setUnifiedEventHooks(&out.Unified, event, wireHooks(declaredOnly(m.events[event])))
 	}
-	for backend, events := range m.plugins {
+	for backend, events := range m.ext {
 		bh := make(wire.BackendHooks, len(events))
 		for event, hooks := range events {
 			bh[event] = wireHooks(declaredOnly(hooks))
 		}
-		out.Plugins[backend] = bh
+		out.Ext[backend] = bh
 	}
 	return out
 }
@@ -458,25 +459,25 @@ func bundleSource(h wire.Hook) HookSource {
 // mergeHooks merges one source's whole hook config into the model, attributing
 // every hook as it goes. This is the model's spelling of the pure-append merge
 // (agent.MergeHooksConfig → wire.HooksConfig.Append): same order, same
-// per-event concatenation, same plugin key skeleton — with the source recorded
+// per-event concatenation, same ext key skeleton — with the source recorded
 // instead of discarded.
 func (m *ManagedHooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor) {
 	m.mergeUnified(src.Unified, attribute)
-	for backend, events := range src.Plugins {
-		if m.plugins[backend] == nil {
-			m.plugins[backend] = make(map[string][]ResolvedHook)
+	for backend, events := range src.Ext {
+		if m.ext[backend] == nil {
+			m.ext[backend] = make(map[string][]ResolvedHook)
 		}
 		for event, hooks := range events {
 			// Assigning unconditionally (rather than only when hooks is
 			// non-empty) is what preserves an empty event key as a PRESENT key,
 			// matching the append merge Wire has to reproduce.
-			m.plugins[backend][event] = append(m.plugins[backend][event],
-				m.resolve(hooks, len(m.plugins[backend][event]), attribute)...)
+			m.ext[backend][event] = append(m.ext[backend][event],
+				m.resolve(hooks, len(m.ext[backend][event]), attribute)...)
 		}
 	}
 }
 
-// mergeUnified merges the seven unified events.
+// mergeUnified merges every unified event.
 func (m *ManagedHooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributor) {
 	for _, event := range HookEvents() {
 		hooks := UnifiedEventHooks(u, event)
@@ -501,7 +502,7 @@ func (m *ManagedHooks) resolve(hooks []wire.Hook, base int, attribute hookAttrib
 }
 
 // UnifiedEventHooks selects one event's slice. A switch rather than reflection
-// so an eighth event added to wire.UnifiedHooks and not added here is a hole a
+// so an event added to wire.UnifiedHooks and not added here is a hole a
 // reader can see — and TestManagedHooks_EveryUnifiedEventIsCovered makes it a
 // failing test rather than a silently absent row in every hook report.
 func UnifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
@@ -520,6 +521,8 @@ func UnifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
 		return u.PostFileEdit
 	case bundles.HookEventTurnEnd:
 		return u.TurnEnd
+	case bundles.HookEventTurnStart:
+		return u.TurnStart
 	}
 	return nil
 }
@@ -541,5 +544,7 @@ func setUnifiedEventHooks(u *wire.UnifiedHooks, event string, hooks []wire.Hook)
 		u.PostFileEdit = hooks
 	case bundles.HookEventTurnEnd:
 		u.TurnEnd = hooks
+	case bundles.HookEventTurnStart:
+		u.TurnStart = hooks
 	}
 }

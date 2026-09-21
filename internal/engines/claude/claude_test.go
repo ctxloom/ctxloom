@@ -459,7 +459,7 @@ func TestClaudeCodeHookWriter_BackendPassthrough(t *testing.T) {
 	writer := &ClaudeCodeHookWriter{}
 
 	cfg := &wire.HooksConfig{
-		Plugins: map[string]wire.BackendHooks{
+		Ext: map[string]wire.BackendHooks{
 			"claude-code": {
 				"Notification": []wire.Hook{
 					{Command: "./notify.sh", Type: "command"},

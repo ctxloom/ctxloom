@@ -82,7 +82,7 @@ func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
 	lifecycle := newClaudeLifecycle()
 
 	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
-		Hooks: &wire.HooksConfig{Plugins: map[string]wire.BackendHooks{}},
+		Hooks: &wire.HooksConfig{Ext: map[string]wire.BackendHooks{}},
 	}, "/tmp", "abc123hash")
 
 	hooks := lifecycle.GetHooks()
@@ -106,7 +106,7 @@ func TestClaudeLifecycle_MergeManaged_NoContextHash(t *testing.T) {
 			Unified: wire.UnifiedHooks{
 				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind"}},
 			},
-			Plugins: map[string]wire.BackendHooks{},
+			Ext: map[string]wire.BackendHooks{},
 		},
 	}, "/tmp", "")
 
@@ -130,7 +130,7 @@ func TestClaudeLifecycle_MergeManaged_MergesHooksAndMCP(t *testing.T) {
 	lifecycle.MergeManaged(report.Reporter{}, &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{
 			Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "profile-hook"}}},
-			Plugins: map[string]wire.BackendHooks{},
+			Ext:     map[string]wire.BackendHooks{},
 		},
 		BundleMCP: map[string]wire.MCPServer{"profile-mcp": {Command: "profile-mcp-cmd"}},
 	}, "/tmp", "hash123")

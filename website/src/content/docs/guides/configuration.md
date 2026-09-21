@@ -128,9 +128,10 @@ hooks:
     session_start: []
     session_end: []
     turn_end: []             # once per TURN, not once per session
+    turn_start: []           # once per turn, before the agent acts on the prompt
     pre_shell: []
     post_file_edit: []
-  plugins:                    # backend-specific hooks
+  ext:                        # engine-specific hooks, by native event name
     claude-code:
       EventName: []
 
@@ -294,6 +295,7 @@ Hook types available:
 | `session_start` | Session initialization |
 | `session_end` | Session cleanup |
 | `turn_end` | The agent finished a turn (once per response) |
+| `turn_start` | A prompt was submitted, before the agent acts on it (once per turn) |
 | `pre_shell` | Before shell execution |
 | `post_file_edit` | After file edit |
 

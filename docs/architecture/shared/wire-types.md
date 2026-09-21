@@ -67,8 +67,9 @@ The backend-agnostic seven-event bundle. All seven are `[]Hook` and are only eve
 | `TurnEnd` | `turn_end` |
 | `PreShell` | `pre_shell` |
 | `PostFileEdit` | `post_file_edit` |
+| `TurnStart` | `turn_start` |
 
-`TurnEnd` sits beside `SessionEnd` in the struct but is APPENDED to `bundles.hookEventOrder`, not slotted in beside it: that slice is the enumeration order a bundle hook's trust identity is reported in, and reordering it would move every hook report against a baselined one.
+`TurnEnd` and `TurnStart` are APPENDED to `bundles.hookEventOrder`, not slotted in beside their siblings: that slice is the enumeration order a bundle hook's trust identity is reported in, and reordering it would move every hook report against a baselined one (`TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth` pins the baseline). A new event is wired at every site the reflective hook tests enumerate; those tests, not this table, are the checklist.
 
 ### `HooksConfig` — `internal/core/wire/hooks.go:52`
 
@@ -77,7 +78,7 @@ The persisted hook document.
 | Field | file:line | Serialized as |
 |---|---|---|
 | `Unified UnifiedHooks` | `hooks.go:53` | `unified` |
-| `Plugins map[string]BackendHooks` | `hooks.go:54` | `plugins` |
+| `Ext map[string]BackendHooks` | `hooks.go` | `ext` — engine name → native event → hooks; a document still spelling the retired `plugins` key is REFUSED at decode (`HooksConfig.UnmarshalYAML`, `ErrRetiredHooksExtKey`) rather than silently dropped |
 
 ### `BackendHooks` — `internal/core/wire/hooks.go:76`
 
@@ -104,13 +105,12 @@ The persisted MCP document.
 |---|---|---|---|
 | `AutoRegisterCtxloom *bool` | `mcp.go:23` | `auto_register_ctxloom` | tri-state: unset / true / false. Read only by `ShouldAutoRegisterCtxloom`; written by `MergeMCPConfig` |
 | `Servers map[string]MCPServer` | `mcp.go:26` | `servers` | unified servers |
-| `Plugins map[string]map[string]MCPServer` | `mcp.go:30` | `plugins` | per-backend passthrough servers |
 
 ## `internal/core/wire` — functions
 
 | Function | file:line | Purpose | Call sites |
 |---|---|---|---|
-| `(HooksConfig).HasAny() bool` | `internal/core/wire/hooks.go:59` | True if any of the seven unified slices or any plugin event slice is non-empty. "Plugin present but empty" is a distinguished case | 1 production: `internal/core/config/config_save.go:288`. Note `internal/core/config/config_bundles.go:650` calls a *different* method, `bundles.BundleHooks.HasAny` (`internal/core/bundles/bundles.go:165`) |
+| `(HooksConfig).HasAny() bool` | `internal/core/wire/hooks.go:59` | True if any unified event slice or any `Ext` engine event slice is non-empty. "Engine present but empty" is a distinguished case | 1 production: `internal/core/config/config_save.go:288`. Note `internal/core/config/config_bundles.go:650` calls a *different* method, `bundles.BundleHooks.HasAny` (`internal/core/bundles/bundles.go:165`) |
 | `(*UnifiedHooks).Append(other UnifiedHooks)` | `internal/core/wire/hooks.go:79` | Appends each of the seven per-event slices from `other` onto the receiver, skipping any hook the event already carries | 5 production: `internal/core/config/config_bundles.go:262,270,289,468`, `internal/lm/backends/managed.go:279` |
 | `MergeMCPConfig(dest, src *MCPConfig)` | `internal/core/wire/mcp.go:49` | Merges `src` into `dest` — later wins per server name — deep-copying each server via `cloneMCPServer` (`:64`, `:76`). Guard at `:50`; `AutoRegisterCtxloom` assigned at `:56`; maps allocated at `:60-70` | 6 production: `internal/core/profiles/profiles.go:852,935`, `internal/core/config/config_resolve.go:164`, `internal/lm/backends/managed.go:128,134,146`, `internal/core/agent/base_lifecycle.go:55` |
 | `cloneMCPServer(s MCPServer) MCPServer` | `internal/core/wire/mcp.go:84` | Copies an `MCPServer`, duplicating `Args` and `Env` so the copy never aliases | 2, both in-file. Semantically identical twins exist at `internal/core/config/accessors.go:120` and, as proto converters, at `internal/lm/grpc/managed.go:204-227` |

@@ -702,7 +702,7 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("invalid YAML: %w", err)
+		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
 	}
 	// Report a key the schema does not know BEFORE decoding, because decoding
 	// is what loses it: yaml.v3 drops what it cannot map, so a typo becomes an
@@ -711,7 +711,7 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 
 	var profile Profile
 	if err := doc.Decode(&profile); err != nil {
-		return nil, fmt.Errorf("invalid YAML: %w", err)
+		return nil, fmt.Errorf("%s: invalid YAML: %w", path, err)
 	}
 	// A zero-byte, `{}`, or fully-commented-out profile parses cleanly into a
 	// profile that selects NOTHING, and used to load with err=nil and record
@@ -744,11 +744,7 @@ func (p *Profile) HasContent() bool {
 		len(p.ExcludeMCP) > 0 ||
 		len(p.DenyTools) > 0 ||
 		len(p.Variables) > 0 ||
-		len(p.Hooks.Unified.PreTool)+len(p.Hooks.Unified.PostTool)+
-			len(p.Hooks.Unified.SessionStart)+len(p.Hooks.Unified.SessionEnd)+
-			len(p.Hooks.Unified.PreShell)+len(p.Hooks.Unified.PostFileEdit)+
-			len(p.Hooks.Unified.TurnEnd) > 0 ||
-		len(p.Hooks.Plugins) > 0 ||
+		p.Hooks.HasAny() ||
 		p.LLM != ""
 }
 

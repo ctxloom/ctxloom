@@ -2,13 +2,18 @@ package runtime_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
@@ -60,7 +65,12 @@ type interactiveRun struct {
 
 func startInteractive(t *testing.T, vendorArgv []string) *interactiveRun {
 	t.Helper()
-	cli := claudeInteractive(t)
+	return startInteractiveOn(t, claudeInteractive(t), vendorArgv)
+}
+
+// startInteractiveOn is startInteractive against an explicit L1 grammar.
+func startInteractiveOn(t *testing.T, cli agent.EngineCLI, vendorArgv []string) *interactiveRun {
+	t.Helper()
 	parsed, err := cli.ParseArgv(vendorArgv)
 	if err != nil {
 		t.Fatalf("parse argv %v: %v", vendorArgv, err)
@@ -209,5 +219,59 @@ func TestRuntime_Interactive_FailSentinelExitsNonzero(t *testing.T) {
 	}
 	if _, err := runtime.ExtractReport(s.stderr.String()); err != nil {
 		t.Errorf("report must be emitted even on a failing run: %v", err)
+	}
+}
+
+// TestRuntime_Interactive_FiresTurnStartPerNonBlankLine: the interactive loop
+// is the mock's stand-in for a TUI a human types at, so every non-blank line
+// it reads is a prompt submitted — and a turn_start hook delivered to the
+// session fires once for each, with the mock's payload on its stdin. Blank
+// and whitespace-only lines are not prompts and fire nothing; the quit
+// sentinel ends the session without firing.
+//
+// The hooks are the mock's own delivered hook file, named on argv by the
+// mock kind's hooks flag; the grammar under test is the interactive surface
+// extended with that flag.
+func TestRuntime_Interactive_FiresTurnStartPerNonBlankLine(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "fired")
+	hooksFile := filepath.Join(dir, "hooks.json")
+	raw, err := json.Marshal(wire.UnifiedHooks{TurnStart: []wire.Hook{{Type: "command", Command: "cat >> " + marker + "; echo >> " + marker}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksFile, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cli := claudeInteractive(t)
+	cli.Flags = append(cli.Flags, agent.CLIFlag{Name: mock.HooksFlag, Value: agent.ValuePath})
+	s := startInteractiveOn(t, cli, []string{mock.HooksFlag, hooksFile, "hello"})
+	s.typeLine(t, "one")
+	s.waitFor(t, runtime.InteractiveEchoPrefix+"one\n")
+	s.typeLine(t, "")
+	s.typeLine(t, "   ")
+	s.typeLine(t, "two")
+	s.waitFor(t, runtime.InteractiveEchoPrefix+"two\n")
+	s.typeLine(t, runtime.InteractiveQuit)
+	if code := s.exitCode(t); code != 0 {
+		t.Fatalf("exit code = %d, want 0\nstderr:\n%s", code, s.stderr.String())
+	}
+
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the turn_start hook never ran: %v\nstderr:\n%s", err, s.stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("turn_start fired %d time(s), want 2 (one per non-blank line):\n%s", len(lines), got)
+	}
+	for _, line := range lines {
+		var payload struct {
+			Event string `json:"hook_event_name"`
+		}
+		if err := json.Unmarshal([]byte(line), &payload); err != nil || payload.Event != "turn_start" {
+			t.Errorf("payload %q: event=%q err=%v; want turn_start", line, payload.Event, err)
+		}
 	}
 }

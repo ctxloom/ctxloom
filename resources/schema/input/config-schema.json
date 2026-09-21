@@ -643,6 +643,10 @@
         "post_file_edit": {
           "$ref": "#/$defs/hookArray",
           "description": "After file edit"
+        },
+        "turn_start": {
+          "$ref": "#/$defs/hookArray",
+          "description": "When a prompt is submitted, before the agent acts on it — once per turn; a command hook's stdout becomes that turn's context"
         }
       },
       "additionalProperties": false
@@ -655,9 +659,9 @@
           "$ref": "#/$defs/unifiedHooks",
           "description": "Unified hooks (translated per-backend)"
         },
-        "plugins": {
+        "ext": {
           "type": "object",
-          "description": "Backend-specific passthrough hooks (keyed by plugin name)",
+          "description": "Engine-namespaced passthrough hooks (keyed by engine name): each engine's NATIVE event names, written to its settings untranslated",
           "additionalProperties": {
             "type": "object",
             "description": "Backend-native hook events",

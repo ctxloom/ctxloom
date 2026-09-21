@@ -2,9 +2,13 @@ package runtime
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 // The interactive surface's wire vocabulary. A real interactive engine is a
@@ -39,6 +43,12 @@ const (
 // into the next echo, so a test that resized the pty can wait for the
 // winsize line directly instead of guessing how long a SIGWINCH takes to land.
 //
+// Every non-blank line read is a prompt submitted, so the session's
+// turn_start hooks fire once per such line — before the echo, the way a
+// vendor's prompt-submit hook runs before the model sees the prompt. A hook
+// that fails is reported on stderr and the session goes on: a TUI does not
+// die because a hook did, and the diagnostic is the evidence a test reads.
+//
 // A nil Stdin means there is nothing to type at: the session ends after the
 // reply, the same "no prompt arrived" shape readPrompt gives a nil reader. A
 // nil Resize channel simply never fires.
@@ -51,6 +61,10 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 	}
 	if r.Stdin == nil {
 		return nil
+	}
+	hooks, err := r.deliveredHooks()
+	if err != nil {
+		return err
 	}
 
 	// ReadString blocks until a line arrives, so reading on its own goroutine
@@ -91,6 +105,11 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 				return nil
 			}
 			if line != "" {
+				if strings.TrimSpace(line) != "" {
+					if err := mock.FireHooks(context.Background(), hooks, "turn_start", "", r.Res.Cwd, nil); err != nil {
+						fmt.Fprintf(r.stderr(), "mock-engine: %v\n", err)
+					}
+				}
 				if _, err := fmt.Fprintf(w, "%s%s\n", InteractiveEchoPrefix, line); err != nil {
 					return err
 				}
@@ -103,4 +122,22 @@ func (r *Runtime) renderInteractive(promptLen int, out Outcome) error {
 			}
 		}
 	}
+}
+
+// deliveredHooks reads the hook file the mock kind's hooks surface announced
+// on argv (mock.HooksFlag); the zero set when the grammar declares no such
+// flag or the session delivered no hooks. Only the mock's own delivered
+// shape is read: a vendor personality's native hook file (claude's
+// settings.json) is a surface this runtime probes and reports, never one it
+// executes — proving that a vendor binary runs what ctxloom wrote is the live
+// hook-firing probe's job, not a fake's.
+func (r *Runtime) deliveredHooks() (wire.UnifiedHooks, error) {
+	if _, declared := r.CLI.LookupFlag(mock.HooksFlag); !declared {
+		return wire.UnifiedHooks{}, nil
+	}
+	file, ok := r.Argv.Value(mock.HooksFlag)
+	if !ok || file == "" {
+		return wire.UnifiedHooks{}, nil
+	}
+	return mock.DeliveredHooksFile(file)
 }

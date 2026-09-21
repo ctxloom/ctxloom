@@ -19,14 +19,14 @@ func TestHooksConfig_HasAny(t *testing.T) {
 		},
 		{
 			"plugin event populated",
-			HooksConfig{Plugins: map[string]BackendHooks{
+			HooksConfig{Ext: map[string]BackendHooks{
 				"claude-code": {"PostToolUse": []Hook{{Command: "x"}}},
 			}},
 			true,
 		},
 		{
 			"plugin present but empty",
-			HooksConfig{Plugins: map[string]BackendHooks{"claude-code": {}}},
+			HooksConfig{Ext: map[string]BackendHooks{"claude-code": {}}},
 			false,
 		},
 	}

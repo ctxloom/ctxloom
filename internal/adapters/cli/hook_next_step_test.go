@@ -18,7 +18,7 @@ import (
 
 // assistantText is an assistant message carrying TEXT rather than a tool call —
 // what a turn ends with, and the thing next-step capture reads. Its tool-call
-// sibling is assistantTool, in hook_turn_changed_test.go.
+// sibling is assistantTool, in hook_transcript_fixtures_test.go.
 func assistantText(uuid, msgID, text string) string {
 	return `{"type":"assistant","isSidechain":false,"cwd":"/repo","sessionId":"s","version":"2.1.44","message":{"model":"m","id":"` + msgID +
 		`","type":"message","role":"assistant","content":[{"type":"text","text":` + jsonString(text) +

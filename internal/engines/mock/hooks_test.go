@@ -4,9 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/fsstatic"
@@ -24,23 +27,7 @@ import (
 // filesystem, and binds an instance to that session.
 func deliverHooked(t *testing.T, hook wire.Hook) (engine.Engine, engine.Instance, engine.Exec) {
 	t.Helper()
-	eng := mock.New()
-	home := t.TempDir()
-	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
-	pkg.Hooks.Unified.PreTool = []wire.Hook{hook}
-	roots := present.Paths{Scratch: present.Root{Host: home, Engine: home}}
-	plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, roots)
-	require.NoError(t, err)
-	fs := afero.NewOsFs()
-	target := delivery.Target{Root: present.New(present.OnHost(roots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), target)
-	require.NoError(t, err)
-	require.Contains(t, d.Wrote, present.Hooks, "the hook item was delivered statically")
-	inst, err := eng.Instance(engine.Session{Mode: engine.Structured, WorkDir: home})
-	require.NoError(t, err)
-	ex, err := inst.Exec(d.Presented)
-	require.NoError(t, err)
-	return eng, inst, ex
+	return deliverHookedAt(t, func(u *wire.UnifiedHooks, h wire.Hook) { u.PreTool = []wire.Hook{h} }, hook)
 }
 
 // TestMock_ADeliveredPreToolHookFires_WhenTheTurnRunsATool is the hook
@@ -107,4 +94,65 @@ func TestMock_AContextFileItCreatesIsOwnerOnly(t *testing.T) {
 	info, err := os.Stat(d.Presented.HostPath)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+// deliverHookedAt is deliverHooked for any unified event: set places the hook
+// on the event under test.
+func deliverHookedAt(t *testing.T, set func(u *wire.UnifiedHooks, h wire.Hook), hook wire.Hook) (engine.Engine, engine.Instance, engine.Exec) {
+	t.Helper()
+	eng := mock.New()
+	home := t.TempDir()
+	pkg := compositetest.Fixture(t, compositetest.WithFragment("hello", "hello"))
+	set(&pkg.Hooks.Unified, hook)
+	roots := present.Paths{Scratch: present.Root{Host: home, Engine: home}}
+	plan, err := delivery.Route(pkg.EngineItems(eng.Root().Name), eng.Root(), delivery.Preference{}, roots)
+	require.NoError(t, err)
+	fs := afero.NewOsFs()
+	target := delivery.Target{Root: present.New(present.OnHost(roots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
+	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), target)
+	require.NoError(t, err)
+	require.Contains(t, d.Wrote, present.Hooks, "the hook item was delivered statically")
+	inst, err := eng.Instance(engine.Session{Mode: engine.Structured, WorkDir: home})
+	require.NoError(t, err)
+	ex, err := inst.Exec(d.Presented)
+	require.NoError(t, err)
+	return eng, inst, ex
+}
+
+// TestMock_ATurnStartHookFires_OncePerTurn_WithoutAToolCall: turn_start is
+// the prompt's own event — it fires once for every turn, tool call or not,
+// and its payload decodes to turn_start through the engine's codec.
+func TestMock_ATurnStartHookFires_OncePerTurn_WithoutAToolCall(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "fired")
+	eng, inst, ex := deliverHookedAt(t, func(u *wire.UnifiedHooks, h wire.Hook) { u.TurnStart = []wire.Hook{h} },
+		wire.Hook{Type: "command", Command: "cat >> " + marker + "; echo >> " + marker})
+
+	for _, prompt := range []string{"just answer", "and again"} {
+		_, err := inst.Drivers()[0].Turn(context.Background(), ex, engine.Turn{Prompt: prompt}, nil)
+		require.NoError(t, err)
+	}
+
+	raw, err := os.ReadFile(marker)
+	require.NoError(t, err, "the hook ran: its command appended the payload to the marker")
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	require.Len(t, lines, 2, "one firing per turn, no more, no fewer:\n%s", raw)
+	for _, line := range lines {
+		ev, err := eng.Hooks().Decode("turn_start", []byte(line))
+		require.NoError(t, err)
+		require.Equal(t, "turn_start", ev.Event)
+	}
+}
+
+// TestMock_FiresEveryUnifiedEvent pins the mock's fire set and its hook-file
+// reader against wire.UnifiedHooks: the mock is the conformance backend, so
+// an event it cannot fire is an event no hermetic test can prove delivered.
+func TestMock_FiresEveryUnifiedEvent(t *testing.T) {
+	eng := mock.New()
+	exports, err := eng.Exports(engine.Items{})
+	require.NoError(t, err)
+	typ := reflect.TypeOf(wire.UnifiedHooks{})
+	for i := 0; i < typ.NumField(); i++ {
+		event := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
+		assert.Contains(t, exports.HookEvent, event, "the mock declares no %s arm — nothing hermetic can prove that event fires", event)
+	}
 }

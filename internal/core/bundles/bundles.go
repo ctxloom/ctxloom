@@ -355,12 +355,18 @@ type BundleHooks struct {
 	TurnEnd      []BundleHook `yaml:"turn_end,omitempty"`
 	PreShell     []BundleHook `yaml:"pre_shell,omitempty"`
 	PostFileEdit []BundleHook `yaml:"post_file_edit,omitempty"`
+	TurnStart    []BundleHook `yaml:"turn_start,omitempty"`
 }
 
 // HasAny reports whether the bundle ships any hooks. Used by the loader to
 // skip the merge cost for hookless bundles.
 func (h BundleHooks) HasAny() bool {
-	return len(h.PreTool)+len(h.PostTool)+len(h.SessionStart)+len(h.SessionEnd)+len(h.TurnEnd)+len(h.PreShell)+len(h.PostFileEdit) > 0
+	for _, event := range hookEventOrder {
+		if len(h.eventHooks(event)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Hook event names. They double as the stable event component of a bundle
@@ -373,21 +379,24 @@ const (
 	HookEventSessionEnd   = "session_end"
 	HookEventPreShell     = "pre_shell"
 	HookEventPostFileEdit = "post_file_edit"
-	// HookEventTurnEnd is APPENDED to hookEventOrder rather than slotted in
-	// beside session_end: that order is a hook's trust identity
-	// ("<bundle>#hooks/<event>/<index>" is per-event, but Entries() walks this
-	// slice), and inserting an event mid-list would renumber nothing while
-	// still reordering every hook report against a baselined one.
-	HookEventTurnEnd = "turn_end"
+	// HookEventTurnEnd and HookEventTurnStart are APPENDED to hookEventOrder
+	// rather than slotted in beside their siblings: that order is a hook's
+	// trust identity ("<bundle>#hooks/<event>/<index>" is per-event, but
+	// Entries() walks this slice), and inserting an event mid-list would
+	// renumber nothing while still reordering every hook report against a
+	// baselined one. TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth
+	// holds the baseline.
+	HookEventTurnEnd   = "turn_end"
+	HookEventTurnStart = "turn_start"
 )
 
 // hookEventOrder is the canonical event order for hook identity + enumeration.
 // Entries() and the trust gate both walk it so a baselined hook's ref matches
-// the one the gate evaluates.
+// the one the gate evaluates. A new event goes LAST.
 var hookEventOrder = []string{
 	HookEventPreTool, HookEventPostTool, HookEventSessionStart,
 	HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
-	HookEventTurnEnd,
+	HookEventTurnEnd, HookEventTurnStart,
 }
 
 // eventHooks returns the hook slice for an event (nil for an unknown event).
@@ -407,6 +416,8 @@ func (h BundleHooks) eventHooks(event string) []BundleHook {
 		return h.PostFileEdit
 	case HookEventTurnEnd:
 		return h.TurnEnd
+	case HookEventTurnStart:
+		return h.TurnStart
 	}
 	return nil
 }

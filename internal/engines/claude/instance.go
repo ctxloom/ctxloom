@@ -133,6 +133,7 @@ var nativeHookEvents = []struct{ unified, native string }{
 	{"session_start", HookEventSessionStart},
 	{"session_end", "SessionEnd"},
 	{"turn_end", "Stop"},
+	{"turn_start", hookEventUserPromptSubmit},
 }
 
 // hookEventMap is the unified→native event table as Exports carries it:

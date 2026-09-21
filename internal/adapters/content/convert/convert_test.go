@@ -3,6 +3,7 @@ package convert
 import (
 	"context"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -389,33 +390,6 @@ func TestPlan_HooksKeepTheirEventBuckets(t *testing.T) {
 	}, byEvent, "every declared event must survive as its own bucket")
 }
 
-// Every one of the seven events must convert. An event silently dropped by a
-// missing switch case is invisible: the tree still builds and the hooks simply
-// never fire.
-func TestPlan_EveryHookEventConverts(t *testing.T) {
-	one := []bundles.BundleHook{{Type: "command", Command: "x"}}
-	b := &bundles.Bundle{
-		Name: "vault",
-		Hooks: bundles.BundleHooks{
-			PreTool: one, PostTool: one, SessionStart: one,
-			SessionEnd: one, PreShell: one, PostFileEdit: one,
-			TurnEnd: one,
-		},
-	}
-	items, err := Plan("vault", b, Options{})
-	require.NoError(t, err)
-
-	events := map[string]bool{}
-	for _, it := range items {
-		if h, ok := it.Surface.(content.Hook); ok {
-			events[h.Event] = true
-		}
-	}
-	for _, want := range []string{"pre_tool", "post_tool", "session_start", "session_end", "pre_shell", "post_file_edit", "turn_end"} {
-		assert.True(t, events[want], "event %q was dropped by the converter", want)
-	}
-}
-
 // --- profiles --------------------------------------------------------------
 
 func TestPlan_ProfileIsConvertedToo(t *testing.T) {
@@ -711,4 +685,24 @@ func TestConvert_InsertingAHookLeavesEveryOtherHooksFilesByteIdentical(t *testin
 		assert.Equal(t, want, got, "inserting a hook rewrote %q — positional identity is back", path)
 	}
 	assert.Greater(t, len(after), len(before), "the inserted hook wrote no files at all")
+}
+
+// TestPlan_EveryHookEventConverts pins conversion against the struct it
+// converts: a hook on ANY event of bundles.BundleHooks becomes a planned hook
+// item named "<event>/<name>". An event the planner did not enumerate would
+// convert to nothing — the bundle's hooks silently absent from the tree it
+// was converted into.
+func TestPlan_EveryHookEventConverts(t *testing.T) {
+	typ := reflect.TypeOf(bundles.BundleHooks{})
+	for i := 0; i < typ.NumField(); i++ {
+		event := strings.Split(typ.Field(i).Tag.Get("yaml"), ",")[0]
+		t.Run(event, func(t *testing.T) {
+			var h bundles.BundleHooks
+			reflect.ValueOf(&h).Elem().Field(i).Set(reflect.ValueOf([]bundles.BundleHook{{Type: "command", Command: "echo " + event}}))
+			items, err := Plan("vault", &bundles.Bundle{Name: "vault", Hooks: h}, Options{})
+			require.NoError(t, err)
+			require.Len(t, plannedHooks(items), 1, "a %s hook converts to nothing", event)
+			assert.Equal(t, []string{event + "/echo-" + event}, refNames(items, trust.KindHook))
+		})
+	}
 }

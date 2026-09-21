@@ -59,6 +59,11 @@ type UnifiedHooks struct {
 	TurnEnd      []Hook `yaml:"turn_end,omitempty" json:"turn_end,omitempty"`
 	PreShell     []Hook `yaml:"pre_shell,omitempty" json:"pre_shell,omitempty"`
 	PostFileEdit []Hook `yaml:"post_file_edit,omitempty" json:"post_file_edit,omitempty"`
+	// TurnStart fires when a prompt is submitted and before the agent acts on
+	// it — once per turn, the mirror of TurnEnd. It is the event a push-only
+	// delivery needs: the one moment a hook can put something in front of the
+	// agent as the turn's own context rather than as a later interruption.
+	TurnStart []Hook `yaml:"turn_start,omitempty" json:"turn_start,omitempty"`
 }
 
 // HooksConfig holds both unified and engine-specific hook configurations.

@@ -355,6 +355,7 @@ type BundleHooks struct {
 	TurnEnd      []BundleHook `yaml:"turn_end,omitempty"`
 	PreShell     []BundleHook `yaml:"pre_shell,omitempty"`
 	PostFileEdit []BundleHook `yaml:"post_file_edit,omitempty"`
+	TurnStart    []BundleHook `yaml:"turn_start,omitempty"`
 }
 
 // HasAny reports whether the bundle ships any hooks. Used by the loader to

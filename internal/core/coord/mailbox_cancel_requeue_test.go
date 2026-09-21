@@ -11,13 +11,12 @@ import (
 // package's Coordinator.Close runs in t.Cleanup and a require.* FailNow inside
 // a coord test deadlocks it. assert + return only.
 
-// A recv whose CLIENT went away (ctx cancelled) but which LOST the
-// race to a concurrent delivery consumed the message anyway. abandonPoll saw
-// p.done, waited for the delivery goroutine, and returned the message to a
-// caller that no longer exists — and the id stayed in c.inbox.delivered, where the
-// next recv's cursor-ack (ackDelivered) journals a mail-consumed fact for it.
-// The message is then GONE: acked as delivered, never seen by anybody, and
-// undeliveredLocked filters it out forever.
+// A recv whose CLIENT went away (ctx cancelled) but which LOST the race to a
+// concurrent delivery must not claim the message on its way out: abandon
+// would hand it to a caller that no longer exists and leave its name on the
+// inbox's ack cursor, where the next recv's ack (spoolInbox.ack) consumes it.
+// The message would then be GONE: acknowledged as delivered, never seen by
+// anybody.
 //
 // At-least-once means a delivery nobody received is re-delivered. A caller that
 // is gone received nothing, so the reservation must be released.

@@ -92,7 +92,8 @@ func Withdraw(m PathMapper, ref Ref) (Ref, error) {
 // unlike every value in Dirs() it carries no wire obligation. Adding it to
 // the closed set would grow the Dir/wire exhaustiveness pin
 // (TestSpoolDoorbell_EnumExhaustiveBothDirections) for a directory the wire
-// protocol has no reason to know about.
+// protocol has no reason to know about. It is a reader-local directory
+// (LocalDirs): addressable through DirPath and Sweep, never through a Ref.
 const FailedDirName Dir = "in/failed"
 
 // FailedOutDirName is the same terminal state for the OTHER direction: an
@@ -114,15 +115,17 @@ const FailedOutDirName Dir = "out/failed"
 // not by quietly not being looked at.
 func FailedDirNames() []Dir { return []Dir{FailedDirName, FailedOutDirName} }
 
-// failedDirFor maps a live direction onto its terminal failed/ sibling.
+// failedDirFor maps a live direction — or the owner's in-flight in/claimed/,
+// whose entries are still in/ messages the reader has not delivered — onto
+// its terminal failed/ sibling.
 func failedDirFor(d Dir) (Dir, error) {
 	switch d {
-	case DirIn:
+	case DirIn, ClaimedDirName:
 		return FailedDirName, nil
 	case DirOut:
 		return FailedOutDirName, nil
 	default:
-		return "", fmt.Errorf("spool: only an %q or %q entry can be marked failed, got %q", string(DirIn), string(DirOut), string(d))
+		return "", fmt.Errorf("spool: only an %q, %q or %q entry can be marked failed, got %q", string(DirIn), string(ClaimedDirName), string(DirOut), string(d))
 	}
 }
 
@@ -143,16 +146,20 @@ func Fail(m PathMapper, ref Ref) error {
 	if err != nil {
 		return err
 	}
-	from, err := m.Resolve(ref)
+	if err := ValidateName(ref.Name); err != nil {
+		return err
+	}
+	// Through DirPath rather than Resolve: a claimed entry's ref names a
+	// reader-local directory that is, by design, not a wire value.
+	fromDir, err := DirPath(m, ref.Harp, ref.Dir)
 	if err != nil {
 		return err
 	}
-	root, err := Root(m, ref.Harp)
+	toDir, err := DirPath(m, ref.Harp, target)
 	if err != nil {
 		return err
 	}
-	to := filepath.Join(root, filepath.FromSlash(string(target)), ref.Name)
-	if err := renameInto(from, to); err != nil {
+	if err := renameInto(filepath.Join(fromDir, ref.Name), filepath.Join(toDir, ref.Name)); err != nil {
 		return fmt.Errorf("spool: moving %s to %s: %w", ref, target, err)
 	}
 	return nil
@@ -260,14 +267,25 @@ func (r SweepResult) ProblemErr() error {
 // Sub-directories (consumed/, withdrawn/) are skipped as structure. EVERY
 // other entry is either an Entry or a Problem; nothing is dropped in between.
 func Sweep(m PathMapper, harp string, dir Dir) (SweepResult, error) {
-	res := SweepResult{Dir: dir}
 	path, err := DirPath(m, harp, dir)
 	if err != nil {
-		return res, err
+		return SweepResult{Dir: dir}, err
 	}
-	names, isDir, err := sortedDirEntries(path)
+	res, err := sweepDir(harp, dir, path)
 	if err != nil {
 		return res, fmt.Errorf("spool: sweeping %s: %w", path, err)
+	}
+	return res, nil
+}
+
+// sweepDir is Sweep's body over an already-resolved directory path. The
+// readdir error is returned bare so a caller that treats "not there" as
+// empty (Claim, for a spool nothing has written to yet) can tell it apart.
+func sweepDir(harp string, dir Dir, path string) (SweepResult, error) {
+	res := SweepResult{Dir: dir}
+	names, isDir, err := sortedDirEntries(path)
+	if err != nil {
+		return res, err
 	}
 	for _, name := range names {
 		if isDir[name] {

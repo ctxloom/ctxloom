@@ -472,13 +472,11 @@ func (c *Coordinator) mailCourier() *spoolCourier {
 }
 
 // pendingCount reports how many messages could still be delivered to role —
-// the ended-child check: leftover mail triggers a resume, never strands. For
-// the owner it is the inbox's count (what a live receive already holds is
-// spoken for, not waiting).
+// the ended-child check: leftover mail triggers a resume, never strands. The
+// owner needs no separate count: what a receive or the turn-start hook has
+// already taken sits in in/claimed/, not in/, so the file-backed count of
+// in/ is already "waiting, not spoken for".
 func (c *Coordinator) pendingCount(role string) int {
-	if c.ownerSpool(role) {
-		return c.inbox.pending(role)
-	}
 	return c.spoolPendingCount(role)
 }
 

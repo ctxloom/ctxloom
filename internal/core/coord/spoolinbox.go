@@ -18,18 +18,24 @@ import (
 //   - PARK. One held long-poll per role; a newer receive preempts the parked
 //     one (ErrRecvPreempted); a delivery WAKES the poll without handing it
 //     anything (the payload is on disk); revocation severs it (ErrRevoked).
-//   - CLAIM. A receive that runs, or is woken, reads in/ and reserves what it
-//     returns — the ONE place a hand-off to a live caller becomes real. It
-//     remembers which FILE each id came from.
-//   - ACK. The next receive (or a clean close) consume-renames every file
-//     behind the reserved ids into in/consumed/ and releases the reservation.
+//   - CLAIM. A receive that runs, or is woken, takes in/ into in/claimed/
+//     (spool.Claim) and hands the in-flight set to a live caller — the ONE
+//     place a hand-off becomes real. It remembers only which NAMES it handed
+//     out, for the ack.
+//   - ACK. The next receive acknowledges every name the previous one handed
+//     out: in/claimed/ → in/consumed/ (spool.Ack).
 //
-// The rename is the ack, and it happens one receive LATE on purpose: renaming
-// at claim time would turn at-least-once into at-most-once for a harness that
-// stopped listening between the wake and the return. A crash between the two
-// leaves the file in in/, where the next coordinator's first receive finds it
-// again under the same id — the durable half of at-least-once, and why the id
-// is the file's origin id rather than anything minted here.
+// THE RESERVATION IS ON DISK, not here. in/claimed/ is what keeps a message
+// from being counted pending or handed out twice, and it is shared with the
+// owner's OTHER reader, the turn-start hook (`ctxloom hook mail-drain`),
+// which is a subprocess with no memory to keep one in. What this type keeps
+// is only the ack cursor: the ack happens one receive LATE on purpose, since
+// acknowledging at claim time would turn at-least-once into at-most-once for
+// a harness that stopped listening between the wake and the return. A crash
+// between the two leaves the file in in/claimed/, where the next reader's
+// Claim — this process's or a hook's — hands it out again under the same id:
+// the durable half of at-least-once, and why the id is the file's origin id
+// rather than anything minted here.
 //
 // There is no arrival-burst settling: a claim reads the whole directory, and
 // whatever lands after it is deliverable to the NEXT receive without parking
@@ -45,9 +51,6 @@ type spoolInbox struct {
 	rep      report.Reporter
 	mapper   spool.PathMapper
 	counters *spoolDeliveryCounters
-	// sweep reads a role's spool directory the coordinator's way
-	// (sweepSpoolDir: "not there" is empty, a real failure is loud).
-	sweep func(role string, dir spool.Dir, why string) (spool.SweepResult, bool)
 	// onPark / onUnpark tie a parked receive to the coordinator's slot
 	// accounting (onRolePark / onRoleUnpark).
 	onPark, onUnpark func(role string)
@@ -55,21 +58,17 @@ type spoolInbox struct {
 	mu sync.Mutex
 	// polls holds the one parked receive per role.
 	polls map[string]*parkedPoll
-	// delivered is the runtime ledger: per role, the ids a receive has handed
-	// to a live caller and the next receive has not yet acked.
-	delivered map[string][]string
-	// refs maps a delivered id to the file it came from, for the ack's
-	// consume-rename.
-	refs map[string]spool.Ref
+	// handed is the ack cursor: per role, the spool file names a receive has
+	// handed to a live caller and the next receive has not yet acknowledged.
+	// It is not the reservation — that is in/claimed/ on disk.
+	handed map[string][]string
 }
 
-func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *spoolDeliveryCounters,
-	sweep func(string, spool.Dir, string) (spool.SweepResult, bool), onPark, onUnpark func(string)) *spoolInbox {
+func newSpoolInbox(rep report.Reporter, mapper spool.PathMapper, counters *spoolDeliveryCounters, onPark, onUnpark func(string)) *spoolInbox {
 	return &spoolInbox{
-		rep: rep, mapper: mapper, counters: counters, sweep: sweep, onPark: onPark, onUnpark: onUnpark,
-		polls:     make(map[string]*parkedPoll),
-		delivered: make(map[string][]string),
-		refs:      make(map[string]spool.Ref),
+		rep: rep, mapper: mapper, counters: counters, onPark: onPark, onUnpark: onUnpark,
+		polls:  make(map[string]*parkedPoll),
+		handed: make(map[string][]string),
 	}
 }
 
@@ -225,8 +224,8 @@ func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone 
 	return nil, err
 }
 
-// claim reads role's in/ and reserves and returns every message not already
-// reserved. ok=false means nothing new is deliverable right now.
+// claim takes role's in/ into in/claimed/ and hands back the whole in-flight
+// set as mailbox messages. ok=false means nothing is deliverable right now.
 //
 // A file that parses as a spool entry but not as a mailbox message (an
 // unknown kind, a structured payload that will not decode) is moved to
@@ -234,131 +233,64 @@ func (in *spoolInbox) abandon(role string, p *parkedPoll, err error, callerGone 
 // receive for the life of the process — the terminal state the runner's
 // reader gives such a file, for the same reason.
 func (in *spoolInbox) claim(role string) ([]Message, bool) {
-	res, ok := in.sweep(role, spool.DirIn, "draining the session owner's inbox")
-	if !ok {
+	res, err := spool.Claim(in.mapper, role)
+	if err != nil {
+		in.rep.Warnf("coordinator: claiming the session owner's inbox: %v", err)
+		in.counters.failed.Add(1)
 		return nil, false
 	}
 	for _, p := range res.Problems {
 		in.rep.Warnf("coordinator: a file in the owner's in/ spool is not a message and will not be delivered: %v", p.Error())
 		in.counters.failed.Add(1)
 	}
-	type unreadable struct {
-		entry spool.Entry
-		err   error
-	}
 	var (
-		out    []Message
-		failed []unreadable
+		out   []Message
+		names []string
 	)
-	in.mu.Lock()
-	reserved := make(map[string]bool, len(in.delivered[role]))
-	for _, id := range in.delivered[role] {
-		reserved[id] = true
-	}
 	for _, e := range res.Entries {
 		msg, err := mailFromSpool(e, e.Message.FromHarp)
 		if err != nil {
-			failed = append(failed, unreadable{e, err})
+			in.counters.failed.Add(1)
+			failSpool(in.rep, in.mapper, "coordinator", e.Ref, "refusing an undeliverable message in the owner's in/ spool", err)
 			continue
 		}
-		if reserved[msg.ID] {
-			continue // delivered by an earlier receive, awaiting this one's ack
-		}
-		reserved[msg.ID] = true
-		in.delivered[role] = append(in.delivered[role], msg.ID)
-		in.refs[msg.ID] = e.Ref
+		names = append(names, e.Ref.Name)
 		out = append(out, msg)
-	}
-	in.mu.Unlock()
-	for _, f := range failed {
-		in.counters.failed.Add(1)
-		failSpool(in.rep, in.mapper, "coordinator", f.entry.Ref, "refusing an undeliverable message in the owner's in/ spool", f.err)
 	}
 	if len(out) == 0 {
 		return nil, false
 	}
+	in.mu.Lock()
+	in.handed[role] = append(in.handed[role], names...)
+	in.mu.Unlock()
 	in.counters.delivered.Add(uint64(len(out)))
 	return out, true
 }
 
-// pending counts role's deliverable mail: what is in in/ minus what a
-// receive has already handed to a live caller and not yet acked — those
-// files are still there because the ack is one receive late, but they are
-// spoken for, not waiting.
-func (in *spoolInbox) pending(role string) int {
-	res, ok := in.sweep(role, spool.DirIn, "counting the owner's pending mail")
-	if !ok {
-		return 0
-	}
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	reserved := make(map[string]bool, len(in.delivered[role]))
-	for _, id := range in.delivered[role] {
-		reserved[id] = true
-	}
-	n := 0
-	for _, e := range res.Entries {
-		if !reserved[spoolMessageID(e)] {
-			n++
-		}
-	}
-	return n
-}
-
-// ack consumes every id a prior receive reserved for role by renaming its
-// file into in/consumed/, and releases the reservation.
+// ack acknowledges every file a prior receive handed to role's caller by
+// renaming it from in/claimed/ into in/consumed/, and drops the cursor.
 //
 // A rename that fails for any reason other than the file already being gone
-// leaves the file in in/ and releases the reservation anyway: the next claim
-// delivers it again — a duplicate the reader dedupes on id — where a
-// reservation nothing ever clears would be a message permanently invisible.
+// leaves the file in in/claimed/, where the next claim delivers it again — a
+// duplicate the reader dedupes on id — and the cursor is dropped anyway,
+// because a cursor nothing ever clears would ack the file on a later receive
+// the caller never saw.
 func (in *spoolInbox) ack(role string) {
 	in.mu.Lock()
-	ids := append([]string(nil), in.delivered[role]...)
-	refs := make(map[string]spool.Ref, len(ids))
-	for _, id := range ids {
-		if ref, ok := in.refs[id]; ok {
-			refs[id] = ref
-			delete(in.refs, id)
-		}
-	}
+	names := in.handed[role]
+	delete(in.handed, role)
 	in.mu.Unlock()
-	if len(ids) == 0 {
-		return
-	}
 	consumed := uint64(0)
-	for id, ref := range refs {
-		if _, err := spool.Consume(in.mapper, ref); err != nil {
+	for _, name := range names {
+		if err := spool.Ack(in.mapper, role, name); err != nil {
 			if errors.Is(err, spool.ErrAlreadyGone) {
 				continue
 			}
-			in.rep.Warnf("coordinator: the owner received %s but it could not be marked consumed: %v (it will be delivered again on the next receive)", id, err)
+			in.rep.Warnf("coordinator: the owner received %s but it could not be acknowledged: %v (it will be delivered again on the next receive)", name, err)
 			in.counters.failed.Add(1)
 			continue
 		}
 		consumed++
 	}
-	in.unreserve(role, ids)
 	in.counters.consumed.Add(consumed)
-}
-
-// unreserve drops ids from the runtime delivery ledger (they are consumed).
-func (in *spoolInbox) unreserve(role string, ids []string) {
-	drop := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		drop[id] = true
-	}
-	in.mu.Lock()
-	kept := in.delivered[role][:0]
-	for _, id := range in.delivered[role] {
-		if !drop[id] {
-			kept = append(kept, id)
-		}
-	}
-	if len(kept) == 0 {
-		delete(in.delivered, role)
-	} else {
-		in.delivered[role] = kept
-	}
-	in.mu.Unlock()
 }

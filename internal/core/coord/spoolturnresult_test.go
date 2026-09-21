@@ -29,17 +29,19 @@ func bridgedResultFor(t *testing.T, c *Coordinator, wait time.Duration) Message 
 	return msgs[0]
 }
 
-// ownerResultsFrom reads the owner's SPOOL off disk — in/ and in/consumed/
-// together — and returns every result-kind message routed to it from harp.
+// ownerResultsFrom reads the owner's SPOOL off disk — in/, in/claimed/ and
+// in/consumed/ together — and returns every result-kind message routed to it
+// from harp.
 //
-// Both directories, because a file is in exactly one of them: delivered but
-// unacked, or acked. Neither alone can answer "how many reports were there",
-// and the owner's in/ is the durable record of what reached it, the way the
-// mailbox journal was before the owner became a spool recipient.
+// All three directories, because a file is in exactly one of them: unclaimed,
+// delivered but unacked, or acked. None alone can answer "how many reports
+// were there", and the owner's spool is the durable record of what reached
+// it, the way the mailbox journal was before the owner became a spool
+// recipient.
 func ownerResultsFrom(t *testing.T, harp string) []Message {
 	t.Helper()
 	var out []Message
-	for _, dir := range []spool.Dir{spool.DirIn, spool.DirInConsumed} {
+	for _, dir := range []spool.Dir{spool.DirIn, spool.ClaimedDirName, spool.DirInConsumed} {
 		for _, e := range spoolEntries(t, ownerIdentity().Harp, dir) {
 			if e.Message.FromHarp != harp {
 				continue

@@ -22,19 +22,14 @@ import (
 // is left to read). Then issue a second recv for the same role, exactly as
 // "newest preempts" describes.
 //
-// Today, deliverToPoll RESERVES the message id in c.inbox.delivered the instant it
-// hands the message to the older poll's channel. The second recv's very first
-// step, ackDelivered, reads c.inbox.delivered and journals a factMailConsumed for
-// it — treating "handed to a channel" as proof of receipt, when nothing has
-// proven the older poll's caller ever read that channel. The message is
-// durably consumed, filtered out of undeliveredLocked forever, and the second
-// recv comes back with nothing: acked as delivered, never seen by anybody.
-//
-// This is the mailbox-plane twin of spooldelivery.go's stated invariant
-// ("CONSUMPTION IS A RENAME, and the rename is the ACK... a later Recv proved
-// the harness took the batch") — except here the "rename" (ackDelivered's
-// journal write) fires on ANY subsequent recv for the role, not on proof that
-// the specific delivery was ever returned to a live caller.
+// The wake must reserve NOTHING: were the older poll's completion to claim
+// the message on the caller's behalf, the second recv's first step — the
+// ack of what the previous receive handed out (spoolInbox.ack) — would treat
+// "handed to a channel" as proof of receipt, when nothing has proven the
+// older poll's caller ever read that channel. The message would be consumed
+// and the second recv would come back with nothing: acknowledged as
+// delivered, never seen by anybody. A claim is made only by the goroutine
+// about to return messages to a still-live caller.
 func TestRecvPreempted_DeliveryToAnOrphanedPollIsNotLost(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)

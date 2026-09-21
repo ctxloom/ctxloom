@@ -51,10 +51,10 @@ func TestSpoolOwner_FinalReportReachesTheOwnerThroughTheSpool(t *testing.T) {
 	assert.Equal(t, KindReport, got[0].Kind)
 	assert.Equal(t, out.Harp, got[0].From, "the notice is authored by the child that filed it")
 
-	// THE FILE IS THE MESSAGE: it is in the owner's in/ (delivered, not yet
-	// acked) and nowhere in the mailbox fold.
-	entry, ok := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "FINAL: the deliverable")
-	require.True(t, ok, "the delivered report must still sit in the owner's in/ until the next receive acks it")
+	// THE FILE IS THE MESSAGE: it is in the owner's in/claimed/ (delivered,
+	// not yet acked) and nowhere in the mailbox fold.
+	entry, ok := spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "FINAL: the deliverable")
+	require.True(t, ok, "the delivered report must sit in the owner's in/claimed/ until the next receive acks it")
 	assert.Equal(t, got[0].ID, entry.Message.OriginID, "the mailbox id the owner saw is the file's origin id")
 	assertNoMailboxJournal(t, c)
 }
@@ -81,15 +81,16 @@ func TestSpoolOwner_ChildSendRidesTheFileIntoAgentRecv(t *testing.T) {
 	require.NotEmpty(t, got)
 	assert.Equal(t, out.Harp, got[0].From)
 	assert.Equal(t, KindResult, got[0].Kind)
-	_, inOwnerSpool := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "a finding")
-	assert.True(t, inOwnerSpool, "the routed message must be a file in the owner's in/")
+	_, inOwnerSpool := spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "a finding")
+	assert.True(t, inOwnerSpool, "the routed message must be a file in the owner's spool — claimed by the receive, awaiting its ack")
 	assertNoMailboxJournal(t, c)
 }
 
 // TestSpoolOwner_AckIsConsumeOnNextRecv pins at-least-once for the owner:
-// a delivered file stays in in/ until a SUBSEQUENT receive proves the harness
-// took the batch, at which point it is renamed into in/consumed/ — and it is
-// never delivered twice inside one process.
+// a delivered file sits in in/claimed/ — taken, not acknowledged — until a
+// SUBSEQUENT receive proves the harness took the batch, at which point it is
+// renamed into in/consumed/ — and it is never delivered twice inside one
+// process.
 func TestSpoolOwner_AckIsConsumeOnNextRecv(t *testing.T) {
 	resetStrictness(t)
 	teeHome(t)
@@ -102,14 +103,16 @@ func TestSpoolOwner_AckIsConsumeOnNextRecv(t *testing.T) {
 	require.NotEmpty(t, got)
 
 	_, stillIn := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "FINAL: once")
-	require.True(t, stillIn, "delivered but unacked: the file must still be in in/")
+	require.False(t, stillIn, "delivered: the file has left in/, so no peek counts it as waiting")
+	_, claimed := spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "FINAL: once")
+	require.True(t, claimed, "delivered but unacked: the file must be in in/claimed/ — the reservation is on disk")
 
 	// The next receive is the ack — and returns the message no second time.
 	recvNothing(t, c, "FINAL: once")
 	_, consumed := spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirInConsumed, "FINAL: once")
 	assert.True(t, consumed, "the ack is the consume-rename into in/consumed/")
-	_, stillIn = spoolEntryWithBody(t, ownerIdentity().Harp, spool.DirIn, "FINAL: once")
-	assert.False(t, stillIn, "an acked file must have left in/")
+	_, claimed = spoolEntryWithBody(t, ownerIdentity().Harp, spool.ClaimedDirName, "FINAL: once")
+	assert.False(t, claimed, "an acked file must have left in/claimed/")
 	recvNothing(t, c, "FINAL: once")
 }
 

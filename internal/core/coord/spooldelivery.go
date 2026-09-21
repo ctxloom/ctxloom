@@ -551,19 +551,36 @@ func (c *Coordinator) startSpoolReactor() {
 }
 
 // spoolRoles is the reconciliation set: every harp this coordinator has a run
-// record for. It is deliberately wider than "currently attached" — the whole
-// point of the startup pass is to find mail written for a run whose channel
-// does not exist yet, or exists no longer.
+// record for, plus the session owner. It is deliberately wider than
+// "currently attached" — the whole point of the startup pass is to find mail
+// written for a run whose channel does not exist yet, or exists no longer.
+//
+// THE OWNER IS A SENDER TOO: its engine reaches this coordinator through the
+// owner's own runner (the plugin-hosted owner arm), whose agent_send is a
+// file in the OWNER's out/ with no coordinator round trip — the same local
+// write every child's runner makes. The owner has no run record (it is
+// identified by declaration, Options.OwnerHarp), so a set built from run
+// records alone left the owner's every send in place, reported to the
+// engine as queued.
 func (c *Coordinator) spoolRoles() []string {
 	var out []string
 	c.runs.View(func() { out = c.runsF.currentHarps() })
+	if c.ownerHarp != "" {
+		out = append(out, c.ownerHarp)
+	}
 	return out
 }
 
-// sweepChildSpool is the coordinator's whole reading job for one child: route
-// what the child SENT (out/), and note what the child CONSUMED (in/consumed).
+// sweepChildSpool is the coordinator's whole reading job for one spool: route
+// what its owner SENT (out/), and — for a child — note what it CONSUMED
+// (in/consumed). The session owner's spool gets only the first half: its
+// acks forgive a relaunch budget, and this coordinator never relaunches its
+// own owner.
 func (c *Coordinator) sweepChildSpool(role string) {
 	c.sweepChildOut(role)
+	if c.ownerSpool(role) {
+		return
+	}
 	c.sweepChildConsumed(role)
 }
 
@@ -739,8 +756,13 @@ func spoolAddressee(e spool.Entry) string {
 
 // spoolSenderIdentity resolves a spool directory's owning harp to the identity
 // its messages are sent under — the file-plane analog of deriving a caller's
-// identity from its credential rather than from anything it wrote.
+// identity from its credential rather than from anything it wrote. The
+// session owner's out/ is the owner's identity (depth 0, declared — see
+// spoolRoles); every other harp's is its current run record.
 func (c *Coordinator) spoolSenderIdentity(role string) (Identity, bool) {
+	if c.ownerSpool(role) {
+		return Identity{Harp: role, Depth: 0, Project: c.projectDir}, true
+	}
 	var id Identity
 	ok := false
 	c.runs.View(func() {

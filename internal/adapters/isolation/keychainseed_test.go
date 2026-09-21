@@ -163,17 +163,23 @@ func TestKeychainService_HashesTheNFCConfigDir(t *testing.T) {
 	assert.Equal(t, wantService("S", precomposed), keychainService("S", decomposed))
 }
 
-// TestKeychainSeed_ReadsTheDefaultItemAndWritesTheSessionsProjected: (a)
-// the default item is read with `find-generic-password -a <user> -s <base>
-// -w`, (b) the refresh token is stripped, (c) the session's item is written
-// with `add-generic-password -U -a <user> -s <base>-<hash> -X <hex JSON>`.
-func TestKeychainSeed_ReadsTheDefaultItemAndWritesTheSessionsProjected(t *testing.T) {
+// TestKeychainSeed_TheOrchestratorsItemIsWholeAndTwoWay: the ROOT session
+// (no orchestrator above it) reads the default item with
+// `find-generic-password -a <user> -s <base> -w` and writes its own item
+// WHOLE with `add-generic-password -U -a <user> -s <base>-<hash> -X <hex>`;
+// while it lives, a change to the default item is re-read into its item,
+// and a change to ITS item (the engine's refresh) is written back to the
+// default item — between exactly these two holders.
+func TestKeychainSeed_TheOrchestratorsItemIsWholeAndTwoWay(t *testing.T) {
 	fk := withFakeSecurity(t)
 	store := claudeKeychainStore(t)
 	fk.put(t, store.Service, hostKeychainCredential)
 	configDir := filepath.Join(t.TempDir(), "home", "claude")
+	prev := keychainPollInterval
+	keychainPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { keychainPollInterval = prev })
 
-	result, res, err := provisionKeychainSeed("claude-code", store, configDir)
+	result, res, err := provisionKeychainSeed("claude-code", store, configDir, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = res.Close() })
 	assert.Equal(t, seedOK, result)
@@ -183,19 +189,89 @@ func TestKeychainSeed_ReadsTheDefaultItemAndWritesTheSessionsProjected(t *testin
 	service := wantService(store.Service, configDir)
 	placed, ok := fk.item(t, service)
 	require.True(t, ok, "the session's item %q was written", service)
-	var cred map[string]map[string]any
-	require.NoError(t, json.Unmarshal([]byte(placed), &cred))
-	assert.Equal(t, "kc-access", cred["claudeAiOauth"]["accessToken"])
-	assert.NotContains(t, cred["claudeAiOauth"], "refreshToken")
-	assert.NotContains(t, cred["claudeAiOauth"], "refreshTokenExpiresAt")
-	host, _ := fk.item(t, store.Service)
-	assert.Equal(t, hostKeychainCredential, host, "the default item is read, never rewritten")
-
-	projected, err := store.Project([]byte(hostKeychainCredential))
-	require.NoError(t, err)
+	assert.Equal(t, hostKeychainCredential, placed, "the orchestrator's item is WHOLE, refresh token included")
 	calls := fk.calls(t)
 	assert.Contains(t, calls, "find-generic-password -a alice -s "+store.Service+" -w")
-	assert.Contains(t, calls, "add-generic-password -U -a alice -s "+service+" -X "+hex.EncodeToString(projected))
+	assert.Contains(t, calls, "add-generic-password -U -a alice -s "+service+" -X "+hex.EncodeToString([]byte(hostKeychainCredential)))
+
+	fk.put(t, store.Service, `{"claudeAiOauth":{"accessToken":"kc-2","refreshToken":"kr-2"}}`)
+	require.Eventually(t, func() bool {
+		got, ok := fk.item(t, service)
+		return ok && got == `{"claudeAiOauth":{"accessToken":"kc-2","refreshToken":"kr-2"}}`
+	}, 5*time.Second, 10*time.Millisecond, "the default item's change never reached the orchestrator's item")
+
+	fk.put(t, service, `{"claudeAiOauth":{"accessToken":"kc-3","refreshToken":"kr-3"}}`)
+	require.Eventually(t, func() bool {
+		got, ok := fk.item(t, store.Service)
+		return ok && got == `{"claudeAiOauth":{"accessToken":"kc-3","refreshToken":"kr-3"}}`
+	}, 5*time.Second, 10*time.Millisecond, "the orchestrator's refresh never reached the default item")
+	assert.Contains(t, fk.calls(t), "add-generic-password -U -a alice -s "+store.Service+" -X "+hex.EncodeToString([]byte(`{"claudeAiOauth":{"accessToken":"kc-3","refreshToken":"kr-3"}}`)))
+}
+
+// TestKeychainSeed_AnAgentsItemIsAProjectionOfTheOrchestrators: an agent
+// reads the ORCHESTRATOR's item (the service of the orchestrator's config
+// dir), never the default one, strips the refresh token, writes its own
+// item, and re-projects when the orchestrator's item changes; its own item
+// changing is overwritten, never written anywhere.
+func TestKeychainSeed_AnAgentsItemIsAProjectionOfTheOrchestrators(t *testing.T) {
+	fk := withFakeSecurity(t)
+	store := claudeKeychainStore(t)
+	fk.put(t, store.Service, hostKeychainCredential)
+	orchDir := filepath.Join(t.TempDir(), "orch", "home", "claude")
+	orchService := wantService(store.Service, orchDir)
+	fk.put(t, orchService, `{"claudeAiOauth":{"accessToken":"orch-acc","refreshToken":"orch-ref","expiresAt":1}}`)
+	configDir := filepath.Join(t.TempDir(), "home", "claude")
+	prev := keychainPollInterval
+	keychainPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { keychainPollInterval = prev })
+
+	result, res, err := provisionKeychainSeed("claude-code", store, configDir, orchDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = res.Close() })
+	assert.Equal(t, seedOK, result)
+
+	service := wantService(store.Service, configDir)
+	placed, ok := fk.item(t, service)
+	require.True(t, ok)
+	var cred map[string]map[string]any
+	require.NoError(t, json.Unmarshal([]byte(placed), &cred))
+	assert.Equal(t, "orch-acc", cred["claudeAiOauth"]["accessToken"], "the agent projects the ORCHESTRATOR's item")
+	assert.NotContains(t, cred["claudeAiOauth"], "refreshToken")
+	assert.NotContains(t, cred["claudeAiOauth"], "refreshTokenExpiresAt")
+	calls := fk.calls(t)
+	assert.Contains(t, calls, "find-generic-password -a alice -s "+orchService+" -w")
+	assert.NotContains(t, calls, "find-generic-password -a alice -s "+store.Service+" -w", "the default item is never an agent's source")
+
+	fk.put(t, orchService, `{"claudeAiOauth":{"accessToken":"orch-acc-2","refreshToken":"orch-ref-2"}}`)
+	require.Eventually(t, func() bool {
+		got, ok := fk.item(t, service)
+		return ok && strings.Contains(got, "orch-acc-2")
+	}, 5*time.Second, 10*time.Millisecond, "the orchestrator's rotation never reached the agent's item")
+	got, _ := fk.item(t, service)
+	assert.NotContains(t, got, "orch-ref-2", "re-projected on every change")
+
+	fk.put(t, service, `{"claudeAiOauth":{"accessToken":"agent-wrote"}}`)
+	time.Sleep(6 * keychainPollInterval)
+	orch, _ := fk.item(t, orchService)
+	assert.Contains(t, orch, "orch-acc-2", "an agent's write never reaches the orchestrator's item")
+	host, _ := fk.item(t, store.Service)
+	assert.Equal(t, hostKeychainCredential, host, "…nor the default item")
+}
+
+// An agent whose orchestrator has no item is "nothing seedable" — never a
+// fall back to the default item.
+func TestKeychainSeed_AnAgentWithNoOrchestratorItemIsNoSource(t *testing.T) {
+	fk := withFakeSecurity(t)
+	store := claudeKeychainStore(t)
+	fk.put(t, store.Service, hostKeychainCredential)
+	configDir := filepath.Join(t.TempDir(), "home", "claude")
+
+	result, res, err := provisionKeychainSeed("claude-code", store, configDir, filepath.Join(t.TempDir(), "orch", "home", "claude"))
+	require.NoError(t, err)
+	assert.NoError(t, res.Close())
+	assert.Equal(t, seedNoSource, result)
+	_, ok := fk.item(t, wantService(store.Service, configDir))
+	assert.False(t, ok)
 }
 
 // A host with no default item is "nothing seedable": seedNoSource, no item
@@ -205,7 +281,7 @@ func TestKeychainSeed_NoDefaultItemIsNoSource(t *testing.T) {
 	store := claudeKeychainStore(t)
 	configDir := filepath.Join(t.TempDir(), "home", "claude")
 
-	result, res, err := provisionKeychainSeed("claude-code", store, configDir)
+	result, res, err := provisionKeychainSeed("claude-code", store, configDir, "")
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
 	assert.NoError(t, res.Close())
@@ -217,8 +293,7 @@ func TestKeychainSeed_NoDefaultItemIsNoSource(t *testing.T) {
 }
 
 // (d) Replication: the default item is polled and a change is rewritten
-// into the session's item, projected again; an unchanged default item is
-// not rewritten.
+// into the orchestrator's item; an unchanged default item is not rewritten.
 func TestKeychainSeed_PollsTheDefaultItemAndRewritesTheSessions(t *testing.T) {
 	fk := withFakeSecurity(t)
 	store := claudeKeychainStore(t)
@@ -228,7 +303,7 @@ func TestKeychainSeed_PollsTheDefaultItemAndRewritesTheSessions(t *testing.T) {
 	keychainPollInterval = 20 * time.Millisecond
 	t.Cleanup(func() { keychainPollInterval = prev })
 
-	_, res, err := provisionKeychainSeed("claude-code", store, configDir)
+	_, res, err := provisionKeychainSeed("claude-code", store, configDir, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = res.Close() })
 	service := wantService(store.Service, configDir)
@@ -248,7 +323,7 @@ func TestKeychainSeed_PollsTheDefaultItemAndRewritesTheSessions(t *testing.T) {
 		return ok && strings.Contains(placed, "kc-access-2")
 	}, 5*time.Second, 10*time.Millisecond, "the host's rotation never reached the session item")
 	placed, _ := fk.item(t, service)
-	assert.NotContains(t, placed, "kc-refresh-2", "the re-copy is projected again")
+	assert.Contains(t, placed, "kc-refresh-2", "the orchestrator's item is re-read whole")
 }
 
 // (e) Teardown: the run that CREATED the session's item deletes it at
@@ -262,9 +337,9 @@ func TestKeychainSeed_CloseDeletesTheItemItCreated(t *testing.T) {
 	configDir := filepath.Join(t.TempDir(), "home", "claude")
 	service := wantService(store.Service, configDir)
 
-	_, first, err := provisionKeychainSeed("claude-code", store, configDir)
+	_, first, err := provisionKeychainSeed("claude-code", store, configDir, "")
 	require.NoError(t, err)
-	_, second, err := provisionKeychainSeed("claude-code", store, configDir)
+	_, second, err := provisionKeychainSeed("claude-code", store, configDir, "")
 	require.NoError(t, err)
 
 	require.NoError(t, second.Close())
@@ -359,6 +434,6 @@ func TestCopyAmbient_OnDarwinSeedsFromTheKeychain(t *testing.T) {
 	assert.Equal(t, keychainMechanism, report.Mechanism)
 	placed, ok := fk.item(t, wantService(store.Service, filepath.Join(instance, "claude")))
 	require.True(t, ok, "the session's item is derived from the instance's config dir")
-	assert.NotContains(t, placed, "kc-refresh")
+	assert.Equal(t, hostKeychainCredential, placed, "the root session's item is whole")
 	assert.NoFileExists(t, filepath.Join(instance, "claude", ".credentials.json"), "on a Mac the store is the Keychain, not the file")
 }

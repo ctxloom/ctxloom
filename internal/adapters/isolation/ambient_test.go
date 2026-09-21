@@ -252,9 +252,11 @@ func seededOAuth(t *testing.T, instance string) (raw []byte, oauth map[string]an
 	return placed, oauth
 }
 
-// TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken pins the seed's
-// shape (ruled 2026-09-21): claude's own session-seeding path copies the
-// credential with claudeAiOauth.refreshToken STRIPPED, and so does this one.
+// TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken pins an AGENT's
+// seed shape (ruled 2026-09-21): claude's own session-seeding path copies
+// the credential with claudeAiOauth.refreshToken STRIPPED, and so does this
+// one — from the ORCHESTRATOR's credential (the root session, the single
+// refresher), never from the host file.
 //
 // The refresh token is SINGLE-USE and rotating. A seeded copy that carries it
 // can refresh, and whichever holder refreshes consumes the host's grant: the
@@ -273,9 +275,10 @@ func TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken(t *testing.T) {
 	hostFile := filepath.Join(home, ".claude", ".credentials.json")
 	require.NoError(t, os.WriteFile(hostFile, []byte(hostOAuthCredential), 0o600))
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
+	orch := seededOrchestrator(t, hostOAuthCredential)
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = report.Close() })
 
@@ -288,9 +291,11 @@ func TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken(t *testing.T) {
 	assert.Equal(t, "max", oauth["subscriptionType"])
 	assert.Equal(t, "default", oauth["rateLimitTier"])
 
-	hostAfter, err := os.ReadFile(hostFile)
-	require.NoError(t, err)
-	assert.Equal(t, hostOAuthCredential, string(hostAfter), "the host's own credential keeps its refresh token; only the copy is projected")
+	for _, whole := range []string{hostFile, orch} {
+		after, err := os.ReadFile(whole)
+		require.NoError(t, err)
+		assert.Equal(t, hostOAuthCredential, string(after), "%s keeps its refresh token; only the agent's copy is projected", whole)
+	}
 
 	info, err := os.Lstat(filepath.Join(instance, "claude", ".credentials.json"))
 	require.NoError(t, err)

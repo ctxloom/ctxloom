@@ -53,12 +53,12 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 		"CTXLOOM_RUN_ID":     "run-123",
 	}
 
-	spec := c.buildRunnerSpec("mock", "fast", "ctxloom-iso-builder-abc123", cw, spawnEnv)
+	spec := c.buildRunnerSpec("mock", "ctxloom-iso-builder-abc123", cw, spawnEnv)
 
-	// Command: `llm host <backend> --label <l>` — the runner mode with no
-	// plugin.Serve, NOT `llm serve`.
-	assert.Equal(t, []string{defaultContainerBinary, "llm", "host", "mock", "--label", "fast"}, spec.Command)
-	assert.NotContains(t, spec.Command, "serve", "the docker-direct runner never runs the plugin-serving `llm serve`")
+	// Command: `runner <engine>` — the runner reads no config, so no label
+	// rides its argv; the label body arrives on the Launch.
+	assert.Equal(t, []string{defaultContainerBinary, "runner", "mock"}, spec.Command)
+	assert.NotContains(t, spec.Command, "serve", "the container runner never runs the plugin-serving `llm serve`")
 
 	// NO plugin socket mount (neither the host scratch socket dir nor the fixed
 	// in-container socket target crosses).

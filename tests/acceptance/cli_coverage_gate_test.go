@@ -64,7 +64,7 @@ var coverageExemptLeaves = map[string]string{
 	// report them at all. They are exempt because nothing a user does reaches
 	// them directly, not because they do not matter — see the task noted in
 	// the plan about giving the two llm ones real coverage.
-	"ctxloom llm host":             "go-plugin host callback; reached only by a plugin handshake",
+	"ctxloom runner":               "the runner process; started by ctxloom itself with a reach-back on its env, never by a user",
 	"ctxloom llm turn":             "go-plugin turn callback; reached only by a plugin handshake",
 	"ctxloom container provenance": "hidden diagnostic reading image labels; needs a built image",
 }

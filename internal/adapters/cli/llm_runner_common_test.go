@@ -18,7 +18,7 @@ import (
 )
 
 // TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins that `llm
-// serve`/`llm host`/`llm turn` are process-owning entry points that used to
+// serve`/`llm turn` are process-owning entry points that used to
 // call configload.Load() directly and never surface its warnings (via
 // printAndRecordConfigWarnings) or gate on them (via failOnFindings) — so a
 // corrupted/malformed config.yaml silently downgraded to a warning and the
@@ -249,7 +249,7 @@ func TestExportRunnerMCPSocket(t *testing.T) {
 
 // TestStandUpRunner_NoReachBackIsAQuietNoOp: with no coordinator trio in the
 // environment there is nothing to dial or host, and that is a success — a
-// top-level `llm serve`, or a `llm host` launched by hand.
+// top-level `llm serve`.
 func TestStandUpRunner_NoReachBackIsAQuietNoOp(t *testing.T) {
 	twoMockLabelProject(t)
 	testsupport.Isolate(t)
@@ -260,7 +260,6 @@ func TestStandUpRunner_NoReachBackIsAQuietNoOp(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, standup)
 	assert.Nil(t, standup.home, "nothing was dialed")
-	assert.Nil(t, standup.engineHost, "no delegated run is hosted")
 	assert.Nil(t, standup.endpointClose, "no runner-local MCP endpoint was stood up")
 	standup.teardown() // must be safe on an all-nil standup
 }

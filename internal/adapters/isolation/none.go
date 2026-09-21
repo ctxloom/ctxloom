@@ -51,8 +51,8 @@ func (None) SpawnClient(backendName, label string, verbosity int, ws Workspace, 
 	return Host{}.Spawn(LaunchSpec{BackendName: backendName, Label: label, Verbosity: verbosity, SpawnEnv: spawnEnv})
 }
 
-// StartRunner launches the bare self-invoked `ctxloom llm host <backend>`
-// runner subprocess (no go-plugin handshake) — the host StartRun spawn half.
+// StartRunner launches the bare self-invoked `ctxloom runner <engine>`
+// subprocess — the host StartRun spawn half.
 // The runner learns its cell from the Launch the coordinator's StartRun
 // carries, so the per-spawn env is the reach-back trio the caller built and
 // nothing more. verbosity is
@@ -63,11 +63,9 @@ func (None) StartRunner(_ context.Context, backendName, label string, _ int, _ W
 	for k, v := range spawnEnv {
 		env[k] = v
 	}
-	args := []string{"llm", "host", backendName}
-	if label != "" {
-		args = append(args, "--label", label)
-	}
-	hr, err := startHostRunner(args, env)
+	// The runner reads no config: the label body rides the Launch, so the
+	// label never reaches its argv.
+	hr, err := startHostRunner([]string{"runner", backendName}, env)
 	if err != nil {
 		return nil, fmt.Errorf("start host runner for backend %q (label %q): %w", backendName, label, err)
 	}

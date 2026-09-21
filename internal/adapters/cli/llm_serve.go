@@ -56,18 +56,15 @@ func runLLMServe(cmd *cobra.Command, args []string) error {
 		return ferr
 	}
 
-	// wrapStreams is set only for the one case that needs a terminal to
-	// inject into: a Home with no EngineHost (this run hosts no
-	// StructuredChat turn sink — see standUpRunner) means deliverNotice's
-	// third case can only buffer an arrival, never hand it to an engine.
-	// runner.NewTerminalInjector gives that Home's nudge a live stdin to write
-	// into whenever this process actually drives one interactively. This is a
-	// func value threaded through the plugin/server, not a Backend decorator,
-	// so it cannot erase an optional capability interface (agent.StructuredChat,
-	// agent.StateReader, agent.EngineCLIProvider) the backend implements — see
+	// wrapStreams gives the owner Home's nudge a terminal to inject into:
+	// the plugin arm hosts no run (deliverNotice can only buffer an arrival
+	// without one), so runner.NewTerminalInjector writes coordinator mail
+	// into the interactive turn's stdin. A func value threaded through the
+	// plugin/server, not a Backend decorator, so it cannot erase an optional
+	// capability interface the backend implements — see
 	// grpc.LLMGRPCPlugin.WrapStreams.
 	var wrapStreams func(io.Reader, io.Writer) (io.Reader, io.Writer, func())
-	if standup.home != nil && standup.engineHost == nil {
+	if standup.home != nil {
 		// ONE injector per Home, constructed OUT here and re-Wrapped per turn.
 		// Constructing it per turn instead builds a new injector every time,
 		// and Home.SetTerminalNudge refuses a second registration by design —

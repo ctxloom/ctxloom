@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -29,33 +28,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
-// runnerStandup is the shared result of standUpRunner: the dialed-home runner's
-// lifecycle handles plus the teardown both `llm serve` (go-plugin transport)
-// and `llm host` (docker-direct, no plugin) run AFTER their own blocking wait.
-// home/engineHost are nil when the coordinator trio was absent (an
-// unconfigured/top-level serve, or a `llm host` launched with no reach-back).
+// runnerStandup is the result of standUpRunner: the dialed-home owner
+// runner's lifecycle handles plus the teardown `llm serve` runs AFTER its
+// blocking plugin.Serve. home is nil when the coordinator trio was absent
+// (an unconfigured/top-level serve). Dies with the plugin arm.
 type runnerStandup struct {
 	home          *runner.Home
-	engineHost    *runner.EngineHost
 	endpointClose func()
 }
 
-// standUpRunner performs the runner standup shared by `llm serve` and `llm
-// host`: consume + scrub the coordinator reach-back trio, then one of three
-// arms. A HOSTED run (the trio names a run id) reads NO config: everything
-// it needs rides the Launch — the label body the engine is configured from,
-// the package it delivers, the MCP endpoint it binds (runner/mcp) — so it
-// stands up the EngineHost, dials home and binds the runner tail. The
-// plugin-hosted OWNER arm (`llm serve` under the interactive host run, no
-// run id) still loads config and serves the socket endpoint its stdio shim
-// forwards to; it dies with the plugin arm. With no reach-back at all there is
-// nothing to dial or host. It returns the standup on success, or a FATAL error
-// after closing home itself.
+// standUpRunner is the plugin arm's standup (`llm serve`, `llm turn`):
+// consume + scrub the coordinator reach-back trio, then the plugin-hosted
+// OWNER arm (no run id) loads config and serves the socket endpoint its stdio
+// shim forwards to. A HOSTED run — the trio names a run id — is
+// `ctxloom runner`'s (runner.Main) and is refused here. With no reach-back at
+// all there is nothing to dial or host. Dies with the plugin arm.
 //
 // label is the config label whose LLM entry configures the backend on the
 // owner arm, passed by whichever command owns the standup — each has its own
-// --label flag, and a parameter is what keeps the three from sharing one
-// mutable package global.
+// --label flag.
 func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label string) (*runnerStandup, error) {
 	reach, rerr := consumeCoordinatorReachBack(backendName, os.Getenv, os.Unsetenv)
 	if rerr != nil {
@@ -66,7 +57,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 
 	if homeCfg.URL == "" || homeCfg.Token == "" {
 		// No reach-back: nothing to dial or host (an unconfigured/top-level
-		// serve, or a `llm host` launched without a coordinator).
+		// serve).
 		if _, cfgErr := loadAndConfigureBackend(backend, backendName, label); cfgErr != nil {
 			return nil, cfgErr
 		}
@@ -74,7 +65,9 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 	}
 
 	if homeCfg.RunID != "" {
-		return standUpHostedRunner(cmd, standup, backend, backendName, homeCfg)
+		// A hosted run is `ctxloom runner`'s (runner.Main); the plugin arm
+		// hosts no run of its own.
+		return nil, fmt.Errorf("%s: a reach-back naming run %s belongs to `ctxloom runner`, not the plugin arm", backendName, homeCfg.RunID)
 	}
 
 	cfg, cfgErr := loadAndConfigureBackend(backend, backendName, label)
@@ -97,34 +90,6 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 		h.Close(1, "")
 		return nil, err
 	}
-	return standup, nil
-}
-
-// standUpHostedRunner is the hosted-run arm: the engine host for the ONE run
-// this runner was spawned for, the dial-home, and the runner tail whose
-// Dynamic port binds the Launch's endpoint. No config is read.
-func standUpHostedRunner(cmd *cobra.Command, standup *runnerStandup, backend agent.Backend, backendName string, homeCfg runner.HomeConfig) (*runnerStandup, error) {
-	sc, ok := backend.(agent.StructuredChat)
-	if !ok {
-		return nil, fmt.Errorf("runner: backend %q cannot host run %s: it drives no structured chat", backendName, homeCfg.RunID)
-	}
-	standup.engineHost = runner.NewEngineHost(cmd.Context(), App().Reporter, sc, backendName, homeCfg.RunID)
-	homeCfg.Engine = standup.engineHost.Handle
-	homeCfg.Capabilities = coord.RunnerCapabilities(true)
-	homeCfg.Reporter = App().Reporter
-	h, herr := runner.NewHome(cmd.Context(), homeCfg)
-	if herr != nil {
-		clidiag.Warn("ctxloom", "runner dial-home failed (coordinator will synthesize loss): %v", herr)
-		return standup, nil
-	}
-	standup.home = h
-	runnerDeps, derr := runnerDepsFor(backend, backendName, standup.engineHost, runnermcp.Endpoint{Home: h, Reporter: App().Reporter})
-	if derr != nil {
-		h.Close(1, "")
-		return nil, derr
-	}
-	standup.engineHost.BindRunner(runner.Host{Deps: runnerDeps})
-	standup.engineHost.BindHome(h)
 	return standup, nil
 }
 
@@ -300,14 +265,9 @@ func exportRunnerMCPSocket(set func(string, string) error, socketPath string) er
 	return nil
 }
 
-// teardown reports the runner's exit through home.Close, mirroring
-// llm_serve.go's original tail exactly (engine host joined first so an
-// in-flight adapt can finish its terminal RunCompleted while home is still
-// live; the MCP endpoint closes last).
+// teardown reports the runner's exit through home.Close; the MCP endpoint
+// closes last.
 func (s *runnerStandup) teardown() {
-	if s.engineHost != nil {
-		s.engineHost.Close()
-	}
 	if s.home != nil {
 		s.home.Close(0, "")
 	}

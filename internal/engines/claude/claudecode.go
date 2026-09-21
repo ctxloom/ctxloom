@@ -117,12 +117,16 @@ func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
 	}
 }
 
-// session projects an execute request onto the engine-facing Session the
-// instance is bound to: the harp the run env carries, the label's binary
+// session is the engine-facing Session the instance is bound to: the
+// runner's projection when the request carries one, else the plugin arm's,
+// projected from the request — the harp the run env carries, the label's binary
 // and args, the model, the mode and posture, the delivered MCP server names
 // (the plan grant), the prompt, the working directory Setup recorded and
 // the relocated home the run env names.
 func (b *ClaudeCode) session(req *agent.ExecuteRequest) engine.Session {
+	if req.Session != nil {
+		return *req.Session
+	}
 	s := engine.Session{
 		Identity:   sessions.Identity{Harp: req.Env[sessionHarpEnv]},
 		Label:      engine.LabelConfig{Label: EngineName, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
@@ -169,13 +173,18 @@ func (b *ClaudeCode) presented() []present.Presentation {
 }
 
 // exec is the request's Exec: the instance bound to the request's session,
-// over what Setup delivered.
+// over what the runner delivered (req.Presented) or, on the plugin arm,
+// what Setup delivered.
 func (b *ClaudeCode) exec(req *agent.ExecuteRequest) (engine.Exec, error) {
 	inst, err := b.kind.Instance(b.session(req))
 	if err != nil {
 		return engine.Exec{}, err
 	}
-	return inst.Exec(b.presented())
+	presented := req.Presented
+	if presented == nil {
+		presented = b.presented()
+	}
+	return inst.Exec(presented)
 }
 
 // Execute runs the backend with the given request.

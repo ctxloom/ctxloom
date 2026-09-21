@@ -24,15 +24,20 @@ import (
 )
 
 // Session is a live child on a pty. The caller reads and writes Master() as
-// the terminal, calls Resize on each size change, and Wait for the exit. Wait
-// is the release point: it closes the master and reaps the child.
+// the terminal, calls Resize on each size change, and Wait for the exit. The
+// child is reaped in the background the moment it exits (Exited); Wait is
+// the release point: it closes the master. A caller that wants the child's
+// last bytes drains the master to EIO before Wait — the kernel delivers them
+// ahead of EIO once the slave's last holder is gone, and closing the master
+// first would discard them.
 type Session struct {
-	master   *os.File
-	cmd      *exec.Cmd
-	stopCtx  func()
-	waitOnce sync.Once
-	code     int
-	waitErr  error
+	master    *os.File
+	cmd       *exec.Cmd
+	stopCtx   func()
+	exited    chan struct{}
+	closeOnce sync.Once
+	code      int
+	waitErr   error
 }
 
 // ErrNoCommand refuses a Start with nothing to run.
@@ -51,34 +56,22 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Session, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Session{master: master, cmd: cmd, stopCtx: cancel}
+	s := &Session{master: master, cmd: cmd, stopCtx: cancel, exited: make(chan struct{})}
 	go func() {
 		<-ctx.Done()
 		// The ctx is the "ask to end" handle, not the teardown handle: on
 		// cancellation kill the child so a parked pty read cannot outlive the
-		// caller. Wait still owns the reap.
+		// caller. The reaper still owns the reap.
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
 	}()
-	return s, nil
-}
-
-// Master is the pty master: the terminal the frontend reads and writes.
-func (s *Session) Master() io.ReadWriter { return s.master }
-
-// Resize applies a new terminal size to the pty, which the kernel delivers to
-// the child as SIGWINCH — the size an engine reads back is the size set here.
-func (s *Session) Resize(rows, cols uint16) error {
-	return pty.Setsize(s.master, &pty.Winsize{Rows: rows, Cols: cols})
-}
-
-// Wait blocks until the child exits, closes the master, and returns the exit
-// code. Idempotent: the terminal result is delivered once and cached.
-func (s *Session) Wait() (int, error) {
-	s.waitOnce.Do(func() {
-		werr := s.cmd.Wait()
-		_ = s.master.Close()
+	// Reap in the background, exactly once: a Start()ed process is released
+	// from the process table only by Wait, and the master stays open across
+	// the reap so the child's last bytes are still readable.
+	go func() {
+		defer close(s.exited)
+		werr := cmd.Wait()
 		s.stopCtx()
 		if werr == nil {
 			return
@@ -89,7 +82,29 @@ func (s *Session) Wait() (int, error) {
 			return
 		}
 		s.waitErr = werr
-	})
+	}()
+	return s, nil
+}
+
+// Exited is closed once the child has been reaped. The master is still open
+// then: read it to EIO for the child's last bytes, then Wait.
+func (s *Session) Exited() <-chan struct{} { return s.exited }
+
+// Master is the pty master: the terminal the frontend reads and writes.
+func (s *Session) Master() io.ReadWriter { return s.master }
+
+// Resize applies a new terminal size to the pty, which the kernel delivers to
+// the child as SIGWINCH — the size an engine reads back is the size set here.
+func (s *Session) Resize(rows, cols uint16) error {
+	return pty.Setsize(s.master, &pty.Winsize{Rows: rows, Cols: cols})
+}
+
+// Wait blocks until the child has been reaped, closes the master, and
+// returns the exit code. Idempotent: the terminal result is delivered once
+// and cached.
+func (s *Session) Wait() (int, error) {
+	<-s.exited
+	s.closeOnce.Do(func() { _ = s.master.Close() })
 	return s.code, s.waitErr
 }
 
@@ -99,5 +114,5 @@ func (s *Session) Kill() {
 		_ = s.cmd.Process.Kill()
 	}
 	s.stopCtx()
-	_ = s.master.Close()
+	s.closeOnce.Do(func() { _ = s.master.Close() })
 }

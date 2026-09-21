@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"io"
 	"time"
 
@@ -547,6 +548,15 @@ type ExecuteRequest struct {
 	// the point — it was previously inferred from Stdin's dynamic type, which
 	// silently stopped being true the moment the reader was wrapped.
 	StdinCleanup func()
+
+	// Session and Presented are the runner's terminal drive's inputs: the
+	// engine-facing projection of the Launch (launch.Launch.Session, the ONE
+	// constructor) and what the runner's static delivery produced — the
+	// presentations the engine's exec is composed over
+	// (engine.Instance.Exec). That drive's delivery never went through
+	// Setup; nil means "what Setup resolved" (the plugin arm).
+	Session   *engine.Session
+	Presented []present.Presentation
 }
 
 // ExecuteResult contains the outcome of execution.

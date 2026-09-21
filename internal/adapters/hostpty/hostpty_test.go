@@ -72,9 +72,38 @@ func TestStart_ChildGetsTheSlaveAsItsControllingTerminal(t *testing.T) {
 	require.NoError(t, err)
 	defer s.Kill()
 	var out strings.Builder
-	go func() { _, _ = io.Copy(&out, s.Master()) }()
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		_, _ = io.Copy(&out, s.Master())
+	}()
+	// The child's last bytes are read to EIO before Wait closes the master.
+	<-drained
 	code, err := s.Wait()
 	require.NoError(t, err)
 	require.Equal(t, 0, code)
-	require.Eventually(t, func() bool { return strings.Contains(out.String(), "ISATTY") }, 2*time.Second, 10*time.Millisecond)
+	require.Contains(t, out.String(), "ISATTY")
+}
+
+// TestStart_ExitedFiresBeforeTheMasterCloses pins the reap/close split the
+// originator's drive relies on: once the child is gone, Exited is closed
+// while the master is still open — its last bytes drain to EIO — and Wait
+// is what closes it.
+func TestStart_ExitedFiresBeforeTheMasterCloses(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	s, err := Start(ctx, exec.Command("sh", "-c", "echo LAST"))
+	require.NoError(t, err)
+	defer s.Kill()
+	select {
+	case <-s.Exited():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the child was never reaped")
+	}
+	var out strings.Builder
+	_, _ = io.Copy(&out, s.Master()) // EIO, after LAST
+	require.Contains(t, out.String(), "LAST", "the master stays readable after the reap")
+	code, err := s.Wait()
+	require.NoError(t, err)
+	require.Equal(t, 0, code)
 }

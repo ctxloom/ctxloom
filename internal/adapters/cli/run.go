@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
+	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -41,7 +42,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/internal/vpio/dockerexec"
-	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
 )
 
 var (
@@ -374,19 +374,18 @@ type runState struct {
 	// hosting process, so its own terminal viewer never needs a network hop.
 	sessionCoord *coord.Coordinator
 
-	// startTransport: exactly ONE of these is non-nil per run.
-	//
-	// client is the go-plugin client (host/worktree interactive, oneshot).
-	// interactiveLauncher + runnerHandle: a container-cell INTERACTIVE
-	// top-level run never constructs a go-plugin client — it launches the
-	// StartRunner keepalive container and drives the turn over a docker-exec
-	// vpio.Launcher. ownedRun: a container-cell --one-shot run drives over
-	// Transport 2 / EngineHost (an owner-owned run watched via the
-	// in-process coordinator).
-	client              pb.Client
+	// startTransport. ownedRun is the owner-owned run the coordinator this
+	// process hosts drives its runner through (StartOwnedRun): every host
+	// launch and a container --one-shot. pty is that runner's pseudo-terminal
+	// for an INTERACTIVE host launch (this process keeps the master; the
+	// terminal layer wraps it). interactiveLauncher + runnerHandle: a
+	// container-cell INTERACTIVE launch still drives its turn over a
+	// docker-exec vpio.Launcher into a runner container, until the container
+	// runner is the foreground process attached with -it.
+	ownedRun            *ownedRunSession
+	pty                 *hostpty.Session
 	interactiveLauncher vpio.Launcher
 	runnerHandle        *isolation.RunnerHandle
-	ownedRun            *ownedRunSession
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -1150,8 +1149,8 @@ func (st *runState) teardownAll() {
 }
 
 func (st *runState) teardownTransport() {
-	if st.client != nil {
-		st.client.Kill()
+	if st.pty != nil {
+		st.pty.Kill()
 	}
 	if st.runnerHandle != nil {
 		st.runnerHandle.Kill()
@@ -1161,18 +1160,12 @@ func (st *runState) teardownTransport() {
 	}
 }
 
-// startTransport creates the run's transport. The isolation axes (runAxes,
-// default none/host) decide WHERE the top-level run's workspace lives and HOW
-// its plugin is spawned.
-//
-// Phase 2a-A swap: an INTERACTIVE container-policy top-level run goes
-// docker-exec instead of go-plugin. Launch the container via the SAME
-// StartRunner primitive Phase 1 uses (an `llm host` keepalive), hand the
-// RunStart off by 0600 file in the bind-mounted persist dir, and build the
-// docker-exec Launcher; NO go-plugin client is constructed. The oneshot
-// container arm (Part B) and every host/worktree arm stay on SpawnClient +
-// goplugin. The observation/injection wrap sits ABOVE the seam (untouched) —
-// the Launcher just receives the already-wrapped streams.
+// startTransport starts the run's runner. Every host launch and a container
+// --one-shot is an owner-owned run of the coordinator this process hosts
+// (StartOwnedRun): the runner is started through the launch's starter — on
+// a pty for an interactive host launch, as a plain process otherwise — and
+// receives its Launch over StartRun. A container-cell INTERACTIVE launch
+// still goes docker-exec into a runner container.
 //
 // Every arm assigns its handle into the state BEFORE checking its own error
 // so runRun's already-registered teardown sees it — see the per-arm notes.
@@ -1194,57 +1187,31 @@ func (st *runState) startTransport() error {
 		st.runnerHandle = handle
 		st.interactiveLauncher = launcher
 
-	case armOwnedRunContainer:
-		// Phase 2a-B: a oneshot container → owner-owned run on
-		// Transport 2. Launched through the SAME StartRunner primitive
-		// (an `llm host` runner WITH the run-id trio → EngineHost); the
-		// host watches it via WatchRuns. No go-plugin client; no
-		// in-container listener.
-		handle, sess, oerr := startContainerOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
+	case armOwnedRun:
+		var starter coord.OwnedRunStarter
+		if st.mode == pb.ExecutionMode_INTERACTIVE {
+			st.launch.Env = stampTerminalEnv(st.launch.Env)
+			starter = st.ptyStarter()
+		} else {
+			starter = st.processStarter()
+		}
+		sess, oerr := startOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
 			Launch:     st.launch,
-			Policy:     st.policy,
-			Workspace:  st.ws,
-			Verbosity:  runVerbosity,
 			MCPServers: st.managed.ChatMCPServers(),
 			RunnerEnv:  st.runnerSpawnEnv,
-		})
-		// Assign BEFORE checking oerr: startContainerOwnedRun
-		// can return a non-nil handle ALONGSIDE a non-nil error (the
-		// container started; a later step in StartOwnedRun failed) — if
-		// the assignment waited for the error check, that early return
-		// would discard the handle before runRun's teardown defer ever
-		// sees it, leaking the running container.
-		st.runnerHandle = handle
+		}, starter)
+		// The starter recorded the runner's handle on the state the moment
+		// it existed, so a later StartOwnedRun failure still tears it down.
 		st.ownedRun = sess
-		// The await itself lives inside startContainerOwnedRun's starter —
-		// after StartRunner, before StartOwnedRun waits for a dial-home the
-		// container can never make. This is only the gate that turns the
-		// finding it records into exit 3.
+		// Everything recorded since the startup gate — above all a
+		// coordinator that could not stand up (a project another live session
+		// owns is refused here), and a container that never reached running
+		// (the await inside the process starter) — is acted on in this window.
 		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
 			return ferr
 		}
 		if oerr != nil {
-			return fmt.Errorf("failed to start container oneshot run: %w", oerr)
-		}
-
-	case armGoPlugin:
-		// Gate BEFORE the spawn: everything recorded since the startup gate
-		// (above all a coordinator that could not stand up — a project another
-		// live session owns is refused here) is acted on in this window. The
-		// container arms gate the same window; without this close the host
-		// arm recorded the finding and checked it with nothing, so a refused
-		// second owner warned and then launched its engine anyway.
-		if ferr := st.gates.close(PhaseTransportStart); ferr != nil {
-			return ferr
-		}
-		// Spawn through the policy, carrying the resolved label so serve
-		// configures exactly this entry (not the first map-ordered entry of the
-		// same type). Assigned into the state before the error check for the
-		// same reason the owned-run arm is.
-		var err error
-		st.client, err = st.policy.SpawnClient(st.backendName, st.label, runVerbosity, st.ws, st.runnerSpawnEnv)
-		if err != nil {
-			return fmt.Errorf("failed to start plugin: %w", err)
+			return fmt.Errorf("failed to start the run: %w", oerr)
 		}
 	}
 	return nil
@@ -1253,14 +1220,15 @@ func (st *runState) startTransport() error {
 // drive runs the session over whichever transport startTransport stood up, and
 // is the last thing runRun does.
 func (st *runState) drive() error {
-	// Phase 2a-B: a container-policy --one-shot ONESHOT drives over Transport
-	// 2 — collect the run's FINAL answer, record the oneshot transcript, exit
-	// with the run's status. No go-plugin client is constructed for this arm,
-	// so it returns before the vpio/go-plugin Run path below.
+	if st.pty != nil {
+		return st.driveOwnedInteractive()
+	}
+	// A --one-shot owner run: collect the run's FINAL answer off the
+	// coordinator's event stream, record the oneshot transcript, exit with
+	// the run's status.
 	if st.ownedRun != nil {
 		return runOneshotViaCoord(st.ctx, st.ownedRun, st.activeHarp, st.backendName, st.prompt, os.Stdout)
 	}
-
 	return st.driveTerminalSession()
 }
 
@@ -1279,8 +1247,8 @@ type sessionIO struct {
 	restore func()
 }
 
-// driveTerminalSession is the go-plugin / docker-exec launch path: the run
-// owns (or tees) the terminal, starts the engine over the vpio seam, and waits.
+// driveTerminalSession is the docker-exec launch path: the run owns the
+// terminal, starts the turn over the vpio seam, and waits.
 func (st *runState) driveTerminalSession() error {
 	sio := st.prepareSessionIO()
 	// Deferred (the value may be the composed one) so a panic inside the
@@ -1350,17 +1318,11 @@ func (st *runState) prepareSessionIO() sessionIO {
 	return sio
 }
 
-// launchSession runs the AI plugin over the vpio seam — the SWAP POINT. An
-// interactive container run selected the docker-exec Launcher in
-// startTransport (Phase 2a-A); every other arm wraps the go-plugin Run stream
-// (client.Run, unchanged) below the seam. Above-the-seam (this call site + the
-// observation wrap) references only vpio types, so the swap is invisible here.
+// launchSession runs the docker-exec Launcher startTransport selected over
+// the vpio seam. Above-the-seam (this call site + the observation wrap)
+// references only vpio types.
 func (st *runState) launchSession(sio sessionIO) error {
-	launcher := st.interactiveLauncher
-	if launcher == nil {
-		launcher = goplugin.NewLauncher(st.client, st.req)
-	}
-	session, err := launcher.Start(st.ctx, vpio.ProcessSpec{
+	session, err := st.interactiveLauncher.Start(st.ctx, vpio.ProcessSpec{
 		Stdin:  sio.stdin,
 		Stdout: sio.stdout,
 		Stderr: os.Stderr,
@@ -1530,40 +1492,23 @@ func stampHostTerminalEnv(req *pb.RunStart) {
 	}
 }
 
-// runTransportArm is the transport a top-level built-in run drives its engine
-// over. The three arms are exhaustive and mutually exclusive over the two
-// inputs runTransport takes, and naming the go-plugin arm is half the point:
-// as an unnamed `else` no single place stated the whole decision, so a fourth
-// input combination could only be reasoned about by reading two predicates in
-// two files and inferring what neither covered.
-//
-//   - armGoPlugin: SpawnClient + go-plugin. Every host/worktree run of any
-//     mode; none of them had the container-state problem the container arms fix.
-//   - armDockerExecInteractive: Phase 2a-A. The interactive turn runs via
-//     `docker exec` against a StartRunner keepalive container.
-//   - armOwnedRunContainer: Phase 2a-B. An owner-owned run watched over the
-//     in-process coordinator; the container dials out on Transport 2 and opens
-//     no in-container listener.
+// runTransportArm is how a top-level run drives its engine: an owner-owned
+// run of the in-process coordinator (armOwnedRun — every host launch and a
+// container --one-shot), or, for a container INTERACTIVE launch only, the
+// docker-exec turn into a runner container (armDockerExecInteractive).
 type runTransportArm int
 
 const (
-	armGoPlugin runTransportArm = iota
+	armOwnedRun runTransportArm = iota
 	armDockerExecInteractive
-	armOwnedRunContainer
 )
 
-// runTransport decides a run's transport arm. Only a container policy ever
-// leaves the go-plugin arm, so a container policy NEVER reaches SpawnClient and
-// a host/worktree policy ALWAYS does — a leak either way is the regression this
-// decision exists to prevent.
+// runTransport decides a run's transport arm.
 func runTransport(policyName string, mode pb.ExecutionMode) runTransportArm {
-	if !isolation.IsContainerPolicyName(policyName) {
-		return armGoPlugin
+	if isolation.IsContainerPolicyName(policyName) && mode == pb.ExecutionMode_INTERACTIVE {
+		return armDockerExecInteractive
 	}
-	if mode == pb.ExecutionMode_ONESHOT {
-		return armOwnedRunContainer
-	}
-	return armDockerExecInteractive
+	return armOwnedRun
 }
 
 // startContainerInteractive is the Phase 2a-A docker-exec arm: it launches the

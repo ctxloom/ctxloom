@@ -213,9 +213,10 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/fsstore":             "slice 15: the composition root hands operations its session-dir claim store; until then operations roots it itself, per session, after the mint (ForSession)",
 			"internal/adapters/operations -> internal/adapters/fsstatic":            "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
 			"internal/adapters/fsstatic -> internal/adapters/confpatch":             "sanctioned (Part 1.4): the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
-			"internal/adapters/cli -> internal/adapters/fsstatic":                   "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root and composes the runner's static writer",
-			"internal/adapters/cli -> internal/adapters/fsstore":                    "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root and roots the runner's claim store",
-			"internal/adapters/cli -> internal/adapters/runner":                     "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/fsstatic":                   "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
+			"internal/adapters/cli -> internal/adapters/fsstore":                    "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
+			"internal/adapters/cli -> internal/adapters/runner":                     "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/hostpty":                    "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
 			"internal/adapters/runner -> internal/adapters/coordgrpc":               "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":            "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/configload":                 "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
@@ -342,7 +343,7 @@ var LayeringRules = []LayeringRule{
 			// runner/mcp is the runner's own subpackage: the endpoint serves over
 			// the Home the runner owns
 			"internal/adapters/runner/mcp -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
-			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
 
 			// the runner's two halves today
 			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",

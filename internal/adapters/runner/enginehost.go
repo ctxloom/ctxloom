@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -64,17 +66,34 @@ type Runner interface {
 
 // Turn is what the runner asks the engine host to drive once the launch is
 // delivered: the launch itself, the structured-chat request built from it,
-// and the first turn's lead (the composed context ahead of the prompt on a
-// fresh spawn; the prompt alone on a native-key resume).
+// the first turn's lead (the composed context ahead of the prompt on a
+// fresh spawn; the prompt alone on a native-key resume), and what the
+// static delivery produced — the presentations the engine's exec is
+// composed over (engine.Instance.Exec).
 type Turn struct {
-	Launch launch.Launch
-	Chat   agent.ChatRequest
-	Prompt string
+	Launch    launch.Launch
+	Chat      agent.ChatRequest
+	Prompt    string
+	Presented []present.Presentation
 }
 
-// ErrNoRunner is startRun's refusal when no Runner was bound: a StartRun
-// with nothing to deliver it never launches an engine over nothing.
-var ErrNoRunner = errors.New("engine host: no runner is bound to deliver the launch")
+// Terminal drives an INTERACTIVE launch on the runner's own terminal — the
+// pty slave the originator holds the master of, or the container's -it tty
+// — and returns the engine's exit code once the human's session ends. The
+// composition root binds it (BindTerminal); the engine host never touches
+// the process's stdio itself.
+type Terminal interface {
+	Run(ctx context.Context, t Turn) (int, error)
+}
+
+var (
+	// ErrNoRunner is startRun's refusal when no Runner was bound: a StartRun
+	// with nothing to deliver it never launches an engine over nothing.
+	ErrNoRunner = errors.New("engine host: no runner is bound to deliver the launch")
+	// ErrNoTerminal refuses an interactive launch on a runner composed
+	// without a terminal to drive it on.
+	ErrNoTerminal = errors.New("engine host: no terminal is bound to drive an interactive launch")
+)
 
 // homeBindTimeout bounds Handle's wait for BindHome. StartRun can only arrive
 // after the Home dialed in (Hello handshake), so in practice the bind (the
@@ -99,6 +118,7 @@ type EngineHost struct {
 	homeReady chan struct{}
 	home      engineHome
 	runner    Runner
+	terminal  Terminal
 
 	mu      sync.Mutex
 	started bool
@@ -251,6 +271,14 @@ func (eh *EngineHost) BindRunner(r Runner) {
 	eh.runner = r
 }
 
+// BindTerminal wires the terminal an interactive launch is driven on. Called
+// once at composition; a runner without one refuses interactive launches.
+func (eh *EngineHost) BindTerminal(t Terminal) {
+	eh.mu.Lock()
+	defer eh.mu.Unlock()
+	eh.terminal = t
+}
+
 // Handle answers coordinator-initiated RunnerRequests — the RunnerRequestHandler
 // wired into HomeConfig.Engine.
 func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse {
@@ -348,22 +376,25 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 		eh.mu.Unlock()
 		return fmt.Errorf("this runner drives %q, the launch names %q (RunnerHello is the advertisement)", eh.harness, t.Launch.Engine)
 	}
+	if t.Launch.Mode == engine.Interactive {
+		term := eh.terminal
+		if term == nil {
+			eh.mu.Unlock()
+			return ErrNoTerminal
+		}
+		eh.started = true
+		home := eh.home
+		eh.result = eh.startRunResult()
+		eh.mu.Unlock()
+		return eh.driveInteractive(home, term, t)
+	}
 	prompt := t.Prompt
 	eh.started = true
 	eh.oneShot = t.Launch.Identity.OneShot
 	eh.chatReq = t.Chat
 	eh.nativeKey = t.Chat.ResumeSessionID
 	home := eh.home
-	result := &agentcoordpb.RunnerResponse{
-		Status: coordgrpc.OKStatus(""),
-		Kind: &agentcoordpb.RunnerResponse_StartRun{StartRun: &agentcoordpb.StartRunResult{
-			// The runner process is the engine chain's root (killing it kills
-			// the harness); the harness-native session id rides the
-			// ctxloom/harness_session event the moment the engine reports it.
-			Pid: int64(os.Getpid()),
-		}},
-	}
-	eh.result = result
+	eh.result = eh.startRunResult()
 	eh.mu.Unlock()
 
 	// Identity arrives ONCE, on the launch: the home learns which run it is
@@ -421,6 +452,58 @@ func (eh *EngineHost) Drive(_ context.Context, t Turn) error {
 		// the id the DELIVERY used — the file's origin id — which is exactly
 		// what the sender registered its waiter under.
 		return eh.enqueueTurn(eh.baseCtx, turnTag{mail: pm.GetMessageId()}, FrameCoordinatorMessage(pm)) == nil
+	})
+	return nil
+}
+
+// startRunResult is the StartRun answer for a driven run: the runner process
+// is the engine chain's root (killing it kills the harness); the
+// harness-native session id rides the ctxloom/harness_session event the
+// moment the engine reports it.
+func (eh *EngineHost) startRunResult() *agentcoordpb.RunnerResponse {
+	return &agentcoordpb.RunnerResponse{
+		Status: coordgrpc.OKStatus(""),
+		Kind: &agentcoordpb.RunnerResponse_StartRun{StartRun: &agentcoordpb.StartRunResult{
+			Pid: int64(os.Getpid()),
+		}},
+	}
+}
+
+// driveInteractive drives an interactive launch on the bound terminal: the
+// human owns the session, so there is no briefing to send and no turn sink
+// — coordinator mail reaches the engine through the terminal injector's
+// nudge (Home.SetTerminalNudge). The engine's exit is the run's terminal:
+// RunCompleted carries its status and RunExited its code.
+func (eh *EngineHost) driveInteractive(home engineHome, term Terminal, t Turn) error {
+	ctx, cancel := context.WithCancel(eh.baseCtx)
+	eh.mu.Lock()
+	eh.cancel = cancel
+	eh.runCtx = ctx
+	eh.mu.Unlock()
+	home.BindIdentity(t.Launch.Identity)
+	home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunStarted{RunStarted: &agentcoordpb.RunStarted{
+		Input:  runStartedInput(t.Prompt),
+		Config: runStartedConfig(eh.rep, t),
+	}}})
+	eh.goTracked(func() {
+		code, err := term.Run(ctx, t)
+		result := &agentcoordpb.Result{Status: agentcoordpb.Result_RUN_STATUS_SUCCEEDED}
+		switch {
+		case ctx.Err() != nil:
+			result.Status = agentcoordpb.Result_RUN_STATUS_CANCELLED
+			result.Text = "engine cancelled"
+		case err != nil || code != 0:
+			result.Status = agentcoordpb.Result_RUN_STATUS_FAILED
+			if err != nil {
+				result.Text = err.Error()
+				result.Error = &rpcstatus.Status{Message: err.Error()}
+			}
+			if code == 0 {
+				code = 1
+			}
+		}
+		home.emitEvent(&agentcoordpb.AgentEvent{Payload: &agentcoordpb.AgentEvent_RunCompleted{RunCompleted: &agentcoordpb.RunCompleted{Result: result}}})
+		home.ReportRunExited(code, "")
 	})
 	return nil
 }

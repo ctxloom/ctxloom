@@ -18,25 +18,21 @@ var transportCases = []struct {
 	mode       pb.ExecutionMode
 	want       runTransportArm
 }{
-	// Container, interactive → Phase 2a-A docker-exec.
+	// Container, interactive → the docker-exec turn into a runner container.
 	{"container interactive", "container", pb.ExecutionMode_INTERACTIVE, armDockerExecInteractive},
 	{"container-worktree interactive", "container-worktree", pb.ExecutionMode_INTERACTIVE, armDockerExecInteractive},
 
-	// Container, oneshot → Phase 2a-B owner-owned run.
-	{"container oneshot print", "container", pb.ExecutionMode_ONESHOT, armOwnedRunContainer},
-	{"container-worktree oneshot", "container-worktree", pb.ExecutionMode_ONESHOT, armOwnedRunContainer},
-
-	// Every host/worktree combination stays on go-plugin.
-	{"none interactive", "none", pb.ExecutionMode_INTERACTIVE, armGoPlugin},
-	{"none oneshot", "none", pb.ExecutionMode_ONESHOT, armGoPlugin},
-	{"worktree interactive", "worktree", pb.ExecutionMode_INTERACTIVE, armGoPlugin},
-	{"worktree oneshot", "worktree", pb.ExecutionMode_ONESHOT, armGoPlugin},
+	// Everything else is an owner-owned run of the in-process coordinator.
+	{"container oneshot print", "container", pb.ExecutionMode_ONESHOT, armOwnedRun},
+	{"container-worktree oneshot", "container-worktree", pb.ExecutionMode_ONESHOT, armOwnedRun},
+	{"none interactive", "none", pb.ExecutionMode_INTERACTIVE, armOwnedRun},
+	{"none oneshot", "none", pb.ExecutionMode_ONESHOT, armOwnedRun},
+	{"worktree interactive", "worktree", pb.ExecutionMode_INTERACTIVE, armOwnedRun},
+	{"worktree oneshot", "worktree", pb.ExecutionMode_ONESHOT, armOwnedRun},
 }
 
-// TestRunTransport is the golden on transport-arm selection. It replaces two
-// separate boolean predicates with one total decision, so the assertions that
-// matter are the two absolutes: a container policy NEVER reaches SpawnClient,
-// and a host/worktree policy ALWAYS does. A leak either way is the regression.
+// TestRunTransport is the golden on transport-arm selection: one total
+// decision, so no combination can fall into an unnamed arm.
 func TestRunTransport(t *testing.T) {
 	for _, tc := range transportCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -45,10 +41,8 @@ func TestRunTransport(t *testing.T) {
 	}
 }
 
-// The decision must be TOTAL: every input combination names an arm. Neither
-// half of a two-predicate split could state this, because the go-plugin case
-// was whatever both predicates happened to leave over — so a combination no
-// predicate covered silently spawned a plugin client for a container policy.
+// The decision must be TOTAL: every input combination names an arm, so a
+// combination no predicate covered cannot fall through to an unnamed one.
 func TestRunTransport_EveryCombinationNamesAnArm(t *testing.T) {
 	modes := []pb.ExecutionMode{pb.ExecutionMode_INTERACTIVE, pb.ExecutionMode_ONESHOT}
 	policies := []string{"container", "container-worktree", "none", "worktree"}
@@ -56,7 +50,7 @@ func TestRunTransport_EveryCombinationNamesAnArm(t *testing.T) {
 	for _, p := range policies {
 		for _, m := range modes {
 			arm := runTransport(p, m)
-			assert.Contains(t, []runTransportArm{armGoPlugin, armDockerExecInteractive, armOwnedRunContainer}, arm,
+			assert.Contains(t, []runTransportArm{armOwnedRun, armDockerExecInteractive}, arm,
 				"policy=%s mode=%v", p, m)
 			seen++
 		}

@@ -10,30 +10,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
-// Phase 2a-B: top-level STRUCTURED and ONESHOT container runs onto Transport 2
-// / EngineHost, without go-plugin. The owning `ctxloom run` process already
-// hosts this coordinator in-process (mcp.HostCoordinatorForSession), so minting an
-// owner-owned run and driving/watching it is a LIBRARY call — no new RPC, no
-// change to coordination.proto. The run reuses the existing
-// credential-based ownership model unchanged: it is enqueued parent-less with
-// the owner's harp as its role, its runner dials home on the ordinary
-// RunnerChannel with the per-run credential minted here, and the host consumes
-// it via the in-process Coordinator.WatchRuns. The runner side is byte-for-byte
-// the Phase-1 delegated runner (`ctxloom llm host` with the run-id trio).
-
-// ownerRunRuntime is the runtime axis an owner-owned run always launches on —
-// Phase 2a-B covers the TOP-LEVEL CONTAINER structured/oneshot arm only; the
-// host (none/worktree) top-level path stays on local go-plugin.
-//
-// It names ONE ownership mode because it is a constant, not a resolution: the
-// container is launched host-side by the caller's OwnedRunStarter, so this
-// value is what the run is JOURNALED and REACHED-BACK as, not what decides the
-// daemon. Every consumer of it asks the any-container question
-// (launch.IsContainerRuntime — ReachURL, the stale-run reap), so either mode
-// behaves identically today; the value stops being right the moment something
-// downstream branches on ownership, at which point it has to be plumbed
-// through OwnerRun from the caller's resolved axis instead.
-const ownerRunRuntime = launch.RuntimeRootless
+// The owner-owned run: the owning `ctxloom run` process hosts this
+// coordinator in-process (mcp.HostCoordinatorForSession), so minting its own
+// run and driving/watching it is a LIBRARY call — no RPC, no change to
+// coordination.proto. The run reuses the credential-based ownership model
+// unchanged: it is enqueued parent-less with the owner's harp as its role,
+// its runner dials home on the ordinary RunnerChannel with the per-run
+// credential minted here, and the host consumes it via the in-process
+// Coordinator.WatchRuns. The runner side is the same runner a delegated
+// child gets (runner.Main with the run-id trio).
 
 // OwnerRun is the owner-owned run as the owning `ctxloom run` hands it in:
 // the owner's resolved launch, the same launch as StartRun carries it (the
@@ -99,13 +84,16 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		return nil, errors.New("owner run: a one-shot run needs a prompt — it gets exactly one turn, " +
 			"and an empty first turn delivers nothing at all (check context assembly and the --print/stdin prompt source)")
 	}
-	// Structured/oneshot over Transport 2 IS the reach-back — a run that could
-	// never dial home has no transport at all, so an unresolvable endpoint is
-	// fatal here (never a silent degrade, unlike a delegated child which can
-	// fall back to a message-less local orchestrator).
-	url, err := c.ReachURL(ownerRunRuntime)
+	// The dial-home IS the run's transport — a runner that could never dial
+	// home has no transport at all, so an unresolvable endpoint is fatal here
+	// (never a silent degrade, unlike a delegated child which can fall back
+	// to a message-less local orchestrator). The runtime axis is the
+	// launch's: loopback for a host runner, the widened listener for a
+	// container's.
+	runtime := spec.Launch.Axes.Runtime
+	url, err := c.ReachURL(runtime)
 	if err != nil {
-		return nil, fmt.Errorf("owner run: no coordinator endpoint reachable from runtime %q: %w — check the container runtime's bridge network", ownerRunRuntime, err)
+		return nil, fmt.Errorf("owner run: no coordinator endpoint reachable from runtime %q: %w — check the container runtime's bridge network", runtime, err)
 	}
 
 	// A synthetic plan carrying exactly what enqueueRun journals and
@@ -117,7 +105,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		AgentName:  l.Identity.Harp,
 		Backend:    string(l.Engine),
 		Label:      l.Label.Label,
-		Runtime:    ownerRunRuntime,
+		Runtime:    runtime,
 		Permission: l.Permission.String(),
 		MCPServers: spec.MCPServers,
 		Launch:     l,
@@ -182,8 +170,8 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// (owner_run_cleanup_test.go): rt.close fires and the run leaves the
 	// live roster without any cleanup call at this call site.
 	l.Prompt = prompt
-	// No rebind arm: an owner run is container-only, and a container's
-	// loopback address is private to its netns — nothing can have taken it.
+	// No rebind arm: the owner's endpoint was minted by this same process
+	// moments ago, and its runner is the first incarnation to bind it.
 	if err := c.issueStartRun(ctx, rt, hashToken(token), l, prompt, l.Label.Model, "", false); err != nil {
 		return nil, err
 	}
@@ -192,7 +180,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Harp:    l.Identity.Harp,
 		RunID:   rt.runID,
 		Engine:  l.Label.Label,
-		Runtime: ownerRunRuntime,
+		Runtime: runtime,
 	}, nil
 }
 

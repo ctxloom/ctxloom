@@ -161,7 +161,8 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 			MCPConfigPath:      mcpConfig,
 			ResumeSessionID:    l.Resume.NativeKey,
 		},
-		Prompt: firstTurn(pkg, l),
+		Prompt:    firstTurn(pkg, l),
+		Presented: delivered.Presented,
 	}
 	if err := deps.Driver.Drive(ctx, turn); err != nil {
 		if closeServed != nil {

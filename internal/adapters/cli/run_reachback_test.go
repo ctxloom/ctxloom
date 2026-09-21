@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,24 +13,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
-// TestStartContainerOwnedRun_NilCoordinatorRefusesTheLaunch pins the owned-run
-// arm's refusal to start without a hosted coordinator.
+// TestStartOwnedRun_NilCoordinatorRefusesTheLaunch pins the owner run's
+// refusal to start without a hosted coordinator.
 //
-// Transport 2 IS the reach-back for this arm: a --one-shot container
-// run drives its whole session over the coordinator's event stream, so a run
-// launched without one has no transport at all and could only produce a
-// container that starts, answers nobody, and reports success. This must stay a
-// hard refusal even in --degraded mode, which downgrades the coordinator
-// standup failure elsewhere -- degrading THIS is not "fewer features", it is a
-// run that cannot work.
-func TestStartContainerOwnedRun_NilCoordinatorRefusesTheLaunch(t *testing.T) {
-	handle, sess, err := startContainerOwnedRun(t.Context(), nil, ownedRunLaunch{
+// The coordinator IS the run's transport: the runner receives its Launch from
+// it and the session is driven over its event stream, so a run launched
+// without one has no transport at all and could only produce a runner that
+// starts, answers nobody, and reports success. This must stay a hard refusal
+// even in --degraded mode, which downgrades the coordinator standup failure
+// elsewhere -- degrading THIS is not "fewer features", it is a run that
+// cannot work.
+func TestStartOwnedRun_NilCoordinatorRefusesTheLaunch(t *testing.T) {
+	started := false
+	sess, err := startOwnedRun(t.Context(), nil, ownedRunLaunch{
 		Launch: launch.Launch{Identity: sessions.Identity{Harp: "swift-amber-falcon"}, Engine: "claude-code"},
-	})
+	}, func(context.Context, map[string]string) (func(), string, error) { started = true; return nil, "", nil })
 
 	require.Error(t, err, "no coordinator means no transport — the launch must refuse, not proceed")
 	assert.Nil(t, sess)
-	assert.Nil(t, handle, "nothing may be started before the refusal")
+	assert.False(t, started, "nothing may be started before the refusal")
 	assert.Contains(t, err.Error(), "coordinator",
 		"the refusal must name what is missing, so the operator can act on it")
 }

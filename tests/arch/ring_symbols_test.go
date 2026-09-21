@@ -450,7 +450,7 @@ var envLiteralsOnceAllowed = map[string]string{
 	// the engines: Home() is a HomeSpec the runner realises
 	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/lm/backends/mock.go":                               "slice 11b: lm/backends is deleted whole",
+	"internal/engines/mock/record.go":                            "the mock's TEST-CONTROL knobs (CTXLOOM_MOCK_*) fall back to the process environment so a scenario can script the engine through the run's env; a fake, never a production engine",
 	"internal/lm/backends/panelaunch.go":                         "slice 11b: lm/backends is deleted whole",
 	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 11b: the reader becomes an engine.TranscriptReader handed the home it reads",
 

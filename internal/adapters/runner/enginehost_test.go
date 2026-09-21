@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
@@ -204,12 +205,12 @@ func testStartRun(runID string) *agentcoordpb.StartRun {
 }
 
 // testRunner is the Runner double the engine-host tests bind: it decodes
-// the wire launch, opens its package, and drives the host with the request
-// and the first-turn lead the real runner builds (adapters/runner, which
-// this package's tests cannot import), delivering nothing — the tests
-// observe the drive.
+// the wire launch, opens its package, and drives the host with the scripted
+// instance and the first-turn lead the real runner builds, delivering
+// nothing — the tests observe the drive.
 type testRunner struct {
-	eh *EngineHost
+	eh   *EngineHost
+	inst engine.Instance
 	// refuse, when set and true, refuses the launch the way a runner whose
 	// endpoint cannot be bound does.
 	refuse func() bool
@@ -231,17 +232,18 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 	if l.Resume.NativeKey == "" {
 		prompt = textblocks.Join(pkg.Context.Text, l.Prompt)
 	}
-	return r.eh.Drive(ctx, Turn{
-		Launch: l,
-		Chat:   agent.ChatRequest{WorkDir: l.Cell.Workspace, Model: l.Label.Model, Permissions: l.Permission, ResumeSessionID: l.Resume.NativeKey},
-		Prompt: prompt,
-	})
+	ex, err := r.inst.Exec(nil)
+	if err != nil {
+		return err
+	}
+	return r.eh.Drive(ctx, Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt})
 }
 
-// newTestEngineHost is NewEngineHost with the test runner bound.
-func newTestEngineHost(ctx context.Context, backend agent.StructuredChat, harness, runID string) *EngineHost {
-	eh := NewEngineHost(ctx, nil, backend, harness, runID)
-	eh.BindRunner(testRunner{eh: eh})
+// newTestEngineHost is NewEngineHost with the test runner bound over the
+// scripted instance.
+func newTestEngineHost(ctx context.Context, inst engine.Instance, harness, runID string) *EngineHost {
+	eh := NewEngineHost(ctx, nil, harness, runID)
+	eh.BindRunner(testRunner{eh: eh, inst: inst})
 	return eh
 }
 
@@ -250,7 +252,7 @@ func newTestEngineHost(ctx context.Context, backend agent.StructuredChat, harnes
 // briefing rides the first turn, native events adapt onto plane-1
 // (RunStarted → turn_started → message/tool items → turn_idle), and the
 // native session id is reported via the harness_session custom event.
-func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
+func TestEngineHost_StartRunDrivesTheFirstTurnThroughTheDriver(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
 	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
@@ -303,13 +305,8 @@ func TestEngineHost_StartRunDrivesChatInProcess(t *testing.T) {
 	require.Eventually(t, func() bool { return home.spoolSweepCount() == 1 }, 5*time.Second, 10*time.Millisecond,
 		"the turn boundary must ask for one spool sweep")
 
-	// The chat request the backend saw matches the decoded spec.
-	sc.Mu.Lock()
-	req := sc.Requests[0]
-	sc.Mu.Unlock()
-	assert.Equal(t, "/work", req.WorkDir)
-	assert.Equal(t, "claude-sonnet-5", req.Model)
-	assert.Equal(t, agent.PermissionBypass, req.Permissions)
+	// The turn the driver ran: the first turn resumes nothing.
+	assert.Equal(t, []string{""}, sc.RecordedKeys())
 }
 
 // readCanonicalTranscript reads back harp's canonical transcript file
@@ -477,7 +474,7 @@ func TestEngineHost_TurnSinkDeliversFramedMail(t *testing.T) {
 // reports the exit, and only for the turns the engine actually took.
 func TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked(t *testing.T) {
 	home := &fakeEngineHome{}
-	sc := &scriptedChat{EndAfterTurns: 2} // the briefing, then the delivered turn, then exit
+	sc := &scriptedChat{FailAfterTurns: 2} // the briefing, the delivered turn, then a turn whose process dies
 	eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 	t.Cleanup(eh.Close)
 	eh.BindHome(home)
@@ -489,16 +486,18 @@ func TestEngineHost_ExitWaitsForDeliveredTurnsToBeAcked(t *testing.T) {
 	sink := home.sink
 	home.mu.Unlock()
 	require.True(t, sink(&agentcoordpb.PeerMessage{MessageId: "m-9", FromAgentId: "parent-harp", Text: "last assignment"}))
+	require.Eventually(t, func() bool { return len(sc.RecordedTexts()) == 2 }, 5*time.Second, 10*time.Millisecond)
+	require.True(t, sink(&agentcoordpb.PeerMessage{MessageId: "m-10", FromAgentId: "parent-harp", Text: "the turn the engine dies on"}))
 
 	require.Eventually(t, func() bool {
 		home.mu.Lock()
 		defer home.mu.Unlock()
 		return len(home.exited) == 1
-	}, 5*time.Second, 10*time.Millisecond, "the engine ends after the delivered turn and the host reports the exit")
+	}, 5*time.Second, 10*time.Millisecond, "the engine dies on the third turn and the host reports the exit")
 
 	home.mu.Lock()
 	defer home.mu.Unlock()
-	assert.Equal(t, []string{"m-9"}, home.awaitedAcks, "exactly the delivered turn the engine took — the briefing carried no mail")
+	assert.Equal(t, []string{"m-9", "m-10"}, home.awaitedAcks, "exactly the delivered turns the engine took — the briefing carried no mail")
 	assert.Equal(t, []string{"await-acks", "exited"}, home.lifecycle, "the ack wait must come BEFORE the exit report, or it protects nothing")
 }
 
@@ -521,10 +520,11 @@ func TestEngineHost_StartRunIdempotentOnReissue(t *testing.T) {
 	assert.Same(t, first, again, "a reissued StartRun (same run_id) returns the cached result")
 }
 
-// TestEngineHost_ChatEndEmitsRunCompletedAndRunExited: when the engine's
-// stream ends, the adapter emits the terminal RunCompleted (usage in
-// micro-USD) and reports RunExited with the native session id.
-func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
+// TestEngineHost_CancellationEmitsRunCompletedAndRunExited: when the run's
+// context ends — a parked host, no turn in flight — the host emits the
+// terminal RunCompleted (usage in micro-USD, the turns taken) and reports
+// RunExited with the native session key it learned.
+func TestEngineHost_CancellationEmitsRunCompletedAndRunExited(t *testing.T) {
 	home := &fakeEngineHome{}
 	sc := &scriptedChat{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -542,13 +542,13 @@ func TestEngineHost_ChatEndEmitsRunCompletedAndRunExited(t *testing.T) {
 		return false
 	}, 5*time.Second, 10*time.Millisecond)
 
-	cancel() // kill the engine: Chat returns, the stream closes
+	cancel() // the run's context ends while the host is parked
 
 	require.Eventually(t, func() bool {
 		home.mu.Lock()
 		defer home.mu.Unlock()
 		return len(home.exited) == 1
-	}, 5*time.Second, 10*time.Millisecond, "chat end must report RunExited on the lifecycle link")
+	}, 5*time.Second, 10*time.Millisecond, "the run's end must report RunExited on the lifecycle link")
 
 	home.mu.Lock()
 	defer home.mu.Unlock()

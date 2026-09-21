@@ -179,7 +179,12 @@ func TestRun_ClaudeHostHomeSelectedIsUnsafeAndKeepsTheRealHome(t *testing.T) {
 	_ = env.Run("run", "--agent", "dev", "--one-shot", "unicorn-prompt")
 	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
 	require.Contains(t, env.LastOutput(), "FAKE-CLAUDE-REPLY")
-	assert.Contains(t, env.LastOutput(), "unsafe: engine-home → host", "the launch banner names the host selection unsafe")
+	// The banner's one unsafe line names the host selection AND every kind
+	// it forces to the project root: with no engine home to deliver
+	// beneath, the plan routes claude's surfaces to the project tree, which
+	// is exactly the sharing the selection is unsafe for.
+	assert.Regexp(t, `(?m)^\s*unsafe: .*engine-home → host`, env.LastOutput(), "the launch banner names the host selection unsafe")
+	assert.Contains(t, env.LastOutput(), "context → project-root", "a host-home run delivers its context to the project tree, named unsafe")
 
 	got := capturedEnv(t, capture)
 	assert.Empty(t, got["CLAUDE_CONFIG_DIR"], "a host-home run keeps the real home: claude is told no config dir")

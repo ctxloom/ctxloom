@@ -67,7 +67,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	drive := &recordingDriver{}
 	wire, err := coordgrpc.DecodeLaunch(coordgrpc.EncodeLaunch(child))
 	require.NoError(t, err)
-	_, err = runner.Execute(context.Background(), runner.Deps{
+	childOut, err := runner.Execute(context.Background(), runner.Deps{
 		Kind:   mock.New(),
 		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: static, Records: rec, Driver: drive,
@@ -85,14 +85,15 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	// turn and the session's .mcp.json naming the composed servers.
 	require.Len(t, drive.turns, 1)
 	turn := drive.turns[0]
-	require.Equal(t, child.Cell.Workspace, turn.Chat.WorkDir)
-	require.Equal(t, child.Permission, turn.Chat.Permissions)
+	require.Equal(t, child.Cell.Workspace, turn.Exec.WorkDir, "the engine is exec'd in the child's cell")
+	require.NotNil(t, turn.Instance, "the session bound to the engine rides the turn")
 	require.Equal(t, "run-1", turn.Launch.Identity.RunID)
 	require.True(t, strings.HasPrefix(turn.Prompt, opened.Package.Context.Text), "the composed context leads the first turn")
 	require.True(t, strings.HasSuffix(turn.Prompt, "go"), "the prompt is the first turn")
-	require.FileExists(t, turn.Chat.MCPConfigPath)
-	require.True(t, strings.HasPrefix(turn.Chat.MCPConfigPath, child.Cell.Paths.Paths().Scratch.Host), "the MCP file lands under the session's own root, never the project tree")
-	body, err := os.ReadFile(turn.Chat.MCPConfigPath)
+	mcpConfig := childOut.MCPConfig
+	require.FileExists(t, mcpConfig)
+	require.True(t, strings.HasPrefix(mcpConfig, child.Cell.Paths.Paths().Scratch.Host), "the MCP file lands under the session's own root, never the project tree")
+	body, err := os.ReadFile(mcpConfig)
 	require.NoError(t, err)
 	require.Contains(t, string(body), `"ctxloom"`, "the composed servers are what .mcp.json names")
 	require.Contains(t, string(body), `"deploy-tool"`)
@@ -117,7 +118,7 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 	}, l)
 	require.NoError(t, err)
 	require.Equal(t, "again", drive.turns[0].Prompt)
-	require.Equal(t, "native-9", drive.turns[0].Chat.ResumeSessionID)
+	require.Equal(t, "native-9", drive.turns[0].Launch.Resume.NativeKey)
 }
 
 // TestExecute_RefusesALaunchForAnotherEngine: the runner hosts ONE engine
@@ -446,4 +447,29 @@ func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T
 	require.Contains(t, tree, "workspace/.mock/mcp.json", "the MCP file landed at the shared root")
 	require.Contains(t, tree, "session/MOCK_CONTEXT.md", "the rest stayed under the session home")
 	require.NotContains(t, tree, "session/.mock/mcp.json")
+}
+
+// TestExecute_TheLaunchsEngineEnvRidesTheExec: the launch's engine env —
+// the identity carriers, the label's env, the caller's passthrough — reaches
+// the engine's process through the exec the turn is driven over, under the
+// engine-native variables the instance composed.
+func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
+	env := newDeliveryEnv(t)
+	id := env.mint(t, 1, "run-env")
+	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
+		Identity: id, Orchestrator: "root-harp",
+		Agent: "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Env: map[string]string{"CTXLOOM_MOCK_RESPONSE": "MOCK-REPLY"},
+	})
+	require.NoError(t, err)
+	drive := &recordingDriver{}
+	_, err = runner.Execute(context.Background(), runner.Deps{
+		Kind:   mock.New(),
+		Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Static: staticWriter(t), Records: records(t), Driver: drive,
+	}, child)
+	require.NoError(t, err)
+	require.Len(t, drive.turns, 1)
+	got := drive.turns[0].Exec.Env
+	require.Equal(t, "MOCK-REPLY", got["CTXLOOM_MOCK_RESPONSE"], "the caller's passthrough reaches the engine")
+	require.Equal(t, id.Harp, got[sessions.EnvHarp], "the identity carriers reach the engine")
 }

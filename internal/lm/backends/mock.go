@@ -5,13 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
+	mockengine "github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 // Mock implements the Backend interface for testing purposes.
@@ -50,20 +49,9 @@ type Mock struct {
 	managed *agent.ManagedConfig
 }
 
-// MockFailPrefix marks a response as the failure outcome WITHOUT discarding the
-// evidence of what the engine actually observed. It is deliberately additive: a
-// failure that replaced the response with a constant would render identically
-// whether or not ctxloom delivered anything, and the mock's class gate
-// (internal/engines/mock/runtime/arch_test.go) forbids exactly that — "a limb that renders
-// identically either way is not evidence". Prefixing instead of replacing is
-// what lets a NEGATIVE scenario assert positively: the run can only produce
-// "FAIL" followed by the observed context if the engine was actually reached and
-// the value actually flowed, where asserting the ABSENCE of something is
-// satisfied just as well by an engine that never launched.
-//
-// internal/engines/mock/runtime references this constant rather than re-typing it, so the
-// two mock halves cannot drift to different markers.
-const MockFailPrefix = "FAIL"
+// MockFailPrefix is the engine kind's FailPrefix (internal/engines/mock):
+// one marker for every arm of the mock.
+const MockFailPrefix = mockengine.FailPrefix
 
 // MockConfig is the test backend's typed LLM config. Control carries the
 // CTXLOOM_MOCK_* knobs (response, exit code, record file) through to Execute
@@ -285,96 +273,22 @@ func ConfigHomeEnvKeys() []string {
 // resolved isolation workspace and is what a hermetic test must read to
 // observe the workspace boundary; cwd is kept alongside it for diagnostics.
 func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agent.ManagedConfig, contextStr, promptContent string, fragmentCount int) error {
-	return writeMockRecord(recordFile, mockRecordFields{
+	rec := mockengine.Record{
 		Mode:          int32(req.Mode),
 		WorkDir:       req.WorkDir,
 		Env:           req.Env,
 		Context:       contextStr,
 		Prompt:        promptContent,
 		FragmentCount: fragmentCount,
-	}, managed)
-}
-
-// mockRecordFields is what a record is written FROM, named independently of
-// which request type produced it. Execute is handed an agent.ExecuteRequest and
-// Chat an agent.ChatRequest; both must be able to leave the same evidence,
-// because a scenario asserting WHERE an engine ran must not first have to know
-// which transport arm the run happened to take.
-type mockRecordFields struct {
-	Mode          int32
-	WorkDir       string
-	Env           map[string]string
-	Context       string
-	Prompt        string
-	FragmentCount int
-}
-
-// writeMockRecord renders one record. See recordMockInput for what the fields
-// mean and why cwd and workdir are both present.
-func writeMockRecord(recordFile string, in mockRecordFields, managed *agent.ManagedConfig) error {
-	if recordFile == "" {
-		return nil
+		HomeEnvKeys:   ConfigHomeEnvKeys(),
 	}
-	var input strings.Builder
-	input.WriteString("=== Arguments ===\n")
-	_, _ = fmt.Fprintf(&input, "mode=%d\n", in.Mode)
-	_, _ = fmt.Fprintf(&input, "fragments=%d\n", in.FragmentCount)
-	if cwd, err := os.Getwd(); err == nil {
-		_, _ = fmt.Fprintf(&input, "cwd=%s\n", cwd)
-	} else {
-		_, _ = fmt.Fprintf(&input, "cwd=<error: %v>\n", err)
-	}
-	_, _ = fmt.Fprintf(&input, "workdir=%s\n", in.WorkDir)
-	// WHERE THE ENGINE RAN, in two independent signals, because neither is
-	// sufficient alone. container_markers is a heuristic that reads TRUE on
-	// both sides when the test harness itself runs inside a devcontainer — a
-	// scenario trusting it alone would then pass without any container being
-	// launched. hostname is what breaks that tie: a container gets its own UTS
-	// namespace regardless of how paths are mapped, so it never matches the
-	// launching process's hostname, nested or not. cwd and workdir cannot
-	// serve here: whether they agree between host and container is a
-	// property of the runtime's pathMapper seam (internal/adapters/isolation/
-	// runtime.go) — identical-path is only that seam's default
-	// configuration, not a guaranteed contract — so a signal built on their
-	// equality would break under a non-identity mapper.
-	if host, err := os.Hostname(); err == nil {
-		_, _ = fmt.Fprintf(&input, "hostname=%s\n", host)
-	} else {
-		_, _ = fmt.Fprintf(&input, "hostname=<error: %v>\n", err)
-	}
-	_, _ = fmt.Fprintf(&input, "container_markers=%s\n", strings.Join(containerprobe.Markers(), ","))
-	input.WriteString("=== Env ===\n")
-	for _, key := range ConfigHomeEnvKeys() {
-		if v := getEnvFromMap(in.Env, key); v != "" {
-			_, _ = fmt.Fprintf(&input, "%s=%s\n", key, v)
-		}
-	}
-	// Managed setup payload — proves the launch-flow wire actually carried
-	// these fields (deny_tools/skills were silently dropped here; see
-	// TestArch_ProtoConverters_MirrorEveryStructField in internal/lm/grpc).
-	// Recorded even when empty, so a scenario asserting ABSENCE is possible too.
-	input.WriteString("=== DenyTools ===\n")
 	if managed != nil {
-		for _, t := range managed.DenyTools {
-			_, _ = fmt.Fprintf(&input, "%s\n", t)
+		rec.DenyTools = managed.DenyTools
+		for _, sk := range managed.Skills {
+			rec.Skills = append(rec.Skills, sk.Name)
 		}
 	}
-	input.WriteString("=== Skills ===\n")
-	if managed != nil {
-		for _, s := range managed.Skills {
-			_, _ = fmt.Fprintf(&input, "%s\n", s.Name)
-		}
-	}
-	input.WriteString("=== Context ===\n")
-	input.WriteString(in.Context)
-	input.WriteString("\n=== Prompt ===\n")
-	input.WriteString(in.Prompt)
-	input.WriteString("\n")
-
-	if err := os.WriteFile(recordFile, []byte(input.String()), 0644); err != nil {
-		return fmt.Errorf("failed to write mock record file %q: %w", recordFile, err)
-	}
-	return nil
+	return mockengine.WriteRecord(recordFile, rec)
 }
 
 // mockExitCode returns the exit code from CTXLOOM_MOCK_EXIT_CODE, or 0.
@@ -389,50 +303,9 @@ func mockExitCode(req *agent.ExecuteRequest) int32 {
 	return 0
 }
 
-// buildMockResponse returns the custom response when provided, else the default
-// echo of mode/fragments/context/prompt (plus a distilled marker for distill or
-// compress contexts).
-//
-// failPrefix prepends MockFailPrefix to WHATEVER response is produced, custom or
-// echo. It is orthogonal to CTXLOOM_MOCK_RESPONSE on purpose: that knob REPLACES
-// the response, so a test using it to signal failure can only assert a literal it
-// wrote itself, which proves nothing about what reached the child.
+// buildMockResponse is the engine kind's Response (internal/engines/mock).
 func buildMockResponse(customResponse string, hasCustomResponse bool, contextStr, promptContent string, mode agent.ExecutionMode, fragmentCount int, failPrefix bool) string {
-	var response strings.Builder
-	if failPrefix {
-		response.WriteString(MockFailPrefix + "\n")
-	}
-	// SET, not non-empty: an override of "" is a deliberate request for an empty
-	// reply, and treating it as absent would silently answer with the echo
-	// instead — the caller asking to prove a zero-byte reply gets a
-	// several-hundred-byte one and the test passes for the wrong reason.
-	if hasCustomResponse {
-		response.WriteString(customResponse)
-		return response.String()
-	}
-
-	_, _ = fmt.Fprintf(&response, "[mock] mode=%d\n", mode)
-	_, _ = fmt.Fprintf(&response, "[mock] fragments=%d\n", fragmentCount)
-
-	if contextStr != "" {
-		_, _ = fmt.Fprintf(&response, "[mock] context_length=%d\n", len(contextStr))
-		// The doc comment above ("echoes back prompts and context") promised
-		// the CONTENT, not just its length — before this line, a hermetic
-		// caller could prove a fragment was ASSEMBLED (the length changed) but
-		// never that its actual guidance reached the child's own output. J002300
-		// (cross-engine delegation) needs exactly that: two children with
-		// different composed profiles must each emit evidence, in their OWN
-		// stdout, of guidance present in their OWN context and absent from a
-		// sibling's — a length number cannot carry that, verbatim text can.
-		_, _ = fmt.Fprintf(&response, "[mock] context=%s\n", contextStr)
-	}
-	if promptContent != "" {
-		_, _ = fmt.Fprintf(&response, "[mock] prompt=%s\n", promptContent)
-	}
-	if strings.Contains(contextStr, "distill") || strings.Contains(contextStr, "compress") {
-		response.WriteString("[mock] distilled=Compressed content for testing\n")
-	}
-	return response.String()
+	return mockengine.Response(customResponse, hasCustomResponse, contextStr, promptContent, int32(mode), fragmentCount, failPrefix)
 }
 
 // executeInteractiveEcho reflects each typed line and the latest terminal
@@ -512,38 +385,12 @@ func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteReq
 	}
 }
 
-// getEnvFromMap retrieves an environment variable from a map or os.Environ.
-// Handles case-insensitive lookup since config parser may lowercase keys.
-//
-// It DISCARDS the found/not-found bit, so it may only be used for knobs where
-// an empty value and an unset one mean the same thing. Where they differ, use
-// lookupEnvFromMap.
+// getEnvFromMap and lookupEnvFromMap are the engine kind's knob readers
+// (internal/engines/mock.Env, LookupEnv): the lookup ORDER lives there alone.
 func getEnvFromMap(env map[string]string, key string) string {
-	v, _ := lookupEnvFromMap(env, key)
-	return v
+	return mockengine.Env(env, key)
 }
 
-// lookupEnvFromMap is getEnvFromMap's TWO-VALUE form: it reports whether the
-// knob was SET, which an empty string cannot.
-//
-// CTXLOOM_MOCK_RESPONSE="" is a request for an EMPTY engine reply, and a
-// zero-byte reply is the exact shape this project's characteristic bug
-// produces — exit 0, a success message, nothing written. A mock that cannot be
-// asked for one cannot be used to prove ctxloom surfaces it rather than
-// papering over it, so "set to empty" and "unset" have to be distinguishable.
-// internal/engines/mock/runtime's Dispatch takes a two-value reader for the same reason.
-//
-// The lookup ORDER lives here alone (exact key, then the lowercase the config
-// parser may produce, then the process environment) rather than being written
-// twice and drifting.
 func lookupEnvFromMap(env map[string]string, key string) (string, bool) {
-	if env != nil {
-		if v, ok := env[key]; ok {
-			return v, true
-		}
-		if v, ok := env[strings.ToLower(key)]; ok {
-			return v, true
-		}
-	}
-	return os.LookupEnv(key)
+	return mockengine.LookupEnv(env, key)
 }

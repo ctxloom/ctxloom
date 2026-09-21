@@ -32,7 +32,7 @@ func TestEngineHost_TurnSink_NeverRacesAheadOfBriefing(t *testing.T) {
 	for i := 0; i < iterations; i++ {
 		gate := make(chan struct{})
 		home := &fakeEngineHome{}
-		sc := &scriptedChat{TurnGate: gate}
+		sc := &scriptedChat{Gate: gate}
 		eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
 		eh.BindHome(home)
 

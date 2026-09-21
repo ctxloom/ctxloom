@@ -22,7 +22,7 @@ func TestResume_OneMessageOneLaunch(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // ends its run after each turn
+		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // its run ends after each turn
 	)
 	teeHome(t)
 	c, err := New(Options{

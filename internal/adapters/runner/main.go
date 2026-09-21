@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -21,8 +20,6 @@ type MainDeps struct {
 	// advertisement, and the name the launch must match.
 	Harness string
 	Version string
-	// Backend drives the structured conversation for the hosted run.
-	Backend agent.StructuredChat
 	// Getenv and Unsetenv are the process environment. Injected because the
 	// scrub's failure cannot be provoked through the real syscalls (unix
 	// Unsetenv always succeeds), and the invariant it guards must be testable.
@@ -74,7 +71,7 @@ func Main(ctx context.Context, d MainDeps) error {
 		return fmt.Errorf("%w: the engine would inherit the coordinator credential: %s: %w", ErrUnscrubbed, strings.Join(unscrubbed, ", "), uerrs)
 	}
 
-	host := NewEngineHost(ctx, d.Reporter, d.Backend, d.Harness, runID)
+	host := NewEngineHost(ctx, d.Reporter, d.Harness, runID)
 	home, err := NewHome(ctx, HomeConfig{
 		URL:          reach.URL,
 		Token:        reach.Credential,

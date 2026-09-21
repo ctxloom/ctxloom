@@ -37,17 +37,12 @@ func runRunner(cmd *cobra.Command, args []string) error {
 	if backend == nil {
 		return fmt.Errorf("unknown engine: %s", engineName)
 	}
-	sc, ok := backend.(agent.StructuredChat)
-	if !ok {
-		return fmt.Errorf("runner: engine %q drives no structured chat", engineName)
-	}
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return runner.Main(ctx, runner.MainDeps{
 		Reporter: App().Reporter,
 		Harness:  engineName,
 		Version:  version.Version,
-		Backend:  sc,
 		Getenv:   os.Getenv,
 		Unsetenv: os.Unsetenv,
 		Ports: func(host *runner.EngineHost, home *runner.Home) (runner.Deps, error) {

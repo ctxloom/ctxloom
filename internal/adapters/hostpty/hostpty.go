@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"github.com/creack/pty"
 )
@@ -51,7 +52,13 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Session, error) {
 	if cmd == nil {
 		return nil, ErrNoCommand
 	}
-	master, err := pty.Start(cmd)
+	// The child is a session leader on the slave (its controlling terminal)
+	// and dies with this process: a runner that outlived a hard-killed
+	// originator would hold the engine, the endpoint and the session lock
+	// with nobody to tear it down.
+	attr := &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	armDeathSignal(attr)
+	master, err := pty.StartWithAttrs(cmd, nil, attr)
 	if err != nil {
 		return nil, err
 	}

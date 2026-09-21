@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/vpio"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -544,6 +545,7 @@ func (st *runState) source() (launch.Source, error) {
 	for k, v := range st.resumeEnv() {
 		src.Env[k] = v
 	}
+	src.Extra = st.resumedTranscript()
 	return src, nil
 }
 
@@ -560,6 +562,12 @@ func (st *runState) resolveLaunch() error {
 		return err
 	}
 	l, err := operations.StartRun(st.ctx, deps, sessions.Seed{ProjectDir: st.workDir, ProjectID: st.projectID}, src)
+	if err != nil {
+		return err
+	}
+	// The startup findings are composed HERE, after the cell was prepared:
+	// a degraded-to-host finding is the case they exist for.
+	l, err = launch.WithLead(st.ctx, operations.ForSession(deps, l.Identity.Harp), l, st.startupFindings()...)
 	if err != nil {
 		return err
 	}
@@ -610,17 +618,22 @@ func (st *runState) boundAgent() string {
 // terminal's description.
 func (st *runState) buildRunRequest() {
 	st.req = coordgrpc.EncodeRunStart(st.launch, st.opened.Package, st.opened.Managed, runVerbosity)
-	// --session (full resume — no --distill): the resumed harp's full
-	// recorded transcript trails the assembled context as its own fragment.
-	// --distill takes the essence path instead (resumeEnv).
-	if runResumeSession != "" && !runResumeDistill {
-		if rendered := resumeFullContext("", runResumeSession, func(h string) ([]agent.SessionEntry, error) {
-			return operations.RecordedSessionEntries(st.ctx, h)
-		}); rendered != "" {
-			st.req.Fragments = append(st.req.Fragments, &pb.Fragment{Name: "resumed-transcript", Content: rendered})
-		}
+}
+
+// resumedTranscript is the --session (full resume — no --distill) lead: the
+// resumed harp's full recorded transcript trails the assembled context as
+// its own block. --distill takes the essence path instead (resumeEnv).
+func (st *runState) resumedTranscript() []composite.Fragment {
+	if runResumeSession == "" || runResumeDistill {
+		return nil
 	}
-	st.attachStartupFindings()
+	rendered := resumeFullContext("", runResumeSession, func(h string) ([]agent.SessionEntry, error) {
+		return operations.RecordedSessionEntries(st.ctx, h)
+	})
+	if rendered == "" {
+		return nil
+	}
+	return []composite.Fragment{{Name: "resumed-transcript", Body: rendered}}
 }
 
 // warnPosture says out loud when the posture the run launches with is not

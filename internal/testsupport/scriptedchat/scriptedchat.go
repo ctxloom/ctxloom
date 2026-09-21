@@ -1,46 +1,61 @@
 // Package scriptedchat is the scripted engine double the coordinator's and
-// the runner's suites drive their in-process runner half with: a
-// StructuredChat whose turns are scripted, gated, and recorded.
+// the runner's suites drive their in-process runner half with: an
+// engine.Instance whose structured driver's turns are scripted, gated, and
+// recorded — a discrete per-turn process per Turn, as the real engines run.
 package scriptedchat
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
-// Chat is a StructuredChat whose turns are scripted: each received
-// text yields a Session event (first turn only), a thinking entry, an
-// assistant echo, a tool_use/tool_result pair, and a Complete.
-type Chat struct {
-	Mu       sync.Mutex
-	Requests []agent.ChatRequest
-	Texts    []string
-	TurnGate chan struct{} // non-nil: turns block until released
+// NativeKey is the native session key every scripted turn reports: what
+// the next turn resumes by.
+const NativeKey = "native-sess-42"
 
-	// permission (C2), when set, is forwarded as ChatEvent.Permission
-	// before the turn's normal entries — the turn parks until the matching
-	// ChatMessage.Permission answer arrives, and answers records it.
-	Permission *agent.PermissionRequest
-	AnswersMu  sync.Mutex
-	Answers    []agent.PermissionAnswer
-	// resumable scripts the session event's ChatSessionInfo.Resumable — the
-	// live loadSession capability a real ACP engine advertises (Slice 4 piece
-	// 1). A one-shot child tears down at the turn boundary only when this is
-	// true (live-confirmed), so a one-shot test must set it.
-	Resumable bool
-	// endAfterTurns, when > 0, ends the chat after that many turns — an
-	// engine that exits on its own. The runner then reports RunExited.
+var (
+	// ErrEngineDied is the error a scripted turn fails with once
+	// FailAfterTurns is reached: the engine process died mid-turn.
+	ErrEngineDied = errors.New("scripted engine: the engine process died")
+	// ErrEngineEnded is the error a scripted turn ends with once
+	// EndAfterTurns is reached: the engine answered, then its process ended
+	// the run (a non-zero exit after its output).
+	ErrEngineEnded = errors.New("scripted engine: the engine process ended the run")
+)
+
+// Chat is the scripted instance. Each turn yields a Session event (the
+// native key, first turn only), a thinking entry, an assistant echo, a
+// tool_use/tool_result pair, and a Complete — marshalled onto engine.Event
+// exactly as a real driver relays its native stream.
+type Chat struct {
+	Mu     sync.Mutex
+	Turns  []engine.Turn
+	Execs  []engine.Exec
+	Texts  []string
+	Keys   []string      // the key each turn was asked to resume by
+	Gate   chan struct{} // non-nil: turns block until released
+	Answer func(text string) string
+	// FailAfterTurns, when > 0, fails the turn after that many completed —
+	// an engine process that dies mid-turn. The runner then ends the run.
+	FailAfterTurns int
+	// EndAfterTurns, when > 0, ends the RUN after that many turns: the
+	// turn's events are relayed in full and then its process ends (the
+	// runner reports the terminal) — an engine that answers and exits.
 	EndAfterTurns int
-	// gotEnv / gotRunnerEnv are what the fake spawner's StartEngine was
-	// handed for this engine: the ENGINE's ambient env and the RUNNER's
-	// per-spawn env (the coordinator reach-back trio rides the latter only).
+	// GotEnv / GotRunnerEnv are what the fake spawner's Start was handed for
+	// this engine: the ENGINE's ambient env and the RUNNER's per-spawn env
+	// (the coordinator reach-back trio rides the latter only).
 	GotEnv       map[string]string
 	GotRunnerEnv map[string]string
+	turns        int
 }
 
-// env is the engine's ambient environment as StartEngine received it.
 // Env is the engine env the launch carried.
 func (s *Chat) Env() map[string]string {
 	s.Mu.Lock()
@@ -48,7 +63,6 @@ func (s *Chat) Env() map[string]string {
 	return s.GotEnv
 }
 
-// runnerEnv is the runner's per-spawn environment as StartEngine received it.
 // RunnerEnv is the runner env the launch was stamped with.
 func (s *Chat) RunnerEnv() map[string]string {
 	s.Mu.Lock()
@@ -63,92 +77,99 @@ func (s *Chat) RecordedTexts() []string {
 	return append([]string(nil), s.Texts...)
 }
 
-func (s *Chat) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	defer close(out)
+// RecordedKeys is the resume key each turn was asked for, in order.
+func (s *Chat) RecordedKeys() []string {
 	s.Mu.Lock()
-	s.Requests = append(s.Requests, req)
-	gate := s.TurnGate
+	defer s.Mu.Unlock()
+	return append([]string(nil), s.Keys...)
+}
+
+// Exec implements engine.Instance: a nominal exec over the presentations.
+func (s *Chat) Exec(presented []present.Presentation) (engine.Exec, error) {
+	ex := engine.Exec{Binary: "scripted", Env: map[string]string{}}
+	for _, p := range presented {
+		ex.Args = append(ex.Args, p.Args...)
+	}
+	return ex, nil
+}
+
+// Drivers implements engine.Instance: this instance is its own driver.
+func (s *Chat) Drivers() []engine.StructuredDriver { return []engine.StructuredDriver{s} }
+
+// Resume implements engine.Instance.
+func (s *Chat) Resume(string) error { return nil }
+
+// Turn implements engine.StructuredDriver.
+func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
+	s.Mu.Lock()
+	s.Turns = append(s.Turns, in)
+	s.Execs = append(s.Execs, ex)
+	s.Texts = append(s.Texts, in.Prompt)
+	s.Keys = append(s.Keys, in.Resume)
+	gate := s.Gate
+	answer := s.Answer
+	first := s.turns == 0
+	s.turns++
+	fail := s.FailAfterTurns > 0 && s.turns > s.FailAfterTurns
+	end := s.EndAfterTurns > 0 && s.turns >= s.EndAfterTurns
 	s.Mu.Unlock()
 	send := func(ev agent.ChatEvent) bool {
+		payload, err := json.Marshal(ev)
+		if err != nil {
+			panic(err)
+		}
 		select {
-		case out <- ev:
+		case out <- engine.Event{Kind: kindOf(ev), Payload: payload}:
 			return true
 		case <-ctx.Done():
 			return false
 		}
 	}
-	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: "native-sess-42", Resumable: s.Resumable}}) {
-		return ctx.Err()
+	// The session is announced the moment the process is up — before the
+	// gate holds the turn's content, as a real engine's init precedes its
+	// first answer.
+	if first && !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: NativeKey, Resumable: true}}) {
+		return engine.TurnResult{}, ctx.Err()
 	}
-	turns := 0
-	for {
+	if gate != nil {
 		select {
+		case <-gate:
 		case <-ctx.Done():
-			return ctx.Err()
-		case msg, ok := <-in:
-			if !ok {
-				return nil
-			}
-			if msg.Permission != nil {
-				continue // a stray answer with no pending request in this fixture
-			}
-			if msg.Text == "" {
-				continue
-			}
-			s.Mu.Lock()
-			s.Texts = append(s.Texts, msg.Text)
-			pr := s.Permission
-			s.Permission = nil // forward at most once, on the first matching turn
-			s.Mu.Unlock()
-			if gate != nil {
-				select {
-				case <-gate:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			if pr != nil {
-				if !send(agent.ChatEvent{Permission: pr}) {
-					return ctx.Err()
-				}
-				if !s.awaitPermissionAnswer(ctx, in, pr.ID) {
-					return ctx.Err()
-				}
-			}
-			if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}}) ||
-				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "echo: " + msg.Text}}) ||
-				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "grep", ToolInput: []byte(`{"q":"x"}`)}}) ||
-				!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}}) ||
-				!send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}}) {
-				return ctx.Err()
-			}
-			turns++
-			if s.EndAfterTurns > 0 && turns >= s.EndAfterTurns {
-				return nil
-			}
+			return engine.TurnResult{}, ctx.Err()
 		}
+	}
+	if fail {
+		return engine.TurnResult{}, ErrEngineDied
+	}
+	text := "echo: " + in.Prompt
+	if answer != nil {
+		text = answer(in.Prompt)
+	}
+	if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "pondering"}}) ||
+		!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}}) ||
+		!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "grep", ToolInput: []byte(`{"q":"x"}`)}}) ||
+		!send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolOutput: "found"}}) ||
+		!send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn", InputTokens: 10, CostUSD: 0.0000015}}) {
+		return engine.TurnResult{}, ctx.Err()
+	}
+	if end {
+		return engine.TurnResult{NativeKey: NativeKey, Answer: text}, ErrEngineEnded
+	}
+	return engine.TurnResult{NativeKey: NativeKey, Answer: text}, nil
+}
+
+// kindOf names the port-level kind of a native event, as the real drivers do.
+func kindOf(ev agent.ChatEvent) string {
+	switch {
+	case ev.Session != nil:
+		return "session"
+	case ev.Complete != nil:
+		return "complete"
+	case ev.Entry != nil:
+		return string(ev.Entry.Type)
+	default:
+		return "event"
 	}
 }
 
-// awaitPermissionAnswer parks until a ChatMessage.Permission answering id
-// arrives on in, recording it (recordedAnswers). Returns false on ctx death
-// or in closing (the caller treats either as a fatal stream end, matching
-// the rest of this fixture's send() convention).
-func (s *Chat) awaitPermissionAnswer(ctx context.Context, in <-chan agent.ChatMessage, id string) bool {
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case msg, ok := <-in:
-			if !ok {
-				return false
-			}
-			if msg.Permission != nil && msg.Permission.ID == id {
-				s.AnswersMu.Lock()
-				s.Answers = append(s.Answers, *msg.Permission)
-				s.AnswersMu.Unlock()
-				return true
-			}
-		}
-	}
-}
+var _ engine.Instance = (*Chat)(nil)

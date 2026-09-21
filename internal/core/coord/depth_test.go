@@ -109,7 +109,7 @@ func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	sp.nextChat = func() *scriptedChat {
 		spawned++
 		if spawned == 2 {
-			return &scriptedChat{TurnGate: make(chan struct{})}
+			return &scriptedChat{Gate: make(chan struct{})}
 		}
 		return &scriptedChat{}
 	}

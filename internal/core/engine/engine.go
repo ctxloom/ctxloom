@@ -159,9 +159,11 @@ type Exec struct {
 }
 
 // StructuredDriver runs the engine's native structured protocol for one
-// turn. In one-shot sessions the runner calls Turn once per mailbox delivery
-// on the SAME Instance, passing the native key it learned; the engine
-// process is a discrete per-turn process inside a runner that stays.
+// turn: the runner calls Turn once per turn on the SAME Instance, passing
+// the native key it learned; the engine process is a discrete per-turn
+// process inside a runner that stays. Every native event is relayed on
+// out as it arrives (a nil out relays nothing — the caller wants the result
+// alone); the driver never closes out.
 type StructuredDriver interface {
 	Turn(ctx context.Context, ex Exec, in Turn, out chan<- Event) (TurnResult, error)
 }

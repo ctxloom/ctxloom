@@ -280,21 +280,27 @@ func (d *streamJSONDriver) argv(ex engine.Exec, in engine.Turn) []string {
 // Turn spawns one stream-json process, writes the one user message, relays
 // every native event and returns the native key the next turn resumes by
 // with the assistant's answer. The env is the Exec's laid over the
-// process's own (spawnChatTransport merges it onto os.Environ).
+// process's own (spawnChatTransport merges it onto os.Environ). A nil out
+// relays nothing.
 func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &ClaudeCode{}
-	b.BaseBackend = agent.NewBaseBackend(EngineName, "")
-	b.BinaryPath = ex.Binary
-	tr, err := b.spawnChatTransport(ctx, d.argv(ex, in), ex.Env, ex.WorkDir)
+	open := d.inst.c.open
+	if open == nil {
+		open = spawnChatTransport
+	}
+	now := d.inst.c.now
+	if now == nil {
+		now = time.Now
+	}
+	tr, err := open(ctx, ex.Binary, d.argv(ex, in), ex.Env, ex.WorkDir)
 	if err != nil {
 		return engine.TurnResult{}, err
 	}
 	events := make(chan agent.ChatEvent, 64)
 	readerDone := make(chan struct{})
 	go func() {
-		readChatEvents(ctx, tr.stdout, events, readerDone, time.Now)
+		readChatEvents(ctx, tr.stdout, events, readerDone, now)
 		close(events) // readChatEvents closes readerDone, never its output
 	}()
 	if err := writeUserMessage(tr.stdin, in.Prompt); err != nil {
@@ -323,6 +329,9 @@ func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.T
 			}
 			if ev.Entry != nil && ev.Entry.Type == agent.EntryTypeAssistant {
 				answer = append(answer, ev.Entry.Content)
+			}
+			if out == nil {
+				continue
 			}
 			payload, err := json.Marshal(ev)
 			if err != nil {

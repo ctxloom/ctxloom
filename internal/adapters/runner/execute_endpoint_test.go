@@ -66,7 +66,7 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	require.Len(t, drive.turns, 1)
 	turn := drive.turns[0]
 	var ctx agent.ChatMCPServer
-	for _, s := range turn.Chat.MCPServers {
+	for _, s := range turn.MCPServers {
 		if s.Name == agent.MCPServerName {
 			ctx = s
 		}
@@ -76,7 +76,9 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	assert.Equal(t, "Bearer "+l.MCP.Credential, ctx.Headers["Authorization"])
 	assert.Empty(t, ctx.Command)
 
-	body, err := os.ReadFile(turn.Chat.MCPConfigPath)
+	mcpConfig := out.MCPConfig
+	require.NotEmpty(t, mcpConfig, "the MCP file was delivered")
+	body, err := os.ReadFile(mcpConfig)
 	require.NoError(t, err)
 	var doc struct {
 		MCPServers map[string]wire.MCPServer `json:"mcpServers"`
@@ -88,7 +90,7 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	assert.Empty(t, entry.Command, "no shim command: the engine dials the runner directly")
 	assert.NotContains(t, string(body), "mcp serve")
 
-	info, err := os.Stat(turn.Chat.MCPConfigPath)
+	info, err := os.Stat(mcpConfig)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the bearer is in this file; nobody else reads it")
 

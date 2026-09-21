@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -195,27 +196,38 @@ func TestExec_LaunchParity_Golden(t *testing.T) {
 	goldenCompare(t, "exec_parity.golden", out.String(), "claude's launch (argv/env/cwd) drifted from the captured golden")
 }
 
-// TestChatArgs_Parity_Golden pins the STRUCTURED drive's argv — the
-// stream-json conversation the runner hosts — over posture × model × resume
-// × mcp-config. The golden was first captured from the separate chatArgs
-// composition; it now holds the Instance's Exec plus the driver's protocol:
-// the same flags, in Exec's order, since ONE place composes argv.
+// TestChatArgs_Parity_Golden pins the STRUCTURED drive's argv — one
+// stream-json turn the runner drives — over posture × model × resume ×
+// mcp-config. The golden was first captured from the separate chatArgs
+// composition; it holds the Instance's Exec over the runner's projection
+// (launch.Launch.Session's shape) plus the driver's protocol: the same
+// flags, in Exec's order, since ONE place composes argv.
 func TestChatArgs_Parity_Golden(t *testing.T) {
-	b := NewClaudeCode()
+	kind, err := Build()
+	require.NoError(t, err)
 	var out strings.Builder
 	for _, perm := range []agent.PermissionMode{agent.PermissionDefault, agent.PermissionPlan, agent.PermissionBypass, agent.PermissionAcceptEdits} {
 		for _, model := range []string{"", "claude-opus-5"} {
 			for _, resume := range []string{"", "native-key-1"} {
 				for _, mcp := range []string{"", "<HOME>/.mcp.json"} {
-					req := agent.ChatRequest{
-						Model: model, Permissions: perm, ResumeSessionID: resume,
-						Env: map[string]string{sessionHarpEnv: "perky-same-chevy"},
+					s := engine.Session{
+						Identity:   sessions.Identity{Harp: "perky-same-chevy"},
+						Label:      engine.LabelConfig{Label: EngineName, Model: model},
+						Mode:       engine.Structured,
+						Permission: perm,
 					}
+					var presented []present.Presentation
 					if mcp != "" {
-						req.MCPServers = []agent.ChatMCPServer{{Name: "probe"}}
+						s.MCPServers = []string{"probe"}
+						presented = []present.Presentation{{HostPath: mcp, EnginePath: mcp, Args: []string{flagMCPConfig, mcp}}}
 					}
-					req.MCPConfigPath = mcp
-					inst, ex, err := b.chatExec(req)
+					i, err := kind.Instance(s)
+					require.NoError(t, err)
+					inst := i.(*instance)
+					if resume != "" {
+						require.NoError(t, inst.Resume(resume))
+					}
+					ex, err := inst.Exec(presented)
 					require.NoError(t, err)
 					argv := (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
 					fmt.Fprintf(&out, "%s/model=%q/resume=%q/mcp=%q: %s\n", perm, model, resume, mcp, strings.Join(argv, " "))

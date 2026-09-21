@@ -3,6 +3,7 @@ package coord_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -75,10 +76,10 @@ func tuiGeo() termui.OverlayGeometry {
 // tui.Overlay. model_test.go's TestModel_GapRendersNotice remains the
 // synthetic unit-level check one level further down (Gap>0 -> notice item).
 
-// liveTapChat is a minimal agent.StructuredChat: one assistant entry plus a
-// turn boundary per received turn. It stands in for coord/enginehost_test.go's
-// unexported scriptedChat (package-private, unreachable from here) using
-// only the exported agent.StructuredChat contract that type also implements.
+// liveTapChat is a minimal engine.Instance whose driver relays one assistant
+// entry plus a turn boundary per turn. It stands in for coord's unexported
+// scriptedChat (package-private, unreachable from here) using only the
+// exported engine.Instance contract that type also implements.
 //
 // turnGate (non-nil) holds the turn's content until released: a fast
 // in-process StartRun round trip can otherwise complete and broadcast to
@@ -97,46 +98,52 @@ type liveTapChat struct {
 	turnGate chan struct{}
 }
 
-func (c *liveTapChat) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	defer close(out)
-	send := func(ev agent.ChatEvent) bool {
-		select {
-		case out <- ev:
-			return true
-		case <-ctx.Done():
-			return false
+func (c *liveTapChat) Exec([]present.Presentation) (engine.Exec, error) {
+	return engine.Exec{Binary: "live-tap"}, nil
+}
+func (c *liveTapChat) Drivers() []engine.StructuredDriver { return []engine.StructuredDriver{c} }
+func (c *liveTapChat) Resume(string) error                { return nil }
+
+func (c *liveTapChat) Turn(ctx context.Context, _ engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
+	send := func(ev agent.ChatEvent) error {
+		payload, err := json.Marshal(ev)
+		if err != nil {
+			return err
 		}
-	}
-	if !send(agent.ChatEvent{Session: &agent.ChatSessionInfo{Model: req.Model, SessionID: "live-tap-sess"}}) {
-		return ctx.Err()
-	}
-	for {
 		select {
+		case out <- engine.Event{Kind: "event", Payload: payload}:
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
-		case msg, ok := <-in:
-			if !ok {
-				return nil
-			}
-			if msg.Text == "" {
-				continue
-			}
-			if c.turnGate != nil {
-				select {
-				case <-c.turnGate:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "live words for " + msg.Text}}) {
-				return ctx.Err()
-			}
-			if !send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}) {
-				return ctx.Err()
-			}
 		}
 	}
+	if err := send(agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: "live-tap-sess"}}); err != nil {
+		return engine.TurnResult{}, err
+	}
+	if c.turnGate != nil {
+		select {
+		case <-c.turnGate:
+		case <-ctx.Done():
+			return engine.TurnResult{}, ctx.Err()
+		}
+	}
+	text := "live words for " + in.Prompt
+	if err := send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: text}}); err != nil {
+		return engine.TurnResult{}, err
+	}
+	if err := send(agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}); err != nil {
+		return engine.TurnResult{}, err
+	}
+	return engine.TurnResult{NativeKey: "live-tap-sess", Answer: text}, nil
 }
+
+// liveTapKind is the mock kind with liveTapChat as every session's instance.
+type liveTapKind struct {
+	engine.Engine
+	inst *liveTapChat
+}
+
+func (k liveTapKind) Instance(engine.Session) (engine.Instance, error) { return k.inst, nil }
 
 // liveTapSpawner is a minimal coord.Spawner routing its one "worker" agent
 // over the MIGRATED StartRun path (ViaStartRun) — the ONLY path that feeds
@@ -212,9 +219,9 @@ func (s *liveTapSpawner) Start(_ context.Context, l launch.Launch, reach session
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	sctx, cancel := context.WithCancel(context.Background())
 	backend := string(l.Engine)
-	host := runner.NewEngineHost(sctx, nil, s.chat, backend, runnerEnv[coord.EnvRunID])
+	host := runner.NewEngineHost(sctx, nil, backend, runnerEnv[coord.EnvRunID])
 	host.BindRunner(runner.Host{Deps: runner.Deps{
-		Kind:       mock.NewNamed(l.Engine),
+		Kind:       liveTapKind{Engine: mock.NewNamed(l.Engine), inst: s.chat},
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
 		Static:     noDelivery{},

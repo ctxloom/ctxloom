@@ -90,7 +90,7 @@ func TestBeginDrain_NeverYieldingChildIsForcedAtTheBoundAndNamed(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the turn never yields
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 300 * time.Millisecond
 
@@ -133,7 +133,7 @@ func TestBeginDrain_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute // far past the test: a drain that waits for it fails
 
@@ -186,7 +186,7 @@ func TestBeginDrain_QueuedChildEndsImmediately(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1)
 	c.drainBound = 300 * time.Millisecond
 
@@ -216,7 +216,7 @@ func TestBeginDrain_ChildDyingDuringDrainIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -259,7 +259,7 @@ func TestTerminateRun_LeftoverMailRelaunchesAndDeliversIt(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnGatedChild(t, sp, c)
@@ -342,7 +342,7 @@ func TestBeginDrain_ParkedChildIsNotWaitedOnAndKeepsItsSessionLock(t *testing.T)
 	testsupport.Isolate(t)
 	gate := make(chan struct{})
 	sp := &lockingSpawner{fakeSpawner: newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })}
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })}
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 100 * time.Millisecond
 

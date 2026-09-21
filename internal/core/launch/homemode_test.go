@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
 // TestResolve_EngineHome_SessionByDefault_HostOnlyBySelection: the home mode
@@ -97,4 +98,37 @@ func TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts(t *testing.T) {
 		Identity: child, Agent: "child", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
 	})
 	require.ErrorIs(t, err, launch.ErrNoOrchestrator)
+}
+
+// TestResolve_AHostHomeRunOfARelocatableEngineRoutesToTheProjectRoot: an
+// engine that declares a relocatable home delivers its session-home kinds
+// beneath that home (its config dir, where it discovers them natively). A
+// run whose binding selects the host home advises no such home — the real
+// one is the engine's own, not ours to deliver into — so the plan routes
+// every static kind to the project root instead; a session-home run of the
+// same engine keeps the session home. The scratch root the cell always has
+// is not a session home for such an engine.
+func TestResolve_AHostHomeRunOfARelocatableEngineRoutesToTheProjectRoot(t *testing.T) {
+	env := launchtest.Deps(t,
+		launchtest.RelocatableHome(),
+		launchtest.WithAgent("host", launchtest.EngineHome("host")),
+		launchtest.WithAgent("session", launchtest.EngineHome("session")),
+	)
+	roots := func(agent string) map[present.Kind]present.RootKind {
+		l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: agent, Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
+		out := map[present.Kind]present.RootKind{}
+		for _, item := range l.Plan.Static {
+			out[item.Kind] = item.Root
+		}
+		require.NotEmpty(t, out, "the plan routes the package's kinds")
+		return out
+	}
+	for kind, root := range roots("host") {
+		require.Equal(t, present.RootProjectRoot, root, "kind %s: a host-home run has no session home to deliver into", kind)
+	}
+	for kind, root := range roots("session") {
+		require.Equal(t, present.RootSessionHome, root, "kind %s: a session-home run delivers beneath the session home", kind)
+	}
 }

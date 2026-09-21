@@ -56,7 +56,7 @@ func TestStopChildren_StopsEveryLiveChildWithinTheBoundAndNamesEach(t *testing.T
 		func() *scriptedChat {
 			launches++
 			if launches == 1 {
-				return &scriptedChat{TurnGate: gate}
+				return &scriptedChat{Gate: gate}
 			}
 			return &scriptedChat{}
 		})
@@ -116,7 +116,7 @@ func TestStopChildren_InFlightTurnEndsAtItsBoundaryNotBefore(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute // far past the test: a sweep that waits for it fails
 
@@ -161,7 +161,7 @@ func TestStopChildren_ParkedChildIsEnded(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{}) // never closed: the turn stays open under the park
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 
@@ -239,7 +239,7 @@ func TestStopChildren_SweptChildStaysResumableButIsNotAutoRelaunched(t *testing.
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = 200 * time.Millisecond
 
@@ -313,7 +313,7 @@ func TestStopChildren_ChildDyingDuringSweepIsNotRelaunched(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 	c.drainBound = time.Minute
 

@@ -133,7 +133,7 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -230,7 +230,7 @@ func TestAgentSend_MidTurnQueuesForBoundary_FIFO(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -372,7 +372,7 @@ func TestRoster_TracksChildStates(t *testing.T) {
 	var spawned int
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	sp.nextChat = func() *scriptedChat {
-		e := &scriptedChat{TurnGate: gates[spawned%len(gates)]}
+		e := &scriptedChat{Gate: gates[spawned%len(gates)]}
 		spawned++
 		return e
 	}
@@ -428,7 +428,7 @@ func TestParkedRecvYieldsSlot(t *testing.T) {
 	var spawned int
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}}, nil)
 	sp.nextChat = func() *scriptedChat {
-		e := &scriptedChat{TurnGate: gates[spawned%len(gates)]}
+		e := &scriptedChat{Gate: gates[spawned%len(gates)]}
 		spawned++
 		return e
 	}
@@ -480,7 +480,7 @@ func TestAgentStop_FreesSlot(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -514,7 +514,7 @@ func TestInject_DeliveryModes(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -557,7 +557,7 @@ func TestInject_MirrorDigestTruncatesLongText(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
@@ -661,7 +661,7 @@ func TestInject_CompletesParkedRecvWithUserSenderIdentity(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

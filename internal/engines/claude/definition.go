@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/afero"
 
@@ -42,6 +43,12 @@ import (
 type Claude struct {
 	engine.Base
 	transcripts []engine.TranscriptReader
+	// open, when set, replaces the spawned `claude` process as the
+	// stream-json driver's I/O seam (the hook the driver's tests use to run
+	// a turn against in-memory pipes); now, when set, replaces time.Now as
+	// the clock stamping chat entries that arrive without a timestamp.
+	open chatTransportFunc
+	now  func() time.Time
 }
 
 // Option adjusts the kind before Validate.

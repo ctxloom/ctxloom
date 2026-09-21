@@ -6,7 +6,7 @@ import (
 	"time"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -91,12 +91,12 @@ type TestRunnerHooks struct {
 	// listeners the runner half dials.
 	Serve         func(c *Coordinator) error
 	NewHome       func(ctx context.Context, cfg TestHomeConfig) (TestHome, error)
-	NewEngineHost func(ctx context.Context, rep report.Sink, backend agent.StructuredChat, harness, runID string) TestEngineHost
+	NewEngineHost func(ctx context.Context, rep report.Sink, harness, runID string) TestEngineHost
 	// BindTestRunner binds the suite's runner tail to an engine host: the
 	// tail decodes the StartRun frame's launch, opens the package and
-	// drives; refuse, when set and answering true, refuses the launch the
-	// way a runner whose endpoint cannot be bound does.
-	BindTestRunner func(eh TestEngineHost, refuse func() bool)
+	// drives inst's driver; refuse, when set and answering true, refuses the
+	// launch the way a runner whose endpoint cannot be bound does.
+	BindTestRunner func(eh TestEngineHost, inst engine.Instance, refuse func() bool)
 	DialRunner     func(ctx context.Context, rep report.Sink, coordURL, token, runID, harness, version string, handler TestRunnerRequestHandler) (TestRunnerLink, error)
 	// FrameCoordinatorDelivery renders one coordinator-delivered message the
 	// way the engine host frames it for the engine; CoordinatorFrameOpen is

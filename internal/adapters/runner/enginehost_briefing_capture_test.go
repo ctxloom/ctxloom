@@ -9,21 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
-
-// deafChat honours the StructuredChat contract (closes `out` before
-// returning) but never reads `in`, so a briefing send can only ever lose its
-// race to ctx.Done().
-type deafChat struct{ running chan struct{} }
-
-func (d *deafChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	defer close(out)
-	close(d.running)
-	<-ctx.Done()
-	return ctx.Err()
-}
 
 // TestEngineHost_BriefingIsRecordedAsIntentNotAsDelivery pins what the
 // canonical transcript MEANS for a run torn down before its engine ever read
@@ -47,7 +34,9 @@ func (d *deafChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-chan agent
 func TestEngineHost_BriefingIsRecordedAsIntentNotAsDelivery(t *testing.T) {
 	testsupport.Isolate(t)
 	home := &fakeEngineHome{}
-	dc := &deafChat{running: make(chan struct{})}
+	// An engine whose turn's process never answers: the briefing was handed
+	// to it and the run is torn down with the turn still open.
+	dc := &eventScript{hold: true, running: make(chan struct{})}
 	eh := newTestEngineHost(context.Background(), dc, "claude-code", "run-1")
 	eh.BindHome(home)
 
@@ -57,7 +46,7 @@ func TestEngineHost_BriefingIsRecordedAsIntentNotAsDelivery(t *testing.T) {
 	select {
 	case <-dc.running:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the backend's Chat call never started")
+		t.Fatal("the briefing's turn never started")
 	}
 
 	// Tear the run down with the briefing still undelivered.

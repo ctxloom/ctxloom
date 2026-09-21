@@ -37,7 +37,7 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 		defer release()
 	}
 	session := turn.Launch.Session()
-	for _, srv := range turn.Chat.MCPServers {
+	for _, srv := range turn.MCPServers {
 		session.MCPServers = append(session.MCPServers, srv.Name)
 	}
 	var prompt *agent.Fragment
@@ -46,11 +46,11 @@ func (t stdioTerminal) Run(ctx context.Context, turn runner.Turn) (int, error) {
 	}
 	req := &agent.ExecuteRequest{
 		Prompt:      prompt,
-		WorkDir:     turn.Chat.WorkDir,
+		WorkDir:     turn.Launch.Cell.Workspace,
 		Mode:        agent.ModeInteractive,
-		Model:       turn.Chat.Model,
-		Env:         turn.Chat.Env,
-		Permissions: turn.Chat.Permissions,
+		Model:       turn.Launch.Label.Model,
+		Env:         turn.Launch.EngineEnv(),
+		Permissions: turn.Launch.Permission,
 		CellKind:    coordgrpc.CellKindOf(turn.Launch.Cell),
 		Stdin:       stdin,
 		Resize:      turnResize(ctx, t.stdin),

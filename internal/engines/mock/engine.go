@@ -1,8 +1,6 @@
 package mock
 
 import (
-	"context"
-
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -327,27 +325,9 @@ func (i *instance) Drivers() []engine.StructuredDriver {
 }
 func (i *instance) Resume(key string) error { i.key = key; return nil }
 
-// driver answers the prompt back, firing the delivered hooks for every
-// event the turn passes through; a prompt carrying a tool call (ToolCall)
-// runs that tool.
+// driver is the mock's structured driver (turn.go): it fires the delivered
+// hooks for every event the turn passes through and echoes the prompt.
 type driver struct{ fires map[string]bool }
-
-func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, _ chan<- engine.Event) (engine.TurnResult, error) {
-	hooks, err := deliveredHooks(ex)
-	if err != nil {
-		return engine.TurnResult{}, err
-	}
-	tool, hasTool := toolCallIn(in.Prompt)
-	for _, event := range eventsOfTurn(tool, hasTool) {
-		if !d.fires[event] {
-			continue
-		}
-		if err := fireHooks(ctx, ex, hooks, event, tool); err != nil {
-			return engine.TurnResult{}, err
-		}
-	}
-	return engine.TurnResult{NativeKey: sessionKey, Answer: in.Prompt}, nil
-}
 
 // Exports exports EVERYTHING: no bundle carries a block for a mock (mock is
 // a test engine nobody publishes a bundle FOR), so there is no opt-out to

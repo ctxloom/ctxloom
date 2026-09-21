@@ -20,6 +20,21 @@ func TestArgvIsLLMServe(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "the runner process",
+			argv: []string{"/usr/local/bin/ctxloom", "runner", "mock"},
+			want: true,
+		},
+		{
+			name: "the runner process behind a global flag",
+			argv: []string{"ctxloom", "-v", "runner", "claude-code"},
+			want: true,
+		},
+		{
+			name: "runner as a flag value is not the subcommand",
+			argv: []string{"ctxloom", "agent", "set", "--runtime", "runner"},
+			want: false,
+		},
+		{
 			name: "self-exec shape with label",
 			argv: []string{"/usr/local/bin/ctxloom", "llm", "serve", "mock", "--label", "t1"},
 			want: true,

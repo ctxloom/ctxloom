@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/testsupport/scriptedchat"
 )
 
 // mainEnv is a process environment double: what Main reads the reach-back
@@ -42,7 +41,6 @@ func mainDeps(env *mainEnv, ports func(*EngineHost, *Home) (Deps, error)) MainDe
 		Reporter: termSink(),
 		Harness:  "mock",
 		Version:  "test",
-		Backend:  &scriptedchat.Chat{},
 		Getenv:   env.getenv,
 		Unsetenv: env.unsetenv,
 		Ports:    ports,

@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
@@ -38,48 +37,32 @@ type turnTag struct {
 	done chan engine.TurnResult
 }
 
-// enqueueTurn is the ONE funnel onto eh.in for every locally-originated turn —
-// the briefing's successor sends and delivered mail.
+// enqueueTurn is the ONE funnel for every locally-originated turn — the
+// briefing and delivered mail.
 //
-// It does three things that must happen together: it waits for the briefing to
-// have gone first (a turn that overtakes the briefing makes the
-// child's first turn something other than its task), it pushes tag onto the
-// turn-attribution FIFO in the same order the sends land, and it records the
-// user turn in the canonical transcript once the engine has actually taken it.
+// It does three things that must happen together: it waits for the turn in
+// flight to reach its boundary (the engine takes one turn at a time; an
+// arrival mid-turn becomes the next one), it pushes tag onto the
+// turn-attribution FIFO in the same order the turns start, and it records
+// the user turn in the canonical transcript as the engine takes it. It
+// returns once the turn's process is STARTED, not ended — the caller that
+// wants the boundary waits on its tag.
 //
-// The lock is held ACROSS the send. That serializes turn enqueues, which is the
-// point: the FIFO's order is only meaningful if it is the order the engine
-// receives. A send that can never complete is bounded by ctx and by the run's
-// own ctx, so the lock is released when the run dies.
+// The enqueue lock is held ACROSS the hand-off. That serializes turns, which
+// is the point: the FIFO's order is only meaningful if it is the order the
+// engine receives. A wait that can never end is bounded by ctx and by the
+// run's own ctx, so the lock is released when the run dies.
 func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string) error {
 	eh.mu.Lock()
-	started := eh.in != nil && eh.runCtx != nil
-	parked := eh.parked
+	started := eh.driver != nil && eh.runCtx != nil
+	ended := eh.ended
+	runCtx := eh.runCtx
 	eh.mu.Unlock()
 	if !started {
-		return errors.New("engine host: no run has started, so there is no turn stream to enqueue onto")
+		return errors.New("engine host: no run has started, so there is no engine to hand a turn to")
 	}
-	if parked {
-		// A parked one-shot host has no engine process: this turn starts
-		// the next one, resumed by key, and everything below reads THAT
-		// process's stream and context. Under enqueueMu so exactly one
-		// process starts per boundary however many turns arrive at once.
-		eh.enqueueMu.Lock()
-		eh.unpark()
-		eh.enqueueMu.Unlock()
-	}
-	eh.mu.Lock()
-	in := eh.in
-	rec := eh.rec
-	runCtx := eh.runCtx
-	briefed := eh.briefed
-	eh.mu.Unlock()
-	select {
-	case <-briefed:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-runCtx.Done():
-		return runCtx.Err()
+	if ended {
+		return errors.New("engine host: the run has ended; no engine takes a turn")
 	}
 	// THE PAUSE GATE (spoolcontrol.go's ControlPause). A paused run takes no
 	// new turn: the caller waits here, holding NOTHING — not the enqueue lock,
@@ -98,32 +81,33 @@ func (eh *EngineHost) enqueueTurn(ctx context.Context, tag turnTag, text string)
 
 	eh.enqueueMu.Lock()
 	defer eh.enqueueMu.Unlock()
+	// The turn in flight ends first: one engine process at a time.
 	eh.mu.Lock()
-	eh.pendingTags = append(eh.pendingTags, tag)
+	busy := eh.turnBusy
 	eh.mu.Unlock()
-
-	select {
-	case in <- agent.ChatMessage{Text: text}:
-		transcript.RecordUserText(rec, text)
-		return nil
-	case <-ctx.Done():
-		eh.dropQueuedTag()
-		return ctx.Err()
-	case <-runCtx.Done():
-		eh.dropQueuedTag()
-		return runCtx.Err()
+	if busy != nil {
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-runCtx.Done():
+			return runCtx.Err()
+		}
 	}
-}
-
-// dropQueuedTag removes the tag this call pushed when its send never landed.
-// Safe because enqueueMu makes this goroutine the only pusher, so the tail is
-// ours; adapt only ever pops the head, and it pops only after a send completed.
-func (eh *EngineHost) dropQueuedTag() {
 	eh.mu.Lock()
-	defer eh.mu.Unlock()
-	if n := len(eh.pendingTags); n > 0 {
-		eh.pendingTags = eh.pendingTags[:n-1]
+	if eh.ended {
+		eh.mu.Unlock()
+		return errors.New("engine host: the run has ended; no engine takes a turn")
 	}
+	eh.pendingTags = append(eh.pendingTags, tag)
+	next := make(chan struct{})
+	eh.turnBusy = next
+	rec := eh.rec
+	key := eh.nativeKey
+	eh.mu.Unlock()
+	transcript.RecordUserText(rec, text)
+	eh.goTracked(func() { eh.runTurn(next, text, key) })
+	return nil
 }
 
 // beginTurn pops the FIFO at a turn start and marks the engine busy.
@@ -218,15 +202,16 @@ func (eh *EngineHost) checkRunID(runID, what string) *agentcoordpb.RunnerRespons
 		"%s named run %s, but this runner hosts run %s (A9 correlation)", what, runID, eh.runID))}
 }
 
-// turnFrame answers RunnerRequest.Turn — the coordinator's one-shot turn
-// injection to THIS live runner: one engine turn (a fresh engine process
-// when the host is parked, resumed by the frame's key or the one the host
-// learned), answered with the turn's final text and the key the next turn
-// resumes by. It blocks until the turn's boundary.
+// turnFrame answers RunnerRequest.Turn — the coordinator's turn injection to
+// THIS live runner: one engine turn (a fresh engine process, resumed by the
+// frame's key or the one the host learned), answered with the turn's final
+// text and the key the next turn resumes by. It blocks until the turn's
+// boundary.
 func (eh *EngineHost) turnFrame(t *agentcoordpb.Turn) *agentcoordpb.RunnerResponse {
 	eh.mu.Lock()
 	started := eh.started
-	if t.GetResume() != "" && eh.parked {
+	if t.GetResume() != "" && eh.turnBusy == nil {
+		// A parked host: the frame names the key its process resumes by.
 		eh.nativeKey = t.GetResume()
 	}
 	eh.mu.Unlock()

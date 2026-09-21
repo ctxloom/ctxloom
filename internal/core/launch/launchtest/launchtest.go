@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -68,6 +69,10 @@ type fixture struct {
 	noReadOnlyPlan bool
 	// noStructured drops Structured from the fixture engine's Modes.
 	noStructured bool
+	// relocatableHome makes the fixture engine declare a relocatable home
+	// (one home var), so the cell advises an engine home for a session-home
+	// run and none for a host-home run.
+	relocatableHome bool
 	// withoutContainer makes the fake Cells refuse a container axis with
 	// the engine's own ErrUnsupported, the way Engine.Container() will.
 	withoutContainer bool
@@ -138,6 +143,11 @@ func ProjectDirtyTree(s string) Option { return func(f *fixture) { f.projectDirt
 // NoReadOnlyPlan makes the fixture engine declare no read-only tier.
 func NoReadOnlyPlan() Option { return func(f *fixture) { f.noReadOnlyPlan = true } }
 
+// RelocatableHome makes the fixture engine declare a relocatable home, the
+// way an engine with its own config dir does: a session-home run advises
+// it, a host-home run advises none.
+func RelocatableHome() Option { return func(f *fixture) { f.relocatableHome = true } }
+
 // ProfileLLM makes the composed profiles declare a label.
 func ProfileLLM(label string) Option { return func(f *fixture) { f.profileLLM = label } }
 
@@ -182,7 +192,7 @@ func Deps(t *testing.T, opts ...Option) Env {
 	if f.noStructured {
 		modes = []engine.Mode{engine.Interactive}
 	}
-	reg, err := engine.NewRegistry(newFixtureEngine(modes, !f.noReadOnlyPlan))
+	reg, err := engine.NewRegistry(newFixtureEngine(modes, !f.noReadOnlyPlan, f.relocatableHome))
 	require.NoError(t, err)
 
 	store := sessions.NewMemStore()
@@ -253,9 +263,12 @@ const EngineName engine.Name = "fixture"
 // fixtureEngine is the kind the fixture registers: every surface carried by
 // a file approach rooted at the session home, both modes unless the option
 // drops Structured.
-type fixtureEngine struct{ engine.Base }
+type fixtureEngine struct {
+	engine.Base
+	home engine.HomeSpec
+}
 
-func newFixtureEngine(modes []engine.Mode, readOnlyPlan bool) engine.Engine {
+func newFixtureEngine(modes []engine.Mode, readOnlyPlan, relocatableHome bool) engine.Engine {
 	a := &approach{}
 	d := engine.Definition{
 		Name:         EngineName,
@@ -268,7 +281,13 @@ func newFixtureEngine(modes []engine.Mode, readOnlyPlan bool) engine.Engine {
 	for _, m := range modes {
 		d.CLI = append(d.CLI, engine.CLIGrammar{Mode: m, Binary: "fixture", Positional: 1})
 	}
-	e := fixtureEngine{engine.Base{Definition: d}}
+	e := fixtureEngine{Base: engine.Base{Definition: d}}
+	if relocatableHome {
+		e.home = engine.HomeSpec{Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: ".fixture"}}, Credentials: engine.Absent[engine.CredentialSeed]("the fixture keeps no credential")}
+		if err := e.home.Validate(); err != nil {
+			panic(err)
+		}
+	}
 	if err := e.Validate(); err != nil {
 		panic(err)
 	}
@@ -279,8 +298,8 @@ func (fixtureEngine) Instance(engine.Session) (engine.Instance, error) {
 	return nil, engine.ErrUnsupported{Engine: EngineName, Capability: "instance"}
 }
 
-// Exports exports every item as-is: the fixture decodes no block.
-func (fixtureEngine) Home() engine.HomeSpec { return engine.HomeSpec{} }
+// Home is the zero spec unless RelocatableHome declared one.
+func (e fixtureEngine) Home() engine.HomeSpec { return e.home }
 func (e fixtureEngine) Container() (engine.ContainerSpec, error) {
 	return engine.ContainerSpec{}, engine.ErrUnsupported{Engine: e.Name, Capability: "container"}
 }
@@ -385,11 +404,18 @@ func (c *cells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 			return launch.Cell{}, engine.ErrUnsupported{Engine: req.Engine.Root().Name, Capability: "container"}
 		}
 	}
-	paths := present.OnHost(present.Paths{
+	roots := present.Paths{
 		ProjectRoot: present.Root{Host: req.ProjectRoot},
 		CtxloomHome: present.Root{Host: req.Host.CtxloomHome},
 		Scratch:     present.Root{Host: req.SessionDir},
-	})
+	}
+	// An engine home is advised for a session-home run of an engine that
+	// declares a relocatable home, and never for a host-home run: the real
+	// home is the engine's own, not ours to deliver into.
+	if req.Engine.Home().Relocates() && req.HomeMode == launch.HomeModeSession {
+		roots.EngineHome = present.Root{Host: filepath.Join(req.SessionDir, "home", ".fixture")}
+	}
+	paths := present.OnHost(roots)
 	return launch.Cell{Paths: paths, Workspace: req.ProjectRoot, HomeMode: req.HomeMode, Cleanup: func() error { return nil }}, nil
 }
 

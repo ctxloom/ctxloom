@@ -13,23 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 )
 
-// eventScriptChat replays a fixed ChatEvent script and ends its stream. It
-// drives adapt directly, without a turn loop, so the message/tool lifecycle can
-// be exercised at its edges.
-type eventScriptChat struct{ script []agent.ChatEvent }
-
-func (e *eventScriptChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	defer close(out)
-	for _, ev := range e.script {
-		select {
-		case out <- ev:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return nil
-}
-
 // TestEngineHost_Adapt_MessageAndToolLifecycle characterizes the native-event
 // adaptation at the edges the CCN-10 split of adapt moves: message
 // coalescing by contiguous type, the type change that closes an open message,
@@ -40,7 +23,7 @@ func TestEngineHost_Adapt_MessageAndToolLifecycle(t *testing.T) {
 		return agent.ChatEvent{Entry: &agent.SessionEntry{Type: tp, Content: content}}
 	}
 	home := &fakeEngineHome{}
-	sc := &eventScriptChat{script: []agent.ChatEvent{
+	sc := &eventScript{script: []agent.ChatEvent{
 		entry(agent.EntryTypeAssistant, "one"),
 		entry(agent.EntryTypeAssistant, " and two"),                                         // same type: same message
 		entry(agent.EntryTypeAssistant, ""),                                                 // empty: skipped entirely
@@ -57,10 +40,15 @@ func TestEngineHost_Adapt_MessageAndToolLifecycle(t *testing.T) {
 	eh.BindHome(home)
 	resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 	require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
+	// The turn's boundary is the barrier: the host parks once the turn's
+	// process ended and everything it relayed has been adapted.
 	require.Eventually(t, func() bool {
-		home.mu.Lock()
-		defer home.mu.Unlock()
-		return len(home.exited) == 1
+		for _, n := range home.customNames() {
+			if n == coord.CustomTurnIdle {
+				return true
+			}
+		}
+		return false
 	}, 5*time.Second, 10*time.Millisecond)
 
 	home.mu.Lock()
@@ -106,17 +94,7 @@ func TestEngineHost_Adapt_MessageAndToolLifecycle(t *testing.T) {
 		{"completed", "m-3", ""},
 	}, got)
 
-	// The turn boundary and the terminal result.
+	// The turn boundary; no terminal — the host parks for the next turn.
 	assert.Equal(t, []string{coord.CustomTurnStarted, coord.CustomTurnIdle}, home.customNamesLocked())
-	var completed *agentcoordpb.RunCompleted
-	for _, ev := range home.events {
-		if rc := ev.GetRunCompleted(); rc != nil {
-			completed = rc
-		}
-	}
-	require.NotNil(t, completed)
-	assert.Equal(t, agentcoordpb.Result_RUN_STATUS_SUCCEEDED, completed.GetResult().GetStatus())
-	assert.Equal(t, uint32(1), completed.GetResult().GetNumTurns())
-	assert.Equal(t, uint64(3), completed.GetResult().GetUsage().GetOutputTokens())
-	assert.Equal(t, 0, home.exited[0].Code)
+	assert.Empty(t, home.exited, "a clean boundary is not the run's end")
 }

@@ -100,7 +100,7 @@ func firstIndexOfKind(msgs []Message, kind string) int {
 func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -186,7 +186,7 @@ func TestProgressReport_DoesNotEndTheRun(t *testing.T) {
 func TestFinalReport_ParentGetsTheReportBeforeTheExitNotice(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
@@ -255,7 +255,7 @@ func TestFinalReport_SessionStaysResumableAfterTheRunEnds(t *testing.T) {
 func TestFinalReport_OneShotChildIsEndedByItsFinal(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{Resumable: true, TurnGate: gate} })
+	sp := oneShotSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")

@@ -37,8 +37,8 @@ func ownerRunStarterNamed(ctx context.Context, sc *scriptedChat, backend, contai
 	starter := func(_ context.Context, spawnEnv map[string]string) (func(), string, error) {
 		*started = true
 		sctx, cancel := context.WithCancel(ctx)
-		host := runnerHooks.NewEngineHost(sctx, nil, sc, backend, spawnEnv[EnvRunID])
-		runnerHooks.BindTestRunner(host, nil)
+		host := runnerHooks.NewEngineHost(sctx, nil, backend, spawnEnv[EnvRunID])
+		runnerHooks.BindTestRunner(host, sc, nil)
 		home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 			Reporter: termSink(),
 			URL:      spawnEnv[EnvCoordURL],

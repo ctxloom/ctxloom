@@ -8,7 +8,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -57,14 +56,6 @@ type ClaudeCode struct {
 	// IT: no argv or env of this package carries it, so the knob is accepted
 	// and validated but has no effect on a launch.
 	thinking agent.ThinkingLevel
-	// openChatTransport, when set, replaces spawnChatTransport as Chat's
-	// process I/O seam (see chat_run.go) — the hook chat_run_test.go uses to
-	// drive Chat against in-memory pipes instead of a spawned claude process.
-	openChatTransport chatTransportFunc
-	// now, when set, replaces time.Now as Chat's clock for stamping chat
-	// entries that arrive without a timestamp (claude's stream-json carries
-	// none) — deterministic in tests.
-	now func() time.Time
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.

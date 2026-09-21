@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -141,28 +142,26 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		}
 		return Outcome{}, fmt.Errorf("runner: deliver the launch: %w", err)
 	}
+	ex, err := inst.Exec(delivered.Presented)
+	if err != nil {
+		if closeServed != nil {
+			closeServed()
+		}
+		return Outcome{}, fmt.Errorf("runner: compose the engine's exec: %w", err)
+	}
+	// The exec's env holds ONLY the engine-native variables; the launch's
+	// engine env — the identity carriers, the label's env, the caller's
+	// passthrough — is laid under it here, the engine's own on top.
 	env := l.EngineEnv()
-	servers := bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP)
-	mcpConfig := mcpFileOf(delivered)
+	maps.Copy(env, ex.Env)
+	ex.Env = env
 	turn := Turn{
-		Launch: l,
-		Chat: agent.ChatRequest{
-			WorkDir:     l.Cell.Workspace,
-			Model:       l.Label.Model,
-			Env:         env,
-			Permissions: l.Permission,
-			// ForwardPermissions is false: ctxloom does not broker a second
-			// approval UI on top of the engine's own. A delegated run has no
-			// human upstream of it, so a prompt it does raise parks with
-			// nobody to answer it — which is why the resolver floors a
-			// Structured child to a headless-safe posture.
-			ForwardPermissions: false,
-			MCPServers:         servers,
-			MCPConfigPath:      mcpConfig,
-			ResumeSessionID:    l.Resume.NativeKey,
-		},
-		Prompt:    firstTurn(pkg, l),
-		Presented: delivered.Presented,
+		Launch:     l,
+		Instance:   inst,
+		Exec:       ex,
+		MCPServers: bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP),
+		Prompt:     firstTurn(pkg, l),
+		Presented:  delivered.Presented,
 	}
 	if err := deps.Driver.Drive(ctx, turn); err != nil {
 		if closeServed != nil {
@@ -170,7 +169,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		}
 		return Outcome{}, err
 	}
-	return Outcome{Delivered: delivered, MCPConfig: mcpConfig, Close: closeServed}, nil
+	return Outcome{Delivered: delivered, MCPConfig: mcpFileOf(delivered), Close: closeServed}, nil
 }
 
 // mcpFileOf is the host path the MCP kind's presentation names, "" when the

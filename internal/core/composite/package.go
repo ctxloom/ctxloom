@@ -2,6 +2,7 @@ package composite
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -232,6 +233,34 @@ type ItemAttestation struct {
 
 // Attestation returns the record that decided this package.
 func (p Package) Attestation() Attestation { return p.attestation }
+
+// WithLead is the package with the caller's own context blocks appended
+// after the assembly, in order: what a launch composes at launch time
+// beyond the selection — a resumed session's transcript, this launch's
+// startup findings. Each non-blank block is one more fragment of the
+// package under its name, joined as the assembler joins sections, and the
+// context's hash follows the text. The receiver is untouched.
+func (p Package) WithLead(blocks ...Fragment) Package {
+	parts := []string{}
+	if strings.TrimSpace(p.Context.Text) != "" {
+		parts = append(parts, p.Context.Text)
+	}
+	fragments := append([]Item[Fragment](nil), p.Fragments...)
+	for _, b := range blocks {
+		if strings.TrimSpace(b.Body) == "" {
+			continue
+		}
+		parts = append(parts, b.Body)
+		fragments = append(fragments, Item[Fragment]{Value: b, Ref: b.Name, Decision: trust.Allow})
+	}
+	if len(fragments) == len(p.Fragments) {
+		return p
+	}
+	text := strings.Join(parts, contextSectionSeparator)
+	p.Context = Context{Text: text, Hash: digest([]byte(text))}
+	p.Fragments = fragments
+	return p
+}
 
 // Index is what the runner's search_library and the ctxloom:// resources
 // enumerate: refs, kinds and descriptions of everything in the CATALOG the

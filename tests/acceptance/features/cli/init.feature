@@ -5,11 +5,14 @@ Feature: init — the setup interview, and what it does to a project that alread
 
   `init` is the command someone runs once. On a directory with no `.ctxloom` it
   scaffolds the project, seeds and CLONES the trusted `ctxloom-default` remote,
-  pulls the dependencies the seeded default profile resolves through, applies
-  the engine's hooks, and — on a terminal — hands the whole thing to your
-  engine for one setup interview: companions, then profiles and content, then
-  agents bound to them. It is a solo core verb with exactly one thing under it,
-  `init prompt`, which re-emits that interview body for a shell or a script.
+  pulls the dependencies the seeded default profile resolves through, and — on
+  a terminal — hands the whole thing to your engine for one setup interview:
+  companions, then profiles and content, then agents bound to them. It writes
+  no engine file into the project: the interview, like every `ctxloom run`, is
+  a session carrying ctxloom's hooks and MCP server in its own session home
+  (ruled 2026-09-21: sessions carry their surfaces). It is a solo core verb
+  with exactly one thing under it, `init prompt`, which re-emits that
+  interview body for a shell or a script.
 
   WHAT THIS FILE COVERS, AND WHAT IT DELIBERATELY DOES NOT. A first-time init
   on a NEW `.ctxloom` clones the seeded default remote, so it reaches the

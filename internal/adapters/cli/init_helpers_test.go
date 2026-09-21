@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,14 +8,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // pickDefaultEngine is the shared fallback used wherever runInit needs a
@@ -161,52 +154,6 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	if !strings.Contains(string(cfg), "mock") {
 		t.Errorf("second write should have overwritten engine to codex; got:\n%s", cfg)
 	}
-}
-
-// TestApplyInitHooks_EmptyBackendListIsNotSuccess pins the PAYLOAD
-// of init's hook-apply report. `Applied hooks for: []` is this project's
-// signature silent no-op: a success sentence whose payload is empty. Registering
-// zero backends means no engine settings surface was written at all, so nothing
-// will ever reach ctxloom's MCP server or context hook — the one outcome init
-// must not report as done.
-func TestApplyInitHooks_EmptyBackendListIsNotSuccess(t *testing.T) {
-	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
-
-	orig := applyHooksFn
-	applyHooksFn = func(context.Context, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		return &operations.ApplyHooksResult{Status: "ok", Backends: nil}, nil
-	}
-	t.Cleanup(func() { applyHooksFn = orig })
-
-	var warnings strings.Builder
-	t.Cleanup(clidiag.SetSink(&warnings))
-
-	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
-
-	assert.NotContains(t, out, "Applied hooks for",
-		"an apply that touched no backend must not print a success line")
-	assert.Contains(t, warnings.String(), "no backends",
-		"an apply that touched no backend must say so on the diagnostic channel")
-}
-
-// TestApplyInitHooks_ReportsTheBackendsItWrote is the counterpart: a real
-// payload still gets the success line, unchanged.
-func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
-	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
-
-	orig := applyHooksFn
-	applyHooksFn = func(context.Context, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"claude-code", "mock"}}, nil
-	}
-	t.Cleanup(func() { applyHooksFn = orig })
-
-	var warnings strings.Builder
-	t.Cleanup(clidiag.SetSink(&warnings))
-
-	out := captureStdout(t, func() { applyInitHooks(&cobra.Command{}, appDir) })
-
-	assert.Contains(t, out, "Applied hooks for: [claude-code mock]")
-	assert.Empty(t, warnings.String())
 }
 
 // authoredV1 is where a fixture must write a FORMAT-V1 authored bundle for the

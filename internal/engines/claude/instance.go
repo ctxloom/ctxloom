@@ -338,27 +338,13 @@ func (d *streamJSONDriver) Turn(ctx context.Context, ex engine.Exec, in engine.T
 				return res, fmt.Errorf("claude stream-json event: %w", err)
 			}
 			select {
-			case out <- engine.Event{Kind: eventKind(ev), Payload: payload}:
+			case out <- engine.Event{Kind: ev.Kind(), Payload: payload}:
 			case <-ctx.Done():
 				_ = tr.Close()
 				<-readerDone
 				return res, ctx.Err()
 			}
 		}
-	}
-}
-
-// eventKind names the port-level kind of a native event.
-func eventKind(ev agent.ChatEvent) string {
-	switch {
-	case ev.Session != nil:
-		return "session"
-	case ev.Complete != nil:
-		return "complete"
-	case ev.Entry != nil:
-		return string(ev.Entry.Type)
-	default:
-		return "event"
 	}
 }
 

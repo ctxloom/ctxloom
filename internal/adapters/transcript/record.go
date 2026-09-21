@@ -386,6 +386,11 @@ func planEntriesPayload(entries []agent.PlanEntry) []PlanEntry {
 	return out
 }
 
+// sessionPayload projects the session info onto the transcript's payload.
+// It deliberately parallels claude's initToSessionInfo without carrying the
+// session id: the transcript hoists SessionID to the envelope (Record),
+// where the resume handle is read without opening the payload.
+// reprise:accept-drift
 func sessionPayload(s *agent.ChatSessionInfo) *SessionPayload {
 	p := &SessionPayload{
 		Resumable:      s.Resumable,

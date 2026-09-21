@@ -63,7 +63,7 @@ func (d driver) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out ch
 			return merr
 		}
 		select {
-		case out <- engine.Event{Kind: kindOf(ev), Payload: payload}:
+		case out <- engine.Event{Kind: ev.Kind(), Payload: payload}:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -109,20 +109,6 @@ func toolsTurn(text string) []agent.ChatEvent {
 		{Entry: &agent.SessionEntry{Type: agent.EntryTypeThinking, Content: "mock thinking: " + text}},
 		{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolUse, ToolName: "mock_tool", ToolCallID: "mock-tool-1", ToolInput: json.RawMessage(`{"action":"scripted"}`), Content: "mock tool_use: " + text}},
 		{Entry: &agent.SessionEntry{Type: agent.EntryTypeToolResult, ToolCallID: "mock-tool-1", ToolOutput: "mock tool_result: " + text}},
-	}
-}
-
-// kindOf names the port-level kind of a native event.
-func kindOf(ev agent.ChatEvent) string {
-	switch {
-	case ev.Session != nil:
-		return "session"
-	case ev.Complete != nil:
-		return "complete"
-	case ev.Entry != nil:
-		return string(ev.Entry.Type)
-	default:
-		return "event"
 	}
 }
 

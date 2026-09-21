@@ -119,7 +119,7 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 			panic(err)
 		}
 		select {
-		case out <- engine.Event{Kind: kindOf(ev), Payload: payload}:
+		case out <- engine.Event{Kind: ev.Kind(), Payload: payload}:
 			return true
 		case <-ctx.Done():
 			return false
@@ -156,20 +156,6 @@ func (s *Chat) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out cha
 		return engine.TurnResult{NativeKey: NativeKey, Answer: text}, ErrEngineEnded
 	}
 	return engine.TurnResult{NativeKey: NativeKey, Answer: text}, nil
-}
-
-// kindOf names the port-level kind of a native event, as the real drivers do.
-func kindOf(ev agent.ChatEvent) string {
-	switch {
-	case ev.Session != nil:
-		return "session"
-	case ev.Complete != nil:
-		return "complete"
-	case ev.Entry != nil:
-		return string(ev.Entry.Type)
-	default:
-		return "event"
-	}
 }
 
 var _ engine.Instance = (*Chat)(nil)

@@ -451,5 +451,6 @@ func TestNewCompanionReader_UnsignedSelfLoadoutIsNotSelfSigned(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, reads, 1)
 	assert.False(t, reads[0].Bundle.SelfSigned())
+	assert.True(t, reads[0].Bundle.Self(), "the self IDENTITY holds whatever the signature state: it is what keeps the loadout out of the installed listing")
 	assert.Equal(t, SignatureNone, reads[0].Signature())
 }

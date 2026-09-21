@@ -230,6 +230,9 @@ type BundleInfo struct {
 	// pending-review list (unsigned is not pending), so nothing named the bundle
 	// or the reason. See doctorCheckContentTrust.
 	Signer string
+	// Self is Bundle.Self carried through: ctxloom's own loadout, intrinsic
+	// rather than installed — a listing of installed content leaves it out.
+	Self bool
 	// SelfSigned is Bundle.SelfSigned carried through: ctxloom's own loadout
 	// whose signature verified circularly, so Signer is empty by design and
 	// "unsigned" would be the wrong reading.

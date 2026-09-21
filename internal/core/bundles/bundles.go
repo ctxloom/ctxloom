@@ -173,6 +173,11 @@ type Bundle struct {
 	// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
 	untrustedSignerFingerprint string `yaml:"-"`
 
+	// self marks ctxloom's OWN companion loadout (CompanionLoadout.Self),
+	// whatever its signature state. It is INTRINSIC content: nobody
+	// installed it and nobody can remove it, so a listing of what the user
+	// installed leaves it out, while it stays addressable by its ref.
+	self bool `yaml:"-"`
 	// selfSigned marks ctxloom's OWN companion loadout whose signature
 	// VERIFIED, circularly (companionReader.read explains why): the
 	// principal is never stamped as signer, and a surface that renders
@@ -180,6 +185,10 @@ type Bundle struct {
 	// publisher-verified — both would be false.
 	selfSigned bool `yaml:"-"`
 }
+
+// Self reports whether this bundle is ctxloom's own companion loadout —
+// intrinsic content, never installed; see companionReader.read.
+func (b *Bundle) Self() bool { return b.self }
 
 // SelfSigned reports whether this bundle is ctxloom's own companion loadout
 // and its signature verified — circularly, so no signer is stamped; see

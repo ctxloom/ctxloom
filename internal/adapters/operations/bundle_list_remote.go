@@ -28,9 +28,14 @@ import (
 //     — come from the Resolver/VCS history walk and are flagged Deleted so the
 //     user sees a dependency has vanished upstream.
 //
-// The listing's contract: `bundle list` lists what is installed — local
+// The listing's contract: `bundle list` lists what is INSTALLED — local
 // content under .ctxloom/content/bundles, the remotes pinned in the lockfile,
-// and the companion loadouts this machine acquired.
+// and the companion loadouts this machine acquired. ctxloom's OWN loadout is
+// excluded, and that is the contract rather than a preference: it is
+// intrinsic — nobody installed it and nobody can remove it — so counting it
+// under "Installed bundles (N)" states something false and makes `bundle
+// remove` name a bundle the user has no way to act on. It stays addressable
+// by its ref (`bundle show ctxloom:companion@ctxloom`).
 //
 // Fault-tolerant per CLAUDE.md: the seeded loader already degrades a bad
 // lockfile/remote to a warning, and the deleted-item walk is best-effort.
@@ -39,9 +44,15 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	infos := cfg.BundleLoader().Catalog().
+	var infos []*bundles.BundleInfo
+	for _, info := range cfg.BundleLoader().Catalog().
 		Scoped(bundles.ProvenanceProject, bundles.ProvenanceRemote, bundles.ProvenanceCompanion).
-		Infos()
+		Infos() {
+		if info.Self {
+			continue
+		}
+		infos = append(infos, info)
+	}
 
 	seen := make(map[string]bool, len(infos))
 	for _, info := range infos {

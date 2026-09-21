@@ -226,6 +226,7 @@ func (r *companionReader) read(lo CompanionLoadout) (BundleRead, bool) {
 		r.cfg.warnOnce("companion %q: its loadout is signed by a key this machine does not trust to publish; "+
 			"delivering the content anyway (companion content is admitted at exec, not by signature), unattributed", lo.Bin)
 	}
+	b.self = lo.Self
 	if lo.Self && facts.Signature == SignatureValid && facts.Signer == SignerTrusted {
 		// INVARIANT: ctxloom's own loadout signature is CIRCULAR and adds no
 		// trust. The key that signed it is trusted because THIS binary's

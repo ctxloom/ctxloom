@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/engine/conformance"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
@@ -173,4 +174,70 @@ func TestDeclaration_IsDerivedFromTheDefinition(t *testing.T) {
 	require.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook}, decl.Names(agent.SurfaceContext))
 	def, _ := decl.Default(agent.SurfaceMCP)
 	require.Equal(t, ApproachMCPConfig, def)
+}
+
+// TestBuild_EverySurfaceDefaultsToTheSessionHome pins the ruling: no
+// default anywhere names the project root or the engine's real home. Each
+// static approach's FIRST root — the one Route takes when the binding
+// selects none — is the session home; the project root is offered second,
+// reached only by a binding's `roots:` selection.
+func TestBuild_EverySurfaceDefaultsToTheSessionHome(t *testing.T) {
+	def := claudeDef(t)
+	for kind, a := range def.Surfaces() {
+		roots := a.Traits().Roots
+		require.NotEmpty(t, roots, "kind %v declares no root", kind)
+		require.Equal(t, present.RootSessionHome, roots[0], "kind %v (%s): the first root is the session home, not %v", kind, a.Name(), roots[0])
+		require.True(t, a.Traits().Offers(present.RootProjectRoot), "kind %v (%s): the project root stays selectable on the binding", kind, a.Name())
+	}
+}
+
+// TestRoute_DefaultBindingPlansOnlySessionHomeRoots is the launch-capture
+// form: the plan Resolve carries for a binding that selects no root targets
+// the session home for every static kind.
+func TestRoute_DefaultBindingPlansOnlySessionHomeRoots(t *testing.T) {
+	e, err := Build()
+	require.NoError(t, err)
+	plan, err := conformance.RouteFor(t, conformance.PackageFixture(t), e)
+	require.NoError(t, err)
+	require.NotEmpty(t, plan.Static)
+	for _, it := range plan.Static {
+		require.Equal(t, present.RootSessionHome, it.Root, "kind %v routes through %s under %v", it.Kind, it.Approach, it.Root)
+	}
+}
+
+// TestDeliverCommandsAndSkills_SessionHomeLandsUnderTheEngineHome: at the
+// session-home root, commands and skills land where claude reads its
+// user-level ones — <config dir>/commands and <config dir>/skills, the
+// config dir being the session's CLAUDE_CONFIG_DIR — and nothing reaches
+// the project root.
+func TestDeliverCommandsAndSkills_SessionHomeLandsUnderTheEngineHome(t *testing.T) {
+	def := claudeDef(t)
+	start, project, home := hostStart(t)
+	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true, Description: "greets"}}}, nil)
+	require.NoError(t, err)
+	got, err := os.ReadFile(filepath.Join(home, CommandsDirName, "greet.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(got), "say hi")
+	require.NoFileExists(t, filepath.Join(project, ConfigDirName, CommandsDirName, "greet.md"))
+
+	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Description: "greets", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("---\nname: greet\ndescription: g\n---\nbody")}}}}}, nil)
+	require.NoError(t, err)
+	require.FileExists(t, filepath.Join(home, SkillsDirName, "greet", "SKILL.md"))
+	require.NoFileExists(t, filepath.Join(project, ConfigDirName, SkillsDirName, "greet", "SKILL.md"))
+}
+
+// TestDeliverCommandsAndSkills_SessionHomeRefusesAnUnrootedRun: with no
+// engine home advised there is no session home to write beneath, and the
+// tempting fallback — the user's real ~/.claude — is refused, never taken.
+func TestDeliverCommandsAndSkills_SessionHomeRefusesAnUnrootedRun(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	def := claudeDef(t)
+	project := t.TempDir()
+	start := present.New(present.OnHost(present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}}))
+	_, err := def.Commands.DeliverCommands(start, present.RootSessionHome, engine.CommandsInputs{Commands: []engine.CommandExport{{Name: "greet", Body: []byte("say hi"), Enabled: true}}}, nil)
+	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	_, err = def.Skills.DeliverSkills(start, present.RootSessionHome, engine.SkillsInputs{Skills: []engine.SkillExport{{Name: "greet", Enabled: true, Files: []engine.SkillFile{{Path: "SKILL.md", Bytes: []byte("x")}}}}}, nil)
+	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
+	home, _ := os.UserHomeDir()
+	require.NoDirExists(t, filepath.Join(home, ConfigDirName), "the real home is never written")
 }

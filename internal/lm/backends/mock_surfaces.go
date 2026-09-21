@@ -69,12 +69,11 @@ func mockSurfacePath(kind agent.SurfaceKind, start present.Start) string {
 	return start.UnderProjectRoot(mockRel[kind]).Build().HostPath
 }
 
-// mockRel is where each mock surface lands, relative to the project root —
-// the one table Present and the dir-taking path helpers both read, so Route()
-// and the delivery agree by construction. Everything roots UnderProjectRoot,
-// never UnderEngineHome — mock has no out-of-cwd redirect. claude is the one
-// shipped backend that does convert to an out-of-cwd scratch, which is what
-// this contrast exists to state.
+// mockRel is where each mock surface lands, relative to the root it is
+// delivered under — the one table Present and the dir-taking path helpers
+// both read, so Route() and the delivery agree by construction. Every form
+// composes UnderProjectRoot; the session form (scratchRooted) hands it a
+// Start whose project root is the run's Scratch.
 var mockRel = map[agent.SurfaceKind]string{
 	agent.SurfaceContext:  mockContextFilename,
 	agent.SurfaceSkills:   mockSkillsDirName,
@@ -335,11 +334,56 @@ func newMockCommandsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach 
 	})
 }
 
+// MockSessionFile is the mock's session-rooted form of every surface: the
+// same well-known file, beneath the run's Scratch instead of the project
+// root. It is each surface's DEFAULT, so a binding that selects no root
+// leaves the project tree alone (ruled 2026-09-21); the project form stays
+// selectable by name as agent.ApproachUnsafeFile.
+const MockSessionFile = "session-file"
+
+// scratchRooted rebases a project-rooted form onto the run's Scratch: the
+// inner approach presents and delivers exactly as it would beneath a project
+// root, handed a Start whose project root IS this run's Scratch. On a shared
+// cell that is the session's private directory; on an isolated cell Scratch
+// is the private checkout itself, so the rebase is the identity there. A run
+// advising no Scratch rebases onto "" and the form presents a bare relative
+// path — which is precisely what keeps selection from choosing it
+// (agent.rootedInThisRun reads that).
+func scratchRooted(ctor agent.Construct) agent.Construct {
+	return func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		return &scratchForm{inner: ctor(in, fs)}
+	}
+}
+
+type scratchForm struct{ inner agent.Approach }
+
+func (s *scratchForm) rebase(start present.Start) present.Start {
+	p := start.Paths()
+	return present.New(present.OnHost(present.Paths{
+		ProjectRoot: p.Scratch,
+		EngineHome:  p.EngineHome,
+		CtxloomHome: p.CtxloomHome,
+		Scratch:     p.Scratch,
+	}))
+}
+
+func (s *scratchForm) Present(start present.Start) present.Presentation {
+	return s.inner.Present(s.rebase(start))
+}
+
+func (s *scratchForm) Deliver(start present.Start) (agent.Delivered, error) {
+	if start.Paths().Scratch.Host == "" {
+		return nil, fmt.Errorf("%w: mock's %s form writes beneath the run's Scratch and this delivery advised none; select %s to deliver into a project root", agent.ErrUnrootedDelivery, MockSessionFile, agent.ApproachUnsafeFile)
+	}
+	return s.inner.Deliver(s.rebase(start))
+}
+
 // mockDeclaration is mock's DECLARATION for the registered backend name: per
-// surface, the one approach (unsafe-file) it constructs. It carries EVERY
-// SurfaceKind, deliberately: mock is a complete engine with no real model
-// behind it, not a hole in the registry. A partial double makes its gaps
-// load-bearing somewhere else, where nothing states that they are.
+// surface, the session-rooted form (MockSessionFile, the default) and the
+// project form (agent.ApproachUnsafeFile) of one constructor. It carries
+// EVERY SurfaceKind, deliberately: mock is a complete engine with no real
+// model behind it, not a hole in the registry. A partial double makes its
+// gaps load-bearing somewhere else, where nothing states that they are.
 //
 // It is a function of the registered NAME rather than a package-level literal
 // because four doubles share these constructors: the settings approach strips
@@ -347,23 +391,20 @@ func newMockCommandsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach 
 // spelled a hardcoded "mock" told a caller asking about mock-lossy or
 // mock-launch about a different backend entirely. It is still STATIC — no
 // roots, no run state — so Names and Default stay pure for --help.
-//
-// mock has no out-of-cwd redirect (no approach here implements
-// agent.OutOfCwd), so a SHARED-cwd delivery of any surface always falls back
-// to the loud well-known write; each surface's own UnsafeInfo is that
-// fallback's warning. No engine has an out-of-cwd flag for a skill package at
-// all, so the skills half is not a mock shortcut.
 func mockDeclaration(name string) agent.Declaration {
+	both := func(kind agent.SurfaceKind, ctor agent.Construct) agent.Presentations {
+		return agent.Presents(name, kind, MockSessionFile, scratchRooted(ctor)).Or(agent.ApproachUnsafeFile, ctor)
+	}
 	return agent.Declaration{
-		agent.SurfaceContext: agent.Presents(name, agent.SurfaceContext, agent.ApproachUnsafeFile, newMockContext),
-		agent.SurfaceSkills:  agent.Presents(name, agent.SurfaceSkills, agent.ApproachUnsafeFile, newMockSkillsSurface),
-		agent.SurfaceMCP: agent.Presents(name, agent.SurfaceMCP, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		agent.SurfaceContext: both(agent.SurfaceContext, newMockContext),
+		agent.SurfaceSkills:  both(agent.SurfaceSkills, newMockSkillsSurface),
+		agent.SurfaceMCP: both(agent.SurfaceMCP, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 			return &mockMCPSurface{bundle: in.BundleMCP, fs: agent.GetFS(fs)}
 		}),
-		agent.SurfaceSettings: agent.Presents(name, agent.SurfaceSettings, agent.ApproachUnsafeFile, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
+		agent.SurfaceSettings: both(agent.SurfaceSettings, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 			return &mockSettingsSurface{hooks: stripUnsupportedHookKinds(name, in.Hooks), fs: agent.GetFS(fs)}
 		}),
-		agent.SurfaceCommands: agent.Presents(name, agent.SurfaceCommands, agent.ApproachUnsafeFile, newMockCommandsSurface),
+		agent.SurfaceCommands: both(agent.SurfaceCommands, newMockCommandsSurface),
 	}
 }
 

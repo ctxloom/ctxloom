@@ -29,7 +29,7 @@ ctxloom manage hooks [flags]
 
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom manage hooks check](/reference/cli/ctxloom_manage_hooks_check/)	 - Show which backends have ctxloom hooks wired in
-* [ctxloom manage hooks install](/reference/cli/ctxloom_manage_hooks_install/)	 - Apply ctxloom hooks and regenerate context into backend config
+* [ctxloom manage hooks install](/reference/cli/ctxloom_manage_hooks_install/)	 - UNSAFE: write ctxloom's hooks, MCP, commands and context into the project's engine files
 * [ctxloom manage hooks list](/reference/cli/ctxloom_manage_hooks_list/)	 - List the hooks that will fire, per event, in their resolved order
 * [ctxloom manage hooks uninstall](/reference/cli/ctxloom_manage_hooks_uninstall/)	 - Remove ctxloom hooks, statusline, MCP entries, and command files
 

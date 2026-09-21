@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
@@ -27,12 +29,19 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
 	}
 
-	return agent.WriteManagedCommandFiles(fs, commandsDir, cmds,
+	return writeCommandDir(fs, commandsDir, cmds, mwOpts...)
+}
+
+// writeCommandDir writes cmds as claude slash-command files into dir — the
+// one transform both the project's .claude/commands and the session home's
+// commands directory go through.
+func writeCommandDir(fs afero.Fs, dir string, cmds []agent.CommandExport, opts ...agent.ManagedWriteOption) error {
+	return agent.WriteManagedCommandFiles(fs, dir, cmds,
 		func(c agent.CommandExport) (string, []byte, error) {
 			// Replace path separators with dashes for nested names.
 			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"
 			return filename, []byte(TransformToClaudeCommand(c)), nil
-		}, mwOpts...)
+		}, opts...)
 }
 
 // TransformToClaudeCommand converts a command export to Claude Code command

@@ -102,30 +102,55 @@ func TestMockContextPresenter_ContainerizedRun_EnginePathDivergesFromHostPath(t 
 	assert.Equal(t, present.Mount{HostDir: "/home/user/project", TargetDir: "/mnt/proj"}, mapped.Mounts()[0])
 }
 
-// mockPresent constructs the mock's DEFAULT approach for kind and presents it
-// against start — what a launch would do, minus the write.
+// mockPresent constructs the mock's PROJECT form (agent.ApproachUnsafeFile)
+// for kind and presents it against start — what a launch selecting that
+// form would do, minus the write.
 func mockPresent(t *testing.T, kind agent.SurfaceKind, start present.Start) present.Presentation {
 	t.Helper()
-	decl := mockDeclaration(config.BackendMock)
-	def, ok := decl.Default(kind)
-	require.True(t, ok)
-	a, ok := decl.Construct(kind, def, agent.SurfaceInputs{}, nil)
+	return mockPresentNamed(t, kind, agent.ApproachUnsafeFile, start)
+}
+
+func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start present.Start) present.Presentation {
+	t.Helper()
+	a, ok := mockDeclaration(config.BackendMock).Construct(kind, name, agent.SurfaceInputs{}, nil)
 	require.True(t, ok)
 	return a.Present(start)
 }
 
+// TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome pins the
+// ruling on the launch arm: every surface's DEFAULT form is MockSessionFile,
+// which presents beneath the run's Scratch — not the project root, not the
+// engine home — and presents nothing rootable when no Scratch was advised.
+func TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome(t *testing.T) {
+	decl := mockDeclaration(config.BackendMock)
+	start := present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: "/proj"},
+		EngineHome:  present.Root{Host: "/elsewhere/home"},
+		Scratch:     present.Root{Host: "/sessions/harp/ephemeral"},
+	}))
+	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
+		def, ok := decl.Default(kind)
+		require.True(t, ok)
+		assert.Equal(t, MockSessionFile, def, "kind %v", kind)
+		got := mockPresentNamed(t, kind, def, start)
+		assert.Equal(t, filepath.Join("/sessions/harp/ephemeral", filepath.FromSlash(mockRel[kind])), got.HostPath, "kind %v", kind)
+	}
+	unrooted := mockPresentNamed(t, agent.SurfaceContext, MockSessionFile, twoDistinguishableRoots("/proj", "/elsewhere/home"))
+	assert.False(t, filepath.IsAbs(unrooted.HostPath), "with no Scratch advised the session form is not rootable: %q", unrooted.HostPath)
+}
+
 // TestMockDeclaration_UnsupportedApproach_IsRefused pins the branch Build
 // takes when the KIND is declared but the requested APPROACH is not one of
-// its names — mock declares only unsafe-file, so asking for ApproachHook on
-// the context surface must be refused, not silently resolved to something
-// else. The message must distinguish "the approach is unsupported" from "the
+// its names — mock declares the session and project forms only, so asking
+// for ApproachHook on the context surface must be refused, not silently
+// resolved to something else. The message must distinguish "the approach is unsupported" from "the
 // kind is absent": it names the surface, the name and what IS declared.
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 	decl := mockDeclaration(config.BackendMock)
 
 	_, err := agent.Select(decl).With(agent.SurfaceContext, agent.ApproachHook).Build(agent.SurfaceInputs{Context: "X"}, nil)
 	require.Error(t, err)
-	assert.Equal(t, `mock: surface context: approach "hook" not supported (supports unsafe-file)`, err.Error())
+	assert.Equal(t, `mock: surface context: approach "hook" not supported (supports session-file, unsafe-file)`, err.Error())
 }
 
 // TestMockDeclaration_UnsupportedKind_IsAbsent pins that a KIND absent from

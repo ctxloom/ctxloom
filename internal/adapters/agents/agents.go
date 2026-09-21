@@ -78,8 +78,12 @@ type Agent struct {
 	// Roots is this binding's ROOT selection per surface kind
 	// (delivery.Preference.Root): under which of the roots the engine's
 	// approach for that kind offers its items land — "session-home",
-	// "project-root" (the shared root, selected here and never fallen back
-	// to) or "work-dir". Empty takes each approach's default. Validated
+	// "project-root" or "work-dir". Empty takes each approach's default,
+	// and every default is the session home: a session delivers only into
+	// its own home. project-root and work-dir are the UNSAFE selections —
+	// the shared tree every concurrent session reads, written only by this
+	// selection and never fallen back to; a run that takes one names the
+	// route unsafe in its dry-run plan and launch banner. Validated
 	// against the engine's declared approaches when WRITTEN
 	// (operations.ResolveAgentRoots), so a run never sees a root the
 	// approach does not offer.
@@ -128,8 +132,9 @@ type Agent struct {
 	// workspace (which isolates the FILES). It decides WHICH HOME the engine
 	// runs against — the directory holding its credentials, memory, plugins,
 	// personal MCP registrations, global agents and steering: a
-	// ctxloom-CONTROLLED, PER-SESSION home under .ctxloom/state/<harp>/home/
-	// <leaf> (HomeModeSession), or the home its runtime gives it
+	// ctxloom-CONTROLLED, PER-SESSION home (paths.HarpSessionHome, under
+	// the ctxloom home's sessions/<harp>/home/<leaf>) (HomeModeSession), or
+	// the home its runtime gives it
 	// (HomeModeHost — the engine's REAL host home, which ctxloom never
 	// writes, or a container's own fresh $HOME). It is the single source of
 	// truth for operations.ResolveInTreeAgentHome's

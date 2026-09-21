@@ -568,10 +568,13 @@ func doctorCheckVersion() DoctorCheck {
 // doctorCheckHooksTrust cross-references doctorConfiguredEngines (every
 // backend a configured agent resolves to) against HarnessStatus —
 // the SAME read `ctxloom manage check`/`ctxloom manage hooks check` already
-// expose — reporting hooks AND MCP registration per backend (a real
-// read, not a bare file-existence guess), plus how many signers the trust
-// store carries (ListSigners — always includes the embedded root,
-// so a healthy store is never reported as empty).
+// expose — reporting the DELIVERY POSTURE per backend: a `ctxloom run`
+// session carries its own hooks and MCP in its session home, and the
+// project-side files are the explicit `manage hooks install` door's, so
+// their absence is the correct state of a project and is reported as such,
+// never as a fault (ruled 2026-09-21). Plus how many signers the trust store
+// carries (ListSigners — always includes the embedded root, so a healthy
+// store is never reported as empty).
 func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error) DoctorCheck {
 	const marker = "DOCTOR-CHECK-HOOKS-TRUST-d4"
 	if cfgErr != nil {
@@ -586,9 +589,12 @@ func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error
 	return DoctorCheck{Marker: marker, Status: status, Detail: strings.Join([]string{hooks, trust}, "; ")}
 }
 
-// doctorHooksWiringDetail reports hooks + MCP registration for every backend a
+// doctorHooksWiringDetail reports the delivery posture for every backend a
 // configured agent resolves to, reading HarnessStatus (the SAME read
-// `ctxloom manage check` exposes). ok=false is the caller's warn signal.
+// `ctxloom manage check` exposes): which backends carry project-side hooks
+// and MCP (the explicit `manage hooks install` door) and which rely on the
+// session's own delivery — both are healthy states. ok=false is the caller's
+// warn signal, raised only when the read itself fails.
 func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail string, ok bool) {
 	configured := doctorConfiguredEngines(cfg)
 	if len(configured) == 0 {
@@ -602,20 +608,24 @@ func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail st
 	for _, b := range result.Backends {
 		byBackend[b.Backend] = b
 	}
-	var present, missing []string
+	var project, session []string
 	for _, name := range configured {
 		if b, found := byBackend[name]; !found || !b.SettingsExists || !b.HooksPresent {
-			missing = append(missing, name)
+			session = append(session, name)
 			continue
 		}
-		present = append(present, name)
+		project = append(project, name)
 	}
-	sort.Strings(present)
-	sort.Strings(missing)
-	if len(missing) > 0 {
-		return "hooks/MCP NOT registered in the project for: " + strings.Join(missing, ", ") + " (a `ctxloom run` session carries its own; `ctxloom manage hooks install` writes them into the project)", false
+	sort.Strings(project)
+	sort.Strings(session)
+	var parts []string
+	if len(session) > 0 {
+		parts = append(parts, "hooks/MCP delivered per session (the session home; nothing project-side) for: "+strings.Join(session, ", "))
 	}
-	return "hooks/MCP registered for: " + strings.Join(present, ", "), true
+	if len(project) > 0 {
+		parts = append(parts, "hooks/MCP also registered in the project (the explicit `manage hooks install` door) for: "+strings.Join(project, ", "))
+	}
+	return strings.Join(parts, "; "), true
 }
 
 // doctorTrustStoreDetail reports how much trust the store actually grants, from

@@ -36,6 +36,30 @@ flowchart TB
     EMPTY --> STATIC
 ```
 
+## The root order: the session home first, the project only by selection
+
+Every static approach of every engine declares `present.RootSessionHome`
+FIRST in its `Traits().Roots` — the root `Route` takes when the binding
+selects none — and offers `present.RootProjectRoot` second (ruled
+2026-09-21; pinned per engine by each engine package's
+`TestBuild_EverySurfaceDefaultsToTheSessionHome` and
+`TestRoute_DefaultBindingPlansOnlySessionHomeRoots`). A session delivers
+only into its session home. The project root is reached only by the
+binding's `roots:` selection (`delivery.Preference.Root`), and that
+selection IS the unsafe option: the config reference names it so, `run
+--dry-run` marks the route unsafe in its delivery section, and the launch
+banner names it before the engine spawns. The user's real home is never
+written — an approach that lands beneath the engine home refuses a run that
+advised none (`agent.ErrUnrootedEngineHome`). The explicit project-side
+door is `manage hooks install`.
+
+On the host arm the plugin run-start selects legacy forms by name;
+`operations.PreferPlanRoots` projects the plan's project routes onto that
+selection so `roots:` governs it too, and the mock's legacy default form is
+its session form (`backends.MockSessionFile`). Open: claude on that arm
+under `engine_home: host` advises no session home for context and MCP, so
+`SurfaceSelection.keepOrReroot` still selects the project file there.
+
 ## Who delivers, and under which writer
 
 | Caller | Target | Writer | Symbol |

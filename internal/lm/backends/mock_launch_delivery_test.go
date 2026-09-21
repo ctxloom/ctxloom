@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
@@ -25,6 +26,9 @@ import (
 // Every assertion below is on delivered BYTES or their deliberate absence.
 // "Setup returned nil" is precisely what the broken version also did.
 
+// launchHarp is the session every launch request below runs as.
+const launchHarp = "perky-same-chevy"
+
 // launchSetupRequest is the SetupRequest a live turn hands a backend, in the
 // shape grpc.SetupFromRunStart builds it: the resolved workspace, the run's
 // fragments, the host-assembled managed payload, and the resolved cell. It is a
@@ -34,11 +38,23 @@ import (
 func launchSetupRequest(workDir string, fragments []*agent.Fragment, managed *agent.ManagedConfig) *agent.SetupRequest {
 	return &agent.SetupRequest{
 		WorkDir:   workDir,
-		Env:       map[string]string{agent.SessionHarpEnv: "perky-same-chevy"},
+		Env:       map[string]string{agent.SessionHarpEnv: launchHarp},
 		Fragments: fragments,
 		Managed:   managed,
 		CellKind:  agent.CellKindShared,
 	}
+}
+
+// sessionDelivery is where a shared-cell launch with no explicit surface
+// selection lands the mock's context: beneath the session's own scratch,
+// never the project (the default form is MockSessionFile). HOME is pointed
+// at a temp dir so the scratch is the test's, not the developer's.
+func sessionDelivery(t *testing.T) string {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	scratch, err := paths.HarpEphemeralDir(launchHarp)
+	require.NoError(t, err)
+	return filepath.Join(scratch, mockContextFilename)
 }
 
 // hostManagedConfig is the minimal non-nil payload backends.AssembleManagedConfig
@@ -51,19 +67,21 @@ func hostManagedConfig() *agent.ManagedConfig {
 
 // TestMock_Setup_DeliversContextBytesOnTheLaunchPath is the headline: the SAME
 // Setup a live `ctxloom run --backend mock` invokes must leave the composed
-// context in MOCK_CONTEXT.md, inside the managed markers. Before Mock embedded
-// agent.LaunchBackend, this Setup stashed its payload, returned nil, and wrote
-// zero bytes — the file assertion below is the only thing that separates those
-// two worlds.
+// context in the session's MOCK_CONTEXT.md, inside the managed markers, and
+// leave the project tree alone. Before Mock embedded agent.LaunchBackend,
+// this Setup stashed its payload, returned nil, and wrote zero bytes — the
+// file assertion below is the only thing that separates those two worlds.
 func TestMock_Setup_DeliversContextBytesOnTheLaunchPath(t *testing.T) {
+	delivered := sessionDelivery(t)
 	dir := t.TempDir()
 	m := NewMock()
 
 	require.NoError(t, m.Setup(context.Background(),
 		launchSetupRequest(dir, []*agent.Fragment{{Content: "LAUNCH-MARKER-4c81"}}, hostManagedConfig())))
 
-	got, err := os.ReadFile(filepath.Join(dir, mockContextFilename))
-	require.NoError(t, err, "the launch path must have written %s", mockContextFilename)
+	assert.NoFileExists(t, filepath.Join(dir, mockContextFilename), "a default launch never writes the project")
+	got, err := os.ReadFile(delivered)
+	require.NoError(t, err, "the launch path must have written the session's %s", mockContextFilename)
 	body := string(got)
 	assert.Contains(t, body, "LAUNCH-MARKER-4c81",
 		"the delivered file must carry the run's actual composed bytes")
@@ -86,15 +104,16 @@ func TestMock_Setup_DeliversContextBytesOnTheLaunchPath(t *testing.T) {
 // than deleted because the CLAIM is still worth pinning — a future change that
 // quietly restores exit-time removal must redden something.
 func TestMock_Cleanup_LeavesTheLaunchDeliveryInPlace(t *testing.T) {
+	delivered := sessionDelivery(t)
 	dir := t.TempDir()
 	m := NewMock()
 	require.NoError(t, m.Setup(context.Background(),
 		launchSetupRequest(dir, []*agent.Fragment{{Content: "TEARDOWN-MARKER-77b0"}}, hostManagedConfig())))
-	require.FileExists(t, filepath.Join(dir, mockContextFilename), "precondition: Setup delivered")
+	require.FileExists(t, delivered, "precondition: Setup delivered")
 
 	require.NoError(t, m.Cleanup(context.Background()))
 
-	require.FileExists(t, filepath.Join(dir, mockContextFilename),
+	require.FileExists(t, delivered,
 		"Cleanup must NOT remove a project surface: startup reconciles it, and clean/uninstall are what remove it. Exit-time removal made the end state depend on how the process died")
 }
 
@@ -130,6 +149,7 @@ func TestMock_Setup_NilManaged_DeliversNothing(t *testing.T) {
 // checking them in separate tests would not catch a Setup that delivered by
 // consuming the fragments it was meant to stash.
 func TestMock_SetupThenExecute_DeliveryIsAdditiveToTheEcho(t *testing.T) {
+	deliveredPath := sessionDelivery(t)
 	dir := t.TempDir()
 	recordFile := filepath.Join(dir, "record.txt")
 	m := NewMock()
@@ -151,7 +171,7 @@ func TestMock_SetupThenExecute_DeliveryIsAdditiveToTheEcho(t *testing.T) {
 	require.Equal(t, int32(0), res.ExitCode)
 
 	// 1. The surface still holds the delivered bytes.
-	delivered, err := os.ReadFile(filepath.Join(dir, mockContextFilename))
+	delivered, err := os.ReadFile(deliveredPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(delivered), "ADDITIVE-MARKER-5d19")
 
@@ -178,15 +198,19 @@ func TestMock_SetupThenExecute_DeliveryIsAdditiveToTheEcho(t *testing.T) {
 // human-editable managed-marker file like CLAUDE.md, so a launch delivery into a
 // project that already has one must merge, not clobber. Proven on the LAUNCH
 // path (not just the surface's own unit test) because that is where a real user
-// meets it.
+// meets it. The project is reached by SELECTING the project form — the
+// binding's explicit, unsafe choice — since no default lands there.
 func TestMock_Setup_PreservesUserContentOutsideTheMarkers(t *testing.T) {
+	sessionDelivery(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, mockContextFilename)
 	require.NoError(t, os.WriteFile(path, []byte("# hand written\nUSER-PROSE-6e44\n"), 0o644))
 
 	m := NewMock()
+	managed := hostManagedConfig()
+	managed.Surfaces = map[agent.SurfaceKind]string{agent.SurfaceContext: agent.ApproachUnsafeFile}
 	require.NoError(t, m.Setup(context.Background(),
-		launchSetupRequest(dir, []*agent.Fragment{{Content: "MERGED-MARKER-8b03"}}, hostManagedConfig())))
+		launchSetupRequest(dir, []*agent.Fragment{{Content: "MERGED-MARKER-8b03"}}, managed)))
 
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)

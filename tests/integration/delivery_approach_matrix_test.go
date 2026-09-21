@@ -196,6 +196,13 @@ type deliverySpec struct {
 	// a private-home delivery that also touched the project tree would be
 	// the shared-cwd exposure the approach exists to avoid.
 	underEngineHome bool
+	// underScratch roots wantFile beneath the run's SCRATCH — the session's
+	// own directory — rather than the project root: the approach is an
+	// engine's session form, the default a binding that selects no root
+	// gets, and it refuses a Start that advises no Scratch rather than
+	// writing a bare relative path. The loop advises both roots for such a
+	// pair and asserts the project root stays EMPTY.
+	underScratch bool
 	// alsoFile / alsoSlot pin a SECOND route the same pair delivers (a
 	// hook approach writes both the cache file the hook reads and the native
 	// AGENTS.md). alsoFile may end in "/*" to match one file in that directory.
@@ -255,6 +262,14 @@ var matrixSpecs = map[string]deliverySpec{
 	"mock/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
 	"mock/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
 	"mock/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	// The session form of each surface (backends.MockSessionFile, the
+	// DEFAULT): the same well-known file beneath the run's Scratch, so a
+	// binding that selects no root leaves the project tree alone.
+	"mock/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
+	"mock/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
+	"mock/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
+	"mock/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHook, underScratch: true},
+	"mock/commands/session-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand, underScratch: true},
 
 	// ---- mock-lossy ----------------------------------------------------
 	// Byte-for-byte mock's surfaces: it shares NewMockSurfaces and differs ONLY
@@ -284,8 +299,13 @@ var matrixSpecs = map[string]deliverySpec{
 	// and slotHook's ABSENCE in
 	// TestDeliveryApproach_HookCarriageMatchesDeclaration is what separates
 	// "honoured the declaration" from "carried nothing at all".
-	"mock-lossy/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool},
-	"mock-lossy/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"mock-lossy/settings/unsafe-file":  {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool},
+	"mock-lossy/commands/unsafe-file":  {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"mock-lossy/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
+	"mock-lossy/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
+	"mock-lossy/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
+	"mock-lossy/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHookPreTool, underScratch: true},
+	"mock-lossy/commands/session-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand, underScratch: true},
 
 	// ---- mock-launch ---------------------------------------------------
 	// ONE row, and the absence of the other four is the assertion. This double
@@ -294,7 +314,8 @@ var matrixSpecs = map[string]deliverySpec{
 	// launchOnlySettingsReason and reported by backends.LaunchOnlySurfaces
 	// rather than written anywhere a static caller could find them. If rows for
 	// them ever appear here, the double has stopped being launch-delivered.
-	"mock-launch/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock-launch/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock-launch/context/session-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
 
 	// ---- mock-noskills -------------------------------------------------
 	// Byte-for-byte mock's surfaces, because it shares NewMockSurfaces and
@@ -316,11 +337,16 @@ var matrixSpecs = map[string]deliverySpec{
 	// operations.TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext.
 	// A reader who expects a missing surface here will look for one and not find
 	// it.
-	"mock-noskills/context/unsafe-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
-	"mock-noskills/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
-	"mock-noskills/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
-	"mock-noskills/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"mock-noskills/skills/unsafe-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	"mock-noskills/context/unsafe-file":   {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock-noskills/mcp/unsafe-file":       {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
+	"mock-noskills/settings/unsafe-file":  {wantFile: ".mock/settings.json", wantSlot: slotHook},
+	"mock-noskills/commands/unsafe-file":  {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"mock-noskills/skills/unsafe-file":    {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	"mock-noskills/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
+	"mock-noskills/mcp/session-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd, underScratch: true},
+	"mock-noskills/settings/session-file": {wantFile: ".mock/settings.json", wantSlot: slotHook, underScratch: true},
+	"mock-noskills/commands/session-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand, underScratch: true},
+	"mock-noskills/skills/session-file":   {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill, underScratch: true},
 }
 
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds the DERIVED matrix equal
@@ -423,14 +449,24 @@ func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 						}))
 						deliveryRoot = home
 					}
+					if spec.underScratch {
+						const scratch = "/session-scratch"
+						_, unrooted := d.Deliver(present.ProjectOnHost(root))
+						require.ErrorIs(t, unrooted, agent.ErrUnrootedDelivery, "%s: a session form must refuse a Start that advises no Scratch", key)
+						start = present.New(present.OnHost(present.Paths{
+							ProjectRoot: present.Root{Host: root},
+							Scratch:     present.Root{Host: scratch},
+						}))
+						deliveryRoot = scratch
+					}
 					_, derr := d.Deliver(start)
 					require.NoError(t, derr, "%s: delivery failed", key)
 
 					tree := matrixTree(t, fs, deliveryRoot)
 					require.NotEmpty(t, tree, "%s: delivery reported success and wrote ZERO files", key)
-					if spec.underEngineHome {
+					if spec.underEngineHome || spec.underScratch {
 						assert.Empty(t, matrixTree(t, fs, root),
-							"%s promises a private-home delivery but wrote into the PROJECT root", key)
+							"%s promises a delivery outside the project but wrote into the PROJECT root", key)
 					}
 
 					assertSentinelAt(t, key, tree, spec.wantFile, spec.wantSlot)
@@ -740,8 +776,16 @@ func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 			root := "/cell"
 			require.NoError(t, fs.MkdirAll(root, 0o755))
 
+			// The default set delivers at rest here; an engine whose default is
+			// its session form lands beneath the Scratch, so one is advised and
+			// both roots are scanned — where the hook lands is not the question.
+			const scratch = "/session-scratch"
+			start := present.New(present.OnHost(present.Paths{
+				ProjectRoot: present.Root{Host: root},
+				Scratch:     present.Root{Host: scratch},
+			}))
 			inputs := matrixSentinelInputs()
-			_, _, errs := agent.Select(backends.Declared(name)).WithEverything().DeliverUnder(inputs, fs, present.ProjectOnHost(root))
+			_, _, errs := agent.Select(backends.Declared(name)).WithEverything().DeliverUnder(inputs, fs, start)
 			// A LaunchOnly approach has no argv sink at rest, so DeliverUnder
 			// REFUSES it — that refusal is the declared behaviour this loop is
 			// checking the loss report against, not a failure of it. Anything
@@ -751,7 +795,7 @@ func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
 					"%s: unexpected at-rest delivery error", name)
 			}
 
-			hookFiles := findSentinel(matrixTree(t, fs, root), slotHook)
+			hookFiles := append(findSentinel(matrixTree(t, fs, root), slotHook), findSentinel(matrixTree(t, fs, scratch), slotHook)...)
 			declaredLoss := append(backends.UncarriedSurfaces(name, inputs),
 				backends.LaunchOnlySurfaces(name, inputs)...)
 

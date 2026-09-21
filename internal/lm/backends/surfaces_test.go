@@ -40,7 +40,7 @@ func TestDeclared_Mock(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	resolved, err := agent.Select(Declared("mock")).WithEverything().Build(agent.SurfaceInputs{
+	resolved, err := projectForms(agent.Select(Declared("mock")).WithEverything()).Build(agent.SurfaceInputs{
 		Context: "MOCK-CONTEXT-PAYLOAD",
 		Skills: []agent.SkillExport{{Name: "reviewer", Enabled: true, Files: []agent.PackageFile{
 			{RelPath: "SKILL.md", Content: []byte("MOCK-SKILL-PAYLOAD")},
@@ -86,7 +86,7 @@ func TestDeclared_WritesOnlyItsOwnNativeContextFile(t *testing.T) {
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	_, _, errs := agent.Select(Declared("mock")).WithEverything().DeliverUnder(agent.SurfaceInputs{
+	_, _, errs := projectForms(agent.Select(Declared("mock")).WithEverything()).DeliverUnder(agent.SurfaceInputs{
 		Context:   "assembled context",
 		Hooks:     &wire.HooksConfig{},
 		BundleMCP: map[string]wire.MCPServer{},

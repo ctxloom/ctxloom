@@ -97,6 +97,9 @@ type dryRunJSON struct {
 	Profiles  []string `json:"profiles"`
 	Fragments []string `json:"fragments"`
 	Context   string   `json:"context"`
+	// Delivery is the plan's static routes: each surface's root, the
+	// project-root and work-dir routes marked unsafe.
+	Delivery []routeJSON `json:"delivery"`
 	// Tokens is the estimated token count of the assembled Context, computed by
 	// the backend (internal/tokens) so a client previewing a profile reads one
 	// authoritative estimate instead of re-deriving its own chars/token guess.
@@ -868,6 +871,7 @@ func (st *runState) emitDryRun() error {
 		Profiles:  orEmpty(pkg.Selection.Profiles),
 		Fragments: orEmpty(pkg.Loaded),
 		Context:   context,
+		Delivery:  deliveryRoutes(l.Plan),
 		Tokens:    tokens.Estimate(context),
 		Prompt:    st.prompt,
 	}
@@ -894,6 +898,7 @@ func (st *runState) emitDryRun() error {
 		} else {
 			fmt.Println("(no fragments)")
 		}
+		printDeliveryRoutes(os.Stdout, payload.Delivery)
 		fmt.Printf("\n=== Assembled Context (~%d tokens) ===\n", payload.Tokens)
 		if context != "" {
 			fmt.Println(context)
@@ -974,6 +979,7 @@ func (st *runState) openSessionBanner() func() {
 		Profiles:  st.opened.Package.Selection.Profiles,
 		Fragments: st.opened.Package.Loaded,
 		Tokens:    tokens.Estimate(st.opened.Package.Context.Text),
+		Unsafe:    unsafeRouteLabels(st.launch.Plan),
 		Previous:  previous,
 	})
 

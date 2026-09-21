@@ -45,7 +45,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -186,11 +185,15 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 }
 
 // TestManagedSettings_Antigravity tests writing Antigravity hooks with FS injection.
-// TestManagedSettings_UnsupportedBackend tests that unsupported backends deliver
-// nothing (EmptySurfaceSet) rather than erroring.
+// TestManagedSettings_UnsupportedBackend tests that an unsupported backend
+// declares nothing to deliver rather than erroring.
 func TestManagedSettings_UnsupportedBackend(t *testing.T) {
-	_, _, errs := agent.Select(backends.Declared("unknown-backend")).WithEverything().DeliverUnder(agent.SurfaceInputs{}, afero.NewMemMapFs(), present.ProjectOnHost("/project"))
-	assert.Empty(t, errs, "unsupported backend materializes nothing")
+	decl := backends.Declared("unknown-backend")
+	for _, kind := range agent.SurfaceKindNames() {
+		k, err := agent.ParseSurfaceKind(kind)
+		require.NoError(t, err)
+		assert.Empty(t, decl.Names(k), "unsupported backend declares no %s delivery", kind)
+	}
 }
 
 // TestManagedSettings_PreservesExistingSettings verifies that user customizations survive.

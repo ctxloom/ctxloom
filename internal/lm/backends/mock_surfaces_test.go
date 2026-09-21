@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // This file hermetically proves the mock engine's context and skills routes —
@@ -231,20 +230,6 @@ func mockContext(content string, fs afero.Fs) contextApproach {
 	return newMockContext(agent.SurfaceInputs{Context: content}, fs).(contextApproach)
 }
 
-// TestMockContext_ResolvedApproachReadsItsOwnState proves the design's "the
-// object that applied answers for it" property through the path a real caller
-// takes: the context approach Build constructs is the one that implements
-// agent.StateReader — not a second, independently-constructed reporting path
-// that could disagree with the one that delivered.
-func TestMockContext_ResolvedApproachReadsItsOwnState(t *testing.T) {
-	resolved, err := agent.Select(mockDeclaration(config.BackendMock)).With(agent.SurfaceContext, agent.ApproachUnsafeFile).Build(agent.SurfaceInputs{Context: "X"}, afero.NewMemMapFs())
-	require.NoError(t, err)
-	approaches := resolved.Approaches()
-	require.Len(t, approaches, 1)
-	_, ok := approaches[0].Approach.(agent.StateReader)
-	require.True(t, ok, "the resolved context approach must also implement agent.StateReader")
-}
-
 // TestMockDeclaration_DeclaresEveryKind pins mock's declared scope: EVERY
 // SurfaceKind is declared, because mock is a complete engine with no real
 // model behind it rather than a partial one.
@@ -269,54 +254,6 @@ func TestMockDeclaration_DeclaresEveryKind(t *testing.T) {
 		require.True(t, ok, "%s must construct at its default", kind)
 		require.NotNil(t, a, "%s constructed a nil approach", kind)
 	}
-}
-
-// TestMockSurfaces_WithEverything_MaterializesEverySurface is the end-to-end
-// payload proof through the SAME builder path a real caller (materialize)
-// uses: WithEverything + DeliverUnder must land EVERY surface's bytes, each at
-// the path its route promises.
-//
-// Asserting the delivered COUNT as well as the bytes is deliberate: a set that
-// silently dropped one kind would still satisfy every individual file
-// assertion below, and the count is the only thing that notices.
-func TestMockSurfaces_WithEverything_MaterializesEverySurface(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	dir := "/target"
-	require.NoError(t, fs.MkdirAll(dir, 0o755))
-
-	delivered, kinds, errs := projectForms(agent.Select(mockDeclaration(config.BackendMock)).WithEverything()).DeliverUnder(agent.SurfaceInputs{
-		Context:   "END-TO-END-MARKER",
-		Skills:    []agent.SkillExport{reviewerSkillExport()},
-		BundleMCP: map[string]wire.MCPServer{"postgres": {Command: "mcp-postgres"}},
-		Hooks:     &wire.HooksConfig{},
-		Commands:  []agent.CommandExport{{Name: "review", Content: "REVIEW-COMMAND-BODY", Enabled: true}},
-	}, fs, present.ProjectOnHost(dir))
-	require.Empty(t, errs)
-	require.Len(t, delivered, 5, "every declared surface must actually deliver")
-	require.ElementsMatch(t, []agent.SurfaceKind{
-		agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings,
-		agent.SurfaceCommands, agent.SurfaceSkills,
-	}, kinds)
-
-	got, err := afero.ReadFile(fs, filepath.Join(dir, mockContextFilename))
-	require.NoError(t, err)
-	assert.Contains(t, string(got), "END-TO-END-MARKER")
-
-	skill, err := afero.ReadFile(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(skill), "MOCK-SKILL-BODY-2c7e")
-
-	mcp, err := afero.ReadFile(fs, mockMCPPath(dir))
-	require.NoError(t, err)
-	assert.Contains(t, string(mcp), "mcp-postgres")
-
-	settings, err := afero.ReadFile(fs, mockSettingsPath(dir))
-	require.NoError(t, err)
-	assert.Contains(t, string(settings), "hooks")
-
-	cmd, err := afero.ReadFile(fs, filepath.Join(mockCommandsPath(dir), "review.md"))
-	require.NoError(t, err)
-	assert.Contains(t, string(cmd), "REVIEW-COMMAND-BODY")
 }
 
 // ---------------------------------------------------------------------------
@@ -505,31 +442,4 @@ func TestMockSkillsSurface_Cleanup_LeavesUserAuthoredFilesAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "USER-AUTHORED-4f10", string(got),
 		"a user's own skill package must survive ctxloom's reversal byte-for-byte")
-}
-
-// projectForms selects the PROJECT form of every mock surface: an at-rest
-// delivery into a target dir advises no Scratch, so the session default
-// (MockSessionFile) has nowhere to land there and refuses. The project form
-// is the explicit choice such a delivery makes.
-func projectForms(sel *agent.SurfaceSelection) *agent.SurfaceSelection {
-	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
-		sel = sel.With(kind, agent.ApproachUnsafeFile)
-	}
-	return sel
-}
-
-// TestMockSessionForm_RefusesAnAtRestDelivery: with no Scratch advised the
-// session form refuses rather than writing a bare relative path wherever
-// the process happens to be.
-func TestMockSessionForm_RefusesAnAtRestDelivery(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	_, _, errs := agent.Select(mockDeclaration(config.BackendMock)).WithEverything().DeliverUnder(agent.SurfaceInputs{
-		Context: "X", Hooks: &wire.HooksConfig{}, BundleMCP: map[string]wire.MCPServer{},
-	}, fs, present.ProjectOnHost("/target"))
-	require.NotEmpty(t, errs)
-	for _, err := range errs {
-		assert.ErrorIs(t, err, agent.ErrUnrootedDelivery)
-	}
-	entries, _ := afero.ReadDir(fs, "/")
-	assert.Empty(t, entries, "nothing was written anywhere")
 }

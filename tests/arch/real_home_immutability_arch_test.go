@@ -21,7 +21,6 @@
 package arch
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -35,7 +34,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -174,9 +175,8 @@ func launchManaged() *agent.ManagedConfig {
 
 // TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch is the gate.
 // A `engine_home: session` run of every home-controlled engine resolves its
-// per-session instance and, for codex (the only engine with home-keyed
-// surfaces), performs the full Setup delivery into it. Afterwards every real
-// host home must hash exactly as it did before.
+// per-session instance and performs the launch delivery into it. Afterwards
+// every real host home must hash exactly as it did before.
 //
 // MUTATION TARGET: make any prepare/delivery step write into the real home —
 // copy a credential back, pre-seed trust there, write a managed [hooks] table
@@ -253,33 +253,38 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 		t.Errorf("the agent's credential must be the orchestrator's access half only.\nplaced: %s", s)
 	}
 
-	// Drive a real Setup against the instance the contribution just named, so
-	// the invariant below is asserted over a launch that actually delivered
-	// rather than one that did nothing.
+	// Drive the real delivery against the instance the contribution just
+	// named — the engine Definition's approaches, under the roots the runner
+	// advises (the project as the workspace, the instance as the engine
+	// home) — so the invariant below is asserted over a launch that actually
+	// delivered rather than one that did nothing.
 	//
 	// NOTE ON REACH: no currently-registered engine keys its hooks, MCP
 	// servers, prompts and skills to its HOME — the engine that did is gone —
-	// so this drives the cwd-keyed path only. A home-keyed engine's Setup is
-	// the fullest home-writing path there is, and until one exists again this
-	// gate does not cover it.
-	b := claude.NewClaudeCode()
-	if err := b.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir: workDir,
-		Env: map[string]string{
-			claude.ConfigDirEnv: instances["claude-code"],
-			// CellKindShared's Setup now refuses loudly without a resolvable
-			// harp (ErrSharedScratchNoHarp) instead of silently falling back
-			// to the OS temp dir — see taskloom urgent-staunch.
-			agent.SessionHarpEnv: "perky-same-chevy",
-		},
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		CellKind:  agent.CellKindShared,
-		Managed:   launchManaged(),
-	}); err != nil {
-		t.Fatalf("claude Setup: %v", err)
+	// so this drives the cwd-keyed path only. A home-keyed engine's delivery
+	// is the fullest home-writing path there is, and until one exists again
+	// this gate does not cover it.
+	eng, err := claude.Build()
+	if err != nil {
+		t.Fatalf("claude engine: %v", err)
+	}
+	def := eng.Root().Definition
+	start := present.New(present.OnHost(present.Paths{
+		ProjectRoot: present.Root{Host: workDir, Engine: workDir},
+		EngineHome:  present.Root{Host: instances["claude-code"], Engine: instances["claude-code"]},
+	}))
+	managed := launchManaged()
+	if _, err := def.Context.DeliverContext(start, present.RootProjectRoot, engine.ContextInputs{Text: []byte("project rules")}, nil); err != nil {
+		t.Fatalf("claude context delivery: %v", err)
+	}
+	if _, err := def.MCP.DeliverMCP(start, present.RootProjectRoot, engine.MCPInputs{Servers: managed.BundleMCP}, nil); err != nil {
+		t.Fatalf("claude MCP delivery: %v", err)
+	}
+	if _, err := def.Hooks.DeliverHooks(start, present.RootProjectRoot, engine.HooksInputs{Hooks: managed.Hooks.Unified}, nil); err != nil {
+		t.Fatalf("claude hooks delivery: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(workDir, claude.ConfigDirName)); err != nil {
-		t.Fatalf("claude's Setup delivered nothing into the project (%v); the invariant below would be vacuous", err)
+		t.Fatalf("claude's delivery landed nothing in the project (%v); the invariant below would be vacuous", err)
 	}
 
 	after := realHomeSnapshot(t, home)

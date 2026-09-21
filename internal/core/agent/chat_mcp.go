@@ -9,8 +9,8 @@ import (
 
 // ComposeChatMCPServers maps the ctxloom-managed MCP server set onto
 // caller-supplied chat servers (ChatRequest.MCPServers → session/new
-// mcpServers) for the structured paths, which never run backend Setup and so
-// never get its settings-file write. The source is the one
+// mcpServers) for the structured paths, which carry the servers by name
+// rather than through a settings-file write. The source is the one
 // claude.ClaudeCodeHookWriter.writeMCPConfig reconciles into an engine's MCP
 // registry file: bundle-shipped servers (config.ResolveBundleMCPServers — the builtin
 // bundles, each discovered companion's own loadout, and the profile→bundle
@@ -63,9 +63,8 @@ func ChatMCPServerFromWire(name string, s wire.MCPServer) ChatMCPServer {
 }
 
 // ChatMCPServers composes the chat-injectable server set from a host-assembled
-// managed payload — the SAME payload RunStart ships to Setup — for a
-// structured run that bypasses Setup. A nil payload injects nothing (the host
-// assembled none; Setup would have flushed nothing either).
+// managed payload — the names the owner run's journal records. A nil payload
+// injects nothing (the host assembled none).
 func (m *ManagedConfig) ChatMCPServers() []ChatMCPServer {
 	if m == nil {
 		return nil

@@ -98,5 +98,8 @@ Feature: Distilling authored content — does the compression happen, is it kept
     When I run "ctxloom fragment distill lore#fragments/rules -f"
     Then the command succeeds
     And the fragment "rules" in bundle "lore" has no distilled rendering
+    # The failure names the engine's exit either way the race lands: the turn
+    # frame answers with the engine's own error ("the engine process exited 1"),
+    # or the runner's exit wins and the run's terminal names it ("exit status 1").
     And the output contains "failed: agent run:"
-    And the output contains "the engine process exited 1"
+    And the output contains "exit"

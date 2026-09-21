@@ -148,9 +148,9 @@ func TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome(t *testing
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 	decl := mockDeclaration(config.BackendMock)
 
-	_, err := agent.Select(decl).With(agent.SurfaceContext, agent.ApproachHook).Build(agent.SurfaceInputs{Context: "X"}, nil)
-	require.Error(t, err)
-	assert.Equal(t, `mock: surface context: approach "hook" not supported (supports session-file, unsafe-file)`, err.Error())
+	_, ok := decl.Construct(agent.SurfaceContext, agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
+	assert.False(t, ok, "an undeclared approach is refused")
+	assert.NotContains(t, decl.Names(agent.SurfaceContext), agent.ApproachHook)
 }
 
 // TestMockDeclaration_UnsupportedKind_IsAbsent pins that a KIND absent from

@@ -307,10 +307,9 @@ func (m *mockBackend) Version() string { return "1.0.0" }
 func (m *mockBackend) SupportedModes() []agent.ExecutionMode {
 	return []agent.ExecutionMode{agent.ModeInteractive, agent.ModeOneshot}
 }
-func (m *mockBackend) History() agent.SessionHistory                    { return m.history }
-func (m *mockBackend) WorkDir() string                                  { return "" }
-func (m *mockBackend) SetWorkDir(string)                                {}
-func (m *mockBackend) Setup(context.Context, *agent.SetupRequest) error { return nil }
+func (m *mockBackend) History() agent.SessionHistory { return m.history }
+func (m *mockBackend) WorkDir() string               { return "" }
+func (m *mockBackend) SetWorkDir(string)             {}
 func (m *mockBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer, io.Writer) (*agent.ExecuteResult, error) {
 	return &agent.ExecuteResult{ExitCode: 0}, nil
 }

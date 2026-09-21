@@ -18,34 +18,15 @@ import (
 //
 // NOTE: This is a test/development backend only - not intended for production use.
 //
-// It embeds agent.LaunchBackend (not the bare agent.BaseBackend) for ONE
-// reason: so a live turn's Setup runs the SAME surfaces × typed-cells delivery
-// every real launch backend runs (agent.LaunchBackend.setupViaCells), rather
-// than a mock-only bypass. Before that, Mock.Setup stashed its payload and
-// returned nil, so BuildSurfaces("mock", …) was never called on the launch
-// path and a live `ctxloom run --backend mock` materialized nothing — which
-// made every hermetic delivery assertion either live-engine-dependent or
-// vacuous (docs/design/engine-delivery-seam.design.md).
-//
-// Execute's echo and record file are UNCHANGED by that: Setup still stashes
-// fragments/managed before delegating, and delivery is additive to the echo,
-// never a replacement for it.
-//
-// Environment variables for test control — they reach Execute through the run
-// request's env, which a label's `mock_control:` map feeds (MockConfig):
-//   - CTXLOOM_MOCK_RESPONSE: Custom response text to output. SET TO EMPTY is a
-//     request for an empty reply, and is distinct from leaving it unset
-//   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
-//   - CTXLOOM_MOCK_RECORD_FILE: File to write received input to for verification
-//   - CTXLOOM_MOCK_FAIL_PREFIX: "1" prefixes the response with MockFailPrefix,
-//     leaving the rest of the response INTACT (see MockFailPrefix)
+// It embeds agent.LaunchBackend for the shared Execute tail. fragments and
+// managed are what a launch delivered to this backend, which Execute's echo
+// and record file report; the runner's delivery hands none through this
+// type, so both are empty on a live turn.
 type Mock struct {
 	agent.LaunchBackend
 	fragments []*agent.Fragment
-	// managed is the host-assembled setup payload from the last Setup call —
-	// stashed so Execute's recordMockInput can prove fields like DenyTools/
-	// Skills actually survived the wire (the launch-flow regression guard).
-	// nil is a legitimate value (the minimal/distill form sends none).
+	// managed is the host-assembled setup payload, which Execute's
+	// recordMockInput reports. nil is a legitimate value.
 	managed *agent.ManagedConfig
 }
 
@@ -171,22 +152,6 @@ func newMockBackend(name string) *Mock {
 }
 
 func NewMock() *Mock { return newMockBackend(config.BackendMock) }
-
-// Setup stashes the payload Execute's echo and record file are built from, then
-// runs the shared launch Setup so the context surface is actually delivered.
-//
-// The stash comes FIRST and unconditionally: recordMockInput and
-// buildMockResponse read b.fragments/b.managed, and a great many hermetic
-// scenarios assert on those bytes. A delivery failure is warned by the caller
-// (grpc.SetupFromRunStart) and the turn proceeds to Execute, so the echo must
-// already hold its payload by then — returning early on the delegate's error
-// would silently empty the echo, which is precisely the silent no-op this
-// backend exists to catch in others.
-func (b *Mock) Setup(ctx context.Context, req *agent.SetupRequest) error {
-	b.fragments = req.Fragments
-	b.managed = req.Managed
-	return b.LaunchBackend.Setup(ctx, req)
-}
 
 // Execute runs the mock backend with the given request.
 // It echoes back information about the request for testing purposes.

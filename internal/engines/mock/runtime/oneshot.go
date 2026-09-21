@@ -14,9 +14,7 @@ import (
 // (internal/<engine>/*.go), so each personality carries its OWN oneshot wire
 // adapter here:
 //
-//   - claude (renderClaudeOneshot): plain text, or a {result,modelUsage} JSON
-//     envelope under --output-format json, which claude's driver decodes with
-//     parseClaudeJSONResult.
+//   - claude (renderClaudeOneshot): the result as plain text.
 //
 // A personality whose wire convention differs gets its OWN adapter here rather
 // than a flag on an existing one. The prompt EXTRACTION (Runtime.readPrompt,

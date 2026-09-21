@@ -1,14 +1,16 @@
 package claude
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,47 +27,34 @@ type argvCase struct {
 	label   string
 	surface agent.CLISurface
 	req     *agent.ExecuteRequest
-	// minimal selects the BACKEND this case runs against: one whose Setup
-	// resolved the minimal launch posture, or one that delivered surfaces.
-	minimal bool
 	// resume, when set, is the native key the Instance continues: the
 	// --resume arm of the structured surface.
 	resume string
 }
 
-// argvFor builds this case's argv against the backend its form calls for.
-// delivered is the surface-delivering backend the matrix shares. A resumed
-// case binds the Instance, resumes it and reads Exec — the same composition
-// buildArgs projects a request onto.
-func (c argvCase) argvFor(t *testing.T, delivered *ClaudeCode) []string {
+// argvFor builds this case's argv. A resumed case binds the Instance,
+// resumes it and reads Exec — the same composition buildArgs projects a
+// request onto.
+func (c argvCase) argvFor(t *testing.T, b *ClaudeCode) []string {
 	t.Helper()
-	b := delivered
-	if c.minimal {
-		b = minimalBackend(t, matrixModel)
-	}
 	if c.resume == "" {
 		return b.buildArgs(c.req)
 	}
 	inst, err := b.kind.Instance(b.session(c.req))
 	require.NoError(t, err)
 	require.NoError(t, inst.Resume(c.resume))
-	ex, err := inst.Exec(b.presented())
+	ex, err := inst.Exec(c.req.Presented)
 	require.NoError(t, err)
 	return ex.Args
 }
 
 // buildArgsMatrix enumerates EVERY argv shape the driver can produce —
-// permission posture × mode × launch form × CellKind — with a harp in the env
-// (so the interactive --name arm fires) and a prompt (so the positional arm
-// fires). Modulo the opaque ClaudeConfig.Args passthrough, which is
-// user-supplied and undeclarable by construction (left empty here).
-//
-// The form dimension is carried as `minimal` rather than as a request field
-// because buildArgs no longer BRANCHES on any of this: the minimal posture is
-// resolved by Setup and emitted unconditionally, so the two arms of that
-// dimension are two BACKENDS, not two requests. The matrix still covers both —
-// what changed is where the difference lives.
-func buildArgsMatrix() []argvCase {
+// permission posture × mode × CellKind — with a harp in the env (so the
+// interactive --name arm fires), a prompt (so the positional arm fires) and
+// the runner-delivered presentations (so every out-of-cwd flag fires).
+// Modulo the opaque ClaudeConfig.Args passthrough, which is user-supplied
+// and undeclarable by construction (left empty here).
+func buildArgsMatrix(presented []present.Presentation) []argvCase {
 	perms := []struct {
 		name string
 		p    agent.PermissionMode
@@ -94,27 +83,37 @@ func buildArgsMatrix() []argvCase {
 	var out []argvCase
 	for _, perm := range perms {
 		for _, mode := range modes {
-			for _, minimal := range []bool{false, true} {
-				for _, cell := range cells {
-					for _, resume := range []string{"", "native-key"} {
-						if resume != "" && mode.m != agent.ModeOneshot {
-							continue // an interactive launch is never resumed by native key
-						}
-						out = append(out, argvCase{
-							label:   fmt.Sprintf("%s/%s/minimal=%v/%s/resume=%q", perm.name, mode.name, minimal, cell.name, resume),
-							surface: mode.surface,
-							minimal: minimal,
-							resume:  resume,
-							req: &agent.ExecuteRequest{
-								Mode:        mode.m,
-								Permissions: perm.p,
-								CellKind:    cell.k,
-								Model:       matrixModel,
-								Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
-								Prompt:      &agent.Fragment{Content: "do the thing"},
-							},
-						})
+			for _, cell := range cells {
+				for _, resume := range []string{"", "native-key"} {
+					if resume != "" && mode.m != agent.ModeOneshot {
+						continue // an interactive launch is never resumed by native key
 					}
+					// The session the runner binds the request to, with the
+					// MCP servers the launch composed (the plan posture's
+					// --allowedTools grants ride them).
+					session := &engine.Session{
+						Identity:   sessions.Identity{Harp: "perky-same-chevy"},
+						Label:      engine.LabelConfig{Label: EngineName, Model: matrixModel},
+						Mode:       engine.Mode(mode.m),
+						Permission: perm.p,
+						Prompt:     "do the thing",
+						MCPServers: []string{"probe"},
+					}
+					out = append(out, argvCase{
+						label:   fmt.Sprintf("%s/%s/%s/resume=%q", perm.name, mode.name, cell.name, resume),
+						surface: mode.surface,
+						resume:  resume,
+						req: &agent.ExecuteRequest{
+							Mode:        mode.m,
+							Permissions: perm.p,
+							CellKind:    cell.k,
+							Model:       matrixModel,
+							Env:         map[string]string{sessionHarpEnv: "perky-same-chevy"},
+							Prompt:      &agent.Fragment{Content: "do the thing"},
+							Presented:   presented,
+							Session:     session,
+						},
+					})
 				}
 			}
 		}
@@ -122,34 +121,25 @@ func buildArgsMatrix() []argvCase {
 	return out
 }
 
-// setupBackendForMatrix runs a SharedCell Setup with a non-empty context, hook
-// set, and MCP config, so all three out-of-cwd launch-flag surfaces
-// (--append-system-prompt-file, --mcp-config, --settings) have a real path and
-// actually appear in the matrix's argv. Without this the shared-cell arm of
-// buildArgs emits nothing and the test would silently cover less than it claims.
-func setupBackendForMatrix(t *testing.T) *ClaudeCode {
+// matrixPresentations is what the runner hands Execute after its static
+// writer delivered the launch's package: the three out-of-cwd flag-carrying
+// surfaces (--append-system-prompt-file, --mcp-config, --settings), each
+// naming a real file, so every flag actually appears in the matrix's argv.
+// Without this the delivered arm of buildArgs emits nothing and the test
+// would silently cover less than it claims.
+func matrixPresentations(t *testing.T) []present.Presentation {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	b := NewClaudeCode()
-	require.NoError(t, b.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   t.TempDir(),
-		Env:       sessionEnv("perky-same-chevy", t.TempDir()),
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		CellKind:  agent.CellKindShared,
-		Managed: &agent.ManagedConfig{
-			ManageStatusline: true,
-			Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
-				SessionStart: []wire.Hook{{Command: "ctxloom hook session-bind", Type: "command"}},
-			}},
-			BundleMCP: map[string]wire.MCPServer{
-				"demo": {Command: "demo-server"},
-			},
-		},
-	}))
-	require.NotEmpty(t, contextPathOf(b), "matrix needs a delivered context path")
-	require.NotEmpty(t, mcpPathOf(b), "matrix needs a delivered mcp path")
-	require.NotEmpty(t, settingsPathOf(b), "matrix needs a delivered settings path")
-	return b
+	home := t.TempDir()
+	flag := func(name, file, body string) present.Presentation {
+		path := filepath.Join(home, file)
+		require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+		return present.Presentation{HostPath: path, EnginePath: path, Args: []string{name, path}}
+	}
+	return []present.Presentation{
+		flag(flagAppendSystemFile, "abc123.sysprompt.md", "project rules"),
+		flag(flagMCPConfig, ".mcp.json", `{"mcpServers":{"demo":{"command":"demo-server"}}}`),
+		flag(flagSettings, "settings.json", `{"hooks":{}}`),
+	}
 }
 
 // TestEngineCLI_BuildArgsFlagsAreDeclared is the ANTI-DRIFT GATE. Every flag
@@ -162,10 +152,10 @@ func setupBackendForMatrix(t *testing.T) *ClaudeCode {
 // own output through agent.EngineCLI.ParseArgv, which errors on any token that
 // starts with "-" and is not declared.
 func TestEngineCLI_BuildArgsFlagsAreDeclared(t *testing.T) {
-	b := setupBackendForMatrix(t)
+	b := NewClaudeCode()
 	clis := b.EngineCLIs()
 
-	for _, c := range buildArgsMatrix() {
+	for _, c := range buildArgsMatrix(matrixPresentations(t)) {
 		t.Run(c.label, func(t *testing.T) {
 			cli, ok := agent.EngineCLIFor(clis, c.surface)
 			require.True(t, ok, "no declaration for surface %s", c.surface)
@@ -184,11 +174,11 @@ func TestEngineCLI_BuildArgsFlagsAreDeclared(t *testing.T) {
 // Ignored, which exist only for vendor-grammar fidelity) must appear somewhere
 // in the matrix.
 func TestEngineCLI_EveryDeclaredFlagIsEmitted(t *testing.T) {
-	b := setupBackendForMatrix(t)
+	b := NewClaudeCode()
 	clis := b.EngineCLIs()
 
 	emitted := map[agent.CLISurface]map[string]bool{}
-	for _, c := range buildArgsMatrix() {
+	for _, c := range buildArgsMatrix(matrixPresentations(t)) {
 		if emitted[c.surface] == nil {
 			emitted[c.surface] = map[string]bool{}
 		}
@@ -263,50 +253,24 @@ func TestEngineCLI_PromptDeliveryMatchesDriver(t *testing.T) {
 	assert.Equal(t, []string{task}, iParsed.Positionals)
 }
 
-// TestEngineCLI_SettingsValueShapeCoversBothForms pins the trap: --settings
-// takes a FILE PATH on the normal delivery path and a LITERAL inline JSON
-// object on the minimal form. A grammar declaring "path" would be wrong half the
-// time, so the declaration says path-or-json and both driver forms are proved.
-func TestEngineCLI_SettingsValueShapeCoversBothForms(t *testing.T) {
-	b := setupBackendForMatrix(t)
+// TestEngineCLI_SettingsValueIsTheDeliveredPath: --settings names the file
+// the runner delivered under the session home — an absolute path, read off
+// the delivered presentation.
+func TestEngineCLI_SettingsValueIsTheDeliveredPath(t *testing.T) {
+	b := NewClaudeCode()
 	clis := b.EngineCLIs()
 	oneshot, _ := agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
 
 	f, ok := oneshot.LookupFlag(flagSettings)
 	require.True(t, ok)
-	assert.Equal(t, agent.ValuePathOrJSON, f.Value)
+	assert.Equal(t, agent.ValuePath, f.Value)
 
-	sharedArgs := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, CellKind: agent.CellKindShared})
-	shared, err := oneshot.ParseArgv(sharedArgs)
+	args := b.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, CellKind: agent.CellKindShared, Presented: matrixPresentations(t)})
+	parsed, err := oneshot.ParseArgv(args)
 	require.NoError(t, err)
-	v, ok := shared.Value(flagSettings)
+	v, ok := parsed.Value(flagSettings)
 	require.True(t, ok)
-	assert.True(t, filepath.IsAbs(v), "normal delivery passes a file PATH, got %q", v)
-
-	minArgs := minimalBackend(t, matrixModel).buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
-	minimal, err := oneshot.ParseArgv(minArgs)
-	require.NoError(t, err)
-	v, ok = minimal.Value(flagSettings)
-	require.True(t, ok)
-	assert.Equal(t, byte('{'), v[0], "the minimal posture passes an inline JSON OBJECT, got %q", v)
-}
-
-// TestEngineCLI_EmptyStringValuesStayTheirOwnToken pins claude's two empty-string
-// flags: `--tools ""` and `--system-prompt ""` pass an EMPTY STRING as a
-// SEPARATE argv token. A fake treating the empty token as absence would report
-// tools enabled on a run that disabled them.
-func TestEngineCLI_EmptyStringValuesStayTheirOwnToken(t *testing.T) {
-	b := NewClaudeCode()
-	clis := b.EngineCLIs()
-	oneshot, _ := agent.EngineCLIFor(clis, agent.CLISurfaceOneshot)
-
-	parsed, err := oneshot.ParseArgv(minimalBackend(t, matrixModel).buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot}))
-	require.NoError(t, err)
-	for _, name := range []string{flagTools, flagSystemPrompt} {
-		v, ok := parsed.Value(name)
-		assert.True(t, ok, "%s must be present", name)
-		assert.Equal(t, "", v, "%s carries an empty string as its own token", name)
-	}
+	assert.True(t, filepath.IsAbs(v), "delivery passes a file PATH, got %q", v)
 }
 
 // TestEngineCLI_ProbesMatchTheWriters pins the declared probe paths to the

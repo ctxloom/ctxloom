@@ -138,6 +138,10 @@ func errRoot(name string, root present.RootKind) error {
 	return fmt.Errorf("claude/%s: root %v is not one this approach offers", name, root)
 }
 
+// pathed is the shape a delivered out-of-cwd form reports: the path its
+// file actually landed at, "" when it did not.
+type pathed interface{ Path() string }
+
 // delivered adapts a runtime form's write into the port's Delivered: the
 // presentation the form composes, the path it recorded (when it has one)
 // and the cleanup handle as Undo.

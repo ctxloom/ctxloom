@@ -171,8 +171,8 @@ func (f DeliveredFunc) Cleanup() error { return f() }
 // the context file was there afterwards, sometimes not, and nothing said which.
 //
 // It also collapses a confusion that cost real time: two writers shared one
-// path with opposite lifecycles. A run wrote at Setup and removed at Cleanup
-// (ephemeral); materialize wrote and never removed (persistent). Same file, two
+// path with opposite lifecycles. A run wrote at launch and removed at its
+// end (ephemeral); materialize wrote and never removed (persistent). Same file, two
 // ownership models, and nothing on the file to say which had produced it.
 //
 // THIS IS FOR PROJECT SURFACES ONLY. Per-session SCRATCH keeps its teardown and

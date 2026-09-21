@@ -9,8 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Backend is the LAUNCH facet of an agent — running the LLM and its session
@@ -84,9 +82,10 @@ type ModelInfo struct {
 	Provider     string
 }
 
-// Backend is the core contract the runner (agent server) depends on: identify
-// the agent, declare its modes, run the Setup→Execute→Cleanup lifecycle, and
-// expose session history (read by the host for /clear recovery and compaction).
+// Backend is the core contract the runner depends on for an interactive
+// turn: identify the agent, declare its modes, run Execute over what the
+// runner delivered, and expose session history (read by the host for /clear
+// recovery and compaction).
 //
 // It deliberately does NOT carry the hook/command/context/MCP capability
 // accessors: those are an agent's internal setup wiring, not something the runner
@@ -103,7 +102,6 @@ type Backend interface {
 	History() SessionHistory
 
 	// Execution lifecycle
-	Setup(ctx context.Context, req *SetupRequest) error
 	Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error)
 	Cleanup(ctx context.Context) error
 }
@@ -387,64 +385,8 @@ const (
 	EntryTypeSystem     SessionEntryType = "system"
 )
 
-// SetupRequest contains everything needed to prepare the backend before execution.
-type SetupRequest struct {
-	// Reporter receives every diagnostic this setup raises — the runner or
-	// the application service composing the launch chooses the sink. Nil
-	// discards.
-	Reporter  report.Sink
-	WorkDir   string
-	Fragments []*Fragment // context fragments (bundle pieces) to inject
-	Env       map[string]string
-	Verbosity uint32
-	// Managed is the host-assembled config/bundle setup payload. The host
-	// resolves ctxloom config, profiles, and bundles and hands the result here
-	// so the backend plugin never imports ctxloom config/bundles.
-	//
-	// THIS FIELD'S NIL-VS-EMPTY DISTINCTION IS LOAD-BEARING, and this is where
-	// it is defined; the converters either side of the wire point here.
-	//
-	//	nil            config FAILED to load and the run degraded through.
-	//	               Deliver nothing and RETRACT NOTHING — leave every
-	//	               previously-installed surface exactly as it was.
-	//	empty non-nil  config loaded and configures nothing. Reconcile to the
-	//	               declared state: the writers retract what ctxloom
-	//	               installed last round, and ledger.Write warns.
-	//	populated      deliver.
-	//
-	// Why nil does not simply mean empty: --degraded promises a working LLM
-	// with less, not a cleanup pass. Treating it as empty would wipe a user's
-	// installed hooks BECAUSE their config was unreadable — destroying state
-	// on the strength of config we just admitted we could not read.
-	//
-	// It is NOT the "this run declares no surfaces" channel, though it used to
-	// be documented as one. That is LaunchFormMinimal, which Setup answers by
-	// resolving the engine's minimal posture; a headless run reaches Setup like
-	// any other and simply resolves no surfaces. nil Managed remains one thing
-	// only: config we could not read.
-	Managed *ManagedConfig
-	// CellKind is the resolved isolation cell this run executes in, decided
-	// host-side (isolation.Prepare) and carried over the wire. Setup reads it
-	// for the run's roots: a shared cell's race-safe surfaces land in the
-	// session's private out-of-cwd scratch, while an isolated cell's own
-	// working dir is its scratch.
-	CellKind CellKind
-	// Form is the DECLARED form this run's managed surfaces take — deliver its
-	// own, present the session's existing ones, or declare none at all. It is
-	// resolved host-side by the caller that knows the run's shape and arrives
-	// here already decided; Setup constructs from it and never re-derives it.
-	// The zero value is LaunchFormDeliver, which is what a run that says
-	// nothing has always done.
-	Form LaunchForm
-	// Model is the model this run will execute with, needed here because the
-	// minimal launch posture Setup resolves for LaunchFormMinimal names it
-	// (claude's --settings JSON pins the model). Empty means unset.
-	Model string
-}
-
 // ManagedConfig is the host-assembled setup payload: ctxloom config, profile,
-// and bundle state resolved host-side and handed to the backend's Setup so the
-// plugin never imports ctxloom config/bundles. Hooks is the
+// and bundle state resolved host-side, in the writers' shape. Hooks is the
 // config+default-profile+bundle hook set WITHOUT context-injection; the agent
 // appends its own context-injection hook from its plugin-side context hash. The
 // command exports in Commands already have the target agent's enablement +
@@ -505,12 +447,9 @@ func (m *ManagedConfig) Items() engine.Items {
 type ExecuteRequest struct {
 	Prompt *Fragment
 	// WorkDir is the working directory the run executes in (the child engine's
-	// cwd). It makes cwd a first-class Execute input, decoupled from Setup: the
-	// runner applies it before Execute on EVERY path — including the minimal
-	// form, which resolves its posture and returns without reaching the delivery
-	// machinery a backend's SetWorkDir may ride — so the passed workspace always
-	// reaches the child instead of defaulting to the plugin's inherited ".".
-	// Empty means "unset" (BaseBackend.WorkDir → ".").
+	// cwd): the launch's workspace, a first-class Execute input so the passed
+	// workspace always reaches the child instead of defaulting to the process's
+	// inherited ".". Empty means "unset" (BaseBackend.WorkDir → ".").
 	WorkDir     string
 	Mode        ExecutionMode
 	Model       string
@@ -520,13 +459,11 @@ type ExecuteRequest struct {
 	Permissions PermissionMode
 	Temperature float32
 	// CellKind is the resolved isolation cell this run executes in, decided
-	// host-side (isolation.Prepare) and carried over the wire alongside
-	// SetupRequest. It is carried for diagnostics and for the env a cell-aware
-	// backend computes (codex's cell-scoped CODEX_HOME); it is NOT what an argv
-	// site switches on. Where a surface lands, and therefore what the engine is
-	// told about it, is decided ONCE host-side as a LaunchForm and resolved by
-	// Setup — buildArgs emits what Setup resolved rather than re-deriving it
-	// from the cell.
+	// by the launch's cell (cli.cellKindOf). It is carried for diagnostics and
+	// for the env a cell-aware backend computes (codex's cell-scoped
+	// CODEX_HOME); it is NOT what an argv site switches on. Where a surface
+	// lands, and therefore what the engine is told about it, is the launch
+	// plan's decision, delivered by the runner and handed here as Presented.
 	CellKind CellKind
 
 	// Stdin and Resize carry the frontend's terminal input into an interactive
@@ -543,7 +480,7 @@ type ExecuteRequest struct {
 	// or stream cancellation, so without it the server's stream pump wedges.
 	//
 	// nil is a valid and meaningful value: it says this reader must NOT be
-	// released here because the caller still owns it (`ctxloom llm turn`
+	// released here because the caller still owns it (the runner's terminal
 	// passes the process's real os.Stdin). Carrying the decision explicitly is
 	// the point — it was previously inferred from Stdin's dynamic type, which
 	// silently stopped being true the moment the reader was wrapped.
@@ -553,8 +490,7 @@ type ExecuteRequest struct {
 	// engine-facing projection of the Launch (launch.Launch.Session, the ONE
 	// constructor) and what the runner's static delivery produced — the
 	// presentations the engine's exec is composed over
-	// (engine.Instance.Exec). That drive's delivery never went through
-	// Setup; nil means "what Setup resolved" (the plugin arm).
+	// (engine.Instance.Exec).
 	Session   *engine.Session
 	Presented []present.Presentation
 }

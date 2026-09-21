@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -21,7 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -339,46 +337,4 @@ func TestSettingsRecord_Deliver_RefusesToInsertBesideAnExistingHookEvent(t *test
 	require.NoError(t, err)
 	assert.Equal(t, string(seeded), string(after), "a refused write leaves the file exactly as found")
 	assert.Empty(t, recordFiles(t, fs, recordsDir), "a refused write leaves no record")
-}
-
-// End to end through the real backend: a launch whose binding selects
-// settings=hew-record and whose run env carries CLAUDE_CONFIG_DIR (the
-// controlled home operations.InTreeAgentHomeEnv contributes) lands
-// ctxloom's settings beneath THAT directory, and nothing in the project
-// tree — the launch backend advised the engine home from the var claude
-// declared. Without the var, the same selection refuses the launch.
-func TestSetup_SettingsHewRecord_LandsUnderClaudeConfigDir(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Cleanup(paths.SetHomeRecordsDirForTesting(t.TempDir()))
-	work := t.TempDir()
-	configDir := filepath.Join(t.TempDir(), "state", "h", "home", "claude")
-	managed := &agent.ManagedConfig{
-		Surfaces: map[agent.SurfaceKind]string{agent.SurfaceSettings: ApproachHewRecord},
-		Hooks:    &wire.HooksConfig{Unified: wire.UnifiedHooks{SessionStart: []wire.Hook{{Command: "ctxloom hook inject-context"}}}},
-	}
-
-	backend := NewClaudeCode()
-	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   work,
-		Env:       map[string]string{ConfigDirEnv: configDir},
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		Managed:   managed,
-		CellKind:  agent.CellKindDirectoryIsolated,
-	}))
-	t.Cleanup(func() { _ = backend.Cleanup(context.Background()) })
-
-	raw, err := os.ReadFile(filepath.Join(configDir, SettingsFileName))
-	require.NoError(t, err, "the settings landed beneath CLAUDE_CONFIG_DIR")
-	assert.Equal(t, []string{"ctxloom hook inject-context"}, eventHookCommands(t, raw, "SessionStart"))
-	assert.NoFileExists(t, ProjectSettingsPath(work), "nothing was written to the project's own settings")
-
-	refused := NewClaudeCode()
-	err = refused.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   t.TempDir(),
-		Env:       map[string]string{},
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		Managed:   managed,
-		CellKind:  agent.CellKindDirectoryIsolated,
-	})
-	require.ErrorIs(t, err, agent.ErrUnrootedEngineHome, "no controlled home: the record write refuses rather than guessing")
 }

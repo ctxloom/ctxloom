@@ -20,8 +20,7 @@ import (
 //
 // It is the writer behind claude's MCP, commands and settings approaches;
 // per the delivery-seam design the Delivered handles it
-// returns stay Cleanup-only. Additive only: wiring into Setup/buildArgs is a
-// later slice.
+// returns undo the write.
 type fileTemplateDelivery struct {
 	place placement
 	fs    afero.Fs

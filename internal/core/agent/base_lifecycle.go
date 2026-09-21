@@ -8,9 +8,9 @@ import (
 
 // BaseLifecycle provides shared lifecycle handler logic for backends: it folds
 // the host-assembled ManagedConfig (hooks + bundle MCP servers) into its merged
-// state (MergeManaged), which the surfaces × cells Setup then reads via GetHooks /
-// GetBundleMCP to write each settings/config surface. The statusline policy travels on
-// ManagedConfig itself (read directly by Setup), not through the lifecycle.
+// state (MergeManaged), read back via GetHooks / GetBundleMCP by the at-rest
+// writers of each settings/config surface. The statusline policy travels on
+// ManagedConfig itself, not through the lifecycle.
 type BaseLifecycle struct {
 	backendName string
 	hooks       *wire.HooksConfig

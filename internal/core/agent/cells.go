@@ -58,16 +58,6 @@ type Delivery interface {
 // enters, before any surface can act on it.
 var ErrUnrootedDelivery = errors.New("delivery: the project root was never resolved")
 
-// rooted is the seam's entry check: every path a Start enters a Delivery
-// through (the isolated cell, the shared-cwd delivery) passes it first, so an
-// unresolved project root is refused once, in one place.
-func rooted(start present.Start) error {
-	if start.Paths().ProjectRoot.Host == "" {
-		return ErrUnrootedDelivery
-	}
-	return nil
-}
-
 // ErrUnrootedEngineHome is returned by an approach that writes beneath the
 // ENGINE HOME when that root was never resolved for the run. The same
 // bare-relative-path hazard ErrUnrootedDelivery names applies, and one
@@ -214,7 +204,12 @@ func ParseSurfaceKind(s string) (SurfaceKind, error) {
 	return 0, fmt.Errorf("unknown surface kind %q (known: %s)", s, strings.Join(SurfaceKindNames(), ", "))
 }
 
-// SurfaceKindNames lists every kind's label, in delivery order. It reads
+// surfaceOrder is the stable cross-engine surface order — every Kind, in
+// Kind order — so the names ParseSurfaceKind reads and SurfaceKindNames
+// renders are one enumeration.
+var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceHooks, SurfaceCommands, SurfaceSkills}
+
+// SurfaceKindNames lists every kind's label, in kind order. It reads
 // surfaceOrder — the one enumeration — so error text, --help and shell
 // completion cannot fall out of step with the enum or with each other. A kind
 // added to surfaceOrder appears in all three without touching them.
@@ -239,10 +234,10 @@ type KindedDelivery interface {
 // surfaces write: the assembled context (as a string for the ContextWriter-core
 // engines, and the raw fragments for codex's file writer), the merged MCP config
 // + profile/companion bundle servers, the merged hook set + statusline policy, and
-// the command exports. Setup fills it once (from req + the merged lifecycle state)
-// and hands it to every selected approach's Construct, which picks the fields
-// IT needs. It is the cross-backend contract that lets the generic Setup build
-// any engine's approaches without importing the concrete engine.
+// the command exports. A caller fills it once and hands it to every
+// approach's Construct (Declaration.Construct), which picks the fields IT
+// needs. It is the cross-backend contract that lets a caller build any
+// engine's approaches without importing the concrete engine.
 type SurfaceInputs struct {
 	// Reporter is where the approaches built from these inputs report; the
 	// engine forwards it into its writers. Nil discards.
@@ -282,12 +277,9 @@ type SurfaceInputs struct {
 	AgentName string
 }
 
-// CellKind is the resolved isolation cell a run executes in, decided host-side
-// (mapped from the isolation.Policy) and carried to the plugin over the wire so
-// Setup/buildArgs know which cell they run in. It is the plugin-side mirror of
-// the grpc CellKind enum. The zero value is CellKindShared, matching the wire's
-// UNSPECIFIED→Shared decode. It names the same three cells as the typed cell
-// values above (SharedCell / IsolatedCell).
+// CellKind is the resolved isolation cell a run executes in, decided from
+// the launch's cell (cli.cellKindOf) and carried on ExecuteRequest so an
+// engine's env knows which cell it runs in. The zero value is CellKindShared.
 type CellKind int
 
 const (
@@ -316,321 +308,4 @@ func (k CellKind) String() string {
 	default:
 		return fmt.Sprintf("unknown(%d)", int(k))
 	}
-}
-
-// IsolatedCell is the cell for anything that owns a PRIVATE directory — a
-// per-agent WORKTREE (the project root is the private checkout) or a CONTAINER
-// (the project root is the filesystem-namespace location the co-located
-// in-container engine reads). It holds the run's ADVISED roots, resolved once
-// before any surface runs, and hands them to every Delivery unchanged. A
-// well-known write into a private dir cannot race another session, so an
-// isolated cell accepts ANY Delivery — the Deliver signature encodes that
-// safety.
-//
-// DirectoryIsolatedCell and ProcessIsolatedCell used to be two distinct
-// (behaviourally identical) types wrapping this one, chosen between via a
-// branch on req.CellKind that added nothing an isolated cell's shared Deliver
-// didn't already do — collapsed to this single type. The CellKind distinction
-// itself survives where it actually matters (buildArgs/env).
-type IsolatedCell struct {
-	start present.Start
-}
-
-// Deliver writes the surface beneath this cell's advised roots via the
-// surface's well-known Delivery. Accepting a plain Delivery is safe precisely
-// because the project root is private. An unresolved project root is refused
-// (ErrUnrootedDelivery) before the surface runs.
-func (c IsolatedCell) Deliver(s Delivery) (Delivered, error) {
-	if err := rooted(c.start); err != nil {
-		return nil, err
-	}
-	return s.Deliver(c.start)
-}
-
-// NewIsolatedCell builds an isolated cell (worktree or container) over the
-// run's advised roots; every surface delivered through it writes beneath
-// start's project root.
-func NewIsolatedCell(start present.Start) IsolatedCell {
-	return IsolatedCell{start: start}
-}
-
-// surfaceOrder is the stable cross-backend delivery order — every Kind, in
-// Kind order — matching every backend's Deliveries() order, so a Build()ed
-// selection's report and LIFO teardown are deterministic regardless of the order
-// a caller chained the WithX() calls in.
-var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceHooks, SurfaceCommands, SurfaceSkills}
-
-// SurfaceSelection is an OPT-IN builder over an engine's Declaration: the
-// default selects NOTHING, and each With(kind, name) opts one SurfaceKind in
-// AT A NAMED APPROACH. Opt-in (no opt-out / "except") is deliberate — every
-// caller states EXACTLY which surfaces it delivers, so a future surface kind
-// can never silently ride along a broad selection. The caller ALWAYS names
-// the approach: there is no silent default at the call site, and a
-// race-capable choice is spelled ApproachUnsafeFile so picking it IS the race
-// acknowledgment. Build it with Select(decl), chain the surfaces, then call
-// Build (or the DeliverUnder convenience for the at-rest callers).
-//
-// Selection is SEPARABLE from construction and from mechanism: With records
-// names only; Build constructs exactly the selected approaches from the run's
-// content; the terminal (DeliverUnder / DeliverShared / a launch cell) owns
-// WHERE they land.
-type SurfaceSelection struct {
-	decl  Declaration
-	names map[SurfaceKind]string
-}
-
-// Select begins an opt-in selection over decl with NOTHING selected.
-func Select(decl Declaration) *SurfaceSelection {
-	return &SurfaceSelection{decl: decl, names: map[SurfaceKind]string{}}
-}
-
-// With opts kind into the selection at the named approach. The name is
-// validated at Build against the Declaration — a name the engine cannot
-// construct is a loud error there, never a fallback.
-func (s *SurfaceSelection) With(kind SurfaceKind, name string) *SurfaceSelection {
-	s.names[kind] = name
-	return s
-}
-
-// WithEverything opts every DECLARED surface kind in at the engine's default
-// — the materialize selection (a full native surface tree), and the selection
-// the launch path borrows. A kind the engine folds or omits is absent from
-// the Declaration and is skipped, never erroring.
-func (s *SurfaceSelection) WithEverything() *SurfaceSelection {
-	for _, k := range surfaceOrder {
-		if def, ok := s.decl.Default(k); ok {
-			s.names[k] = def
-		}
-	}
-	return s
-}
-
-// Build validates every selected (kind, name) against the Declaration and
-// constructs each from the run's content, returning a ResolvedSelection a
-// cell/dir consumes. A selected kind the engine does not declare is a
-// permitted no-op; a name the engine does not declare for a kind it does have
-// is a loud error naming the surface, the requested name and the declared set.
-// A Rider (hook-carried context) is refused unless the kind it rides is
-// selected in the SAME Build: delivered alone it would write nothing and
-// report success.
-func (s *SurfaceSelection) Build(in SurfaceInputs, fs afero.Fs) (*ResolvedSelection, error) {
-	r := &ResolvedSelection{rep: report.To(in.Reporter), decl: s.decl}
-	for _, k := range surfaceOrder {
-		name, ok := s.names[k]
-		if !ok {
-			continue
-		}
-		p, declared := s.decl[k]
-		if !declared {
-			// The engine has no distinct surface of this kind (it folds MCP
-			// into its settings file): selecting it delivers nothing extra.
-			continue
-		}
-		a, ok := p.Construct(name, in, fs)
-		if !ok {
-			return nil, fmt.Errorf("%s: surface %s: approach %q not supported (supports %s)", p.Engine(), k, name, strings.Join(p.Names(), ", "))
-		}
-		if rider, ok := a.(Rider); ok {
-			if _, selected := s.names[rider.Rides()]; !selected {
-				return nil, fmt.Errorf("%s: the %s approach rides the %s surface — select %s in the same Build()", k, name, rider.Rides(), rider.Rides())
-			}
-		}
-		r.surfaces = append(r.surfaces, resolvedSurface{kind: k, name: name, approach: a})
-	}
-	return r, nil
-}
-
-// DeliverUnder is the convenience terminal for the at-rest callers
-// (materialize, apply, remove): it Builds the selection from the run's
-// content and delivers each resolved surface into an IsolatedCell over the
-// advised roots. A Build error (an undeclared approach, or a rider without
-// the surface it rides) is returned as the sole entry in errs. See
-// ResolvedSelection.DeliverUnder for the collect-all-failures semantics.
-func (s *SurfaceSelection) DeliverUnder(in SurfaceInputs, fs afero.Fs, start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
-	r, err := s.Build(in, fs)
-	if err != nil {
-		return nil, nil, []error{err}
-	}
-	return r.DeliverUnder(start)
-}
-
-// resolvedSurface is one entry of a Built selection: the surface kind, the
-// approach name it resolved at, and the constructed Approach to write.
-type resolvedSurface struct {
-	kind     SurfaceKind
-	name     string
-	approach Approach
-}
-
-// ResolvedApproach is one Built surface as a caller sees it: a launch backend
-// reads these after delivery to learn what its engine's approaches recorded
-// (claude's out-of-cwd file paths for its launch flags).
-type ResolvedApproach struct {
-	Kind     SurfaceKind
-	Name     string
-	Approach Approach
-}
-
-// kindedResolvedDelivery adapts a resolved (kind, Approach) pair into a
-// KindedDelivery for an isolated cell: the kind rides the RESOLVED SELECTION
-// itself, not a type-assertion on the concrete surface.
-type kindedResolvedDelivery struct {
-	kind SurfaceKind
-	d    Delivery
-}
-
-// Deliver forwards to the wrapped Delivery.
-func (k kindedResolvedDelivery) Deliver(start present.Start) (Delivered, error) {
-	return k.d.Deliver(start)
-}
-
-// Kind reports the RESOLVED kind (the selection's, not a type-assertion).
-func (k kindedResolvedDelivery) Kind() SurfaceKind { return k.kind }
-
-// ResolvedSelection is a Built selection — the deliverable a cell/dir
-// consumes. It carries the ordered, constructed surfaces. The at-rest
-// terminals (DeliverUnder / DeliverShared) live here; a cell-aware caller
-// (the launch path) may instead read Deliveries() directly and drive its own
-// cell.
-type ResolvedSelection struct {
-	rep      report.Reporter
-	decl     Declaration
-	surfaces []resolvedSurface
-}
-
-// Approaches lists the resolved surfaces in delivery order.
-func (r *ResolvedSelection) Approaches() []ResolvedApproach {
-	out := make([]ResolvedApproach, 0, len(r.surfaces))
-	for _, rs := range r.surfaces {
-		out = append(out, ResolvedApproach{Kind: rs.kind, Name: rs.name, Approach: rs.approach})
-	}
-	return out
-}
-
-// Deliveries returns the resolved surfaces as KindedDelivery, in stable order,
-// for an isolated cell (worktree/container) to iterate — a well-known write
-// into a private dir is safe regardless of the resolved approach. A Rider's
-// no-op delivery (hook-carried context) is included — its Deliver returns a
-// nil handle, the shared "nothing written" convention.
-func (r *ResolvedSelection) Deliveries() []KindedDelivery {
-	out := make([]KindedDelivery, 0, len(r.surfaces))
-	for _, rs := range r.surfaces {
-		out = append(out, kindedResolvedDelivery{kind: rs.kind, d: rs.approach})
-	}
-	return out
-}
-
-// DeliverUnder delivers each resolved surface's native (well-known) write into
-// an IsolatedCell over the advised roots — the at-rest path
-// (materialize/apply/remove), where a private dir makes every write race-free.
-// It ERRORS on any surface resolved at a LaunchOnly approach: that approach's
-// bytes are announced by a launch flag, and DeliverUnder has no argv sink to
-// hand that flag to — naming it for an at-rest delivery is a caller error, not
-// a launch. It ATTEMPTS every OTHER surface and COLLECTS per-surface failures
-// rather than stopping at the first — the surfaces under one root are
-// independent, so a partial delivery is still useful and the caller routes
-// failures through its own fault policy (fatal-by-default, or
-// warn-and-continue under --degraded). It returns the handles for the
-// surfaces that actually delivered (in order, for teardown), their kinds (for
-// a delivery report), and the failures. A no-op delivery (writes nothing, nil
-// handle — a context surface with no fragments, or a Rider) is neither
-// reported nor held, so the report reflects what was actually written.
-func (r *ResolvedSelection) DeliverUnder(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
-	cell := NewIsolatedCell(start)
-	for _, rs := range r.surfaces {
-		if _, launchOnly := rs.approach.(LaunchOnly); launchOnly {
-			errs = append(errs, fmt.Errorf("surface %s: %s %w (dir %s)", rs.kind, rs.name, ErrNoArgvSinkAtRest, start.Paths().ProjectRoot.Host))
-			continue
-		}
-		handle, err := cell.Deliver(rs.approach)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if handle != nil {
-			delivered = append(delivered, handle)
-			kinds = append(kinds, rs.kind)
-		}
-	}
-	return delivered, kinds, errs
-}
-
-// DeliverShared delivers each resolved surface into the SHARED live cwd — the
-// advised project root — collecting per-surface failures like DeliverUnder. It
-// is the shared-cwd counterpart of DeliverUnder; the launch path uses
-// deliverOneShared directly (per surface) instead, so it can keep its
-// context-failure fallback.
-//
-// This has no PRODUCTION call site — true, but its callers (the engine
-// packages' surface tests) live in a DIFFERENT package and cannot reach the
-// unexported deliverOneShared. It is the sanctioned, exported seam those tests
-// use to exercise the shared-cwd "unsafe: warn and proceed" behaviour end to
-// end (real UnsafeInfo() strings, real target paths) — kept deliberately.
-func (r *ResolvedSelection) DeliverShared(start present.Start) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
-	for _, rs := range r.surfaces {
-		d, err := r.deliverOneShared(rs, start)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if d != nil {
-			delivered = append(delivered, d)
-			kinds = append(kinds, rs.kind)
-		}
-	}
-	return delivered, kinds, errs
-}
-
-// unsafeNamed is optionally implemented by a concrete Approach to
-// self-describe for the DeliverShared warning (e.g. "claude/commands"). One
-// without it falls back to its cross-backend SurfaceKind label.
-type unsafeNamed interface {
-	UnsafeInfo() string
-}
-
-// deliverOneShared delivers ONE resolved surface into the SHARED live cwd —
-// the advised project root. When the approach has an OutOfCwd form it runs
-// THAT against the same advised roots — it writes beneath Scratch —
-// genuinely race-safe, no warning. That branch is RESIDUE: it applies to
-// settings alone, the last approach with a second form (see agent.OutOfCwd).
-// It is a CONVERSION, and a conversion is exactly what an explicitly named
-// approach must not get, which is why context and MCP no longer reach it —
-// each declares one approach per behaviour, and an approach whose bytes land
-// outside the project root falls through to the plain Deliver below.
-// Otherwise the well-known write lands
-// directly in the shared cwd: loudly warned first, since the selected
-// ApproachUnsafeFile is the caller's acknowledgment that ctxloom does not lock
-// projects — this is also where an explicit context=unsafe-file preference on
-// a shared cell lands (honoured, not silently converted to the scratch, and
-// not refused). A Rider's no-op delivery is itself a no-op: it writes nothing
-// and is not warned.
-//
-// Whether an approach converts is the APPROACH's own property, carried by the
-// very value that was constructed for it: claude's context declares the
-// native file WITHOUT an OutOfCwd form and its system prompt WITH one, so the
-// pair-keyed lookup that used to guard "do not convert a surface the caller
-// asked not to write" is no longer needed — the value asked for is the value
-// that decides.
-func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, start present.Start) (Delivered, error) {
-	if _, rider := rs.approach.(Rider); rider {
-		return rs.approach.Deliver(start)
-	}
-	if err := rooted(start); err != nil {
-		return nil, err
-	}
-	if o, ok := rs.approach.(OutOfCwd); ok {
-		return o.DeliverIsolated(start)
-	}
-	// An approach that lands OUTSIDE the project root — beneath the engine's
-	// per-session home, say — is not a write into the shared cwd at all, so
-	// there is no race to warn about; only a well-known project file is.
-	if !PresentsUnderProjectRoot(rs.approach) {
-		return rs.approach.Deliver(start)
-	}
-	info := rs.kind.String()
-	if n, ok := rs.approach.(unsafeNamed); ok {
-		info = n.UnsafeInfo()
-	}
-	r.rep.Warnf("unsafe: %s into shared cwd %s — no isolated mechanism; races concurrent agents", info, start.Paths().ProjectRoot.Host)
-	return rs.approach.Deliver(start)
 }

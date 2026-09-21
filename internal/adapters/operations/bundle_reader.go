@@ -29,7 +29,7 @@ import (
 // so this deliberately passes nil rather than loading one from disk only to
 // discard the possibility of failure it can't actually produce.
 func NewBundleReaderForConfig(cfg *config.Config) remote.BundleByteSource {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	lock, err := remote.NewLockfileManager(baseDir).Load()
 	if err != nil {
 		clidiag.Warn("ctxloom",

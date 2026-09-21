@@ -91,7 +91,7 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 // a silent degrade here means the markers simply stop appearing and the listing
 // looks healthy.
 func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
-	lock, err := remote.NewLockfileManager(getBaseDir(cfg), remote.WithLockfileFS(afero.NewOsFs())).Load()
+	lock, err := remote.NewLockfileManager(ProjectAppDir(cfg), remote.WithLockfileFS(afero.NewOsFs())).Load()
 	if err != nil {
 		clidiag.Warn("ctxloom",
 			"cannot read the lockfile: %v — held and retracted bundles will not be flagged in this listing", err)
@@ -113,7 +113,7 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 // so ListDeleted can surface items removed upstream. It carries only the remote
 // fetcher — present-bundle listing is the the config bundle loader's job.
 func bundleListDeletedResolver(cfg *config.Config) *remote.Resolver {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 
 	var urls []string
 	lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(afero.NewOsFs())).Load()

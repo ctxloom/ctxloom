@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"encoding/json"
@@ -11,20 +11,39 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // doctorMCPInvocationSurfaces are the engine-native MCP registries a ctxloom
-// install materializes under a project, relative to its root. Each mirrors the
-// path its engine's own writer produces:
+// install materializes under a project, relative to its root: every
+// cwd-scoped ProbeKindMCP probe a registered engine declares
+// (agent.EngineCLI.ProbesFor), read from the declaration the engine's own
+// writer and the mock's impersonation of it both read, so this check cannot
+// name a path an engine has stopped reading.
 //
-//	claude       ClaudeCodeHookWriter.MCPConfigPath  (.mcp.json)
-//
-// A user-global surface (~/.claude.json) is deliberately absent: this check
-// reports what THIS project materialized, and a fix it names ('ctxloom init'
-// in this project) would not reach a home-scoped entry anyway.
-var doctorMCPInvocationSurfaces = []string{
-	claude.MCPFileName,
+// A user-global surface (ScopeHome — ~/.claude.json) is deliberately absent:
+// this check reports what THIS project materialized, and a fix it names
+// ('ctxloom init' in this project) would not reach a home-scoped entry anyway.
+func doctorMCPInvocationSurfaces() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range backends.List() {
+		clis, ok := backends.EngineCLIsFor(name)
+		if !ok {
+			continue
+		}
+		for _, c := range clis {
+			for _, p := range c.ProbesFor(agent.ProbeKindMCP) {
+				if p.Scope != agent.ScopeCwd || seen[p.Rel] {
+					continue
+				}
+				seen[p.Rel] = true
+				out = append(out, p.Rel)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // doctorCheckMCPInvocation reports any materialized ctxloom MCP entry whose
@@ -41,18 +60,19 @@ var doctorMCPInvocationSurfaces = []string{
 // hanging one.
 //
 // Pure file inspection: it reads what the engines read and launches nothing.
-func doctorCheckMCPInvocation(projectDir string) doctorCheck {
+func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
 	const marker = "DOCTOR-CHECK-MCP-INVOCATION-g7"
 	if projectDir == "" {
-		return doctorCheck{Marker: marker, Status: doctorInfo,
+		return DoctorCheck{Marker: marker, Status: DoctorInfo,
 			Detail: "no project directory to check"}
 	}
 
 	// One list of (what to report it as, where to read it): the
 	// project-relative surfaces resolved against this project root.
 	type mcpSurface struct{ label, path string }
-	surfaces := make([]mcpSurface, 0, len(doctorMCPInvocationSurfaces))
-	for _, rel := range doctorMCPInvocationSurfaces {
+	rels := doctorMCPInvocationSurfaces()
+	surfaces := make([]mcpSurface, 0, len(rels))
+	for _, rel := range rels {
 		surfaces = append(surfaces, mcpSurface{label: rel, path: filepath.Join(projectDir, rel)})
 	}
 
@@ -88,16 +108,16 @@ func doctorCheckMCPInvocation(projectDir string) doctorCheck {
 		if len(unreadable) > 0 {
 			detail += "; could not read: " + strings.Join(unreadable, ", ")
 		}
-		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: detail}
 	case len(unreadable) > 0:
 		// "I could not read it" is not "it is fine". A surface that failed to
 		// parse may hold the very entry this check is looking for, and
 		// reporting ok beside it would claim an inspection that did not happen.
-		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: fmt.Sprintf(
+		return DoctorCheck{Marker: marker, Status: DoctorWarn, Detail: fmt.Sprintf(
 			"%d MCP registr(y/ies) could not be read, so their ctxloom invocation is unverified: %s",
 			len(unreadable), strings.Join(unreadable, ", "))}
 	default:
-		return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: fmt.Sprintf(
 			"every materialized ctxloom MCP entry invokes `%s`", strings.Join(agent.CtxloomMCPArgs, " "))}
 	}
 }

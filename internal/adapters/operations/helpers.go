@@ -32,7 +32,7 @@ func getFS(fs afero.Fs) afero.Fs {
 // later with an opaque git auth error that names nothing about remotes.yaml.
 // Warn at the point the information is still available.
 func NewRepoCache(cfg *config.Config) *remote.RepoCache {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 
 	var opts []remote.RepoCacheOption
@@ -62,7 +62,7 @@ func NewCachedFetcherFactory(cfg *config.Config) remote.FetcherFactory {
 // fetch-content); for bulk operations across many entries prefer NewRepoCache
 // + UpdateRepo to dedup work per URL.
 func GetCachedFetcher(cfg *config.Config, repoURL string) (remote.Fetcher, error) {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 	return NewCachedFetcherFactory(cfg)(repoURL, auth)
 }

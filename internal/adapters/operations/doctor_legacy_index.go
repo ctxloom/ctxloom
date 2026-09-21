@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"fmt"
@@ -32,10 +32,10 @@ var doctorLegacyIndexNames = []string{paths.IndexFileName, paths.MigratedIndexFi
 // older migration left) at the sessions root, with the remedy. It reads the
 // root's own top level only — the harp directories beside these files are
 // the record and are not this check's subject — and it deletes nothing.
-func doctorCheckLegacyIndex() doctorCheck {
+func doctorCheckLegacyIndex() DoctorCheck {
 	sessionsRoot, err := paths.HomeSessionsDir()
 	if err != nil {
-		return doctorCheck{Marker: doctorLegacyIndexMarker, Status: doctorWarn,
+		return DoctorCheck{Marker: doctorLegacyIndexMarker, Status: DoctorWarn,
 			Detail: "cannot resolve sessions dir: " + err.Error()}
 	}
 	var found []string
@@ -46,15 +46,15 @@ func doctorCheckLegacyIndex() doctorCheck {
 			found = append(found, p)
 		case os.IsNotExist(statErr):
 		default:
-			return doctorCheck{Marker: doctorLegacyIndexMarker, Status: doctorWarn,
+			return DoctorCheck{Marker: doctorLegacyIndexMarker, Status: DoctorWarn,
 				Detail: fmt.Sprintf("cannot stat %s: %v", p, statErr)}
 		}
 	}
 	if len(found) == 0 {
-		return doctorCheck{Marker: doctorLegacyIndexMarker, Status: doctorOK,
+		return DoctorCheck{Marker: doctorLegacyIndexMarker, Status: DoctorOK,
 			Detail: "no pre-rename session index at " + sessionsRoot}
 	}
-	return doctorCheck{Marker: doctorLegacyIndexMarker, Status: doctorWarn,
+	return DoctorCheck{Marker: doctorLegacyIndexMarker, Status: DoctorWarn,
 		Detail: fmt.Sprintf("%d pre-rename session index file(s) at the sessions root, which nothing reads: %s — %s",
 			len(found), strings.Join(found, ", "), doctorLegacyIndexRemedy)}
 }

@@ -59,11 +59,12 @@ flowchart TD
         RR --> CUR["confirmUnsignedReview :174"]
         RR --> WSK["warnIfSoftwareKey :203"]
         RR --> RL["renderReviewList :233 (non-interactive)"]
-        RR --> RW["runReviewWalk :330"] --> PRC["parseReviewChoice :269 → reviewDecision :254"]
-        RW --> PRI["printReviewItem :399"] --> URD["unifiedReviewDiff :444"]
-        PRI --> PRAF["printReviewAlternateForm :433"]
-        RW --> ARD["applyReviewDecision :366"] --> RAF["reviewApplyFuncs :289 ← reviewApplier :299"]
-        RW --> RSUM["reviewSummary :315"]
+        RR --> RW[["operations.ReviewWalk(ctx, app, ReviewWalkRequest, observer) → ReviewWalkResult"]]
+        RW --> OBS["reviewObserver: BundleStart / Decide / Recorded / NotRecorded / ContentNotCountersigned"]
+        OBS --> PRI["printReviewItem"] --> URD["unifiedReviewDiff"]
+        PRI --> PRAF["printReviewAlternateForm"]
+        OBS --> PRC["parseReviewChoice → operations.ReviewDecision"]
+        RR --> RSUM["printReviewSummary"]
     end
 
     IH[["item_helpers.go:342"]] --> OIT
@@ -112,13 +113,14 @@ none and withholds. The cascade and its rows are stated normatively in
 
 ## The review walk
 
-`runReview` (`review.go:81`) enumerates pending items, resolves the
-countersigning key, and then either renders a listing or runs the per-bundle,
-per-item interactive walk. `parseReviewChoice` (`:269`) maps an answer letter to
-a `reviewDecision`; the `A` vs `a` asymmetry (accept-all vs accept-one) is
-load-bearing and explicitly tested. `reviewApplyFuncs` (`:289`) is the injected
-mutation pair the walk drives, wired in production by `reviewApplier` (`:299`)
-over `cfg`, `project` and `signer`.
+`runReview` (`review.go`) enumerates pending items, resolves the
+countersigning key, and then either renders a listing or hands the per-bundle,
+per-item walk to `operations.ReviewWalk`, supplying `reviewObserver` as the
+frontend: it prints each bundle and item, reads the answer, and maps it with
+`parseReviewChoice` to an `operations.ReviewDecision` (the `T`/`t` and `R`/`r`
+asymmetry — rest-of-bundle vs one item — is load-bearing and explicitly
+tested). The walk applies decisions through `SetItemTrust`/`SetBlacklist` over
+the session's `project` and `signer`, and reports back what it recorded.
 
 `printReviewItem` (`:399`) shows a unified diff for an UPDATE and the full
 content otherwise; `printReviewAlternateForm` (`:433`) additionally shows the

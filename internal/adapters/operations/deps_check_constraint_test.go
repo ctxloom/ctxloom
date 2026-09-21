@@ -1,8 +1,7 @@
-package cli
+package operations
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,50 +69,46 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 	}}
 
 	t.Run("constrained entry tracks its branch, not HEAD", func(t *testing.T) {
-		var out strings.Builder
 		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)
-		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, ref, "https://github.com/o/r@bundles/x")
+		s, err := detectSingleUpdate(ctx, mock, lockfile, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
-		require.False(t, upToDate)
-		require.Equal(t, "relsha2", u.LatestSHA, "must resolve within the constraint, not default-branch HEAD")
-		require.Equal(t, "release", u.RequestedVersion)
-		require.Equal(t, remote.ItemTypeBundle, u.Type)
+		require.False(t, s.UpToDate())
+		require.Equal(t, "relsha2", s.LatestSHA, "must resolve within the constraint, not default-branch HEAD")
+		require.Equal(t, "release", s.Update.RequestedVersion)
+		require.Equal(t, remote.ItemTypeBundle, s.Update.Type)
 	})
 
 	t.Run("entry at the constraint tip is up to date", func(t *testing.T) {
 		lf := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
 			"https://github.com/o/r@bundles/x": {SHA: "relsha2", RequestedVersion: "release"},
 		}}
-		var out strings.Builder
 		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)
-		_, upToDate, err := detectSingleUpdate(ctx, &out, mock, lf, ref, "https://github.com/o/r@bundles/x")
+		s, err := detectSingleUpdate(ctx, mock, lf, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
-		require.True(t, upToDate, "tip-of-constraint must not report an update even when HEAD moved")
+		require.True(t, s.UpToDate(), "tip-of-constraint must not report an update even when HEAD moved")
 	})
 
 	t.Run("version-suffixed input matches its canonical lock entry", func(t *testing.T) {
-		var out strings.Builder
 		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x@release")
 		require.NoError(t, rerr)
-		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, ref, "https://github.com/o/r@bundles/x@release")
+		s, err := detectSingleUpdate(ctx, mock, lockfile, ref, "https://github.com/o/r@bundles/x@release")
 		require.NoError(t, err)
-		require.False(t, upToDate)
-		require.Equal(t, "relsha2", u.LatestSHA)
+		require.False(t, s.UpToDate())
+		require.Equal(t, "relsha2", s.LatestSHA)
 	})
 
 	t.Run("unlocked ref is treated as a bundle", func(t *testing.T) {
 		// Top-level profile distribution was retired, so a ref with no lock entry
 		// pulls as a bundle — the only distributed item type.
 		empty := &remote.Lockfile{}
-		var out strings.Builder
 		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)
-		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, empty, ref, "https://github.com/o/r@bundles/x")
+		s, err := detectSingleUpdate(ctx, mock, empty, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
-		require.False(t, upToDate)
-		require.Equal(t, remote.ItemTypeBundle, u.Type)
+		require.False(t, s.UpToDate(), "an unlocked reference is never current")
+		require.Equal(t, remote.ItemTypeBundle, s.Update.Type)
 	})
 }
 
@@ -122,8 +117,8 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 // diagnostic and zero effect on any counter — indistinguishable from an
 // entry that was checked and found current. If every entry in a lockfile
 // hit this, `checkAll` printed "All items are up to date!" having actually
-// checked nothing. detectUpdates now returns a third count so the caller can
-// tell "verified current" apart from "could not be checked".
+// checked nothing. detectUpdates returns it as a typed Unchecked row so the
+// caller can tell "verified current" apart from "could not be checked".
 func TestDetectUpdates_FailedChecksAreCounted(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
 	lockfile := &remote.Lockfile{Bundles: map[string]remote.LockEntry{
@@ -131,9 +126,9 @@ func TestDetectUpdates_FailedChecksAreCounted(t *testing.T) {
 		"::::not-a-valid-reference": {SHA: "somesha", RequestedVersion: "main"},
 	}}
 
-	var out strings.Builder
-	updates, skipped, failed := detectUpdates(context.Background(), &out, cfg, remote.AuthConfig{}, lockfile)
+	updates, unchecked, skipped := detectUpdates(context.Background(), cfg, remote.AuthConfig{}, lockfile)
 	assert.Empty(t, updates)
 	assert.Equal(t, 0, skipped)
-	assert.Equal(t, 1, failed, "a reference that fails to parse must be counted as a failed check, not silently dropped")
+	require.Len(t, unchecked, 1, "a reference that fails to parse must be reported unchecked, not silently dropped")
+	assert.Equal(t, UncheckedUnparseable, unchecked[0].Reason)
 }

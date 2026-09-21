@@ -243,7 +243,7 @@ func snapshotAcceptedItemContent(cfg *config.Config, cat bundles.Catalog, tRef t
 		clidiag.Warn("ctxloom", "could not snapshot accepted content: %q not found in %q", tRef.Name, key)
 		return
 	}
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	fs = getFS(fs)
 	writeTrustSnapshot(fs, baseDir, rawHash, []byte(raw))
 	if distilledHash != "" {

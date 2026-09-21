@@ -26,7 +26,7 @@ var realHOME = os.Getenv("HOME")
 // the developer has in ~/.ctxloom leak into unit tests and change collection
 // counts and sync statuses.
 //
-// CWD isolation: getBaseDir falls back to a RELATIVE ".ctxloom" when a Config
+// CWD isolation: ProjectAppDir falls back to a RELATIVE ".ctxloom" when a Config
 // carries no AppPaths, and getFS(nil) writes to the real OS filesystem — so a
 // test reaching a trust/cache write without AppPaths (or testsupport.Isolate)
 // would write ".ctxloom/..." into the package source dir (cwd during `go

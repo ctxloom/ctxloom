@@ -121,7 +121,7 @@ func SyncDependencies(ctx context.Context, app *App, req SyncDependenciesRequest
 		return nil, err
 	}
 	fs := getFS(req.FS)
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 
 	// Collect all remote bundle references from profiles. Bundle profiles used
 	// as parents contribute their underlying bundle; top-level remote profiles

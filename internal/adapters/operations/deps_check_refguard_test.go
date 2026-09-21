@@ -1,8 +1,7 @@
-package cli
+package operations
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,9 +51,8 @@ func TestDetectSingleUpdate_TakesAValidatedReference(t *testing.T) {
 	ref, err := parseCheckRef(refStr)
 	require.NoError(t, err)
 
-	var out strings.Builder
-	u, upToDate, err := detectSingleUpdate(context.Background(), &out, mock, &remote.Lockfile{}, ref, refStr)
+	s, err := detectSingleUpdate(context.Background(), mock, &remote.Lockfile{}, ref, refStr)
 	require.NoError(t, err)
-	assert.False(t, upToDate)
-	assert.Equal(t, "mainsha", u.LatestSHA)
+	assert.False(t, s.UpToDate())
+	assert.Equal(t, "mainsha", s.LatestSHA)
 }

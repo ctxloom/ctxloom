@@ -490,7 +490,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	if found {
 		item.Status = ReviewStatusUpdate
 		if !executable {
-			if snap, ok := readTrustSnapshot(getFS(e.fs), getBaseDir(e.cfg), entry.PayloadHash); ok {
+			if snap, ok := readTrustSnapshot(getFS(e.fs), ProjectAppDir(e.cfg), entry.PayloadHash); ok {
 				item.PreviousContent = snap
 			}
 		}

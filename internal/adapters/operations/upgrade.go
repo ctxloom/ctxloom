@@ -77,7 +77,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 	roots, rootsUnexpanded := closureRoots(cfg, loader)
 	var result UpgradeResult
 
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
 	// Both lockfile manager constructions in
@@ -297,7 +297,7 @@ func movePinnedWorktree(ctx context.Context, cfg *config.Config, p PinnedRef) {
 	if err != nil || !ref.IsCanonical() {
 		return
 	}
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	if baseDir == "" {
 		return
 	}

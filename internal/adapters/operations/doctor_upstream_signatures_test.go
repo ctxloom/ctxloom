@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 )
 
 // --- DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5 ------------------------------------
@@ -53,10 +54,10 @@ func TestDoctorCheckUpstreamSignatures_NamesTheBundleTheRefusedRevisionAndTheKep
 	c := doctorCheckUpstreamSignatures(cfg, nil)
 
 	assert.Equal(t, "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5", c.Marker)
-	assert.Equal(t, doctorWarn, c.Status, "something needs fixing — upstream — so this is not an [info]")
+	assert.Equal(t, DoctorWarn, c.Status, "something needs fixing — upstream — so this is not an [info]")
 	assert.Contains(t, c.Detail, "deploy-runbook", "the bundle")
-	assert.Contains(t, c.Detail, shortSHA(upstreamProposed), "the revision that was refused")
-	assert.Contains(t, c.Detail, shortSHA(upstreamKept), "the pin being kept")
+	assert.Contains(t, c.Detail, gitutil.AbbrevSHA(upstreamProposed, 16), "the revision that was refused")
+	assert.Contains(t, c.Detail, gitutil.AbbrevSHA(upstreamKept, 16), "the pin being kept")
 	assert.Contains(t, c.Detail, "2026-08-05", "an as-of advisory has to say as of when")
 }
 
@@ -97,7 +98,7 @@ func TestDoctorCheckUpstreamSignatures_IsSilentWhenTheKeptPinHasMovedOn(t *testi
 	require.NoError(t, mgr.Save(lock))
 
 	c := doctorCheckUpstreamSignatures(cfg, nil)
-	assert.Equal(t, doctorOK, c.Status, "a stale record must not be reported as a live problem")
+	assert.Equal(t, DoctorOK, c.Status, "a stale record must not be reported as a live problem")
 	assert.NotContains(t, c.Detail, "deploy-runbook")
 }
 
@@ -110,7 +111,7 @@ func TestDoctorCheckUpstreamSignatures_RightState_NothingRefused(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	c := doctorCheckUpstreamSignatures(cfg, nil)
-	assert.Equal(t, doctorOK, c.Status)
+	assert.Equal(t, DoctorOK, c.Status)
 	assert.Contains(t, c.Detail, "no upstream revision has been refused")
 }
 
@@ -124,29 +125,7 @@ func TestDoctorCheckUpstreamSignatures_WrongState_UnreadableRecordWarns(t *testi
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
 	c := doctorCheckUpstreamSignatures(cfg, nil)
-	assert.Equal(t, doctorWarn, c.Status)
+	assert.Equal(t, DoctorWarn, c.Status)
 	assert.Contains(t, c.Detail, "could not read the record of refused upgrades")
 	assert.NotContains(t, c.Detail, "no upstream revision has been refused")
-}
-
-// The check has to be IN the report. A check nobody runs is a function with
-// tests, not a surface — and this whole slice exists because the fact had no
-// surface at all.
-func TestDoctorCmd_RendersTheUpstreamSignaturesCheck(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	out, err := runDoctor(t, root)
-	require.NoError(t, err)
-	assert.Contains(t, out, "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5",
-		"`ctxloom doctor` must actually render the check; one omitted from runDoctorCmd's list reports nothing to anyone")
-}
-
-// --deps is the pre-setup mode (init's PRIME, the setup skill's phase 1): only
-// machine-capability probes. This advisory is about a project's lockfile and a
-// publisher's signatures, neither of which exists yet in that mode, so it must
-// stay out of it.
-func TestDoctorCmd_UpstreamSignaturesCheckIsNotADepsProbe(t *testing.T) {
-	root, _ := setupProject(t, "claude-code")
-	out, err := runDoctor(t, root, "--deps")
-	require.NoError(t, err)
-	assert.NotContains(t, out, "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5")
 }

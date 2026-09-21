@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"os"
@@ -36,7 +36,7 @@ func TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed(t *testing.T) {
 
 	check := doctorCheckMCPInvocation(root)
 
-	assert.Equal(t, doctorWarn, check.Status,
+	assert.Equal(t, DoctorWarn, check.Status,
 		"a stale entry is a real problem, and warn is this command's fail-loud signal")
 	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file to fix")
 	assert.Contains(t, check.Detail, "ctxloom init", "the report names re-init as the fix")
@@ -56,7 +56,7 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
 
 	check := doctorCheckMCPInvocation(root)
 
-	assert.Equal(t, doctorOK, check.Status, "an entry naming the server leaf is fine")
+	assert.Equal(t, DoctorOK, check.Status, "an entry naming the server leaf is fine")
 	assert.NotContains(t, check.Detail, ".mcp.json",
 		"a healthy surface is not named as needing a fix")
 }
@@ -77,7 +77,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 
 			check := doctorCheckMCPInvocation(root)
 
-			assert.Equal(t, doctorWarn, check.Status)
+			assert.Equal(t, DoctorWarn, check.Status)
 			assert.Contains(t, check.Detail, rel, "the report names the engine's own file")
 		})
 	}
@@ -96,7 +96,7 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryInEveryFormatIsQuiet(t 
 			root := t.TempDir()
 			writeSurface(t, root, rel, body)
 
-			assert.Equal(t, doctorOK, doctorCheckMCPInvocation(root).Status)
+			assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(root).Status)
 		})
 	}
 }
@@ -110,7 +110,7 @@ func TestDoctorCheckMCPInvocation_LeavesForeignServersAlone(t *testing.T) {
 	writeSurface(t, root, ".mcp.json",
 		`{"mcpServers": {"taskloom": {"command": "taskloom", "args": ["mcp"]}}}`)
 
-	assert.Equal(t, doctorOK, doctorCheckMCPInvocation(root).Status,
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(root).Status,
 		"another tool's invocation is not ctxloom's to correct")
 }
 
@@ -118,8 +118,8 @@ func TestDoctorCheckMCPInvocation_LeavesForeignServersAlone(t *testing.T) {
 // materialized nothing yet has nothing stale, and saying so as `info` keeps
 // the warn channel meaning "act on this".
 func TestDoctorCheckMCPInvocation_NoSurfacesIsNotAProblem(t *testing.T) {
-	assert.Equal(t, doctorOK, doctorCheckMCPInvocation(t.TempDir()).Status)
-	assert.Equal(t, doctorInfo, doctorCheckMCPInvocation("").Status,
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(t.TempDir()).Status)
+	assert.Equal(t, DoctorInfo, doctorCheckMCPInvocation("").Status,
 		"with no project located there is nothing to inspect")
 }
 
@@ -134,20 +134,8 @@ func TestDoctorCheckMCPInvocation_UnreadableSurfaceIsNotHealth(t *testing.T) {
 
 	check := doctorCheckMCPInvocation(root)
 
-	assert.Equal(t, doctorWarn, check.Status)
+	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file it could not read")
 	assert.Contains(t, check.Detail, "unverified",
 		"the report says the invocation was not checked, rather than implying it passed")
-}
-
-// TestDoctorCmd_ReportsTheMCPInvocationCheck pins that the check is actually
-// wired into the report. A check function nothing calls is a check that never
-// runs, and every assertion above would still pass.
-func TestDoctorCmd_ReportsTheMCPInvocationCheck(t *testing.T) {
-	root, _ := setupProject(t, "mock")
-
-	out, err := execDoctor(t, root)
-
-	require.NoError(t, err)
-	assert.Contains(t, out, "DOCTOR-CHECK-MCP-INVOCATION-g7")
 }

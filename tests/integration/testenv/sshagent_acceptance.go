@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"golang.org/x/crypto/ssh/agent"
 )
 
@@ -73,14 +74,21 @@ func StartSSHAgent(dir string, identities ...SSHAgentIdentity) (sockPath string,
 		}
 	}
 
-	sockPath = filepath.Join(dir, fmt.Sprintf("ssh-agent-%d.sock", os.Getpid()))
-	// A socket left over from an earlier StartSSHAgent in the same dir would
-	// make net.Listen fail with "address already in use"; the caller's dir is
-	// this harness's own temp tree, so removing it is safe and never touches
-	// anything a developer owns.
-	_ = os.Remove(sockPath)
+	// The socket is bound in a fresh directory under dir when the path fits
+	// sun_path there, else under the standard short tiers
+	// (testsupport.SocketTiers): a scenario's temp root inside a ctxloom
+	// agent cell sits ~100 bytes deep, and a socket bound beneath it fails
+	// with the opaque "bind: invalid argument". stop removes the directory
+	// either way.
+	name := fmt.Sprintf("ssh-agent-%d.sock", os.Getpid())
+	sockDir, removeDir, err := testsupport.PickSocketDir(name, append([]string{dir}, testsupport.SocketTiers()...))
+	if err != nil {
+		return "", nil, err
+	}
+	sockPath = filepath.Join(sockDir, name)
 	listener, err := net.Listen("unix", sockPath)
 	if err != nil {
+		removeDir()
 		return "", nil, fmt.Errorf("listen on %s: %w", sockPath, err)
 	}
 
@@ -115,8 +123,9 @@ func StartSSHAgent(dir string, identities ...SSHAgentIdentity) (sockPath string,
 			accepting.Wait()
 			conns.Wait()
 			// net's unix listener already unlinks the socket on Close;
-			// this is belt-and-braces for the case where it did not.
-			_ = os.Remove(sockPath)
+			// removing the minted directory covers the case where it did
+			// not, and leaves nothing behind under a short tier.
+			removeDir()
 		})
 		return closeErr
 	}

@@ -1,4 +1,4 @@
-package cli
+package operations
 
 import (
 	"strings"
@@ -7,16 +7,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
 
-func pendingOf(bs ...operations.ReviewBundle) *operations.PendingReviewResult {
+func pendingOf(bs ...ReviewBundle) *PendingReviewResult {
 	total := 0
 	for range bs {
 		total++
 	}
-	return &operations.PendingReviewResult{Bundles: bs, Total: total}
+	return &PendingReviewResult{Bundles: bs, Total: total}
 }
 
 // TestClassifyContentTrust_KeepsTheThreeCasesApart pins how this check reports
@@ -41,14 +40,14 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 
 	t.Run("all clean reports ok", func(t *testing.T) {
 		got := classifyContentTrust(marker, pendingOf())
-		assert.Equal(t, doctorOK, got.Status)
+		assert.Equal(t, DoctorOK, got.Status)
 	})
 
 	t.Run("an invalid signature is named as tampering, not as unsigned", func(t *testing.T) {
 		got := classifyContentTrust(marker, pendingOf(
-			operations.ReviewBundle{Ref: "https://x/y@bundles/tampered", Publisher: bundles.ReasonTampered},
+			ReviewBundle{Ref: "https://x/y@bundles/tampered", Publisher: bundles.ReasonTampered},
 		))
-		require.Equal(t, doctorWarn, got.Status)
+		require.Equal(t, DoctorWarn, got.Status)
 		assert.Contains(t, got.Detail, "does NOT cover their bytes",
 			"a signature that fails over its own bytes must be reported as such")
 		assert.NotContains(t, got.Detail, "never reviewed",
@@ -62,10 +61,10 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 
 	t.Run("the fixable cases offer the local remedy, not only the remote one", func(t *testing.T) {
 		got := classifyContentTrust(marker, pendingOf(
-			operations.ReviewBundle{Ref: "https://x/y@bundles/untrusted", Publisher: bundles.ReasonUntrustedSigner},
-			operations.ReviewBundle{Ref: "https://x/y@bundles/bare", Publisher: bundles.ReasonUnsigned},
+			ReviewBundle{Ref: "https://x/y@bundles/untrusted", Publisher: bundles.ReasonUntrustedSigner},
+			ReviewBundle{Ref: "https://x/y@bundles/bare", Publisher: bundles.ReasonUnsigned},
 		))
-		require.Equal(t, doctorWarn, got.Status)
+		require.Equal(t, DoctorWarn, got.Status)
 		assert.Contains(t, got.Detail, "ctxloom review",
 			"the remediable cases must say the content can be reviewed and accepted locally; naming only "+
 				"'ask the publisher' leaves the reader waiting on someone else for content they can accept themselves")
@@ -78,10 +77,10 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 
 	t.Run("an untrusted key is separated from a missing signature", func(t *testing.T) {
 		got := classifyContentTrust(marker, pendingOf(
-			operations.ReviewBundle{Ref: "https://x/y@bundles/untrusted", Publisher: bundles.ReasonUntrustedSigner},
-			operations.ReviewBundle{Ref: "https://x/y@bundles/bare", Publisher: bundles.ReasonUnsigned},
+			ReviewBundle{Ref: "https://x/y@bundles/untrusted", Publisher: bundles.ReasonUntrustedSigner},
+			ReviewBundle{Ref: "https://x/y@bundles/bare", Publisher: bundles.ReasonUnsigned},
 		))
-		require.Equal(t, doctorWarn, got.Status)
+		require.Equal(t, DoctorWarn, got.Status)
 
 		trustIdx := strings.Index(got.Detail, "does not trust")
 		bareIdx := strings.Index(got.Detail, "never reviewed")
@@ -97,11 +96,11 @@ func TestClassifyContentTrust_KeepsTheThreeCasesApart(t *testing.T) {
 
 	t.Run("all three at once are reported separately", func(t *testing.T) {
 		got := classifyContentTrust(marker, pendingOf(
-			operations.ReviewBundle{Ref: "https://x/y@bundles/a", Publisher: bundles.ReasonTampered},
-			operations.ReviewBundle{Ref: "https://x/y@bundles/b", Publisher: bundles.ReasonUntrustedSigner},
-			operations.ReviewBundle{Ref: "https://x/y@bundles/c", Publisher: bundles.ReasonUnsigned},
+			ReviewBundle{Ref: "https://x/y@bundles/a", Publisher: bundles.ReasonTampered},
+			ReviewBundle{Ref: "https://x/y@bundles/b", Publisher: bundles.ReasonUntrustedSigner},
+			ReviewBundle{Ref: "https://x/y@bundles/c", Publisher: bundles.ReasonUnsigned},
 		))
-		require.Equal(t, doctorWarn, got.Status)
+		require.Equal(t, DoctorWarn, got.Status)
 		for _, want := range []string{"does NOT cover their bytes", "does not trust", "never reviewed"} {
 			assert.Contains(t, got.Detail, want,
 				"every distinct situation must survive into the report; collapsing them is what this check exists to stop")

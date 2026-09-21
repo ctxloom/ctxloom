@@ -12,7 +12,7 @@ import (
 // trust.go do): without it the manager falls back to the real OS filesystem and
 // reads/writes a DIFFERENT lock.yaml than the rest of the run resolves against.
 func activeLockfileManager(cfg *config.Config) *remote.LockfileManager {
-	baseDir := getBaseDir(cfg)
+	baseDir := ProjectAppDir(cfg)
 	if fs := cfgFS(cfg); fs != nil {
 		return remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))
 	}

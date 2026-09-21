@@ -49,7 +49,7 @@ Feature: MCP resources
     When the agent reads resource "ctxloom://mcp-servers"
     Then the resource MIME type is "application/yaml"
     And the resource contains "ctxloom"
-    And the resource contains "ctxloom+builtin:ctxloom-mcp"
+    And the resource contains "ctxloom+companion:ctxloom"
 
   # Same shape as the remotes resource above: a recorded session is payload
   # both views must carry, and `recent` additionally states its own

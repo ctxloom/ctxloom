@@ -53,8 +53,9 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	// checkpoint before standUpRunner's config load. Unlike serve/host, a
 	// standUpRunner ERROR here is deliberately downgraded to a warning
 	// below (interactive turn has no RunID, so no EngineHost, and an MCP
-	// hiccup degrades to the shim's local fallback rather than failing the
-	// turn) — but a fatal-class FINDING (a corrupted/malformed
+	// hiccup degrades the shim to its local surface — context tools only,
+	// agent tools refused — rather than failing the turn) — but a
+	// fatal-class FINDING (a corrupted/malformed
 	// config.yaml) is a different, stronger signal and still aborts unless
 	// --degraded, same as the other two process-owning entry points.
 	gates := newPhaseGates(os.Stderr, App().Strictness)
@@ -72,14 +73,15 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Stand up the runner-local MCP surface (config + socket + marker +
+	// Stand up the runner-local MCP surface (config + socket +
 	// CTXLOOM_MCP_SOCKET export) so the engine child spawned by Execute has
 	// its ctxloom tools and coordinator reach-back — the same standup `llm
 	// serve`/`llm host` run, which also consumes+scrubs the reach-back trio
 	// so the engine never inherits it. Best-effort: with no trio in the env
 	// it is a no-op, and an MCP hiccup on this interactive path degrades the
-	// shim to its local fallback rather than failing the turn (there is no
-	// hosted delegated run here — no RunID, so no EngineHost).
+	// shim to its local surface (agent tools refused, never a coordinator of
+	// its own) rather than failing the turn (there is no hosted delegated
+	// run here — no RunID, so no EngineHost).
 	standup, serr := standUpRunner(cmd, backend, backendName, llmTurnLabel)
 	if serr != nil {
 		clidiag.Warn("ctxloom", "runner MCP standup for interactive turn failed (continuing without it): %v", serr)

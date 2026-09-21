@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -35,10 +34,7 @@ type ctxServer struct {
 	// server's life. The owner arm's server (ServeRunnerMCP) is handed its
 	// generation and holds no app.
 	app *operations.App
-	// build constructs the coordinator a bare `ctxloom mcp` stands up on its
-	// first agent_run — the composition root's constructor, handed in.
-	build CoordinatorConstructor
-	cfg   *config.Config
+	cfg *config.Config
 	// dryRun suppresses the startup apply's single write. Starting this
 	// server normally REWRITES the project's managed settings — that is what
 	// ctxloom does — so this is the way to ask what a start would change
@@ -48,10 +44,9 @@ type ctxServer struct {
 	// the credential on the coordinator's HTTP surface, from env on stdio.
 	self coord.Identity
 	// agents is the coordinator-backed delegation state behind the agent_*
-	// tools; nil until first use on a bare stdio server (lazy standup in
-	// delegation()), pre-bound on identity servers.
-	agents   *agentDelegation
-	agentsMu sync.Mutex
+	// tools. Nil on a bare stdio server — which then refuses the tools
+	// (delegation()) rather than hosting a coordinator of its own.
+	agents *agentDelegation
 	// distill collapses concurrent distillations of the SAME session into one
 	// run. It is SHARED across ctxServer instances (the coordinator builds a
 	// fresh one per relayed call), so it is injected, never owned here. Nil
@@ -90,7 +85,7 @@ func (s *ctxServer) strictness() strictness.Mode {
 	return s.app.Strictness
 }
 
-func ServeStdio(ctx context.Context, app *operations.App, build CoordinatorConstructor, cwd string, gate func() error, dryRun bool) error {
+func ServeStdio(ctx context.Context, app *operations.App, cwd string, gate func() error, dryRun bool) error {
 	// FORWARD MODE: when the engine-inherited env names the plugin-hosted
 	// owner arm's runner socket, this whole server is a stdio↔HTTP-over-unix
 	// proxy onto it. No local startup (config, sync, hooks) runs — the runner
@@ -103,7 +98,7 @@ func ServeStdio(ctx context.Context, app *operations.App, build CoordinatorConst
 		}
 	}
 
-	s := &ctxServer{app: app, build: build, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
+	s := &ctxServer{app: app, self: selfIdentityFromEnv(cwd), dryRun: dryRun}
 	if err := s.startup(ctx); err != nil {
 		// startup() only returns context.Canceled — anything else
 		// (config load failure, sync errors, hook failures) is

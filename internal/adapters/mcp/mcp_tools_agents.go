@@ -11,7 +11,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
@@ -20,21 +19,24 @@ import (
 )
 
 // Agent-delegation tools (agent_run / agent_send / agent_recv / agent_stop),
-// backed by the runtime coordinator (internal/core/coord). One process
-// plays one of two roles, fixed by environment at startup:
+// backed by the runtime coordinator (internal/core/coord).
 //
-//   - COORDINATOR HOST (no CTXLOOM_COORD_URL): this server owns delegation.
-//     `ctxloom run` stands the coordinator up eagerly and hands it to its
-//     engine via the env trio; a bare `ctxloom mcp` (an
-//     externally-launched harness — the orphaned-orchestrator fallback)
-//     builds one lazily on first agent-tool use. Either way the durable CQRS
-//     stores, credentials, and listeners live in the coordinator library.
-//   - FORWARDER (CTXLOOM_COORD_URL set): this server belongs to a spawned
-//     child's engine (or the parent harness of a hosting run process);
-//     it never registers local tools at all — the WHOLE server is a
-//     stdio↔HTTP proxy onto the coordinator's MCP endpoint (mcp_forward.go),
-//     and identity derives from the credential per request, never from this
-//     process's env.
+// ONE coordinator per project, hosted by a RUNNER — `ctxloom run` stands it
+// up (coord_host.go, HostCoordinatorForSession) and hands its engine the
+// reach-back env. An MCP server is a CLIENT of that arrangement and never a
+// host:
+//
+//   - FORWARDER: the stdio shim finds the runner (CTXLOOM_MCP_SOCKET in the
+//     env its engine inherited, mcp_forward.go) and becomes a pure
+//     stdio↔HTTP proxy onto it; the runner serves the agent tools as
+//     coordination frames and never touches this file's state.
+//   - BARE LOCAL: a `ctxloom mcp` with no reachable runner still ADVERTISES
+//     the agent tools, and every one of them refuses with errNoRunner. A
+//     server that built a coordinator lazily here instead would be a stdio
+//     relay able to promote itself into a second session-owning process for
+//     the project — the rival-coordinator class this boundary eliminates.
+//     Nothing in this package can construct one: the constructor is private
+//     to the session host's path.
 
 // errNoRunner is the refusal every agent tool returns from a bare stdio
 // server: a coordinator is hosted only by a RUNNER, and this process found
@@ -49,45 +51,25 @@ type agentDelegation struct {
 }
 
 // selfIdentityFromEnv is the stdio server's ambient identity: the serving
-// session's harp, always depth 0 — the executor role died with the shim
-// (children run in forward mode and never reach this constructor).
+// session's harp, always depth 0.
 //
-// THE HARP IS NOT OPTIONAL, and an absent one used to be accepted silently.
 // `ctxloom run` is the only shipping way an engine sees ctxloom: it exports
 // CTXLOOM_SESSION_HARP into the engine's env and registers this server in
 // the session's own home, so an engine it launched spawns this server WITH
-// a harp. `manage install` and `init` write no project-side entry. A bare
+// a harp (and forwards to the runner before this is ever read). A bare
 // `ctxloom mcp` entry with NO env still reaches here from a project where
 // an earlier ctxloom's install, or an explicit `manage hooks install`, left
-// one in .mcp.json — an engine launched directly there starts a coordinator
-// whose Harp is "".
+// one in .mcp.json. Every session-scoped tool on this surface keys off the
+// harp (recovery, previous-session lookup, context status, trigger
+// evaluation), and an empty one does not fail: it silently resolves to
+// nothing, this codebase's characteristic exit-0-with-zero-bytes shape.
 //
-// An empty owner harp does not fail; it silently breaks every child->parent
-// delivery, because the harp IS the coordinator's inbox address (the name of
-// its spool):
-//
-//   - agent_run journals AgentSpawned.ParentHarp = "" (coord/children.go's
-//     childRt.parentHarp), so the child's lineage has no parent;
-//   - the child's runner then routes its turn report to "" and
-//     queueMailPayloadID refuses it ("no session can drain role"), leaving
-//     the report only in a stderr warning the coordinator — an agent whose
-//     sole input is its inbox — structurally cannot read;
-//   - a child that calls agent_send(to:"parent") itself hits childSend's
-//     `parent == ""` arm and is told it is "not a child of this coordinator".
-//
-// Every cheap signal stays green throughout: agent_run returns success with a
-// harp, the child really runs, its transcript really appears. Only the
-// delivery is gone — this codebase's characteristic exit-0-with-zero-bytes
-// shape, on the bus.
-//
-// So a serving process with no ambient session mints its own harp rather than
-// running as an unaddressable one. It is a real, distinct identity for the
-// lifetime of this coordinator process, which is exactly the lifetime over
-// which its mailbox is meaningful: the same process both spawns the children
-// and drains the mailbox via agent_recv, so a per-process identity closes the
-// loop. It is deliberately NOT persisted — inventing a durable session
-// identity for a session ctxloom did not launch would be a stronger claim
-// than the evidence supports.
+// So a serving process with no ambient session mints its own harp rather
+// than running as an unaddressable one. It is a real, distinct identity for
+// the lifetime of this process, deliberately NOT persisted — inventing a
+// durable session identity for a session ctxloom did not launch would be a
+// stronger claim than the evidence supports. It is NOT a coordinator
+// identity: a bare server hosts no coordinator (delegation()).
 func selfIdentityFromEnv(projectDir string) coord.Identity {
 	sessionHarp := os.Getenv("CTXLOOM_SESSION_HARP")
 	if sessionHarp == "" {
@@ -98,24 +80,6 @@ func selfIdentityFromEnv(projectDir string) coord.Identity {
 		Depth:   0,
 		Project: projectDir,
 	}
-}
-
-// newAgentDelegation stands the coordinator up for a bare `ctxloom mcp`
-// serving process: durable stores + listeners (D2: ConsumerService is part
-// of that listener set — no separate per-harp viewer bind step exists
-// anymore). Children spawned from here reach back over the coordinator's
-// authenticated MCP endpoint exactly like run/acp-hosted ones.
-func newAgentDelegation(build CoordinatorConstructor, app *operations.App) (*agentDelegation, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = "."
-	}
-	self := selfIdentityFromEnv(cwd)
-	c, err := HostCoordinator(build, app, cwd, self.Harp)
-	if err != nil {
-		return nil, err
-	}
-	return &agentDelegation{self: self, c: c}, nil
 }
 
 type agentRunInput struct {
@@ -309,26 +273,16 @@ func (s *ctxServer) registerAgentTools(server *mcp.Server) {
 		s.handleAgentStop)
 }
 
-// delegation resolves the agent-tool backend, standing the coordinator up
-// lazily. Only a bare, externally-launched `ctxloom mcp` ever gets here: a
-// run/acp-hosted session's stdio shim forwards to the runner instead
-// (mcp_forward.go), and the runner serves the agent tools as plane-2 frames
-// through coordinationHandler, which never touches this state.
+// delegation resolves the agent-tool backend. It is bound at construction
+// or it is absent — a bare stdio server with no runner refuses with
+// errNoRunner. Nothing is built here: standing a coordinator up is the
+// session host's job (coord_host.go), and a server that could do it lazily
+// could become a second owner of the project.
 func (s *ctxServer) delegation() (*agentDelegation, error) {
-	s.agentsMu.Lock()
-	defer s.agentsMu.Unlock()
-	if s.agents != nil {
-		return s.agents, nil
+	if s.agents == nil {
+		return nil, errNoRunner
 	}
-	if s.app == nil || s.build == nil {
-		return nil, errors.New("agent delegation unavailable: server started without the process composition")
-	}
-	d, err := newAgentDelegation(s.build, s.app)
-	if err != nil {
-		return nil, fmt.Errorf("agent delegation unavailable: %w", err)
-	}
-	s.agents = d
-	return d, nil
+	return s.agents, nil
 }
 
 func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, in agentRunInput) (*mcp.CallToolResult, *agentRunResult, error) {

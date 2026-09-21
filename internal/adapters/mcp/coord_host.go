@@ -15,26 +15,27 @@ import (
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
-// Coordinator hosting: every session-owning process — `ctxloom run` and the
-// bare `ctxloom mcp` fallback — stands the runtime
-// coordinator up as a LIBRARY. Since the B1.6 surface shrink the gRPC
-// channels are the ONLY agent ingress (tool surfaces live at each runner's
-// local socket); this process keeps the host-relay handlers, each bound to
-// the CALLER's credential-derived identity — never the host process's env
-// (review R12f).
+// Coordinator hosting: the session-owning process — `ctxloom run` — stands
+// the runtime coordinator up as a LIBRARY, and it is the ONLY process that
+// does. An MCP server (stdio shim or runner) is a client of that
+// coordinator, never a host: hostCoordinator is private, reachable only
+// through HostCoordinatorForSession, so no other entry point in this package
+// can build one. The gRPC channels are the ONLY agent ingress (tool surfaces
+// live at each runner's local socket); this process keeps the host-relay
+// handlers, each bound to the CALLER's credential-derived identity — never
+// the host process's env.
 
-// NewHostedCoordinator builds and serves the coordinator for projectDir.
-// ownerHarp is the session owner's harp — the inbox this process drains
-// (coord.Options.OwnerHarp); every hosting site knows it before standing the
-// coordinator up.
 // CoordinatorConstructor is the composition root's way to construct the
 // runtime coordinator (cli.NewCoordinator in production, coord.New in
 // tests): coord.New is called only under cmd/*.
 type CoordinatorConstructor func(coord.Options) (*coord.Coordinator, error)
 
-// HostCoordinator assembles the hosted coordinator's Options from the App's
+// hostCoordinator assembles the hosted coordinator's Options from the App's
 // config and asks the composition to construct it, then serves it.
-func HostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, error) {
+// ownerHarp is the session owner's harp — the inbox this process drains
+// (coord.Options.OwnerHarp); the hosting site knows it before standing the
+// coordinator up.
+func hostCoordinator(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, error) {
 	cfg, err := app.Config(context.Background())
 	if err != nil {
 		return nil, err
@@ -180,7 +181,7 @@ var _ coord.HostApp = (*HostApp)(nil)
 // the error for the caller's fail-loud gate; the caller decides degraded
 // behavior.
 func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, runtimeAxis launch.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
-	c, err := HostCoordinator(build, app, projectDir, ownerHarp)
+	c, err := hostCoordinator(build, app, projectDir, ownerHarp)
 	if err != nil {
 		return nil, nil, err
 	}

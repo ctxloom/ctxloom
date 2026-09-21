@@ -133,9 +133,10 @@ var writeOwnerPID = func(f *os.File, pid int) error {
 // claimOwner takes the project state dir's exclusive-owner lock. The journal
 // discipline demands a single writer per journal, and that holds ACROSS
 // processes too: two concurrent session-owning processes for one project must
-// not share journals. The second claimant gets ErrStateOwned and falls back
-// to an ephemeral per-session state dir (no adoption, warned by the caller).
-// A dead owner's stale lock is replaced (liveness = signal 0 probe).
+// not share journals. The second claimant gets ErrStateOwned and is REFUSED —
+// a project has one coordinator, and the loser must not run a rival on state
+// of its own (acquireStateDir). A dead owner's stale lock is replaced
+// (liveness = signal 0 probe).
 //
 // A lock file this function creates but cannot STAMP is removed again before it
 // declines: an owner.pid with no pid in it reads to the next
@@ -165,15 +166,14 @@ func claimOwner(rep report.Reporter, dir string) (release func(), err error) {
 		// unconfirmable probe the same as a live owner — a false "the owner
 		// is dead" here would let a second process share this project's
 		// journal, which the single-writer discipline this function exists
-		// to enforce can never recover from. A needlessly-ephemeral fallback
-		// on a false positive is the safe direction; a shared journal is not.
+		// to enforce can never recover from. A needless refusal on a false
+		// positive is the safe direction; a shared journal is not.
 		if perr == nil && pid > 0 && pidalive.Probe(pid).MaybeAlive() && pid != os.Getpid() {
-			return nil, ErrStateOwned
+			return nil, fmt.Errorf("%w (owner pid %d)", ErrStateOwned, pid)
 		}
 		// Stale lock from a dead owner: remove and retry once. The remove→
 		// create window is racy in theory; the loser of the race lands on
-		// ErrStateOwned and takes the ephemeral fallback — never a shared
-		// journal.
+		// ErrStateOwned and is refused — never a shared journal.
 		_ = os.Remove(lock)
 	}
 	return nil, ErrStateOwned

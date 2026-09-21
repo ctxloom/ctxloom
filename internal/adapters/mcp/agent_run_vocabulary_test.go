@@ -11,7 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -28,7 +27,7 @@ func agentRunSurfaces(t *testing.T) map[string]map[string]any {
 	require.True(t, ok, "agent_run must have a generated schema")
 	out["generated (proto-canonical, runner surface)"] = decodeSchema(t, generated.InputSchema)
 
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig()), build: coord.New}
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 	stdioTool, ok := listServerTools(t, server)[mcpschema.ToolAgentRun]
@@ -100,16 +99,12 @@ func TestAgentRun_ConstrainsPerCallVocabulariesOnBothSurfaces(t *testing.T) {
 // arguments against the advertised schema before the handler runs, so a
 // typo'd handler is rejected at the tool call and never reaches the spawn.
 func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
-	// This test drives the REAL agent_run handler, and the bare-`mcp` server
-	// keys its project off os.Getwd(): newAgentDelegation resolves the project
-	// identity for the cwd, which MINTS a .ctxloom/project-id marker there and
-	// registers it in ~/.ctxloom/projects. Under `go test` the cwd is the
-	// package source directory, so an unisolated run writes both into the
-	// checkout and the developer's real home. Isolated HOME + cwd (forbidigo:
-	// no raw os.Chdir).
+	// This test drives the REAL agent_run handler on a bare-`mcp` server.
+	// Isolated HOME + cwd (forbidigo: no raw os.Chdir) so nothing it touches
+	// lands in the checkout or the developer's real home.
 	testsupport.ProjectDir(t)
 
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig()), build: coord.New}
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 
@@ -137,9 +132,9 @@ func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
 	}
 
 	// The vacuity guard: a DECLARED member gets past argument validation and
-	// fails later, on this fixture's missing agent. So the refusal below is
-	// the enum rejecting the spelling, not the call failing for its own
-	// unrelated reasons.
+	// fails later, in the handler (this bare server has no runner and
+	// refuses). So the refusal below is the enum rejecting the spelling, not
+	// the call failing for its own unrelated reasons.
 	declared := call(string(launch.DirtyTreeHandlerStale))
 	assert.NotContains(t, declared, "does not equal any of", "a declared member is not an argument-validation failure")
 

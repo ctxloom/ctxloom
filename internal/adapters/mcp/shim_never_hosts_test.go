@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
-	"github.com/ctxloom/ctxloom/internal/adapters/runner/coordtest"
-	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
@@ -92,21 +90,8 @@ func driveTool(t *testing.T, server *mcp.Server, name string, args map[string]an
 // message, because this codebase's characteristic failure is exit 0 with
 // the wrong side effect.
 func TestBareShim_NoRunner_RefusesAndConstructsNoCoordinator(t *testing.T) {
-	root := testsupport.ProjectDir(t) // isolated HOME + cwd; every CTXLOOM_* var cleared
-	resetStrictness(t)
-	// build is the composition root's constructor as `ctxloom run` composes it
-	// (a real spawner), handed in exactly as ServeStdio hands cli.NewCoordinator.
-	build := func(o coord.Options) (*coord.Coordinator, error) {
-		runners := coordtest.NewRunners()
-		t.Cleanup(runners.Close)
-		o.Spawner = spawn.New(nil, fixtureApp(t, testConfig()), root, runners.Starter)
-		c, err := coord.New(o)
-		if err == nil {
-			t.Cleanup(c.Close)
-		}
-		return c, err
-	}
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig()), build: build}
+	testsupport.ProjectDir(t) // isolated HOME + cwd; every CTXLOOM_* var cleared
+	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
 	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
 	s.registerTools(server)
 

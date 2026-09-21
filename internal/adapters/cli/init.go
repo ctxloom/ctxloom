@@ -324,7 +324,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 	// Remotes from --remote flags are added alongside any the interactive prompt
 	// collected, so a fully non-interactive run can still register personal repos.
 	addPersonalRemotesFn(cmd, appDir, append(append([]string{}, initRemotes...), personalRepos...), initForge)
-	cloneConfiguredRemotes(cmd, appDir)
+	cloneConfiguredRemotesFn(cmd, appDir)
 	pullSeededDependencies(cmd, appDir)
 	applyInitHooks(cmd, appDir)
 
@@ -438,6 +438,12 @@ func addPersonalRemotes(cmd *cobra.Command, appDir string, repos []string, forge
 		}
 	}
 }
+
+// cloneConfiguredRemotesFn is a package var seam over cloneConfiguredRemotes:
+// a fresh init clones the seeded default remote, which is the one step of
+// the fresh branch that reaches the network, so tests of that branch stub it
+// out. Defaults to the real function.
+var cloneConfiguredRemotesFn = cloneConfiguredRemotes
 
 // cloneConfiguredRemotes eagerly clones every remote configured in the .ctxloom
 // at appDir (see addPersonalRemotes on why the dir is passed, not discovered) so

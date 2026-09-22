@@ -5,10 +5,10 @@ abstraction is uniform; **what an engine behind it can carry is not**, and a few
 capabilities are wired host-side without any engine honouring them. Every cell
 below is what the code **does**, with a `file:line`.
 
-Registered backend ids are what `backends.List()` returns: `claude-code`
+Composed engine ids are what `operations.EngineNames()` returns: `claude-code`
 (`config.BackendClaudeCode`) and the test doubles (`config.BackendMock` and its
 `config.BackendMock*` siblings) — all in one `init()` in
-`internal/lm/backends/registry.go`. `internal/engines/mock` is **not** a
+`internal/engines` (the composition root). `cmd/mockengine` is **not** a
 registered backend; it is a fake vendor CLI (see [mockengine](mockengine.md)).
 Where a row below says "the doubles", the mock family behaves alike unless the
 cell says otherwise.
@@ -54,7 +54,7 @@ so `plan` never runs unrestrained. Applied at `internal/adapters/cli/run.go:1499
 
 The field is opt-in `true`, and an engine that merely *emits* a plan-mode flag
 does not earn it — see [backend abstraction §3](backend-abstraction.md) for
-why. `TestEnforcesReadOnlyPlan` (`internal/lm/backends/capabilities_test.go`)
+why. the claude definition tests (`internal/engines/claude`)
 pins the predicate so it cannot degrade into "is this backend known?".
 
 One further permission fact:
@@ -101,7 +101,7 @@ never had.
 | Backend | Mechanism | Reads `AGENTS.md`? | Hook-mediated? | Site |
 |---|---|---|---|---|
 | `claude-code` | **two realizations of one surface**: isolated cell → marker-merge into `CLAUDE.md`; shared cell → out-of-cwd `<hash>.sysprompt.md` passed as `--append-system-prompt-file` | **no — deliberate** (`enginecli.go:34-38`) | no (apply path uses a SessionStart injection hook) | `internal/engines/claude/surfaces.go:81`, `contextdelivery.go:50`, `claudecode.go:294-299` |
-| the doubles | a single project-root file (`mockContextPath`) whose bytes the mock engine hashes and reports | no | no | `internal/lm/backends/mock_surfaces.go` |
+| the doubles | a single project-root file (`mockContextPath`) whose bytes the mock engine hashes and reports | no | no | `internal/engines/mock/surfaces.go` |
 
 **`agent.OutOfCwd` — the out-of-cwd form.** `claude-code`'s approaches carry
 one (`internal/engines/claude/surfaces.go`): flag-pointed scratch files for context,
@@ -118,7 +118,7 @@ private cwd (worktree) or a container cell.**
 | the doubles | — | — | — | `.mock/skills/<n>/**` (`mockSkillsPath`), except `config.BackendMockNoSkills`, which declares no skills mapper at all |
 
 **Skills cross the launch wire** (§3). A descriptor's `skillExports` maps them
-into `SurfaceInputs.Skills`; `backends.SupportsSkills` reports which backends
+into `SurfaceInputs.Skills`; `Engine.Exports` reports which engines
 declare one, and `config.BackendMockNoSkills` exists so the "no skills surface"
 arm of every caller has a subject.
 
@@ -141,7 +141,7 @@ nowhere among them, so a team could ship a guardrail and a deskmate could
 inherit the profile without either being told the guardrail did not come with
 it (`whiny-exclusive`).
 
-The gap is now DECLARED and reported: `backends.UncarriedSurfaces` turns a
+The gap is now DECLARED and reported: `operations.CapabilityLoss` (over `Definition.HookLosses`) turns a
 declaration into an `agent.SurfaceLoss` whenever the run actually carries
 hooks, materialize puts it in `MaterializeProfileResult.NotCarried` (so
 `--format json` sees it as data) and prints it beside the `wrote` lines, and

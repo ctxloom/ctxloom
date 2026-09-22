@@ -8,7 +8,7 @@ where") rather than **existence** ("a turn happened").
 
 It is **not a registered backend** and nothing in production imports it. Do not
 confuse it with the registered in-process `"mock"` backend
-(`internal/lm/backends/registry.go:443`, `backends.NewMock` / `MockConfig`), which is
+(`internal/engines/mock`, `mock.Mock.Backend` / `mock.Config`), which is
 a different thing.
 
 ## Layering
@@ -91,8 +91,8 @@ A missing personality is exit 2 (`main.go:77-80`). The name is deliberately
 vendor-**neutral** because the binary is installed under a vendor's name
 (`main.go:1-15`).
 
-Resolution then runs `backends.EngineCLIsFor(personality)` (`main.go:83`, seam at
-`internal/lm/backends/enginecli.go:24-37`) and `agent.EngineCLIFor(clis, surface)`
+Resolution then runs `engines.EngineCLIs(personality)` (the L1 declaration read
+off the composed engine value, `agent.EngineCLIProvider`) and `agent.EngineCLIFor(clis, surface)`
 (`main.go:88`). The vendor argv is parsed against L1's declared grammar with
 `cli.ParseArgv(vendorArgs)` — **an undeclared flag is a LOUD error, exit 2**
 (`main.go:98-104`).

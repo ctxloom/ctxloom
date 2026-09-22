@@ -381,7 +381,7 @@ flowchart TD
 - `internal/adapters/operations` — owns pull/sync/lock/upgrade/publish command flows, constructs
   `Puller`, `PublishManager`, `RepoCache`, `Resolver` and `LockfileStore`, and is the only
   other writer of `lock.yaml`.
-- `internal/core/bundles`, `internal/core/profiles`, `internal/lm/backends`, `internal/adapters/cli` —
+- `internal/core/bundles`, `internal/core/profiles`, `internal/adapters/operations/managedhooks`, `internal/adapters/cli` —
   consume the reference grammar (`CanonicalBundleRef`, `CanonicalizeShortRef`,
   `ParseReference`) and registry/lockfile reads.
 

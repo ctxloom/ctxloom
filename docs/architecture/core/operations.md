@@ -72,7 +72,7 @@ flowchart TD
     ASM --> APPLY["ApplyHooks<br/>hooks.go:54<br/>settings / MCP / context / commands"]
     ASM --> RUN["launch.Resolve via operations.StartRun<br/>launch.go"]
     ASM --> MAT["MaterializeProfile<br/>profile_materialize.go:57"]
-    APPLY --> SURF["backends.Declared → Select → DeliverUnder<br/>-> native engine files"]
+    APPLY --> SURF["delivery.Static over the plan<br/>-> native engine files"]
 ```
 
 ## Bootstrap — `init.go`, `legacy_cleanup.go`
@@ -237,7 +237,7 @@ flowchart LR
 | `requireProfilesExist` | `profiles.go:455` | First unresolvable **local** parent is an error; remote refs are skipped (they may not be pulled yet). |
 | `profileLoader` | `profiles.go:508` | Builds the operations-side profile loader with remote resolvers and bundle seeds. Eight production call sites. |
 | `ExportProfile` / `ImportProfile` / `GetProfileContent` / `SetProfileContent` | `profile_transfer.go:63,104,151,182` | Local-only profile file flow; all four route through `loadLocalProfile` (`:33`), which distinguishes "remote, pull it first" from "absent". |
-| `MaterializeProfile` | `profile_materialize.go:57` | Assembles a profile's context and delivers it onto a backend's native surface set under `--target`. `Backend` is validated against `backends.Exists` (`:71`). |
+| `MaterializeProfile` | `profile_materialize.go:57` | Assembles a profile's context and delivers it onto a backend's native surface set under `--target`. `Backend` is validated against `EngineExists`. |
 | `ListAgents` / `GetAgent` / `SetAgent` / `RemoveAgent` | `agents.go:48,68,133,226` | Agent-binding CRUD under the `agents:` config key, inside one `Manager.Update`. `SetAgent` is a whole-record replace. |
 | `ResolveAgent` / `resolveAgentBinding` | `agents.go:357,383` | The single place engine-override precedence lives: compose profiles into context, resolve label/backend/model, resolve runtime and effective permissions. Callers: `cli/run.go`, `cli/doctor_cmd.go`, `coord/spawner.go`, `engine_session.go`. |
 | `resolveMember` | `agents.go:458` | Agent-name-or-bare-profile sugar for ensembles. |
@@ -251,7 +251,7 @@ Every host-side launch enters through `launch.Resolve`
 |---|---|---|
 | `StartRun` | `launch.go` | The trunk: `MintIdentity` (the harp assigned in the store, the liveness lock held), then `launch.Resolve`; a refused launch ends its own session. |
 | `LaunchDepsFor` / `App.LaunchDeps` | `launch.go` | Composes the resolver's ports over one generation: the composed engines, the assembler, the cells adapter, the endpoint minter, the session store, the host facts. |
-| `assembler` | `launch.go` | `launch.Assembler`: `AssembleContext` for the selection, `backends.AssembleManagedConfig` gated by the generation's executable gate for the surfaces (a withheld executable is named), the label's request-borne env. |
+| `assembler` | `launch.go` | `launch.Assembler`: `AssembleContext` for the selection, `managedhooks.Assemble` gated by the generation's executable gate for the surfaces (a withheld executable is named), the label's request-borne env. |
 | `Cells` / `PreparedCell` / `TransportOf` | `launch.go` | `launch.Cells`: the ONE place a workspace is prepared (`isolation.Prepare` along the degrade chain, the fail-loud gate typed as `launch.ErrRuntimeUnavailable`), the dirty parent tree settled for a worktree cell, the engine home bound by `HomeMode` (`BindAgentHome`); the cell carries the transport handle the plugin transport spawns from. |
 | `endpointMinter` | `launch.go` | `launch.EndpointMinter`: a reserved loopback port and a fresh bearer; carried on the launch, bound by nothing yet. |
 | `OneShot` (`StartOneShot`, `Turn`, `TurnWithModel`, `End`), `LazyOneShot`, `StartInternalOneShot`, `InternalSource` | `oneshot.go` | An internal one-shot: one minted harp, one Launch, many turns over the cell's transport, each recorded on the session's transcript; lazy start for a caller that may never turn. |

@@ -7,7 +7,7 @@ plus its parent graph into one flattened `ResolvedProfile` listing the bundles, 
 commands, skills, hooks, MCP servers, tags, variables and exclusions a session should get.
 
 It is the **fallback leg of a two-source resolver**. `operations.resolveProfile`
-(`internal/adapters/operations/context.go:567`) and `lm/backends.assembleManaged*` first try
+(`internal/adapters/operations/context.go:567`) and `managedhooks.Assemble` first try
 `config.ResolveProfile` over the inline `profiles:` map in `config.yaml`, and only fall
 through to `Loader.ResolveProfile` when the name is not inline. Every semantic here therefore
 has a twin in `internal/core/config/config_resolve.go`, kept in lockstep by hand.
@@ -55,7 +55,7 @@ flowchart TD
     MERGE --> SELF["overlay this profile's own fields"]
     SELF --> OUT["ResolvedProfile<br/>+ SourceRef / Signer<br/>set only at :764-767"]
 
-    OUT --> GATE["backends.profileGateRefFor<br/>(executable trust gate)"]
+    OUT --> GATE["managedhooks.profileGateRefFor<br/>(executable trust gate)"]
 
     COMMIT["Loader.CommitUpgrade :400"] -.->|"only on user consent<br/>cli/run.go:1736"| DISK["profiles/<name>.yaml"]
 ```
@@ -135,7 +135,7 @@ flowchart TD
    mistaken for a cycle; a true cycle returns `errs.ErrCircularInheritance`.
 7. **`Merge` folds 12 of 14 fields.** `SourceRef` and `Signer` are written only by
    `resolveProfileRecursive` (`profiles.go:764-767`) and read only by
-   `lm/backends/managed.go`'s `profileGateRefFor`. A parent's `SourceRef` must never leak onto a
+   `managedhooks.profileGateRefFor`. A parent's `SourceRef` must never leak onto a
    child's directly-declared executables — that is the executable trust gate's provenance.
 8. **A local parent that cannot be resolved is a `strictness` finding, not an error.**
    `resolveProfileRecursive` records the finding and continues, returning `nil`; whether the run
@@ -148,7 +148,7 @@ flowchart TD
 - **Called by:** `internal/core/config` (`GetProfileLoader`, `loadBundleProfileSeed`),
   `internal/adapters/operations` (`profileLoader`, `profileLoaderFS`, the CRUD operations),
   `internal/adapters/cli` (`profile.go`, `run.go`'s upgrade-consent prompt), `internal/core/bundles`,
-  `internal/lm/backends` (`assembleManagedMCP`, `assembleManagedHooks`, `assembleManagedDenyTools`).
+  `internal/adapters/operations/managedhooks` (`Assemble`, `appendManagedDynamicHooks`).
 - **Calls:** `internal/adapters/remote` (7 symbols: `CanonicalKey`, `CanonicalProfileKey`,
   `SplitBundleProfileRef`, …), `internal/shared/upgrade`, `internal/shared/strictness`,
   `internal/shared/errs`, `internal/core/paths`, `clidiag`.

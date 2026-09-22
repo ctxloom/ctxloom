@@ -27,7 +27,7 @@ The contract it owns: an item's content hash is `sha256` over a preimage this pa
 - Profile resolution and inheritance — `internal/core/profiles`; see `./profiles.md`. `BundleProfile` is a type alias for `profiles.Profile` and bundle-shipped profile definitions are never gated here.
 - Turning bundle MCP entries and hooks into wire types for a launched engine — `internal/core/config/config_bundles.go` does that, calling back into `BundleMCP.ContentPayload`/`BundleHook.ContentPayload` for the preimage.
 - Agents. There is no `agents:` key in a bundle; agent definitions come from the `agents:` config key alone — see `./config.md`.
-- Assembling context and writing per-engine command/skill files — `internal/adapters/operations` and `internal/lm/backends`.
+- Assembling context and writing per-engine command/skill files — `internal/adapters/operations` and its `managedhooks`.
 
 ## Data flow
 
@@ -168,7 +168,7 @@ flowchart TD
 | Signature | file:line | Contract |
 |---|---|---|
 | `hashContent(b []byte) string` | `bundles.go:349` | The single hash chokepoint: `"sha256:" + hex` |
-| `HashPayload(b []byte) string` | `bundles.go:363` | Exported alias; the only cross-package entry point (`internal/lm/backends`) |
+| `HashPayload(b []byte) string` | `bundles.go:363` | Exported alias; the only cross-package entry point (`operations/managedhooks`) |
 | `resolveEffective(content, distilled string, noDistill, prefer bool) ([]byte, ContentForm)` | `bundles.go:372` | The one predicate that both picks the exposed bytes and reports their form: distilled wins only when `prefer && distilled != "" && !noDistill` |
 | `staleDistill(...) bool` | `bundles.go:385` | Recorded-hash staleness comparison behind `NeedsDistill` |
 | `BundleFragment.ContentPayload(prefer) ([]byte, ContentForm)` | `bundles.go:423` | Raw effective bytes; the fragment preimage |
@@ -250,7 +250,7 @@ flowchart TD
 
 ## Boundaries
 
-**Called in by:** `internal/core/config` — builds every `Loader` (`SeededBundleLoader`, `GetProfileLoader`), seeds remote and companion bundles, stamps signers, and extracts MCP servers and hooks into `wire` types via `config_bundles.go`; see `./config.md`. `internal/adapters/operations` — bundle and item CRUD through `Store`, review and trust-gate wiring, skill create/sync/import/export, signing; see `./operations.md` and `./trust.md`. `internal/lm/backends` — writes per-engine command and skill files from `LoadedContent`/`LoadedSkill` and re-derives exec preimages via `HashPayload`. `internal/adapters/cli` — listing, review and edit surfaces. `internal/core/agent` — skill export shaping.
+**Called in by:** `internal/core/config` — builds every `Loader` (`SeededBundleLoader`, `GetProfileLoader`), seeds remote and companion bundles, stamps signers, and extracts MCP servers and hooks into `wire` types via `config_bundles.go`; see `./config.md`. `internal/adapters/operations` — bundle and item CRUD through `Store`, review and trust-gate wiring, skill create/sync/import/export, signing; see `./operations.md` and `./trust.md`. `internal/adapters/operations/managedhooks` — assembles the managed hook set from `LoadedContent`/`LoadedSkill` and re-derives exec preimages via `HashPayload`. `internal/adapters/cli` — listing, review and edit surfaces. `internal/core/agent` — skill export shaping.
 
 **Calls out to:** `internal/core/profiles` (the `BundleProfile` alias) — see `./profiles.md`; `internal/adapters/signing` (`CoversBytes`, `VerifyPublisher`, `TrustRoot`) — see `./trust.md`; `internal/shared/upgrade` (the `Pipeline`/`Upgrader` contract and `yaml.Node` helpers); `internal/clidiag` (warnings); `afero`, `gopkg.in/yaml.v3`, `archive/zip`, `archive/tar`, `compress/gzip`, `crypto/sha256`, `encoding/json`. It does not import `internal/core/config`, `internal/adapters/remote`, `internal/core/trust` or `internal/adapters/operations`.
 

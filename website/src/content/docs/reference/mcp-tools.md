@@ -7,11 +7,7 @@ title: "MCP Tools Reference"
 This page is generated from ctxloom's registered MCP tools and resources, as served by `ctxloom run`.
 :::
 
-Reference for the tools and resources ctxloom exposes to the agent it launches — the **runner-terminated** MCP surface a harness sees inside `ctxloom run`, reached through the stdio `ctxloom mcp serve` shim ctxloom wires into the harness's settings. This is the surface you get in a normal ctxloom session, and it is the one generated here.
-
-:::caution[A standalone `ctxloom mcp serve` is not this surface]
-Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's config, gets you the retrieval and session-memory tools below **unchanged** — but a **reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, `agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no `agent_fetch_artifact`, and none of the control tools `agent_steer`, `agent_ask`, `agent_summarize`, `agent_pause`, `agent_resume`), and `agent_run`, `agent_send` and `agent_stop` take different parameters there than documented here. Agent delegation is coordinated by the runner, so drive it from `ctxloom run`.
-:::
+Reference for the tools and resources ctxloom exposes to the agent it launches — the MCP surface a session's runner serves inside `ctxloom run`. ctxloom's own companion loadout declares the server as **served by the running session's endpoint**: at session start the endpoint's URL and bearer are written into the session's own MCP registry, and the engine dials it directly. There is no `ctxloom` command that speaks this protocol and nothing is registered in the project at rest — ctxloom injects its MCP only while it is running.
 
 The MCP surface is for **working inside a session**: assembling context, searching content, session memory, and delegating to child agents. Everything that *manages* ctxloom (creating or editing bundles, profiles, fragments, and commands; pulling remotes; reviewing and approving content; trusting a publisher's signing key) is done with the ctxloom CLI, not MCP tools. Task tracking lives in the separate `taskloom` binary; its MCP server (`taskloom mcp`) serves the `task_*` tools.
 

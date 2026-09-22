@@ -27,7 +27,7 @@ ctxloom mcp server [flags]
 
 ### SEE ALSO
 
-* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
+* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List the MCP servers this project registers
 * [ctxloom mcp server edit](/reference/cli/ctxloom_mcp_server_edit/)	 - Edit an MCP server configuration in $EDITOR
 * [ctxloom mcp server list](/reference/cli/ctxloom_mcp_server_list/)	 - List configured MCP servers
 * [ctxloom mcp server show](/reference/cli/ctxloom_mcp_server_show/)	 - Show details of an MCP server configuration

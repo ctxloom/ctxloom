@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -71,11 +72,11 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	}
 }
 
-// TestHandleListSessions_DefaultScopeIsCwdProject confirms the default (no
+// TestHandleListSessions_DefaultScopeIsTheCallersProject confirms the default (no
 // all_projects) scope returns only the current working directory's project,
 // mirroring `ctxloom session list` without --all. Fails if the handler stops
 // filtering by cwd.
-func TestHandleListSessions_DefaultScopeIsCwdProject(t *testing.T) {
+func TestHandleListSessions_DefaultScopeIsTheCallersProject(t *testing.T) {
 	testsupport.Isolate(t)
 	mgr, err := sessions.Open(nil)
 	require.NoError(t, err)
@@ -86,8 +87,7 @@ func TestHandleListSessions_DefaultScopeIsCwdProject(t *testing.T) {
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
 	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now)
 
-	t.Chdir(projA)
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
+	s := &ctxServer{self: coord.Identity{Project: projA}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{})
 	require.NoError(t, err)
 

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
@@ -127,6 +128,7 @@ func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 	const body = "Distilled: the write key and the read key must agree."
 	appDir := filepath.Join(projectDir, ".ctxloom")
 	s := &ctxServer{
+		self:             coord.Identity{Project: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: appDir}),
 		compactorFactory: fixedCompactor(vendorSessionID, body),
 	}
@@ -180,6 +182,7 @@ func TestDistillSessionOnce_ReadsBackUnderTheKeyCompactWrote(t *testing.T) {
 	const body = "Distilled: read back under the key that was written."
 
 	s := &ctxServer{
+		self:             coord.Identity{Project: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: appDir}),
 		compactorFactory: fixedCompactor(resolvedID, body),
 	}

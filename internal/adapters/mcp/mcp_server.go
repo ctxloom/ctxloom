@@ -1,8 +1,7 @@
 package mcp
 
 import (
-	"fmt"
-	"os"
+	"errors"
 
 	"golang.org/x/sync/singleflight"
 
@@ -46,24 +45,24 @@ type ctxServer struct {
 // StartOneShot names.
 func (s *ctxServer) hostsFor() operations.RunHosts { return s.hosts }
 
-// projectDir is the project a relayed handler answers for: the caller's
-// OWN identity when the server carries one, falling back to the serving
-// process's cwd when it does not (tests, any caller with no cell to anchor
-// to). The two differ exactly where it matters — a host-relayed tool runs in
-// the coordinator's process on behalf of a caller whose cell is another
-// project, or a per-agent worktree — so the identity has to win. Every
-// handler that needs the project reads it here; none consults os.Getwd()
-// itself. A cwd that cannot be resolved is an error, never an empty string
-// standing in for "every project" or "no project".
+// errNoCallerProject refuses a relayed call whose identity names no project:
+// a handler answers for the CALLER's cell, and there is no cwd to fall back
+// on in the coordinator's process — reading one would answer for the host,
+// not the caller.
+var errNoCallerProject = errors.New("mcp: the caller's identity names no project to answer for")
+
+// projectDir is the project a relayed handler answers for: the caller's OWN
+// identity, which the credential the coordinator issued carries. It differs
+// from the serving process's cwd exactly where it matters — a host-relayed
+// tool runs in the coordinator's process on behalf of a caller whose cell is
+// another project, or a per-agent worktree — so the identity is the only
+// source. Every handler that needs the project reads it here; none consults
+// the environment.
 func (s *ctxServer) projectDir() (string, error) {
-	if s.self.Project != "" {
-		return s.self.Project, nil
+	if s.self.Project == "" {
+		return "", errNoCallerProject
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("resolve working directory: %w", err)
-	}
-	return wd, nil
+	return s.self.Project, nil
 }
 
 // strictness is the posture a relayed handler reports under: the relay runs

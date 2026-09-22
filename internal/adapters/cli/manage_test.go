@@ -85,10 +85,11 @@ func TestOldTopLevelPaths_AreRemoved(t *testing.T) {
 	require.NotNil(t, hook, "hook namespace stays (hidden callback home)")
 	assert.Nil(t, findSub(hook, "apply"), "hook apply moved to manage hooks install")
 
-	// The runtime mcp server stays top-level but sheds its CRUD verbs.
+	// The mcp noun stays top-level as the server listing; it has no runtime
+	// leaf (the session's endpoint serves ctxloom) and sheds its CRUD verbs.
 	mcp := findSub(rootCmd, "mcp")
 	require.NotNil(t, mcp)
-	assert.NotNil(t, findSub(mcp, "serve"), "mcp serve is the runtime entrypoint")
+	assert.Nil(t, findSub(mcp, "serve"), "no ctxloom command speaks the MCP protocol")
 	assert.Nil(t, findSub(mcp, "auto-register"), "auto-register moved to manage mcp install/uninstall")
 	assert.Nil(t, findSub(mcp, "add"), "mcp add moved to manage mcp servers add")
 }

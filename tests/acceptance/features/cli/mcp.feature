@@ -73,7 +73,7 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       Then the command succeeds
       And the output reports "entries.0.source" as "<names the bundle>"
       And the output reports "entries.0.served_by" as "<names the endpoint>"
-      And the output does not contain "serve"
+      And the output does not contain "mcp serve"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | names the bundle            | names the endpoint                        |

@@ -46,18 +46,21 @@ func doctorMCPInvocationSurfaces() []string {
 	return out
 }
 
-// doctorCheckMCPInvocation reports any materialized ctxloom MCP entry whose
-// invocation is the bare `mcp` noun rather than the `mcp serve` leaf.
+// doctorCheckMCPInvocation reports any materialized ctxloom MCP entry that
+// LAUNCHES ctxloom. ctxloom ships no stdio MCP server: its tools are served
+// by the running session's endpoint, which the session injects into its own
+// registry (URL + bearer) at start — so a project-side entry under ctxloom's
+// name with a command is stale in every spelling.
 //
-// WHY THIS CHECK EXISTS AT ALL. The break itself is fine — re-init is this
-// project's documented upgrade path — but its UNTREATED shape is not. An
-// engine launching a stale entry starts normally, ctxloom answers the bare
-// noun, and the client waits forever on a JSON-RPC frame that never comes:
-// exit 0, a live session, no ctxloom tools, no diagnostic. Nothing else in the
-// system can see that, because from every other vantage point the install is
-// perfectly wired — HarnessStatus reports the entry PRESENT, which it is.
-// Reading the argv is the only thing that can tell a working entry from a
-// hanging one.
+// WHY THIS CHECK EXISTS AT ALL. The break itself is fine — `manage hooks
+// install` rewrites the project's registry — but its UNTREATED shape is
+// not. An engine launching a stale entry starts normally, the command
+// answers something that is not the protocol, and the client waits forever
+// on a JSON-RPC frame that never comes: exit 0, a live session, no ctxloom
+// tools, no diagnostic. Nothing else in the system can see that, because
+// from every other vantage point the install is perfectly wired — an entry
+// is PRESENT, which it is. Reading what the entry launches is the only thing
+// that can tell a rendered endpoint from a hanging launch.
 //
 // Pure file inspection: it reads what the engines read and launches nothing.
 func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
@@ -88,12 +91,12 @@ func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
 			}
 			continue
 		}
-		bare, err := mcpSurfaceNamesBareNoun(rel, data)
+		launches, err := mcpSurfaceLaunchesCtxloom(rel, data)
 		if err != nil {
 			unreadable = append(unreadable, fmt.Sprintf("%s (%v)", rel, err))
 			continue
 		}
-		if bare {
+		if launches {
 			stale = append(stale, rel)
 		}
 	}
@@ -103,8 +106,8 @@ func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
 	switch {
 	case len(stale) > 0:
 		detail := fmt.Sprintf(
-			"%d materialized MCP entr(y/ies) invoke ctxloom as the bare `mcp` noun, which lists configured servers instead of speaking the protocol — the engine will start and its ctxloom tools will never appear: %s. Re-run `ctxloom init` to rewrite every engine's settings with `%s`",
-			len(stale), strings.Join(stale, ", "), strings.Join(agent.CtxloomMCPArgs, " "))
+			"%d materialized MCP entr(y/ies) launch ctxloom as a stdio server, which ctxloom no longer ships — the engine will start and its ctxloom tools will never appear: %s. ctxloom's tools are served by the running session's endpoint; re-run `ctxloom manage hooks install` to rewrite the project's registry without the entry",
+			len(stale), strings.Join(stale, ", "))
 		if len(unreadable) > 0 {
 			detail += "; could not read: " + strings.Join(unreadable, ", ")
 		}
@@ -117,21 +120,20 @@ func doctorCheckMCPInvocation(projectDir string) DoctorCheck {
 			"%d MCP registr(y/ies) could not be read, so their ctxloom invocation is unverified: %s",
 			len(unreadable), strings.Join(unreadable, ", "))}
 	default:
-		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: fmt.Sprintf(
-			"every materialized ctxloom MCP entry invokes `%s`", strings.Join(agent.CtxloomMCPArgs, " "))}
+		return DoctorCheck{Marker: marker, Status: DoctorOK, Detail: "no materialized MCP entry launches ctxloom as a stdio server (its tools are served by the running session's endpoint)"}
 	}
 }
 
-// mcpSurfaceNamesBareNoun reports whether rel's bytes carry a ctxloom MCP
-// entry invoking the bare noun.
+// mcpSurfaceLaunchesCtxloom reports whether rel's bytes carry a ctxloom MCP
+// entry that launches a command.
 //
-// The four surfaces put their server table under three different keys
-// ("mcpServers", "mcp", "mcp_servers") at two different depths, so the search
-// is a walk for an entry NAMED ctxloom that looks like a server, rather than
-// five hand-written path lookups that would each have to be revisited the day
-// an engine moves its table. Only the file's ENCODING is dispatched on, which
+// The surfaces put their server table under different keys ("mcpServers",
+// "mcp", "mcp_servers") at different depths, so the search is a walk for an
+// entry NAMED ctxloom that looks like a stdio server, rather than
+// hand-written path lookups that would each have to be revisited the day an
+// engine moves its table. Only the file's ENCODING is dispatched on, which
 // is the one thing the shapes genuinely disagree about.
-func mcpSurfaceNamesBareNoun(rel string, data []byte) (bool, error) {
+func mcpSurfaceLaunchesCtxloom(rel string, data []byte) (bool, error) {
 	var root map[string]any
 	decode := json.Unmarshal
 	if strings.EqualFold(filepath.Ext(rel), ".toml") {
@@ -140,39 +142,35 @@ func mcpSurfaceNamesBareNoun(rel string, data []byte) (bool, error) {
 	if err := decode(data, &root); err != nil {
 		return false, err
 	}
-	return walkForBareCtxloomMCP(root), nil
+	return walkForCtxloomMCPLaunch(root), nil
 }
 
-// walkForBareCtxloomMCP descends any decoded registry looking for a server
-// entry keyed by ctxloom's own well-known name whose invocation is the bare
-// noun.
-func walkForBareCtxloomMCP(node map[string]any) bool {
+// walkForCtxloomMCPLaunch descends any decoded registry looking for a server
+// entry keyed by ctxloom's own well-known name that launches a command — a
+// URL entry is a session's rendering of the endpoint and launches nothing.
+func walkForCtxloomMCPLaunch(node map[string]any) bool {
 	if entry, ok := node[agent.MCPServerName].(map[string]any); ok {
-		if tokens, isServer := mcpEntryInvocation(entry); isServer {
-			return len(tokens) == 1 && tokens[0] == mcpNounToken
+		if _, isServer := mcpEntryInvocation(entry); isServer {
+			return true
 		}
 	}
 	for _, v := range node {
-		if child, ok := v.(map[string]any); ok && walkForBareCtxloomMCP(child) {
+		if child, ok := v.(map[string]any); ok && walkForCtxloomMCPLaunch(child) {
 			return true
 		}
 	}
 	return false
 }
 
-// mcpNounToken is the noun on its own — the argv a stale entry carries.
-const mcpNounToken = "mcp"
-
-// mcpEntryInvocation returns the ctxloom subcommand tokens a decoded server
-// entry launches, and whether the entry is a stdio server at all.
+// mcpEntryInvocation returns the subcommand tokens a decoded server entry
+// launches, and whether the entry is a stdio server at all.
 //
 // Two spellings are in play and both are the engine's own, not a ctxloom
 // choice: most registries carry `command` plus an `args` array, while some
 // fold the binary and its arguments into ONE `command` array.
-// A remote (url/serverUrl) entry is user-authored and names no subcommand, so
-// it reports false rather than an empty token list — "not a stdio server" and
-// "a stdio server invoking nothing" are different findings, and only the
-// second would ever be ctxloom's to report.
+// A remote (url/serverUrl) entry launches nothing, so it reports false
+// rather than an empty token list — "not a stdio server" and "a stdio server
+// invoking nothing" are different findings.
 func mcpEntryInvocation(entry map[string]any) (tokens []string, isServer bool) {
 	if raw, ok := entry["args"]; ok {
 		if args, ok := stringSlice(raw); ok {

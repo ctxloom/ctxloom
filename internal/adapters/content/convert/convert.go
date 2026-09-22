@@ -223,6 +223,7 @@ func (p *planner) mcp(b *bundles.Bundle) {
 			Command:      m.Command,
 			Args:         m.Args,
 			Env:          m.Env,
+			ServedBy:     m.ServedBy,
 			Notes:        m.Notes,
 			Installation: m.Installation,
 			ContentHash:  m.ContentHash,

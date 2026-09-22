@@ -25,7 +25,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
 )
@@ -127,6 +126,14 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		}
 	}
 	lo := l.Loadout(pkg)
+	// The ONE rendering of the package for this engine: what the static
+	// writer delivers and what the structured drive names, ctxloom's own
+	// session-endpoint entry rendered through the engine's dynamic approach
+	// from the endpoint the launch carries (delivery.InputsFor).
+	inputs, err := delivery.InputsFor(lo, deps.Kind.Root().Dynamic)
+	if err != nil {
+		return Outcome{}, err
+	}
 	var closeServed func()
 	if deps.Dynamic != nil {
 		served, err := deps.Dynamic.Serve(ctx, lo, delivery.ServePolicy{AllowedOrigins: []string{"http://127.0.0.1"}})
@@ -135,7 +142,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		}
 		closeServed = func() { _ = served.Close() }
 	}
-	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root().Surfaces(), l.Target(deps.Records))
+	delivered, err := deps.Static.Deliver(ctx, lo, deps.Kind.Root(), l.Target(deps.Records))
 	if err != nil {
 		if closeServed != nil {
 			closeServed()
@@ -159,7 +166,7 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 		Launch:     l,
 		Instance:   inst,
 		Exec:       ex,
-		MCPServers: bindEndpoint(agent.ComposeChatMCPServers(pkg.MCP, nil), l.MCP),
+		MCPServers: agent.ComposeChatMCPServers(inputs.MCP.Servers, nil),
 		Prompt:     firstTurn(pkg, l),
 		Presented:  delivered.Presented,
 	}
@@ -181,30 +188,6 @@ func mcpFileOf(d delivery.Delivered) string {
 		}
 	}
 	return ""
-}
-
-// bindEndpoint points ctxloom's own server entry at the session's bound
-// endpoint: the URL the runner serves on and the bearer every request must
-// carry, in place of the stdio command the package declares. The engine then
-// dials the runner directly; no shim process is spawned. A set with no
-// ctxloom entry (the builtin server withheld) is returned unchanged — that
-// child has no reach-back, which its spawn already warned about.
-func bindEndpoint(servers []agent.ChatMCPServer, ep sessions.Endpoint) []agent.ChatMCPServer {
-	if ep.URL == "" {
-		return servers
-	}
-	for i, srv := range servers {
-		if srv.Name != agent.MCPServerName {
-			continue
-		}
-		servers[i] = agent.ChatMCPServer{
-			Name:      agent.MCPServerName,
-			Transport: agent.MCPTransportHTTP,
-			URL:       ep.URL,
-			Headers:   map[string]string{"Authorization": "Bearer " + ep.Credential},
-		}
-	}
-	return servers
 }
 
 // firstTurn is the first turn's lead: the composed context ahead of the

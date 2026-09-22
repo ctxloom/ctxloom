@@ -41,10 +41,11 @@ func New(fs afero.Fs) *Static { return &Static{fs: fs} }
 // Deliver validates the target, refuses a plan whose items cannot root under
 // it, reverses the writer's previous delivery, then delivers each static
 // item and records what it wrote.
-func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, surfaces engine.Surfaces, target delivery.Target) (delivery.Delivered, error) {
+func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, root engine.Base, target delivery.Target) (delivery.Delivered, error) {
 	if err := target.Validate(); err != nil {
 		return delivery.Delivered{}, err
 	}
+	surfaces := root.Surfaces()
 	paths := target.Root.Paths()
 	for _, it := range lo.Plan.Static {
 		if surfaces[it.Kind] == nil {
@@ -62,7 +63,7 @@ func (s *Static) Deliver(ctx context.Context, lo delivery.Loadout, surfaces engi
 	if len(lo.Plan.Static) == 0 {
 		return delivery.Delivered{Undo: undo}, nil
 	}
-	inputs, err := delivery.InputsFor(lo)
+	inputs, err := delivery.InputsFor(lo, root.Dynamic)
 	if err != nil {
 		return delivery.Delivered{}, err
 	}

@@ -36,8 +36,9 @@ func (d *recordingDynamic) Serve(_ context.Context, lo delivery.Loadout, policy 
 // TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt: the runner
 // hands the Dynamic port the SAME endpoint the launch carries (it binds,
 // never mints), and the session's .mcp.json names ctxloom's own server as
-// that URL with the bearer — no `ctxloom mcp serve` command is written, so
-// the engine spawns no shim.
+// that URL with the bearer, rendered through the engine's dynamic approach
+// from ctxloom's session-endpoint declaration — nothing executable is
+// written, so the engine launches nothing for it.
 func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
@@ -52,7 +53,7 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	dyn := &recordingDynamic{}
 	drive := &recordingDriver{}
 	out, err := runner.Execute(context.Background(), runner.Deps{
-		Kind: mock.New(), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
+		Kind: mock.New(mock.WithDynamic()), Inline: env.deps.Inline, ClaimCheck: env.deps.ClaimCheck,
 		Static: staticWriter(t), Records: records(t), Driver: drive, Dynamic: dyn,
 	}, l)
 	require.NoError(t, err)
@@ -87,8 +88,8 @@ func TestExecute_BindsTheLaunchEndpoint_AndTheMCPConfigNamesIt(t *testing.T) {
 	entry := doc.MCPServers[agent.MCPServerName]
 	assert.Equal(t, l.MCP.URL, entry.URL)
 	assert.Equal(t, "Bearer "+l.MCP.Credential, entry.Headers["Authorization"])
-	assert.Empty(t, entry.Command, "no shim command: the engine dials the runner directly")
-	assert.NotContains(t, string(body), "mcp serve")
+	assert.Empty(t, entry.Command, "nothing executable: the engine dials the runner directly")
+	assert.NotContains(t, string(body), "served_by", "the declaration is rendered, never written as declared")
 
 	info, err := os.Stat(mcpConfig)
 	require.NoError(t, err)

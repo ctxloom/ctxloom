@@ -220,6 +220,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # "claude-code: hooks=true ...", so matching it says nothing about whether
     # anything was wired. The per-surface flags are what "wired" means, so the
     # assertion is a regex over them.
+    #
+    # mcp is NOT wired at rest, and the report says so: ctxloom's own server
+    # is served by the running session's endpoint and injected into the
+    # session's registry at start, so the explicit hooks install registers no
+    # managed MCP server in the project — a "true" here would claim a wiring
+    # the engine could not launch (ruled 2026-09-21: ctxloom injects its MCP
+    # only while it is running, via its own companion).
     Scenario Outline: Check reports which surfaces are actually wired
       Given an initialized ctxloom project
       When Alice wires the hooks in and asks what is configured:
@@ -233,9 +240,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | hooks are wired | mcp is wired |
-        |               | true              | true          |
-        | --format json | true              | true          |
-        | --format text | hooks=true        | mcp=true      |
+        |               | true              | false         |
+        | --format json | true              | false         |
+        | --format text | hooks=true        | mcp=false     |
 
   Rule: A materialized hook reaches every engine in its own native shape
 

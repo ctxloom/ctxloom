@@ -51,11 +51,19 @@ func ComposeChatMCPServers(bundleMCP map[string]wire.MCPServer, existing []ChatM
 // stores no transport — the URL is the transport — so a URL entry becomes an
 // http-transport server (Streamable HTTP; every scheme Validate admits is
 // that protocol) carrying URL and Headers, and anything else is a stdio
-// command. It does not validate: callers that can fail loud
-// (InstallMCPServerJSON, the settings writers) run wire.MCPServer.Validate
-// first, so a targetless entry is refused by name rather than dialled as
-// nothing.
+// command. A session-endpoint declaration (wire.MCPServer.IsSessionEndpoint)
+// is an http server whose URL is the SESSION's, rendered by the engine's
+// dynamic approach at delivery: here it carries its name and transport and
+// no URL, which is what the composed set's readers (the enqueue journal:
+// names only) need and what a file writer refuses
+// (ChatMCPConfigEntryOf, wire.ErrMCPServerUnrendered). It does not
+// validate: callers that can fail loud (InstallMCPServerJSON, the settings
+// writers) run wire.MCPServer.Validate first, so a targetless entry is
+// refused by name rather than dialled as nothing.
 func ChatMCPServerFromWire(name string, s wire.MCPServer) ChatMCPServer {
+	if s.IsSessionEndpoint() {
+		return ChatMCPServer{Name: name, Transport: MCPTransportHTTP}
+	}
 	if s.IsRemote() {
 		return ChatMCPServer{Name: name, Transport: MCPTransportHTTP, URL: s.URL, Headers: s.Headers}
 	}

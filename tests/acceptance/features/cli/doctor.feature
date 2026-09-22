@@ -153,20 +153,22 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
 
   Rule: The one broken state nothing else can see
 
-    A settings file naming a ctxloom invocation that does not speak MCP is
-    invisible everywhere else: the entry is PRESENT, so every wiring check
-    reports it healthy, and the engine starts fine. What fails is silent — the
-    client waits on a handshake that never arrives, the session comes up with
-    none of ctxloom's tools, and nothing says why. Reading the argv is the only
-    way to tell a working entry from that one.
+    A settings file that LAUNCHES ctxloom as an MCP server is invisible
+    everywhere else: the entry is PRESENT, so every wiring check reports it
+    healthy, and the engine starts fine. ctxloom ships no stdio MCP server —
+    its tools are served by the running session's endpoint, injected into the
+    session's own registry at start — so what fails is silent: the client
+    waits on a handshake that never arrives, the session comes up with none
+    of ctxloom's tools, and nothing says why. Reading what the entry launches
+    is the only way to tell a rendered endpoint from that one.
 
-    Scenario: Doctor names a settings file whose ctxloom entry cannot speak the protocol
+    Scenario: Doctor names a settings file whose ctxloom entry launches a server that does not exist
       Given an initialized ctxloom project
       And the project already has the file ".mcp.json":
         """
         {
           "mcpServers": {
-            "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp"]}
+            "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp", "serve"]}
           }
         }
         """
@@ -177,18 +179,19 @@ Feature: doctor — the deterministic diagnosis, and why its exit code is not th
       Then the command succeeds
       And the output contains "DOCTOR-CHECK-MCP-INVOCATION-g7"
       And the output contains ".mcp.json"
-      And the output contains "ctxloom init"
+      And the output contains "manage hooks install"
 
     # The paired negative: a report that warned on every project would be
     # indistinguishable from one that works, and would teach a user to skip the
-    # line.
-    Scenario: Doctor stays quiet about a settings file that names the protocol server
+    # line. A registry that names ctxloom's endpoint by URL — a session's own
+    # rendering — launches nothing and is healthy.
+    Scenario: Doctor stays quiet about a settings file that names the session's endpoint
       Given an initialized ctxloom project
       And the project already has the file ".mcp.json":
         """
         {
           "mcpServers": {
-            "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp", "serve"]}
+            "ctxloom": {"type": "http", "url": "http://127.0.0.1:4242/mcp", "headers": {"Authorization": "Bearer x"}}
           }
         }
         """

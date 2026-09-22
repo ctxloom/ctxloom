@@ -116,10 +116,10 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 	session := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: sessionW}
 	project := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: projectW}
 
-	d1, err := static.Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root().Surfaces(), session)
+	d1, err := static.Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root(), session)
 	require.NoError(t, err)
 	lo := loadoutFor(t, eng, projectRoots)
-	d2, err := static.Deliver(context.Background(), lo, eng.Root().Surfaces(), project)
+	d2, err := static.Deliver(context.Background(), lo, eng.Root(), project)
 	require.NoError(t, err)
 
 	require.Equal(t, d1.Wrote, d2.Wrote)
@@ -130,7 +130,7 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 
 	// Uninstall is delivering the EMPTY plan against the same target.
 	empty := delivery.Loadout{Package: lo.Package}
-	_, err = static.Deliver(context.Background(), empty, eng.Root().Surfaces(), project)
+	_, err = static.Deliver(context.Background(), empty, eng.Root(), project)
 	require.NoError(t, err)
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/p"))
 	require.Empty(t, rec.AllOwned(projectW))
@@ -153,13 +153,13 @@ func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T)
 
 	sessionT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
 	projectT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriter}
-	_, err = static.Deliver(context.Background(), lo, eng.Root().Surfaces(), sessionT)
+	_, err = static.Deliver(context.Background(), lo, eng.Root(), sessionT)
 	require.NoError(t, err)
-	_, err = static.Deliver(context.Background(), lo, eng.Root().Surfaces(), projectT)
+	_, err = static.Deliver(context.Background(), lo, eng.Root(), projectT)
 	require.NoError(t, err)
 
 	// The project writer uninstalls; the session's entries survive.
-	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root().Surfaces(), projectT)
+	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root(), projectT)
 	require.NoError(t, err)
 	require.Empty(t, rec.AllOwned(delivery.ProjectWriter))
 	require.NotEmpty(t, rec.AllOwned(delivery.SessionWriter("harp-1")))
@@ -172,7 +172,7 @@ func TestStatic_ZeroTarget_Refused(t *testing.T) {
 	eng := mock.New()
 	lo := loadoutFor(t, eng, sessionRoots)
 	fs := afero.NewMemMapFs()
-	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root().Surfaces(), delivery.Target{})
+	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
 	require.ErrorIs(t, err, delivery.ErrNoRoot)
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
 }
@@ -187,7 +187,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
 	noProject := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), noProject)
+	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
 	require.ErrorIs(t, err, delivery.ErrUnrootable)
 	var u delivery.Unrootable
 	require.True(t, errors.As(err, &u))
@@ -210,7 +210,7 @@ func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	rec := deliverytest.NewOwnership(fs)
 	withProject := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), withProject)
+	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
 	require.NoError(t, err)
 	require.Equal(t, []present.Kind{present.MCP}, d.Wrote)
 	require.ElementsMatch(t, rec.AllOwned(delivery.SessionWriter("h")), deliverytest.RelativeFiles(fs, "/p"))

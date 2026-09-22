@@ -20,9 +20,11 @@ import (
 // <bundle>#mcp/<name>` addresses any entry listed here.
 type MCPServerEntry struct {
 	Name         string            `json:"name"`
-	Command      string            `json:"command"`
+	Command      string            `json:"command,omitempty"`
 	Args         []string          `json:"args,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
+	URL          string            `json:"url,omitempty"`       // a remote server's endpoint
+	ServedBy     string            `json:"served_by,omitempty"` // wire.ServedBySessionEndpoint: served by the running session's endpoint, nothing executable at rest
 	Source       string            `json:"source"`
 	Notes        string            `json:"notes,omitempty"`        // Human-readable notes, not sent to AI
 	Installation string            `json:"installation,omitempty"` // Setup/installation instructions, not sent to AI
@@ -94,6 +96,8 @@ func mcpEntry(name string, srv wire.MCPServer) MCPServerEntry {
 		Command:      srv.Command,
 		Args:         srv.Args,
 		Env:          srv.Env,
+		URL:          srv.URL,
+		ServedBy:     srv.ServedBy,
 		Source:       strings.TrimPrefix(srv.SCM, "bundle:"),
 		Notes:        srv.Notes,
 		Installation: srv.Installation,

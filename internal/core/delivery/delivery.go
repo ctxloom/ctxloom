@@ -226,17 +226,29 @@ type Inputs struct {
 }
 
 // InputsFor builds every kind's inputs from the decoded package and the
-// engine's exports the loadout carries.
-func InputsFor(lo Loadout) (Inputs, error) {
+// engine's exports the loadout carries. dynamic is the engine's provided
+// dynamic approach (Definition.Dynamic; nil when it has none).
+//
+// A server DECLARED as served by the session's endpoint
+// (wire.MCPServer.IsSessionEndpoint — ctxloom's own companion entry) is the
+// one place a declaration and a rendering meet: inside a session (the
+// runner bound lo.MCP) the ENGINE's dynamic approach renders it, under the
+// declared key, from the endpoint the loadout carries; at rest there is no
+// session to inject and the entry renders nothing; an engine with no dynamic
+// approach receives nothing for it either, on the terms Base.Delegate
+// states. The key selects nothing — only the declaration does — so no
+// writer ever sees a session-endpoint declaration as declared.
+func InputsFor(lo Loadout, dynamic engine.DynamicApproach) (Inputs, error) {
 	pkg := lo.Package
 	servers := make(map[string]wire.MCPServer, len(pkg.MCP))
 	for name, srv := range pkg.MCP {
+		if srv.IsSessionEndpoint() {
+			if dynamic != nil && lo.MCP.URL != "" {
+				servers[name] = dynamic.Endpoint(lo.MCP)
+			}
+			continue
+		}
 		servers[name] = srv
-	}
-	// The runner bound the session endpoint: ctxloom's own entry names it
-	// as URL + bearer in place of the stdio command the package declares.
-	if _, declared := servers[wire.CtxloomServerName]; declared && lo.MCP.URL != "" {
-		servers[wire.CtxloomServerName] = engine.BearerEntry(lo.MCP)
 	}
 	return Inputs{
 		Context:  engine.ContextInputs{Text: []byte(pkg.Context.Text), Hash: pkg.Context.Hash},
@@ -291,9 +303,11 @@ func (t Target) Validate() error {
 // A Plan with no Static items is UNINSTALL for that writer: the record says
 // what to remove and nothing else is touched. Deliver validates the Target
 // (ErrNoRoot) and re-checks each item's planned root against the target it
-// was handed (Unrootable), never substituting another.
+// was handed (Unrootable), never substituting another. It reads the engine
+// ROOT — its surfaces per kind, and its dynamic approach for the session
+// endpoint's rendering (InputsFor) — and nothing else about the engine.
 type Static interface {
-	Deliver(ctx context.Context, lo Loadout, surfaces engine.Surfaces, target Target) (Delivered, error)
+	Deliver(ctx context.Context, lo Loadout, root engine.Base, target Target) (Delivered, error)
 }
 
 // Delivered is what one static delivery reports: the presentations the

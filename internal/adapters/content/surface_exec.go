@@ -146,6 +146,8 @@ type MCP struct {
 	Command string
 	Args    []string
 	Env     map[string]string
+	// ServedBy is the session-endpoint declaration (wire.ServedBySessionEndpoint).
+	ServedBy string
 	// Notes and Installation are human-facing and live in the sidecar, keeping
 	// the content file consumable by an MCP client as-is.
 	Notes        string
@@ -160,9 +162,10 @@ func (MCP) TrustKind() trust.ItemKind { return trust.KindMCP }
 
 // mcpContent is the content file's shape: what an MCP client needs, nothing else.
 type mcpContent struct {
-	Command string            `yaml:"command,omitempty"`
-	Args    []string          `yaml:"args,omitempty"`
-	Env     map[string]string `yaml:"env,omitempty"`
+	Command  string            `yaml:"command,omitempty"`
+	Args     []string          `yaml:"args,omitempty"`
+	Env      map[string]string `yaml:"env,omitempty"`
+	ServedBy string            `yaml:"served_by,omitempty"`
 }
 
 // mcpMeta is the sidecar's shape: our keys only.

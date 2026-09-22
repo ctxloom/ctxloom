@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
@@ -148,10 +149,12 @@ var mcpServerListCmd = &cobra.Command{
 // the bundle surfaces (`ctxloom bundle show -i`, `ctxloom bundle trust|reject`,
 // `ctxloom review`) rather than restated here.
 type mcpListRow struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command"`
-	Args    []string `json:"args,omitempty"`
-	Source  string   `json:"source"`
+	Name     string   `json:"name"`
+	Command  string   `json:"command,omitempty"`
+	Args     []string `json:"args,omitempty"`
+	URL      string   `json:"url,omitempty"`
+	ServedBy string   `json:"served_by,omitempty"`
+	Source   string   `json:"source"`
 }
 
 // mcpListJSON is the top-level --format json payload for `ctxloom mcp list`.
@@ -182,10 +185,12 @@ func mcpListRows(servers []operations.MCPServerEntry) []mcpListRow {
 	rows := make([]mcpListRow, 0, len(servers))
 	for _, srv := range servers {
 		rows = append(rows, mcpListRow{
-			Name:    srv.Name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			Source:  srv.Source,
+			Name:     srv.Name,
+			Command:  srv.Command,
+			Args:     srv.Args,
+			URL:      srv.URL,
+			ServedBy: srv.ServedBy,
+			Source:   srv.Source,
 		})
 	}
 	return rows
@@ -202,13 +207,33 @@ func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 	fmt.Fprintln(w, "MCP Servers:")
 	for _, srv := range result.Servers {
 		fmt.Fprintf(w, "  %s\n", termsafe.Field(srv.Name))
-		fmt.Fprintf(w, "    Command: %s\n", termsafe.Field(srv.Command))
-		if len(srv.Args) > 0 {
-			fmt.Fprintf(w, "    Args: %s\n", termsafe.Field(strings.Join(srv.Args, " ")))
-		}
+		printMCPServerTarget(w, "    ", srv)
 		fmt.Fprintf(w, "    Bundle: %s\n", termsafe.Field(srv.Source))
 	}
 	return nil
+}
+
+// mcpServedBySessionEndpointText is how a session-endpoint declaration reads
+// to a person: there is no command to print — the session injects its own
+// URL and bearer at start, and nothing launches ctxloom as a server.
+const mcpServedBySessionEndpointText = "Served by: the running session's endpoint"
+
+// printMCPServerTarget writes how the server is reached, in the form its
+// declaration takes: the stdio command (and args), the remote URL, or the
+// session-endpoint description. Bundle-authored values go through
+// termsafe.Field; the description is ctxloom's own text.
+func printMCPServerTarget(w io.Writer, indent string, e operations.MCPServerEntry) {
+	switch {
+	case e.ServedBy == wire.ServedBySessionEndpoint:
+		fmt.Fprintf(w, "%s%s\n", indent, mcpServedBySessionEndpointText)
+	case e.URL != "":
+		fmt.Fprintf(w, "%sURL: %s\n", indent, termsafe.Field(e.URL))
+	default:
+		fmt.Fprintf(w, "%sCommand: %s\n", indent, termsafe.Field(e.Command))
+		if len(e.Args) > 0 {
+			fmt.Fprintf(w, "%sArgs: %s\n", indent, termsafe.Field(strings.Join(e.Args, " ")))
+		}
+	}
 }
 
 // mcpServerShowCmd is the canonical spine's `show` for the MCP-server noun.
@@ -253,19 +278,15 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// printMCPServerEntry writes one MCP server entry's bundle, command, args, and
-// env to w.
-// printMCPServerEntry is the text rendering of one server. Every field is
-// bundle-authored and is the executable surface — command, args, env — so each
-// goes through termsafe.Field. The JSON form of the same entry does not: a
-// structured consumer is owed the raw bytes.
+// printMCPServerEntry is the text rendering of one server: its bundle, how
+// it is reached (printMCPServerTarget), and its env. Every bundle-authored
+// field is the executable surface, so each goes through termsafe.Field. The
+// JSON form of the same entry does not: a structured consumer is owed the
+// raw bytes.
 func printMCPServerEntry(w io.Writer, e operations.MCPServerEntry) {
 	fmt.Fprintf(w, "MCP Server: %s\n", termsafe.Field(e.Name))
 	fmt.Fprintf(w, "Bundle: %s\n", termsafe.Field(e.Source))
-	fmt.Fprintf(w, "Command: %s\n", termsafe.Field(e.Command))
-	if len(e.Args) > 0 {
-		fmt.Fprintf(w, "Args: %s\n", termsafe.Field(strings.Join(e.Args, " ")))
-	}
+	printMCPServerTarget(w, "", e)
 	if len(e.Env) > 0 {
 		fmt.Fprintln(w, "Environment:")
 		for k, v := range e.Env {

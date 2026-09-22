@@ -12,7 +12,7 @@ The largest package in the layer (26 internal importers). It has no single respo
 |---|---|
 | [`agent-backend-contract.md`](agent-backend-contract.md) | What a backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsWriter`, `ContextWriter`), the `Base*` embeddables every engine reuses, the `Launcher` process seam, and the cross-cutting `PermissionMode` enum. |
 | [`agent-session-ir.md`](agent-session-ir.md) | The normalized transcript IR (`SessionEntry` and friends) every engine's history is mapped into, plus the shared JSONL parse loop. |
-| [`agent-chat.md`](agent-chat.md) | The optional `StructuredChat` capability: request/event unions and chat MCP-server composition. |
+| [`agent-chat.md`](agent-chat.md) | The structured event IR (`ChatEvent`) and chat MCP-server composition. |
 | [`agent-enginecli.md`](agent-enginecli.md) | `EngineCLI` — the declared vendor-CLI grammar that both the real driver and the mock engine parse against; the anti-drift mechanism of the launch path. |
 | [`agent-surface-delivery.md`](agent-surface-delivery.md) | Surface kinds, the open `Approach` set and its optional capabilities, an engine's `Declaration`, the `SurfaceSelection` builder, and isolated-cell vs shared-cwd delivery. |
 | [`agent-launch-lifecycle.md`](agent-launch-lifecycle.md) | `LaunchBackend` — the shared Setup/deliver/Cleanup path every local-CLI engine embeds, and its exec half. |

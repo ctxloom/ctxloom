@@ -14,7 +14,7 @@ import (
 // End-to-end conformance for the MIGRATED (StartRun) spawn path — the C1
 // cutover, hermetic: a real coordinator (live gRPC listeners, durable
 // stores), a real runner half (Home + EngineHost dialed in by the fake
-// spawner's StartEngine), and a scripted StructuredChat engine. No go-plugin,
+// spawner's StartEngine), and a scripted structured-driver engine. No go-plugin,
 // no containers — which is exactly the point: the delegated child's engine
 // control rides StartRun; go-plugin's Chat is never dialed.
 

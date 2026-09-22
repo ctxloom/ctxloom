@@ -64,25 +64,25 @@ type capabilityRow struct {
 // renumbered, so a probe's claim cannot silently come to mean something else.
 var capabilityInventory = []capabilityRow{
 	{1, "agent.Backend.Execute — one-shot launch round trip (ctxloom run --one-shot)"},
-	{2, "agent.StructuredChat.Chat — structured chat over ACPTransport"},
+	{2, "engine.StructuredDriver.Turn — the structured per-turn drive (Instance.Drivers)"},
 	{3, "agent.ApproachUnsafeFile — native context file (CLAUDE.md / AGENTS.md / steering / instructions[])"},
 	{4, "agent.ApproachSystemPrompt — --append-system-prompt-file (claude only)"},
 	{5, "agent.ApproachHook — SessionStart inject-context"},
 	{6, "agent.SettingsWriter / agentDescriptor.newWriter — settings+hooks CARRIAGE"},
 	{7, "bundles.HookEvent* — hooks actually FIRING in the vendor binary"},
-	{8, "wire.MCPConfig / ChatRequest.MCPServers — MCP registration + tool round trip"},
+	{8, "wire.MCPConfig / engine.Session.MCPServers — MCP registration + tool round trip"},
 	{9, "agent.CommandExport / agentDescriptor.exports — slash-command export"},
 	{10, "agent.SkillExport / agentDescriptor.skillExports — skills export"},
 	{11, "agent.PermissionMode / enforcesReadOnlyPlan — permission tiers, plan read-only"},
-	{12, "ChatRequest.ForwardPermissions / agent.PermissionRequest — approval flow"},
+	{12, "agent.PermissionRequest — approval flow"},
 	{13, "agent_send / coord.peerSend / the runner's automatic turn report — steer and mail at turn boundaries"},
-	{14, "ChatRequest.ResumeSessionID / ChatSessionInfo.Resumable — resume and session identity"},
+	{14, "engine.Turn.Resume / ChatSessionInfo.Resumable — resume and session identity"},
 	{15, "transcript.Record / paths.HarpCanonicalTranscriptPath — canonical transcript capture"},
 	{16, "agentDescriptor.versionCommand / engineversion.Command — version reporting"},
 	{17, "authCheckClaude/Codex/Opencode — availability and auth probing"},
 	{18, "structured output contract — JSON only, no preamble"},
-	{19, "ChatRequest.Runtime=container — container runtime and per-engine container auth"},
-	{20, "resolveModel / ModelDeliveryQuirk — model resolution and pinning"},
+	{19, "launch.RuntimeAxis=container — container runtime and per-engine container auth"},
+	{20, "engine.LabelConfig.Model — model resolution and pinning"},
 }
 
 // capabilitiesProvenElsewhere are inventory rows the ladder deliberately does
@@ -93,7 +93,7 @@ var capabilityInventory = []capabilityRow{
 // quietly become a place to park work.
 var capabilitiesProvenElsewhere = map[int]string{
 	17: "every cell's own gate IS this probe: probeEngine + the liveAgent authCheck functions run before any paid turn and print engine+reason on every acceptance run, and CTXLOOM_LIVE_REQUIRE turns a missing engine into a hard red. A separate probe would re-run the gate and prove nothing the gate did not already print.",
-	20: "the pinned cheap model in each liveAgents[*].config is carried by EVERY paid cell in the ladder, so a model that failed to resolve reds the cell that used it; the claude ModelDeliveryQuirk is pinned hermetically by version in the registry's own tests. A dedicated live cell would buy a turn to re-observe what all ~40 other cells already depend on.",
+	20: "the pinned cheap model in each liveAgents[*].config is carried by EVERY paid cell in the ladder, so a model that failed to resolve reds the cell that used it. A dedicated live cell would buy a turn to re-observe what all ~40 other cells already depend on.",
 }
 
 // --- probe rows ---------------------------------------------------------------
@@ -420,7 +420,7 @@ var probeRegistry = []probeSpec{
 	},
 	{
 		Name:         probeP5,
-		Title:        "approval surface: ForwardPermissions must SURFACE a PermissionRequest, and the gated effect must appear only after the allow",
+		Title:        "approval surface: an engine permission request must SURFACE as a PermissionRequest, and the gated effect must appear only after the allow",
 		Capabilities: []int{2, 12},
 		Channel:      channelGatedAction,
 		Paid:         true,

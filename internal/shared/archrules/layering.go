@@ -130,7 +130,7 @@ var LayeringRules = []LayeringRule{
 			// core/profiles — Part 1.0 lists remote; the other three were MEASURED,
 			// not listed.
 			"internal/core/profiles -> internal/adapters/remote": "slice 5: the pull-walk reader moves to adapters/remote",
-			"internal/core/profiles -> internal/shared/upgrade":  "slice 1a: the permanent migrations are deleted (measured; not in Part 1.0's profiles row)",
+			"internal/core/profiles -> internal/shared/upgrade":  "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
 			"internal/core/profiles -> resources":                "slice 5: the embedded builtin profiles are data a reader adapter supplies (measured; Part 1.0 does not classify resources)",
 
 			// core/bundles
@@ -140,7 +140,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/adapters/remote":             "slice 5: readers become adapters behind bundles.Reader",
 			"internal/core/bundles -> internal/adapters/signing":            "slice 5: one verifier, behind the trust ports",
 			"internal/core/bundles -> internal/shared/admission":            "slice 5: admission is decided by composite.Trust, not by the bundle package",
-			"internal/core/bundles -> internal/shared/upgrade":              "slice 1a: the permanent migrations are deleted",
+			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config — Part 1.0 also lists config/layerscope, which is under the
 			// from-prefix today and so not a violation until the rename moves it to

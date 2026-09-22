@@ -129,25 +129,6 @@ func TestManagedConfigChatMCPServers(t *testing.T) {
 	assert.Equal(t, "taskloom", got[1].Name)
 }
 
-// TestBaseLifecycle_ChatMCPServers: the lifecycle composes from its merged
-// managed payload; one that never saw MergeManaged (the minimal form) yields nil.
-func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
-	l := NewBaseLifecycle("acp")
-	assert.Nil(t, l.ChatMCPServers(), "no managed payload merged → nothing to inject")
-
-	l.MergeManaged(termRep(), &ManagedConfig{
-		BundleMCP: map[string]wire.MCPServer{
-			MCPServerName: ctxloomBundleServer(),
-			"taskloom":    {Command: "taskloom", Args: []string{"mcp"}},
-		},
-	}, "/work", "")
-
-	got := l.ChatMCPServers()
-	require.Len(t, got, 2)
-	assert.Equal(t, MCPServerName, got[0].Name)
-	assert.Equal(t, "taskloom", got[1].Name)
-}
-
 // TestComposeChatMCPServers_UncoveredArms covers the arms the tests above
 // leave alone: the empty-set and fully-suppressed returns must be nil rather
 // than an empty slice, matching the no-payload return.

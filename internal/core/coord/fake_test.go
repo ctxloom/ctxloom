@@ -279,7 +279,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 
 // Start spawns the runner half for real: an in-process Home dialing the
 // coordinator's live listeners with the spawn-injected trio, an EngineHost
-// wired as its RunnerRequest handler, and a scripted StructuredChat as the
+// wired as its RunnerRequest handler, and a scripted structured driver as the
 // engine. The runner's context is NOT the caller's: a runner is its own
 // process and outlives the coordinator that started it (a restart re-adopts
 // it); only Kill ends it. Kill models SIGKILL (docker-stop): the shared

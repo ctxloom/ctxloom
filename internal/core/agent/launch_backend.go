@@ -91,18 +91,6 @@ func (b *LaunchBackend) SetEngineHomeVar(name string) { b.engineHomeVar = name }
 // History returns the session history accessor.
 func (b *LaunchBackend) History() SessionHistory { return b.history }
 
-// ManagedChatMCPServers returns the managed MCP servers composed for chat
-// injection (ChatRequest.MCPServers), or nil when the lifecycle holds no
-// managed payload or lacks the capability. A structured Execute path uses this
-// to name the same server set the writers put in the engine's settings file —
-// probed by capability so a bare ManagedLifecycle fake stays valid.
-func (b *LaunchBackend) ManagedChatMCPServers() []ChatMCPServer {
-	if l, ok := b.lifecycle.(interface{ ChatMCPServers() []ChatMCPServer }); ok {
-		return l.ChatMCPServers()
-	}
-	return nil
-}
-
 // ExecuteCLI runs the shared tail of an exec-style Execute: the dry-run
 // preview stop, the v16 argv trace, env assembly (the request env plus the
 // SCM context-file path), and interactive/non-interactive routing. A concrete

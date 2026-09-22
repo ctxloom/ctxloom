@@ -307,8 +307,8 @@ const (
 const DefaultRawPolicy = RawLossyOnly
 
 // normalizeRawPolicy maps an empty/unrecognized policy string to the default,
-// so a caller that leaves ChatRequest.TranscriptRawPolicy unset (every
-// current caller) gets DefaultRawPolicy rather than an invalid/zero policy
+// so a caller that leaves the policy unset (every current caller) gets
+// DefaultRawPolicy rather than an invalid/zero policy
 // that would silently behave like RawOff.
 func normalizeRawPolicy(p RawPolicy) RawPolicy {
 	switch p {

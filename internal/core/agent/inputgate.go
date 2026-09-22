@@ -15,9 +15,9 @@ package agent
 // InputGate has given no signal at all, and no signal must DELAY a wake, never
 // permit one.
 //
-// This is deliberately separate from the core Backend interface, in the same
-// style as StructuredChat: a required method would break every backend, and
-// knowing one's own modal state is a capability most engines simply lack.
+// This is deliberately separate from the core Backend interface: a required
+// method would break every backend, and knowing one's own modal state is a
+// capability most engines simply lack.
 type InputGate interface {
 	// Observe is handed every byte the engine writes to its stdout, in order.
 	// It sits on the passthrough write path, so it must not block and must

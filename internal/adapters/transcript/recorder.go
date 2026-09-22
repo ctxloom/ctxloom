@@ -411,19 +411,18 @@ func (r *fileRecorder) Close() error {
 
 // RecordUserText appends one `user` canonical entry for text to rec — the
 // case tee/TeeAndClose structurally cannot reach, because they only ever
-// wrap the OUTBOUND ChatEvent stream. Text entered by the caller travels the
-// INBOUND ChatMessage channel instead, so without an explicit tap at each
-// host seam (GRPCClient.Chat's `in` pump, coord/enginehost.go's SetTurnSink
-// and briefing sends) a structured session's canonical transcript carries
-// assistant output but no user turns at all. Mirrors the `user`
-// entry oneshot.RecordOneshot synthesizes for the oneshot-Execute regime.
+// wrap the OUTBOUND ChatEvent stream. Text entered by the caller is the
+// turn's prompt (engine.Turn.Prompt), so without an explicit tap at the host
+// seam that starts a turn (the runner's EngineHost) a structured session's
+// canonical transcript carries assistant output but no user turns at all.
+// Mirrors the `user` entry oneshot.RecordOneshot synthesizes for the
+// oneshot-Execute regime.
 //
 // rec may be nil (no harp / capture disabled) and text may be empty (a
-// permission answer or turn-cancel control message, or a genuinely blank
-// turn) — both are silent no-ops, the same empty-input discipline every
-// other capture path in this package follows. A Record error is swallowed
-// for the same reason tee swallows its own: transcript capture must never be
-// visible to, or perturb, the live chat it shadows.
+// genuinely blank turn) — both are silent no-ops, the same empty-input
+// discipline every other capture path in this package follows. A Record
+// error is swallowed for the same reason tee swallows its own: transcript
+// capture must never be visible to, or perturb, the live chat it shadows.
 func RecordUserText(rec Recorder, text string) {
 	if rec == nil || text == "" {
 		return
@@ -436,15 +435,11 @@ func RecordUserText(rec Recorder, text string) {
 
 // tee wraps events with a passthrough goroutine that calls rec.Record on every
 // event before forwarding it unchanged, and returns the forwarding channel.
-// This is the exact shape the two host seams drop in (GRPCClient.Chat's
-// returned events channel, and coord/enginehost.adapt's consumed `out`) —
-// the structured-chat regime in docs/transcript-schema.md "Capture regimes".
+// This is the shape the runner's EngineHost drops in around each turn's
+// adapted event stream (through Tee) — the structured-chat regime in
+// docs/transcript-schema.md "Capture regimes".
 // Recording happens BEFORE forwarding so a consumer that stops reading
-// early never causes an event to be forwarded-but-not-recorded. Unexported:
-// TeeAndClose is the only production shape any host seam needs (a bare tee
-// would leak the Recorder's fd), so this stays a package-private helper
-// (no external caller; only TeeAndClose and this package's tests
-// used the exported name).
+// early never causes an event to be forwarded-but-not-recorded.
 //
 // A Record error is deliberately swallowed except for a debug-log style
 // callback-free drop: capture must never be able to break or stall the live

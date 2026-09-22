@@ -96,9 +96,9 @@ TOML), following five rules every time:
      fully-resolved path — this command never expands $HOME or "~" and never
      guesses a location; an env-overridden $HOME is the caller's problem to
      have already solved.
-  2. If the file exists, back it up BEFORE any edit to
-     NO BACKUP is taken (it once wrote "<file>.bak.<UTC-timestamp>" per call —
-     overwritten by the next run).
+  2. NO BACKUP is taken. The merge is written in place, so rule 5's
+     verification is the only safety net — a caller that needs the prior
+     contents must copy the file itself before invoking this command.
   3. Parse the existing file (a missing file starts from an empty object) and
      deep-merge the stdin patch into it: objects merge key by key, preserving
      every foreign key the patch doesn't mention; non-object values are
@@ -107,8 +107,8 @@ TOML), following five rules every time:
      error naming the file — it is never overwritten.
   5. After writing, the file is re-read and re-parsed, and the patched
      content is confirmed present (payload verification, not just a clean
-     exit code). A verify failure fails loud and says the merge is already on disk
-     from.
+     exit code). A verify failure fails loud, names the file, and says the
+     merge is already on disk with no backup kept — inspect it by hand.
 
 The patch is always a JSON object on stdin, whether --file is json or toml —
 only the TARGET file's format varies; the shape you send never does.

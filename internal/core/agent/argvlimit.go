@@ -12,13 +12,13 @@ import "fmt"
 // orders of magnitude inside the total budget. Probed on a 4096-byte-page
 // host: a 131071-byte argument execs; 131072 returns E2BIG.
 //
-// WHY IT MATTERS HERE: codex and kiro carry the run's prompt as an argv
-// positional (codex.Codex.buildArgs, kiro.Kiro.buildArgs) — 128 KiB is roughly
-// 32k tokens, well within reach of a coordinator handing over a long brief, a
-// pasted file, or an assembled context. Without this check the user saw only
-// os/exec's own "fork/exec /usr/bin/codex: argument list too long": it names
-// neither the prompt nor its length, and it points at the TOTAL argument list,
-// which is innocent.
+// WHY IT MATTERS HERE: claude's interactive surface carries the run's prompt
+// as a trailing argv positional (claude.Instance appends `"--", prompt`; the
+// oneshot surface pipes it on stdin instead) — 128 KiB is roughly 32k tokens,
+// well within reach of a long brief, a pasted file, or an assembled context.
+// Without this check the user sees only os/exec's own "fork/exec ...: argument
+// list too long": it names neither the prompt nor its length, and it points at
+// the TOTAL argument list, which is innocent.
 //
 // The refusal is the honest failure, not a fallback: shortening the prompt to
 // fit would run the turn, answer a question nobody asked, and report success.
@@ -30,8 +30,7 @@ import "fmt"
 // own error.
 //
 // goos and pageSize are parameters rather than runtime.GOOS/os.Getpagesize()
-// read inline, so the platform gate is unit-testable (the same shape
-// isolation.containerSpawnUnsupportedErr and acp.containerReachBackEnv use).
+// read inline, so the platform gate is unit-testable.
 //
 // Only Linux is capped per-argument. macOS limits the total (ARG_MAX) and has
 // no MAX_ARG_STRLEN equivalent, so a prompt that Linux refuses can genuinely

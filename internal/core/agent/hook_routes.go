@@ -26,7 +26,7 @@ type HookRoute struct {
 	// Unsupported route, where it is what the diagnostic must say back to them.
 	Kind string
 	// Unsupported declares that this agent has NO native event for the kind and
-	// says why, in one clause ("codex has no session-end event"). Such a route
+	// says why, in one clause ("<engine> has no session-end event"). Such a route
 	// emits nothing — but if the user configured hooks of that kind, they are
 	// silently inert, which is exactly what an OMITTED route used to look like
 	// and why the omission could not be told apart from an oversight. Declaring

@@ -54,8 +54,8 @@ type LaunchBackend struct {
 	surfaces Declaration
 	// extraEnv, when set, contributes per-backend child-env entries on top of the
 	// shared ExecuteEnv (the request env + the SCM context-file path) — the seam a
-	// cell-aware backend (codex's cell-scoped CODEX_HOME) uses to compute env from
-	// the request without reimplementing the shared assembly.
+	// backend uses to add env computed from the request without reimplementing
+	// the shared assembly.
 	extraEnv func(req *ExecuteRequest) map[string]string
 	// engineHomeVar names the env var that relocates this engine's config
 	// home (claude's CLAUDE_CONFIG_DIR). Empty for an engine that never
@@ -76,9 +76,8 @@ func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider Hashe
 }
 
 // SetExecuteEnv registers a per-backend child-env contributor merged into
-// ExecuteEnv. A cell-aware backend (codex) uses it to inject cell-scoped env
-// (CODEX_HOME) computed from the ExecuteRequest, without reimplementing the
-// shared env assembly. Later entries win over the shared ones on a key clash.
+// ExecuteEnv. A backend uses it to inject env computed from the ExecuteRequest
+// (claude's exec env), without reimplementing the shared env assembly. Later entries win over the shared ones on a key clash.
 func (b *LaunchBackend) SetExecuteEnv(fn func(req *ExecuteRequest) map[string]string) {
 	b.extraEnv = fn
 }
@@ -109,9 +108,9 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, arg
 	// the payload rather than arriving as os/exec's generic "argument list too
 	// long" — which points at the total argument list, the innocent part. This
 	// lives here, once, because every exec-style backend funnels its launch
-	// through this tail; the engines that carry the prompt on argv (codex,
-	// kiro, and claude's interactive arm) are covered without each repeating
-	// the check. See argvlimit.go.
+	// through this tail, so an engine that carries the prompt on argv
+	// (claude's interactive arm) is covered without repeating the check. See
+	// argvlimit.go.
 	if err := checkArgvLimit(b.Name(), args, GetPromptContent(req.Prompt),
 		singleArgLimit(runtime.GOOS, os.Getpagesize())); err != nil {
 		return nil, err

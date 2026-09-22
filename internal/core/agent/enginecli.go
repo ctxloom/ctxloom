@@ -35,7 +35,7 @@ import (
 //
 //   - WHICH flag a permission posture selects (claude's bypass →
 //     --dangerously-skip-permissions vs plan → --permission-mode plan
-//     --disallowedTools ...), and codex's sandbox tier table;
+//     --disallowedTools ...);
 //   - the ORDER flags are emitted in;
 //   - the CONDITIONS gating a flag (a delivered surface's presentation, a
 //     harp in the env).
@@ -45,15 +45,13 @@ import (
 // surface, and does it take a value?"; buildArgs answers "is it emitted right
 // now, and where in the line?".
 //
-// SCOPE: oneshot and interactive only. The ACP surface (claude-code-acp,
-// codex-acp — a different binary with a different grammar) is deferred to
-// v0.8 and is deliberately NOT modelled here.
+// SCOPE: oneshot and interactive only.
 
 // CLISurface names one process surface a backend's engine presents. The two
 // surfaces do not share a grammar: claude's oneshot takes --print and reads the
 // prompt from stdin, its interactive form takes --name and a positional
-// prompt; codex's oneshot is a distinct `exec` SUBCOMMAND that rejects
-// --ask-for-approval outright.
+// prompt. A surface may also be a distinct SUBCOMMAND with its own flag set
+// (EngineCLI.Subcommand).
 type CLISurface string
 
 const (
@@ -134,11 +132,10 @@ func (f CLIFlag) AllowsValue(v string) bool {
 func (f CLIFlag) TakesValue() bool { return f.Value != ValueNone }
 
 // PromptDelivery declares HOW the user/task prompt reaches the engine on a
-// surface. It is a first-class part of the contract because the two backends
+// surface. It is a first-class part of the contract because surfaces
 // genuinely differ and the difference is load-bearing: claude's oneshot pipes
 // the task on STDIN (argv delivery hit E2BIG on `ctxloom weave` synthesis)
-// while its interactive form and both codex surfaces pass it as an argv
-// POSITIONAL. A fake that looked for the prompt in the wrong place would report
+// while its interactive form passes it as an argv POSITIONAL. A fake that looked for the prompt in the wrong place would report
 // "no prompt received" against a driver that delivered one perfectly.
 type PromptDelivery string
 
@@ -199,8 +196,8 @@ const (
 	// precedence.
 	ScopeHome ProbeScope = "home"
 	// ScopeEnvDir probes <$EnvVar>/<Rel>, falling back to
-	// $HOME/<EnvHomeDefault>/<Rel> when the variable is unset — codex's
-	// CODEX_HOME, whose prompts are NOT cwd-relative.
+	// $HOME/<EnvHomeDefault>/<Rel> when the variable is unset — an engine
+	// home relocated by env, whose files are NOT cwd-relative.
 	ScopeEnvDir ProbeScope = "env-dir"
 	// ScopeFlagValue probes the path named by a declared flag's VALUE
 	// (--mcp-config <file>). The flag being absent from argv means the probe
@@ -225,8 +222,7 @@ type CLIProbe struct {
 	Rel string
 	// EnvVar names the environment variable holding the root, for ScopeEnvDir.
 	EnvVar string
-	// EnvHomeDefault is the $HOME-relative fallback root when EnvVar is unset
-	// (".codex").
+	// EnvHomeDefault is the $HOME-relative fallback root when EnvVar is unset.
 	EnvHomeDefault string
 	// Flag names the declared flag whose value is the path, for ScopeFlagValue.
 	Flag string
@@ -248,8 +244,7 @@ type EngineCLI struct {
 	// also the name a stand-in binary must answer to when PATH-shadowed.
 	Binary string
 	// Subcommand is the fixed leading argv token this surface requires, before
-	// any flag ("exec" for codex's oneshot). Empty when the surface is the
-	// bare binary — claude has no subcommand on either surface.
+	// any flag. Empty when the surface is the bare binary — claude has no subcommand on either surface.
 	Subcommand string
 	// Prompt declares how the prompt reaches the engine on this surface.
 	Prompt PromptDelivery

@@ -3,65 +3,19 @@ package agent
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
-	"sort"
 
 	"github.com/spf13/afero"
 )
 
-// SessionStore is the shared scaffold embedded by per-agent session-history
-// readers: the afero filesystem their tests inject through, plus the common
-// JSONL-transcript parse loop. Path conventions, per-line entry conversion,
-// and session-ID recovery stay per-agent.
-//
-// The claude/codex/antigravity SessionHistory readers that
-// used to embed this were deleted outright (proven broken, see each
-// package's backend.go doc). opencode's native reader still embeds it.
+// SessionStore is the shared JSONL-transcript parse loop, plus the afero
+// filesystem it reads through (the test injection point). Path conventions
+// and per-line entry conversion stay with the caller.
 type SessionStore struct {
 	// FS is the filesystem transcripts are read through (test injection
 	// point). Nil falls back to the OS filesystem.
 	FS afero.Fs
-}
-
-// ErrNoSessions reports honest absence: this project has no recorded session
-// history for the requested workDir. It is a distinct fact from "the history
-// could not be read", which arrives as a wrapped list/load error, and callers
-// that treat an empty history as a normal state must discriminate with
-// errors.Is rather than matching on message text.
-var ErrNoSessions = errors.New("no sessions found")
-
-// GetCurrentSessionViaGetSession is the common GetCurrentSession shape shared
-// by every per-agent SessionHistory whose per-session loader takes (workDir,
-// id string) — opencode's GetSession does (the claude/codex/antigravity
-// readers that used to share this shape were deleted): call
-// list(workDir), sort most-recent-first by StartTime, then load the newest
-// session via getSession(workDir, id).
-//
-// This used to be three functions —
-// SortSessionsMostRecentFirst (a helper with ZERO callers: the ordering
-// invariant it exists to enforce was assumed, in a doc comment, rather than
-// actually applied), MostRecentSession (which trusted that assumed ordering
-// and took sessions[0] unsorted), and GetCurrentSessionViaListSessions (a
-// pure pass-through with no caller of its own — GetCurrentSessionViaGetSession
-// was its only user). Collapsed into one function that actually sorts, so the
-// "most recent first" precondition is enforced here instead of merely
-// documented; previously the guarantee depended entirely on each engine's
-// ListSessions independently getting the order right (opencode's does, via
-// its own sort.SliceStable, but nothing enforced that generically).
-func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]SessionMeta, error), getSession func(workDir, id string) (*Session, error)) (*Session, error) {
-	sessions, err := list(workDir)
-	if err != nil {
-		return nil, err
-	}
-	if len(sessions) == 0 {
-		return nil, ErrNoSessions
-	}
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].StartTime.After(sessions[j].StartTime)
-	})
-	return getSession(workDir, sessions[0].ID)
 }
 
 // ParseSessionFile reads a JSONL transcript at path into the normalized

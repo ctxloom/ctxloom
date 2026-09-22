@@ -22,8 +22,8 @@ import (
 // interface and never type-switches on the backend. It is part of the
 // engine-agnostic contract alongside Backend.
 type BackendConfig interface {
-	// BackendType returns the discriminator (claude-code / codex)
-	// naming the backend this config drives.
+	// BackendType returns the discriminator (e.g. claude-code) naming the
+	// backend this config drives.
 	BackendType() string
 }
 
@@ -122,7 +122,6 @@ type SessionHistory interface {
 	// Tracking for /clear recovery
 	// TranscriptPathFromHook extracts or computes the transcript path from hook input.
 	// Claude: computes path from sessionID + workDir
-	// Codex: returns transcriptPath directly
 	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
 
 	// Note: "which session is previous" is resolved by ctxloom from its session
@@ -301,8 +300,7 @@ type ContentBlock struct {
 // These are named BY PURPOSE, never after the vendor field that produced
 // them, because the transcript policy layer (internal/adapters/transcript/policy)
 // discriminates on them and a policy rule naming a vendor field is a defect:
-// the same rule has to read correctly for claude, codex, kiro and whatever
-// comes next.
+// the same rule has to read correctly for every engine.
 //
 // The vocabulary is deliberately NOT a taxonomy of every vendor shape. It is
 // exactly the set of discriminators the policy needs, plus the generic
@@ -448,8 +446,8 @@ type ExecuteRequest struct {
 	Temperature float32
 	// CellKind is the resolved isolation cell this run executes in, decided
 	// by the launch's cell (cli.cellKindOf). It is carried for diagnostics and
-	// for the env a cell-aware backend computes (codex's cell-scoped
-	// CODEX_HOME); it is NOT what an argv site switches on. Where a surface
+	// for the env a cell-aware backend computes; it is NOT what an argv site
+	// switches on. Where a surface
 	// lands, and therefore what the engine is told about it, is the launch
 	// plan's decision, delivered by the runner and handed here as Presented.
 	CellKind CellKind

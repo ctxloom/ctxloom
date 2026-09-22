@@ -148,7 +148,7 @@ func WithDedupHomeDir(dir string) ManagedWriteOption {
 }
 
 // WriteManagedCommandFiles is the manifest-scoped slash-command/skill file
-// writer shared by the per-agent command writers (claude, codex).
+// writer shared by the per-agent command writers.
 // dir is shared territory with user-authored files, so it is never wiped
 // wholesale: ctxloom tracks the files it wrote in the shared managed-content
 // ledger under the commands surface
@@ -192,8 +192,8 @@ var mustacheVarRe = regexp.MustCompile(`\{\{(\w+)\}\}`)
 
 // TransformMustacheToPositional replaces {{variable}} patterns with $1, $2,
 // etc. Variables are assigned positions by first occurrence order. This is the
-// argument transform shared by the claude and codex command renderers (both
-// CLIs use positional $N prompt arguments).
+// argument transform for command renderers whose CLI takes positional $N
+// prompt arguments (claude's).
 func TransformMustacheToPositional(content string) string {
 	varNum := 1
 	seen := make(map[string]int)

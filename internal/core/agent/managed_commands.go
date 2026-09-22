@@ -2,14 +2,10 @@ package agent
 
 import "github.com/ctxloom/ctxloom/internal/core/present"
 
-// This file hoists the shared body of every engine's MANAGED-COMMAND
-// delivery out of the per-backend surfaces.go files. The engines whose
-// command (slash-command) exports are reconciled files written by a
-// manifest-scoped writer — kiro (.kiro/skills/)
-// and codex ($CODEX_HOME/prompts, the vendor's own directory name — codex's
-// export is still a command, not a genuine Agent Skill) — both shared one
-// identical Deliver: write the
-// enabled exports, then revert exactly the managed set on cleanup by re-writing
+// This file holds the shared body of every engine's MANAGED-COMMAND
+// delivery: for an engine whose command (slash-command) exports are reconciled
+// files written by a manifest-scoped writer, Deliver writes the enabled
+// exports, then reverts exactly the managed set on cleanup by re-writing
 // with none. Only WHICH writer, at WHICH path, is engine-specific; that is the
 // injected write func. (claude's commands ride a different writer that owns its
 // own cleanup, so they are not modeled here.)
@@ -19,7 +15,7 @@ import "github.com/ctxloom/ctxloom/internal/core/present"
 // exports, and its cleanup reverts exactly the manifest-tracked set by
 // re-writing with no exports. Managed command files are cwd-rooted with no
 // out-of-cwd form, so a SHARED-cwd delivery of it falls back to the loud
-// well-known write; it carries an engine/surface name (e.g. "codex/commands")
+// well-known write; it carries an engine/surface name (e.g. "mock/commands")
 // and self-describes for that fallback's warning via UnsafeInfo.
 type ManagedCommandsDelivery struct {
 	name     string
@@ -29,7 +25,7 @@ type ManagedCommandsDelivery struct {
 }
 
 // NewManagedCommandsDelivery builds a managed-commands Delivery from its
-// engine/surface name (e.g. "kiro/commands", for the shared-cwd fallback
+// engine/surface name (e.g. "mock/commands", for the shared-cwd fallback
 // warning), the enabled exports, and the engine's manifest-scoped
 // command-file writer, bound so that write(dir, commands) materializes the
 // exports under dir and write(dir, nil) reverts exactly the managed set. rel
@@ -50,7 +46,7 @@ func (s *ManagedCommandsDelivery) Present(start present.Start) present.Presentat
 // making a managed-commands delivery self-describing when it lands in a shared cwd.
 func (s *ManagedCommandsDelivery) UnsafeInfo() string { return s.name }
 
-// Kind reports this as the commands surface (codex/kiro both share it).
+// Kind reports this as the commands surface.
 func (s *ManagedCommandsDelivery) Kind() SurfaceKind { return SurfaceCommands }
 
 // Deliver writes the enabled command exports beneath the advised project root

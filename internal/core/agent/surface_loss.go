@@ -26,12 +26,12 @@ type SurfaceLoss struct {
 	// Empty when the loss has no further breakdown.
 	Detail string `json:"detail,omitempty"`
 	// Reason is the one-clause explanation of why this engine cannot carry it
-	// ("opencode has no hook mechanism"). It is a property of the ENGINE, not
+	// ("<engine> has no hook mechanism"). It is a property of the ENGINE, not
 	// of this run, so it reads the same every time and can be believed.
 	Reason string `json:"reason"`
 }
 
-// String renders a loss as one report line: "hooks (1 session_start) — opencode
+// String renders a loss as one report line: "hooks (1 session_start) — <engine>
 // has no hook mechanism".
 func (l SurfaceLoss) String() string {
 	var b strings.Builder

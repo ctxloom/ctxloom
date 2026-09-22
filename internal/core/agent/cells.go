@@ -231,8 +231,8 @@ type KindedDelivery interface {
 }
 
 // SurfaceInputs is the shared, per-run superset of everything a backend's
-// surfaces write: the assembled context (as a string for the ContextWriter-core
-// engines, and the raw fragments for codex's file writer), the merged MCP config
+// surfaces write: the assembled context (as a string, and as the raw fragments
+// for an approach that assembles its own), the merged MCP config
 // + profile/companion bundle servers, the merged hook set + statusline policy, and
 // the command exports. A caller fills it once and hands it to every
 // approach's Construct (Declaration.Construct), which picks the fields IT

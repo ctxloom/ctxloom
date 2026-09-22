@@ -7,7 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -35,13 +36,13 @@ func TestValidatePermissionFlag(t *testing.T) {
 func TestWarnPosture_PlanOneshotCancels(t *testing.T) {
 	cases := []struct {
 		name     string
-		mode     pb.ExecutionMode
+		mode     engine.Mode
 		permMode agent.PermissionMode
 		wantWarn bool
 	}{
-		{"plan + oneshot warns", pb.ExecutionMode_ONESHOT, agent.PermissionPlan, true},
-		{"bypass + oneshot stays silent", pb.ExecutionMode_ONESHOT, agent.PermissionBypass, false},
-		{"plan + interactive stays silent", pb.ExecutionMode_INTERACTIVE, agent.PermissionPlan, false},
+		{"plan + oneshot warns", engine.Structured, agent.PermissionPlan, true},
+		{"bypass + oneshot stays silent", engine.Structured, agent.PermissionBypass, false},
+		{"plan + interactive stays silent", engine.Interactive, agent.PermissionPlan, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,7 +50,7 @@ func TestWarnPosture_PlanOneshotCancels(t *testing.T) {
 			restore := clidiag.SetSink(&buf)
 			defer restore()
 
-			st := &runState{mode: tc.mode, permMode: tc.permMode, backendName: "mock"}
+			st := &runState{launch: launch.Launch{Mode: tc.mode}, permMode: tc.permMode, backendName: "mock"}
 			st.warnPosture()
 
 			if tc.wantWarn {

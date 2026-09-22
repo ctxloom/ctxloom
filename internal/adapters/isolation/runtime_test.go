@@ -5,15 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	goruntime "runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -282,71 +279,6 @@ func TestOciRuntimeEnumerate_PropagatesRunFailure(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestContainerHandshakeEnv_Curates keeps ONLY the go-plugin handshake vars
-// (magic cookie + PLUGIN_*), overrides the socket dir to the container path, and
-// drops everything else (host paths/secrets never cross the boundary).
-func TestContainerHandshakeEnv_Curates(t *testing.T) {
-	in := []string{
-		pb.HandshakeConfig.MagicCookieKey + "=ai-backend-v1",
-		"PLUGIN_PROTOCOL_VERSIONS=1",
-		"PLUGIN_MIN_PORT=0",
-		"PLUGIN_UNIX_SOCKET_DIR=/tmp/host-sock", // must be overridden
-		"HOME=/home/babbitt",                    // host env — must be dropped
-		"ANTHROPIC_API_KEY=secret",              // secret — must be dropped
-		"malformed-no-equals",                   // skipped
-	}
-	out := containerHandshakeEnv(in, "/run/ctxloom/plugin")
-
-	assert.Contains(t, out, pb.HandshakeConfig.MagicCookieKey+"=ai-backend-v1")
-	assert.Contains(t, out, "PLUGIN_PROTOCOL_VERSIONS=1")
-	assert.Contains(t, out, "PLUGIN_MIN_PORT=0")
-	assert.Contains(t, out, "PLUGIN_UNIX_SOCKET_DIR=/run/ctxloom/plugin", "socket dir overridden to the container path")
-	assert.NotContains(t, out, "PLUGIN_UNIX_SOCKET_DIR=/tmp/host-sock", "host socket path must not leak")
-	for _, kv := range out {
-		assert.NotContains(t, kv, "LISTEN_TCP", "the forked TCP-listener gate is gone — never force TCP")
-		assert.False(t, strings.HasPrefix(kv, "HOME="), "host HOME must not cross")
-		assert.NotContains(t, kv, "ANTHROPIC_API_KEY", "secrets must not cross")
-	}
-}
-
-// TestContainerSpawnUnsupportedErr_GOOSGate: the go-plugin container SpawnClient
-// path is Linux-only since 0.7 (the forked TCP transport that bridged the Docker
-// Desktop VM boundary on macOS/Windows was deleted). The gate proceeds on Linux
-// (nil) and fails loud on every other platform with a message naming the residual
-// paths and pointing at Linux / the top-level run modes.
-func TestContainerSpawnUnsupportedErr_GOOSGate(t *testing.T) {
-	assert.NoError(t, containerSpawnUnsupportedErr("linux"),
-		"Linux uses the stock unix-socket-over-bind-mount transport — the gate must proceed")
-
-	for _, goos := range []string{"darwin", "windows"} {
-		err := containerSpawnUnsupportedErr(goos)
-		require.Error(t, err, "%s must fail loud: the container TCP transport is gone", goos)
-		msg := err.Error()
-		assert.Contains(t, msg, "Linux-only", "the message must state the path is Linux-only")
-		assert.Contains(t, msg, "top-level run modes", "the message must point at the supported top-level modes")
-		assert.Contains(t, msg, goos, "the message must name the offending platform")
-	}
-}
-
-// TestAddrTranslator_PrefixSwap maps the plugin's announced container socket path
-// to the host bind mount and back, and leaves paths outside the mount untouched.
-func TestAddrTranslator_PrefixSwap(t *testing.T) {
-	tr := containerAddrTranslator{hostSocketDir: "/tmp/host-sock", containerSocketDir: "/run/ctxloom/plugin"}
-
-	net, host, err := tr.PluginToHost("unix", "/run/ctxloom/plugin/plugin123")
-	assert.NoError(t, err)
-	assert.Equal(t, "unix", net)
-	assert.Equal(t, "/tmp/host-sock/plugin123", host, "container→host socket path")
-
-	_, plug, err := tr.HostToPlugin("unix", "/tmp/host-sock/broker456")
-	assert.NoError(t, err)
-	assert.Equal(t, "/run/ctxloom/plugin/broker456", plug, "host→container socket path")
-
-	_, outside, err := tr.PluginToHost("unix", "/var/run/other.sock")
-	assert.NoError(t, err)
-	assert.Equal(t, "/var/run/other.sock", outside, "paths outside the mount are unchanged")
-}
-
 // TestInContainer_EnvMarkers: the dev-container env markers trip detection (the
 // filesystem markers are host-dependent and covered by the seam tests below).
 func TestInContainer_EnvMarkers(t *testing.T) {
@@ -417,8 +349,7 @@ func TestInContainerFrom_Markers(t *testing.T) {
 // parameter, it is Container.home, assigned defaultContainerHome by
 // NewContainerFor — the sole constructor every path (containerFor,
 // NewContainerWorktreeFor) routes through — and threaded verbatim
-// into all three engine-launching builders (buildRunSpec's home argument,
-// buildRunnerSpec, ExecSpec). The one production RunSpec that carries no home
+// into both engine-launching builders (buildRunnerSpec, ExecSpec). The one production RunSpec that carries no home
 // is the shared-fs marker probe, which runs `cat /probe/marker` in a scratch
 // container and holds no engine state at all, so it has no HOME property to
 // lose. This pins both halves: every Container carries a home, and a spec that
@@ -434,107 +365,8 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 	assert.Equal(t, defaultContainerHome, NewContainerFor(rt, "mock").WithImage("img").home)
 	assert.Equal(t, defaultContainerHome, containerFor(rt, "claude-code", ImageConfig{}).home)
 
-	spec := buildRunSpec("img", "name", "/proj", defaultContainerHome,
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claude-code"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123", nil, nil, nil, nil)
+	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", nil, nil)
 	require.Equal(t, defaultContainerHome, spec.Home)
 	assert.Contains(t, strings.Join(renderRunSpec(spec), " "), "-e HOME="+defaultContainerHome,
 		"a spec carrying a home must render the fresh-HOME env flag")
-}
-
-// TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee states the
-// boundary explicitly, because the doc comment's "never the host's full
-// environment" reads as a promise this function alone keeps and it is not one.
-// The PLUGIN_ arm is a prefix match over whatever it is handed, so an ambient
-// host PLUGIN_* var WOULD cross if the caller seeded cmdEnv from os.Environ().
-// The prefix stays (go-plugin owns that namespace; a version that adds a
-// handshake var must not silently lose it). What changed is the caller:
-// pb.ContainerClientConfig sets SkipHostEnv, pinned by
-// TestContainerClientConfig_SkipsHostEnv. This test pins the half that lives
-// here — every non-PLUGIN_ host key is dropped regardless — and documents the
-// half that does not, so nobody reads the prefix match as a host-env filter.
-func TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee(t *testing.T) {
-	out := containerHandshakeEnv([]string{
-		pb.HandshakeConfig.MagicCookieKey + "=ai-backend-v1",
-		"PLUGIN_PROTOCOL_VERSIONS=1",
-		"PLUGIN_LEAKED_SECRET=from-the-host",
-		"AWS_SECRET_ACCESS_KEY=from-the-host",
-	}, "/run/ctxloom/plugin")
-
-	keys := map[string]bool{}
-	for _, kv := range out {
-		key, _, _ := strings.Cut(kv, "=")
-		keys[key] = true
-	}
-	assert.True(t, keys[pb.HandshakeConfig.MagicCookieKey], "the magic cookie crosses")
-	assert.True(t, keys["PLUGIN_PROTOCOL_VERSIONS"], "go-plugin's handshake vars cross")
-	assert.False(t, keys["AWS_SECRET_ACCESS_KEY"], "a non-PLUGIN_ host key never crosses, whatever the caller hands in")
-	assert.True(t, keys["PLUGIN_LEAKED_SECRET"],
-		"the prefix match forwards ANY PLUGIN_ key: keeping the host environment out of cmdEnv is the caller's job (pb.ContainerClientConfig's SkipHostEnv), not this function's")
-}
-
-// TestHostSpawn_FailedDialReturnsPlainNilInterface pins the typed-nil-in-
-// interface fix at the exact boundary cli/run.go's teardownTransport
-// depends on: Host.Spawn declares its return as the pb.Client INTERFACE, and
-// on a failed dial must hand back a genuinely nil interface value, not a
-// non-nil interface boxing a nil *pb.LLMRunner.
-//
-// Driven through the REAL production call (selfexec.SetPathForTesting points
-// the self-invoke at /bin/false, so pb.NewSelfInvokingClientForLabelEnv
-// actually forks it) rather than a fake: /bin/false exits immediately with
-// no handshake output, so go-plugin's dial fails fast — a real but
-// sub-millisecond subprocess, not a long-lived one. This is the same failure
-// SHAPE as the original incident (a spawn that cannot start), reproduced
-// without needing real credentials or a broken engine binary.
-//
-// The assertion below is a PLAIN `!= nil`, matching what
-// cli/run.go's teardownTransport actually does in production — testify's
-// require.NotNil/assert.Nil use reflection and see straight through a boxed
-// typed-nil pointer, so they would pass whether or not this boundary was
-// fixed and cannot stand in for this check.
-func TestHostSpawn_FailedDialReturnsPlainNilInterface(t *testing.T) {
-	restore := selfexec.SetPathForTesting("/bin/false")
-	t.Cleanup(restore)
-
-	client, err := Host{}.Spawn(LaunchSpec{BackendName: "does-not-matter", Verbosity: 0})
-	require.Error(t, err, "a self-invoke of a binary that never speaks the plugin handshake must fail")
-
-	if client != nil {
-		t.Fatal("Host.Spawn must return a plain nil pb.Client interface on a failed dial; got a non-nil interface (typed-nil-in-interface pitfall) — the exact shape that let cli/run.go's teardownTransport call Kill on a nil receiver")
-	}
-}
-
-// TestOciRuntimeSpawn_FailedDialReturnsPlainNilInterface is
-// TestHostSpawn_FailedDialReturnsPlainNilInterface's container-transport
-// twin: ociRuntime.spawn is the OTHER boundary in the spawn chain where a
-// concrete *pb.LLMRunner return value gets converted into the pb.Client
-// interface (via pb.NewContainerClient), so it needs the same explicit-nil
-// treatment on the error path.
-//
-// fakeRuntime{binary: "/bin/false"} substitutes for a real docker/podman
-// binary: newContainerRunner execs rt.Binary() with rt.RunArgs(spec), so
-// pointing that at /bin/false makes the "container" exit immediately with no
-// handshake output — a real, sub-millisecond subprocess exercising the
-// actual production dial path without a docker daemon.
-func TestOciRuntimeSpawn_FailedDialReturnsPlainNilInterface(t *testing.T) {
-	if goruntime.GOOS != "linux" {
-		t.Skip("the go-plugin container spawn transport is Linux-only")
-	}
-
-	rt := fakeRuntime{name: "fake", binary: "/bin/false"}
-	launch := LaunchSpec{
-		BackendName:   "does-not-matter",
-		HostSocketDir: t.TempDir(),
-	}
-
-	client, err := ociRuntime{}.spawn(rt, launch)
-	require.Error(t, err, "a container runtime binary that exits before the handshake must fail the dial")
-
-	// Same plain comparison as production's teardownTransport (see
-	// TestHostSpawn_FailedDialReturnsPlainNilInterface's doc) — testify's
-	// reflection-based nil checks would pass either way and cannot stand in
-	// for this.
-	if client != nil {
-		t.Fatal("ociRuntime.spawn must return a plain nil pb.Client interface on a failed dial; got a non-nil interface (typed-nil-in-interface pitfall)")
-	}
 }

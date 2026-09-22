@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -42,8 +40,7 @@ const (
 	// defaultContainerHome is the ctxloom user's home baked into the agent
 	// images (the entrypoint remaps that user to the launching uid/gid and
 	// hands it this home). Auth credential mounts land under it.
-	defaultContainerHome      = "/home/ctxloom"
-	defaultContainerSocketDir = "/run/ctxloom/plugin"
+	defaultContainerHome = "/home/ctxloom"
 )
 
 // Container is the container isolation policy: it runs each plugin (and its
@@ -90,12 +87,11 @@ type Container struct {
 	base       containerBase
 	image      string
 	engineSpec engineContainerSpec // backend-keyed knobs: auth, overlays, local-build recipe
-	binaryPath string              // the container's ctxloom path (runs `llm serve <backend>`)
+	binaryPath string              // the container's ctxloom path (runs `runner <engine>`)
 	home       string              // fresh $HOME inside the container
 	// instanceHome is the fixed in-container root a RELOCATED engine home is
 	// mounted under (defaultContainerInstanceHome; WithInstanceHome overrides).
 	instanceHome string
-	socketDir    string // fixed in-container unix-socket dir (bind-mount target)
 	// baseContainerfile is the user-provided base Containerfile a local build
 	// layers the agent stage onto (config isolation_base_containerfile;
 	// "" = the embedded default base). Beats devcontainer auto-detection
@@ -162,7 +158,6 @@ func NewContainerFor(rt Runtime, backend string) Container {
 		binaryPath:   defaultContainerBinary,
 		home:         defaultContainerHome,
 		instanceHome: defaultContainerInstanceHome,
-		socketDir:    defaultContainerSocketDir,
 	}
 }
 
@@ -289,7 +284,6 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		dir:          dir,
 		projectDir:   projectDir,
 		scratchRoot:  sc.root,
-		socketDir:    sc.socketDir,
 		authMounts:   sc.auth.mounts,
 		stateMounts:  sc.stateMounts,
 		scratchEnv:   sc.runEnv(),
@@ -305,7 +299,7 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 // Mount maps an already-materialized container workspace into the container: it
 // assembles the run's bind mounts and per-run env, proves the mounts can resolve
 // through the daemon, and stamps the resulting plan onto the workspace so the
-// spawn (SpawnClient / StartRunner / ExecSpec) renders it.
+// spawn (StartRunner / InteractiveRunner / ExecSpec) renders it.
 //
 // It changes no workspace CONTENT — whatever the tree held on entry is what the
 // container sees. The one thing it does write inside the tree is the managed-
@@ -440,16 +434,12 @@ func (c Container) WithImage(image string) Container {
 // ExecSpec builds the RunSpec for running an ARBITRARY in-container command
 // against a workspace this Container already prepared via PrepareWorkspace —
 // ISO1's use case: the container hosts the target agent's OWN ACP subprocess
-// directly (e.g. `claude-code-acp`), piped over plain stdio, rather than
-// go-plugin's gRPC-over-socket transport for the `ctxloom llm serve`
-// protocol (which SpawnClient/launchSpec build instead). ws must be the
+// directly (e.g. `claude-code-acp`), piped over plain stdio. ws must be the
 // Workspace THIS Container returned from PrepareWorkspace.
 //
-// It assembles the SAME three ingredients buildRunSpec (runner.go) computes
-// for the go-plugin path, minus the plugin-handshake-specific pieces (the
-// socket-dir mount, the curated handshake env, the loopback-port publish):
-// the project mount (ExposeMapped — the SAME primitive buildRunSpec's
-// project mount and gitCommonDirMount use, so a non-identity path mapper,
+// It assembles the SAME three ingredients buildRunnerSpec computes for the
+// runner: the project mount (ExposeMapped — the SAME primitive
+// buildRunnerSpec's project mount and gitCommonDirMount use, so a non-identity path mapper,
 // when one exists, applies here too without another call site to update),
 // the workspace's own auth/overlay/gitdir/state mounts
 // (cw.extraMounts) plus any caller-supplied extraMounts (e.g. ISO1's
@@ -489,25 +479,12 @@ func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, e
 	}, nil
 }
 
-// Runtime returns the container's launch runtime (docker/podman) — the seam the
-// docker-exec vpio.Launcher needs to render `exec -it` for an interactive
-// top-level container turn (Phase 2a-A). Exposed as a narrow accessor probed
-// via operations.RuntimeForPolicy rather than as an isolation.Policy method,
-// so None/Worktree (which carry no runtime) need no method.
+// Runtime returns the container's launch runtime (docker/podman): the
+// originator awaits a container runner's running state through it. A
+// narrow accessor probed via operations.RuntimeForPolicy rather than an
+// isolation.Policy method, so None/Worktree (which carry no runtime) need
+// no method.
 func (c Container) Runtime() Runtime { return c.runtime }
-
-// ContainerPersistDir returns the IN-CONTAINER path the host's session persist
-// dir (~/.ctxloom/sessions/<harp>/persist) is bind-mounted to: the container's
-// fresh HOME rebases it (sessionStateMounts binds the host persist under
-// c.home/.ctxloom/sessions/<harp>/persist). It is where the docker-exec turn
-// reads the RunStart handoff (§5.A4) — the SAME file the host wrote to the host
-// persist dir, at its container path. "" for a blank harp (no session state).
-func (c Container) ContainerPersistDir(harp string) string {
-	if harp == "" {
-		return ""
-	}
-	return filepath.Join(c.home, paths.AppDirName, paths.SessionsDir, harp, paths.PersistDirName)
-}
 
 // gitSeam returns the container's git DI seam, defaulting to the real git binary
 // when unset (the normal construction paths leave it nil). Tests inject a
@@ -644,15 +621,13 @@ func gitdirMirrorMount(ctx context.Context, rt Runtime, g git.Git, projectDir st
 }
 
 // containerScratch is the host-side scratch every container run needs regardless
-// of its workspace: the temp root removed on Cleanup, the `sock` subdir go-plugin
-// creates the unix-socket dir under (bind-mounted into the container), the
-// resolved engine auth (env passthrough or read-only credential mounts), and the
-// host terminal description forwarded into the run.
+// of its workspace: the temp root removed on Cleanup, the resolved engine auth
+// (env passthrough or read-only credential mounts), and the host terminal
+// description forwarded into the run.
 type containerScratch struct {
-	root      string
-	socketDir string
-	auth      containerAuth
-	termEnv   []string
+	root    string
+	auth    containerAuth
+	termEnv []string
 	// stateMounts are the scoped RW session-state mounts (transcript store,
 	// session persist dir, shared task log — see sessionStateMounts) every
 	// container run threads into its spec regardless of workspace axis.
@@ -691,14 +666,12 @@ func gitIdentityEnv(agentID string) []string {
 }
 
 // containerScratchBase returns the PARENT directory for a run's host-side scratch
-// tree (the empty default means os.TempDir). It exists to keep the plugin unix
-// socket path short on darwin: go-plugin creates the socket at
-// <scratch>/sock/plugin-dir<rand>/plugin<rand>, and on macOS the default $TMPDIR
-// is a long per-user /var/folders/… path that pushes the full path past darwin's
-// ~104-byte AF_UNIX sun_path limit — so the host dial fails with "invalid
-// argument" even when the boundary is otherwise fine. /tmp (a Docker Desktop
-// default-shared path, under the shared /private tree) is short and keeps the
-// socket comfortably under the limit. Linux and every other OS keep os.TempDir
+// tree (the empty default means os.TempDir). It exists to keep every path
+// carved out of the scratch short on darwin: the default $TMPDIR there is a
+// long per-user /var/folders/… path, which a bind-mounted unix socket under
+// it would push past darwin's ~104-byte AF_UNIX sun_path limit. /tmp (a
+// Docker Desktop default-shared path, under the shared /private tree) is
+// short. Linux and every other OS keep os.TempDir
 // unchanged — the limit is generous there (~108 bytes) and $TMPDIR is short.
 func containerScratchBase() string {
 	if runtime.GOOS == "darwin" {
@@ -742,14 +715,13 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// it and mount that copy read-write. No resolver does that anymore — claude's
 	// token-refresh case bind-mounts the REAL host credential read-write
 	// (auth.go's credentialFileMounts), so the scratch dir it is handed goes
-	// unused there — but the root is still needed at this point for the socket
-	// dir carved out of it just below, so its creation stays here.
+	// unused there — but the root is the tree Cleanup removes, so its creation
+	// stays here.
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
 		// root is normally "" here (MkdirTemp itself failed) — defensive
 		// against a mutant flipping this check and discarding a dir MkdirTemp
-		// actually created (matches the socketDir guard just below, which
-		// already does this).
+		// actually created.
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
@@ -767,12 +739,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, err
 	}
-	socketDir := filepath.Join(root, "sock")
-	if err := os.MkdirAll(socketDir, 0o755); err != nil {
-		_ = os.RemoveAll(root)
-		return containerScratch{}, fmt.Errorf("container socket scratch: %w", err)
-	}
-	return containerScratch{root: root, socketDir: socketDir, auth: auth, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts}, nil
+	return containerScratch{root: root, auth: auth, termEnv: hostTerminalEnv(os.Getenv), stateMounts: stateMounts}, nil
 }
 
 // hostTerminalEnv forwards the host's terminal description into the container
@@ -788,48 +755,6 @@ func hostTerminalEnv(getenv func(string) string) []string {
 		out = append(out, key+"="+getenv(key))
 	}
 	return out
-}
-
-// SpawnClient launches the plugin inside a container for the prepared workspace
-// via the go-plugin RunnerFunc + AddrTranslator transport. The returned client is
-// an *LLMRunner (pb.Client) whose Kill force-removes the container. It is the
-// SINGLE spawn path for BOTH bases now that ContainerWorktree collapsed into
-// Container{base}: the workspace→LaunchSpec adaptation is factored into launchSpec
-// (cw.dir is the base-provided cwd — the live project dir for the host base, the
-// per-agent worktree checkout for the worktree base), so no per-policy LaunchSpec
-// construction is duplicated any more.
-func (c Container) SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error) {
-	cw, ok := ws.(*containerWorkspace)
-	if !ok {
-		return nil, fmt.Errorf("container spawn: unexpected workspace %T (expected a container workspace)", ws)
-	}
-	spec := c.launchSpec(backendName, label, verbosity, cw)
-	spec.SpawnEnv = spawnEnv
-	return c.runtime.Spawn(spec)
-}
-
-// launchSpec is the workspace→LaunchSpec adaptation the runtime's Spawn consumes:
-// the container conventions come from the Container (image/binary/home/socket),
-// the per-run cwd + host socket scratch + scoped auth env/credential/overlay/gitdir
-// mounts from the prepared workspace. Centralizing it here is what makes SpawnClient
-// "just adaptation plus runtime.Spawn" — the single builder that replaced the two
-// near-identical per-policy constructions the collapse removed.
-func (c Container) launchSpec(backendName, label string, verbosity int, cw *containerWorkspace) LaunchSpec {
-	return LaunchSpec{
-		BackendName:        backendName,
-		Label:              label,
-		Verbosity:          verbosity,
-		AgentID:            cw.agentID,
-		Image:              c.image,
-		BinaryPath:         c.binaryPath,
-		Home:               c.home,
-		ContainerSocketDir: c.socketDir,
-		WorkDir:            cw.dir,
-		HostSocketDir:      cw.socketDir,
-		ExtraEnv:           cw.extraEnv,
-		ExtraMounts:        cw.extraMounts,
-		AuthMode:           cw.authMode,
-	}
 }
 
 // containerConfigOverlay builds one bind mount per managed-config directory
@@ -1039,7 +964,7 @@ func runAsIsIdentityProblem(rt Runtime, id imageIdentity) string {
 
 // checkRunAsIsIdentity gates a run-as-is (user-owned) image on the identity
 // contract. A violation — or an unverifiable config — routes a NON-DEGRADABLE
-// ClassIsolation finding, so the choke owner aborts BEFORE SpawnClient in both
+// ClassIsolation finding, so the choke owner aborts BEFORE the runner starts in both
 // modes. Locally-built images bake the entrypoint, so the contract holds by
 // construction and no inspect runs.
 //
@@ -1073,7 +998,7 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 // then runs the base's own teardown (a noop for the host base; the WIP-safe,
 // nested-aware worktree teardown for the worktree base). The container is killed
 // via the client BEFORE Cleanup. extraEnv/extraMounts carry the resolved auth env
-// + credential/overlay/gitdir mounts threaded into the run spec at SpawnClient.
+// + credential/overlay/gitdir mounts threaded into the run spec at StartRunner.
 type containerWorkspace struct {
 	dir string // identical-path cwd (project dir or worktree checkout)
 	// projectDir is the user's LIVE project — the dir PrepareWorkspace was
@@ -1084,7 +1009,6 @@ type containerWorkspace struct {
 	// Identical to dir for the host base.
 	projectDir  string
 	scratchRoot string // host scratch tree removed by Cleanup
-	socketDir   string // scratchRoot/sock — go-plugin's unix-socket temp dir
 	// authMounts/stateMounts/scratchEnv are the scratch's contributions to the
 	// mapping, resolved when the workspace was resolved and consumed by Mount.
 	// They are held apart from extraEnv/extraMounts because those two are the

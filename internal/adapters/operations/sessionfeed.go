@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -25,9 +24,10 @@ import (
 // feed per harp, one vocabulary (WatchEvent/SessionEntry), two sources behind
 // it. The LIVE TAP — a coordinator currently holding the child's run, reached
 // over its ConsumerService (internal/adapters/coordgrpc/discover finds
-// candidate coordinators) — is preferred; the STORE TAIL (the S0 locators:
-// WatchSession by bound session id, WatchHistoryByPath by located transcript)
-// is the workhorse fallback. Consumers never know which source fed them.
+// candidate coordinators) — is preferred; the STORE TAIL (the transcript
+// locators: the canonical transcript by harp, the engine's store by bound
+// session id, WatchHistoryByPath by located transcript) is the workhorse
+// fallback. Consumers never know which source fed them.
 //
 // The coordinator the tap reaches lives in ANOTHER process, so this file is a
 // wire client of it by construction: it dials agentcoordpb.ConsumerService
@@ -45,7 +45,7 @@ const (
 	// FeedSourceLive requires the live tap; errors when no orchestrator holds
 	// the harp (a debugging aid — auto is the published behavior).
 	FeedSourceLive FeedSource = "live"
-	// FeedSourceStore skips live discovery entirely (S0 behavior).
+	// FeedSourceStore skips live discovery entirely.
 	FeedSourceStore FeedSource = "store"
 )
 
@@ -61,12 +61,12 @@ func ParseFeedSource(s string) (FeedSource, error) {
 }
 
 // SessionFeedEvent is one event on a unified observation feed. Exactly one
-// field is meaningful: Event carries a WatchEvent (entry/boundary/heartbeat —
-// the S0 vocabulary); Gap > 0 reports that a live observer's bounded buffer
+// field is meaningful: Event carries a transcript.WatchEvent (entry/boundary/
+// heartbeat); Gap > 0 reports that a live observer's bounded buffer
 // dropped that many events (live source only; boundary indexes after a gap
 // are approximate).
 type SessionFeedEvent struct {
-	Event *pb.WatchEvent
+	Event *transcript.WatchEvent
 	Gap   int
 }
 
@@ -318,7 +318,7 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 		}
 		sent := 0
 		for _, e := range feedScrollback(ctx, entry, backend) {
-			if !emit(SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: pb.EntryToProto(e)}}}) {
+			if !emit(entryFeedEvent(e)) {
 				return
 			}
 			sent++
@@ -338,7 +338,7 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 		st := consumerFeedState{msgs: map[string]*agent.SessionEntry{}, tools: map[string]string{}}
 		flush := func(e agent.SessionEntry) bool {
 			sent++
-			return emit(SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: pb.EntryToProto(e)}}})
+			return emit(entryFeedEvent(e))
 		}
 		boundary := func() bool {
 			if sent <= lastBoundary {
@@ -428,10 +428,12 @@ func adaptConsumerFeed(ctx context.Context, entry *sessions.Entry, backend strin
 }
 
 func boundaryFeedEvent(from, to int) SessionFeedEvent {
-	return SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Boundary{Boundary: &pb.ResponseBoundary{
-		FromIndex: int32(from),
-		ToIndex:   int32(to),
-	}}}}
+	return SessionFeedEvent{Event: &transcript.WatchEvent{Boundary: &transcript.ResponseBoundary{FromIndex: from, ToIndex: to}}}
+}
+
+// entryFeedEvent wraps one transcript entry as a feed event.
+func entryFeedEvent(e agent.SessionEntry) SessionFeedEvent {
+	return SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &e}}
 }
 
 // historyForBackend resolves a backend's session history reader for
@@ -451,12 +453,14 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 	)
 	switch {
 	case entry.CanonicalTranscriptPath != "":
-		// Tough-cloud S4: ctxloom's own captured transcript is available
-		// host-side with no plugin round-trip, regardless of where the engine
-		// ran — prefer it over both locators below.
+		// ctxloom's own captured transcript is available host-side regardless
+		// of where the engine ran — prefer it over both locators below.
 		sess, err = transcript.ParseTranscriptFile(entry.CanonicalTranscriptPath, entry.HarpName)
 	case entry.SessionID != "":
-		sess, err = pb.NewSessionReader(backend, 0).GetSession(ctx, entry.SessionID)
+		var hist agent.SessionHistory
+		if hist, err = historyForBackend(backend); err == nil {
+			sess, err = transcript.NewEngineReader(hist, entry.ProjectDir).GetSession(ctx, entry.SessionID)
+		}
 	case entry.TranscriptPath != "":
 		var hist agent.SessionHistory
 		if hist, err = historyForBackend(backend); err == nil {
@@ -481,27 +485,29 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 	return sess.Entries
 }
 
-// watchStoreFeed is the S0 store tail behind the unified shape. Two locators,
-// one contract: a hook-bound session id is tailed through the owning
-// backend's agent server (WatchSession); an entry bound only by location — a
+// watchStoreFeed is the store tail behind the unified shape. Three locators,
+// one contract: a harp with a canonical transcript is tailed from it; a
+// hook-bound session id is tailed through the owning engine's own store
+// (EngineReader.WatchSession); an entry bound only by location — a
 // transcript discovered in the harp's own persist/ store, where the bind hook
-// never fired — is tailed host-side by path (WatchHistoryByPath), since the
-// agent server's self-situated store lookup cannot see a file in ctxloom's
-// session dir.
+// never fired — is tailed by path (WatchHistoryByPath), since the engine's
+// project-scoped store lookup cannot see a file in ctxloom's session dir.
 func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	var (
-		watchEvents <-chan *pb.WatchEvent
+		watchEvents <-chan *transcript.WatchEvent
 		errs        <-chan error
 	)
 	switch {
 	case entry.CanonicalTranscriptPath != "":
-		// Tough-cloud S4: prefer ctxloom's own captured transcript — host-side,
-		// no plugin round-trip, and correct regardless of which engine or
-		// container ran the session (plan §4b "session transcript watch live feed").
-		watchEvents, errs = pb.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
+		// Prefer ctxloom's own captured transcript — host-side, and correct
+		// regardless of which engine or container ran the session.
+		watchEvents, errs = transcript.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 	case entry.SessionID != "":
-		var err error
-		watchEvents, errs, err = pb.NewSessionReader(backend, 0).WatchSession(ctx, entry.SessionID)
+		hist, err := HistoryForBackend(backend)
+		if err != nil {
+			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
+		}
+		watchEvents, errs, err = transcript.NewEngineReader(hist, entry.ProjectDir).WatchSession(ctx, entry.SessionID)
 		if err != nil {
 			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
 		}
@@ -510,7 +516,7 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 		if err != nil {
 			return nil, fmt.Errorf("watch %s: %w", entry.HarpName, err)
 		}
-		watchEvents, errs = pb.WatchHistoryByPath(ctx, hist, entry.TranscriptPath, 0)
+		watchEvents, errs = transcript.WatchHistoryByPath(ctx, hist, entry.TranscriptPath, 0)
 	default:
 		return nil, fmt.Errorf("harp %q has no session bound and no transcript in its session store; nothing to watch yet (the SessionStart bind hook records the id for sessions launched via ctxloom run; containerized runs surface their transcript once the engine writes it)", entry.HarpName)
 	}

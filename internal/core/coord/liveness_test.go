@@ -129,7 +129,7 @@ func TestLivenessSnapshot_ParkSuppressesTheVerdict(t *testing.T) {
 	livenessTestHome(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "plan"}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, nil)
 
 	harp := spawnOneChild(t, c)

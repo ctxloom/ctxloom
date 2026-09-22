@@ -50,22 +50,16 @@ func TestRuntimeMapper_NilIsIdentity(t *testing.T) {
 	assert.Equal(t, "/x", got.toContainer("/x"), "nil mapper must behave as identity")
 }
 
-// TestBuildRunSpec_IdentityMapper_Unchanged pins lanky-pod's "no behavior
-// change on Linux" contract at buildRunSpec specifically: a nil mapper (what
-// every current caller passes — containerRunnerFunc reads it off rt.mapper(),
-// identity for every Docker/Podman/Host construction path today) renders
-// byte-for-byte the identical-path project mount + WorkDir buildRunSpec always
-// built, matching TestBuildRunSpec_WiresAuthHandshakeAndMounts's assertions
-// (provision_test.go) with an explicit nil mapper argument.
-func TestBuildRunSpec_IdentityMapper_Unchanged(t *testing.T) {
-	spec := buildRunSpec("img", "name", "/proj", "/root",
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, nil)
+// TestBuildRunnerSpec_IdentityMapper_Unchanged pins the "no behavior change
+// on Linux" contract at buildRunnerSpec specifically: the identity mapper
+// (every Docker/Podman/Host construction path today) renders byte-for-byte
+// the identical-path project mount + WorkDir.
+func TestBuildRunnerSpec_IdentityMapper_Unchanged(t *testing.T) {
+	spec := runnerSpecFor(Docker{}, "mock", "/proj", nil, nil)
 
-	assert.Equal(t, "/proj", spec.WorkDir, "nil mapper: WorkDir is the unmapped project dir")
+	assert.Equal(t, "/proj", spec.WorkDir, "identity mapper: WorkDir is the unmapped project dir")
 	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/proj"},
-		"nil mapper: the project mount is identical-path")
+		"identity mapper: the project mount is identical-path")
 }
 
 // TestBuildRunSpec_WindowsStyleMapper_TranslatesWorkDirAndProjectMount is
@@ -79,20 +73,12 @@ func TestBuildRunSpec_WindowsStyleMapper_TranslatesWorkDirAndProjectMount(t *tes
 	const hostProj = `C:\Users\foo\proj`
 	mapper := windowsStyleMapper{root: "/workspace"}
 
-	spec := buildRunSpec("img", "name", hostProj, "/root",
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, mapper)
+	spec := runnerSpecFor(Docker{ociRuntime: ociRuntime{pathMap: mapper}}, "mock", hostProj, nil, nil)
 
 	assert.Equal(t, "/workspace", spec.WorkDir,
 		"WorkDir must be the mapped POSIX target, not the raw Windows host path")
 	assert.Contains(t, spec.Mounts, Mount{Host: hostProj, Container: "/workspace"},
 		"the project mount's SOURCE stays the real host path; only the CONTAINER target is mapped")
-
-	// The socket-dir mount is a FIXED in-container convention, not host-
-	// derived — it must NOT route through the mapper.
-	assert.Contains(t, spec.Mounts, Mount{Host: "/tmp/host-sock/plugin1", Container: "/run/ctxloom/plugin"},
-		"the socket-dir mount target is the fixed containerSocketDir convention, unaffected by the project-path mapper")
 
 	// Render sanity: the WorkDir flag and the mount's CONTAINER (target) side
 	// are the mapped POSIX path — no Windows-style separator in either. The

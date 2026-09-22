@@ -125,7 +125,7 @@ include the bar row.
    two components must agree, deliberately written once.
 3. **The engine is never told the real row count** while the bar is active; `Translate` subtracts
    the reserve.
-4. **`Resize` must not block the caller** (`vpio`-style contract stated at `controller.go`'s
+4. **`Resize` must not block the caller** (the contract stated at `controller.go`'s
    Overlay doc and honoured by both the interceptor and the translator).
 5. **Ring overflow is counted and surfaced**, never silently dropped (`ring.go:22` +
    `gate.go:98-100`) — the correct answer to this codebase's characteristic bug, in this package.

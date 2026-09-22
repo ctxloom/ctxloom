@@ -51,13 +51,9 @@ func TestStartRun_EchoRoundTrip(t *testing.T) {
 	assert.True(t, strings.HasPrefix(first, "FRAG-ONE\n\n"), "the composed context leads the first turn: %q", first)
 	assert.Contains(t, first, "do the thing")
 
-	// The chat request the engine saw carries the decoded HarnessSpec.
+	// The turn the engine's driver ran carries the decoded launch.
 	sc := sp.chat(0)
-	sc.Mu.Lock()
-	req := sc.Requests[0]
-	sc.Mu.Unlock()
-	assert.Equal(t, "test-model", req.Model, "the resolved model rides HarnessSpec.model")
-	assert.Empty(t, req.ResumeSessionID, "a fresh spawn resumes nothing")
+	assert.Equal(t, []string{""}, sc.RecordedKeys(), "a fresh spawn resumes nothing")
 
 	// The native session id was journaled (via the harness_session event).
 	require.Eventually(t, func() bool {
@@ -235,7 +231,7 @@ func TestStartRun_SendToIdleChildStartsTurn(t *testing.T) {
 func TestStartRun_KillMidRunSynthesizesLossAndQueueAdvances(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
-	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -322,15 +318,10 @@ func TestStartRun_ResumeUsesJournaledHarnessSessionID(t *testing.T) {
 		if sc == nil {
 			return false
 		}
-		sc.Mu.Lock()
-		defer sc.Mu.Unlock()
-		return len(sc.Requests) == 1
+		return len(sc.RecordedKeys()) == 1
 	}, conformanceWait, 10*time.Millisecond)
 	sc := sp.chat(1)
-	sc.Mu.Lock()
-	resumed := sc.Requests[0].ResumeSessionID
-	sc.Mu.Unlock()
-	assert.Equal(t, "native-sess-42", resumed, "resume must ride the journaled harness_session_id")
+	assert.Equal(t, "native-sess-42", sc.RecordedKeys()[0], "resume must ride the journaled harness_session_id")
 
 	// And the queued message arrives as the resumed engine's next turn.
 	require.Eventually(t, func() bool {

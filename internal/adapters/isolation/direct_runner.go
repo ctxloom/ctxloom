@@ -15,17 +15,14 @@ import (
 )
 
 // StartRunner launches the engine runner INSIDE a container via a plain
-// docker/podman `run` — the queer-shrug Phase 1 spawn half that removes
-// go-plugin from the delegated container spawn. The in-container command is
-// `ctxloom llm host <backend>` (NOT `llm serve`): it hosts the engine
-// in-process via EngineHost and never runs plugin.Serve, so the container
-// opens NO plugin listener, publishes NO port, and gets NO socket mount or
-// PLUGIN_*/magic-cookie env — closing the mauve-state peer-container hole for
-// this path. Everything the workspace prepared that DOES matter — the
-// session-state/auth/overlay/gitdir mounts (cw.extraMounts) and the scoped
-// auth env (cw.extraEnv) — is preserved. The per-spawn runner env crosses as
-// bare `-e NAME` with values on the run PROCESS env (never the world-readable
-// argv). Readiness is the coordinator's awaitRunner, not observed here.
+// docker/podman `run`: `ctxloom runner <engine>` is the container's
+// foreground process (runner.Main). It dials the coordinator out, so the
+// container opens NO listener and publishes NO port. Everything the
+// workspace prepared — the session-state/auth/overlay/gitdir mounts
+// (cw.extraMounts) and the scoped auth env (cw.extraEnv) — is preserved.
+// The per-spawn runner env crosses as bare `-e NAME` with values on the run
+// PROCESS env (never the world-readable argv). Readiness is the
+// coordinator's awaitRunner, not observed here.
 func (c Container) StartRunner(_ context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
@@ -39,24 +36,47 @@ func (c Container) StartRunner(_ context.Context, backendName, label string, ver
 	// the no-tmux fallback's only handle, is randomly suffixed, and dies with
 	// the container. Unconditional on purpose.
 	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
-	spec := c.buildRunnerSpec(backendName, label, name, cw, spawnEnv)
+	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
 	return startDirectRunner(c.runtime, spec, spawnEnv)
 }
 
-// buildRunnerSpec assembles the RunSpec for one docker-direct engine runner —
-// the buildRunSpec sibling with the plugin-transport pieces removed. Env = the
+// InteractiveRunner is the container's foreground runner attached to a
+// terminal: `docker run -i -t … ctxloom runner <engine>` on the same spec
+// StartRunner renders — the mounts, the scoped env, the bare-name spawn env
+// — for the originator to start on the pty it holds. Teardown is by name
+// (Remove) plus the run CLI's own death with that pty.
+func (c Container) InteractiveRunner(_ context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error) {
+	cw, ok := ws.(*containerWorkspace)
+	if !ok {
+		return nil, "", fmt.Errorf("container interactive runner: unexpected workspace %T (expected a container workspace)", ws)
+	}
+	name := containerName(cw.agentID)
+	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
+	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)
+	spec.TTY = true
+	// The runner process runs under RunnerTerm (the last -e wins over the
+	// workspace's TERM); the engine's env carries the human's terminal.
+	spec.Env = append(spec.Env, "TERM="+RunnerTerm)
+	cmd := exec.Command(c.runtime.Binary(), c.runtime.RunArgs(spec)...)
+	cmd.Env = append(os.Environ(), envPairs(spawnEnv)...)
+	return cmd, name, nil
+}
+
+// Remove force-removes the named container under the bounded teardown
+// timeout — the interactive runner's teardown by name.
+func (c Container) Remove(name string) { removeContainer(context.Background(), c.runtime, name) }
+
+// buildRunnerSpec assembles the RunSpec for one container runner. Env = the
 // fixed container base env (IS_SANDBOX) + the workspace's scoped auth/TERM/
 // git-identity env (cw.extraEnv) + the per-spawn runner env as BARE NAMES.
 // Mounts = the identical-path project mount + the workspace's own mounts
-// (auth credential mounts, config overlays, gitdir mirror, and — critically —
-// the session-state mounts, §6.4). NO socket-dir mount, NO published port, NO
-// curated handshake env. Pure and deterministic so the render is unit-testable
-// without a container.
-func (c Container) buildRunnerSpec(backendName, label, name string, cw *containerWorkspace, spawnEnv map[string]string) RunSpec {
-	command := []string{c.binaryPath, "llm", "host", backendName}
-	if label != "" {
-		command = append(command, "--label", label)
-	}
+// (auth credential mounts, config overlays, gitdir mirror, and the
+// session-state mounts). Pure and deterministic so the render is
+// unit-testable without a container.
+func (c Container) buildRunnerSpec(backendName, name string, cw *containerWorkspace, spawnEnv map[string]string) RunSpec {
+	// The runner reads no config: the label body rides the Launch, so the
+	// label never reaches its argv.
+	command := []string{c.binaryPath, "runner", backendName}
 	workDir := c.runtime.mapper().toContainer(cw.dir)
 
 	env := append([]string(nil), containerBaseEnv...)
@@ -76,8 +96,8 @@ func (c Container) buildRunnerSpec(backendName, label, name string, cw *containe
 		{Host: cw.dir, Container: workDir},
 	}, cw.extraMounts...)
 
-	// No socket-dir mount, no published port, no curated handshake env — the
-	// transport-free spec that removes go-plugin from this spawn.
+	// No socket-dir mount, no published port: the runner dials home over the
+	// coordinator's reach-back, so this spec carries no transport of its own.
 	return RunSpec{
 		Image:   c.image,
 		Name:    name,
@@ -103,7 +123,7 @@ func (c Container) buildRunnerSpec(backendName, label, name string, cw *containe
 const runnerWaitDelay = 10 * time.Second
 
 // startDirectRunner starts `rt.Binary() rt.RunArgs(spec)…` as a foreground
-// process (NO go-plugin handshake), capturing stderr into a bounded ring, and
+// process, capturing stderr into a bounded ring, and
 // returns a RunnerHandle. The per-spawn env values ride the run PROCESS env so
 // they never enter the world-readable argv. Kill force-removes the container
 // (reusing the same remove-with-timeout + removeReportsGone logic
@@ -121,8 +141,8 @@ func startDirectRunner(rt Runtime, spec RunSpec, spawnEnv map[string]string) (*R
 		cmd.Env = append(os.Environ(), kv...)
 	}
 	// `docker run` here is ATTACHED (no -d), so this ring is fed by the
-	// CONTAINER's own stderr AS IT STREAMS — the in-container `ctxloom llm
-	// host` runner's stderr, and through it the engine adapter's. That
+	// CONTAINER's own stderr AS IT STREAMS — the in-container runner's
+	// stderr, and through it the engine adapter's. That
 	// streaming is what makes the capture survive teardown: Kill force-removes
 	// the container, and `docker logs` after a force-remove is too late.
 	ring := stderrtail.New(stderrtail.DefaultBytes)
@@ -197,8 +217,8 @@ func reapRunProcess(cmd *exec.Cmd) func() error {
 
 // removeContainer force-removes a named container under our OWN bounded timeout
 // (a wedged daemon must never hang teardown), surfacing a real leak LOUDLY —
-// the shared remove-with-timeout + removeReportsGone logic containerRunner.Kill
-// and the docker-direct RunnerHandle.Kill both use. A missing name/binary
+// the remove-with-timeout + removeReportsGone logic the RunnerHandle.Kill of
+// a container runner and Container.Remove both use. A missing name/binary
 // (a host-style runner) is a no-op. A racing --rm reporting already-gone is
 // teardown success, not a leak.
 func removeContainer(ctx context.Context, rt Runtime, name string) {

@@ -91,22 +91,12 @@ func buildMockEngineImage(t *testing.T) string {
 // present:false rows are the point.
 func materializeClaudeContext(t *testing.T, workspace, context string) string {
 	t.Helper()
-	resolved, err := agent.Select(backends.Declared("claude-code")).WithEverything().Build(agent.SurfaceInputs{Context: context}, nil)
-	if err != nil {
-		t.Fatalf("resolve surfaces: %v", err)
+	a, ok := backends.Declared("claude-code").Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: context}, nil)
+	if !ok {
+		t.Fatal("claude declared no project-file context delivery — cannot set up the test")
 	}
-	var delivered bool
-	for _, kd := range resolved.Deliveries() {
-		if kd.Kind() != agent.SurfaceContext {
-			continue
-		}
-		if _, err := kd.Deliver(present.ProjectOnHost(workspace)); err != nil {
-			t.Fatalf("materialize context: %v", err)
-		}
-		delivered = true
-	}
-	if !delivered {
-		t.Fatal("claude declared no context delivery — cannot set up the test")
+	if _, err := a.Deliver(present.ProjectOnHost(workspace)); err != nil {
+		t.Fatalf("materialize context: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(workspace, "CLAUDE.md"))
 	if err != nil {
@@ -127,9 +117,9 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 	img := buildMockEngineImage(t)
 
 	// Run the mock AS claude oneshot, inside the container, over the
-	// materialized workspace. The argv mirrors what claude's buildArgs emits
-	// on the minimal form (--print --output-format json --model). The prompt goes on
-	// stdin, exactly as L1 declares for claude oneshot. The report is written to
+	// materialized workspace. The argv mirrors what claude's Exec emits for a
+	// bare oneshot (--print --model). The prompt goes on stdin, exactly as L1
+	// declares for claude oneshot. The report is written to
 	// a file in the mounted workspace so we read it back host-side.
 	//
 	// Both the argv and the stdin channel come from container_argv_test.go,
@@ -149,17 +139,9 @@ func TestMockEngineContainer_DiscoversDeliveredSurfaces(t *testing.T) {
 		t.Fatalf("mock engine container run failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
 	}
 
-	// The oneshot JSON envelope on stdout — proof the mock ran AS the engine and
-	// the driver's JSON-envelope decode would have succeeded.
-	var env struct {
-		Result     string                    `json:"result"`
-		ModelUsage map[string]map[string]int `json:"modelUsage"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
-		t.Fatalf("stdout was not the JSON envelope the driver parses: %v\nstdout: %s", err, stdout.String())
-	}
-	if env.Result == "" {
-		t.Fatal("envelope result empty")
+	// The oneshot answer on stdout — proof the mock ran AS the engine.
+	if strings.TrimSpace(stdout.String()) == "" {
+		t.Fatalf("stdout carried no answer; stderr:\n%s", stderr.String())
 	}
 
 	// Read the discovery report the mock wrote into the mounted workspace.

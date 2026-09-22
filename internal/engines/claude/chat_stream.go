@@ -26,6 +26,7 @@ type sjEvent struct {
 	NumTurns   int                   `json:"num_turns"`
 	StopReason string                `json:"stop_reason"`
 	// system/init fields
+	SessionID      string  `json:"session_id"`
 	Model          string  `json:"model"`
 	PermissionMode string  `json:"permissionMode"`
 	MCPServers     []sjMCP `json:"mcp_servers"`
@@ -245,8 +246,11 @@ func pickGeneratingModel(m map[string]sjModelUse) (string, sjModelUse) {
 // both result parsers use to name the generating model: the CLI may route a large
 // read through an ancillary fast model (high input, tiny output) while the
 // requested model does the real generation, so output — not input — marks the
-// working model. parseClaudeJSONResult (JSON envelope) and pickGeneratingModel
-// (stream-json modelUsage) both build on it.
+// working model. pickGeneratingModel (stream-json modelUsage) builds on it.
+// The JSON-envelope parser's own copy of this rule (maxOutputModel) was
+// deleted with claude's minimal form; this is the one remaining site, not a
+// twin left behind.
+// reprise:accept-drift
 func pickByMaxOutput[T any](m map[string]T, out func(T) int) (string, T) {
 	ids := make([]string, 0, len(m))
 	for id := range m {
@@ -265,7 +269,10 @@ func pickByMaxOutput[T any](m map[string]T, out func(T) int) (string, T) {
 }
 
 func initToSessionInfo(e *sjEvent) *agent.ChatSessionInfo {
-	s := &agent.ChatSessionInfo{Model: e.Model, PermissionMode: e.PermissionMode}
+	// session_id is the native key the NEXT turn's process resumes by
+	// (--resume): with one process per turn it is the continuity of the
+	// session, and a key the driver reports is what the runner resumes with.
+	s := &agent.ChatSessionInfo{Model: e.Model, PermissionMode: e.PermissionMode, SessionID: e.SessionID, Resumable: e.SessionID != ""}
 	for _, m := range e.MCPServers {
 		s.MCPServers = append(s.MCPServers, agent.MCPStatus{Name: m.Name, Status: m.Status})
 	}

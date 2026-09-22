@@ -17,11 +17,11 @@ import (
 // stdin, which is the whole point of the delivery pin.
 const containerPrompt = "summarize the project rules"
 
-// claudeContainerVendorArgv mirrors what claude's buildArgs emits under
-// the minimal form. The mock's own personality selector is NOT part of it — main.go
-// consumes the leading --claude before this reaches ParseArgv.
+// claudeContainerVendorArgv mirrors what claude's Exec emits for a bare
+// oneshot launch. The mock's own personality selector is NOT part of it —
+// main.go consumes the leading --claude before this reaches ParseArgv.
 func claudeContainerVendorArgv() []string {
-	return []string{"--print", "--output-format", "json", "--model", "mock-model"}
+	return []string{"--print", "--model", "mock-model"}
 }
 
 // oneshotCLI resolves a backend's oneshot declaration through the same seam the

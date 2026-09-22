@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +71,7 @@ type ctlHarness struct {
 	c       *Controller
 	stdinW  *io.PipeWriter
 	tty     *lockedBuffer
-	src     chan *pb.WindowSize
+	src     chan *agent.WindowSize
 	engine  lockedBuffer // what the engine "receives" from the pump
 	warns   chan string
 	overlay *fakeOverlay
@@ -84,7 +84,7 @@ func newCtlHarness(t *testing.T, mutate func(*Options)) *ctlHarness {
 	h := &ctlHarness{
 		stdinW:  pw,
 		tty:     &lockedBuffer{},
-		src:     make(chan *pb.WindowSize, 4),
+		src:     make(chan *agent.WindowSize, 4),
 		warns:   make(chan string, 4),
 		overlay: newFakeOverlay(),
 		pumpEnd: make(chan struct{}),
@@ -142,15 +142,15 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-func (h *ctlHarness) drainTranslated(t *testing.T) *pb.WindowSize {
+func (h *ctlHarness) drainTranslated(t *testing.T) *agent.WindowSize {
 	return recvSize(t, h.c.Resize())
 }
 
 func TestController_EngageHoldReplayNudge(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	ws := h.drainTranslated(t)
-	require.Equal(t, uint32(23), ws.Rows, "initial size reaches the engine reserved")
+	require.Equal(t, uint16(23), ws.Rows, "initial size reaches the engine reserved")
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
 	// Engage: prefix + a viewer key.
@@ -191,8 +191,8 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 
 	first := h.drainTranslated(t)
 	second := h.drainTranslated(t)
-	assert.Equal(t, uint32(22), first.Rows, "repaint nudge wiggles a row")
-	assert.Equal(t, uint32(23), second.Rows)
+	assert.Equal(t, uint16(22), first.Rows, "repaint nudge wiggles a row")
+	assert.Equal(t, uint16(23), second.Rows)
 
 	// interceptor is back to passthrough.
 	_, _ = h.stdinW.Write([]byte("typed-after"))
@@ -210,7 +210,7 @@ func TestController_EngageHoldReplayNudge(t *testing.T) {
 // that row.
 func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
@@ -242,7 +242,7 @@ func TestController_EngageGeometryExcludesReservedRow(t *testing.T) {
 // deferred to ResumeSequence on release.
 func TestController_ResizeWhileEngagedDoesNotRepaintBar(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
@@ -255,12 +255,12 @@ func TestController_ResizeWhileEngagedDoesNotRepaintBar(t *testing.T) {
 	}
 
 	before := h.tty.String()
-	h.src <- &pb.WindowSize{Rows: 30, Cols: 100} // SIGWINCH while engaged
+	h.src <- &agent.WindowSize{Rows: 30, Cols: 100} // SIGWINCH while engaged
 	// The resize's translated size still reaches the (held) engine viewport —
 	// that path is unaffected by suspension — but nothing may land on the
 	// live tty: no DECSTBM re-assert, no bar repaint.
 	ws := h.drainTranslated(t)
-	assert.Equal(t, uint32(29), ws.Rows, "the translated size still reflects the new dimensions")
+	assert.Equal(t, uint16(29), ws.Rows, "the translated size still reflects the new dimensions")
 	assert.Equal(t, before, h.tty.String(), "a resize while the overlay owns the screen must not paint the tty")
 
 	// Release: the NEW size (recorded during suspension) must be what
@@ -271,7 +271,7 @@ func TestController_ResizeWhileEngagedDoesNotRepaintBar(t *testing.T) {
 
 func TestController_DoublePressLiteralAbortsOverlay(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 
 	// Two writes → two read chunks → engage fires, then the literal aborts it.
@@ -292,7 +292,7 @@ func TestController_DoublePressLiteralAbortsOverlay(t *testing.T) {
 
 func TestController_OverlayErrorDegradesToPlainTerminal(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 
 	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
@@ -318,7 +318,7 @@ func TestController_FactoryPanicDegrades(t *testing.T) {
 	h := newCtlHarness(t, func(o *Options) {
 		o.NewOverlay = func() Overlay { panic("factory exploded") }
 	})
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 
 	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
@@ -336,7 +336,7 @@ func TestController_FactoryPanicDegrades(t *testing.T) {
 
 func TestController_CloseRestoresTerminal(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
@@ -350,7 +350,7 @@ func TestController_CloseRestoresTerminal(t *testing.T) {
 
 func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 	h := newCtlHarness(t, nil)
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 
 	_, _ = h.stdinW.Write([]byte{testPrefix, 'j'})
@@ -374,7 +374,7 @@ func TestController_ApprovalPollFeedsBarAndRingsBellOnce(t *testing.T) {
 		o.FetchRoster = func() ([]RosterEntry, error) { return nil, nil }
 		o.FetchApprovals = func() int { return int(n.Load()) }
 	})
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
 
@@ -406,7 +406,7 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 			return []RosterEntry{{Harp: "swift-elm-fox", State: "executing", LastActivityUnix: 1}}, nil
 		}
 	})
-	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	h.src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = h.drainTranslated(t)
 	waitFor(t, "roster digest on the bar", func() bool {
 		return strings.Contains(h.tty.String(), "swift-elm-fox→executing")

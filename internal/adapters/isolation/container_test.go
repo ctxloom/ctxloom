@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,18 +23,11 @@ type fakeRuntime struct {
 	available bool
 }
 
-func (f fakeRuntime) Name() string                                     { return f.name }
-func (f fakeRuntime) Binary() string                                   { return f.binary }
-func (f fakeRuntime) Available() bool                                  { return f.available }
-func (fakeRuntime) RunArgs(RunSpec) []string                           { return nil }
-func (fakeRuntime) RemoveArgs(string) []string                         { return nil }
-func (fakeRuntime) ExecArgs(string, bool, []string, []string) []string { return nil }
-
-// Spawn is never reached by the Prepare-only degrade tests (they stop at the gate
-// or the mount wiring); it errors loudly if one ever does call it.
-func (fakeRuntime) Spawn(LaunchSpec) (pb.Client, error) {
-	return nil, fmt.Errorf("fakeRuntime: Spawn not expected in these tests")
-}
+func (f fakeRuntime) Name() string             { return f.name }
+func (f fakeRuntime) Binary() string           { return f.binary }
+func (f fakeRuntime) Available() bool          { return f.available }
+func (fakeRuntime) RunArgs(RunSpec) []string   { return nil }
+func (fakeRuntime) RemoveArgs(string) []string { return nil }
 
 // Expose is the OCI identity bind mount, so tests that route delivery mounts
 // through the runtime (sessionStateMounts, gitCommonDirMount) see the same Mount

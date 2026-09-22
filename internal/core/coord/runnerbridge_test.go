@@ -6,10 +6,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc"
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/textblocks"
@@ -41,12 +41,12 @@ func init() {
 			}
 			return h, err
 		},
-		NewEngineHost: func(ctx context.Context, rep report.Sink, backend agent.StructuredChat, harness, runID string) coord.TestEngineHost {
-			return &engineHost{EngineHost: runner.NewEngineHost(ctx, rep, backend, harness, runID)}
+		NewEngineHost: func(ctx context.Context, rep report.Sink, harness, runID string) coord.TestEngineHost {
+			return &engineHost{EngineHost: runner.NewEngineHost(ctx, rep, harness, runID)}
 		},
-		BindTestRunner: func(eh coord.TestEngineHost, refuse func() bool) {
+		BindTestRunner: func(eh coord.TestEngineHost, inst engine.Instance, refuse func() bool) {
 			host := eh.(*engineHost).EngineHost
-			host.BindRunner(testRunner{eh: host, refuse: refuse})
+			host.BindRunner(testRunner{eh: host, inst: inst, refuse: refuse})
 		},
 		DialRunner: func(ctx context.Context, rep report.Sink, coordURL, token, runID, harness, version string, handler coord.TestRunnerRequestHandler) (coord.TestRunnerLink, error) {
 			link, err := runner.DialRunner(ctx, rep, coordURL, token, runID, harness, version, runner.RunnerRequestHandler(handler))
@@ -74,7 +74,8 @@ func (e *engineHost) BindHome(h coord.TestHome) { e.EngineHost.BindHome(h.(*runn
 // frame carries the way runner.Execute does — decode, open the package,
 // drive — delivering nothing, so the tests observe the drive.
 type testRunner struct {
-	eh *runner.EngineHost
+	eh   *runner.EngineHost
+	inst engine.Instance
 	// refuse, when set and true, refuses the launch the way a runner whose
 	// endpoint cannot be bound does.
 	refuse func() bool
@@ -96,9 +97,9 @@ func (r testRunner) Execute(ctx context.Context, wire *agentcoordpb.Launch) erro
 	if l.Resume.NativeKey == "" {
 		prompt = textblocks.Join(pkg.Context.Text, l.Prompt)
 	}
-	return r.eh.Drive(ctx, runner.Turn{
-		Launch: l,
-		Chat:   agent.ChatRequest{WorkDir: l.Cell.Workspace, Model: l.Label.Model, Permissions: l.Permission, ResumeSessionID: l.Resume.NativeKey},
-		Prompt: prompt,
-	})
+	ex, err := r.inst.Exec(nil)
+	if err != nil {
+		return err
+	}
+	return r.eh.Drive(ctx, runner.Turn{Launch: l, Instance: r.inst, Exec: ex, Prompt: prompt})
 }

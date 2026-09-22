@@ -1,10 +1,8 @@
 package operations
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,9 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
 	tasksops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
@@ -41,106 +37,78 @@ func triageTestConfig() *config.Config {
 	})
 }
 
-// fullFakeClient is a minimal pb.Client double for testing EvaluateTriggers
+// fullFakeClient is a scripted triage engine for testing EvaluateTriggers
 // without a real backend. Run replies with `out` (or, when `outs` is set, one
 // scripted string per call — the last entry repeats for any call beyond the
-// script; or, when `respond` is set, whatever it returns for that request's
+// script; or, when `respond` is set, whatever it returns for that turn's
 // prompt — see respond's doc comment for why chunking needs this third
-// mode), and records every request it received for prompt inspection.
+// mode), and records every prompt it received for inspection.
 //
 // Chunking makes multiple chunks call Run CONCURRENTLY (bounded by
-// triageConcurrency), so both call-counting and gotReqs need a lock — with a
-// single serial call per test (the pre-chunking norm) the race never showed,
-// but concurrent chunk calls hit it every time under -race.
+// triageConcurrency), so both call-counting and gotPrompts need a lock — with
+// a single serial call per test (the pre-chunking norm) the race never
+// showed, but concurrent chunk calls hit it every time under -race.
 type fullFakeClient struct {
 	out  string
 	outs []string
-	// respond, when set, picks this call's response from the REQUEST content
+	// respond, when set, picks this call's response from the PROMPT content
 	// rather than call order — call order across concurrent chunks is not
 	// deterministic, so a test that needs "chunk containing task X returns
 	// garbage, chunk containing task Y succeeds" must dispatch on the
 	// prompt, not on which goroutine happened to call Run first.
-	respond func(req *pb.RunStart) string
+	respond func(prompt string) string
 
-	mu      sync.Mutex
-	calls   atomic.Int32
-	gotReqs []*pb.RunStart
+	mu         sync.Mutex
+	calls      atomic.Int32
+	gotPrompts []string
 }
 
-var _ pb.Client = (*fullFakeClient)(nil)
-
-func (c *fullFakeClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
+func (c *fullFakeClient) Run(_ context.Context, prompt string) (string, error) {
 	i := int(c.calls.Add(1)) - 1
 	c.mu.Lock()
-	c.gotReqs = append(c.gotReqs, req)
+	c.gotPrompts = append(c.gotPrompts, prompt)
 	c.mu.Unlock()
 
-	var out string
 	switch {
 	case c.respond != nil:
-		out = c.respond(req)
+		return c.respond(prompt), nil
 	case len(c.outs) > 0:
 		if i < len(c.outs) {
-			out = c.outs[i]
-		} else {
-			out = c.outs[len(c.outs)-1]
+			return c.outs[i], nil
 		}
+		return c.outs[len(c.outs)-1], nil
 	default:
-		out = c.out
+		return c.out, nil
 	}
-	_, _ = io.WriteString(stdout, out)
-	return 0, nil
 }
 
 // requestCount is a race-safe read of how many Run calls this client has
-// received — gotReqs itself is written under mu, so len(c.gotReqs) needs the
-// same lock rather than a bare read.
+// received — gotPrompts itself is written under mu, so len(c.gotPrompts)
+// needs the same lock rather than a bare read.
 func (c *fullFakeClient) requestCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.gotReqs)
+	return len(c.gotPrompts)
 }
 
-// requestAt is a race-safe read of one previously-recorded request, for
+// requestAt is a race-safe read of one previously-recorded prompt, for
 // tests that inspect prompt content by index.
-func (c *fullFakeClient) requestAt(i int) *pb.RunStart {
+func (c *fullFakeClient) requestAt(i int) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.gotReqs[i]
+	return c.gotPrompts[i]
 }
-func (c *fullFakeClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (c *fullFakeClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
-	return &pb.RunResult{}, nil
-}
-func (c *fullFakeClient) GetSession(context.Context, string) (*agent.Session, error) { return nil, nil }
-func (c *fullFakeClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
-	return nil, nil, nil
-}
-func (c *fullFakeClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-	return nil, nil, nil, nil
-}
-func (c *fullFakeClient) ListSessions(context.Context) ([]agent.SessionMeta, error)  { return nil, nil }
-func (c *fullFakeClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) { return nil, nil }
-func (c *fullFakeClient) Kill()                                                      {}
 
 // countingRunner drives the fake client as the triage session's turn and
 // counts how many turns were driven, so a test can pin retry behavior
 // (exactly one call vs. exactly two) without depending on internal call
 // ordering. The turn hands the client the whole prompt, as the session's
 // launch would.
-func countingRunner(client pb.Client) (memory.Runner, *atomic.Int32) {
+func countingRunner(client *fullFakeClient) (memory.Runner, *atomic.Int32) {
 	var n atomic.Int32
 	return func(ctx context.Context, prompt string) (string, error) {
 		n.Add(1)
-		var stdout, stderr bytes.Buffer
-		code, err := client.Run(ctx, &pb.RunStart{Prompt: &pb.Fragment{Content: prompt}}, nil, &stdout, &stderr, nil)
-		if err != nil {
-			return "", err
-		}
-		if code != 0 {
-			return "", fmt.Errorf("LLM exited with code %d: %s", code, strings.TrimSpace(stderr.String()))
-		}
-		return stdout.String(), nil
+		return client.Run(ctx, prompt)
 	}, &n
 }
 
@@ -199,8 +167,8 @@ func TestEvaluateTriggers_HappyPath(t *testing.T) {
 
 	// Evidence made it into the prompt: the task, its trigger, the active
 	// task's status, and the git evidence.
-	require.NotEmpty(t, client.gotReqs)
-	prompt := client.gotReqs[0].Prompt.Content
+	require.NotEmpty(t, client.gotPrompts)
+	prompt := client.gotPrompts[0]
 	assert.Contains(t, prompt, deferred.Task.HarpID)
 	assert.Contains(t, prompt, "when the signing CLI ships")
 	assert.Contains(t, prompt, "feat: ship the CLI")
@@ -234,8 +202,8 @@ func TestEvaluateTriggers_RepoStateReachesThePrompt(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NotEmpty(t, client.gotReqs)
-	prompt := client.gotReqs[0].Prompt.Content
+	require.NotEmpty(t, client.gotPrompts)
+	prompt := client.gotPrompts[0]
 	assert.Contains(t, prompt, "internal/shared/tasks/triggers", "the directory inventory must reach the model")
 	assert.Contains(t, prompt, "?? internal/shared/tasks/triggers/parse.go", "uncommitted work must reach the model")
 }
@@ -271,8 +239,8 @@ func TestEvaluateTriggers_RepoStateReachesTheEscalationPrompt(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Len(t, client.gotReqs, 2)
-	escalation := client.gotReqs[1].Prompt.Content
+	require.Len(t, client.gotPrompts, 2)
+	escalation := client.gotPrompts[1]
 	assert.Contains(t, escalation, "=== Repository state right now ===", "round 2 must see what exists NOW")
 	assert.Contains(t, escalation, "?? internal/shared/tasks/triggers/parse.go", "uncommitted work must reach the escalation round too")
 	assert.Contains(t, escalation, "ship the triggers package", "the other-tasks cross-reference must survive into round 2")
@@ -377,10 +345,10 @@ func TestEvaluateTriggers_SplitsLargeMissSetIntoMultipleChunkCalls(t *testing.T)
 	// Every chunk gets a genuine, fired verdict for whichever harp ids its
 	// prompt mentions — dispatch on request content since chunk calls run
 	// concurrently and completion order is not deterministic.
-	client := &fullFakeClient{respond: func(req *pb.RunStart) string {
+	client := &fullFakeClient{respond: func(prompt string) string {
 		var objs []string
 		for _, h := range harps {
-			if strings.Contains(req.Prompt.Content, h) {
+			if strings.Contains(prompt, h) {
 				objs = append(objs, fmt.Sprintf(`{"harp_id":%q,"outcome":"fired","evidence":["commit abc"],"reasoning":"x"}`, h))
 			}
 		}
@@ -407,7 +375,7 @@ func TestEvaluateTriggers_SplitsLargeMissSetIntoMultipleChunkCalls(t *testing.T)
 	got := client.requestCount()
 	require.Equal(t, 3, got)
 	for i := 0; i < got; i++ {
-		prompt := client.requestAt(i).Prompt.Content
+		prompt := client.requestAt(i)
 		mentioned := 0
 		for _, h := range harps {
 			if strings.Contains(prompt, h) {
@@ -436,8 +404,8 @@ func TestEvaluateTriggers_OneBadChunkDoesNotPoisonTheOthers(t *testing.T) {
 	// retry); good1/good2 land in the other (a real, well-formed response).
 	// Dispatch on request content — chunk order/interleaving is not
 	// deterministic under concurrency.
-	client := &fullFakeClient{respond: func(req *pb.RunStart) string {
-		if strings.Contains(req.Prompt.Content, bad1.Task.HarpID) {
+	client := &fullFakeClient{respond: func(prompt string) string {
+		if strings.Contains(prompt, bad1.Task.HarpID) {
 			return "garbage, not json, always garbage"
 		}
 		return `[{"harp_id":"` + good1.Task.HarpID + `","outcome":"fired","evidence":["commit abc"],"reasoning":"x"},` +
@@ -577,8 +545,8 @@ func TestEvaluateTriggers_EscalatesAndSettlesInRoundTwo(t *testing.T) {
 	assert.Empty(t, res.Verdicts[0].Queries, "the final verdict never carries the internal query request")
 
 	// The round-2 prompt must have carried the query result forward.
-	require.Len(t, client.gotReqs, 2)
-	assert.Contains(t, client.gotReqs[1].Prompt.Content, "exists")
+	require.Len(t, client.gotPrompts, 2)
+	assert.Contains(t, client.gotPrompts[1], "exists")
 }
 
 // BuildPrompt on an empty Batch is a zero-payload success: a complete prompt
@@ -726,8 +694,8 @@ func TestEvaluateTriggers_DropsUnsafeQueriesButKeepsSafeOnes(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), calls.Load(), "the surviving safe query still triggers round 2")
-	require.Len(t, client.gotReqs, 2)
-	assert.NotContains(t, client.gotReqs[1].Prompt.Content, "etc/passwd", "the rejected query must never reach a follow-up prompt as if it ran")
+	require.Len(t, client.gotPrompts, 2)
+	assert.NotContains(t, client.gotPrompts[1], "etc/passwd", "the rejected query must never reach a follow-up prompt as if it ran")
 	require.Len(t, res.Verdicts, 1)
 	assert.Equal(t, triggers.Fired, res.Verdicts[0].Outcome)
 }
@@ -1068,9 +1036,9 @@ func TestEvaluateTriggers_MixedCacheHitAndMissOnlyCallsModelForTheMiss(t *testin
 	assert.Equal(t, triggers.Fired, byHarp[d2.Task.HarpID].Outcome)
 
 	// Prompt sent for the miss call must only reference the miss task.
-	require.Len(t, client.gotReqs, 2)
-	assert.NotContains(t, client.gotReqs[1].Prompt.Content, d1.Task.HarpID)
-	assert.Contains(t, client.gotReqs[1].Prompt.Content, d2.Task.HarpID)
+	require.Len(t, client.gotPrompts, 2)
+	assert.NotContains(t, client.gotPrompts[1], d1.Task.HarpID)
+	assert.Contains(t, client.gotPrompts[1], d2.Task.HarpID)
 }
 
 // ---------------------------------------------------------------------------

@@ -49,14 +49,14 @@ type fakeSpawner struct {
 	// prove a stop RELEASED the child watches this rather than inferring it
 	// from the roster.
 	released []chan struct{}
-	// nextBackend, when set, supplies a REAL agent.StructuredChat backend
+	// nextBackend, when set, supplies a REAL engine instance
 	// for the MIGRATED path instead of nextChat's scripted double — the
 	// seam a live-path reproduction uses to put a genuine driver, spawning a
 	// genuine engine subprocess, under the genuine
 	// EngineHost/Home/Coordinator stack. engineWorkDir
 	// and engineEnv ride into the HarnessSpec the runner decodes, so that
 	// subprocess gets a real cwd and its own marker env.
-	nextBackend   func() agent.StructuredChat
+	nextBackend   func() engine.Instance
 	engineWorkDir string
 	engineEnv     map[string]string
 	// engineCaps is the Hello advertisement StartEngine's in-process Home
@@ -288,9 +288,9 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
-	var backend agent.StructuredChat
+	var inst engine.Instance
 	if s.nextBackend != nil {
-		backend = s.nextBackend()
+		inst = s.nextBackend()
 	} else {
 		mk := s.nextChat
 		if mk == nil {
@@ -302,15 +302,15 @@ func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.E
 		sc.GotRunnerEnv = runnerEnv
 		sc.Mu.Unlock()
 		s.chats = append(s.chats, sc)
-		backend = sc
+		inst = sc
 	}
 	caps := s.engineCaps
 	sweepInterval := s.spoolSweepInterval
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithCancel(context.Background())
-	host := runnerHooks.NewEngineHost(sctx, nil, backend, string(l.Engine), runnerEnv[EnvRunID])
-	runnerHooks.BindTestRunner(host, s.refuseBind)
+	host := runnerHooks.NewEngineHost(sctx, nil, string(l.Engine), runnerEnv[EnvRunID])
+	runnerHooks.BindTestRunner(host, inst, s.refuseBind)
 	home, err := runnerHooks.NewHome(sctx, TestHomeConfig{
 		Reporter:     termSink(),
 		URL:          runnerEnv[EnvCoordURL],

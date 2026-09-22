@@ -121,7 +121,6 @@ func TestResolveMountGap_MountLeavesWorkspaceContentAlone(t *testing.T) {
 		},
 		binaryPath: defaultContainerBinary,
 		home:       defaultContainerHome,
-		socketDir:  defaultContainerSocketDir,
 		base:       hostBase{},
 	}
 

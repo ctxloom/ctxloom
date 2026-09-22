@@ -2,8 +2,8 @@
 // production coordinator and spawner (coord.Options.Starter): each spawn
 // stands up the real runner half — an EngineHost and a Home dialing the
 // coordinator's live listeners with the per-spawn env a real runner process
-// would read — around a real agent.StructuredChat backend. Only the process
-// boundary is faked: no container, no `ctxloom llm host`, no go-plugin.
+// would read — around the real engine kind, driven one process per turn.
+// Only the process boundary is faked: no container, no `ctxloom runner`.
 //
 // It lives beside coord rather than inside it because it is built from
 // coord's EXPORTED surface (NewEngineHost, NewHome, BindHome,
@@ -12,9 +12,9 @@
 // tests cannot import it — that would be a cycle — and do not need to: they
 // reach unexported state and keep their own fake.
 //
-// The mock backend (internal/lm/backends) is the intended engine: it is a
-// deterministic echo, and it is admitted for delegated children ONLY when a
-// Starter like this one is injected — see prodSpawner.Resolve.
+// The mock engine kind (internal/engines/mock) is the intended engine: it is
+// a deterministic echo, and it is admitted for delegated children ONLY when
+// a Starter like this one is injected — see prodSpawner.Resolve.
 package coordtest
 
 import (
@@ -66,26 +66,23 @@ func (r *Runners) Starter(backend string, runnerEnv map[string]string) isolation
 }
 
 func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation.RunnerHandle, error) {
-	chat, ok := backends.Get(backend).(agent.StructuredChat)
-	if !ok {
-		return nil, fmt.Errorf("coordtest: backend %q is not a StructuredChat, so no runner can host it", backend)
-	}
 	kind, ok := backends.Kind(backend)
 	if !ok {
 		return nil, fmt.Errorf("coordtest: no engine kind %q is composed", backend)
 	}
-	engine := &Engine{inner: chat}
+	engine := &Engine{}
 	rctx, cancel := context.WithCancel(r.ctx)
-	host := runner.NewEngineHost(rctx, r.Reporter, engine, backend, runnerEnv[coord.EnvRunID])
+	host := runner.NewEngineHost(rctx, r.Reporter, backend, runnerEnv[coord.EnvRunID])
 	// The runner tail over the double: the wire launch is decoded and its
 	// package opened for real; delivery is a no-op (the fake spawner's cell
-	// is not a directory), and the host drives the recorded chat.
+	// is not a directory), and the host drives the real kind's driver, with
+	// what the runner handed it recorded on the way.
 	host.BindRunner(runner.Host{Deps: runner.Deps{
-		Kind:       kind,
+		Kind:       recordingKind{Engine: kind, rec: engine},
 		Inline:     composite.Inline{Max: composite.DefaultInlineMax},
 		ClaimCheck: composite.ClaimCheck{Store: launchtest.MemStore{}},
 		Static:     noDelivery{},
-		Driver:     host,
+		Driver:     recordingDriver{Driver: host, rec: engine},
 	}})
 	home, err := runner.NewHome(rctx, runner.HomeConfig{
 		URL:          runnerEnv[coord.EnvCoordURL],
@@ -184,50 +181,31 @@ func (r *Runners) Count() int {
 	return len(r.homes)
 }
 
-// Engine is one spawned engine: the real backend, with what the runner
-// handed it recorded — the ChatRequest StartRun composed (permissions,
-// workdir, MCP servers) and every turn text, in order.
+// Engine is one spawned engine: the real kind, with what the runner handed
+// it recorded — the Request the launch composed (permissions, workdir, MCP
+// servers) and every turn text, in order.
 type Engine struct {
-	inner agent.StructuredChat
-
-	mu      sync.Mutex
-	req     agent.ChatRequest
-	gotChat bool
-	texts   []string
+	mu       sync.Mutex
+	req      Request
+	gotDrive bool
+	texts    []string
 }
 
-// Chat records the request and each turn's text, then lets the real backend
-// answer.
-func (e *Engine) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	e.mu.Lock()
-	e.req = req
-	e.gotChat = true
-	e.mu.Unlock()
-	tee := make(chan agent.ChatMessage)
-	go func() {
-		defer close(tee)
-		for msg := range in {
-			if msg.Text != "" {
-				e.mu.Lock()
-				e.texts = append(e.texts, msg.Text)
-				e.mu.Unlock()
-			}
-			select {
-			case tee <- msg:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return e.inner.Chat(ctx, req, tee, out)
+// Request is what the runner composed for the engine: the floored
+// permission, the cell's working directory and the MCP servers the engine
+// was pointed at.
+type Request struct {
+	Permissions agent.PermissionMode
+	WorkDir     string
+	MCPServers  []agent.ChatMCPServer
 }
 
-// Request returns the ChatRequest the runner composed, and whether Chat has
-// been called at all.
-func (e *Engine) Request() (agent.ChatRequest, bool) {
+// Request returns what the runner composed, and whether the drive has been
+// asked for at all.
+func (e *Engine) Request() (Request, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.req, e.gotChat
+	return e.req, e.gotDrive
 }
 
 // Texts returns every turn text the engine received, in order.
@@ -235,6 +213,61 @@ func (e *Engine) Texts() []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]string(nil), e.texts...)
+}
+
+// recordingDriver records the turn the runner composed, then lets the
+// engine host drive it.
+type recordingDriver struct {
+	runner.Driver
+	rec *Engine
+}
+
+func (d recordingDriver) Drive(ctx context.Context, t runner.Turn) error {
+	d.rec.mu.Lock()
+	d.rec.req = Request{Permissions: t.Launch.Permission, WorkDir: t.Exec.WorkDir, MCPServers: t.MCPServers}
+	d.rec.gotDrive = true
+	d.rec.mu.Unlock()
+	return d.Driver.Drive(ctx, t)
+}
+
+// recordingKind is the real kind with each instance's driver wrapped to
+// record the turns it is handed.
+type recordingKind struct {
+	engine.Engine
+	rec *Engine
+}
+
+func (k recordingKind) Instance(s engine.Session) (engine.Instance, error) {
+	inst, err := k.Engine.Instance(s)
+	if err != nil {
+		return nil, err
+	}
+	return recordingInstance{Instance: inst, rec: k.rec}, nil
+}
+
+type recordingInstance struct {
+	engine.Instance
+	rec *Engine
+}
+
+func (i recordingInstance) Drivers() []engine.StructuredDriver {
+	var out []engine.StructuredDriver
+	for _, d := range i.Instance.Drivers() {
+		out = append(out, recordingTurns{StructuredDriver: d, rec: i.rec})
+	}
+	return out
+}
+
+type recordingTurns struct {
+	engine.StructuredDriver
+	rec *Engine
+}
+
+func (d recordingTurns) Turn(ctx context.Context, ex engine.Exec, in engine.Turn, out chan<- engine.Event) (engine.TurnResult, error) {
+	d.rec.mu.Lock()
+	d.rec.texts = append(d.rec.texts, in.Prompt)
+	d.rec.mu.Unlock()
+	return d.StructuredDriver.Turn(ctx, ex, in, out)
 }
 
 // AwaitTimeout bounds the Await* helpers.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/afero"
 
@@ -42,6 +43,12 @@ import (
 type Claude struct {
 	engine.Base
 	transcripts []engine.TranscriptReader
+	// open, when set, replaces the spawned `claude` process as the
+	// stream-json driver's I/O seam (the hook the driver's tests use to run
+	// a turn against in-memory pipes); now, when set, replaces time.Now as
+	// the clock stamping chat entries that arrive without a timestamp.
+	open chatTransportFunc
+	now  func() time.Time
 }
 
 // Option adjusts the kind before Validate.
@@ -130,6 +137,10 @@ func (a traits) Traits() present.Traits { return a.t }
 func errRoot(name string, root present.RootKind) error {
 	return fmt.Errorf("claude/%s: root %v is not one this approach offers", name, root)
 }
+
+// pathed is the shape a delivered out-of-cwd form reports: the path its
+// file actually landed at, "" when it did not.
+type pathed interface{ Path() string }
 
 // delivered adapts a runtime form's write into the port's Delivered: the
 // presentation the form composes, the path it recorded (when it has one)

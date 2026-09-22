@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // F1 deliverable 5 (opportunistic unit gap): itemsFromFeedEvent's boundary/
@@ -24,16 +25,12 @@ func TestItemsFromFeedEvent_GapProducesVisibleNotice(t *testing.T) {
 }
 
 func TestItemsFromFeedEvent_BoundarySuppressed(t *testing.T) {
-	ev := operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Boundary{
-		Boundary: &pb.ResponseBoundary{FromIndex: 0, ToIndex: 2},
-	}}}
+	ev := operations.SessionFeedEvent{Event: &transcript.WatchEvent{Boundary: &transcript.ResponseBoundary{FromIndex: 0, ToIndex: 2}}}
 	assert.Empty(t, itemsFromFeedEvent(ev), "a boundary marks a turn edge, not renderable content")
 }
 
 func TestItemsFromFeedEvent_HeartbeatSuppressed(t *testing.T) {
-	ev := operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Heartbeat{
-		Heartbeat: &pb.Heartbeat{},
-	}}}
+	ev := operations.SessionFeedEvent{Event: &transcript.WatchEvent{Heartbeat: true}}
 	assert.Empty(t, itemsFromFeedEvent(ev), "a heartbeat is a keepalive, not renderable content")
 }
 
@@ -42,16 +39,16 @@ func TestItemsFromFeedEvent_NilEventAndZeroGapProduceNothing(t *testing.T) {
 }
 
 func TestItemsFromFeedEvent_EntryMapsEveryField(t *testing.T) {
-	ev := operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
-		Type:          "tool_use",
-		TimestampUnix: 1700000000,
-		Content:       "look at this",
-		ToolName:      "Bash",
-		ToolInput:     []byte(`{"cmd":"ls"}`),
-		ToolOutput:    "file1\nfile2",
-		IsError:       true,
-		Sidechain:     true,
-	}}}}
+	ev := operations.SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &agent.SessionEntry{
+		Type:       "tool_use",
+		Timestamp:  time.Unix(1700000000, 0),
+		Content:    "look at this",
+		ToolName:   "Bash",
+		ToolInput:  []byte(`{"cmd":"ls"}`),
+		ToolOutput: "file1\nfile2",
+		IsError:    true,
+		Sidechain:  true,
+	}}}
 	items := itemsFromFeedEvent(ev)
 	require.Len(t, items, 1)
 	it := items[0]
@@ -66,6 +63,6 @@ func TestItemsFromFeedEvent_EntryMapsEveryField(t *testing.T) {
 }
 
 func TestItemsFromFeedEvent_EntryVariantWithNilEntryProducesNothing(t *testing.T) {
-	ev := operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: nil}}}
+	ev := operations.SessionFeedEvent{Event: &transcript.WatchEvent{}}
 	assert.Empty(t, itemsFromFeedEvent(ev))
 }

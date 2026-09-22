@@ -111,28 +111,6 @@ type Existing interface {
 	PresentExisting(start present.Start) (string, error)
 }
 
-// MinimalLaunch is implemented by an engine that declares a MINIMAL launch
-// posture: the argv that strips it back to a bare model call — no hooks, no
-// slash commands, no project memory, no session persistence — for a headless
-// run that delivers no managed surfaces at all (LaunchFormMinimal).
-//
-// It is a DECLARATION resolved by Setup into the run's launch argv, not a
-// branch Execute takes on a request flag. The engine says what its minimal
-// posture IS, once; every argv site then emits what Setup resolved. An engine
-// that has no such posture does not implement it and a minimal run launches it
-// bare.
-type MinimalLaunch interface {
-	MinimalArgs(model string) []string
-}
-
-// MinimalArgsFunc adapts a plain function to MinimalLaunch, so an engine can
-// register its posture without declaring a type whose only purpose is to hold
-// one method.
-type MinimalArgsFunc func(model string) []string
-
-// MinimalArgs implements MinimalLaunch.
-func (f MinimalArgsFunc) MinimalArgs(model string) []string { return f(model) }
-
 // LaunchOnly is implemented by an Approach whose bytes reach the engine only
 // through a launch — its out-of-cwd form is announced on argv, and an at-rest
 // delivery (materialize, apply, remove) has no argv sink to hand that flag to.

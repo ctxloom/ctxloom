@@ -204,6 +204,31 @@ func Open(ctx context.Context, deps Deps, l Launch) (composite.Package, error) {
 	return composite.Open(ctx, deps.Inline, deps.ClaimCheck, l.Package)
 }
 
+// WithLead is the resolved launch with the caller's context blocks appended
+// to its package (composite.Package.WithLead) and the package carried again
+// — for a block the caller can only compose AFTER Resolve, such as the
+// startup findings the cell's preparation raised. A launch with nothing to
+// add is returned as it is.
+func WithLead(ctx context.Context, deps Deps, l Launch, blocks ...composite.Fragment) (Launch, error) {
+	if len(blocks) == 0 {
+		return l, nil
+	}
+	pkg, err := Open(ctx, deps, l)
+	if err != nil {
+		return Launch{}, err
+	}
+	enc, err := composite.Encode(pkg.WithLead(blocks...))
+	if err != nil {
+		return Launch{}, err
+	}
+	carrier, err := carry(ctx, deps, enc)
+	if err != nil {
+		return Launch{}, err
+	}
+	l.Package = carrier
+	return l, nil
+}
+
 // Loadout is what a delivery of this launch consumes, over the decoded
 // package: the ONE builder, so the runner and the local launcher deliver
 // the same value.

@@ -1,11 +1,8 @@
 package claude
 
 import (
-	"bufio"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,90 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
-
-// goldenExec is one launch of exec_parity.golden: what the launch execs.
-type goldenExec struct {
-	argv string
-	env  string
-	cwd  string
-}
-
-// readExecGolden parses testdata/exec_parity.golden into its launches.
-func readExecGolden(t *testing.T) map[string]goldenExec {
-	t.Helper()
-	dir, err := sourcedir.Dir()
-	require.NoError(t, err)
-	f, err := os.Open(filepath.Join(dir, "testdata", "exec_parity.golden"))
-	require.NoError(t, err)
-	defer f.Close()
-	out := map[string]goldenExec{}
-	var key string
-	var cur goldenExec
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
-		line := sc.Text()
-		switch {
-		case strings.HasPrefix(line, "  argv: "):
-			cur.argv = strings.TrimPrefix(line, "  argv: ")
-		case strings.HasPrefix(line, "  env: "):
-			cur.env = strings.TrimPrefix(line, "  env: ")
-		case strings.HasPrefix(line, "  cwd: "):
-			cur.cwd = strings.TrimPrefix(line, "  cwd: ")
-			out[key] = cur
-			cur = goldenExec{}
-		default:
-			key = strings.TrimSuffix(line, ":")
-		}
-	}
-	require.NoError(t, sc.Err())
-	require.Len(t, out, 64, "the golden is the 64-launch matrix")
-	return out
-}
-
-// TestInstance_Exec_MatchesTheLaunchGolden is the anti-drift proof for the
-// INSTANCE half: for every launch of the matrix, the Exec claude's Instance
-// composes from the engine-facing Session and the presentations the
-// delivered surfaces announced is byte-identical — argv, merged env, cwd —
-// to what the launch execs today (testdata/exec_parity.golden, captured
-// before Instance existed). buildArgs and ExecuteEnv are what the golden
-// pinned; this test proves Exec reproduces them from the port's inputs.
-func TestInstance_Exec_MatchesTheLaunchGolden(t *testing.T) {
-	golden := readExecGolden(t)
-	kind, err := Build()
-	require.NoError(t, err)
-	for _, l := range argvMatrix(t) {
-		want, ok := golden[l.key]
-		require.True(t, ok, "golden has no launch %s", l.key)
-		s := engine.Session{
-			Identity:   sessions.Identity{Harp: "perky-same-chevy"},
-			Label:      engine.LabelConfig{Label: EngineName, Model: argValue(l.args, flagModel)},
-			Mode:       l.mode,
-			Permission: l.perm,
-			Prompt:     "reply with PROMPTOK",
-			WorkDir:    l.cwd,
-			MCPServers: l.servers,
-		}
-		if home, ok := l.env[ConfigDirEnv]; ok {
-			s.Home = []engine.HomeBinding{{Var: ConfigDirEnv, Path: home}}
-		}
-		inst, err := kind.Instance(s)
-		require.NoError(t, err)
-		ex, err := inst.Exec(l.presented)
-		require.NoError(t, err, l.key)
-		require.Equal(t, want.argv, strings.Join(ex.Args, " "), "%s: argv", l.key)
-		// The launch env is the run's env with the engine-native variables
-		// Exec returns laid over it; the golden pinned the merged result.
-		merged := maps.Clone(l.runEnv)
-		maps.Copy(merged, ex.Env)
-		require.Equal(t, want.env, envLine(merged), "%s: env", l.key)
-		require.Equal(t, want.cwd, ex.WorkDir, "%s: cwd", l.key)
-		require.Equal(t, l.mode == engine.Interactive, ex.Interactive, "%s: a pty exactly for the interactive mode", l.key)
-		require.Equal(t, "claude", ex.Binary)
-	}
-}
 
 // TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol pins the
 // structured drive's argv: the Exec the Instance composed, then the

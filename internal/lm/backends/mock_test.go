@@ -20,25 +20,6 @@ func TestNewMock(t *testing.T) {
 	assert.NotNil(t, mock.Args)
 }
 
-func TestMock_Setup(t *testing.T) {
-	mock := NewMock()
-
-	fragments := []*agent.Fragment{
-		{Content: "test fragment"},
-	}
-
-	req := &agent.SetupRequest{
-		WorkDir:   "/test/dir",
-		Fragments: fragments,
-	}
-
-	err := mock.Setup(context.Background(), req)
-	require.NoError(t, err)
-
-	assert.Equal(t, "/test/dir", mock.WorkDir())
-	assert.Len(t, mock.fragments, 1)
-}
-
 // TestRecordMockInput_CapturesCwdAndConfigHome is the seam this fixes: before,
 // recordMockInput recorded only mode/fragment-count/context/prompt, so no
 // hermetic test could prove WHERE the engine ran or WHAT isolation env it

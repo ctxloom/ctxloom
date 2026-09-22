@@ -16,8 +16,9 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/termui"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
 // answerCall records one AnswerApproval invocation, for asserting the exact
@@ -140,9 +141,9 @@ func (f *fakeSources) watchedHarps() []string {
 }
 
 func entryEv(role, content string) operations.SessionFeedEvent {
-	return operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
-		Type: role, Content: content, TimestampUnix: 1700000000,
-	}}}}
+	return operations.SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &agent.SessionEntry{
+		Type: agent.SessionEntryType(role), Content: content, Timestamp: time.Unix(1700000000, 0),
+	}}}
 }
 
 // step applies msg and returns the updated model + cmd.
@@ -303,9 +304,9 @@ func TestModel_LaterFTogglesFollow(t *testing.T) {
 func TestModel_ExpandCollapse(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f), f)
-	m = pushEntry(t, m, f, operations.SessionFeedEvent{Event: &pb.WatchEvent{Event: &pb.WatchEvent_Entry{Entry: &pb.SessionEntry{
+	m = pushEntry(t, m, f, operations.SessionFeedEvent{Event: &transcript.WatchEvent{Entry: &agent.SessionEntry{
 		Type: "tool_result", ToolName: "Bash", ToolOutput: "line1\nline2\nline3",
-	}}}})
+	}}})
 
 	assert.Contains(t, m.render(), "ok (3 lines)")
 	assert.NotContains(t, m.render(), "line2")

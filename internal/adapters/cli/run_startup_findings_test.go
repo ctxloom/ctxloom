@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -34,62 +33,44 @@ func cleanProject(t *testing.T) *config.Config {
 	return noCompanions(t, cfg)
 }
 
-// attachFixture is a runState at the point the trunk attaches findings: the
-// RunStart already built with the assembled context as its one fragment.
-func attachFixture(cfg *config.Config) *runState {
-	return &runState{
-		cfg: cfg,
-		req: &pb.RunStart{Fragments: []*pb.Fragment{{Content: "ASSEMBLED-CONTEXT"}}},
-	}
-}
-
-// TestAttachStartupFindings_DeliversIntoTheRequest asserts on the bytes the
-// engine receives — the RunStart's fragments — never on stderr: a finding
-// the launch recorded rides into the started agent's context as a fragment
-// alongside the assembled context.
-func TestAttachStartupFindings_DeliversIntoTheRequest(t *testing.T) {
+// TestStartupFindings_IsTheLaunchsLead asserts on the block the engine
+// receives — the lead the launch's package carries — never on stderr: a
+// finding the launch recorded rides into the started agent's context as one
+// named block after the assembled context.
+func TestStartupFindings_IsTheLaunchsLead(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
-	st := attachFixture(cleanProject(t))
+	st := &runState{cfg: cleanProject(t)}
 	strictness.Record(strictness.ClassIsolation, "", "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
 
-	st.attachStartupFindings()
+	lead := st.startupFindings()
 
-	require.Len(t, st.req.Fragments, 2, "one fragment appended after the assembled context")
-	assert.Equal(t, "ASSEMBLED-CONTEXT", st.req.Fragments[0].Content, "the assembled context is untouched")
-	delivered := st.req.Fragments[1]
-	assert.Equal(t, startupFindingsFragmentName, delivered.Name)
-	assert.Contains(t, delivered.Content, "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
-	assert.Contains(t, delivered.Content, operations.StartupFindingsMarker)
-	assert.True(t, strings.HasPrefix(delivered.Content, "ctxloom doctor\n"),
+	require.Len(t, lead, 1, "one block, after the assembled context")
+	assert.Equal(t, startupFindingsFragmentName, lead[0].Name)
+	assert.Contains(t, lead[0].Body, "STARTUP-FINDING-REACHES-THE-AGENT: container degraded to host")
+	assert.Contains(t, lead[0].Body, operations.StartupFindingsMarker)
+	assert.True(t, strings.HasPrefix(lead[0].Body, "ctxloom doctor\n"),
 		"rendered by doctor's own renderer, so the agent reads the same surface a human would")
 }
 
-// TestAttachStartupFindings_FlagOptsOut: --no-startup-findings leaves the
-// request exactly as built, findings or not.
-func TestAttachStartupFindings_FlagOptsOut(t *testing.T) {
+// TestStartupFindings_FlagOptsOut: --no-startup-findings composes no lead,
+// findings or not.
+func TestStartupFindings_FlagOptsOut(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(func() { strictness.Reset() })
-	st := attachFixture(cleanProject(t))
+	st := &runState{cfg: cleanProject(t)}
 	strictness.Record(strictness.ClassConfig, "", "a finding the flag must withhold")
 	runNoStartupFindings = true
 	t.Cleanup(func() { runNoStartupFindings = false })
 
-	st.attachStartupFindings()
-
-	require.Len(t, st.req.Fragments, 1)
-	assert.Equal(t, "ASSEMBLED-CONTEXT", st.req.Fragments[0].Content)
+	assert.Empty(t, st.startupFindings())
 }
 
-// TestAttachStartupFindings_NothingToDeliverAddsNothing: a clean launch adds
-// no fragment at all — not an empty one, not a header with no rows.
-func TestAttachStartupFindings_NothingToDeliverAddsNothing(t *testing.T) {
+// TestStartupFindings_NothingToDeliverAddsNothing: a clean launch composes
+// no block at all — not an empty one, not a header with no rows.
+func TestStartupFindings_NothingToDeliverAddsNothing(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
-	st := attachFixture(cleanProject(t))
-
-	st.attachStartupFindings()
-
-	require.Len(t, st.req.Fragments, 1)
-	assert.Equal(t, "ASSEMBLED-CONTEXT", st.req.Fragments[0].Content)
+	st := &runState{cfg: cleanProject(t)}
+	assert.Empty(t, st.startupFindings())
 }

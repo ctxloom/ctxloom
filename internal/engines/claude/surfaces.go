@@ -1,8 +1,6 @@
 package claude
 
 import (
-	"sort"
-
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -146,7 +144,7 @@ func (*systemPromptContext) LaunchOnly() {}
 // knowable: appendFlagDelivery names the file <hash>.sysprompt.md where <hash>
 // is a sha256 prefix over the FRAMED BYTES, so the leaf is paired from Path()
 // after the write. What this presentation contributes is the FLAG, which
-// flagArgs reads.
+// the runner's exec reads off the delivered presentation.
 func (s *systemPromptContext) Present(start present.Start) present.Presentation {
 	return underPrivateRoot(start, "").AnnounceFlag(flagAppendSystemFile).Build()
 }
@@ -222,10 +220,6 @@ func (w mcpWriter) deliver(dir string) (agent.Delivered, error) {
 	return newFileTemplateDelivery(dirPlacement{dir: dir}, w.fs).DeliverMCP(w.bundle)
 }
 
-// servers exposes the bundle for mcpServerNames, which needs the server set
-// regardless of WHICH approach delivered it.
-func (w mcpWriter) servers() map[string]wire.MCPServer { return w.bundle }
-
 // mcpConfig is claude's DEFAULT MCP approach: the merged .mcp.json beneath the
 // run's private root, announced on --mcp-config <file>. Used WITHOUT
 // --strict-mcp-config, so claude LAYERS ctxloom's servers over the user's own
@@ -256,8 +250,8 @@ func (s *mcpConfig) Present(start present.Start) present.Presentation {
 // records its path for --mcp-config. An unresolved private root REFUSES
 // (ErrUnrootedEngineHome) rather than falling back to the project file — the
 // fallback IS the defect. A FAILED write clears the path: Path() promises ""
-// for a file that does not exist, and flagArgs must never hand claude
-// --mcp-config naming one.
+// for a file that does not exist, and the delivered presentation must never
+// hand claude --mcp-config naming one.
 func (s *mcpConfig) Deliver(start present.Start) (agent.Delivered, error) {
 	if err := privateRooted(start); err != nil {
 		return nil, err
@@ -482,71 +476,3 @@ var (
 	_ agent.Approach   = (*commandsSurface)(nil)
 	_ placement        = dirPlacement{}
 )
-
-// pathed is the shape flagArgs reads off a delivered out-of-cwd form: the
-// path its file actually landed at, "" when it did not.
-type pathed interface{ Path() string }
-
-// flagArgs returns the out-of-cwd launch flags for the surfaces this run
-// actually delivered: --append-system-prompt-file, --mcp-config and --settings,
-// each paired with the path its approach recorded. An approach reports ""
-// when it delivered nothing (empty context/MCP/hooks, or context that fell
-// back to the injection hook) and contributes no flag at all — claude must
-// not be handed a flag naming a file that was never written. A nil resolved
-// selection (before Setup) contributes nothing.
-//
-// Order is the resolved selection's (context, MCP, settings) because argv
-// order is observable: a VARIADIC claude flag landing last before a
-// positional swallows it (see buildArgs' prompt terminator).
-func flagArgs(resolved *agent.ResolvedSelection) []string {
-	if resolved == nil {
-		return nil
-	}
-	var args []string
-	// Resolved against NO roots: only the declared flag is read here, and the
-	// declaration's flag does not depend on where anything lands. The flag
-	// name is read from the approach's own presentation rather than from the
-	// constant directly, which is what makes Present load-bearing: change a
-	// declared flag and this argv changes with it.
-	noRoots := present.New(present.OnHost(present.Paths{}))
-	for _, ra := range resolved.Approaches() {
-		p, ok := ra.Approach.(pathed)
-		if !ok || p.Path() == "" {
-			continue
-		}
-		announced := ra.Approach.Present(noRoots).Args
-		if len(announced) == 0 {
-			continue
-		}
-		args = append(args, announced[0], p.Path())
-	}
-	return args
-}
-
-// mcpServerNames lists, sorted, the bundle MCP servers the resolved MCP
-// approach carries — the servers a plan-mode agent is allowed to reach (see
-// permissionArgs). nil before Setup or when no MCP surface resolved.
-func mcpServerNames(resolved *agent.ResolvedSelection) []string {
-	if resolved == nil {
-		return nil
-	}
-	for _, ra := range resolved.Approaches() {
-		// Matched on the shared writer, not on one concrete approach: the
-		// server set is the same whichever MCP approach delivered it, and
-		// naming a single type here would silently return nil for the other.
-		m, ok := ra.Approach.(interface {
-			servers() map[string]wire.MCPServer
-		})
-		if !ok {
-			continue
-		}
-		bundle := m.servers()
-		out := make([]string, 0, len(bundle))
-		for name := range bundle {
-			out = append(out, name)
-		}
-		sort.Strings(out)
-		return out
-	}
-	return nil
-}

@@ -63,7 +63,7 @@ func TestRunnerLoss_DisconnectSynthesizesExit(t *testing.T) {
 	resetStrictness(t)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinatorCap(t, sp, nil, 1) // pin cap=1: this test exercises D4 QUEUEING past the cap, not the (now-configurable) default cap value
 
 	first, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -117,7 +117,7 @@ func TestRunnerLoss_HeartbeatTimeout(t *testing.T) {
 	clockMu.set(now)
 	gate := make(chan struct{})
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{TurnGate: gate} })
+		func() *scriptedChat { return &scriptedChat{Gate: gate} })
 	c := newTestCoordinator(t, sp, clockMu.now)
 
 	run, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")

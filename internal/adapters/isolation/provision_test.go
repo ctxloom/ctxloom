@@ -8,50 +8,34 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// TestBuildRunSpec_WiresAuthHandshakeAndMounts: buildRunSpec keeps the curated
-// go-plugin handshake env (socket dir overridden to the container path), threads
-// the SCOPED auth env in ON TOP, drops host secrets/HOME, and layers the auth
-// credential mounts + config overlays after the project + socket mounts. Rendering
-// through Docker confirms the read-only credential mount and the auth -e survive.
-func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
-	hostEnv := []string{
-		pb.HandshakeConfig.MagicCookieKey + "=ai-backend-v1",
-		"PLUGIN_PROTOCOL_VERSIONS=1",
-		"PLUGIN_UNIX_SOCKET_DIR=/tmp/host-sock", // overridden to the container path
-		"HOME=/home/babbitt",                    // host env — must be dropped
-		"ANTHROPIC_API_KEY=leak",                // host secret — must NOT cross via handshake curation
-	}
+// TestBuildRunnerSpec_WiresAuthAndMounts: buildRunnerSpec threads the
+// workspace's SCOPED auth env in on top of the container base env and layers
+// the auth credential mounts + config overlays after the project mount.
+// Rendering through Docker confirms the read-only credential mount and the
+// auth -e survive.
+func TestBuildRunnerSpec_WiresAuthAndMounts(t *testing.T) {
 	extraEnv := []string{"ANTHROPIC_API_KEY=scoped", "ANTHROPIC_BASE_URL=https://example"}
 	credMount := Mount{Host: "/h/.claude/.credentials.json", Container: "/root/.claude/.credentials.json", ReadOnly: true}
 	overlayMount := Mount{Host: "/scratch/cfg0", Container: "/proj/.claude"}
 
-	spec := buildRunSpec("img", "name", "/proj", "/root",
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "claudecode"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin123",
-		hostEnv, extraEnv, []Mount{credMount, overlayMount}, nil)
+	spec := runnerSpecFor(Docker{}, "claude-code", "/proj", extraEnv, []Mount{credMount, overlayMount})
 
 	assert.Equal(t, "/proj", spec.WorkDir)
-	assert.Equal(t, "/root", spec.Home)
+	assert.Equal(t, defaultContainerHome, spec.Home)
 
-	// Env: handshake kept + socket overridden + scoped auth added; host HOME + the
-	// host ANTHROPIC_API_KEY=leak curated out.
 	assert.Contains(t, spec.Env, "IS_SANDBOX=1", "container base env signals the sandbox (root approval-bypass)")
-	assert.Contains(t, spec.Env, pb.HandshakeConfig.MagicCookieKey+"=ai-backend-v1")
-	assert.Contains(t, spec.Env, "PLUGIN_UNIX_SOCKET_DIR=/run/ctxloom/plugin")
 	assert.Contains(t, spec.Env, "ANTHROPIC_API_KEY=scoped", "scoped auth env threaded in")
 	assert.Contains(t, spec.Env, "ANTHROPIC_BASE_URL=https://example")
-	assert.NotContains(t, spec.Env, "ANTHROPIC_API_KEY=leak", "host secret not blanket-passed")
-	assert.NotContains(t, spec.Env, "HOME=/home/babbitt", "host HOME not crossed")
+	for _, e := range spec.Env {
+		assert.False(t, strings.HasPrefix(e, "HOME="), "the host HOME never crosses: %s", e)
+	}
 
-	// Mounts: project (identical-path) + socket + auth cred + overlay.
+	// Mounts: project (identical-path) + auth cred + overlay.
 	assert.Contains(t, spec.Mounts, Mount{Host: "/proj", Container: "/proj"})
-	assert.Contains(t, spec.Mounts, Mount{Host: "/tmp/host-sock/plugin123", Container: "/run/ctxloom/plugin"})
-	assert.Contains(t, spec.Mounts, credMount, "credential mount threaded in")
-	assert.Contains(t, spec.Mounts, overlayMount, "config overlay threaded in")
+	assert.Contains(t, spec.Mounts, credMount)
+	assert.Contains(t, spec.Mounts, overlayMount)
 
 	// Rendered argv: the credential mount is read-only; the auth env is an -e.
 	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
@@ -60,23 +44,13 @@ func TestBuildRunSpec_WiresAuthHandshakeAndMounts(t *testing.T) {
 	assert.Contains(t, argv, "--mount type=bind,source=/scratch/cfg0,target=/proj/.claude")
 }
 
-// TestBuildRunSpec_UnixSocketTransportPublishesNoPort: the container plugin
-// transport is unix-socket-over-bind-mount only (Linux) since 0.7 — the forked
-// TCP-over-loopback transport was deleted with the fork — so a run spec never
-// forces TCP and never publishes a `-p` host port.
-func TestBuildRunSpec_UnixSocketTransportPublishesNoPort(t *testing.T) {
-	spec := buildRunSpec("img", "name", "/proj", "/root",
-		[]string{"/usr/local/bin/ctxloom", "llm", "serve", "mock"},
-		"/run/ctxloom/plugin", "/tmp/host-sock/plugin1",
-		nil, nil, nil, nil)
-
-	for _, e := range spec.Env {
-		assert.NotContains(t, e, "LISTEN_TCP", "the forked TCP-listener gate is gone — never force TCP")
-	}
-
+// TestBuildRunnerSpec_PublishesNoPort: the runner dials home over the
+// coordinator's reach-back, so a run spec never publishes a `-p` host port.
+func TestBuildRunnerSpec_PublishesNoPort(t *testing.T) {
+	spec := runnerSpecFor(Docker{}, "mock", "/proj", nil, nil)
 	argv := strings.Join(Docker{rootless: true}.RunArgs(spec), " ")
-	assert.NotContains(t, argv, "-p ", "the unix-socket transport publishes no host port")
-	assert.NotContains(t, argv, "0.0.0.0", "no plugin RPC port is ever published")
+	assert.NotContains(t, argv, "-p ", "no host port is published")
+	assert.NotContains(t, argv, "0.0.0.0", "no port is ever published")
 }
 
 // TestContainerConfigOverlay_ShadowsManagedPaths: the overlay produces one

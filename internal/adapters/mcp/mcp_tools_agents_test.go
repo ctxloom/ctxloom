@@ -194,7 +194,7 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 
 	countWith := func(name string) int {
 		n := 0
-		for _, req := range []agent.ChatRequest{req0, req1} {
+		for _, req := range []coordtest.Request{req0, req1} {
 			if hasMCPServer(req.MCPServers, name) {
 				n++
 			}
@@ -203,7 +203,7 @@ func TestProdSpawner_ChildMCPServers_ScopedPerAgent(t *testing.T) {
 	}
 	assert.Equal(t, 1, countWith("server-a"), "exactly one child must carry server-a")
 	assert.Equal(t, 1, countWith("server-b"), "exactly one child must carry server-b")
-	for i, req := range []agent.ChatRequest{req0, req1} {
+	for i, req := range []coordtest.Request{req0, req1} {
 		assert.False(t, hasMCPServer(req.MCPServers, "server-a") && hasMCPServer(req.MCPServers, "server-b"),
 			"child #%d must not carry BOTH agents' MCP servers", i)
 	}

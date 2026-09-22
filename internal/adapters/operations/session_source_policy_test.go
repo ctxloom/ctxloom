@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -29,7 +29,7 @@ func TestResolveSessionSource_IsFiltered(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, src)
 
-	_, ok := src.(*pb.FilteredSource)
+	_, ok := src.(*transcript.FilteredSource)
 	assert.True(t, ok,
 		"ResolveSessionSource must hand back a FilteredSource: it is the single "+
 			"construction point, so an unwrapped source here means every consumer "+

@@ -57,9 +57,8 @@ type fixedBackend struct {
 	history *fixedHistory
 }
 
-func (b *fixedBackend) History() agent.SessionHistory                    { return b.history }
-func (b *fixedBackend) Setup(context.Context, *agent.SetupRequest) error { return nil }
-func (b *fixedBackend) Cleanup(context.Context) error                    { return nil }
+func (b *fixedBackend) History() agent.SessionHistory { return b.history }
+func (b *fixedBackend) Cleanup(context.Context) error { return nil }
 func (b *fixedBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer, io.Writer) (*agent.ExecuteResult, error) {
 	return &agent.ExecuteResult{}, nil
 }

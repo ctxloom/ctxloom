@@ -11,12 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -52,8 +51,8 @@ func TestRunInit_FreshProject_WritesNoRuntimeSurfaceIntoTheProject(t *testing.T)
 
 // TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome pins how init
 // hands the project to its engine for the setup interview: through the one
-// launch trunk `ctxloom run` enters (operations.StartRun → launch.Resolve →
-// operations.OpenLaunch), so the interview session is minted under
+// launch trunk `ctxloom run` enters (operations.StartRun → launch.Resolve;
+// the runner opens the package), so the interview session is minted under
 // ctxloom's sessions dir with its own session home, and every static
 // surface the engine reads is routed under THAT home — never under the
 // project. The engine launch itself is captured rather than spawned; what
@@ -67,16 +66,12 @@ func TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome(t *testing.T) {
 	cfg := authPingTestConfig(t)
 	deps := testLaunchDeps(t, cfg)
 
-	stub := &stubPingClient{exitCode: 0}
-	origFactory := authPingFactory
-	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
-	t.Cleanup(func() { authPingFactory = origFactory })
+	stubPingHosts(t, &stubRunHost{})
 
 	var captured launch.Launch
-	var opened operations.Opened
 	origLaunch := launchEngineWithPromptFn
-	launchEngineWithPromptFn = func(_ context.Context, l launch.Launch, o operations.Opened) error {
-		captured, opened = l, o
+	launchEngineWithPromptFn = func(_ context.Context, _ *config.Config, _ string, l launch.Launch) error {
+		captured = l
 		return nil
 	}
 	t.Cleanup(func() { launchEngineWithPromptFn = origLaunch })
@@ -111,7 +106,6 @@ func TestLaunchDiscovery_LaunchesTheInterviewInItsOwnSessionHome(t *testing.T) {
 	assert.Equal(t, present.MCP, captured.Plan.Static[0].Kind)
 	assert.Equal(t, present.RootSessionHome, captured.Plan.Static[0].Root,
 		"the engine's MCP entry must route under the session home, never the project")
-	assert.Equal(t, captured.Plan, opened.Loadout.Plan, "the launcher consumes the same plan")
 
 	// And the target the static writer is handed is the session's own
 	// writer over the cell's roots, not the project writer.

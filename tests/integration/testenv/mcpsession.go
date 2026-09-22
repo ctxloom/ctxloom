@@ -2,7 +2,9 @@ package testenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 // MCPCallTimeout bounds one request/response round trip through an
@@ -23,8 +26,10 @@ const MCPCallTimeout = 15 * time.Second
 // mcpClientImpl is what the harness announces as its clientInfo.
 var mcpClientImpl = &mcp.Implementation{Name: "ctxloom-acceptance", Version: "0"}
 
-// MCPSession is a go-sdk client session to an MCP server this harness spawned
-// over stdio. It is the single shared door for mock-agent test traffic:
+// MCPSession is a go-sdk client session to an MCP server: one this harness
+// spawned over stdio, or a session's bound endpoint dialed over Streamable
+// HTTP with its bearer (ConnectMCPEndpoint) — the way an engine reaches its
+// runner. It is the single shared door for mock-agent test traffic:
 // integration and acceptance suites speak to the server through the SDK's
 // own ClientSession (embedded, so every request method is the SDK's) rather
 // than a hand-rolled wire layer. The SDK client is the standard ctxloom's own
@@ -41,7 +46,44 @@ var mcpClientImpl = &mcp.Implementation{Name: "ctxloom-acceptance", Version: "0"
 // more, but the acceptance World that owns it is per-scenario and sequential.
 type MCPSession struct {
 	*mcp.ClientSession
-	pid int // the spawned server, for Close's plugin-child reap
+	pid int // the spawned server, for Close's plugin-child reap; 0 for a dialed endpoint
+}
+
+// ErrNoEndpoint refuses to dial a session record that names no endpoint or
+// carries no bearer: nothing serves such a session, and a dial would only
+// produce a 401 that names nothing.
+var ErrNoEndpoint = errors.New("testenv: the session names no MCP endpoint to dial")
+
+// bearerTransport is the harness's http.RoundTripper: the session's bearer
+// on every request, exactly what an engine's MCP client sends.
+type bearerTransport struct {
+	credential string
+	next       http.RoundTripper
+}
+
+func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.credential)
+	return b.next.RoundTrip(r)
+}
+
+// ConnectMCPEndpoint dials a session's bound MCP endpoint — the URL and
+// bearer its runner serves (runner/mcp.Endpoint) — over Streamable HTTP and
+// completes the handshake. It is how a scenario reaches a standing session
+// owner's coordination surface: the same door the owner's engine uses, with
+// no shim process between.
+func ConnectMCPEndpoint(ep sessions.Endpoint) (*MCPSession, error) {
+	if ep.URL == "" || ep.Credential == "" {
+		return nil, ErrNoEndpoint
+	}
+	client := &http.Client{Transport: bearerTransport{credential: ep.Credential, next: http.DefaultTransport}}
+	ctx, cancel := context.WithTimeout(context.Background(), MCPCallTimeout)
+	defer cancel()
+	session, err := mcp.NewClient(mcpClientImpl, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ep.URL, HTTPClient: client}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect the session endpoint %s: %w", ep.URL, err)
+	}
+	return &MCPSession{ClientSession: session}, nil
 }
 
 // StartMCP spawns the MCP server in the project directory with the isolated
@@ -114,6 +156,10 @@ func connectMCP(bin string, args []string, dir string, baseEnv []string, extraEn
 func (s *MCPSession) Close() error {
 	if s == nil {
 		return nil
+	}
+	if s.pid == 0 {
+		// A dialed endpoint: no subprocess of this harness's to reap.
+		return s.ClientSession.Close()
 	}
 	children := PluginChildrenOf(s.pid)
 	err := s.ClientSession.Close()

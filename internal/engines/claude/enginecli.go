@@ -27,9 +27,7 @@ import (
 //   - EMISSION ORDER. claude's argv order is significant (the config
 //     passthrough leads, the prompt positional trails) and is a property of the
 //     line, not of any one flag.
-//   - the GATES: a non-empty delivered surface path, a harp in the env, and the
-//     RESOLVED launch form (which no longer gates anything here — Setup resolves
-//     the argv and buildArgs emits it).
+//   - the GATES: a delivered surface's presentation and a harp in the env.
 //
 // The test applied is "is there exactly one place that knows this fact", not
 // "is it a struct literal".
@@ -119,19 +117,9 @@ const (
 	flagMCPConfig        = "--mcp-config"
 	flagSettings         = "--settings"
 	flagOutputFormat     = "--output-format"
-	flagTools            = "--tools"
-	flagNoSlashCommands  = "--disable-slash-commands"
-	flagNoSessionPersist = "--no-session-persistence"
-	flagStrictMCPConfig  = "--strict-mcp-config"
-	flagSystemPrompt     = "--system-prompt"
 )
 
-// commonFlags are the flags claude's driver can emit on BOTH surfaces. The
-// minimal/distill set is here rather than on oneshot alone because the minimal
-// posture is resolved by Setup from the run's declared form, which is
-// orthogonal to the mode: an interactive run on LaunchFormMinimal emits them
-// too. This used to read as a warning that buildArgs and the mode DISAGREED —
-// two decision sites for one fact. There is one site now, and it is Setup.
+// commonFlags are the flags claude's driver can emit on BOTH surfaces.
 func commonFlags() []agent.CLIFlag {
 	return []agent.CLIFlag{
 		{Name: flagSkipPermissions, Value: agent.ValueNone,
@@ -147,17 +135,8 @@ func commonFlags() []agent.CLIFlag {
 			Note: "the framed out-of-cwd sysprompt scratch; SharedCell delivery only"},
 		{Name: flagMCPConfig, Value: agent.ValuePath,
 			Note: "layers over the project .mcp.json unless --strict-mcp-config is also present"},
-		{Name: flagSettings, Value: agent.ValuePathOrJSON,
-			Note: "a FILE PATH on a delivering form, a LITERAL inline JSON object on the minimal one (minimalSettings); mutually exclusive within one argv"},
-		{Name: flagOutputFormat, Value: agent.ValueString,
-			Note: "minimal form only: json, so Execute can read the resolved model id"},
-		{Name: flagTools, Value: agent.ValueString,
-			Note: `minimal form only; the value is an EMPTY STRING passed as its own argv token`},
-		{Name: flagNoSlashCommands, Value: agent.ValueNone, Note: "minimal form only"},
-		{Name: flagNoSessionPersist, Value: agent.ValueNone, Note: "minimal form only"},
-		{Name: flagStrictMCPConfig, Value: agent.ValueNone, Note: "minimal form only"},
-		{Name: flagSystemPrompt, Value: agent.ValueString,
-			Note: `minimal form only; the value is an EMPTY STRING passed as its own argv token, dropping CLAUDE.md/memory`},
+		{Name: flagSettings, Value: agent.ValuePath,
+			Note: "the settings file the runner delivered under the session home"},
 	}
 }
 

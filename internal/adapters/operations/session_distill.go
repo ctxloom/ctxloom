@@ -8,12 +8,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
+	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/policy"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -41,6 +41,8 @@ func CompactionModelFor(cfg *config.Config, override string) string {
 // already in flight and a third string argument beside them is where call
 // sites start transposing them.
 type DistillOptions struct {
+	// Hosts yields the coordinator the distilling one-shot runs on.
+	Hosts RunHosts
 	// Strictness is the posture the distilling one-shot launches under.
 	Strictness strictness.Mode
 	// Model overrides the compaction model for THIS call; "" uses
@@ -119,7 +121,7 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	// The distiller is a real session on the FAST role's label: one harp for
 	// every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
-	distiller := NewLazyOneShot(cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
+	distiller := NewLazyOneShot(opts.Hosts, cfg, opts.Strictness, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
 	defer distiller.End()
 	// The compactor no longer builds its own source: resolve it here (unless a
 	// transcript was preloaded by path, which short-circuits it) and inject.
@@ -166,6 +168,23 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // (a distill reads the raw transcript, the same bytes it always did). A
 // session-index open failure degrades to the legacy-only reader, or errors
 // when there is no legacy leg to fall back to.
+// legacyTranscriptSource is the legacy leg of a transcript source: a reader
+// over the engine's OWN store for an engine that still keeps one, scoped to
+// workDir; nil (no error) for a retired-scraper engine, whose transcripts are
+// canonical capture alone. As a transcript.Source interface value it is nil
+// exactly when there is no leg — never a typed nil the fallback would
+// dereference.
+func legacyTranscriptSource(backend, workDir string) (transcript.Source, error) {
+	if backends.NoLegacyHistoryReason(backend) != "" {
+		return nil, nil
+	}
+	hist, err := HistoryForBackend(backend)
+	if err != nil {
+		return nil, err
+	}
+	return transcript.NewEngineReader(hist, workDir), nil
+}
+
 // DistillSource resolves the transcript source a compactor reads for a
 // distill, for callers that build a memory.CompactionConfig directly (the MCP
 // memory tools). It is distillSource behind an exported name so those callers
@@ -175,14 +194,14 @@ func DistillSource(backend, workDir string) (memory.Source, error) {
 }
 
 func distillSource(backend, workDir string) (memory.Source, error) {
-	var legacy pb.SessionSource
-	if backends.NoLegacyHistoryReason(backend) == "" {
-		legacy = pb.NewSessionReader(backend, 0)
+	legacy, err := legacyTranscriptSource(backend, workDir)
+	if err != nil {
+		return nil, err
 	}
 	store, err := sessions.Open(strictness.Sink("ctxloom"))
 	switch {
 	case err == nil:
-		return pb.NewCanonicalFallbackSource(legacy, workDir, store), nil
+		return transcript.NewCanonicalFallbackSource(legacy, workDir, store), nil
 	case legacy != nil:
 		return legacy, nil
 	default:
@@ -192,37 +211,32 @@ func distillSource(backend, workDir string) (memory.Source, error) {
 
 // ResolveSessionSource resolves the backend (defaulting when empty) and a
 // transcript source for it, returning the resolved backend name for display.
-// Shared by loadOrDistillSession's callers (cli's mcp_tools_memory.go) — and,
-// before the deprecated `memory` command group was deleted, by
-// `memory list`/`memory show` too. The legacy leg (pb.SessionReader) reads
-// over gRPC to the agent server (self-situated, no workspace passed, works
-// for a remote agent); it is wrapped in CanonicalFallbackSource so any harp
-// with a captured canonical transcript is read from that instead — workDir
-// scopes the canonical side to this project. A session-index open failure
-// degrades to the legacy-only reader rather than failing the caller
-// outright.
+// Shared by loadOrDistillSession's callers (mcp's memory tools). The legacy
+// leg (a transcript.EngineReader over the engine's own store, scoped to
+// workDir) is wrapped in CanonicalFallbackSource so any harp with a captured
+// canonical transcript is read from that instead — workDir scopes the
+// canonical side to this project too. A session-index open failure degrades
+// to the legacy-only reader rather than failing the caller outright.
 //
-// A retired-scraper backend (codex/kiro/claude-code — their
-// scrapers were deleted, not demoted) never gets a legacy
-// leg at all: there is no plugin-side History() left to ask, so this never
-// even spawns the plugin for that purpose. Every other backend (opencode's
-// native reader included) keeps its legacy leg unchanged.
-func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.SessionSource, string, error) {
+// A retired-scraper backend (claude-code — its scraper was deleted, not
+// demoted) never gets a legacy leg at all: there is no History() left to
+// ask. Every other backend keeps its legacy leg unchanged.
+func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (transcript.Source, string, error) {
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
 	}
 	if !backends.Exists(backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
-	var legacy pb.SessionSource
-	if backends.NoLegacyHistoryReason(backendName) == "" {
-		legacy = pb.NewSessionReader(backendName, 0)
+	legacy, err := legacyTranscriptSource(backendName, workDir)
+	if err != nil {
+		return nil, backendName, err
 	}
 	store, err := sessions.Open(strictness.Sink("ctxloom"))
 	if err != nil {
 		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
 		if legacy != nil {
-			return pb.NewFilteredSource(legacy, policy.Default()), backendName, nil
+			return transcript.NewFilteredSource(legacy, policy.Default()), backendName, nil
 		}
 		return nil, backendName, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backendName, err)
 	}
@@ -232,9 +246,9 @@ func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 	// the same filtered view without each having to remember to wrap. The
 	// wrap is on the READ side on purpose: what is on disk stays total, so
 	// changing the policy changes what every existing transcript yields, with
-	// no migration. See grpc.FilteredSource.
-	return pb.NewFilteredSource(
-		pb.NewCanonicalFallbackSource(legacy, workDir, store),
+	// no migration. See transcript.FilteredSource.
+	return transcript.NewFilteredSource(
+		transcript.NewCanonicalFallbackSource(legacy, workDir, store),
 		policy.Default(),
 	), backendName, nil
 }

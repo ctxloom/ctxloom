@@ -2,29 +2,21 @@
 
 // A SESSION OWNER STANDING FOR A SCENARIO.
 //
-// A coordinator is hosted only by a RUNNER: `ctxloom run` stands it up, its
-// runner serves the owner's MCP surface on a unix socket, and every MCP shim
-// is a pure client that forwards there — a shim with no runner refuses the
-// agent tools (internal/adapters/mcp's errNoRunner) and never becomes a
-// coordinator. So a scenario that drives agent_* tools through this
-// harness's stdio `ctxloom mcp` shim needs a real owner standing first, and
-// this fixture is that owner: a mock-engine `ctxloom run` held open on a pty
-// for the scenario's whole life, torn down with the scenario.
+// A coordinator is hosted only by a RUNNER: `ctxloom run` stands it up and
+// its runner serves the session's ONE MCP endpoint — the URL and bearer the
+// launch minted into the session record (sessions.Endpoint, session.yaml)
+// — over Streamable HTTP (runner/mcp.Endpoint). A scenario that drives the
+// agent_* tools needs a real owner standing first, and this fixture is that
+// owner: a mock-engine `ctxloom run` held open on a pty for the scenario's
+// whole life, torn down with the scenario.
 //
-// HOW THE SHIM FINDS IT. The forward tier reads exactly one thing:
-// CTXLOOM_MCP_SOCKET in its environment (mcp.ServeStdio). The runner binds
-// its socket under $XDG_RUNTIME_DIR/ctxloom (mcp.runnerSocketPath), so the
-// fixture gives the scenario a private, short runtime dir, starts the owner,
-// and reads the ONE socket the runner bound there. World.agent hands that
-// path to the shim it starts. No third discovery path is added.
+// HOW THE HARNESS REACHES IT. The same way the owner's engine does: World.agent
+// dials the endpoint the session record names, with its bearer
+// (testenv.ConnectMCPEndpoint). No shim process, no discovery path.
 //
-// WHY THE OWNER'S HARP IS EXPORTED TO EVERY LATER PROCESS. The forward tier
-// verifies identity: a shim whose CTXLOOM_SESSION_HARP names a different
-// session than the runner's is REFUSED and falls back to its local surface
-// (mcp.verifyForwardTarget). Setting the owner's harp on the scenario's child
-// env makes the shim's identity the owner's — and makes a later `ctxloom hook
-// mail-drain` read the owner's own spool, which is what those scenarios
-// assert on.
+// WHY THE OWNER'S HARP IS EXPORTED TO EVERY LATER PROCESS. A later `ctxloom
+// hook mail-drain` reads the spool the harp on its environment names, and
+// those scenarios assert on the owner's own spool.
 package acceptance
 
 import (
@@ -37,8 +29,9 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -57,40 +50,38 @@ const (
 	sessionOwnerFragment = "session-owner"
 
 	// sessionOwnerSentinel is the line typed into the owner's pty whose echo
-	// proves the owner is fully up: `ctxloom run` hosts its coordinator and
-	// stands its runner (socket included) BEFORE the engine reads stdin, so a
-	// mock parked in its echo loop implies both exist.
+	// proves the owner is fully up: the runner binds the session's endpoint
+	// and delivers the launch BEFORE the engine reads stdin, so a mock parked
+	// in its echo loop implies the endpoint is served.
 	sessionOwnerSentinel = "session-owner-standing"
 
 	// sessionOwnerReadyTimeout bounds the wait for that echo. Generous for
-	// CI: the runner spawn is a real self-exec + go-plugin handshake.
+	// CI: the runner spawn is a real self-exec + dial-home + StartRun.
 	sessionOwnerReadyTimeout = 30 * time.Second
 
-	// runnerSocketGlob is the runner-bound socket under the scenario's
-	// runtime dir (mcp.runnerSocketPath's host tier: ctxloom/mcp-<pid>.sock).
-	runnerSocketGlob = "ctxloom/mcp-*.sock"
+	// sessionFileName is the session record beside a harp's directory in
+	// the session store — where the launch bound the session's endpoint.
+	sessionFileName = "session.yaml"
 )
 
 // sessionOwner is the standing owner: its pty session, the harp it minted,
-// and the runner socket the shim forwards to.
+// and the endpoint its runner serves.
 type sessionOwner struct {
-	sess   *testenv.PTYSession
-	harp   string
-	socket string
-	// removeRuntimeDir releases the private runtime dir the socket lives in.
-	removeRuntimeDir func()
+	sess     *testenv.PTYSession
+	harp     string
+	endpoint sessions.Endpoint
 }
 
 // standSessionOwner starts the owner from bin (AppBinary, or a copy a probe
 // controls) with extraEnv on top of the scenario's isolated environment, and
-// waits until it is standing. It must run BEFORE the shim's first tool call:
-// the shim is started once per scenario and reads the socket at startup.
+// waits until it is standing. It must run BEFORE the first agent tool call:
+// the agent session is dialed once per scenario, to the owner's endpoint.
 func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
 	if w.owner != nil {
 		return errors.New("a session owner is already standing for this scenario")
 	}
 	if w.mcp != nil {
-		return errors.New("the MCP shim is already running; the session owner must stand before the shim's first tool call, or the shim has nothing to forward to")
+		return errors.New("the agent MCP session is already open; the session owner must stand before the first tool call, or there is no owner to dial")
 	}
 	if err := w.env.WriteFile(bundleFilePath(sessionOwnerFragment), fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  %s:\n    content: %q\n", sessionOwnerFragment, "the session owner's own context")); err != nil {
 		return fmt.Errorf("session owner: author its fragment: %w", err)
@@ -99,26 +90,16 @@ func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
 		return fmt.Errorf("session owner: %w", err)
 	}
 
-	// A private runtime dir, short enough for the socket path to bind, so the
-	// runner's socket is the ONLY one under it.
-	runtimeDir, removeRuntimeDir, err := testsupport.PickSocketDir(strings.Replace(runnerSocketGlob, "*", "9999999", 1), testsupport.SocketTiers())
-	if err != nil {
-		return fmt.Errorf("session owner: runtime dir: %w", err)
-	}
-	w.env.SetChildEnv("XDG_RUNTIME_DIR", runtimeDir)
-
 	before, err := harpDirs(w.env.HomeDir)
 	if err != nil {
-		removeRuntimeDir()
 		return err
 	}
 
 	sess, err := w.env.RunPTYFrom(bin, 100, 30, append([]string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, extraEnv...), "run", "--llm", sessionOwnerLabel, "-f", sessionOwnerFragment)
 	if err != nil {
-		removeRuntimeDir()
 		return fmt.Errorf("session owner: start `ctxloom run`: %w", err)
 	}
-	owner := &sessionOwner{sess: sess, removeRuntimeDir: removeRuntimeDir}
+	owner := &sessionOwner{sess: sess}
 	// Registered the moment the process exists: a readiness failure below
 	// must still tear the session down.
 	w.owner = owner
@@ -131,15 +112,6 @@ func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
 	}) {
 		return fmt.Errorf("session owner: never echoed %q within %s — the owner is not standing; output:\n%s", sessionOwnerSentinel, sessionOwnerReadyTimeout, sess.Output())
 	}
-
-	sockets, err := filepath.Glob(filepath.Join(runtimeDir, runnerSocketGlob))
-	if err != nil {
-		return err
-	}
-	if len(sockets) != 1 {
-		return fmt.Errorf("session owner: expected exactly one runner socket under %s, found %v; output:\n%s", runtimeDir, sockets, sess.Output())
-	}
-	owner.socket = sockets[0]
 
 	after, err := harpDirs(w.env.HomeDir)
 	if err != nil {
@@ -155,8 +127,33 @@ func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
 		return fmt.Errorf("session owner: expected the run to mint exactly one session, found %v; output:\n%s", minted, sess.Output())
 	}
 	owner.harp = minted[0]
+	owner.endpoint, err = readSessionEndpoint(w.env.HomeDir, owner.harp)
+	if err != nil {
+		return fmt.Errorf("session owner: %w; output:\n%s", err, sess.Output())
+	}
 	w.env.SetChildEnv("CTXLOOM_SESSION_HARP", owner.harp)
 	return nil
+}
+
+// readSessionEndpoint reads the endpoint the launch bound on the session
+// record (sessions.Store.BindMCP) — what the owner's runner serves and the
+// owner's engine dials.
+func readSessionEndpoint(home, harp string) (sessions.Endpoint, error) {
+	path := filepath.Join(home, filepath.FromSlash(harpSessionsRel), harp, sessionFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return sessions.Endpoint{}, fmt.Errorf("read the session record %s: %w", path, err)
+	}
+	var rec struct {
+		MCP sessions.Endpoint `yaml:"mcp"`
+	}
+	if err := yaml.Unmarshal(data, &rec); err != nil {
+		return sessions.Endpoint{}, fmt.Errorf("decode the session record %s: %w", path, err)
+	}
+	if rec.MCP.URL == "" || rec.MCP.Credential == "" {
+		return sessions.Endpoint{}, fmt.Errorf("the session record %s binds no MCP endpoint", path)
+	}
+	return rec.MCP, nil
 }
 
 // harpDirs lists the session directories under the isolated HOME's harp
@@ -180,16 +177,13 @@ func harpDirs(home string) (map[string]bool, error) {
 }
 
 // stop ends the owner: SIGTERM through the pty session's own close (the
-// run's designed shutdown path, which reaps its runner), then the runtime
-// dir. Nil-safe, so the scenario teardown can call it unconditionally.
+// run's designed shutdown path, which reaps its runner). Nil-safe, so the
+// scenario teardown can call it unconditionally.
 func (o *sessionOwner) stop() {
 	if o == nil {
 		return
 	}
 	o.sess.Close()
-	if o.removeRuntimeDir != nil {
-		o.removeRuntimeDir()
-	}
 }
 
 func registerSessionOwnerSteps(ctx *godog.ScenarioContext) {

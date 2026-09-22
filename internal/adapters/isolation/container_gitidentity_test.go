@@ -83,11 +83,9 @@ func TestContainerGitIdentity_ReachesSpawnEnv(t *testing.T) {
 	cwA := build("agent-a")
 	cwB := build("agent-b")
 
-	// --- launchSpec (the go-plugin spawn path) ---
-	specA := c.launchSpec("mock", "label", 0, cwA)
-	require.Same(t, &cwA.extraEnv[0], &specA.ExtraEnv[0],
-		"premise: launchSpec.ExtraEnv IS cw.extraEnv — the slice the spawn threads verbatim")
-	launchA := envMap(t, specA.ExtraEnv)
+	// --- buildRunnerSpec (the runner spawn path) ---
+	specA := c.buildRunnerSpec("mock", "name", cwA, nil)
+	launchA := envMap(t, specA.Env)
 	assert.Equal(t, "present", launchA["CTXLOOM_TEST_SENTINEL"], "premise: the base env reaches the spawn")
 	assert.Equal(t, "agent-a@agents.ctxloom.local", launchA["GIT_AUTHOR_EMAIL"])
 

@@ -37,8 +37,8 @@ import (
 //     --dangerously-skip-permissions vs plan → --permission-mode plan
 //     --disallowedTools ...), and codex's sandbox tier table;
 //   - the ORDER flags are emitted in;
-//   - the CONDITIONS gating a flag (a non-empty surface path, a harp in the
-//     env, the launch form Setup resolved).
+//   - the CONDITIONS gating a flag (a delivered surface's presentation, a
+//     harp in the env).
 //
 // A descriptor with an escape hatch for each of those would be worse than
 // either option. The declaration answers "does this flag exist on this
@@ -83,9 +83,9 @@ const (
 	ValuePath ValueShape = "path"
 	// ValueJSON is a literal JSON document carried inline in argv.
 	ValueJSON ValueShape = "json"
-	// ValuePathOrJSON is claude's --settings: a path on the normal path, an
-	// inline JSON object on the minimal form. A consumer must discriminate on the
-	// token (a leading '{' means literal), never assume.
+	// ValuePathOrJSON is a flag that takes either a path or an inline JSON
+	// object. A consumer must discriminate on the token (a leading '{' means
+	// literal), never assume.
 	ValuePathOrJSON ValueShape = "path-or-json"
 )
 

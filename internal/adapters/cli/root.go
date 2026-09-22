@@ -236,6 +236,7 @@ Run 'ctxloom <command> --help' for details on any command.`,
 }
 
 func rootPersistentPostRunE(cmd *cobra.Command, args []string) error {
+	closeInternalCoordinator()
 	return checkFormatWasHonored(cmd)
 }
 

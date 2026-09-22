@@ -1,33 +1,34 @@
 // Package isolation is the host-side seam that decides, per agent, HOW its
-// plugin process is spawned and WHERE its workspace lives. Isolation wraps the
-// PLUGIN (`ctxloom llm serve <backend>`, one subprocess per run/member) plus the
-// workspace it runs in — NOT the engine: the plugin-internal engine-spawn
-// (RunLaunchSpec, the chat transports) is untouched. The seam sits at the
-// host-side pb.ClientFactory + RunOptions.WorkDir boundary, so a delegated
-// fan-out (agent_run) can pick a policy per member orthogonally to the engine.
+// runner process is started and WHERE its workspace lives. Isolation wraps
+// the RUNNER (`ctxloom runner <engine>`, one process per run) plus the
+// workspace it runs in — NOT the engine: the runner's own engine exec is
+// untouched. The seam sits at the runner-start + workspace boundary, so a
+// delegated fan-out (agent_run) can pick a policy per member orthogonally to
+// the engine.
 //
 // A Policy has two axes:
 //   - a Workspace it prepares (the child's cwd) and tears down, and
-//   - how it spawns the plugin client for that workspace.
+//   - how it starts the runner for that workspace (StartRunner, or
+//     InteractiveRunner for the pty the originator holds).
 //
-// Phase 0 ships only the None (host) policy, which is behaviour-identical to
-// today: the workspace is the live project directory, cleanup is a noop, and the
-// plugin is a bare self-invoked subprocess. The interface is shaped so a future
-// worktree policy (Workspace.Dir = a per-agent git worktree, WIP-safe Cleanup)
-// and container policy (SpawnClient via docker/podman run + gRPC-over-network)
-// drop in without interface changes.
+// None (host) is the floor: the workspace is the live project directory,
+// cleanup is a noop, and the runner is a bare self-invoked subprocess.
+// Worktree gives each agent a git worktree (WIP-safe Cleanup); Container
+// runs the runner as a container's foreground process.
 package isolation
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/selfexec"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -111,8 +112,8 @@ type MountPlan struct {
 	Env []string
 }
 
-// Policy is the isolation seam: it prepares a per-agent Workspace and spawns
-// the plugin client for that workspace. All strategies (none | worktree |
+// Policy is the isolation seam: it prepares a per-agent Workspace and starts
+// the runner for that workspace. All strategies (none | worktree |
 // container) satisfy this one interface, so the fan-out picks a strategy per
 // agent without engine-specific logic. The run's approval posture resolves
 // wholly from config/CLI/agent (agent.PermissionMode), independent of which
@@ -156,39 +157,63 @@ type Policy interface {
 	// A Mount failure tears the resolved workspace down before returning, so a
 	// failed prepare never leaks a checkout or a scratch tree.
 	PrepareWorkspace(ctx context.Context, projectDir, agentID string) (Workspace, error)
-	// SpawnClient launches the plugin process for a prepared workspace and
-	// returns its client. none/worktree → a bare self-invoked `ctxloom llm serve`
-	// subprocess (the workspace is expressed purely via RunOptions.WorkDir);
-	// container → docker/podman run with gRPC over a network transport.
-	// spawnEnv is the PER-SPAWN env stamped onto the runner process (the
-	// coordinator reach-back trio): host → cmd.Env entries; container →
-	// bare-name `-e` forms with the values on the run-process env (never
-	// `-e KEY=VAL` argv — /proc/<pid>/cmdline is world-readable — and never
-	// the process-global launcher env, racy across concurrent spawns).
-	SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error)
 	// StartRunner launches the engine RUNNER process for a prepared workspace
-	// with NO go-plugin transport — the StartRun spawn half (Phase
-	// 1). Container → a docker/podman `run` of `ctxloom llm host <backend>`
-	// with NO plugin socket mount, NO port publish, NO PLUGIN_*/magic-cookie
-	// env (the session-state/auth/overlay mounts and the bare-name `-e`
-	// spawn-env ARE preserved); host (none/worktree) → a bare self-invoked
-	// `ctxloom llm host <backend>` under setsid. Readiness is NOT observed
-	// here: the coordinator's awaitRunner (the runner's RunnerChannel Hello) is
-	// the barrier that replaces go-plugin's eager handshake. The returned
-	// handle's Kill tears the runner down (container: `rm -f` by Name under
+	// — the StartRun spawn half. Container → a docker/podman `run` of
+	// `ctxloom runner <backend>` with NO port publish (the session-state/
+	// auth/overlay mounts and the bare-name `-e` spawn-env ride it); host
+	// (none/worktree) → a bare self-invoked `ctxloom runner <backend>` under
+	// setsid. Readiness is NOT observed here: the coordinator's awaitRunner
+	// (the runner's RunnerChannel Hello) is the barrier. The returned handle's
+	// Kill tears the runner down (container: `rm -f` by Name under
 	// containerRemoveTimeout + removeReportsGone; host: setsid session sweep);
 	// Wait reaps the process, surfacing the captured stderr tail on failure.
-	// spawnEnv rides the same channel SpawnClient uses (host → cmd.Env;
-	// container → bare-name `-e` with values on the run-process env).
+	// spawnEnv crosses host → cmd.Env; container → bare-name `-e` with values
+	// on the run-process env.
 	StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error)
+	// InteractiveRunner is the runner process of an INTERACTIVE launch, as a
+	// command the originator starts on the pty it holds (adapters/hostpty,
+	// adapters/attach): the self-exec'd `ctxloom runner <engine>` on a host
+	// cell; `docker run -i -t … ctxloom runner <engine>` — the container's
+	// foreground process — for a container cell, whose name is returned so
+	// teardown can target it ("" on the host). spawnEnv rides as
+	// StartRunner's does. Readiness is the coordinator's awaitRunner.
+	InteractiveRunner(ctx context.Context, backendName string, ws Workspace, spawnEnv map[string]string) (*exec.Cmd, string, error)
 }
 
-// RunnerHandle is a directly-launched engine-runner process (no go-plugin
-// client). For a container runner Name is the container name — the durable
-// teardown handle (`docker rm -f`); for a host runner it is "". Kill is
-// idempotent; Wait reaps the run/serve process (its error carries the stderr
-// tail on failure). It is the StartRun spawn-half's counterpart to the
-// pb.Client SpawnClient returns for the legacy Chat path.
+// RunnerTerm is the TERM an INTERACTIVE runner process runs under: `dumb`,
+// deliberately. The runner is `ctxloom` on the terminal the originator
+// holds, and ctxloom's package-init terminal-capability detection
+// (lipgloss/termenv querying the background via OSC 11 + a DSR terminator)
+// would otherwise fire and READ the response from that same stdin,
+// swallowing the human's first keystrokes; `dumb` makes termenv skip the
+// query entirely. The ENGINE keeps real color: the launch's engine env,
+// laid over the runner's, carries the terminal the human is watching.
+const RunnerTerm = "dumb"
+
+// RunnerCommand is the self-exec'd host runner command: `ctxloom runner
+// <engine>` with spawnEnv (the reach-back trio) laid over the process env,
+// under RunnerTerm.
+func RunnerCommand(backendName string, spawnEnv map[string]string) *exec.Cmd {
+	cmd := exec.Command(selfexec.Path(), "runner", backendName)
+	cmd.Env = append(os.Environ(), "TERM="+RunnerTerm)
+	cmd.Env = append(cmd.Env, envPairs(spawnEnv)...)
+	return cmd
+}
+
+// envPairs renders spawnEnv as sorted KEY=VAL pairs.
+func envPairs(env map[string]string) []string {
+	kv := make([]string, 0, len(env))
+	for k, v := range env {
+		kv = append(kv, k+"="+v)
+	}
+	sort.Strings(kv)
+	return kv
+}
+
+// RunnerHandle is a directly-launched runner process. For a container runner
+// Name is the container name — the durable teardown handle (`docker rm -f`);
+// for a host runner it is "". Kill is idempotent; Wait reaps the process (its
+// error carries the stderr tail on failure).
 type RunnerHandle struct {
 	Name string
 	Kill func()
@@ -303,25 +328,19 @@ func WaitOf(h *RunnerHandle) func() error {
 	return h.Wait
 }
 
-// EngineStarter is the StartRun spawn-half seam that replaces pb.ClientFactory
-// on the delegated StartEngine path (Phase 1). It binds a policy +
-// prepared workspace + backend/label/verbosity + runner env into a single
-// launch closure; the go-plugin handshake the factory completed eagerly is
-// gone (awaitRunner owns readiness). Defined here — not in operations — so
-// isolation, which cannot import operations, can name it as
-// StarterForWorkspace's return type; operations references it as
-// isolation.EngineStarter.
+// EngineStarter is the StartRun spawn-half seam on the delegated StartEngine
+// path. It binds a policy + prepared workspace + backend/label/verbosity +
+// runner env into a single launch closure; readiness is awaitRunner's.
+// Defined here — not in operations — so isolation, which cannot import
+// operations, can name it as StarterForWorkspace's return type; operations
+// references it as isolation.EngineStarter.
 type EngineStarter func(ctx context.Context) (*RunnerHandle, error)
 
 // StarterForWorkspace binds a policy and a prepared workspace into an
-// EngineStarter — the docker-direct / bare-host runner launch the migrated
-// StartRun spawn half injects. It is the sibling of FactoryForWorkspace (which
-// SURVIVES for the legacy Chat path and every host-local caller); the two
-// differ only in what the launch produces (a RunnerHandle vs a pb.Client) and
-// that this one carries NO plugin transport across the boundary. backendName/
-// label/verbosity bind here (not at call time as FactoryForWorkspace's do)
-// because EngineStarter's closure takes only ctx — the StartEngine caller has
-// nothing but ctx to give it.
+// EngineStarter — the docker-direct / bare-host runner launch the StartRun
+// spawn half injects. backendName/label/verbosity bind here because
+// EngineStarter's closure takes only ctx — the StartEngine caller has nothing
+// but ctx to give it.
 func StarterForWorkspace(p Policy, ws Workspace, backendName, label string, verbosity int, spawnEnv map[string]string) EngineStarter {
 	return func(ctx context.Context) (*RunnerHandle, error) {
 		return p.StartRunner(ctx, backendName, label, verbosity, ws, spawnEnv)
@@ -413,16 +432,6 @@ func MountEngineHome(ws Workspace, m present.Mount, projected bool) error {
 	}
 	cw.extraMounts = append(cw.extraMounts, mounts...)
 	return nil
-}
-
-// FactoryForWorkspace binds a policy and a prepared workspace into the
-// pb.ClientFactory seam the fan-out injects (func(backend, label, verbosity) →
-// Client). For the None policy the returned factory is behaviour-identical to
-// pb.DefaultClientFactory — the same bare self-invoked subprocess.
-func FactoryForWorkspace(p Policy, ws Workspace, spawnEnv map[string]string) pb.ClientFactory {
-	return func(backendName, label string, verbosity int) (pb.Client, error) {
-		return p.SpawnClient(backendName, label, verbosity, ws, spawnEnv)
-	}
 }
 
 // Isolated reports whether the policy provides a real per-agent workspace (a
@@ -729,9 +738,10 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		// owner aborts on it before the unsandboxed engine launches in BOTH
 		// modes. --degraded no longer walks this chain out to the host: a
 		// requested boundary that cannot be provided is refused, because the
-		// launch is the exposure. The runtime-unreachable reason is recorded earlier in chainFor;
-		// the handshake-timeout reason surfaces as a fatal SpawnClient error at the
-		// choke owner. The `continue` is unchanged — the chain still walks to
+		// launch is the exposure. The runtime-unreachable reason is recorded
+		// earlier in chainFor; a container that never reached running surfaces
+		// at the owner run's starter (AwaitContainerRunning). The `continue` is
+		// unchanged — the chain still walks to
 		// None so the WORKSPACE resolution has an answer to return; what stops
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {

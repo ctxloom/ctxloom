@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func recvSize(t *testing.T, ch <-chan *pb.WindowSize) *pb.WindowSize {
+func recvSize(t *testing.T, ch <-chan *agent.WindowSize) *agent.WindowSize {
 	t.Helper()
 	select {
 	case ws, ok := <-ch:
@@ -23,19 +23,19 @@ func recvSize(t *testing.T, ch <-chan *pb.WindowSize) *pb.WindowSize {
 }
 
 func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
-	src := make(chan *pb.WindowSize, 4)
+	src := make(chan *agent.WindowSize, 4)
 	var sizes [][2]int
 	rt := newResizeTranslator(src, 1, func(rows, cols int) { sizes = append(sizes, [2]int{rows, cols}) })
 
-	src <- &pb.WindowSize{Rows: 24, Cols: 80} // watchResize's initial emit
+	src <- &agent.WindowSize{Rows: 24, Cols: 80} // watchResize's initial emit
 	ws := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(23), ws.Rows, "engine PTY is rows−N")
-	assert.Equal(t, uint32(80), ws.Cols)
+	assert.Equal(t, uint16(23), ws.Rows, "engine PTY is rows−N")
+	assert.Equal(t, uint16(80), ws.Cols)
 
-	src <- &pb.WindowSize{Rows: 40, Cols: 120} // SIGWINCH
+	src <- &agent.WindowSize{Rows: 40, Cols: 120} // SIGWINCH
 	ws = recvSize(t, rt.Out())
-	assert.Equal(t, uint32(39), ws.Rows)
-	assert.Equal(t, uint32(120), ws.Cols)
+	assert.Equal(t, uint16(39), ws.Rows)
+	assert.Equal(t, uint16(120), ws.Cols)
 
 	assert.Equal(t, [][2]int{{24, 80}, {40, 120}}, sizes,
 		"the surround sees every REAL size, translation only touches the engine")
@@ -64,8 +64,8 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 	var tty bytes.Buffer
 	sur := newTestSurround(&tty, BarInfo{Harp: "h"})
 
-	src := make(chan *pb.WindowSize, 1)
-	src <- &pb.WindowSize{Rows: 24, Cols: 80} // watchResize's pre-buffered initial emit
+	src := make(chan *agent.WindowSize, 1)
+	src <- &agent.WindowSize{Rows: 24, Cols: 80} // watchResize's pre-buffered initial emit
 
 	rt := newResizeTranslator(src, sur.reserve, sur.SetSize)
 
@@ -74,7 +74,7 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 
 	select {
 	case ws := <-rt.Out():
-		assert.Equal(t, uint32(23), ws.Rows, "the translated engine size must also be queued synchronously")
+		assert.Equal(t, uint16(23), ws.Rows, "the translated engine size must also be queued synchronously")
 	default:
 		t.Fatal("translated initial size was not queued synchronously on Out()")
 	}
@@ -82,35 +82,35 @@ func TestResizeTranslator_EstablishesSurroundRegionSynchronously(t *testing.T) {
 }
 
 func TestResizeTranslator_TinyTerminalForwardsUntranslated(t *testing.T) {
-	src := make(chan *pb.WindowSize, 1)
+	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 1, nil)
-	src <- &pb.WindowSize{Rows: 5, Cols: 80} // below minRowsForReserve
+	src <- &agent.WindowSize{Rows: 5, Cols: 80} // below minRowsForReserve
 	ws := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(5), ws.Rows, "no reservation below the threshold — matches the surround's predicate")
+	assert.Equal(t, uint16(5), ws.Rows, "no reservation below the threshold — matches the surround's predicate")
 	close(src)
 }
 
 func TestResizeTranslator_ZeroReserveIsIdentity(t *testing.T) {
-	src := make(chan *pb.WindowSize, 1)
+	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 0, nil)
-	src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	ws := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(24), ws.Rows)
+	assert.Equal(t, uint16(24), ws.Rows)
 	close(src)
 }
 
 func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
-	src := make(chan *pb.WindowSize, 1)
+	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 1, nil)
-	src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
 
 	rt.Nudge()
 	first := recvSize(t, rt.Out())
 	second := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(22), first.Rows,
+	assert.Equal(t, uint16(22), first.Rows,
 		"wiggle one row SMALLER than the engine viewport (same-size TIOCSWINSZ raises no SIGWINCH)")
-	assert.Equal(t, uint32(23), second.Rows, "then settle on the true engine size")
+	assert.Equal(t, uint16(23), second.Rows, "then settle on the true engine size")
 	close(src)
 }
 
@@ -125,9 +125,9 @@ func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 // not just their values, since a same-size wiggle sent with zero separation
 // degenerates back into exactly the bug Nudge exists to fix.
 func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
-	src := make(chan *pb.WindowSize, 1)
+	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 1, nil)
-	src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain the initial translated size
 
 	start := time.Now()
@@ -137,8 +137,8 @@ func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
 	second := recvSize(t, rt.Out())
 	t2 := time.Since(start)
 
-	assert.Equal(t, uint32(22), first.Rows)
-	assert.Equal(t, uint32(23), second.Rows)
+	assert.Equal(t, uint16(22), first.Rows)
+	assert.Equal(t, uint16(23), second.Rows)
 	assert.Greater(t, t2-t1, 10*time.Millisecond,
 		"the wiggle's shrink and restore must be genuinely separated in time so the "+
 			"child's non-queued SIGWINCH handler has a chance to observe the intermediate "+
@@ -157,27 +157,27 @@ func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
 // delivered on Out() is the real resize's translated size, not the
 // pre-Nudge value.
 func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
-	src := make(chan *pb.WindowSize, 4)
+	src := make(chan *agent.WindowSize, 4)
 	rt := newResizeTranslator(src, 1, nil)
-	src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	src <- &agent.WindowSize{Rows: 24, Cols: 80}
 	_ = recvSize(t, rt.Out()) // drain initial translated size (23)
 
 	rt.Nudge() // schedules shrink now (22) + a restore at +nudgeWiggleSeparation
 	first := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(22), first.Rows, "wiggle shrink")
+	assert.Equal(t, uint16(22), first.Rows, "wiggle shrink")
 
 	// Inject a real resize inside the wiggle window, well before the
 	// restore goroutine wakes.
 	time.Sleep(nudgeWiggleSeparation / 3)
-	src <- &pb.WindowSize{Rows: 30, Cols: 80} // real SIGWINCH-driven resize
+	src <- &agent.WindowSize{Rows: 30, Cols: 80} // real SIGWINCH-driven resize
 	real := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(29), real.Rows, "the real resize's translated size")
+	assert.Equal(t, uint16(29), real.Rows, "the real resize's translated size")
 
 	// Wait past the restore's scheduled delivery. It must re-assert the
 	// CURRENT effective size (29, a harmless duplicate), never the STALE
 	// size captured when Nudge was called (23).
 	restored := recvSize(t, rt.Out())
-	assert.Equal(t, uint32(29), restored.Rows,
+	assert.Equal(t, uint16(29), restored.Rows,
 		"the deferred restore must send the CURRENT effective size, not the "+
 			"value captured at Nudge-call time, or it clobbers a real resize "+
 			"that landed during the wiggle window")
@@ -192,23 +192,23 @@ func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 // (eff.Rows==1) the post-overlay repaint never happened. Nudge must still
 // produce a genuine transition even here (wiggling upward instead).
 func TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight(t *testing.T) {
-	src := make(chan *pb.WindowSize, 1)
+	src := make(chan *agent.WindowSize, 1)
 	rt := newResizeTranslator(src, 5, nil)
-	src <- &pb.WindowSize{Rows: 6, Cols: 80}
+	src <- &agent.WindowSize{Rows: 6, Cols: 80}
 	first := recvSize(t, rt.Out())
-	require.Equal(t, uint32(1), first.Rows, "test setup: eff.Rows must be exactly 1")
+	require.Equal(t, uint16(1), first.Rows, "test setup: eff.Rows must be exactly 1")
 
 	rt.Nudge()
 	wiggle := recvSize(t, rt.Out())
 	restore := recvSize(t, rt.Out())
 	assert.NotEqual(t, wiggle.Rows, restore.Rows,
 		"the wiggle step must genuinely differ from the restore so the child's SIGWINCH handler observes a change")
-	assert.Equal(t, uint32(1), restore.Rows, "settles back on the true effective size")
+	assert.Equal(t, uint16(1), restore.Rows, "settles back on the true effective size")
 	close(src)
 }
 
 func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
-	src := make(chan *pb.WindowSize)
+	src := make(chan *agent.WindowSize)
 	rt := newResizeTranslator(src, 1, nil)
 	rt.Nudge()
 	select {
@@ -220,7 +220,7 @@ func TestResizeTranslator_NudgeBeforeAnySizeIsNoop(t *testing.T) {
 }
 
 func TestResizeTranslator_OutClosesWithSource(t *testing.T) {
-	src := make(chan *pb.WindowSize)
+	src := make(chan *agent.WindowSize)
 	rt := newResizeTranslator(src, 1, nil)
 	close(src) // watchResize closes on ctx done
 	select {

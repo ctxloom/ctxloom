@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/tokens"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -244,8 +243,8 @@ func TestCompact_DistillsInExactlyOneLLMCall(t *testing.T) {
 	}}
 
 	var calls int
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			calls++
 			_, _ = stdout.Write([]byte("---\nsummary: one call\n---\n\n### Open Items\n- none\n"))
 			return 0, nil
@@ -293,10 +292,10 @@ func TestCompact_OversizedTranscriptStillOneCallAndReportsReduction(t *testing.T
 
 	var calls int
 	var sawBytes int
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			calls++
-			sawBytes = len(req.Prompt.Content)
+			sawBytes = len(prompt)
 			_, _ = stdout.Write([]byte("---\nsummary: reduced\n---\n\n### Open Items\n- none\n"))
 			return 0, nil
 		},

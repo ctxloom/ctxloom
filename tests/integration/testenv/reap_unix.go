@@ -125,5 +125,23 @@ func argvIsLLMServe(args []string) bool {
 			return true
 		}
 	}
+	return argvIsRunner(args)
+}
+
+// argvIsRunner is the runner process's shape: `runner <engine>` as the
+// subcommand — the first token after the binary and any global flags, never
+// a flag's value (`--runtime runner` is not it). It is what
+// spawn.StartRunner starts for a host launch.
+func argvIsRunner(args []string) bool {
+	for i := 1; i+1 < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			continue
+		}
+		if strings.HasPrefix(args[i-1], "--") && !strings.Contains(args[i-1], "=") && i > 1 {
+			// a flag's value
+			continue
+		}
+		return args[i] == "runner"
+	}
 	return false
 }

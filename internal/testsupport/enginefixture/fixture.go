@@ -64,11 +64,10 @@ func (c *stubConfig) BackendType() string { return c.name }
 // stubBackend is the least agent.Backend that satisfies the contract.
 type stubBackend struct{ name string }
 
-func (b *stubBackend) Name() string                                     { return b.name }
-func (b *stubBackend) Version() string                                  { return "0" }
-func (b *stubBackend) SupportedModes() []agent.ExecutionMode            { return nil }
-func (b *stubBackend) History() agent.SessionHistory                    { return nil }
-func (b *stubBackend) Setup(context.Context, *agent.SetupRequest) error { return nil }
+func (b *stubBackend) Name() string                          { return b.name }
+func (b *stubBackend) Version() string                       { return "0" }
+func (b *stubBackend) SupportedModes() []agent.ExecutionMode { return nil }
+func (b *stubBackend) History() agent.SessionHistory         { return nil }
 func (b *stubBackend) Execute(context.Context, *agent.ExecuteRequest, io.Writer, io.Writer) (*agent.ExecuteResult, error) {
 	return &agent.ExecuteResult{}, nil
 }

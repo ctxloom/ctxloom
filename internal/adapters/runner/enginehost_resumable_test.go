@@ -11,41 +11,19 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 )
 
-// sessionOnlyChat emits exactly one Session event with the scripted id and
-// resume capability, then ends its stream. It exists to drive adapt's Session
-// arm in isolation, which the shared scriptedChat cannot do (it hard-codes a
-// non-empty session id).
-type sessionOnlyChat struct {
-	sessionID string
-	resumable bool
-}
-
-func (s *sessionOnlyChat) Chat(ctx context.Context, _ agent.ChatRequest, _ <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
-	defer close(out)
-	select {
-	case out <- agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: s.sessionID, Resumable: s.resumable}}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	return nil
-}
-
 // TestEngineHost_ResumeCapabilityRidesTheSessionID pins the JOINT reporting
-// of the one-shot resume gate's two halves. A review row read the
-// `SessionID != ""` guard as silently dropping a `Resumable: true` engine's
-// capability; it is deliberate. The gate (oneShotReady, children.go) tears an
-// engine down only when `Resumable && HarnessSessionID != ""`, so a resume
-// capability with no session key to resume BY is not a capability — and
-// journaling it alone would leave a run record claiming resumability it cannot
-// deliver, which is the failure the gate exists to prevent.
-//
-// The coordinator's other Session-event consumer (children.go's legacy
-// non-viaStartRun arm) guards on the same condition, so the two adaptation
-// paths cannot disagree about the same engine.
+// of the resume gate's two halves. The gate (oneShotReady, children.go)
+// tears an engine down only when `Resumable && HarnessSessionID != ""`, so
+// a resume capability with no session key to resume BY is not a capability
+// — and journaling it alone would leave a run record claiming resumability
+// it cannot deliver. With one engine process per turn, a key the driver
+// reports IS what the next turn's process resumes with: resumable is true
+// exactly when a key is known, and nothing is journaled without one.
 func TestEngineHost_ResumeCapabilityRidesTheSessionID(t *testing.T) {
-	report := func(t *testing.T, sc *sessionOnlyChat) map[string]any {
+	report := func(t *testing.T, sc *eventScript) map[string]any {
 		t.Helper()
 		home := &fakeEngineHome{}
 		eh := newTestEngineHost(context.Background(), sc, "claude-code", "run-1")
@@ -54,12 +32,15 @@ func TestEngineHost_ResumeCapabilityRidesTheSessionID(t *testing.T) {
 		resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
 		require.Equal(t, int32(0), resp.GetStatus().GetCode(), resp.GetStatus().GetMessage())
 
-		// The stream ends after the one Session event, so RunExited is the
-		// deterministic "adapt has seen everything" barrier.
+		// The turn's boundary is the "everything relayed has been adapted"
+		// barrier.
 		require.Eventually(t, func() bool {
-			home.mu.Lock()
-			defer home.mu.Unlock()
-			return len(home.exited) == 1
+			for _, n := range home.customNames() {
+				if n == coord.CustomTurnIdle {
+					return true
+				}
+			}
+			return false
 		}, 5*time.Second, 10*time.Millisecond)
 
 		home.mu.Lock()
@@ -72,21 +53,22 @@ func TestEngineHost_ResumeCapabilityRidesTheSessionID(t *testing.T) {
 		return nil
 	}
 
-	t.Run("session id carries both halves", func(t *testing.T) {
-		got := report(t, &sessionOnlyChat{sessionID: "native-sess-42", resumable: true})
+	t.Run("a session event's id carries both halves", func(t *testing.T) {
+		got := report(t, &eventScript{script: []agent.ChatEvent{{Session: &agent.ChatSessionInfo{SessionID: "native-sess-42"}}}})
 		require.NotNil(t, got, "a session id must reach the coordinator's journal path")
 		assert.Equal(t, "native-sess-42", got["session_id"])
-		assert.Equal(t, true, got["resumable"], "the LIVE loadSession capability rides the same event")
+		assert.Equal(t, true, got["resumable"], "a key the driver reported is what the next turn resumes by")
 	})
 
-	t.Run("not resumable is reported as such", func(t *testing.T) {
-		got := report(t, &sessionOnlyChat{sessionID: "native-sess-42", resumable: false})
+	t.Run("the turn result's key carries both halves", func(t *testing.T) {
+		got := report(t, &eventScript{result: engine.TurnResult{NativeKey: "native-sess-43"}})
 		require.NotNil(t, got)
-		assert.Equal(t, false, got["resumable"])
+		assert.Equal(t, "native-sess-43", got["session_id"])
+		assert.Equal(t, true, got["resumable"])
 	})
 
-	t.Run("no session id reports neither half", func(t *testing.T) {
-		got := report(t, &sessionOnlyChat{sessionID: "", resumable: true})
+	t.Run("no session key reports neither half", func(t *testing.T) {
+		got := report(t, &eventScript{script: []agent.ChatEvent{{Session: &agent.ChatSessionInfo{SessionID: "", Resumable: true}}}})
 		assert.Nil(t, got, "a resume capability with no session key to resume by must not be journaled alone")
 	})
 }

@@ -1,10 +1,9 @@
 //go:build docker_integration
 
-// ISO1's docker-gated proof of RunAttached + ExecSpec: the plain-stdio
-// container primitive a caller speaking its own line protocol uses instead of
-// SpawnClient's go-plugin-over-socket transport. Build-tagged so `just test`
-// never compiles it (the gate stays
-// green without docker); run with:
+// The docker-gated proof of RunAttached + ExecSpec: the plain-stdio
+// container primitive a caller speaking its own line protocol uses.
+// Build-tagged so `just test` never compiles it (the gate stays green
+// without docker); run with:
 //
 //	GOWORK=off just test-pkg ./internal/adapters/isolation/... -tags docker_integration -run RunAttached
 package isolation

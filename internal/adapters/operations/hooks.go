@@ -397,9 +397,9 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 // of them must write THAT engine's file and no other's, which here means
 // passing backend explicitly rather than "". `ctxloom run`'s own per-engine
 // write already does this correctly — it never reaches hookBackendNames at
-// all, composing and delivering its ONE launched backend's config straight
-// through backends.AssembleManagedConfig / the engine's own Setup (see
-// docs/design/engine-delivery-seam.design.md) — so this function's contract
+// all, composing and delivering its ONE launched engine's config straight
+// through the launch's plan and the runner's static writer — so this
+// function's contract
 // only needs to hold for callers that DO reach it, which today are the
 // explicit sweeps listed above. See
 // TestApplyHooks_NamedBackendLeavesOtherConfiguredEnginesUntouched for the

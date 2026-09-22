@@ -9,7 +9,7 @@
 # They drifted. Before this file, `test-docker-integration` existed twice
 # under the same NAME with different package lists — the host copy ran
 # ./internal/adapters/isolation/..., ./internal/core/coord/... and
-# ./internal/vpio/dockerexec/...; the container copy (the one
+#; the container copy (the one
 # .github/workflows/ci.yml actually invokes) ran only
 # ./internal/adapters/isolation/.... Every docker-gated test under
 # internal/core/coord — TestCoordContainerDirect_NoPluginNoPort, the
@@ -34,7 +34,7 @@
 # child that never receives its prompt looks identical to a healthy one from
 # every cheap signal), and a red nightly on a branch nobody is standing on is
 # noise, not a gate.
-docker_integration_pkgs := "./internal/adapters/isolation/... ./internal/core/coord/... ./internal/core/spool/... ./internal/vpio/dockerexec/... ./internal/engines/mock/... ./internal/testsupport/containercell/..."
+docker_integration_pkgs := "./internal/adapters/isolation/... ./internal/core/coord/... ./internal/core/spool/... ./internal/engines/mock/... ./internal/testsupport/containercell/..."
 
 # Run the docker-gated container integration tests: they build minimal images,
 # spawn real containers, and prove the transport / coordinator bus / progress

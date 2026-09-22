@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
@@ -36,6 +37,11 @@ type Source struct {
 	// Env is the caller's engine passthrough (`run --env`); the identity
 	// carriers are stamped by Resolve and never taken from here.
 	Env map[string]string
+	// Extra are the context blocks the caller composes at launch time beyond
+	// the selection — a resumed session's transcript, this launch's startup
+	// findings — appended to the package's context after the assembly, in
+	// order (composite.Package.WithLead).
+	Extra []composite.Fragment
 	// Internal marks an internal one-shot (a distill, a triage, the setup
 	// probe): no binding and no profiles are selected — the prompt is the
 	// whole instruction and Label names the engine. It is still a real

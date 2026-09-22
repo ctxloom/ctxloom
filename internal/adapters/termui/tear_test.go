@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -305,7 +305,7 @@ func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 
 	pr, pw := io.Pipe()
 	tty := &lockedBuffer{}
-	src := make(chan *pb.WindowSize, 1)
+	src := make(chan *agent.WindowSize, 1)
 	c := New(Options{
 		Stdin:    pr,
 		TTY:      tty,
@@ -321,7 +321,7 @@ func newTearHarness(t *testing.T, rows, cols int) *tearHarness {
 		},
 		NewOverlay: func() Overlay { return newFakeOverlay() },
 	})
-	src <- &pb.WindowSize{Rows: uint32(rows), Cols: uint32(cols)}
+	src <- &agent.WindowSize{Rows: uint16(rows), Cols: uint16(cols)}
 	waitFor(t, "surround establish", func() bool {
 		return strings.Contains(tty.String(), fmt.Sprintf("\x1b[1;%dr", rows-1))
 	})

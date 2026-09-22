@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -213,8 +212,8 @@ func unreflectedSelection(t *testing.T) Selection {
 // silent no-op.
 func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
 	const finding = "go vet reported no findings across the module."
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte(finding))
 			return 0, nil
 		},
@@ -240,8 +239,8 @@ func TestRepairResults_WritesRecoveredFindingIntoTheEntry(t *testing.T) {
 // failed LLM call must leave the deterministic rendering standing, never an
 // empty result -- the excerpt is the whole reason tier 3 exists.
 func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			return 0, errors.New("plugin unreachable")
 		},
 	}
@@ -265,8 +264,8 @@ func TestRepairResults_FailedRecoveryLeavesTheExcerpt(t *testing.T) {
 // hatch. A model with nothing to say must not overwrite the excerpt with a
 // confident nothing.
 func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("  " + noConclusionAvailable + "\n"))
 			return 0, nil
 		},
@@ -287,8 +286,8 @@ func TestRepairResults_NoConclusionLeavesTheExcerpt(t *testing.T) {
 // result was commented on costs nothing. Spawning a plugin subprocess per
 // result would make reflection more expensive than not reflecting.
 func TestRepairResults_NoCandidatesMakesNoCall(t *testing.T) {
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			t.Fatal("repairResults called the model with no repair candidates")
 			return 0, nil
 		},
@@ -338,9 +337,9 @@ func TestRepairResults_ConcurrentRecoveriesEachLandInTheirOwnEntry(t *testing.T)
 	// Echo the pkg number back out of the prompt so each answer is distinct and
 	// traceable to the call that produced it.
 	pkgRE := regexp.MustCompile(`go test \./pkg(\d+)/`)
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			m := pkgRE.FindStringSubmatch(req.GetPrompt().GetContent())
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
+			m := pkgRE.FindStringSubmatch(prompt)
 			if m == nil {
 				return 0, errors.New("prompt did not carry the tool call")
 			}
@@ -422,9 +421,8 @@ func TestCompact_RecoveredFindingReachesTheDistiller(t *testing.T) {
 
 	var mu sync.Mutex
 	var distillerSaw []string
-	mock := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
-			prompt := req.GetPrompt().GetContent()
+	mock := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			if strings.Contains(prompt, toolCall) {
 				_, _ = stdout.Write([]byte(finding)) // the recovery call
 				return 0, nil

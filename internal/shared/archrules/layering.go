@@ -62,11 +62,6 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/adapters/cli/tui"},
 	},
 	{
-		Name:   "transcript-must-not-import-lm/grpc",
-		From:   []string{"internal/adapters/transcript"},
-		Forbid: []string{"internal/lm/grpc"},
-	},
-	{
 		Name:   "shared/agent-must-not-import-engine-plugins",
 		From:   []string{"internal/core/agent"},
 		Forbid: []string{"internal/engines/claude"},
@@ -173,26 +168,15 @@ var LayeringRules = []LayeringRule{
 		// (the CLI is a pure frontend over the application services) and a
 		// package's own subpackage (cli → cli/tui; runner → runner/mcp) — are
 		// allowed entries with a reason that says "sanctioned", so IsLive still
-		// confirms they exist. Today's adapter packages are named one by one;
-		// the runner has no package of its own yet (the engine host lives
-		// inside coord until slice 14a), so lm/grpc (the plugin wire) and mcp
-		// (the MCP server, the future runner/mcp) stand for it. Every other
-		// edge is MEASURED and leaves in the slice its reason names.
+		// confirms they exist. Every other edge is MEASURED and leaves in the
+		// slice its reason names.
 		Name: "adapters-import-core-not-each-other",
 		From: []string{
 			"internal/adapters",
-			// measured adapters, retired in place (slice 13): outside the
-			// prefix until they are deleted, so they are named on their own.
-			"internal/lm/grpc",
-			"internal/vpio/dockerexec",
-			"internal/vpio/goplugin",
 		},
 		Forbid: []string{
 			// the adapters (the from-set again)
 			"internal/adapters",
-			"internal/lm/grpc",
-			"internal/vpio/dockerexec",
-			"internal/vpio/goplugin",
 			// the engines, and the retired-in-place backends (slice 11b)
 			"internal/engines",
 			"internal/lm/backends",
@@ -213,9 +197,12 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/fsstore":             "slice 15: the composition root hands operations its session-dir claim store; until then operations roots it itself, per session, after the mint (ForSession)",
 			"internal/adapters/operations -> internal/adapters/fsstatic":            "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
 			"internal/adapters/fsstatic -> internal/adapters/confpatch":             "sanctioned (Part 1.4): the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
-			"internal/adapters/cli -> internal/adapters/fsstatic":                   "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root and composes the runner's static writer",
-			"internal/adapters/cli -> internal/adapters/fsstore":                    "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root and roots the runner's claim store",
-			"internal/adapters/cli -> internal/adapters/runner":                     "slice 14a: runner.Main is composed under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/fsstatic":                   "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
+			"internal/adapters/cli -> internal/adapters/fsstore":                    "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
+			"internal/adapters/cli -> internal/adapters/runner":                     "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/hostpty":                    "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
+			"internal/adapters/cli -> internal/adapters/attach":                     "composition root (cmd/*): the interactive owner's container runner is attached on its pty by spawn.Runtimes composed there; until then `ctxloom run` attaches it itself",
+			"internal/adapters/attach -> internal/adapters/hostpty":                 "sanctioned (Part 1.5): attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
 			"internal/adapters/runner -> internal/adapters/coordgrpc":               "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
 			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":            "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
 			"internal/adapters/cli -> internal/adapters/configload":                 "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
@@ -230,6 +217,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/transcript/vendorreader/claude -> internal/adapters/transcript":              "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader/mock -> internal/adapters/transcript":                "sanctioned: a package's own parent tree (transcript/*)",
 			"internal/adapters/transcript/vendorreader -> internal/adapters/transcript":                     "sanctioned: a package's own parent tree (transcript/*)",
+			"internal/adapters/transcript -> internal/adapters/transcript/policy":                           "sanctioned: a package's own subpackage (the read-side content policy FilteredSource applies)",
 			"internal/adapters/signing/countersign -> internal/adapters/signing":                            "sanctioned: a package's own parent tree (signing/*)",
 			"internal/adapters/content/archive -> internal/adapters/content":                                "sanctioned: a package's own parent tree (content/*)",
 			"internal/adapters/content/attest -> internal/adapters/content":                                 "sanctioned: a package's own parent tree (content/*)",
@@ -252,10 +240,10 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/coordgrpc/discover":      "slice 10 remainder: the endpoint file's reader (discover.List) becomes operations' when the servers leave core",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
 			"internal/adapters/cli -> internal/adapters/coordgrpc":                      "slice 13: the CLI hands the Launch to the spawner and stops encoding the run-start message itself",
-			"internal/adapters/coordgrpc -> internal/lm/grpc":                           "slice 13: EncodeRunStart, the plugin arm's projection of the launch, is deleted with that arm",
 			"internal/adapters/cli -> internal/adapters/gitignore":                      "measured; Part 1.1 does not place gitignore — no slice names this edge",
 			"internal/adapters/cli -> internal/adapters/projectroot":                    "slice 7: launch.HostFacts carries the project root from cmd/*",
 			"internal/adapters/cli -> internal/adapters/selfexec":                       "slice 13: hostpty spawns the runner; the self-exec path is a HostFacts value (measured; Part 1.1 does not place selfexec)",
+			"internal/adapters/isolation -> internal/adapters/selfexec":                 "composition root (cmd/*): the runner binary is launch.HostFacts.Binary handed to spawn.Runtimes; until then the host cell's runner command resolves its own self-exec path (measured; Part 1.1 does not place selfexec)",
 			"internal/adapters/cli -> internal/adapters/tmuxhost":                       "slice 13: tmuxhost goes with vpio; adapters/hostpty replaces it",
 			"internal/adapters/cli -> internal/adapters/turnchange":                     "measured; Part 1.1 does not place turnchange — no slice names this edge",
 			"internal/adapters/content -> internal/adapters/signing":                    "slice 5: one verifier behind the trust ports",
@@ -269,24 +257,18 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/remotetree":      "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/pb":            "slice 13: allowlisted until then per Part 1.0",
-			"internal/adapters/operations -> internal/adapters/coordgrpc":               "slice 13: the one-shot turn is a frame to the runner; operations stops encoding the run-start message itself",
 			"internal/adapters/operations -> internal/adapters/engineversion":           "slice 11b: the version command is the engine's own, on the instance half of the port",
 			"internal/adapters/operations -> internal/adapters/git":                     "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/operations -> internal/adapters/gitignore":               "measured; Part 1.1 does not place gitignore — no slice names this edge (the doctor's gitignore-posture row reads its detector)",
 			"internal/adapters/operations -> internal/adapters/projectroot":             "slice 7: launch.HostFacts carries the project root from cmd/*",
 			"internal/adapters/remote -> internal/adapters/git":                         "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/turnchange -> internal/adapters/transcript/vendorreader": "slice 11b: the readers become engine.TranscriptReader values (Engine.Transcripts)",
-			"internal/lm/grpc -> internal/adapters/projectroot":                         "slice 13: the go-plugin protocol is deleted whole",
-			"internal/lm/grpc -> internal/adapters/selfexec":                            "slice 13: the go-plugin protocol is deleted whole",
-			"internal/vpio/dockerexec -> internal/adapters/vpio":                        "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/vpio/goplugin -> internal/adapters/vpio":                          "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
 
 			// cli reaching past operations
 			"internal/adapters/cli -> internal/engines/claude":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
 			"internal/adapters/cli -> internal/lm/backends":               "slice 11b: lm/backends is deleted whole",
 			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/operations -> internal/engines":            "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
-			"internal/adapters/cli -> internal/lm/grpc":                   "slice 13: the go-plugin protocol is deleted whole",
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":              "slice 13: the stdio server and the plugin-hosted owner arm die with the plugin protocol; the session endpoint already lives in runner/mcp",
 			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
@@ -295,22 +277,16 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/signing/agentkey": "measured: the signing frontends (review, sign, bundle push) hold the *agentkey.Discoverer operations.SignerDiscoverer composes and render agentkey's own candidate listing and hardware-key posture over operations.ResolveLocalSigner; a rendering vocabulary, not an orchestration",
 			"internal/adapters/cli -> internal/adapters/termui":           "slice 13: termui sits over the pty master the runner owns",
 			"internal/adapters/cli -> internal/adapters/transcript":       "slice 13: cli/tui reads the transcript file; the CLI does not open transcripts itself",
-			"internal/adapters/cli -> internal/adapters/vpio":             "slice 13: adapters/hostpty and adapters/attach replace vpio; the CLI reaches them through operations",
-			"internal/adapters/cli -> internal/vpio/dockerexec":           "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/adapters/cli -> internal/vpio/goplugin":             "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
 			"internal/adapters/cli -> internal/adapters/confpatch":        "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the CLI",
 
 			// cli/tui and termui
-			"internal/adapters/cli/tui -> internal/lm/grpc":             "slice 13: cli/tui sits on the coordination proto and the transcript file; the plugin wire is deleted",
 			"internal/adapters/cli/tui -> internal/adapters/operations": "slice 13: the watch UI reads the coordination proto and the transcript file, not the application services",
 			"internal/adapters/cli/tui -> internal/adapters/termui":     "slice 13: termui sits over the pty master; the TUI no longer composes it",
-			"internal/adapters/termui -> internal/lm/grpc":              "slice 13: the go-plugin protocol is deleted whole",
 
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)
 			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
 			"internal/adapters/operations -> internal/lm/backends":                      "slice 11b: lm/backends is deleted whole",
-			"internal/adapters/operations -> internal/lm/grpc":                          "slice 13: the go-plugin protocol is deleted whole",
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
 			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
@@ -342,15 +318,13 @@ var LayeringRules = []LayeringRule{
 			// runner/mcp is the runner's own subpackage: the endpoint serves over
 			// the Home the runner owns
 			"internal/adapters/runner/mcp -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
-			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the llm host command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
 
 			// the runner's two halves today
-			"internal/lm/grpc -> internal/adapters/transcript":        "slice 13: the go-plugin protocol is deleted whole",
-			"internal/lm/grpc -> internal/adapters/transcript/policy": "slice 13: the go-plugin protocol is deleted whole",
-			"internal/adapters/mcp -> internal/lm/backends":           "slice 13: the stdio server dies with the plugin arm; its session tools resolve the backend until then",
-			"internal/adapters/mcp -> internal/adapters/memory":       "slice 14a: memory off the plugin; the compactor is an operation",
-			"internal/adapters/mcp -> internal/adapters/operations":   "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
-			"internal/adapters/mcp -> internal/adapters/transcript":   "slice 14a: the engine-host half of the runner records the transcript",
+			"internal/adapters/mcp -> internal/lm/backends":         "slice 13: the stdio server dies with the plugin arm; its session tools resolve the backend until then",
+			"internal/adapters/mcp -> internal/adapters/memory":     "slice 14a: memory off the plugin; the compactor is an operation",
+			"internal/adapters/mcp -> internal/adapters/operations": "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
+			"internal/adapters/mcp -> internal/adapters/transcript": "slice 14a: the engine-host half of the runner records the transcript",
 			// the engine host records the canonical transcript through
 			// adapters/transcript's recorder; the composition hands the runner a
 			// recorder port instead when runner.Main is composed under cmd/*
@@ -364,9 +338,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/runner/coordtest -> internal/lm/backends":        "slice 13: the double dies with the stdio server's tests (measured)",
 
 			// isolation, memory, and the leaf adapters
-			"internal/adapters/isolation -> internal/lm/grpc":                             "slice 13: the go-plugin protocol is deleted whole",
-			"internal/vpio/dockerexec -> internal/adapters/isolation":                     "slice 13: vpio/dockerexec is deleted with the go-plugin protocol",
-			"internal/vpio/goplugin -> internal/lm/grpc":                                  "slice 13: vpio/goplugin is deleted with the go-plugin protocol",
 			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",
 			"internal/adapters/content/attest -> internal/adapters/signing":               "slice 5: attest.VerifyBundle is the one verifier over the signing adapter — a `must never know: each other` edge Part 1.1 does not resolve; measured",
 			"internal/adapters/transcript/vendorreader/claude -> internal/engines/claude": "slice 11b: the claude reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",

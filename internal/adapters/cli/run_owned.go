@@ -17,17 +17,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// Phase 2a-B host side: a TOP-LEVEL container run that is a
-// --print oneshot no longer constructs a go-plugin client. It mints an
-// owner-owned run in the in-process coordinator (Coordinator.StartOwnedRun),
-// spawns the runner via the SAME StartRunner primitive Phase 1/Part A use, and
-// drives the session by WATCHING that run's event stream over the in-process
-// Coordinator.WatchRuns — the container dials out on Transport 2, opening no
-// in-container listener. Host/worktree top-level runs stay on go-plugin (§0.4);
-// only a container policy reaches here.
+// The owner-owned run: `ctxloom run` mints a run in the coordinator it hosts
+// in-process (Coordinator.StartOwnedRun), starts its runner through the
+// launch's starter, and drives the session by WATCHING that run's event
+// stream over the in-process Coordinator.WatchRuns. The runner dials out on
+// the RunnerChannel; nothing listens in the cell.
 
 // ownedRunSession bundles a live owner-owned run with its pre-subscribed event
 // stream. The subscription is opened BEFORE StartOwnedRun so the first turn's
@@ -40,60 +36,33 @@ type ownedRunSession struct {
 	cancel  func()
 }
 
-// ownedRunLaunch is startContainerOwnedRun's request. It is a struct rather
-// than a positional list because the launch needs fourteen inputs, three of
-// them adjacent strings (harp, context, prompt) that a transposition at the
-// call site would swap silently — a run named after its own prompt, with the
-// assembled context delivered as the harp, and nothing in the type system
-// objecting. A keyed literal makes each value say what it is.
+// ownedRunLaunch is startOwnedRun's request: the owner's resolved launch,
+// the composed MCP names the enqueue journal records, and the env the
+// coordinator stamped for this session's owner (its credential identifies
+// the owner). A keyed literal makes each value say what it is.
 type ownedRunLaunch struct {
-	// Launch is the owner's resolved launch; the coordinator's owned run is
-	// enqueued from it and the runner delivers it. Policy/Workspace are its
-	// cell's transport handle.
 	Launch     launch.Launch
-	Policy     isolation.Policy
-	Workspace  isolation.Workspace
-	Verbosity  int
 	MCPServers []agent.ChatMCPServer
 	RunnerEnv  map[string]string
 }
 
-// startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
-// event stream, then mint the owner-owned run and spawn its runner via the
-// StartRunner keepalive-with-run-id primitive (the runner runs `ctxloom llm
-// host` WITH the run-id trio, so EngineHost drives the engine and emits
-// AgentEvents over the RunChannel — byte-for-byte the Phase-1 delegated
-// runner). The returned RunnerHandle is the caller's teardown handle
-// (isolation `docker rm -f` by name); the ownedRunSession carries the outcome +
-// event stream the oneshot consumer drives.
-func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunch) (*isolation.RunnerHandle, *ownedRunSession, error) {
+// processStarter is the owner run's starter for a launch whose runner is a
+// plain process (operations.RunnerStarter over this run's cell); the handle
+// is recorded on the state so a container that failed to reach running is
+// still torn down.
+func (st *runState) processStarter() coord.OwnedRunStarter {
+	return operations.RunnerStarter(operations.PreparedCell{Policy: st.policy, Workspace: st.ws}, st.backendName, st.label, runVerbosity,
+		func(h *isolation.RunnerHandle) { st.runnerHandle = h })
+}
+
+// startOwnedRun subscribes to the coordinator's event stream, then mints the
+// owner-owned run and starts its runner through start (with the per-run
+// reach-back trio the coordinator mints). The ownedRunSession carries the
+// outcome + event stream the drive consumes; the runner's teardown handle is
+// whatever the starter recorded.
+func startOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunch, start coord.OwnedRunStarter) (*ownedRunSession, error) {
 	if c == nil {
-		return nil, nil, fmt.Errorf("container oneshot run needs the hosted session coordinator, which failed to stand up")
-	}
-	var handle *isolation.RunnerHandle
-	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), string, error) {
-		h, err := spec.Policy.StartRunner(sctx, string(spec.Launch.Engine), spec.Launch.Label.Label, spec.Verbosity, spec.Workspace, spawnEnv)
-		if err != nil {
-			return nil, "", err
-		}
-		handle = h
-		// Await the container HERE, inside the starter, not after
-		// StartOwnedRun returns. StartRunner returning is not the container
-		// running, and the very next thing StartOwnedRun does is wait for the
-		// runner to dial home — which a container that never came up can never
-		// do, so a check placed after the call would never be reached. The
-		// interactive arm learned this; the oneshot arm was left unguarded,
-		// which is the arm every CI and acceptance run takes.
-		//
-		// Kill is returned ALONGSIDE the error so the caller still registers
-		// teardown: a container that failed to reach running may still exist.
-		if rerr := isolation.AwaitContainerRunning(operations.RuntimeForPolicy(spec.Policy), h); rerr != nil {
-			strictness.FailAlways(strictness.ClassIsolation,
-				"check the container runtime and the agent image can start (`docker logs `/`podman logs ` the named container); this run cannot fall back to the host without silently dropping the boundary it was given",
-				"container %q was started but never reached running state, so the isolation it promised does not exist: %v", h.Name, rerr)
-			return h.Kill, h.Name, rerr
-		}
-		return h.Kill, h.Name, nil
+		return nil, fmt.Errorf("this run needs the session coordinator it hosts, which failed to stand up (a runner receives its launch from it)")
 	}
 
 	owner, ok := c.Identify(spec.RunnerEnv[coord.EnvCoordCred])
@@ -120,19 +89,19 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 		Launch:     spec.Launch,
 		MCPServers: spec.MCPServers,
 		OneShot:    spec.Launch.Mode == engine.Structured,
-	}, starter, spec.Launch.Prompt)
+	}, start, spec.Launch.Prompt)
 	if err != nil {
 		cancel()
-		return handle, nil, err
+		return nil, err
 	}
 	narrow(outcome.RunID)
 	stop := make(chan struct{})
 	var stopOnce sync.Once
 	end := func() { stopOnce.Do(func() { cancel(); close(stop) }) }
-	return handle, &ownedRunSession{coord: c, outcome: outcome, events: wireEvents(events, stop), cancel: end}, nil
+	return &ownedRunSession{coord: c, outcome: outcome, events: wireEvents(events, stop), cancel: end}, nil
 }
 
-// runOneshotViaCoord drives a --print container oneshot over Transport 2: it
+// runOneshotViaCoord drives a --one-shot owner run: it
 // streams the run's FINAL-channel answer to stdout as it arrives, and at the
 // turn boundary records the canonical two-entry oneshot transcript
 // (transcript.RecordOneshot — the silent-no-op guard) from the collected text.
@@ -179,9 +148,8 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 	if text != "" && !strings.HasSuffix(text, "\n") {
 		fmt.Fprintln(stdout)
 	}
-	// BOTH --print arms close out through recordOneshotAnswer, so
-	// "the engine answered nothing" is one rule with one message rather than a
-	// warning on this arm and no check at all on the go-plugin one. Capture runs
+	// The --print arm closes out through recordOneshotAnswer, so "the engine
+	// answered nothing" is one rule with one message. Capture runs
 	// even on a nonzero exit (partial prose is still real memory of what
 	// happened), but the run's own failure takes precedence — it already said
 	// what went wrong.
@@ -202,8 +170,8 @@ type ownedRenderResult struct {
 
 // renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
 // forwards FINAL-channel message deltas (text mode → prose to out; json mode →
-// the same NDJSON entry contract renderChatEvents/chatEventToJSON emit for the
-// go-plugin arm — run_structured.go), signals each turn boundary on turnIdle
+// the NDJSON entry contract chatEventToJSON defines — run_structured.go),
+// signals each turn boundary on turnIdle
 // (non-blocking) carrying the answer text accumulated so far, and returns
 // that text plus nil at RunCompleted or ctx.Err() on cancellation.
 // REASONING/LOG channels are excluded — the host renders the answer, not the
@@ -216,11 +184,9 @@ type ownedRenderResult struct {
 // drives this renderer directly and several assert on the RETURNED text.
 func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
 	// Reject a format this renderer cannot honor BEFORE consuming the stream,
-	// on the same text/json pair renderChatEvents enforces (format.go). Which
-	// arm a container run takes is an isolation-policy decision, not the
-	// user's, so a --format value must mean the same thing on both: falling
-	// through to raw prose here made an unsupported format an error on the
-	// go-plugin arm and a silent downgrade on this one.
+	// on the text/json pair the streaming commands support (format.go):
+	// falling through to raw prose would make an unsupported format a silent
+	// downgrade.
 	switch format {
 	case formatJSON, formatText, "":
 	default:

@@ -259,7 +259,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 			}
 		}
 		if src.Entry != nil {
-			result, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Model: model, Progress: io.Discard})
+			result, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard})
 			if derr != nil {
 				return nil, fmt.Errorf("compaction failed: %w", derr)
 			}
@@ -283,7 +283,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
 		taskHint, _ := memory.ReadNextStep(harp)
-		distiller := operations.NewLazyOneShot(s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
+		distiller := operations.NewLazyOneShot(s.hostsFor(), s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
 		defer distiller.End()
 		source, serr := operations.DistillSource(backend, workDir)
 		if serr != nil {
@@ -387,7 +387,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 		if distilled && !knownStale {
 			continue // fresh essence already present
 		}
-		if _, err := compactEntryFn(ctx, e, s.cfg, operations.DistillOptions{Progress: io.Discard}); err != nil {
+		if _, err := compactEntryFn(ctx, e, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Progress: io.Discard}); err != nil {
 			clidiag.Warn("ctxloom", "list_sessions: could not distill %s: %v", e.HarpName, err)
 		}
 	}
@@ -739,7 +739,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 			}
 		}
 
-		if _, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Model: model, Progress: io.Discard}); derr != nil {
+		if _, derr := operations.DistillEntry(ctx, src, s.cfg, operations.DistillOptions{Hosts: s.hostsFor(), Model: model, Progress: io.Discard}); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
@@ -1127,7 +1127,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
 	taskHint, _ := memory.ReadNextStep(harp)
-	distiller := operations.NewLazyOneShot(s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
+	distiller := operations.NewLazyOneShot(s.hostsFor(), s.cfg, s.strictness(), s.cfg.FastLabel(), model, workDir, "", 0)
 	defer distiller.End()
 	source, serr := operations.DistillSource(backendName, workDir)
 	if serr != nil {

@@ -51,10 +51,33 @@ func (c *Coordinator) Turn(ctx context.Context, runID string, t engine.Turn) (en
 		return engine.TurnResult{}, fmt.Errorf("turn %s: %w", runID, err)
 	}
 	if resp.Err != nil {
+		if errors.Is(resp.Err, ErrRunnerSessionEnded) {
+			// The runner ended instead of answering: the run's terminal names
+			// WHY (the engine's exit, a signal, a stop), which is what the
+			// caller — a distill left raw, a probe that failed — reports.
+			return engine.TurnResult{}, fmt.Errorf("turn %s: the run ended before answering: %s", runID, c.runTerminal(runID))
+		}
 		return engine.TurnResult{}, fmt.Errorf("turn %s refused: %s", runID, resp.Err.Error())
 	}
 	res, _ := resp.Kind.(TurnResult)
 	return res.Result, nil
+}
+
+// runTerminal renders a run's terminal cause and detail ("runner-exit: exit
+// status 1"), or "no terminal recorded" for a run that has none yet.
+func (c *Coordinator) runTerminal(runID string) string {
+	out := "no terminal recorded"
+	c.runs.View(func() {
+		r := c.runsF.run(runID)
+		if r == nil || !r.Ended {
+			return
+		}
+		out = r.Cause
+		if r.Detail != "" {
+			out += ": " + r.Detail
+		}
+	})
+	return out
 }
 
 // idleReaper sweeps every idleReapInterval until the coordinator closes.

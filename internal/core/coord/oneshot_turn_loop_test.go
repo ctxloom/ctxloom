@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/testsupport/scriptedchat"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,9 +55,9 @@ func TestSlotYield_MidTurnParkYieldsSlotToPeer(t *testing.T) {
 	sp := startRunSpawner(func() *scriptedChat {
 		spawns++
 		if spawns == 1 {
-			return &scriptedChat{TurnGate: aGate} // A: held mid-turn, then parks
+			return &scriptedChat{Gate: aGate} // A: held mid-turn, then parks
 		}
-		return &scriptedChat{TurnGate: bGate} // B: held mid-turn until released
+		return &scriptedChat{Gate: bGate} // B: held mid-turn until released
 	})
 	c := newTestCoordinatorCap(t, sp, nil, 1) // cap 1: B can only run if A yields its slot
 
@@ -187,15 +188,15 @@ func TestReapEndedRuns_KeepsCurrentAndTail(t *testing.T) {
 // TestRetention_BoundsFoldGrowthAcrossResumes is the integration half of the
 // reap: the wiring terminateRun → reapEndedRuns must keep the live fold
 // bounded as one harp accumulates ended run after ended run. It uses an
-// in-process engine that EXITS after each turn (endAfterTurns:1) — so every
-// mailbox delivery resumes the harp as a fresh, promptly-ended incarnation,
+// in-process engine whose process ENDS the run after each turn (EndAfterTurns:1)
+// — so every mailbox delivery resumes the harp as a fresh, promptly-ended incarnation,
 // the churn a repeatedly reaped harp produces. With tail=1 the fold must never
 // grow one record per resume.
 func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(
 		map[string]fakeAgent{"worker": {perm: "bypass", profiles: []string{"p1"}}},
-		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // ends its run after each turn
+		func() *scriptedChat { return &scriptedChat{EndAfterTurns: 1} }, // its run ends after each turn
 	)
 	teeHome(t)
 	c, err := New(Options{
@@ -212,7 +213,7 @@ func TestRetention_BoundsFoldGrowthAcrossResumes(t *testing.T) {
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task", "", "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
-		"the engine exits after its turn, ending the run")
+		"the engine ends after its turn, ending the run")
 
 	const resumes = 6
 	for i := 1; i <= resumes; i++ {
@@ -242,7 +243,7 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 		"worker": {perm: "bypass", runtime: launch.RuntimeRootless, profiles: []string{"p1"},
 			backend: "claude-code"}, // oneshot:false
 	}, nil)
-	sp.nextChat = func() *scriptedChat { return &scriptedChat{Resumable: true} }
+	sp.nextChat = func() *scriptedChat { return &scriptedChat{} }
 	c := newTestCoordinator(t, sp, nil)
 
 	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "task one", "", "")
@@ -255,19 +256,17 @@ func TestOneShot_PersistentModeUnchanged(t *testing.T) {
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond,
 		"a persistent child parks idle at the boundary, engine warm")
 
-	// A second turn is handled by the SAME engine process (no resume, no new
-	// chat spawned).
+	// A second turn is handled by the SAME runner (no second spawn): a fresh
+	// engine process resumed by the key turn 1 reported.
 	_, err = c.AgentSend(ownerIdentity(), out.Harp, KindMessage, "again", nil, "")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		sc := sp.chat(0)
 		return sc != nil && len(sc.RecordedTexts()) == 2
-	}, conformanceWait, 10*time.Millisecond, "the warm engine handles turn 2 itself")
-	assert.Equal(t, 1, sp.chatCount(), "a persistent child must never spawn a second engine for a follow-up turn")
-	// The second turn was a plain follow-up, not a resume-by-key.
-	sc := sp.chat(0)
-	sc.Mu.Lock()
-	require.Len(t, sc.Requests, 1)
-	assert.Empty(t, sc.Requests[0].ResumeSessionID, "a persistent turn never rides a resume id")
-	sc.Mu.Unlock()
+	}, conformanceWait, 10*time.Millisecond, "the parked runner handles turn 2 itself")
+	assert.Equal(t, 1, sp.chatCount(), "a persistent child must never spawn a second runner for a follow-up turn")
+	keys := sp.chat(0).RecordedKeys()
+	require.Len(t, keys, 2)
+	assert.Empty(t, keys[0], "the first turn resumes nothing")
+	assert.Equal(t, scriptedchat.NativeKey, keys[1], "the follow-up turn's process resumes by the key the first reported")
 }

@@ -202,6 +202,22 @@ type ChatMessage struct {
 	Terminal *TerminalResponse
 }
 
+// Kind names the port-level kind of the event a driver relays
+// (engine.Event.Kind): "session", "complete", the entry's own type, or
+// "event" for a raw-only frame.
+func (ev ChatEvent) Kind() string {
+	switch {
+	case ev.Session != nil:
+		return "session"
+	case ev.Complete != nil:
+		return "complete"
+	case ev.Entry != nil:
+		return string(ev.Entry.Type)
+	default:
+		return "event"
+	}
+}
+
 // ChatEvent is one normalized outbound event. The variants are distinct in
 // payload, cardinality, and timing — NOT duplicative; exactly one field is set:
 //

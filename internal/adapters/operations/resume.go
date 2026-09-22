@@ -7,7 +7,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -64,7 +63,11 @@ func RecordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEn
 	if entry.SessionID == "" {
 		return nil, fmt.Errorf("session %q has no bound transcript to load", harp)
 	}
-	sess, err := pb.NewSessionReader(entry.Backend, 0).GetSession(ctx, entry.SessionID)
+	hist, err := HistoryForBackend(entry.Backend)
+	if err != nil {
+		return nil, fmt.Errorf("load session %q: %w", harp, err)
+	}
+	sess, err := transcript.NewEngineReader(hist, entry.ProjectDir).GetSession(ctx, entry.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("load session %q: %w", harp, err)
 	}

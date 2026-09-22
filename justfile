@@ -360,8 +360,8 @@ test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     set -e
     export GOTMPDIR="{{go_tmp}}"
     # Gate on BOTH configurations, not just -race. gremlins and `just cover`
-    # both run WITHOUT -race, and that no-race path caught a real flake in
-    # internal/lm/grpc that -race's slower goroutine scheduling was masking —
+    # both run WITHOUT -race, and that no-race path has caught a real flake
+    # that -race's slower goroutine scheduling was masking —
     # -race made the bug pass, it didn't report it (a genuine data race would
     # have shown up red under -race, not green). Before this, that config ran
     # constantly but gated nothing, which is exactly how the flake stayed

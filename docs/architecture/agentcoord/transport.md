@@ -89,6 +89,38 @@ client of another process's coordinator — so its `bearerToken` mirrors
 `runner/runnerlink.go`'s `bearerCreds` rather than sharing a type with a server it
 never links.
 
+## Bridge listener posture
+
+The bridge is the plane every runner reaches its coordinator over, and every
+runner that dials it — host process or container foreground — authenticates
+with the run credential it was minted (`sessions.EncodeReach` on the runner
+env, `runnerlink.go`'s `bearerCreds` on the wire). The posture, stated once so
+it is not inferred from scattered call sites:
+
+- **Bearer-authenticated, on every stream.** `grpcServer`'s `auth` interceptor
+  calls `Coordinator.Identify(mdToken(ctx))` before any handler runs;
+  `RunnerChannel` / `RunChannel` re-check per stream and refuse an unknown or
+  revoked credential with `codes.Unauthenticated` before a Hello is read (T2's
+  sibling — a frame that carries no issued credential never reaches a
+  `HelloAck`). A guessed loopback port buys nothing without the run's own
+  token, which is never journaled and never rides a message body.
+- **Cleartext (h2c), by design in 0.7.** `coordgrpc.Serve` stands up an h2c
+  listener and `runnerlink.go` dials with `RequireTransportSecurity` false: the
+  bearer is the whole boundary, and it is carried unencrypted. The threat this
+  accepts is a same-host or same-LAN observer of the loopback/wide listener
+  reading a bearer in flight. On the loopback listener the reader must already
+  share the host (and a host-runtime credential is readable from any same-uid
+  process's environment regardless — the container runtime is the actual
+  isolation boundary, not this link). On the **wide** listener the exposure is
+  broader: `coordServing.ensureWide`'s fallback binds the host's primary
+  outbound interface IP (`containerReachIPs` → `primaryOutboundIP`), which is
+  LAN-visible, so a bearer crosses a LAN-visible socket in the clear whenever a
+  container child reaches back over it.
+- **mTLS is slice 16's.** Encrypting the bridge and verifying a runner by client
+  certificate — refusing a runner with no cert, and moving the boundary from
+  "holds the bearer" to "presents a trusted cert" — is a later, separate change;
+  this document describes the cleartext-plus-bearer posture that ships in 0.7.
+
 ## gRPC server and runner sessions
 
 | Symbol | Contract |
@@ -178,10 +210,10 @@ in slice 9.
 | `resolveApproval` | see [approvals.md](approvals.md) |
 | `usageFromMeta` / `usdToMicros` / `nonNegU64` | `TurnMeta` → `Usage`, with round-half-even micro-USD and NaN/Inf/negative guards |
 
-`EngineHost` calls `eh.backend.Chat(ctx, dec.Chat, in, out)` **in-process**
-(`enginehost.go`) — the go-plugin `Chat` RPC is never dialed on this path, which is
-why `ChatRequest` fields that the `ChatStart` proto drops (`Runtime`,
-`ResumeSessionID`) still survive here.
+`EngineHost.runTurn` drives `Instance.Drivers()[0].Turn(ctx, ex, engine.Turn{Prompt, Resume}, out)`
+**in-process** (`enginehost.go`): one engine process per turn, the native events
+relayed on `out` as `agent.ChatEvent` payloads; no RPC sits between the host
+and the engine.
 
 ## Invariants
 

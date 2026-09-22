@@ -338,7 +338,6 @@ var noEngineNameInCoreAllowed = map[string]string{
 	"internal/adapters/tmuxhost/paneinject.go": "slice 13: hostpty spawns the runner; the pane-injection table keyed by engine name goes with tmuxhost",
 
 	// the retiring plugin wire and the vendor readers
-	"internal/lm/grpc/mock_client.go": "slice 13: the go-plugin protocol is deleted whole",
 }
 
 // scanEngineNameLiterals finds every string literal equal to a registered
@@ -450,12 +449,11 @@ var envLiteralsOnceAllowed = map[string]string{
 	// the engines: Home() is a HomeSpec the runner realises
 	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
-	"internal/lm/backends/mock.go":                               "slice 11b: lm/backends is deleted whole",
+	"internal/engines/mock/record.go":                            "the mock's TEST-CONTROL knobs (CTXLOOM_MOCK_*) fall back to the process environment so a scenario can script the engine through the run's env; a fake, never a production engine",
 	"internal/lm/backends/panelaunch.go":                         "slice 11b: lm/backends is deleted whole",
 	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 11b: the reader becomes an engine.TranscriptReader handed the home it reads",
 
 	// the runner's halves today
-	"internal/lm/grpc/client.go":                  "slice 13: the go-plugin protocol is deleted whole",
 	"internal/adapters/mcp/mcp_resources.go":      "slice 9: runner/mcp serves Loadout.Index; the cwd is the launch's",
 	"internal/adapters/mcp/owner_socket.go":       "slice 13: the plugin-hosted owner arm's socket endpoint dies with the plugin arm; its cwd is the cell-path boundary until then",
 	"internal/adapters/mcp/mcp_tools_agents.go":   "slice 13: the stdio delegation surface (PATH A) leaves once the acceptance journeys drive the runner's endpoint; no cwd or env is read then",

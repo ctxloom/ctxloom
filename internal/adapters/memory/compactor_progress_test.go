@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -31,8 +30,8 @@ func progressFixture(t *testing.T, progress io.Writer) *Compactor {
 			},
 		},
 	}
-	mockClient := &pb.MockClient{
-		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+	mockClient := &scriptedDistiller{
+		RunFunc: func(ctx context.Context, prompt string, stdout, stderr io.Writer) (int32, error) {
 			_, _ = stdout.Write([]byte("Distilled."))
 			return 0, nil
 		},

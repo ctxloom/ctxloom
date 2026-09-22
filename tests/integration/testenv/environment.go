@@ -432,7 +432,20 @@ func (e *TestEnvironment) Setup() error {
 	// Clear any existing MLCM config paths
 	e.storeAndSetEnv("XDG_CONFIG_HOME", filepath.Join(e.HomeDir, ".config"))
 
-	e.storeAndSetEnv("PATH", scrubCompanionDirs(os.Getenv("PATH")))
+	// The binary under test is on the scenario's PATH under its production
+	// name: a hook ctxloom delivers names the bare executable (`ctxloom hook
+	// mail-drain`), and the engine that fires it must reach the SAME binary
+	// the scenario drives — never whichever ctxloom the developer's PATH
+	// happens to hold, and never nothing. A private dir with one link keeps
+	// the rest of the developer's PATH (sh, git, the toolchain) as it is.
+	binDir := filepath.Join(e.Root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return fmt.Errorf("scenario bin dir: %w", err)
+	}
+	if err := os.Symlink(e.AppBinary, filepath.Join(binDir, "ctxloom")); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("put the binary under test on the scenario's PATH: %w", err)
+	}
+	e.storeAndSetEnv("PATH", binDir+string(os.PathListSeparator)+scrubCompanionDirs(os.Getenv("PATH")))
 
 	return nil
 }

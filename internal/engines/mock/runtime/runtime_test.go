@@ -2,7 +2,6 @@ package runtime_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,41 +49,6 @@ func runOneshot(t *testing.T, cwd string, vendorArgv []string, prompt string, en
 		t.Fatalf("extract report from stderr: %v\nstderr:\n%s", err, stderr.String())
 	}
 	return stdout.String(), rep, code
-}
-
-// envelope mirrors parseClaudeJSONResult's read (internal/engines/claude): the driver
-// picks the model with the most outputTokens and returns result. This test
-// asserts the mock emits exactly what that decode expects on the minimal form.
-type envelope struct {
-	Result     string `json:"result"`
-	ModelUsage map[string]struct {
-		InputTokens  int `json:"inputTokens"`
-		OutputTokens int `json:"outputTokens"`
-	} `json:"modelUsage"`
-}
-
-// TestRuntime_OneshotJSONEnvelopeOnTheMinimalForm proves that when the argv
-// carries --output-format json (the signal the driver keys its json
-// decode on), stdout is the {result, modelUsage} envelope, attributed to the
-// --model value — not plain text, which would make the driver's decode fail on
-// a run it believed succeeded.
-func TestRuntime_OneshotJSONEnvelopeOnTheMinimalForm(t *testing.T) {
-	cwd := t.TempDir()
-	argv := []string{"--print", "--output-format", "json", "--model", "claude-sonnet-4-6"}
-	stdout, _, code := runOneshot(t, cwd, argv, "review this diff", nil)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	var env envelope
-	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
-		t.Fatalf("stdout is not the JSON envelope the driver parses: %v\nstdout: %s", err, stdout)
-	}
-	if env.Result == "" {
-		t.Fatal("envelope result is empty")
-	}
-	if _, ok := env.ModelUsage["claude-sonnet-4-6"]; !ok {
-		t.Fatalf("envelope did not attribute usage to the --model value: %+v", env.ModelUsage)
-	}
 }
 
 // TestRuntime_OneshotPlainWithoutJSONFlag proves that without the json flag the

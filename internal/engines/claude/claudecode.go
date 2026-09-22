@@ -1,18 +1,12 @@
 package claude
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -39,8 +33,9 @@ type ClaudeConfig struct {
 func (ClaudeConfig) BackendType() string { return EngineName }
 
 // ClaudeCode implements the Backend interface for Claude Code CLI. The shared
-// launch core (capability wiring, accessors, Setup/Cleanup) lives in the embedded
-// agent.LaunchBackend; ClaudeCode adds only the Claude-specific Configure/Execute.
+// launch core (capability wiring, accessors, the Execute tail) lives in the
+// embedded agent.LaunchBackend; ClaudeCode adds only the Claude-specific
+// Configure/Execute.
 type ClaudeCode struct {
 	agent.LaunchBackend
 	// kind is the engine KIND this backend projects requests onto: every
@@ -57,14 +52,6 @@ type ClaudeCode struct {
 	// IT: no argv or env of this package carries it, so the knob is accepted
 	// and validated but has no effect on a launch.
 	thinking agent.ThinkingLevel
-	// openChatTransport, when set, replaces spawnChatTransport as Chat's
-	// process I/O seam (see chat_run.go) — the hook chat_run_test.go uses to
-	// drive Chat against in-memory pipes instead of a spawned claude process.
-	openChatTransport chatTransportFunc
-	// now, when set, replaces time.Now as Chat's clock for stamping chat
-	// entries that arrive without a timestamp (claude's stream-json carries
-	// none) — deterministic in tests.
-	now func() time.Time
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
@@ -91,11 +78,6 @@ func NewClaudeCode() *ClaudeCode {
 	// settings write (surfaces_hewrecord.go) lands beneath; a run without one
 	// advises no engine home and that write refuses.
 	b.SetEngineHomeVar(ConfigDirEnv)
-	// claude's DECLARED minimal launch posture. Registering it here is what
-	// makes it a declaration: Setup resolves it for a LaunchFormMinimal run and
-	// buildArgs emits what Setup resolved, so no argv site reads a request flag
-	// to decide whether this run is a headless one.
-	b.SetMinimalLaunch(agent.MinimalArgsFunc(minimalModeArgs))
 	return b
 }
 
@@ -117,18 +99,20 @@ func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
 	}
 }
 
-// session projects an execute request onto the engine-facing Session the
-// instance is bound to: the harp the run env carries, the label's binary
-// and args, the model, the mode and posture, the delivered MCP server names
-// (the plan grant), the prompt, the working directory Setup recorded and
-// the relocated home the run env names.
+// session is the engine-facing Session the instance is bound to: the
+// runner's projection when the request carries one, else one projected from
+// the request — the harp the run env carries, the label's binary and args,
+// the model, the mode and posture, the prompt, the working directory and the
+// relocated home the run env names.
 func (b *ClaudeCode) session(req *agent.ExecuteRequest) engine.Session {
+	if req.Session != nil {
+		return *req.Session
+	}
 	s := engine.Session{
 		Identity:   sessions.Identity{Harp: req.Env[sessionHarpEnv]},
 		Label:      engine.LabelConfig{Label: EngineName, Model: req.Model, Binary: b.BinaryPath, Args: b.Args},
 		Mode:       req.Mode,
 		Permission: req.Permissions,
-		MCPServers: mcpServerNames(b.Resolved()),
 		Prompt:     agent.GetPromptContent(req.Prompt),
 		WorkDir:    b.WorkDir(),
 	}
@@ -138,44 +122,14 @@ func (b *ClaudeCode) session(req *agent.ExecuteRequest) engine.Session {
 	return s
 }
 
-// presented is what Setup delivered, as the presentations Exec reads: the
-// out-of-cwd flag each delivered surface announced with the path it wrote
-// (context, MCP, settings, in the resolved selection's order — argv order
-// is observable: a VARIADIC claude flag landing last before a positional
-// swallows it), then the minimal posture as an argv-only presentation when
-// Setup resolved LaunchFormMinimal. A surface whose Path() is "" wrote
-// nothing and presents nothing, so claude is never handed a flag naming a
-// file that was not written.
-func (b *ClaudeCode) presented() []present.Presentation {
-	var out []present.Presentation
-	if resolved := b.Resolved(); resolved != nil {
-		noRoots := present.New(present.OnHost(present.Paths{}))
-		for _, ra := range resolved.Approaches() {
-			p, ok := ra.Approach.(pathed)
-			if !ok || p.Path() == "" {
-				continue
-			}
-			announced := ra.Approach.Present(noRoots).Args
-			if len(announced) == 0 {
-				continue
-			}
-			out = append(out, present.Presentation{HostPath: p.Path(), EnginePath: p.Path(), Args: []string{announced[0], p.Path()}})
-		}
-	}
-	if minimal := b.MinimalArgs(); len(minimal) > 0 {
-		out = append(out, present.Presentation{Args: minimal})
-	}
-	return out
-}
-
 // exec is the request's Exec: the instance bound to the request's session,
-// over what Setup delivered.
+// over what the runner delivered (req.Presented).
 func (b *ClaudeCode) exec(req *agent.ExecuteRequest) (engine.Exec, error) {
 	inst, err := b.kind.Instance(b.session(req))
 	if err != nil {
 		return engine.Exec{}, err
 	}
-	return inst.Exec(b.presented())
+	return inst.Exec(req.Presented)
 }
 
 // Execute runs the backend with the given request.
@@ -192,54 +146,12 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 		Provider:  "anthropic",
 	}
 
-	// Minimal oneshot runs with --output-format json: buffer the envelope,
-	// emit the assistant text, and record the model the CLI actually used.
-	// The branch bypasses the shared tail's routing, so it assembles its own
-	// trace/env from the same helpers; dry-run still short-circuits first
-	// (inside ExecuteCLI for the common path, here for this one).
-	//
-	// The test is on the argv THIS RUN ACTUALLY BUILT, not on a request flag
-	// that separately implies it. Decoding a JSON envelope is only correct when
-	// --output-format json was emitted, so asking the argv is asking the one
-	// thing that can answer; a flag read here would be a second decision site
-	// for a fact buildArgs already settled, free to disagree with it.
 	ex, err := b.exec(req)
 	if err != nil {
 		return nil, err
 	}
 	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env })
 	args := ex.Args
-	if !req.DryRun && req.Mode == agent.ModeOneshot && wantsJSONEnvelope(args) {
-		b.TraceArgs(req.Verbosity, args, stderr)
-		env := b.ExecuteEnv(req)
-		var raw bytes.Buffer
-		exitCode, err := b.RunNonInteractive(ctx, args, env, promptStdin(req), &raw, stderr)
-		text, model, perr := parseClaudeJSONResult(raw.Bytes())
-		if perr != nil {
-			// Fault tolerant about the ENVELOPE: hand back whatever the CLI
-			// emitted and keep the best-effort model rather than dropping the
-			// result. Not tolerant about there being no result at all — see
-			// below.
-			payload := raw.Bytes()
-			if werr := writeAll(stdout, payload); werr != nil && err == nil {
-				err = werr
-			}
-			if oerr := requireOneshotOutput(payload, exitCode, err); oerr != nil {
-				return &agent.ExecuteResult{ExitCode: oneshotFailureCode(exitCode), ModelInfo: modelInfo}, oerr
-			}
-			return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
-		}
-		if werr := writeAll(stdout, []byte(text)); werr != nil && err == nil {
-			err = werr
-		}
-		if oerr := requireOneshotOutput([]byte(text), exitCode, err); oerr != nil {
-			return &agent.ExecuteResult{ExitCode: oneshotFailureCode(exitCode), ModelInfo: modelInfo}, oerr
-		}
-		if model != "" {
-			modelInfo.ModelName = model
-		}
-		return &agent.ExecuteResult{ExitCode: exitCode, ModelInfo: modelInfo}, err
-	}
 
 	// Oneshot pipes the task on stdin (buildArgs left it off the argv); interactive
 	// carries the prompt in argv and its stdin is the frontend's (req.Stdin).
@@ -250,105 +162,10 @@ func (b *ClaudeCode) Execute(ctx context.Context, req *agent.ExecuteRequest, std
 	return b.ExecuteCLI(ctx, req, args, oneshotStdin, modelInfo, stdout, stderr)
 }
 
-// claudeJSONResult is the subset of the `claude --output-format json` envelope
-// we consume: the assistant text and per-model token usage.
-type claudeJSONResult struct {
-	Result     string                      `json:"result"`
-	ModelUsage map[string]claudeModelUsage `json:"modelUsage"`
-}
-
-// claudeModelUsage is the per-model usage block. OutputTokens identifies the
-// model that generated the result: the CLI may route a large read through an
-// ancillary fast model (high input, tiny output) while the requested model does
-// the actual generation, so output — not input — marks the working model.
-// inputTokens is in the envelope too but this package never reads it;
-// json.Unmarshal ignores it automatically, so it isn't modeled.
-type claudeModelUsage struct {
-	OutputTokens int `json:"outputTokens"`
-}
-
-// parseClaudeJSONResult extracts the result text and the resolved model id from
-// a Claude CLI JSON envelope. The model is the modelUsage key with the most
-// output tokens — the one that produced the result — so provenance records the
-// generating model rather than a helper the CLI routed a read through. Ties
-// break on sorted id for determinism.
-// requireOneshotOutput turns "the minimal oneshot produced nothing" into a
-// real failure.
-//
-// This branch is the distill/compaction path, and it could return ExitCode 0
-// with a nil error having written ZERO bytes two ways: the CLI exits 0
-// emitting nothing (the envelope then fails to parse, the empty buffer is
-// copied through, and the nil error is returned), or the envelope parses fine
-// with an empty "result". Both are indistinguishable from a working run to
-// every exit-code gate above — which is exactly how a distillation that
-// produced nothing gets written back over content that was fine.
-//
-// An error the run ALREADY reported is left alone: it is the more specific
-// cause, and replacing it would hide why the run failed.
-func requireOneshotOutput(payload []byte, exitCode int32, runErr error) error {
-	if runErr != nil || len(bytes.TrimSpace(payload)) > 0 {
-		return nil
-	}
-	return fmt.Errorf("claude produced no output (exit %d)", exitCode)
-}
-
-// oneshotFailureCode keeps the CLI's own non-zero exit code when it had one —
-// that is the more specific signal — and otherwise synthesizes a failure,
-// since exit 0 is precisely the lie requireOneshotOutput exists to stop.
-func oneshotFailureCode(exitCode int32) int32 {
-	if exitCode != 0 {
-		return exitCode
-	}
-	return 1
-}
-
-// writeAll reports a short or failed write instead of discarding it. A
-// partially delivered oneshot result is a truncated result, and the caller
-// treats what it receives as complete.
-func writeAll(w io.Writer, payload []byte) error {
-	n, err := w.Write(payload)
-	if err != nil {
-		return fmt.Errorf("writing claude output: %w", err)
-	}
-	if n < len(payload) {
-		return fmt.Errorf("writing claude output: wrote %d of %d bytes", n, len(payload))
-	}
-	return nil
-}
-
-func parseClaudeJSONResult(data []byte) (text, model string, err error) {
-	var env claudeJSONResult
-	if err := json.Unmarshal(data, &env); err != nil {
-		return "", "", err
-	}
-	model = maxOutputModel(env.ModelUsage)
-	return env.Result, model, nil
-}
-
-// maxOutputModel returns the model id with the largest output-token count,
-// breaking ties on sorted id for determinism. Used to attribute a result to
-// the GENERATING model among the CLI's per-model usage entries.
-func maxOutputModel(m map[string]claudeModelUsage) string {
-	ids := make([]string, 0, len(m))
-	for id := range m {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	var best string
-	bestTokens := -1
-	for _, id := range ids {
-		if n := m[id].OutputTokens; n > bestTokens {
-			best, bestTokens = id, n
-		}
-	}
-	return best
-}
-
 // sessionHarpEnv is the env var carrying ctxloom's per-session harp name (e.g.
 // "fair-pushy-cable"). The host sets it on the run env; the backend reads it to
 // name the launched claude session. Aliases the shared const in the agent
-// substrate (which Setup also reads to place delivery scratch) so the two can't
-// drift.
+// substrate so the two can't drift.
 const sessionHarpEnv = agent.SessionHarpEnv
 
 // permissionArgs maps the generalized permission posture onto claude's flags.
@@ -430,38 +247,6 @@ func permissionArgs(mode agent.PermissionMode, mcpServers []string) []string {
 	return nil
 }
 
-// wantsJSONEnvelope reports whether argv asks the CLI for the JSON result
-// envelope, which is the only condition under which Execute may decode one. It
-// reads the argv THIS RUN BUILT rather than any request flag that implies it,
-// so the decode cannot get out of step with the emission: the mock engine
-// discriminates the same way, off the same token, at the other end of the
-// process boundary (the mock runtime's oneshotWantsJSON).
-func wantsJSONEnvelope(args []string) bool {
-	return argPair(args, flagOutputFormat, "json")
-}
-
-// minimalModeArgs is the distill/compaction posture: skip every unnecessary
-// startup path while keeping the requested model in force.
-func minimalModeArgs(model string) []string {
-	return []string{
-		// JSON envelope carries the resolved model id (modelUsage), letting
-		// Execute record the real model instead of guessing. The result is
-		// machine-consumed here, so we lose nothing by buffering it.
-		flagOutputFormat, "json",
-		flagTools, "", // Disable all tools
-		flagNoSlashCommands,  // No slash commands
-		flagNoSessionPersist, // Don't save session
-		flagStrictMCPConfig,  // ignore .mcp.json / external MCP servers
-		flagSystemPrompt, "", // drop CLAUDE.md/memory/identity so they don't pollute the result
-		// Isolate via in-line overrides rather than `--setting-sources ""`:
-		// an empty source list also drops the model config, so the CLI routes
-		// generation to its built-in fast model regardless of --model. These
-		// overrides disable hooks/MCP/attribution while leaving the requested
-		// model in force.
-		flagSettings, minimalSettings(model),
-	}
-}
-
 // buildArgs is the request's argv: Instance.Exec's, and nothing composed
 // here (TestBuildArgs_IsInstanceExec pins the delegation; the launch golden
 // pins the bytes).
@@ -481,29 +266,4 @@ func promptStdin(req *agent.ExecuteRequest) io.Reader {
 		return strings.NewReader(prompt)
 	}
 	return nil
-}
-
-// minimalSettings builds the JSON passed to `claude --settings` for headless
-// distill/compaction. It overrides the loaded settings to an isolated baseline —
-// no hooks, no project MCP, no attribution/cleanup, permissions bypassed — while
-// keeping the requested model in force (an empty `--setting-sources` would drop
-// the model config and route generation to the CLI's fast model). model is
-// omitted when empty so the CLI default applies.
-func minimalSettings(model string) string {
-	s := map[string]any{
-		"hooks":                      map[string]any{},
-		"enableAllProjectMcpServers": false,
-		"enabledMcpjsonServers":      []string{},
-		"includeCoAuthoredBy":        false,
-		"cleanupPeriodDays":          0,
-		"permissions":                map[string]any{"defaultMode": "bypassPermissions"},
-	}
-	if model != "" {
-		s["model"] = model
-	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
 }

@@ -150,6 +150,8 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	env := sessions.HookEnv(start.Identity)
 	if s.mode == progressSpawnDark {
 		l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", "/work", agent.PermissionBypass)
+		l.Axes.Runtime = launch.RuntimeRootless
+		l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 		l.Cell.Env = env
 		plan.Launch = l
 		return coord.Resolved{Launch: l}, nil
@@ -170,6 +172,11 @@ func (s *progressSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPl
 	s.mu.Unlock()
 	l := coord.OwnerLaunch(start.Identity.Harp, plan.Backend, plan.Label, "mock", ws.Dir(), agent.PermissionBypass)
 	l.Cell.Env = env
+	// As Resolve carries a container launch: the container axis (the runner
+	// dials the container-reachable listener) and a session endpoint for the
+	// runner to bind — any free loopback port inside the container.
+	l.Axes.Runtime = launch.RuntimeRootless
+	l.MCP = sessions.Endpoint{URL: "http://127.0.0.1:0/mcp", Credential: "child-itest-bearer"}
 	plan.Launch = l
 	return coord.Resolved{Launch: l}, nil
 }
@@ -394,7 +401,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	out, err := c.AgentRun(ctx, coord.OwnerIdentity(), progressAgentName, prompt, "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, out.Harp)
-	require.Equal(t, "container", out.Runtime)
+	require.Equal(t, "container", string(out.Runtime))
 	return out.Harp, startedAt, sp
 }
 

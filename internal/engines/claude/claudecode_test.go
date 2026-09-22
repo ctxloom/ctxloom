@@ -1,9 +1,6 @@
 package claude
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"testing"
@@ -229,34 +226,6 @@ func TestClaudeCode_BuildArgs_Model(t *testing.T) {
 	assert.True(t, found, "--model flag should be set")
 }
 
-// TestClaudeCode_BuildArgs_NativeContextFlag verifies that after Setup a normal
-// run loads ctxloom's assembled context via --append-system-prompt-file pointing
-// at the framed file the delivery seam materialized, while the minimal/distill
-// path (which drops context) does not. This is the SessionStart-injection
-// replacement for claude.
-func TestClaudeCode_BuildArgs_NativeContextFlag(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // keep HarpEphemeralDir under a temp home
-	backend := NewClaudeCode()
-	work := t.TempDir()
-
-	require.NoError(t, backend.Setup(context.Background(), &agent.SetupRequest{
-		WorkDir:   work,
-		Env:       sessionEnv("perky-same-chevy", t.TempDir()),
-		Fragments: []*agent.Fragment{{Content: "project rules"}},
-		Managed:   &agent.ManagedConfig{},
-	}))
-	framed := contextPathOf(backend)
-	require.NotEmpty(t, framed, "Setup must materialize the framed context file for the flag")
-
-	args := backend.buildArgs(&agent.ExecuteRequest{Mode: agent.ModeInteractive})
-	assert.True(t, argPair(args, "--append-system-prompt-file", framed),
-		"a normal run loads ctxloom context via --append-system-prompt-file")
-
-	minArgs := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
-	assert.NotContains(t, minArgs, "--append-system-prompt-file",
-		"minimal/distill mode must not load ctxloom context")
-}
-
 // TestClaudeCode_BuildArgs_OneshotMode verifies that oneshot mode adds
 // the --print flag for single-response execution.
 func TestClaudeCode_BuildArgs_OneshotMode(t *testing.T) {
@@ -292,67 +261,6 @@ func TestClaudeCode_BuildArgs_OneshotPromptOffArgv(t *testing.T) {
 // rather than an empty pipe.
 func TestClaudeCode_PromptStdin_NilWhenNoPrompt(t *testing.T) {
 	assert.Nil(t, promptStdin(&agent.ExecuteRequest{}), "no prompt → nil stdin")
-}
-
-// TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON verifies that minimal
-// oneshot mode (distillation/compaction) requests the JSON envelope so Execute
-// can read the resolved model id instead of guessing.
-func TestClaudeCode_BuildArgs_MinimalOneshotRequestsJSON(t *testing.T) {
-	args := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
-
-	assert.Contains(t, args, "--print")
-	assert.True(t, argPair(args, "--output-format", "json"),
-		"minimal oneshot should request JSON output")
-}
-
-// TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault verifies that minimal
-// mode with no explicit model adds no --model flag: the model is resolved by
-// the caller from the fast role's labeled config, not defaulted in the backend.
-func TestClaudeCode_BuildArgs_MinimalModeNoModelByDefault(t *testing.T) {
-	args := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot})
-
-	assert.NotContains(t, args, "--model",
-		"minimal mode must not default a model; the caller supplies it")
-}
-
-// TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode verifies that a
-// configured fast model (passed as req.Model) overrides the backend default.
-func TestClaudeCode_BuildArgs_ExplicitModelWinsInMinimalMode(t *testing.T) {
-	args := minimalBackend(t, "sonnet").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Model: "sonnet"})
-
-	assert.True(t, argPair(args, "--model", "sonnet"))
-}
-
-// TestClaudeCode_BuildArgs_MinimalModeIsolatesViaSettings verifies the headless
-// distill path isolates from CLAUDE.md/memory/MCP via --system-prompt "",
-// --strict-mcp-config, and an inline --settings override — NOT --setting-sources
-// "" (an empty source list drops the model config and routes generation to the
-// CLI's fast model regardless of --model).
-func TestClaudeCode_BuildArgs_MinimalModeIsolatesViaSettings(t *testing.T) {
-	args := minimalBackend(t, "claude-opus-4-8").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot, Model: "claude-opus-4-8"})
-
-	assert.NotContains(t, args, "--setting-sources",
-		"empty --setting-sources drops model routing; isolate via --settings instead")
-	assert.True(t, argPair(args, "--system-prompt", ""),
-		"minimal mode drops the built-in system prompt (CLAUDE.md/memory)")
-	assert.Contains(t, args, "--strict-mcp-config")
-	assert.True(t, argPair(args, "--model", "claude-opus-4-8"))
-	// The --settings payload carries the requested model and disables hooks.
-	settings := argValue(args, "--settings")
-	assert.Contains(t, settings, "claude-opus-4-8")
-	assert.Contains(t, settings, "\"hooks\":{}")
-}
-
-// TestMinimalSettings verifies the isolation JSON: hooks disabled, model present
-// only when supplied.
-func TestMinimalSettings(t *testing.T) {
-	withModel := minimalSettings("claude-opus-4-8")
-	assert.Contains(t, withModel, "\"model\":\"claude-opus-4-8\"")
-	assert.Contains(t, withModel, "\"hooks\":{}")
-
-	noModel := minimalSettings("")
-	assert.NotContains(t, noModel, "\"model\"", "empty model is omitted so the CLI default applies")
-	assert.Contains(t, noModel, "\"hooks\":{}")
 }
 
 // TestClaudeCode_BuildArgs_OrdinaryOneshotNoJSON verifies that an ordinary
@@ -411,18 +319,6 @@ func TestClaudeCode_BuildArgs_NoHarpNoName(t *testing.T) {
 		"absent harp must not produce a --name flag")
 }
 
-// TestClaudeCode_BuildArgs_MinimalModeNoName verifies that throwaway minimal
-// oneshot runs are not named even when a harp is present in env.
-func TestClaudeCode_BuildArgs_MinimalModeNoName(t *testing.T) {
-	args := minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{
-		Mode: agent.ModeOneshot,
-		Env:  map[string]string{sessionHarpEnv: "fair-pushy-cable"},
-	})
-
-	assert.NotContains(t, args, "--name",
-		"throwaway oneshot runs must not be named")
-}
-
 // TestClaudeCode_BuildArgs_Prompt verifies that prompt content is appended
 // as the final argument.
 func TestClaudeCode_BuildArgs_Prompt(t *testing.T) {
@@ -475,132 +371,6 @@ func TestClaudeCode_BuildArgs_Combined(t *testing.T) {
 	require.NotNil(t, promptStdin(req))
 }
 
-// =============================================================================
-// JSON Envelope Parsing
-//
-// In minimal oneshot mode the Claude CLI is invoked with --output-format json.
-// parseClaudeJSONResult extracts the assistant text and the resolved model id
-// (claude reports actual ids under modelUsage) so distilled_by records the real
-// model rather than a hardcoded guess.
-// =============================================================================
-
-// TestParseClaudeJSONResult_ExtractsResultAndModel verifies that a well-formed
-// envelope yields both the result text and the resolved model id.
-func TestParseClaudeJSONResult_ExtractsResultAndModel(t *testing.T) {
-	envelope := `{"type":"result","subtype":"success","is_error":false,` +
-		`"result":"# Distilled\n- point one","session_id":"abc",` +
-		`"modelUsage":{"claude-haiku-4-5":{"inputTokens":500,"outputTokens":16}}}`
-
-	text, model, err := parseClaudeJSONResult([]byte(envelope))
-
-	assert.NoError(t, err)
-	assert.Equal(t, "# Distilled\n- point one", text)
-	assert.Equal(t, "claude-haiku-4-5", model)
-}
-
-// TestParseClaudeJSONResult_PicksWorkingModel verifies that when the CLI reports
-// several models, provenance records the model that GENERATED the result — the
-// one with the most output tokens — not a fast helper the CLI routes a large
-// read through (high input, tiny output). Mirrors observed distill envelopes
-// where a helper reads the payload and the requested model does the generation.
-func TestParseClaudeJSONResult_PicksWorkingModel(t *testing.T) {
-	envelope := `{"result":"ok","modelUsage":{` +
-		`"claude-haiku-4-5":{"inputTokens":500,"outputTokens":16},` +
-		`"claude-opus-4-8":{"inputTokens":1,"outputTokens":54}}}`
-
-	_, model, err := parseClaudeJSONResult([]byte(envelope))
-
-	assert.NoError(t, err)
-	assert.Equal(t, "claude-opus-4-8", model)
-}
-
-// TestParseClaudeJSONResult_InvalidJSON verifies that malformed output is
-// reported as an error so callers can fall back to the raw bytes rather than
-// fabricating a result.
-func TestParseClaudeJSONResult_InvalidJSON(t *testing.T) {
-	_, _, err := parseClaudeJSONResult([]byte("not json at all"))
-
-	assert.Error(t, err)
-}
-
-// The minimal-oneshot branch — the distill/compaction path — could
-// return ExitCode 0 with a nil error having written ZERO bytes to stdout, two
-// ways: the CLI exits 0 emitting nothing (the envelope fails to parse, the
-// empty buffer is copied through, and the nil error is returned), or the
-// envelope parses fine with an empty "result". An exit-code gate sees neither,
-// so a distill that produced nothing reads exactly like one that worked.
-func TestClaudeCode_MinimalOneshot_NoOutput_IsAnError(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		emit  string
-		wants string
-	}{
-		{"CLI emitted nothing at all", "", "no output"},
-		{"envelope parsed with an empty result", `{"result":"","modelUsage":{}}`, "no output"},
-		{"envelope parsed with only whitespace", `{"result":"   \n","modelUsage":{}}`, "no output"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			b := minimalBackend(t, "")
-			b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, stdout, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
-				_, _ = io.WriteString(stdout, tc.emit)
-				return 0, nil
-			})
-
-			var out, errBuf bytes.Buffer
-			res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-				Mode:   agent.ModeOneshot,
-				Prompt: &agent.Fragment{Content: "summarize this"},
-			}, &out, &errBuf)
-
-			require.Error(t, err, "a oneshot that produced no output must not report success")
-			assert.Contains(t, err.Error(), tc.wants)
-			if res != nil {
-				assert.NotEqual(t, int32(0), res.ExitCode, "and it must not exit 0")
-			}
-		})
-	}
-}
-
-// Real output must still succeed, and must still reach stdout — the guard
-// must not turn a working distill into a failure.
-func TestClaudeCode_MinimalOneshot_WithOutput_StillSucceeds(t *testing.T) {
-	b := minimalBackend(t, "")
-	b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, stdout, _ io.Writer, _ <-chan agent.WindowSize) (int32, error) {
-		_, _ = io.WriteString(stdout, `{"result":"the summary","modelUsage":{"claude-x":{"outputTokens":5}}}`)
-		return 0, nil
-	})
-
-	var out, errBuf bytes.Buffer
-	res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-		Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "summarize this"},
-	}, &out, &errBuf)
-
-	require.NoError(t, err)
-	assert.Equal(t, "the summary", out.String())
-	require.NotNil(t, res)
-	assert.Equal(t, int32(0), res.ExitCode)
-	assert.Equal(t, "claude-x", res.ModelInfo.ModelName)
-}
-
-// A NON-ZERO exit with no output keeps the CLI's own exit code and error —
-// the guard must not mask a real failure with a synthesized one.
-func TestClaudeCode_MinimalOneshot_FailedRun_KeepsItsOwnExitCode(t *testing.T) {
-	b := minimalBackend(t, "")
-	b.SetLauncher(func(_ context.Context, _ agent.LaunchSpec, _ io.Reader, _, stderr io.Writer, _ <-chan agent.WindowSize) (int32, error) {
-		_, _ = io.WriteString(stderr, "boom")
-		return 3, nil
-	})
-
-	var out, errBuf bytes.Buffer
-	res, err := b.Execute(context.Background(), &agent.ExecuteRequest{
-		Mode: agent.ModeOneshot, Prompt: &agent.Fragment{Content: "summarize this"},
-	}, &out, &errBuf)
-
-	require.Error(t, err)
-	require.NotNil(t, res)
-	assert.Equal(t, int32(3), res.ExitCode, "the CLI's own exit code must survive")
-}
-
 // --- the prompt positional must survive a variadic flag ---------------------
 
 // LIVE REPRO (claude 2.1.220):
@@ -647,11 +417,6 @@ func TestClaudeCode_BuildArgs_NoTerminatorWithoutPrompt(t *testing.T) {
 		assert.NotContains(t, backend.buildArgs(req), "--",
 			"no prompt positional means no terminator")
 	}
-	// The minimal posture ends in a VARIADIC-adjacent flag set, so it is the
-	// shape most likely to grow a trailing token — assert it separately rather
-	// than dropping it with the flag that used to select it.
-	assert.NotContains(t, minimalBackend(t, "").buildArgs(&agent.ExecuteRequest{Mode: agent.ModeOneshot}), "--",
-		"no prompt positional means no terminator")
 }
 
 // Anti-drift: whatever else buildArgs learns to emit, EVERY interactive shape
@@ -685,44 +450,5 @@ func TestClaudeCode_BuildArgs_EveryPromptShapeIsTerminated(t *testing.T) {
 					"perm=%v model=%q cell=%v", perm, model, cell)
 			}
 		}
-	}
-}
-
-// TestMinimalSettings_NeverDegradesToEmptyObject is the pin behind a past
-// review's refutation. That review read minimalSettings's `return "{}"` as a
-// swallowed marshal error that drops permissions.defaultMode:
-// bypassPermissions, which would leave a headless distill run blocking on a
-// permission prompt nobody can answer. The branch cannot be reached: the
-// value handed to json.Marshal is a fixed graph of string / bool / int /
-// []string / map[string]any — no channel, func, NaN/Inf float, or cycle, the
-// only things encoding/json refuses — and the one caller-supplied part is a
-// plain string, which never fails to marshal (invalid UTF-8 is replaced with
-// U+FFFD, not rejected).
-//
-// So this asserts the PAYLOAD for adversarial model strings instead: valid JSON
-// carrying the bypass. It is the pin that bites the change which WOULD make
-// that review's claim true — adding an unmarshalable value to that map —
-// because the bypass would then be missing from the output.
-func TestMinimalSettings_NeverDegradesToEmptyObject(t *testing.T) {
-	for _, model := range []string{
-		"",
-		"claude-opus-4-8",
-		"\xff\xfe not utf-8",
-		`quote"and}brace`,
-		"\x00control",
-	} {
-		out := minimalSettings(model)
-		require.NotEqual(t, "{}", out, "model %q must not degrade the isolation settings to an empty object", model)
-
-		var decoded struct {
-			Permissions struct {
-				DefaultMode string `json:"defaultMode"`
-			} `json:"permissions"`
-			Hooks *map[string]any `json:"hooks"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(out), &decoded), "minimalSettings must always emit valid JSON")
-		assert.Equal(t, "bypassPermissions", decoded.Permissions.DefaultMode,
-			"a headless distill run has nobody to answer a permission prompt")
-		require.NotNil(t, decoded.Hooks, "hooks must be overridden, not left to the user's settings")
 	}
 }

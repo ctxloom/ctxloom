@@ -3,38 +3,60 @@ package claude
 import (
 	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
 	"io"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
 type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
 
-// ClaudeCode must satisfy the optional StructuredChat capability.
-var _ agent.StructuredChat = (*ClaudeCode)(nil)
-
-// chatArgv is the argv Chat spawns for req: the Instance's Exec plus the
-// stream-json protocol.
-func chatArgv(t *testing.T, req agent.ChatRequest) []string {
+// driverFor builds the kind with the transport seam injected and binds an
+// instance to s; it returns the driver and the exec the turn runs over.
+func driverFor(t *testing.T, s engine.Session, open chatTransportFunc, now func() time.Time, presented ...present.Presentation) (engine.StructuredDriver, engine.Exec) {
 	t.Helper()
-	b := NewClaudeCode()
-	inst, ex, err := b.chatExec(req)
+	kind, err := Build()
 	require.NoError(t, err)
-	return (&streamJSONDriver{inst: inst}).argv(ex, engine.Turn{})
+	c := kind.(Claude)
+	c.open = open
+	c.now = now
+	inst, err := c.Instance(s)
+	require.NoError(t, err)
+	ex, err := inst.Exec(presented)
+	require.NoError(t, err)
+	return inst.Drivers()[0], ex
 }
 
-func TestChatArgs_StreamJSONFlags(t *testing.T) {
-	joined := strings.Join(chatArgv(t, agent.ChatRequest{Model: "sonnet", Permissions: agent.PermissionBypass}), " ")
+// turnArgv is the argv one structured turn spawns for s: the Instance's
+// Exec plus the stream-json protocol.
+func turnArgv(t *testing.T, s engine.Session, in engine.Turn, presented ...present.Presentation) []string {
+	t.Helper()
+	kind, err := Build()
+	require.NoError(t, err)
+	inst, err := kind.Instance(s)
+	require.NoError(t, err)
+	ex, err := inst.Exec(presented)
+	require.NoError(t, err)
+	return (&streamJSONDriver{inst: inst.(*instance)}).argv(ex, in)
+}
+
+func structured(model string, perm agent.PermissionMode) engine.Session {
+	return engine.Session{Mode: engine.Structured, Label: engine.LabelConfig{Model: model}, Permission: perm}
+}
+
+func TestTurnArgs_StreamJSONFlags(t *testing.T) {
+	joined := strings.Join(turnArgv(t, structured("sonnet", agent.PermissionBypass), engine.Turn{}), " ")
 	assert.Contains(t, joined, flagPrint)
 	assert.Contains(t, joined, "--input-format stream-json")
 	assert.Contains(t, joined, "--output-format stream-json")
@@ -43,78 +65,80 @@ func TestChatArgs_StreamJSONFlags(t *testing.T) {
 	assert.Contains(t, joined, "--dangerously-skip-permissions")
 }
 
-// TestChatArgs_ResumeSessionID verifies --resume is emitted with the requested
-// session id, and omitted when ResumeSessionID is empty.
-func TestChatArgs_ResumeSessionID(t *testing.T) {
-	args := chatArgv(t, agent.ChatRequest{ResumeSessionID: "sess-123"})
+// TestTurnArgs_Resume verifies --resume is emitted with the key the turn
+// names, and omitted on a first turn.
+func TestTurnArgs_Resume(t *testing.T) {
+	args := turnArgv(t, structured("", 0), engine.Turn{Resume: "sess-123"})
 	assert.True(t, argPair(args, "--resume", "sess-123"))
 
-	args = chatArgv(t, agent.ChatRequest{})
+	args = turnArgv(t, structured("", 0), engine.Turn{})
 	assert.NotContains(t, args, "--resume")
 }
 
-// TestChatArgs_MCPConfigPath verifies --mcp-config is emitted with the path
+// TestTurnArgs_MCPConfigPath verifies --mcp-config is emitted with the path
 // the runner delivered, and omitted when there is none.
-func TestChatArgs_MCPConfigPath(t *testing.T) {
-	args := chatArgv(t, agent.ChatRequest{MCPConfigPath: "/tmp/scratch/.mcp.json"})
+func TestTurnArgs_MCPConfigPath(t *testing.T) {
+	delivered := present.Presentation{HostPath: "/tmp/scratch/.mcp.json", EnginePath: "/tmp/scratch/.mcp.json", Args: []string{flagMCPConfig, "/tmp/scratch/.mcp.json"}}
+	args := turnArgv(t, structured("", 0), engine.Turn{}, delivered)
 	assert.True(t, argPair(args, "--mcp-config", "/tmp/scratch/.mcp.json"))
 
-	args = chatArgv(t, agent.ChatRequest{})
+	args = turnArgv(t, structured("", 0), engine.Turn{})
 	assert.NotContains(t, args, "--mcp-config")
 }
 
-// TestChatArgs_NamesSessionFromHarp verifies the structured-chat session is named
-// after ctxloom's harp via --name, matching the interactive path, so it's findable
-// in the /resume picker.
-func TestChatArgs_NamesSessionFromHarp(t *testing.T) {
-	args := chatArgv(t, agent.ChatRequest{Env: map[string]string{sessionHarpEnv: "fair-pushy-cable"}})
+// TestTurnArgs_NamesSessionFromHarp verifies the structured session is named
+// after ctxloom's harp via --name, matching the interactive path, so it is
+// findable in the /resume picker.
+func TestTurnArgs_NamesSessionFromHarp(t *testing.T) {
+	s := structured("", 0)
+	s.Identity = sessions.Identity{Harp: "fair-pushy-cable"}
+	args := turnArgv(t, s, engine.Turn{})
 	assert.True(t, argPair(args, "--name", "fair-pushy-cable"))
 }
 
-// TestChatArgs_NoHarpNoName verifies that without a harp in env no --name flag is
+// TestTurnArgs_NoHarpNoName verifies that without a harp no --name flag is
 // added.
-func TestChatArgs_NoHarpNoName(t *testing.T) {
-	args := chatArgv(t, agent.ChatRequest{})
-	assert.NotContains(t, args, "--name")
+func TestTurnArgs_NoHarpNoName(t *testing.T) {
+	assert.NotContains(t, turnArgv(t, structured("", 0), engine.Turn{}), "--name")
 }
 
-// TestChat_PumpsMessagesAndStreamsEvents: a user message is written to the
-// transport's stdin as one NDJSON line, and the transport's stdout NDJSON is
-// mapped to ChatEvents on `out`; `out` is closed on return.
-func TestChat_PumpsMessagesAndStreamsEvents(t *testing.T) {
+// decode reads the events a turn relayed.
+func decode(t *testing.T, out <-chan engine.Event) []agent.ChatEvent {
+	t.Helper()
+	var evs []agent.ChatEvent
+	for ev := range out {
+		var ce agent.ChatEvent
+		require.NoError(t, json.Unmarshal(ev.Payload, &ce))
+		evs = append(evs, ce)
+	}
+	return evs
+}
+
+// TestTurn_WritesTheMessageAndRelaysEvents: the turn's prompt is written to
+// the transport's stdin as one NDJSON user message, the transport's stdout
+// NDJSON is relayed as chat events, and the result carries the answer and
+// the native key.
+func TestTurn_WritesTheMessageAndRelaysEvents(t *testing.T) {
 	stdout := strings.NewReader(
-		`{"type":"system","subtype":"init","model":"m","mcp_servers":[]}` + "\n" +
+		`{"type":"system","subtype":"init","model":"m","session_id":"sess-9","mcp_servers":[]}` + "\n" +
 			`{"type":"assistant","message":{"content":[{"type":"text","text":"hi there"}]}}` + "\n" +
 			`{"type":"result","subtype":"success","usage":{"input_tokens":10},"modelUsage":{"m":{"contextWindow":1000,"outputTokens":3}},"total_cost_usd":0.01}` + "\n")
 	var stdin bytes.Buffer
-
-	b := NewClaudeCode()
-	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
 	}
+	d, ex := driverFor(t, structured("m", 0), open, nil)
+	out := make(chan engine.Event, 16)
+	res, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "hello"}, out)
+	require.NoError(t, err)
+	close(out)
 
-	in := make(chan agent.ChatMessage, 1)
-	out := make(chan agent.ChatEvent)
-	in <- agent.ChatMessage{Text: "hello"}
-	close(in)
-
-	var evs []agent.ChatEvent
-	collected := make(chan struct{})
-	go func() {
-		for ev := range out {
-			evs = append(evs, ev)
-		}
-		close(collected)
-	}()
-
-	require.NoError(t, b.Chat(context.Background(), agent.ChatRequest{Model: "m"}, in, out))
-	<-collected
-
-	// stdin received the NDJSON user message.
 	assert.Contains(t, stdin.String(), `"type":"user"`)
 	assert.Contains(t, stdin.String(), `"content":"hello"`)
+	assert.Equal(t, "hi there", res.Answer)
+	assert.Equal(t, "sess-9", res.NativeKey, "the native key the next turn resumes by")
 
-	// stdout mapped to session + assistant entry + completion.
+	evs := decode(t, out)
 	require.Len(t, evs, 3)
 	require.NotNil(t, evs[0].Session)
 	require.NotNil(t, evs[1].Entry)
@@ -153,36 +177,24 @@ func TestStampEntryTime_NonEntryUntouched(t *testing.T) {
 	assert.False(t, called)
 }
 
-// TestChat_StampsEntriesWithInjectedClock: the streamed entries (incl. the blank
-// thinking marker) carry the backend's clock time end-to-end through Chat.
-func TestChat_StampsEntriesWithInjectedClock(t *testing.T) {
+// TestTurn_StampsEntriesWithInjectedClock: the relayed entries (incl. the
+// blank thinking marker) carry the kind's clock time end-to-end through a
+// turn.
+func TestTurn_StampsEntriesWithInjectedClock(t *testing.T) {
 	fixed := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
 	stdout := strings.NewReader(
 		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""},{"type":"text","text":"hi"}]}}` + "\n")
 	var stdin bytes.Buffer
-
-	b := NewClaudeCode()
-	b.now = func() time.Time { return fixed }
-	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{stdin: nopWriteCloser{&stdin}, stdout: stdout, close: func() error { return nil }}, nil
 	}
+	d, ex := driverFor(t, structured("", 0), open, func() time.Time { return fixed })
+	out := make(chan engine.Event, 16)
+	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, out)
+	require.NoError(t, err)
+	close(out)
 
-	in := make(chan agent.ChatMessage, 1)
-	out := make(chan agent.ChatEvent)
-	in <- agent.ChatMessage{Text: "x"}
-	close(in)
-
-	var evs []agent.ChatEvent
-	collected := make(chan struct{})
-	go func() {
-		for ev := range out {
-			evs = append(evs, ev)
-		}
-		close(collected)
-	}()
-	require.NoError(t, b.Chat(context.Background(), agent.ChatRequest{}, in, out))
-	<-collected
-
+	evs := decode(t, out)
 	require.Len(t, evs, 2) // blank thinking marker + assistant text
 	for _, ev := range evs {
 		require.NotNil(t, ev.Entry)
@@ -190,135 +202,61 @@ func TestChat_StampsEntriesWithInjectedClock(t *testing.T) {
 	}
 }
 
-// TestChat_ContextCancel_Returns: cancelling ctx tears the transport down and
-// returns even while the agent's stdout is still open (blocked read).
-func TestChat_ContextCancel_Returns(t *testing.T) {
+// TestTurn_ContextCancel_Returns: cancelling ctx tears the transport down
+// and returns even while the engine's stdout is still open (blocked read).
+func TestTurn_ContextCancel_Returns(t *testing.T) {
 	pr, pw := io.Pipe() // stdout that never produces until closed
 	var stdin bytes.Buffer
-
-	b := NewClaudeCode()
-	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return &chatTransport{
 			stdin:  nopWriteCloser{&stdin},
 			stdout: pr,
 			close:  func() error { _ = pw.Close(); _ = pr.Close(); return nil }, // unblock the reader
 		}, nil
 	}
-
-	in := make(chan agent.ChatMessage)
-	out := make(chan agent.ChatEvent)
-	go func() { //nolint:revive // drain
-		for range out {
-		}
-	}()
-
+	d, ex := driverFor(t, structured("", 0), open, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- b.Chat(ctx, agent.ChatRequest{}, in, out) }()
+	go func() { _, err := d.Turn(ctx, ex, engine.Turn{Prompt: "x"}, nil); done <- err }()
 
 	cancel()
 	select {
 	case err := <-done:
 		assert.ErrorIs(t, err, context.Canceled)
 	case <-time.After(2 * time.Second):
-		t.Fatal("Chat did not return after context cancel")
+		t.Fatal("the turn did not return after context cancel")
 	}
 }
 
-// TestChat_TransportOpenError_Propagates: a spawn/open failure surfaces and out
-// is still closed.
-func TestChat_TransportOpenError_Propagates(t *testing.T) {
-	b := NewClaudeCode()
-	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
+// TestTurn_TransportOpenError_Propagates: a spawn/open failure surfaces as
+// the turn's error.
+func TestTurn_TransportOpenError_Propagates(t *testing.T) {
+	open := func(_ context.Context, _ string, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
 		return nil, io.ErrClosedPipe
 	}
-	in := make(chan agent.ChatMessage)
-	out := make(chan agent.ChatEvent)
-	closed := make(chan struct{})
-	go func() {
-		for range out {
-		}
-		close(closed)
-	}()
-	err := b.Chat(context.Background(), agent.ChatRequest{}, in, out)
-	require.Error(t, err)
-	<-closed // out closed despite the open failure
+	d, ex := driverFor(t, structured("", 0), open, nil)
+	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
+	require.ErrorIs(t, err, io.ErrClosedPipe)
 }
 
-// TestChat_ModelQuirk_Refused: ModelQuirk cannot be honored over stream-json
-// (no ACP session exists to place the non-spec call after) — Chat refuses
-// loudly instead of silently ignoring the field, and still closes out.
-func TestChat_ModelQuirk_Refused(t *testing.T) {
-	b := NewClaudeCode()
-	opened := false
-	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		opened = true
-		return nil, errors.New("must not be reached")
-	}
-	in := make(chan agent.ChatMessage)
-	out := make(chan agent.ChatEvent)
-	closed := make(chan struct{})
-	go func() {
-		for range out {
-		}
-		close(closed)
-	}()
-
-	err := b.Chat(context.Background(), agent.ChatRequest{ModelQuirk: &agent.ModelDeliveryQuirk{Method: "x"}}, in, out)
-	require.ErrorIs(t, err, ErrChatModelQuirkUnsupported)
-	<-closed
-	assert.False(t, opened, "Chat must refuse before ever opening a transport")
-}
-
-// TestChat_ForwardTerminal_Refused: stream-json has no terminal/* callback to
-// broker, so ForwardTerminal must be refused loudly rather than silently
-// never emitting a ChatEvent.Terminal.
-func TestChat_ForwardTerminal_Refused(t *testing.T) {
-	b := NewClaudeCode()
-	opened := false
-	b.openChatTransport = func(_ context.Context, _ []string, _ map[string]string, _ string) (*chatTransport, error) {
-		opened = true
-		return nil, errors.New("must not be reached")
-	}
-	in := make(chan agent.ChatMessage)
-	out := make(chan agent.ChatEvent)
-	closed := make(chan struct{})
-	go func() {
-		for range out {
-		}
-		close(closed)
-	}()
-
-	err := b.Chat(context.Background(), agent.ChatRequest{ForwardTerminal: true}, in, out)
-	require.ErrorIs(t, err, ErrChatForwardTerminalUnsupported)
-	<-closed
-	assert.False(t, opened, "Chat must refuse before ever opening a transport")
-}
-
-// TestChat_NamesTheDeliveredMCPConfig: Chat names the .mcp.json the runner
-// delivered (ChatRequest.MCPConfigPath) on its argv and writes no config of
-// its own; with none delivered no --mcp-config is emitted.
-func TestChat_NamesTheDeliveredMCPConfig(t *testing.T) {
-	var seen []string
-	b := NewClaudeCode()
-	b.openChatTransport = func(_ context.Context, args []string, _ map[string]string, _ string) (*chatTransport, error) {
-		seen = args
+// TestTurn_SpawnsTheExecsBinary: the process a turn spawns is the Exec's
+// binary with the Exec's argv plus the protocol, in the Exec's working
+// directory — the driver composes nothing of its own.
+func TestTurn_SpawnsTheExecsBinary(t *testing.T) {
+	var gotBinary, gotDir string
+	var gotArgs []string
+	open := func(_ context.Context, binary string, args []string, _ map[string]string, dir string) (*chatTransport, error) {
+		gotBinary, gotArgs, gotDir = binary, args, dir
 		return &chatTransport{stdin: nopWriteCloser{&bytes.Buffer{}}, stdout: strings.NewReader(""), close: func() error { return nil }}, nil
 	}
-	run := func(req agent.ChatRequest) {
-		in := make(chan agent.ChatMessage)
-		out := make(chan agent.ChatEvent)
-		close(in)
-		go func() { //nolint:revive // drain
-			for range out {
-			}
-		}()
-		require.NoError(t, b.Chat(context.Background(), req, in, out))
-	}
-	delivered := filepath.Join(t.TempDir(), MCPFileName)
-	run(agent.ChatRequest{MCPServers: []agent.ChatMCPServer{{Name: "s", Command: "cmd"}}, MCPConfigPath: delivered})
-	assert.Equal(t, delivered, argValue(seen, "--mcp-config"))
-
-	run(agent.ChatRequest{})
-	assert.NotContains(t, seen, "--mcp-config")
+	s := structured("", 0)
+	s.Label.Binary = "/opt/claude"
+	s.WorkDir = "/work"
+	d, ex := driverFor(t, s, open, nil)
+	_, err := d.Turn(context.Background(), ex, engine.Turn{Prompt: "x"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/claude", gotBinary)
+	assert.Equal(t, "/work", gotDir)
+	assert.Contains(t, gotArgs, flagPrint)
+	assert.True(t, argPair(gotArgs, flagInputFormat, "stream-json"))
 }

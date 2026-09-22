@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
-	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -19,8 +17,8 @@ import (
 // an if/else over runtime names. Each implementation (Docker | Podman | Host)
 // knows how to build the `run` argv (image, --rm, --name, -v mounts, -e env, -w
 // workdir), how to tear a container down (rm -f), and whether it can actually
-// launch right now. It is the Phase-0 SpawnClient seam made runtime-swappable: a
-// new runtime is one more implementation, selected by detection/config.
+// launch right now. A new runtime is one more implementation, selected by
+// detection/config.
 type Runtime interface {
 	// Name identifies the runtime ("docker" | "podman" | "host") for diagnostics.
 	Name() string
@@ -33,28 +31,12 @@ type Runtime interface {
 	// degrades silently to the host.
 	Available() bool
 	// RunArgs builds the full argv (after Binary) that starts the container in the
-	// FOREGROUND with stdout/stderr attached — go-plugin reads the plugin's
-	// handshake line from the container's stdout, so no -d and no -t (a pty would
-	// mangle the handshake).
+	// FOREGROUND with stdout/stderr attached — no -d, and -t only when the spec
+	// says so (RunSpec.TTY: an interactive launch's runner on the originator's
+	// pty).
 	RunArgs(spec RunSpec) []string
 	// RemoveArgs builds the argv that force-removes the named container (teardown).
 	RemoveArgs(name string) []string
-	// ExecArgs builds the argv (after Binary) that runs command inside an
-	// ALREADY-RUNNING container by name — `exec -i [-t] [-e NAME…] <name>
-	// <command…>`. tty adds `-t` (the interactive pty the docker-exec
-	// vpio.Launcher drives an interactive turn over). env entries cross as bare
-	// `-e NAME` name-only forwards (the value rides the exec PROCESS env, never
-	// this world-readable argv) — the identical discipline renderRunSpec uses
-	// for `run`. No docker SDK: plain CLI, identical on docker and podman. Noop
-	// (nil) for Host/Chroot, which launch no container to exec into.
-	ExecArgs(name string, tty bool, env []string, command []string) []string
-	// Spawn launches the plugin client for a prepared run per this runtime's
-	// launch convention: Host self-invokes a bare `ctxloom llm serve` subprocess;
-	// the OCI runtimes go-plugin-run the plugin INSIDE a container (the moved
-	// spawnInContainer body). It is the SpawnClient seam pushed onto the runtime,
-	// so a Policy's SpawnClient is just workspace→LaunchSpec adaptation plus
-	// runtime.Spawn — the runtime, not the policy, owns HOW the process starts.
-	Spawn(launch LaunchSpec) (pb.Client, error)
 	// Expose renders one host↔target exposure into a Mount for this runtime. For
 	// the OCI runtimes (and Host) it is the identity bind Mount{host, target,
 	// readOnly}; it exists as a seam so a future daemonless/imageless runtime
@@ -74,7 +56,7 @@ type Runtime interface {
 	ExposeMapped(hostPath string, readOnly bool) Mount
 	// mapper returns this runtime's host↔container path translation
 	// (unexported: an internal wiring seam, not part of the public contract
-	// external packages implement). buildRunSpec reads it to translate the
+	// external packages implement). buildRunnerSpec reads it to translate the
 	// project mount + WorkDir the SAME way ExposeMapped does, so the two
 	// never disagree about where a host path lands in-container.
 	mapper() pathMapper
@@ -170,51 +152,21 @@ func NewDockerWithMapperForTest(toContainer func(hostPath string) string) Docker
 	return Docker{ociRuntime: ociRuntime{pathMap: funcMapper(toContainer)}}
 }
 
-// LaunchSpec carries the launch conventions Spawn needs to start one plugin run,
-// independent of which runtime realizes it (SD7). It is the union of what
-// Container.spawnInContainer took as arguments (the per-run BackendName/Label/
-// Verbosity/AgentID, the WorkDir mounted as cwd, the go-plugin HostSocketDir, the
-// scoped auth ExtraEnv + credential/overlay ExtraMounts, and the diagnostic
-// AuthMode) and the container conventions it read off the Container (Image,
-// BinaryPath, Home, ContainerSocketDir). Host ignores every container field and
-// uses only BackendName/Label/Verbosity.
-type LaunchSpec struct {
-	BackendName string // engine backend the plugin serves (`llm serve <backend>`)
-	Label       string // resolved config label (--label; may be empty)
-	Verbosity   int    // plugin log verbosity + auth/transport diagnostics gate
-	AgentID     string // scopes the teardown-targetable container name
-
-	Image              string // OCI: image reference to run
-	BinaryPath         string // OCI: the container's ctxloom path (runs `llm serve`)
-	Home               string // OCI: fresh $HOME inside the container
-	ContainerSocketDir string // OCI: fixed in-container unix-socket bind target
-	WorkDir            string // OCI: cwd + identical-path project/worktree mount
-	HostSocketDir      string // OCI: host scratch dir go-plugin created the socket under
-
-	ExtraEnv    []string          // scoped auth env passthrough threaded into the run
-	ExtraMounts []Mount           // auth credential mounts + config overlays + gitdir mirror
-	AuthMode    containerAuthMode // how auth resolved (diagnostics; no secrets)
-
-	// SpawnEnv is the per-spawn env stamped onto the runner PROCESS (the
-	// coordinator reach-back trio + session identity). Host: appended to the
-	// subprocess cmd.Env. OCI: each key crosses as a bare-name `-e NAME`
-	// (value read from the `run` process env, which gets the KEY=VAL — the
-	// credential never lands in the world-readable argv).
-	SpawnEnv map[string]string
-}
-
-// RunSpec is the runtime-agnostic description of one plugin container: which image
-// to run, the in-container argv, the identical-path project mount + the
-// host↔container socket-dir mount, a fresh HOME, and the curated go-plugin
-// handshake env. A Runtime renders it into its own `run` argv.
+// RunSpec is the runtime-agnostic description of one runner container: which
+// image to run, the in-container argv, the identical-path project mount and
+// the workspace's mounts, a fresh HOME, and the run's env. A Runtime renders
+// it into its own `run` argv.
 type RunSpec struct {
 	Image   string   // image reference to run
 	Name    string   // --name, so teardown can target this exact container
 	WorkDir string   // -w and the identical-path project bind-mount target
 	Home    string   // fresh $HOME inside the container (engine global state isolated)
-	Command []string // in-container argv (the container's ctxloom + "llm serve …")
-	Env     []string // -e KEY=VAL, the curated go-plugin handshake env
+	Command []string // in-container argv (the container's ctxloom + its subcommand)
+	Env     []string // -e KEY=VAL, or a bare -e NAME forwarded from the run process's env
 	Mounts  []Mount  // --mount type=bind bind mounts
+	// TTY attaches the run to a terminal (-i -t): the runner's stdio is the
+	// tty the originator holds — an INTERACTIVE launch's foreground runner.
+	TTY bool
 
 	// Trace, when non-nil, marks a PROBE-ONLY run: renderRunSpec then grants
 	// --cap-add=SYS_PTRACE, bind-mounts the trace dir out, and wraps Command in
@@ -250,25 +202,6 @@ type ociRuntime struct{ pathMap pathMapper }
 // racing --rm auto-remove just reports "no such container", which callers ignore).
 // Shared by Docker and Podman — the `rm -f <name>` argv is identical on both.
 func (ociRuntime) RemoveArgs(name string) []string { return []string{"rm", "-f", name} }
-
-// ExecArgs renders `exec -i [-t] [-e NAME…] <name> <command…>` — the shared
-// OCI grammar (docker and podman render identically). `-i` is unconditional
-// (the exec's stdin is always wired to the host pty); `-t` is added only for an
-// interactive turn (the docker CLI's own "-t requires a tty" check is satisfied
-// by the host pty pair the Launcher runs this argv under). Each env entry is a
-// BARE NAME forwarded via `-e NAME`, so a credential value never lands on the
-// argv — matching renderRunSpec's bare-`-e` discipline for `run`.
-func (ociRuntime) ExecArgs(name string, tty bool, env []string, command []string) []string {
-	args := []string{"exec", "-i"}
-	if tty {
-		args = append(args, "-t")
-	}
-	for _, e := range env {
-		args = append(args, "-e", e)
-	}
-	args = append(args, name)
-	return append(args, command...)
-}
 
 // runArgs assembles the full `run` argv from a runtime-specific HEAD (the
 // --rm/--name/--user/identity prefix each concrete runtime builds) and the
@@ -335,78 +268,6 @@ func (ociRuntime) enumerate(ctx context.Context, binary, namePrefix string) ([]C
 	return infos, nil
 }
 
-// containerSpawnUnsupportedErr is the platform gate for the go-plugin container
-// SpawnClient path: it returns a fail-loud error on any non-Linux host and nil on
-// Linux. The transport is unix-socket-over-bind-mount — the plugin creates its
-// socket in a dir bind-mounted from the host, which is only a live endpoint when
-// host and container share ONE kernel (Linux). The forked TCP-over-loopback
-// transport that bridged the Docker Desktop VM boundary on macOS/Windows was
-// deleted in 0.7 (it opened a routable in-container plugin listener on the shared
-// bridge), so this path is now Linux-only. Its only residual callers
-// are NON-top-level: the legacy degraded/fallback delegation and the oneshot
-// fallback a delegated child takes on a backend without structured-chat support.
-// Top-level container runs (docker-exec / Transport 2) and delegated agents
-// (docker-direct) never reach here and are unaffected on every platform. goos is
-// a parameter (not read from runtime.GOOS inline) so the gate is unit-testable,
-// advertiseHostFor style.
-func containerSpawnUnsupportedErr(goos string) error {
-	if goos == "linux" {
-		return nil
-	}
-	return fmt.Errorf("this legacy container spawn path (degraded/fallback delegation, oneshot-fallback delegated children) is Linux-only since 0.7: the container TCP transport was removed to close a security hole. Run these on Linux, or use the fully-supported top-level run modes; top-level runs and delegated agents are unaffected on this platform (%s)", goos)
-}
-
-// spawn is the moved body of the old Container.spawnInContainer: it launches the
-// plugin INSIDE a container via the go-plugin RunnerFunc + AddrTranslator
-// transport and returns its client (Kill force-removes the container). It is
-// shared by Docker and Podman, which pass themselves as rt so the run argv is
-// built by the CONCRETE runtime's RunArgs (rootless head and all) —
-// containerRunnerFunc → buildRunSpec → rt.RunArgs, exactly as before. Every
-// container convention arrives on the LaunchSpec, so the body threads image/
-// binaryPath/home/socketDir/workdir/mounts/env identically to spawnInContainer.
-func (ociRuntime) spawn(rt Runtime, launch LaunchSpec) (pb.Client, error) {
-	// goos-gated fail-loud: this go-plugin SpawnClient path is Linux-only since
-	// 0.7 (the container TCP transport was deleted). runtime.GOOS is passed to a
-	// parameterized helper so the gate is unit-testable (advertiseHostFor style).
-	if err := containerSpawnUnsupportedErr(runtime.GOOS); err != nil {
-		return nil, err
-	}
-
-	command := []string{launch.BinaryPath, "llm", "serve", launch.BackendName}
-	if launch.Label != "" {
-		command = append(command, "--label", launch.Label)
-	}
-
-	// Diagnostic only (never secrets): how the in-container engine is authenticated.
-	if launch.Verbosity > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container auth via %s\n", launch.AuthMode)
-	}
-
-	name := containerName(launch.AgentID)
-	// The container name is the ONLY handle on a running agent when tmux is
-	// unavailable — `docker logs -f <name>` / `docker attach <name>` are the
-	// documented fallback. It carries a random suffix so no human can derive
-	// it from the agent id, and the container is force-removed on teardown
-	// (AttachedContainer.Close), so its logs are LIVE-ONLY. Spawn is therefore
-	// the one moment this name is both knowable and useful: print it
-	// unconditionally rather than behind -v.
-	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
-	runnerFunc := containerRunnerFunc(rt, launch.Image, name, launch.WorkDir, launch.Home, command, launch.ContainerSocketDir, launch.ExtraEnv, launch.ExtraMounts, launch.SpawnEnv)
-	// Assigned to the concrete *pb.LLMRunner, not returned directly: a bare
-	// `return pb.NewContainerClient(...)` would let Go auto-convert a failed
-	// call's typed-nil *LLMRunner into a non-nil pb.Client interface value
-	// (Go's typed-nil-in-interface pitfall) at this exact return-statement
-	// boundary — the point where a concrete type meets an interface return
-	// type. An explicit nil interface on error is what every caller up the
-	// chain (Container/Worktree/None.SpawnClient, and cli/run.go's
-	// `if st.client != nil` teardown check) needs to see.
-	client, err := pb.NewContainerClient(launch.Verbosity, runnerFunc, launch.HostSocketDir)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
-}
-
 // Docker launches containers via the docker CLI. rootless records whether the
 // daemon is rootless — the axis that decides the run's identity mapping:
 // under rootless docker the container's ROOT user maps to the invoking host
@@ -443,11 +304,6 @@ func (d Docker) RunArgs(spec RunSpec) []string {
 	}
 	return d.runArgs(args, spec)
 }
-
-// Spawn launches the plugin in a docker container. It forwards to the shared
-// ociRuntime.spawn, passing d so the run argv is built by Docker.RunArgs (the
-// rootless-aware head) — embedding alone could not recover the concrete type.
-func (d Docker) Spawn(launch LaunchSpec) (pb.Client, error) { return d.spawn(d, launch) }
 
 // Enumerate lists RUNNING docker containers by name prefix, via the shared
 // ociRuntime.enumerate.
@@ -519,11 +375,6 @@ func (p Podman) RunArgs(spec RunSpec) []string {
 	return p.runArgs(args, spec)
 }
 
-// Spawn launches the plugin in a podman container, forwarding to the shared
-// ociRuntime.spawn with p as rt so the run argv is built by Podman.RunArgs (the
-// keep-id/identity head).
-func (p Podman) Spawn(launch LaunchSpec) (pb.Client, error) { return p.spawn(p, launch) }
-
 // Enumerate lists RUNNING podman containers by name prefix, via the shared
 // ociRuntime.enumerate.
 func (p Podman) Enumerate(ctx context.Context, namePrefix string) ([]ContainerInfo, error) {
@@ -545,16 +396,16 @@ func podmanIsRootless() bool {
 	return strings.TrimSpace(string(out)) != "false"
 }
 
-// Host is the non-container runtime: the plugin runs as a bare host subprocess
-// (the None and — Phase 2 — worktree policies). It satisfies Runtime so
-// runtime selection is uniform, but it launches nothing itself: the host path
-// spawns via pb.NewSelfInvokingClientForLabel, so RunArgs/RemoveArgs are unused.
+// Host is the non-container runtime: the runner runs as a bare host
+// subprocess (the None and Worktree policies, through RunnerCommand). It
+// satisfies Runtime so runtime selection is uniform, but it launches nothing
+// itself, so RunArgs/RemoveArgs are unused.
 type Host struct{}
 
 // Name identifies the runtime.
 func (Host) Name() string { return "host" }
 
-// Binary is empty — Host execs the plugin directly, not via a container CLI.
+// Binary is empty — Host execs the runner directly, not via a container CLI.
 func (Host) Binary() string { return "" }
 
 // Available is always true — the host can always run a subprocess (None never
@@ -566,25 +417,6 @@ func (Host) RunArgs(RunSpec) []string { return nil }
 
 // RemoveArgs is a noop — Host has nothing to tear down.
 func (Host) RemoveArgs(string) []string { return nil }
-
-// ExecArgs is a noop — Host launches no container to exec into.
-func (Host) ExecArgs(string, bool, []string, []string) []string { return nil }
-
-// Spawn launches the bare self-invoked plugin subprocess — the exact body of
-// pb.DefaultClientFactory that the None and Worktree policies spawn. The
-// workspace is expressed purely via the caller's RunOptions.WorkDir, so only
-// BackendName/Label/Verbosity are consulted; the container fields are ignored.
-func (Host) Spawn(launch LaunchSpec) (pb.Client, error) {
-	// Assigned to the concrete *pb.LLMRunner, not returned directly — see
-	// ociRuntime.spawn's matching comment for why a bare `return pb.New...(...)`
-	// here would box a failed spawn's typed-nil *LLMRunner into a non-nil
-	// pb.Client interface value instead of the honest nil callers check for.
-	client, err := pb.NewSelfInvokingClientForLabelEnv(launch.BackendName, launch.Label, launch.Verbosity, launch.SpawnEnv)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
-}
 
 // Expose renders the identity bind mount, same as the OCI runtimes — the host
 // path IS the exposed path (no container namespace to remap into).
@@ -613,6 +445,9 @@ func (Host) Enumerate(context.Context, string) ([]ContainerInfo, error) { return
 // runtime-specific head (--rm/--name/--user) is prepended by each RunArgs.
 func renderRunSpec(spec RunSpec) []string {
 	var args []string
+	if spec.TTY {
+		args = append(args, "-i", "-t")
+	}
 	// PROBE-ONLY: a non-nil Trace overrides Docker's default seccomp profile
 	// with the probe profile (default policy + the ptrace family allowed), which
 	// is what lets strace trace its own children in-container. NO capability is
@@ -632,8 +467,8 @@ func renderRunSpec(spec RunSpec) []string {
 		args = append(args, "-e", "HOME="+spec.Home)
 	}
 	// Each Env entry renders as `-e <entry>`. Two forms cross here, both native to
-	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value (the
-	// go-plugin handshake vars, IS_SANDBOX, TERM), while a BARE "KEY" (no '=') is a
+	// the docker/podman `-e` grammar: "KEY=VAL" sets an explicit value
+	// (IS_SANDBOX, TERM), while a BARE "KEY" (no '=') is a
 	// name-only passthrough — the runtime forwards the VALUE from its own inherited
 	// environment. Auth SECRETS use the bare-name form (containerAuth.envPassthrough)
 	// so the value never lands in this long-lived `run` argv, which is world-readable

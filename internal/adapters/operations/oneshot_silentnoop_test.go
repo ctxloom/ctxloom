@@ -24,7 +24,7 @@ func TestOneShot_EmptyStdoutIsLoud(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stub := &stubClient{out: tc.out}
+			stub := &stubEngine{out: tc.out}
 			o, err := testOneShot(t, cfg, opPipe(cfg, loader), stub, launch.Source{Profiles: []string{"rev"}})
 			require.NoError(t, err)
 			out, err := o.Turn(context.Background(), "review this diff")

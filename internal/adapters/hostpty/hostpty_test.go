@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,29 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestStart_InputReachesTheChildRawAndUnechoed: a mouse report written to the
+// master arrives at the child without a newline behind it (non-canonical) and
+// is never echoed back out the master — the echo is what painted `^[[<35;…M`
+// into the engine's prompt. The child reads exactly the report's length, so a
+// cooked pty holding input for a newline would time the test out instead.
+func TestStart_InputReachesTheChildRawAndUnechoed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	report := "\x1b[<35;42;17M"
+	s, err := Start(ctx, exec.Command("sh", "-c", "head -c "+strconv.Itoa(len(report))+" >/dev/null; echo done"))
+	require.NoError(t, err)
+	defer s.Kill()
+
+	_, err = io.WriteString(s.Master(), report)
+	require.NoError(t, err)
+	out, _ := io.ReadAll(s.Master()) // ends with EIO once the child is gone
+	code, err := s.Wait()
+	require.NoError(t, err)
+	require.Equal(t, 0, code)
+	require.Equal(t, "done\r\n", string(out), "only the child's own output, output processing intact")
+}
 
 // TestStart_ResizePropagatesToTheChildsReportedSize is the pty gate: a
 // resize applied on the MASTER this package holds is what the child on the

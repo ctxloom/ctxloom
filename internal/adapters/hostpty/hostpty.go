@@ -15,6 +15,7 @@ package hostpty
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -22,6 +23,7 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 // Session is a live child on a pty. The caller reads and writes Master() as
@@ -58,8 +60,19 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Session, error) {
 	// with nobody to tear it down.
 	attr := &syscall.SysProcAttr{Setsid: true, Setctty: true}
 	armDeathSignal(attr)
-	master, err := pty.StartWithAttrs(cmd, nil, attr)
+	master, slave, err := pty.Open()
 	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = slave.Close() }() // the child holds its own copies
+	if err := rawInput(slave); err != nil {
+		_ = master.Close()
+		return nil, fmt.Errorf("hostpty: make the pty's input raw: %w", err)
+	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+	cmd.SysProcAttr = attr
+	if err := cmd.Start(); err != nil {
+		_ = master.Close()
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -91,6 +104,29 @@ func Start(ctx context.Context, cmd *exec.Cmd) (*Session, error) {
 		s.waitErr = werr
 	}()
 	return s, nil
+}
+
+// rawInput turns off the slave's INPUT processing, before the child exists
+// to read it. This pty is a byte transport: the frontend already holds the
+// human's terminal in raw mode and the runner relays what it reads, verbatim,
+// into the engine's own pane. A fresh pty is COOKED — the kernel echoes every
+// input byte straight back out the master (terminal query replies and mouse
+// reports painted as `^[[<35;…M` into the engine's prompt), holds input until
+// a newline, rewrites CR to LF and turns ^C into a SIGINT aimed at the runner.
+// Output processing is left alone: the runner's own diagnostics are plain
+// `\n` lines and ONLCR is what renders them.
+func rawInput(tty *os.File) error {
+	fd := int(tty.Fd())
+	t, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
+	if err != nil {
+		return err
+	}
+	t.Iflag &^= unix.BRKINT | unix.ICRNL | unix.INPCK | unix.ISTRIP | unix.IXON
+	t.Lflag &^= unix.ECHO | unix.ICANON | unix.IEXTEN | unix.ISIG
+	t.Cflag |= unix.CS8
+	t.Cc[unix.VMIN] = 1
+	t.Cc[unix.VTIME] = 0
+	return unix.IoctlSetTermios(fd, ioctlSetTermios, t)
 }
 
 // Exited is closed once the child has been reaped. The master is still open

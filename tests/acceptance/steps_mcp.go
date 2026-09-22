@@ -143,23 +143,24 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 		return callTool(c, name, args)
 	})
 
-	// The server loads its config ONCE, at startup (loadStartupConfig), and
-	// the mock engine's reply rides that config's llm.configs.mock.mock_control — so a
+	// The session owner loads its config ONCE, at start, and the mock
+	// engine's reply rides that config's llm.configs.mock.mock_control — so a
 	// "the mock LLM responds" step taken AFTER the first tool call changes
-	// nothing the running server can see. Restarting is what makes a
-	// re-pointed mock reach the server, and it is also the production shape:
-	// the session that loads an essence is rarely the one that compacted it.
-	// The next tool call starts a fresh server under the same isolated env,
-	// CTXLOOM_SESSION_HARP included, so the caller's identity survives.
+	// nothing the standing session can see. Restarting is what makes a
+	// re-pointed mock reach it, and it is also the production shape: the
+	// session that loads an essence is rarely the one that compacted it. The
+	// next tool call stands a fresh owner under the same isolated env.
 	ctx.Step(`^the MCP server is restarted$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if w.mcp == nil {
-			return fmt.Errorf("no MCP server is running to restart: a restart only means something after a tool call has started one")
+			return fmt.Errorf("no MCP session is open to restart: a restart only means something after a tool call has opened one")
 		}
 		if err := w.mcp.Close(); err != nil {
-			return fmt.Errorf("stop mcp server for restart: %w", err)
+			return fmt.Errorf("close the mcp session for restart: %w", err)
 		}
 		w.mcp = nil
+		w.owner.stop()
+		w.owner = nil
 		return nil
 	})
 
@@ -387,8 +388,20 @@ func tableToArgs(table *godog.Table) (map[string]any, error) {
 	return args, nil
 }
 
-// setField writes value at a dotted path, creating intermediate objects.
+// setField writes value at a dotted path, creating intermediate objects. A
+// path ending in "[]" names a LIST argument: the cell is split on commas
+// into a string array, so a table can pass a tool an array of refs.
 func setField(obj map[string]any, path string, value any) error {
+	if strings.HasSuffix(path, "[]") {
+		path = strings.TrimSuffix(path, "[]")
+		var items []any
+		for _, item := range strings.Split(fmt.Sprint(value), ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				items = append(items, item)
+			}
+		}
+		value = items
+	}
 	segs := strings.Split(path, ".")
 	cur := obj
 	for _, seg := range segs[:len(segs)-1] {

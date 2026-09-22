@@ -21,8 +21,8 @@ import (
 type World struct {
 	env   *testenv.TestEnvironment // isolated home+project, CLI exec, file asserts
 	mock  *testenv.MockLM          // deterministic LLM backend (set by fixtures)
-	mcp   *testenv.MCPSession      // mock agent: SDK client session to `ctxloom mcp` (lazy)
-	owner *sessionOwner            // the standing `ctxloom run` the shim forwards to, when a scenario stood one (session_owner_fixture.go)
+	mcp   *testenv.MCPSession      // mock agent: SDK client session dialed at the standing owner's endpoint (lazy)
+	owner *sessionOwner            // the standing `ctxloom run` whose endpoint the agent session dials — stood explicitly by a scenario, or implicitly by the first tool call (session_owner_fixture.go)
 	tlMCP *testenv.MCPSession      // J002500: taskloom's own MCP server (see steps_j002500_taskloom.go), eager (started explicitly, not lazily)
 
 	lastTool     toolOutcome    // last tools/call outcome (see steps_mcp.go)
@@ -108,22 +108,22 @@ func worldFrom(ctx context.Context) *World {
 }
 
 // agent returns the mock-agent MCP session, opening it (handshake included)
-// on first use so scenarios that never touch the agent pay nothing. When a
-// session owner is standing, the session DIALS the owner's endpoint — the
-// URL and bearer its runner serves, the same door the owner's engine uses —
-// so the agent tools reach a real coordinator; without one the stdio shim
-// serves its own cell-local surface and refuses them.
+// on first use so scenarios that never touch the agent pay nothing. The
+// session DIALS a standing owner's endpoint — the URL and bearer its runner
+// serves, the same door the owner's engine uses; ctxloom has no other MCP
+// surface. A scenario that stood no owner of its own gets one stood here,
+// on the first tool call, over the project as the scenario has authored it
+// by then.
 func (w *World) agent() (*testenv.MCPSession, error) {
 	if w.mcp != nil {
 		return w.mcp, nil
 	}
-	var s *testenv.MCPSession
-	var err error
-	if w.owner != nil {
-		s, err = testenv.ConnectMCPEndpoint(w.owner.endpoint)
-	} else {
-		s, err = w.env.StartMCP()
+	if w.owner == nil {
+		if err := w.standSessionOwner(w.env.AppBinary); err != nil {
+			return nil, fmt.Errorf("stand a session owner for the agent session: %w", err)
+		}
 	}
+	s, err := testenv.ConnectMCPEndpoint(w.owner.endpoint)
 	if err != nil {
 		return nil, err
 	}

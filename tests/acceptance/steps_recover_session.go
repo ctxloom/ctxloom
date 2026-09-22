@@ -149,7 +149,19 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// what HarpTranscripts reads as the session id, so each vendor file is named
 	// <session-id>.jsonl and the link points straight at it.
 	ctx.Step(`^a cleared session "([^"]*)" whose prior thread is in its lineage$`, func(c context.Context, harp string) error {
-		return seedClearedHarpLineage(worldFrom(c), harp)
+		return seedClearedHarpLineage(worldFrom(c), harp, seedSessionSidecar)
+	})
+
+	// The STANDING owner's own session was cleared: the same lineage, seeded
+	// under the owner's harp by MERGING into its live record — the caller
+	// the endpoint identifies IS the owner, so "recover my own prior thread"
+	// can only be asserted on the owner's session.
+	ctx.Step(`^the standing session was cleared and its prior thread is in its lineage$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if w.owner == nil {
+			return fmt.Errorf("no session owner is standing: put `a session owner is standing` before this step")
+		}
+		return seedClearedHarpLineage(w, w.owner.harp, mergeSessionSidecar)
 	})
 }
 
@@ -175,7 +187,7 @@ const (
 // also points CTXLOOM_SESSION_HARP at harp so the MCP server adopts it as its
 // own identity — the same door through the ambient-session scrub the session
 // hooks use (see steps_session_hooks.go).
-func seedClearedHarpLineage(w *World, harp string) error {
+func seedClearedHarpLineage(w *World, harp string, writeSidecar func(*World, string, sessionSeed) error) error {
 	// SetChildEnv, not SetEnv: CTXLOOM_SESSION_HARP is on the ambient-session
 	// scrub list, so a plain SetEnv would be stripped before the MCP server
 	// child ever saw it (see steps_session_hooks.go). This is the deliberate
@@ -209,7 +221,7 @@ func seedClearedHarpLineage(w *World, harp string) error {
 	// exclusion), the PRE-clear id is a rotation (so it reverse-resolves to
 	// this harp).
 	rotatedAt := time.Date(2026, 3, 14, 1, 0, 0, 0, time.UTC).Format(time.RFC3339)
-	if err := seedSessionSidecar(w, harp, sessionSeed{
+	if err := writeSidecar(w, harp, sessionSeed{
 		SessionID:      bareRecoverPostclearID,
 		Backend:        config.BackendMock,
 		EngineVersion:  j001000SeededEngineVersion(config.BackendMock),

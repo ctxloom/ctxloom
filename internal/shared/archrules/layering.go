@@ -228,7 +228,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/discover":                           "sanctioned: a package's own subpackage — the servers record the endpoint they bound in the file discover reads",
 			"internal/adapters/coordgrpc -> internal/adapters/coordgrpc/pb":                                 "sanctioned: a package's own subpackage — the codec speaks its own proto",
 			"internal/adapters/cli/tui -> internal/adapters/coordgrpc/pb":                                   "sanctioned: cli/tui is the watch UI on the coordination proto",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "slice 13: the stdio server dies with the plugin arm; until then it classifies its tools by the same routing table",
+			"internal/adapters/mcp -> internal/adapters/coordgrpc/mcpschema":                                "the host relay's distill handlers bound their work to mcpschema.DistillBudget, the one number both sides of the relay share",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/pb":                                "sanctioned: runner/mcp is the session endpoint and speaks the wire (Part 1.1's proto-only-in-adapters)",
 			"internal/adapters/runner/mcp -> internal/adapters/coordgrpc/mcpschema":                         "slice 10: mcpschema is generated from coord.Verbs inside coordgrpc; runner/mcp speaks the wire through it (measured)",
 
@@ -251,7 +251,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/content/remotetree -> internal/adapters/remote":          "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
 			"internal/adapters/isolation -> internal/adapters/git":                      "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; Part 1.1 does not place gitignore — no slice names this edge",
-			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "slice 13: the stdio server dies with the plugin arm; its context_status handler reads contextmetrics until then (measured; Part 1.1 does not place contextmetrics)",
+			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "the host relay's context_status handler reads contextmetrics (measured; Part 1.1 does not place contextmetrics)",
 			"internal/adapters/operations -> internal/adapters/agents":                  "slice 4: the adapters/configload split (measured; Part 1.1 does not place agents)",
 			"internal/adapters/operations -> internal/adapters/content":                 "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
@@ -270,7 +270,7 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/operations -> internal/engines":            "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
-			"internal/adapters/cli -> internal/adapters/mcp":              "slice 13: the stdio server and the plugin-hosted owner arm die with the plugin protocol; the session endpoint already lives in runner/mcp",
+			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/mcp",
 			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",
 			"internal/adapters/cli -> internal/adapters/remote":           "measured: `bundle push` drives remote.PublishManager, `deps list` reads the lockfile, the item listing parses references and `remote discover` normalises URLs directly; Part 1.1 places these behind operations and no slice names them",
 			"internal/adapters/cli -> internal/adapters/signing":          "measured: init and `signer trust` spell signing.NamespacePublish, the trust namespace they write into; leaves when the namespace is a value operations hands back",
@@ -309,19 +309,18 @@ var LayeringRules = []LayeringRule{
 			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
 			// contract and the shared DTOs it advertises live in operations
 			// beside the application services that answer them.
-			"internal/adapters/runner/mcp -> internal/adapters/operations": "slice 13: the host-tool contract becomes a coord.Verbs projection in mcpschema; the stdio server's DTOs die with it",
-			// the stdio server and the plugin-hosted owner arm reach the endpoint's
-			// surface for the one server they still build (ServeRunnerMCP)
-			"internal/adapters/mcp -> internal/adapters/runner/mcp": "slice 13: the owner arm's socket endpoint and the stdio server die with the plugin protocol",
-			"internal/adapters/mcp -> internal/adapters/runner":     "slice 13: the owner arm's socket endpoint holds the runner's Home; it dies with the plugin protocol",
-			"internal/adapters/mcp -> internal/adapters/coordgrpc":  "slice 13: the hosted coordinator's wire is served by the stdio server's host arm; it dies with the plugin protocol",
+			"internal/adapters/runner/mcp -> internal/adapters/operations": "the relays advertise the host-tool contract operations declares (the DTOs and descriptions the relay's handlers decode)",
+			// the session host's hosting helper (mcp.HostCoordinatorForSession)
+			// stands the coordinator's wire up (coordgrpc.Serve) beside the
+			// host relay it composes
+			"internal/adapters/mcp -> internal/adapters/coordgrpc": "the hosting helper serves the coordinator's wire; leaves when hosting moves to the composition root",
 			// runner/mcp is the runner's own subpackage: the endpoint serves over
 			// the Home the runner owns
 			"internal/adapters/runner/mcp -> internal/adapters/runner": "sanctioned: a package's own parent tree (runner/*)",
 			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
 
 			// the runner's two halves today
-			"internal/adapters/mcp -> internal/lm/backends":         "slice 13: the stdio server dies with the plugin arm; its session tools resolve the backend until then",
+			"internal/adapters/mcp -> internal/lm/backends":         "the host relay's session tools resolve the backend (backends.Exists)",
 			"internal/adapters/mcp -> internal/adapters/memory":     "slice 14a: memory off the plugin; the compactor is an operation",
 			"internal/adapters/mcp -> internal/adapters/operations": "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
 			"internal/adapters/mcp -> internal/adapters/transcript": "slice 14a: the engine-host half of the runner records the transcript",
@@ -334,8 +333,8 @@ var LayeringRules = []LayeringRule{
 			// binary (PATH A's stdio-server tests stand it up); it imports what
 			// the runner it stands up imports, and dies with those tests.
 			"internal/adapters/runner/coordtest -> internal/adapters/runner":    "sanctioned: a package's own parent tree (runner/*)",
-			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "slice 13: the double dies with the stdio server's tests (measured)",
-			"internal/adapters/runner/coordtest -> internal/lm/backends":        "slice 13: the double dies with the stdio server's tests (measured)",
+			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "the double stands in for a runner in the host relay's tests (measured)",
+			"internal/adapters/runner/coordtest -> internal/lm/backends":        "the double stands in for a runner in the host relay's tests (measured)",
 
 			// isolation, memory, and the leaf adapters
 			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",

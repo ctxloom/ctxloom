@@ -336,19 +336,14 @@ message StartRun {
   // (ctxloom keys delegation on (harp, run_id) and has no budget
   // enforcement). Reintroducing a budget means building the enforcement
   // first, under a new field number.
-  reserved 1, 5;
+  // 3 was harness (HarnessSpec), 4 input (Struct), 6 parent_run_id and 7
+  // role — SUPERSEDED by launch (the engine, model, workspace, env, MCP set,
+  // permission and resume key ride Launch typed; the prompt is
+  // Launch.prompt; the lineage is the coordinator's own journal). Their twin
+  // reader, the go-plugin arm's coordgrpc.EncodeRunStart, is gone; they are
+  // RESERVED, never renumbered.
+  reserved 1, 3, 4, 5, 6, 7;
   string run_id = 2;
-  // harness, input, parent_run_id and role are SUPERSEDED by launch (the
-  // engine, model, workspace, env, MCP set, permission and resume key ride
-  // Launch typed; the prompt is Launch.prompt; the lineage is the
-  // coordinator's own journal). Nothing writes or reads them since the
-  // arch-migration row snowy-jujitsu (slice 8); they stay on the wire under
-  // the additive rule until the reader that dies in slice 9 lets them be
-  // reserved.
-  HarnessSpec harness = 3;
-  google.protobuf.Struct input = 4;
-  string parent_run_id = 6;
-  string role = 7;
   // The resolved launch, ONE typed message: what the runner redeems, decodes,
   // delivers and drives. coordgrpc.EncodeLaunch/DecodeLaunch are its codec.
   Launch launch = 8;
@@ -952,12 +947,11 @@ message AgentRequest {
     // the application service it was composed with, under THIS caller's
     // identity; answered by HostResult.
     HostRequest host = 18;
-    // custom carried the host-relayed tools untyped (name "ctxloom/<tool>")
-    // before host above; nothing writes or reads it since the arch-migration
-    // row snowy-jujitsu (slice 8). It stays under the additive rule until
-    // slice 9 reserves it.
-    CustomRequest custom = 90;
   }
+  // 90 was custom (CustomRequest): the host-relayed tools untyped (name
+  // "ctxloom/<tool>") before host above. Its twin reader, the stdio shim's
+  // relay, is gone; RESERVED, never renumbered.
+  reserved 90;
 }
 
 // HostRequest is coord.HostRequest on the wire: the tool by name and its
@@ -992,9 +986,10 @@ message CoordinatorResponse {
     StopRunResult stop_run = 16;  // answers AgentRequest.stop_run
     ControlRunResult control_run = 17;  // answers AgentRequest.control_run
     HostResult host = 18;  // answers AgentRequest.host
-    // custom answered the untyped relay; see AgentRequest.custom.
-    google.protobuf.Struct custom = 90;
   }
+  // 90 was custom (Struct): the answer to the untyped relay AgentRequest
+  // reserves at 90. RESERVED, never renumbered.
+  reserved 90;
 }
 
 // Agent needs a decision before proceeding; it parks the affected item,

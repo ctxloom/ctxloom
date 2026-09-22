@@ -11,8 +11,8 @@ import (
 // sunPathHeadroom is the longest unix socket path a test may bind. It sits
 // below sun_path itself (108 bytes on Linux, 104 on macOS) so one number is
 // portable, and it is the same budget the production socket pickers hold
-// themselves to — grpc's pluginSocketDir and mcp's runnerSocketPath — so a
-// fixture never binds somewhere production would have refused.
+// themselves to, so a fixture never binds somewhere production would have
+// refused.
 const sunPathHeadroom = 100
 
 // SocketDir mints a fresh, user-private directory in which a unix socket

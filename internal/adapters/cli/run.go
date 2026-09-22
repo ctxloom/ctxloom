@@ -361,7 +361,7 @@ type runState struct {
 
 	// hostCoordinator: the coordinator this run hosts for delegated agents
 	// and the reach-back env its runner is spawned with.
-	runnerSpawnEnv map[string]string
+	ownerToken string
 	// sessionCoord is held on the state so the terminal UI can reach
 	// ConsumerService/Inject IN-PROCESS — this run IS the coordinator's own
 	// hosting process, so its own terminal viewer never needs a network hop.
@@ -726,12 +726,15 @@ func (st *runState) withShutdownSignals() context.CancelFunc {
 // assembly (the "N item(s) awaiting review — run 'ctxloom review'" advisory),
 // not by a bundle-level lockfile diff here.
 func (st *runState) runStartupTasks() {
-	// Auto-sync remote dependencies on startup if enabled (graceful failure).
-	// Mirrors the behavior of `ctxloom mcp` so the run path doesn't hard-fail
-	// on missing parent profiles or bundles that sync would have fetched.
-	// In a TTY, confirm with the user before installing anything new.
+	// Auto-sync remote dependencies on startup if enabled (graceful failure),
+	// so the run doesn't hard-fail on missing parent profiles or bundles that
+	// sync would have fetched. In a TTY, confirm with the user before
+	// installing anything new. The sync ANNOUNCES itself: it is the one
+	// startup task with a network side, and a dry run's suppression of it is
+	// observable only because a real start says so.
 	syncCfg := st.cfg.GetSyncConfig()
 	if syncCfg.ShouldAutoSync() && !runDryRun && confirmSyncInstall(st.ctx, st.cfg) {
+		fmt.Fprintf(os.Stderr, "ctxloom: syncing remote bundles and profiles from config...\n")
 		syncCtx, syncCancel := context.WithTimeout(st.ctx, 60*time.Second)
 		result, syncErr := operations.SyncOnStartup(syncCtx, App())
 		syncCancel()
@@ -1052,31 +1055,24 @@ func recordCoordinatorStartupFinding(cerr error) {
 }
 
 func (st *runState) hostCoordinator() func() {
-	sc, coordEnv, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp, st.launch.Axes.Runtime)
+	sc, ownerToken, cerr := mcp.HostCoordinatorForSession(NewCoordinator, App(), st.workDir, st.activeHarp)
 	if cerr != nil {
 		recordCoordinatorStartupFinding(cerr)
 		return func() {}
 	}
 
 	st.sessionCoord = sc
-	// Stamped WHOLE by the coordinator (coord.OwnerRunnerEnv, via
-	// mcp.SessionOwnerEnv) — the same producer every child spawn goes through,
-	// so the owner's runner carries the harp, its depth/oneshot leafness and
-	// both spool postures on identical terms. This used to patch
-	// CTXLOOM_SESSION_HARP back in by hand on the line below, which is how the
-	// postures went missing on the owner's runner alone.
-	st.runnerSpawnEnv = coordEnv
+	// The owner's credential identifies the owner-owned run's minter
+	// (startOwnedRun); the owner's RUNNER is stamped by StartOwnedRun with
+	// its own per-run trio, so nothing rides this process's environment.
+	st.ownerToken = ownerToken
 
-	// RevokeSessionOwner existed with zero call sites, so a depth-0
-	// session-owner credential (minted per `ctxloom run` process by
-	// mcp.SessionOwnerEnv) was never revoked — doc.go's "revocation at run end
-	// severs the credential's streams and parked polls" held for run
-	// credentials but not for this one, and since runsFold.apply re-applies
-	// every factSessionCred on replay/adoption, every owner token ever minted
-	// for a project stayed valid forever in that project's coordinator state.
-	// Revoke on the SAME teardown that closes the coordinator, and BEFORE it,
-	// while the journal is still open to accept the write.
-	ownerToken := coordEnv[coord.EnvCoordCred]
+	// A depth-0 session-owner credential is minted per `ctxloom run`
+	// process; runsFold.apply re-applies every factSessionCred on
+	// replay/adoption, so one never revoked would stay valid forever in the
+	// project's coordinator state. Revoke on the SAME teardown that closes
+	// the coordinator, and BEFORE it, while the journal is still open to
+	// accept the write.
 	return func() {
 		// DRAIN, WAIT, THEN CLOSE -- the sequence the coordinator documents and
 		// that nothing used to perform. Close() is the HARD teardown: it cancels
@@ -1178,7 +1174,7 @@ func (st *runState) startTransport() error {
 	sess, oerr := startOwnedRun(st.ctx, st.sessionCoord, ownedRunLaunch{
 		Launch:     st.launch,
 		MCPServers: st.managed.ChatMCPServers(),
-		RunnerEnv:  st.runnerSpawnEnv,
+		OwnerToken: st.ownerToken,
 	}, starter)
 	st.ownedRun = sess
 	// Everything recorded since the startup gate — above all a coordinator

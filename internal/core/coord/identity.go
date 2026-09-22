@@ -10,7 +10,6 @@ const (
 	EnvCoordURL  = sessions.EnvCoordURL
 	EnvCoordCred = sessions.EnvCoordCred
 	EnvRunID     = sessions.EnvRunID
-	EnvMCPSocket = sessions.EnvMCPSocket
 )
 
 // Identity is sessions.Identity: what a credential authenticates AND

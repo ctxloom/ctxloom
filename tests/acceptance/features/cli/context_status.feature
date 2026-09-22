@@ -40,9 +40,11 @@ Feature: Measuring context-window occupancy
   # pass just as happily against a trend that kept the OLDEST ten — the
   # measured stale reading this whole tool exists to prevent. Seeding past the
   # cap is what makes "which end gets kept" load-bearing here.
+  # The caller the endpoint identifies is the STANDING owner, so the series
+  # is seeded under its harp after it stands.
   Scenario: context_status measures a session that has recorded samples
     Given an initialized ctxloom project
-    And the session harp is "bold-crimson-thunder"
+    And a session owner is standing
     And the session has recorded context samples:
       | percent | tokens | window  |
       | 30      | 300000 | 1000000 |

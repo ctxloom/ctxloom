@@ -38,10 +38,11 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       Then the skill list output includes "reviewer" from bundle "vault"
       When I run "ctxloom skill show vault#skills/reviewer"
       Then the skill show output carries the frontmatter description "SKILL-MARKER-reviewer-9f3c21"
+      # The session endpoint's catalog lists the skill by ref; a skill's
+      # files reach an engine by delivery (its SKILL.md is materialized),
+      # not as a resource body.
       When the agent reads resource "ctxloom://skills"
       Then the skill resource contains "reviewer"
-      When the agent reads resource "ctxloom://skills/reviewer"
-      Then the skill resource contains "SKILL-MARKER-reviewer-9f3c21"
 
   Rule: A skill package can be created and removed
 

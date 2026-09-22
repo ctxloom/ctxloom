@@ -9,13 +9,17 @@ Feature: Editing content
   those per-noun specs took over: each is now asserted alongside the rest of
   its noun's surface rather than beside an unrelated noun's.
 
+  # The agent axis is a SESSION started after the edit: its endpoint serves
+  # the package its launch carried, which is the edited content.
   Scenario: Editing a fragment lands the change across axes
     Given a ctxloom project with a marker editor
     And a bundle "demo" exists
     And a fragment "testing" in bundle "demo" exists
+    And a profile "dev" with bundle "demo"
     When I run "ctxloom fragment edit demo#fragments/testing"
     Then the command succeeds
     And the file ".ctxloom/content/bundles/v2/demo.yaml" contains "EDITED-BY-TEST"
+    Given a session owner is standing on the profile "dev"
     When the agent reads resource "ctxloom://fragments/testing"
     Then the resource contains "EDITED-BY-TEST"
 

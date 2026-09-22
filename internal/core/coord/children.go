@@ -678,54 +678,17 @@ func waitAnyClosed(ctx context.Context, chs []chan struct{}) error {
 // reach-back trio — the coordinator URL, the per-run credential and the run
 // id — and nothing else. The run's identity (its harp, its depth, whether it
 // is one-shot) arrives ONCE, typed, on the Launch that rides StartRun; no
-// reader takes it from the environment. The runner consumes the trio, unsets
-// it, and exports only the MCP socket path to the harness. url may be empty
-// (a degraded launch without reach-back); the trio is then omitted whole and
-// the harness's shim falls back to its local mode. harp is stamped for the
-// session owner's own plugin-hosted runner alone (OwnerRunnerEnv), which
-// receives no StartRun.
-func runnerEnv(harp, runID, token, url string) map[string]string {
+// reader takes it from the environment. The session owner's own runner is
+// stamped on the same terms (StartOwnedRun). url may be empty (a degraded
+// launch without reach-back); the trio is then omitted whole.
+func runnerEnv(runID, token, url string) map[string]string {
 	env := map[string]string{}
-	if runID == "" && harp != "" {
-		// The plugin-hosted owner arm: no Launch ever reaches this runner,
-		// so its harp rides the process env until that arm is deleted
-		// (Part 4.1, slice 13).
-		env[sessions.EnvHarp] = harp
-	}
 	if url != "" {
 		for k, v := range sessions.EncodeReach(sessions.Endpoint{URL: url, Credential: token}, runID) {
 			env[k] = v
 		}
 	}
 	return env
-}
-
-// OwnerRunnerEnv builds the per-spawn env for the SESSION OWNER's own runner —
-// the `ctxloom run` process's own runner, which routes the human's own turns
-// exactly as a child's routes that child's. It is the ONE exported entry to
-// runnerEnv, and it exists because there used to be a second producer:
-// mcp.SessionOwnerEnv hand-built a two-key map (URL + credential) and
-// cli/run.go patched CTXLOOM_SESSION_HARP back in by hand — the tell that one
-// missing key had been noticed and the rest had not. Everything runnerEnv
-// stamps unconditionally (depth, oneshot) was simply absent on the owner's
-// runner, and absent reads as the safe default at every consumer
-// (llm_runner_common.go's consumeCoordinatorReachBack), so nothing downstream
-// could tell the omission from a deliberate "off". This method is how the
-// coordinator stays the only source.
-//
-// The owner's own values are passed EXPLICITLY rather than inherited from any
-// childRt, because all three differ from a child's: depth 0 (the owner is the
-// root of the delegation tree, not a child of anything), never the one-shot
-// resume plan (that is a per-spawn agent plan; the owner has none), and no run
-// id (the owner owns no spawned run — the trio's EnvRunID is stamped PRESENT
-// but empty, which is what every reader already saw when the key was missing:
-// nothing in the product distinguishes an unset coordinator env var from an
-// empty one, and HomeConfig.RunID == "" is already the owner's tested state).
-//
-// url may be empty on a degraded launch, on the same terms as any child
-// spawn — the trio is then omitted whole.
-func (c *Coordinator) OwnerRunnerEnv(harp, token, url string) map[string]string {
-	return runnerEnv(harp, "", token, url)
 }
 
 // spawnReachURL resolves the coordinator URL a child on runtimeAxis can dial,

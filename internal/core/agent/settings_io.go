@@ -18,33 +18,21 @@ import (
 // target WarnOnCtxloomPathSkew compares against, and the command every
 // materialized surface names (see CtxloomCommand).
 // MCPServerName is the key under which ctxloom's own companion loadout
-// declares ctxloom's MCP server (cmd/ctxloom/loadout.yaml), and
-// CtxloomMCPArgs its args.
+// declares ctxloom's MCP server (cmd/ctxloom/loadout.yaml) — the
+// session-endpoint declaration, never a command.
 const (
 	CtxloomBinary = "ctxloom"
 	MCPServerName = wire.CtxloomServerName
 )
 
-// CtxloomMCPArgs is the arg list ctxloom's MCP server entry must carry: the
-// `serve` leaf, which is the one spelling that speaks the protocol. The bare
-// `ctxloom mcp` noun answers a human with the configured-server listing, and a
-// listing delivered to a client waiting for JSON-RPC reads as a hang — so this
-// value is what every materialized surface (.mcp.json, .agents/mcp_config.json,
-// .kiro/settings/mcp.json, .codex/config.toml's [mcp_servers], opencode.json)
-// must carry. The entry is DECLARED, in ctxloom's own loadout, and written as
-// declared (no Go rewrite); this value is what the loadout's test pins it
-// against, and an entry left at the bare noun is reported by `ctxloom doctor`
-// (DOCTOR-CHECK-MCP-INVOCATION-g7).
-var CtxloomMCPArgs = []string{"mcp", "serve"}
-
 // CtxloomCommand returns the command to write into a materialized surface
-// (an .mcp.json/config.toml MCP entry, a statusline command, a
-// context-injection or hook command) that invokes ctxloom.
+// (a statusline command, a context-injection or hook command) that invokes
+// ctxloom.
 //
 // INVARIANT: a surface names the BARE executable name and nothing else, so
 // it resolves against PATH at fire time, wherever it fires. This is
 // load-bearing in two directions. A materialized surface is often a TRACKED
-// file (.claude/settings.json, .mcp.json), and an absolute path in one is a
+// file (.claude/settings.json), and an absolute path in one is a
 // fact about one developer's machine that every other clone inherits and
 // cannot satisfy — their hooks then fail silently. And a surface written on
 // the host is read inside a container, where a host path does not exist at

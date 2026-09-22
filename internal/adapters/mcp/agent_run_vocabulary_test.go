@@ -1,40 +1,24 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// agentRunSurfaces returns agent_run's advertised input schema from BOTH
-// surfaces, decoded: the generated (proto-canonical) one a runner-hosted
-// engine reads, and the typed one the stdio server infers. They are produced
-// independently, so nothing but a test makes them agree.
-func agentRunSurfaces(t *testing.T) map[string]map[string]any {
+// agentRunSchema returns agent_run's advertised input schema, decoded: the
+// generated (proto-canonical) one the session endpoint serves.
+func agentRunSchema(t *testing.T) map[string]any {
 	t.Helper()
-	out := map[string]map[string]any{}
-
 	generated, ok := mcpschema.ToolByName(mcpschema.ToolAgentRun)
 	require.True(t, ok, "agent_run must have a generated schema")
-	out["generated (proto-canonical, runner surface)"] = decodeSchema(t, generated.InputSchema)
-
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
-	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
-	s.registerTools(server)
-	stdioTool, ok := listServerTools(t, server)[mcpschema.ToolAgentRun]
-	require.True(t, ok, "the stdio server must advertise agent_run")
-	out["stdio (typed struct)"] = decodeSchema(t, stdioTool.InputSchema)
-
-	return out
+	return decodeSchema(t, generated.InputSchema)
 }
 
 func decodeSchema(t *testing.T, schema any) map[string]any {
@@ -46,10 +30,9 @@ func decodeSchema(t *testing.T, schema any) map[string]any {
 	return decoded
 }
 
-// agentRunEnum digs out the enum advertised for one per-call argument. The
-// two surfaces nest it differently — the generated one wraps the arguments in
-// agent_run's free-form `input` Struct, the stdio one is flat — so the lookup
-// tries both rather than pinning one shape.
+// agentRunEnum digs out the enum advertised for one per-call argument: the
+// generated schema wraps the arguments in agent_run's free-form `input`
+// Struct, so the lookup descends into it.
 func agentRunEnum(t *testing.T, schema map[string]any, argument string) []string {
 	t.Helper()
 	props, _ := schema["properties"].(map[string]any)
@@ -74,79 +57,19 @@ func agentRunEnum(t *testing.T, schema map[string]any, argument string) []string
 	return members
 }
 
-// TestAgentRun_ConstrainsPerCallVocabulariesOnBothSurfaces is the wire half of
-// typing dirty_tree_handler. Both surfaces DESCRIBED the legal values in
-// prose and constrained nothing, while the human-edited channel (the project
-// config's JSON Schema) has carried enums for the same two keys all along —
-// so the agent-driven per-call channel was the loose one, and its
+// TestAgentRun_ConstrainsPerCallVocabularies is the wire half of typing
+// dirty_tree_handler. The surface DESCRIBED the legal values in prose and
+// constrained nothing, while the human-edited channel (the project config's
+// JSON Schema) has carried enums for the same two keys all along — so the
+// agent-driven per-call channel was the loose one, and its
 // dirty_tree_handler default is the member that auto-commits the user's tree.
 //
 // The expectation comes from each vocabulary's OWNING package, so a member
-// added there fails this test until both surfaces carry it.
-func TestAgentRun_ConstrainsPerCallVocabulariesOnBothSurfaces(t *testing.T) {
-	for name, schema := range agentRunSurfaces(t) {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, launch.DirtyTreeHandlerNames(), agentRunEnum(t, schema, "dirty_tree_handler"),
-				"the advertised dirty_tree_handler enum must be the vocabulary operations owns")
-			assert.Equal(t, isolation.WorkspaceNames(), agentRunEnum(t, schema, "workspace"),
-				"the advertised workspace enum must be the vocabulary isolation owns")
-		})
-	}
-}
-
-// TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler proves the stdio
-// surface's enum is ENFORCED, not merely advertised: the SDK validates
-// arguments against the advertised schema before the handler runs, so a
-// typo'd handler is rejected at the tool call and never reaches the spawn.
-func TestAgentRun_StdioSurfaceRefusesAnUnknownDirtyTreeHandler(t *testing.T) {
-	// This test drives the REAL agent_run handler on a bare-`mcp` server.
-	// Isolated HOME + cwd (forbidigo: no raw os.Chdir) so nothing it touches
-	// lands in the checkout or the developer's real home.
-	testsupport.ProjectDir(t)
-
-	s := &ctxServer{cfg: testConfig(), app: fixtureApp(t, testConfig())}
-	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: "test"}, nil)
-	s.registerTools(server)
-
-	ct, st := mcp.NewInMemoryTransports()
-	ss, err := server.Connect(context.Background(), st, nil)
-	require.NoError(t, err)
-	defer func() { _ = ss.Close() }()
-	client := mcp.NewClient(&mcp.Implementation{Name: "probe", Version: "0"}, nil)
-	cs, err := client.Connect(context.Background(), ct, nil)
-	require.NoError(t, err)
-	defer func() { _ = cs.Close() }()
-
-	call := func(handler string) string {
-		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-			Name: mcpschema.ToolAgentRun,
-			Arguments: map[string]any{
-				"agent":              "worker",
-				"prompt":             "task",
-				"dirty_tree_handler": handler,
-			},
-		})
-		require.NoError(t, err, "the call completes; any refusal rides the result")
-		require.True(t, res.IsError)
-		return resultText(t, res)
-	}
-
-	// The vacuity guard: a DECLARED member gets past argument validation and
-	// fails later, in the handler (this bare server has no runner and
-	// refuses). So the refusal below is the enum rejecting the spelling, not
-	// the call failing for its own unrelated reasons.
-	declared := call(string(launch.DirtyTreeHandlerStale))
-	assert.NotContains(t, declared, "does not equal any of", "a declared member is not an argument-validation failure")
-
-	typo := call("fial")
-	assert.Contains(t, typo, "dirty_tree_handler")
-	assert.Contains(t, typo, "fial")
-	assert.Contains(t, typo, "does not equal any of", "the enum is ENFORCED before the handler runs, not merely advertised")
-}
-
-func resultText(t *testing.T, res *mcp.CallToolResult) string {
-	t.Helper()
-	raw, err := json.Marshal(res.Content)
-	require.NoError(t, err)
-	return string(raw)
+// added there fails this test until the surface carries it.
+func TestAgentRun_ConstrainsPerCallVocabularies(t *testing.T) {
+	schema := agentRunSchema(t)
+	assert.Equal(t, launch.DirtyTreeHandlerNames(), agentRunEnum(t, schema, "dirty_tree_handler"),
+		"the advertised dirty_tree_handler enum must be the vocabulary operations owns")
+	assert.Equal(t, isolation.WorkspaceNames(), agentRunEnum(t, schema, "workspace"),
+		"the advertised workspace enum must be the vocabulary isolation owns")
 }

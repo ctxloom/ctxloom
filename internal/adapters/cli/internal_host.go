@@ -7,7 +7,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 )
 
 // The coordinator a command's INTERNAL one-shot runs on when the process
@@ -34,9 +33,9 @@ func internalCoordinator(projectDir, ownerHarp string) (*coord.Coordinator, erro
 	if internalCoord.c != nil {
 		return internalCoord.c, nil
 	}
-	// The owner's runner env is minted for a session the command drives
-	// itself; an internal one-shot's runner is stamped by StartOwnedRun.
-	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp, launch.RuntimeHost)
+	// The owner credential is for a session the command drives itself; an
+	// internal one-shot's runner is stamped by StartOwnedRun.
+	c, _, err := mcp.HostCoordinatorForSession(NewCoordinator, App(), projectDir, ownerHarp)
 	if err != nil {
 		return nil, err
 	}

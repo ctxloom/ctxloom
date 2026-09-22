@@ -54,23 +54,6 @@ const noContextSamplesMsg = "no samples yet (statusline integration not active f
 // than reading someone else's.
 const noSessionIdentityMsg = "no ctxloom session identity for this caller — context occupancy is UNKNOWN, which is not the same as low"
 
-// contextStatusDesc is registered on BOTH the stdio server and the runner's
-// host relay, so the two surfaces cannot describe the tool two ways.
-// registerContextStatusTool wires context_status on the stdio server and
-// returns the names it registered, matching the convention the cell-local
-// registrar follows so the runner's route-classification check reads the
-// registration itself rather than a second hand-written copy of it.
-func (s *ctxServer) registerContextStatusTool(server *mcp.Server) []string {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "context_status",
-			Description: contextStatusDesc,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		},
-		s.handleContextStatus)
-	return []string{"context_status"}
-}
-
 // handleContextStatus reads the caller's own context-occupancy series.
 //
 // Read-only and cheap by construction: one file read, no distillation, no

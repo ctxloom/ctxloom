@@ -11,7 +11,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 )
 
@@ -86,43 +85,18 @@ func ConnectMCPEndpoint(ep sessions.Endpoint) (*MCPSession, error) {
 	return &MCPSession{ClientSession: session}, nil
 }
 
-// StartMCP spawns the MCP server in the project directory with the isolated
-// (and session-scrubbed — see isolatedEnv) environment and completes the
-// handshake. extraEnv entries ("KEY=VALUE") are appended last and win over
-// the isolated environment.
-//
-// The argv is agent.CtxloomMCPArgs, the SAME value ctxloom writes into every
-// engine's own MCP settings, so this harness drives the exact invocation an
-// engine drives. Spelling it out here instead would let the two drift, and a
-// harness that speaks the protocol to a spelling no engine uses proves
-// nothing about what engines get.
-func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPSession, error) {
-	return e.StartMCPFrom(e.AppBinary, extraEnv...)
-}
-
-// StartMCPFrom is StartMCP with the server binary named by the caller instead
-// of AppBinary: same argv, same directory, same isolated environment. It
-// exists for a scenario that must run the coordinator from a binary it
-// controls the lifetime of (a copy it can unlink while the process lives),
-// which AppBinary — shared by every scenario in the run — can never be.
-func (e *TestEnvironment) StartMCPFrom(bin string, extraEnv ...string) (*MCPSession, error) {
-	return connectMCP(bin, agent.CtxloomMCPArgs, e.ProjectDir, e.isolatedEnv(), extraEnv...)
-}
-
 // connectMCP spawns bin(args...) as an MCP server over stdio in dir, with
 // baseEnv plus extraEnv ("KEY=VALUE", appended last so it wins), and returns
-// the initialized session. Shared by StartMCP and StartTaskloomMCP so a
-// second binary gets the exact same process and transport plumbing.
+// the initialized session. ctxloom itself has no stdio server — a session's
+// tools are dialed at its endpoint (ConnectMCPEndpoint) — so this is the
+// companions' plumbing (StartTaskloomMCP).
 func connectMCP(bin string, args []string, dir string, baseEnv []string, extraEnv ...string) (*MCPSession, error) {
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
 	cmd.Env = append(baseEnv, extraEnv...)
 	cmd.Stderr = os.Stderr // surface server warnings to the test log
-	// See pdeathsig_linux.go: this MCP server can itself delegate to an
-	// agent (agent_run) that spawns an "llm serve <label>" plugin
-	// subprocess (the same self-invoking path `ctxloom run` uses), so it
-	// gets the same "die with the test binary" guarantee `ctxloom run`
-	// invocations do.
+	// See pdeathsig_linux.go: the same "die with the test binary"
+	// guarantee `ctxloom run` invocations get.
 	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	ctx, cancel := context.WithTimeout(context.Background(), MCPCallTimeout)
@@ -143,12 +117,11 @@ func connectMCP(bin string, args []string, dir string, baseEnv []string, extraEn
 // served.
 //
 // The escalation can still hard-kill a server that ignores EOF, and a killed
-// parent never runs its own cleanup — so any "llm serve <label>" plugin
-// subprocess it spawned via agent delegation (setsid'd into its own session,
-// unreachable by anything this harness could signal as a group) is captured
-// by pid BEFORE the close and explicitly reaped afterward, the same
-// defense-in-depth as ptyrun.go's PTYSession.Close and for the identical
-// reason.
+// parent never runs its own cleanup — so any subprocess it spawned (setsid'd
+// into its own session, unreachable by anything this harness could signal as
+// a group) is captured by pid BEFORE the close and explicitly reaped
+// afterward, the same defense-in-depth as ptyrun.go's PTYSession.Close and
+// for the identical reason.
 //
 // The server's exit status is returned: a server that exits non-zero on
 // stdin EOF is a finding, not noise. Nil-safe, so a scenario that never

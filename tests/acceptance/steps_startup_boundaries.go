@@ -18,13 +18,13 @@ import (
 // findings reach it.
 //
 // Both assert the EXIT STATUS first and the diagnostic second, and the exit
-// status is the load-bearing half: `mcp serve` is a stdio server, so a run that
-// starts cleanly still ends nonzero when the client closes stdin ("server is
-// closing: EOF"). "Failed" and "refused to launch" are therefore NOT the same
-// outcome here, and a scenario that only asserted nonzero would read a normal,
-// fully-started server as a refusal — passing whether or not the gate ever
-// fired. strictness.ExitCodeFatalFindings is the status that separates them,
-// cited by symbol so it cannot drift from the value the binary actually uses.
+// status is the load-bearing half: a run can end nonzero for reasons that are
+// not the gate's (an empty assembly refused, an engine that failed), so
+// "failed" and "refused to launch" are NOT the same outcome here, and a
+// scenario that only asserted nonzero would read any failure as a refusal —
+// passing whether or not the gate ever fired.
+// strictness.ExitCodeFatalFindings is the status that separates them, cited
+// by symbol so it cannot drift from the value the binary actually uses.
 const startupAbortBanner = "aborting startup"
 
 // bundleFindingRemedy is the fix line the bundle finding must carry. Asserted
@@ -58,6 +58,40 @@ const (
 const orphanReapReport = "reaped 1 orphaned per-agent worktree(s)"
 
 func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
+	// The machine layer supplies a mock engine label, so a project-less run
+	// has an engine to launch without the directory becoming a project.
+	ctx.Step(`^the home config declares the mock engine label "([^"]*)"$`, func(c context.Context, label string) error {
+		return worldFrom(c).env.EnsureHomeMockLabel(label)
+	})
+
+	// A session's delivered surfaces land in ITS home under the session
+	// store; these walk every session the run minted. The positive form is
+	// what a dry run cannot satisfy, and the negative form what a real start
+	// cannot.
+	ctx.Step(`^a session home carries the file "([^"]*)"$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		found, err := sessionHomesCarrying(w, name)
+		if err != nil {
+			return err
+		}
+		if len(found) == 0 {
+			return fmt.Errorf("no session home under %s carries %q — the run delivered nothing into its session. output:\n%s", sessionStoreRoot(w), name, w.env.LastOutput())
+		}
+		w.docStepMaterialized = fmt.Sprintf("%s delivered into %v", name, found)
+		return nil
+	})
+	ctx.Step(`^no session home carries the file "([^"]*)"$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		found, err := sessionHomesCarrying(w, name)
+		if err != nil {
+			return err
+		}
+		if len(found) > 0 {
+			return fmt.Errorf("%q was delivered into a session home (%v) — a dry run must deliver nothing. output:\n%s", name, found, w.env.LastOutput())
+		}
+		return nil
+	})
+
 	// The reaper fixture: exactly what a crashed run leaves behind — a real
 	// linked worktree under a harp's ephemeral dir whose recorded owner pid is
 	// confirmed dead, and whose tree is genuinely clean. Both halves are
@@ -170,6 +204,36 @@ func registerStartupBoundarySteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+}
+
+// sessionStoreRoot is the isolated HOME's session store.
+func sessionStoreRoot(w *World) string {
+	return filepath.Join(w.env.HomeDir, filepath.FromSlash(harpSessionsRel))
+}
+
+// sessionHomesCarrying lists the paths under the session store whose base
+// name is name — one per session that delivered it. An absent store is no
+// session at all, which is the dry run's honest state.
+func sessionHomesCarrying(w *World, name string) ([]string, error) {
+	root := sessionStoreRoot(w)
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil, nil
+	}
+	var found []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && d.Name() == name {
+			rel, _ := filepath.Rel(root, path)
+			found = append(found, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk the session store at %s: %w", root, err)
+	}
+	return found, nil
 }
 
 // orphanWorktreePath returns the seeded orphan's path, refusing when no

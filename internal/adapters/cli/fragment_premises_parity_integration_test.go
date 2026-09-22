@@ -2,24 +2,31 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// stagePremisedProject is stageMinimalProject plus one premised fragment, so
-// both surfaces under test have something conditional to list.
+// stagePremisedProject sets up a project with one premised fragment and a
+// config that trips no review-gate logic on startup, so the CLI surface under
+// test has something conditional to list.
 func stagePremisedProject(t *testing.T) string {
 	t.Helper()
-	workDir := stageMinimalProject(t)
+	workDir := t.TempDir()
+	appDir := filepath.Join(workDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(fmt.Sprintf("version: %d\nllm:\n  configs:\n    claude-code:\n      type: claude-code\n", config.CurrentConfigVersion)), 0o644))
 	bundleDir := authoredV1(filepath.Join(workDir, ".ctxloom"))
 	require.NoError(t, os.MkdirAll(bundleDir, 0o755))
 	doc := `version: "1.0"
@@ -33,17 +40,19 @@ fragments:
 }
 
 // The premise catalog has two emitters — `ctxloom fragment premises` for a
-// shell and ctxloom://fragments for an MCP client — and one source of the
-// wording they emit: operations.PremiseSelectionInstruction. This drives BOTH
-// real surfaces from the same built binary and pins their instruction text
-// identical, and identical to the source. It reddens if either emitter stops
-// calling the shared function: a re-worded copy on one side differs from the
-// other, and a re-worded copy on both sides differs from the source.
+// shell and the session endpoint's server instructions for an MCP client
+// (operations.SessionInstructions, which every session's runner advertises
+// at initialize and points at the ctxloom://fragments catalog) — and one
+// source of the wording they emit: operations.PremiseSelectionInstruction.
+// This drives the CLI from the built binary and the endpoint's surface from
+// the same registration the runner serves (runnermcp.NewDocServer), and pins
+// the instruction text identical, and identical to the source. It reddens if
+// either emitter stops calling the shared function.
 //
 // The wording was fixed by measurement and the apparatus that measured it is
 // gone, so a copy that drifts cannot be re-derived back. One source, or the
 // measured one loses.
-func TestMCP_FragmentsResource_InstructionMatchesFragmentPremisesCLI(t *testing.T) {
+func TestMCP_SessionInstructions_MatchFragmentPremisesCLI(t *testing.T) {
 	binPath := buildCtxloomBinary(t)
 	workDir := stagePremisedProject(t)
 
@@ -63,20 +72,24 @@ func TestMCP_FragmentsResource_InstructionMatchesFragmentPremisesCLI(t *testing.
 	require.NoError(t, json.Unmarshal(cliOut, &cliPayload), "CLI output: %s", cliOut)
 	require.NotEmpty(t, cliPayload.Fragments, "the staged premise must be listed, or the CLI side of the comparison is vacuous")
 
-	// MCP emitter: the same binary, serving the resource over the wire.
-	c := startMCPServer(t, binPath, workDir)
-	initSession(t, c)
-	body, _ := readResource(t, c, 106, "ctxloom://fragments")
-	var mcpPayload struct {
-		Instruction string `yaml:"instruction"`
-	}
-	require.NoError(t, yaml.Unmarshal([]byte(body), &mcpPayload), "resource body: %s", body)
+	// MCP emitter: the session endpoint's advertised instructions, from the
+	// same server the runner serves.
+	server, closeHome, err := runnermcp.NewDocServer()
+	require.NoError(t, err)
+	defer closeHome()
+	ctx := t.Context()
+	serverT, clientT := mcp.NewInMemoryTransports()
+	_, err = server.Connect(ctx, serverT, nil)
+	require.NoError(t, err)
+	client := mcp.NewClient(&mcp.Implementation{Name: "premise-parity"}, nil)
+	cs, err := client.Connect(ctx, clientT, nil)
+	require.NoError(t, err)
+	defer cs.Close()
+	advertised := cs.InitializeResult().Instructions
 
 	want := operations.PremiseSelectionInstruction()
 	assert.Equal(t, want, cliPayload.Instruction,
 		"the CLI must emit the source function's wording verbatim")
-	assert.Equal(t, want, mcpPayload.Instruction,
-		"the MCP resource must emit the source function's wording verbatim")
-	assert.Equal(t, cliPayload.Instruction, mcpPayload.Instruction,
-		"both emitters must serve identical instruction text")
+	assert.Contains(t, advertised, want,
+		"the session endpoint must advertise the source function's wording verbatim")
 }

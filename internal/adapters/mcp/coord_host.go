@@ -11,17 +11,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
-	"github.com/ctxloom/ctxloom/internal/core/launch"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 )
 
 // Coordinator hosting: the session-owning process — `ctxloom run` — stands
 // the runtime coordinator up as a LIBRARY, and it is the ONLY process that
-// does. An MCP server (stdio shim or runner) is a client of that
-// coordinator, never a host: hostCoordinator is private, reachable only
-// through HostCoordinatorForSession, so no other entry point in this package
-// can build one. The gRPC channels are the ONLY agent ingress (tool surfaces
-// live at each runner's local socket); this process keeps the host-relay
+// does. hostCoordinator is private, reachable only through
+// HostCoordinatorForSession, so no other entry point in this package can
+// build one. The gRPC channels are the ONLY agent ingress (tool surfaces
+// live at each runner's session endpoint); this process keeps the host-relay
 // handlers, each bound to the CALLER's credential-derived identity — never
 // the host process's env.
 
@@ -192,46 +190,22 @@ func (a *HostApp) RunHost(context.Context, string, string) (operations.RunHost, 
 	return a.c, nil
 }
 
-// HostCoordinatorForSession is the run/acp hosting helper: coordinator up,
-// viewer socket bound under the owner harp, owner credential minted, and the
-// owner's full per-spawn RUNNER env (SessionOwnerEnv → coord.OwnerRunnerEnv:
-// the reach-back trio, the session harp, and this coordinator's depth/oneshot/
-// spool stamps) returned for injection at launch. A standup failure returns
-// the error for the caller's fail-loud gate; the caller decides degraded
-// behavior.
-func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string, runtimeAxis launch.RuntimeAxis) (*coord.Coordinator, map[string]string, error) {
+// HostCoordinatorForSession is the run hosting helper: coordinator up, the
+// owner registered under ownerHarp, and the owner's credential returned —
+// the identity the owner-owned run is minted under (coord.Identify) and the
+// credential the host revokes on teardown. A standup failure returns the
+// error for the caller's fail-loud gate; the caller decides degraded
+// behavior. The owner's RUNNER is stamped by StartOwnedRun with its own
+// per-run trio; nothing here rides an environment.
+func HostCoordinatorForSession(build CoordinatorConstructor, app *operations.App, projectDir, ownerHarp string) (*coord.Coordinator, string, error) {
 	c, err := hostCoordinator(build, app, projectDir, ownerHarp)
 	if err != nil {
-		return nil, nil, err
+		return nil, "", err
 	}
-	env, err := SessionOwnerEnv(c, ownerHarp, runtimeAxis)
-	if err != nil {
-		c.Close()
-		return nil, nil, err
-	}
-	return c, env, nil
-}
-
-// SessionOwnerEnv mints one session-owner credential on an already-hosted
-// coordinator and returns the per-spawn env for that owner's RUNNER. D2 retired
-// the per-owner-harp agent-bus.sock bind step: observe/roster/inject now
-// ride ConsumerService, a single coordinator-wide surface Serve() already
-// stood up — nothing left to bind here.
-//
-// The env itself is the coordinator's to build, not this function's: it calls
-// coord.OwnerRunnerEnv, the same constructor every child spawn goes through.
-// This function used to hand-build a two-key map here, which made it a SECOND
-// producer of the runner env that silently omitted every stamp it had not been
-// told about (see OwnerRunnerEnv's doc for what that cost). Mint the
-// credential, resolve the endpoint, hand both to the one producer.
-func SessionOwnerEnv(c *coord.Coordinator, ownerHarp string, runtimeAxis launch.RuntimeAxis) (map[string]string, error) {
 	token, err := c.RegisterSessionOwner(ownerHarp)
 	if err != nil {
-		return nil, err
+		c.Close()
+		return nil, "", err
 	}
-	url, err := c.ReachURL(runtimeAxis)
-	if err != nil {
-		return nil, err
-	}
-	return c.OwnerRunnerEnv(ownerHarp, token, url), nil
+	return c, token, nil
 }

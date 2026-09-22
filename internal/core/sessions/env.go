@@ -30,19 +30,6 @@ const (
 	// EnvProjectID carries the project id the run serves, so a containerized
 	// child's taskloom keys the SAME shared host log.
 	EnvProjectID = "CTXLOOM_PROJECT_ID"
-
-	// The carriers below are the per-spawn seam's remaining keys. Each is
-	// replaced by a typed field on the launch (the MCP endpoint, the cell
-	// workspace) or by the identity itself (depth, one-shot), and leaves
-	// with the slice that carries that value.
-
-	// EnvMCPSocket is the container-local (or host user-private) unix
-	// socket path of the plugin-hosted owner arm's MCP endpoint. That runner
-	// creates the socket BEFORE the engine spawns and exports this into the
-	// engine's env; a `ctxloom mcp` shim finding it forwards the whole
-	// surface there. A hosted run never sets it: its engine dials the
-	// runner's bound endpoint by URL and bearer. Dies with the plugin arm.
-	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
 )
 
 // ErrNoReachBack is DecodeReach's refusal: the process environment carries no

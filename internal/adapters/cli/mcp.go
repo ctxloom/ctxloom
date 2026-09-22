@@ -14,87 +14,43 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
 
-// mcpCmd is the MCP noun. Bare `ctxloom mcp` conforms to the bare-noun ladder
-// and answers with the configured MCP servers, delegating through `mcp server`
-// to its own `list` — the collection is the one thing the noun is about, and
-// reading it touches nothing.
-//
-// The machine surface is `ctxloom mcp serve`, one spelling, symmetric with
-// `ctxloom acp serve`. mcpBareMachineRefusal is what keeps the two from
-// colliding when a caller off a terminal types the noun on its own.
+// The MCP noun has NO machine surface: ctxloom's own server is served by
+// the running session's endpoint (the runner binds it; delivery writes its
+// URL and bearer into the session's registry), never launched as a command.
+// mcpBareMachineRefusal is what tells a client that still launches the noun
+// so, instead of hanging it on a listing.
 var mcpCmd = mcpBareMachineRefusal(groupNodeDefault(&cobra.Command{
 	Use:   "mcp",
-	Short: "List configured MCP servers, or serve ctxloom as one",
+	Short: "List the MCP servers this project registers",
 	Long: `The MCP (Model Context Protocol) noun: the servers this project hands to
-every engine, and ctxloom's own stdio server.
+every engine.
 
   ctxloom mcp              List the MCP servers this project registers
-  ctxloom mcp serve        Serve ctxloom AS an MCP server over stdio. This is
-                           the invocation an engine's settings name, and the
-                           only one that speaks the protocol.
   ctxloom mcp server       List, show and edit registered servers
 
 Every server here comes from a BUNDLE — ctxloom's own included, which its
-own companion loadout declares. Add one by composing a bundle that declares it;
-withhold one with a profile's exclude_mcp, or with
+own companion loadout declares as SERVED BY THE RUNNING SESSION'S ENDPOINT:
+there is no command to launch, and nothing is registered in the project at
+rest. A ` + "`ctxloom run`" + ` session's runner serves the endpoint and the
+session's own registry names it (URL + bearer). Add a server by composing a
+bundle that declares it; withhold one with a profile's exclude_mcp, or with
   ctxloom bundle reject <bundle>#mcp/<name>
 
-Tools ctxloom serves under 'mcp serve':
+Tools the session endpoint serves:
   Context:  assemble_context, search_content, search_library
   Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
   Health:   context_status (this session's measured context-window occupancy)
-  Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
-            the in-memory coordinator/executor message bus)
+  Agents:   agent_run, agent_send, agent_recv and the other coordination
+            tools (delegated child sessions + the coordinator message bus)
 
-Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
-sessions) are exposed as MCP resources (ctxloom://...), not tools. All
-management (bundles, remotes, review/approve, trust, pinning) is done with
-the ctxloom CLI, not MCP tools. Task tracking lives in the standalone
-taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.`,
+The catalog listings (fragments, commands, skills) are exposed as MCP
+resources (ctxloom://...), not tools. All management (bundles, remotes,
+review/approve, trust, pinning) is done with the ctxloom CLI, not MCP tools.
+Task tracking lives in the standalone taskloom binary; its MCP server
+('taskloom mcp') serves the task_* tools.`,
 }, "server"))
 
 // MCP subcommands for managing MCP server configurations
-
-// mcpServeDryRun configures THIS invocation only — it is a per-run posture,
-// not a config key, so it is deliberately not routed through the config chain.
-var mcpServeDryRun bool
-
-var mcpServeCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Serve ctxloom as an MCP server over stdio",
-	Long: `Serve ctxloom as an MCP (Model Context Protocol) server over stdio.
-
-This is the machine surface: the invocation ctxloom writes into every engine's
-own MCP settings, and the only spelling that speaks the protocol.
-
-STARTING THIS SERVER WRITES TO YOUR PROJECT. Startup runs the same apply every
-other entry point runs: it regenerates the assembled context and rewrites each
-backend's managed settings, hooks, MCP config and command files. That is
-ctxloom's job, not a side effect — the managed surfaces are meant to be current
-whenever ctxloom runs — but it does mean this is not a read-only command, and a
-run started merely to inspect something still rewrites those files.
-
-Use --dry-run to resolve the apply and leave the MANAGED SURFACES alone: no
-settings file, MCP config, hook, command file, or delivered context surface
-(AGENTS.md and the like) is written or rewritten. It also skips the startup
-reapers and the remote sync. Two things it deliberately does NOT promise:
-
-  - It is not "touch nothing". Startup still scaffolds a project (.ctxloom/,
-    .gitignore) in a directory that has none, and still populates the derived
-    context CACHE under .ctxloom/cache/ — both happen before the apply this
-    flag gates, and the cache is gitignored derived state rather than a
-    surface anything reads as configuration.
-  - It stops before the write, so findings only a write can produce — a
-    settings file that has DRIFTED since ctxloom last wrote it, say — are not
-    reported by a dry run.
-
-When the environment names a running runner's socket, this process forwards to
-it and no local apply happens at all.`,
-	// NoArgs because this RunE is the stdio server: `ctxloom mcp serve list`
-	// would otherwise sit waiting on stdin instead of reporting the mistake.
-	Args: cobra.NoArgs,
-	RunE: runMCPServerSDK,
-}
 
 // mcpBareMachineRefusal wraps the bare noun's delegation so a caller that is
 // not a person at a terminal is refused instead of answered.
@@ -131,8 +87,9 @@ func mcpBareMachineRefusal(cmd *cobra.Command) *cobra.Command {
 var errMCPBareIsNotTheServer = fmt.Errorf(
 	"`ctxloom mcp` lists this project's configured MCP servers; it does not speak the protocol, " +
 		"and a listing delivered to a client waiting for JSON-RPC is indistinguishable from a hang. " +
-		"The stdio server is `ctxloom mcp serve` — point this client's configured command at it " +
-		"(`ctxloom init` rewrites every engine's settings), or run `ctxloom mcp server list` for the listing as data")
+		"ctxloom has no stdio MCP server: its tools are served by a running `ctxloom run` session's endpoint, " +
+		"which the session's own registry names — remove this client's configured ctxloom command " +
+		"(`ctxloom manage hooks install` rewrites the project's registry), or run `ctxloom mcp server list` for the listing as data")
 
 // mcpServerListCmd is the canonical spine's `list` for the MCP-server noun.
 var mcpServerListCmd = &cobra.Command{
@@ -359,15 +316,8 @@ var mcpServerCmd = groupNodeDefault(&cobra.Command{
 func init() {
 	rootCmd.AddCommand(mcpCmd)
 
-	// `mcp serve` is the runtime server, and the invocation every generated
-	// engine surface names (agent.CtxloomMCPArgs). A server's definition lives
-	// in the bundle that ships it, so `mcp server` reads and edits there.
-	mcpCmd.AddCommand(mcpServeCmd)
-	mcpServeCmd.Flags().BoolVar(&mcpServeDryRun, "dry-run", false,
-		"resolve the startup apply and report findings, but write nothing: "+
-			"starting the server normally rewrites this project's managed "+
-			"settings, hooks, MCP config and context")
-
+	// A server's definition lives in the bundle that ships it, so `mcp
+	// server` reads and edits there.
 	mcpCmd.AddCommand(mcpServerCmd)
 	mcpServerCmd.AddCommand(mcpServerListCmd)
 	mcpServerCmd.AddCommand(mcpServerShowCmd)

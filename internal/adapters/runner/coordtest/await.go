@@ -22,7 +22,7 @@ func (r *Runners) AwaitHome(t *testing.T, runID string) *runner.Home {
 }
 
 // AwaitEngine waits for the n-th spawned engine to have received its first
-// Chat call — the moment its ChatRequest is inspectable.
+// turn — the moment its recorded Request is inspectable.
 func (r *Runners) AwaitEngine(t *testing.T, n int) *Engine {
 	t.Helper()
 	var e *Engine

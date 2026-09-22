@@ -4,83 +4,6 @@ import (
 	"encoding/json"
 )
 
-// ChatRequest configures a structured chat run. Mirrors the subset of
-// ExecuteRequest a programmatic (non-pty) conversation needs.
-type ChatRequest struct {
-	WorkDir     string
-	Model       string
-	Env         map[string]string
-	Permissions PermissionMode
-	// MCPServers are caller-supplied MCP servers to attach to the conversation
-	// (e.g. the ACP client's session/new mcpServers), in addition to whatever
-	// native config the engine reads from its cwd.
-	MCPServers []ChatMCPServer
-	// MCPConfigPath is the .mcp.json the runner delivered under the session
-	// home naming exactly MCPServers; an engine whose argv takes a config
-	// file names this path rather than writing its own. "" when the set is
-	// empty.
-	MCPConfigPath string
-	// ResumeSessionID, when set, asks the backend to resume a prior native
-	// session instead of starting fresh (claude --resume <id>, codex
-	// thread/resume, ACP session/load). A backend that cannot resume (no
-	// native support, or the specific id is unknown to it) fails the call
-	// loudly rather than silently starting a fresh session under the old
-	// id's name — a delegated child's resumed context is load-bearing.
-	ResumeSessionID string
-	// TranscriptRawPolicy names the transcript.raw capture policy this chat's
-	// canonical-transcript Recorder should honor (transcript.RawPolicy: off |
-	// lossy-only | all — see internal/adapters/transcript/recorder.go). Empty means
-	// "use the default" (lossy-only). This is a CAPTURE-layer setting riding
-	// ChatRequest purely as a convenient existing carrier from host to the
-	// point a Recorder gets constructed (internal/lm/grpc/chat.go,
-	// internal/core/coord/enginehost.go) — it has nothing to do with
-	// the chat itself and a backend implementation never reads it. NOTE:
-	// nothing yet POPULATES this from user config (that CLI-boundary wiring
-	// — reading config.Config's transcript.raw key at run_structured/oneshot/
-	// acp call sites — is deferred); every current caller leaves it empty, so
-	// every current transcript keeps recording under the default policy
-	// exactly as before this field existed.
-	TranscriptRawPolicy string
-	// Runtime is the AGENT BINDING's resolved runtime axis, as its spelling
-	// (launch.RuntimeAxis's vocabulary; parsed once where the binding is
-	// resolved). Empty is the host. It rides a structured chat to the one
-	// backend whose transport containerizes the engine subprocess; every
-	// other backend ignores it. A string here because the gRPC crossing
-	// carries it as one and this package sits below the axis vocabulary.
-	Runtime string
-	// ModelQuirk optionally names a per-engine escape hatch (see
-	// ModelDeliveryQuirk) that forces Model onto the session via a non-spec
-	// call the structured-chat driver makes right after setup,
-	// before the first prompt. nil — every backend today — means
-	// no such call: the spec-standard delivery (--model / an env var / a
-	// future session/set_config_option) is trusted to work.
-	ModelQuirk *ModelDeliveryQuirk
-}
-
-// ModelDeliveryQuirk names a single, VERSION-SCOPED per-engine model-delivery
-// defect that a structured-chat driver routes around with a non-spec call,
-// instead of trusting the spec-standard channel every other engine uses. It
-// exists ONLY because CO1's controlled experiment proved claude-code-acp
-// 0.16.2 silently ignores every spec-standard model channel (argv, env, and
-// it does not implement session/set_config_option at all — zero hits in its
-// dist/*.js). This type is deliberately backend-neutral (it lives alongside
-// ChatRequest, not inside any one backend) so the driver that executes it
-// never needs to
-// know which engine it is talking to — it just compares the connected
-// agent's self-reported identity against these fields.
-type ModelDeliveryQuirk struct {
-	// Method is the non-spec JSON-RPC method to call with
-	// {sessionId, modelId: <the requested model>}.
-	Method string
-	// AgentName/AdapterVersions restrict the call to the connected agent's
-	// self-reported initialize agentInfo.name and an EXACT agentInfo.version
-	// match — an unlisted version (including a hoped-for future fix that
-	// finally speaks session/set_config_option) is left on the spec-standard
-	// path untouched.
-	AgentName       string
-	AdapterVersions []string
-}
-
 // MCPTransport selects the wire-transport variant of one ChatMCPServer entry.
 // The zero value (MCPTransportStdio, "") is the protocol's unconditional
 // baseline — every EXISTING construction site (ComposeChatMCPServers and
@@ -264,7 +187,7 @@ type ChatSessionInfo struct {
 	// SessionID is the harness-NATIVE session id this conversation runs
 	// under (the ACP session id from session/new or session/load) — the
 	// resume handle a coordinator journals so a later respawn can continue
-	// the same native session (ChatRequest.ResumeSessionID). Empty when the
+	// the same native session (engine.Turn.Resume). Empty when the
 	// backend exposes none.
 	SessionID string
 	// Resumable reports that the backend advertised it can RESUME this native

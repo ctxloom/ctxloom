@@ -8,8 +8,8 @@ import (
 )
 
 // ComposeChatMCPServers maps the ctxloom-managed MCP server set onto
-// caller-supplied chat servers (ChatRequest.MCPServers → session/new
-// mcpServers) for the structured paths, which carry the servers by name
+// caller-supplied chat servers (engine.Session.MCPServers) for the
+// structured paths, which carry the servers by name
 // rather than through a settings-file write. The source is the one
 // claude.ClaudeCodeHookWriter.writeMCPConfig reconciles into an engine's MCP
 // registry file: bundle-shipped servers (config.ResolveBundleMCPServers — the builtin

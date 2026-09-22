@@ -118,7 +118,7 @@ func checkStartRunAllowlist(backend string) error {
 //     this table is the STATIC half alone.
 //   - a MIGRATED backend is not automatically resume-capable: the two tables
 //     answer different questions, and one that neither consumes
-//     ChatRequest.ResumeSessionID nor emits a native session-id Session event
+//     engine.Turn.Resume nor emits a native session-id Session event
 //     stays FALSE here and re-primes from rendered history instead
 //     (the rendered-history lead, ResumeHistory), over StartRun all the same.
 //   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,

@@ -69,14 +69,6 @@ func (l *BaseLifecycle) ensureHooks() {
 	}
 }
 
-// ChatMCPServers composes the managed MCP set this lifecycle holds into
-// chat-injectable server entries (see ComposeChatMCPServers). nil until
-// MergeManaged has folded a managed payload in — a minimal-form run merges nothing,
-// so it injects nothing.
-func (l *BaseLifecycle) ChatMCPServers() []ChatMCPServer {
-	return ComposeChatMCPServers(l.bundleMCP, nil)
-}
-
 // GetHooks returns the current hooks configuration.
 func (l *BaseLifecycle) GetHooks() *wire.HooksConfig {
 	return l.hooks

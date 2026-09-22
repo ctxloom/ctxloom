@@ -65,7 +65,7 @@ Then lead straight into the scan — don't recite the phase list mechanically.
   of "not set up yet" on a brand-new project.)
 - `ctxloom agent list` — existing agents (engine↔profile bindings)
 - `ctxloom profile list` — existing local profiles
-- `ctxloom llm list` — configured engines/models (the candidate `--engine`
+- `ctxloom llm list` — configured engines/models (the candidate `--llm`
   values for anything you bind later)
 - `ctxloom container check` — whether containerized agents are viable here
 - `ctxloom manage check` — hooks/MCP/statusline wiring per backend, plus
@@ -350,7 +350,7 @@ Rules for asking it:
 Write what's agreed:
 
 ```
-ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
+ctxloom agent create <name> --llm <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
 ```
 
 `--runtime` is not optional in this interview: pass the value 4b-runtime
@@ -378,7 +378,7 @@ the same as any other.
 Create a `distiller` and a `triage` agent. They take the same flags as
 anything above, and the two that matter are:
 
-- `--engine` — these run often and on cheap work, so a small fast model is
+- `--llm` — these run often and on cheap work, so a small fast model is
   usually right; the user chooses, you explain the trade-off.
 - `--runtime` — they honour the runtime axis like any agent, so ask 4b-runtime
   for each of them too rather than copying what the developer got. Say the

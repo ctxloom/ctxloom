@@ -116,7 +116,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -354,7 +354,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -594,7 +594,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -829,7 +829,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1066,7 +1066,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1301,7 +1301,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1538,7 +1538,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1773,7 +1773,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1990,7 +1990,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2182,7 +2182,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
+      "Content": "blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2423,7 +2423,7 @@ entry.
 
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
-== blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1
+== blob:5cd1c01561b1177f51bf04713261f091474377ec195cb32ee0feae8df0d4ca77
 
 Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
 guidance whether this is a brand-new project (launched by `ctxloom init`
@@ -2488,7 +2488,7 @@ Then lead straight into the scan — don't recite the phase list mechanically.
   of "not set up yet" on a brand-new project.)
 - `ctxloom agent list` — existing agents (engine↔profile bindings)
 - `ctxloom profile list` — existing local profiles
-- `ctxloom llm list` — configured engines/models (the candidate `--engine`
+- `ctxloom llm list` — configured engines/models (the candidate `--llm`
   values for anything you bind later)
 - `ctxloom container check` — whether containerized agents are viable here
 - `ctxloom manage check` — hooks/MCP/statusline wiring per backend, plus
@@ -2773,7 +2773,7 @@ Rules for asking it:
 Write what's agreed:
 
 ```
-ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
+ctxloom agent create <name> --llm <engine> --profiles <p1,p2,...> --runtime host|container-rootless|container-rootful
 ```
 
 `--runtime` is not optional in this interview: pass the value 4b-runtime
@@ -2801,7 +2801,7 @@ the same as any other.
 Create a `distiller` and a `triage` agent. They take the same flags as
 anything above, and the two that matter are:
 
-- `--engine` — these run often and on cheap work, so a small fast model is
+- `--llm` — these run often and on cheap work, so a small fast model is
   usually right; the user chooses, you explain the trade-off.
 - `--runtime` — they honour the runtime axis like any agent, so ask 4b-runtime
   for each of them too rather than copying what the developer got. Say the

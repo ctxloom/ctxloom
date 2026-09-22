@@ -128,8 +128,8 @@ func TestLoad_UnknownKeyInsideArrayElement_StillSuggests(t *testing.T) {
 // the walk silently returned nil — every backend-specific typo lost its
 // did-you-mean and its "known keys at" listing entirely, with no error, just
 // a plainer message. Proves the compiled-schema KnownKeys union now reaches
-// through anyOf and offers the MATCHED branch's own field names (the "big"
-// label's type: claude-code pins which branch it validates against).
+// through anyOf: the suggestion is drawn from the UNION of every branch's
+// field names, not from the branch the entry's type selects.
 func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
 
@@ -137,13 +137,13 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 	// alternative, one identical warning per branch for one typo) is deduplicated now;
 	// see TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise. What
 	// THIS test pins is orthogonal: whatever warnings come out carry a real
-	// suggestion drawn from the matched branch, instead of none at all.
+	// suggestion drawn from the anyOf union, instead of none at all.
 	warns := unknownKeyWarnings(cfg)
 	require.NotEmpty(t, warns, "warnings: %+v", cfg.GetWarnings())
 	for _, w := range warns {
 		assert.Contains(t, w.Text, "llm.configs.big.binary_pth", "the dotted path must reach through the dynamic label and the anyOf branch")
-		assert.Contains(t, w.Text, "did you mean `binary_path`?", "the matched branch's own field name must be offered, not silently dropped — `binary_path` is absent from the mock branch, so offering it proves the branch actually resolved")
-		assert.Contains(t, w.Text, "known keys at", "a resolved anyOf branch must list its known keys, not degrade to no suggestion at all")
+		assert.Contains(t, w.Text, "did you mean `binary_path`?", "a field name from inside the anyOf union must be offered, not silently dropped")
+		assert.Contains(t, w.Text, "known keys at", "the anyOf union's known keys must be listed, not degrade to no suggestion at all")
 	}
 }
 

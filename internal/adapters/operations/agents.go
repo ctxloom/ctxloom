@@ -520,7 +520,7 @@ func AgentSetupNudge(cfg *config.Config) string {
 	}
 	return "ctxloom: this project has profiles but no agents configured. " +
 		"Run `ctxloom init prompt` (or ask your agent to) to bind engines to profiles — " +
-		"the standard trio is a coordinator you drive, a containerized developer, and a cheap finder, " +
+		"the standard trio is an orchestrator you drive, a containerized developer, and a cheap finder, " +
 		"plus code-review lenses and any other roles you want to orchestrate."
 }
 

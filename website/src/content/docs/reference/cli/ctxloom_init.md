@@ -40,7 +40,7 @@ When run interactively (TTY detected), init will guide you through:
   1. Selecting an AI engine
   2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI for one setup interview: discover and configure
-     profiles, then bind agents to them (a coordinator you drive, a
+     profiles, then bind agents to them (an orchestrator you drive, a
      containerized developer, a cheap finder — plus any other roles)
 
 The working outcome of init is a functioning ctxloom CLI/TUI.

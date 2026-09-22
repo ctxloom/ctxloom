@@ -116,7 +116,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -354,7 +354,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "Configure or reconfigure ctxloom for this project — companions, profiles, and agents",
       "Enabled": true,
       "Model": "",
@@ -594,7 +594,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -829,7 +829,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1066,7 +1066,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1301,7 +1301,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1538,7 +1538,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1773,7 +1773,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -1990,7 +1990,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2182,7 +2182,7 @@
     {
       "AllowedTools": null,
       "ArgumentHint": "",
-      "Content": "blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06",
+      "Content": "blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1",
       "Description": "",
       "Enabled": true,
       "Model": "",
@@ -2423,9 +2423,7 @@ entry.
 
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
-== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
-You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
-== blob:9f6f6caf362f76c188ad8637504a78a25466f9f8c71c7d4a577f8aa8283d0e06
+== blob:8f8f0690e84d1a31898deb08f730ec93f55236a7421716f3b4521534a52096c1
 
 Welcome to ctxloom! You are running the ctxloom **setup interview** — the same
 guidance whether this is a brand-new project (launched by `ctxloom init`
@@ -2462,7 +2460,7 @@ belabor it):
 > engines and models and switch without relearning each vendor's CLI;
 > **per-agent isolation** — agents run in containers or git worktrees, so a
 > delegated agent can't reach your host or another agent's state;
-> **cross-engine delegation** — a coordinator agent spawns and collects work
+> **cross-engine delegation** — an orchestrator agent spawns and collects work
 > from child agents, even ones on a different engine; and **signed,
 > trust-verified context** — bundles pulled from shared remotes carry
 > signatures from publishers you've chosen to trust.
@@ -2643,7 +2641,7 @@ Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM
 backend/model) to one or more **profiles** and a **runtime**
 (host | container-rootless | container-rootful) — right after phase 3, same
 conversation. `ctxloom run
---agent <name>` drives one directly; a running coordinator fans work across
+--agent <name>` drives one directly; a running orchestrator fans work across
 several by spawning them as children with the `agent_run` MCP tool. Agents
 live only in this project's `.ctxloom` — never shipped in bundles or
 remotes; engine choice is always the user's, you facilitate. (Workspace
@@ -2687,9 +2685,9 @@ can ask 4b-runtime honestly:
 ### 4b. Discuss
 
 Lead with the standard trio, bound to the phase-3 profiles:
-- **coordinator** — the session the user drives, delegating to children via
+- **orchestrator** — the session the user drives, delegating to children via
   `agent_run`. Most powerful engine.
-- **developer** — the implementer the coordinator delegates to. Powerful
+- **developer** — the implementer the orchestrator delegates to. Powerful
   engine, plus an escalation-discipline fragment
   (ctxloom-default ships `agent-roles#fragments/developer-escalation`, or
   author an equivalent) so structural/interface changes get escalated back
@@ -2699,11 +2697,11 @@ Lead with the standard trio, bound to the phase-3 profiles:
   `agent-roles#fragments/finder` fragment (or an equivalent).
 
 Then the open palette. **Code-review agents** are the notable one: build the
-ensemble THIS project needs now and persist it, so the coordinator can fan it
+ensemble THIS project needs now and persist it, so the orchestrator can fan it
 out later via `agent_run`. The pattern is one tight, single-lens profile per
 lens × language present — composed from the code-review base fragment plus
 that lens's and that language's fragments (search_library surfaces the exact
-refs). Prefer many narrow lenses over one broad reviewer; the coordinator
+refs). Prefer many narrow lenses over one broad reviewer; the orchestrator
 reads each child's `agent_report` back and synthesizes the findings itself —
 no separate reduce agent needed. Beyond that: docs writer, migration runner,
 test author, whatever the user wants — same pattern each time: tight scope, a
@@ -2712,7 +2710,7 @@ composed profile, a fitting engine.
 Steer HARD toward tight, single-responsibility agents — many small focused
 children keep `agent_run` fan-out cheap and accurate; push back if the user
 proposes one big do-everything agent. As a rule of thumb: cheap engine →
-finders and breadth review; powerful → coordinator/developers; per-lens →
+finders and breadth review; powerful → orchestrator/developers; per-lens →
 code review (often cheaper than the developer).
 
 ### 4b-runtime. Ask each agent's runtime, one agent at a time
@@ -2761,7 +2759,7 @@ Rules for asking it:
   create` for that agent, every time, including when the answer is `host`.
   Never leave it off to "inherit the project default".
 - The common shape, offered as a suggestion and not applied for them: the
-  **coordinator** on `host` — it is the session the user drives and it needs
+  **orchestrator** on `host` — it is the session the user drives and it needs
   their own environment — and every agent it delegates to on
   **container-rootless**, because those are the ones running work nobody is
   watching. Say it, then still ask.
@@ -2790,7 +2788,7 @@ engine that can authenticate inside one, else fall back to host and say why;
 change an existing one with `agent edit <name>`, drop one with
 `agent remove <name> --yes`. Confirm
 with `ctxloom agent list`, then tell the user how to use what they built
-(`ctxloom run --agent coordinator`, which fans the review ensemble out via
+(`ctxloom run --agent orchestrator`, which fans the review ensemble out via
 `agent_run` when asked).
 
 ### 4d. ctxloom's own agents — distiller and triage
@@ -2844,6 +2842,8 @@ Then tell the user, plainly:
   session — nothing here was a one-shot wizard; come back whenever something
   needs to change (a new profile, a new agent, a new companion).
 
+== blob:95f993cd202304d88d01972f8653a573691262a561a75c759a6ef442b7941f7e
+You are adding or changing a flag, an environment variable, or a config key; working out which layer won when a setting resolved unexpectedly; or reading configuration to decide how something is declared. For anyone touching how this family of binaries is configured, however the moment is worded.
 == blob:a660b4bc8e6691177ea92c74fe0a673d6115ae7fb3f5fc00ad3e70ac12c81174
 # Say what you are looking for, and what you found
 

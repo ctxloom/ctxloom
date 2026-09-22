@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // The MCP-server listing reads the set a session actually registers
@@ -35,11 +36,11 @@ func TestListMCPServers_ReturnsCtxloomsOwnServerResolved(t *testing.T) {
 	assert.Equal(t, res.Count, len(res.Servers), "Count must match the slice it describes")
 	assert.Equal(t, "ctxloom+companion:ctxloom", own.Source,
 		"the listing must name the bundle the server came from, with the bundle: prefix stripped")
-	assert.Equal(t, agent.CtxloomMCPArgs, own.Args, "the listed entry must invoke the `mcp serve` leaf")
-	// The listing reports the command a SETTINGS FILE receives: the bare name
-	// the loadout declares, written as declared (agent.CtxloomCommand's
-	// invariant).
-	assert.Equal(t, agent.CtxloomCommand(), own.Command)
+	// The listing DESCRIBES the entry as the loadout declares it: served by
+	// the running session's endpoint, nothing executable at rest.
+	assert.Equal(t, wire.ServedBySessionEndpoint, own.ServedBy, "ctxloom's entry is the companion's dynamic declaration")
+	assert.Empty(t, own.Command, "a dynamic entry names no command")
+	assert.Empty(t, own.Args)
 }
 
 func TestGetMCPServer_FindsCtxloomsOwnServer(t *testing.T) {

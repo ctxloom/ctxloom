@@ -15,7 +15,9 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -86,6 +88,12 @@ func assertSessionStartHookCommand(w *World, rel, want string, present bool) err
 func assertMCPServerNamed(w *World, rel, name string, present bool) error {
 	doc, err := j000400ReadJSON(w, rel)
 	if err != nil {
+		// A registry that was never written registers nothing: the negative
+		// claim holds. The positive one still needs the file.
+		if !present && errors.Is(err, os.ErrNotExist) {
+			w.docStepMaterialized = fmt.Sprintf("%s → absent: registers nothing", rel)
+			return nil
+		}
 		return err
 	}
 	top, _ := doc["mcpServers"].(map[string]any)

@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery/deliverytest"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
@@ -240,7 +241,7 @@ func TestInputsFor_ProjectsThePackageOnce(t *testing.T) {
 	pkg.Statusline = true
 	exports, err := eng.Exports(items(pkg, eng))
 	require.NoError(t, err)
-	in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, Exports: exports})
+	in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, Exports: exports}, nil)
 	require.NoError(t, err)
 	require.Equal(t, []byte("hello"), in.Context.Text)
 	require.Equal(t, map[string]wire.MCPServer{"tasks": tasks}, in.MCP.Servers)
@@ -249,4 +250,70 @@ func TestInputsFor_ProjectsThePackageOnce(t *testing.T) {
 	require.Equal(t, pkg.Hooks.Unified, in.Hooks.Hooks)
 	require.Len(t, in.Commands.Commands, 1)
 	require.Len(t, in.Skills.Skills, 1)
+}
+
+// sessionEndpointApproach is a dynamic approach for the test: it RECORDS the
+// endpoint it was asked to render and answers in a shape of its own (the
+// credential lands in Notes, not a header), so the test can tell the
+// ENGINE's rendering from a name-keyed swap in core spelling
+// engine.BearerEntry.
+type sessionEndpointApproach struct{ rendered *[]sessions.Endpoint }
+
+func (sessionEndpointApproach) Name() string { return "test-endpoint" }
+func (sessionEndpointApproach) Traits() present.Traits {
+	return present.Traits{Roots: []present.RootKind{present.RootSessionHome}}
+}
+func (a sessionEndpointApproach) Endpoint(ep sessions.Endpoint) wire.MCPServer {
+	*a.rendered = append(*a.rendered, ep)
+	rendered := wire.MCPServer{URL: ep.URL}
+	rendered.Notes = "rendered by the engine with " + ep.Credential
+	return rendered
+}
+
+// TestInputsFor_SessionEndpointEntry_IsOneMechanism proposes the ONE
+// mechanism behind ctxloom's own MCP entry: the companion DECLARES the entry
+// as served by the session's endpoint (wire.ServedBySessionEndpoint), and
+// the engine's dynamic approach RENDERS it from the endpoint the loadout
+// carries. Inside a session the entry is whatever the approach returns —
+// URL + bearer, under the declared key; at rest (no endpoint bound) the entry
+// renders NOTHING, because there is no session to inject; and an engine with
+// no dynamic approach receives nothing for it either, on the same terms
+// Base.Delegate already states (the session endpoint is the dynamic half's).
+// Every other server is passed through as declared.
+func TestInputsFor_SessionEndpointEntry_IsOneMechanism(t *testing.T) {
+	declared := wire.MCPServer{ServedBy: wire.ServedBySessionEndpoint, Notes: "served by the session"}
+	pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.CtxloomServerName, declared), compositetest.WithMCP("tasks", tasks))
+	ep := sessions.Endpoint{URL: "http://127.0.0.1:4242/mcp", Credential: "bearer-1"}
+
+	t.Run("in a session, the engine's dynamic approach renders the endpoint under the declared key", func(t *testing.T) {
+		var rendered []sessions.Endpoint
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, sessionEndpointApproach{&rendered})
+		require.NoError(t, err)
+		require.Equal(t, []sessions.Endpoint{ep}, rendered, "the approach renders the endpoint the loadout carries, once")
+		require.Equal(t, map[string]wire.MCPServer{
+			wire.CtxloomServerName: {URL: ep.URL, Notes: "rendered by the engine with bearer-1"},
+			"tasks":                tasks,
+		}, in.MCP.Servers)
+	})
+	t.Run("at rest, the entry renders nothing", func(t *testing.T) {
+		var rendered []sessions.Endpoint
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg}, sessionEndpointApproach{&rendered})
+		require.NoError(t, err)
+		require.Empty(t, rendered, "nothing is rendered when no endpoint is bound")
+		require.Equal(t, map[string]wire.MCPServer{"tasks": tasks}, in.MCP.Servers)
+	})
+	t.Run("an engine with no dynamic approach receives nothing for it", func(t *testing.T) {
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, nil)
+		require.NoError(t, err)
+		require.Equal(t, map[string]wire.MCPServer{"tasks": tasks}, in.MCP.Servers)
+	})
+	t.Run("a stdio entry under ctxloom's key is NOT swapped by name", func(t *testing.T) {
+		stdio := wire.MCPServer{Command: "ctxloom", Args: []string{"mcp", "serve"}}
+		pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.CtxloomServerName, stdio))
+		var rendered []sessions.Endpoint
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, sessionEndpointApproach{&rendered})
+		require.NoError(t, err)
+		require.Empty(t, rendered)
+		require.Equal(t, map[string]wire.MCPServer{wire.CtxloomServerName: stdio}, in.MCP.Servers, "the declaration, not the key, selects the dynamic rendering")
+	})
 }

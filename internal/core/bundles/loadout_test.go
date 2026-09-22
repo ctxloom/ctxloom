@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // TestParseLoadout_RunAndInitAreTyped pins the loadout document's shape: ONE
@@ -98,4 +100,35 @@ func TestParseLoadout_RefusesEmptyDocument(t *testing.T) {
 		_, err := ParseLoadout(doc)
 		require.Error(t, err)
 	}
+}
+
+// TestParseLoadout_MCPServedByTheSessionEndpoint pins the companion's
+// DYNAMIC declaration: an `mcp:` entry may say it is served by the running
+// session's endpoint instead of naming a command or a URL. The declaration
+// carries nothing executable — no command, no args — and the one-of rule
+// wire.MCPServer.Validate enforces refuses an entry that declares both.
+func TestParseLoadout_MCPServedByTheSessionEndpoint(t *testing.T) {
+	lo, err := ParseLoadout([]byte(`run:
+  version: 1.0.0
+  mcp:
+    ctxloom:
+      served_by: session-endpoint
+      notes: served by the session
+`))
+	require.NoError(t, err)
+	entry := lo.Run.MCP["ctxloom"]
+	assert.Equal(t, wire.ServedBySessionEndpoint, entry.ServedBy)
+	assert.Empty(t, entry.Command)
+	assert.Empty(t, entry.Args)
+	assert.True(t, entry.AsWire().IsSessionEndpoint())
+
+	_, err = ParseLoadout([]byte(`run:
+  version: 1.0.0
+  mcp:
+    ctxloom:
+      served_by: session-endpoint
+      command: ctxloom
+      args: [mcp, serve]
+`))
+	require.ErrorIs(t, err, wire.ErrMCPServerTwoTargets, "a dynamic entry names no command")
 }

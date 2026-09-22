@@ -14,15 +14,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // TestLoadout_YAML_IsAValidLoadout proves ctxloom's own embedded loadout.yaml
 // parses as a loadout document whose RUN bundle carries everything ctxloom
-// delivers into an engine on its own behalf: its MCP server entry, spelled
-// as the BARE binary name with the `mcp serve` leaf (agent.CtxloomCommand's
-// invariant — the entry is written into engine settings as declared, with
-// no Go rewrite), and the always-on isolation-axes fragment.
+// delivers into an engine on its own behalf: its MCP server entry — the
+// companion's DYNAMIC declaration, served by the running session's endpoint
+// (wire.ServedBySessionEndpoint) with nothing executable on it, so that at
+// rest the entry renders nothing and inside a session the engine's dynamic
+// approach renders the endpoint — and the always-on isolation-axes fragment.
 func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 	lo, err := bundles.ParseLoadout(loadoutYAML)
 	require.NoError(t, err, "ctxloom's loadout.yaml must be a well-formed loadout document")
@@ -30,8 +32,11 @@ func TestLoadout_YAML_IsAValidLoadout(t *testing.T) {
 	b := lo.Run
 
 	require.Contains(t, b.MCP, agent.MCPServerName, "loadout must carry ctxloom's own MCP server entry")
-	assert.Equal(t, agent.CtxloomCommand(), b.MCP[agent.MCPServerName].Command, "the MCP entry names the bare binary")
-	assert.Equal(t, agent.CtxloomMCPArgs, b.MCP[agent.MCPServerName].Args)
+	entry := b.MCP[agent.MCPServerName]
+	assert.Equal(t, wire.ServedBySessionEndpoint, entry.ServedBy, "ctxloom's entry is served by the running session's endpoint")
+	assert.Empty(t, entry.Command, "a dynamic entry names no command: there is no stdio server to launch")
+	assert.Empty(t, entry.Args)
+	assert.NotContains(t, entry.Notes, "stdio", "the notes describe the entry as it is")
 
 	require.Contains(t, b.Fragments, "isolation-axes", "loadout must carry the always-on isolation guidance")
 	assert.Empty(t, b.Fragments["isolation-axes"].Premise, "isolation guidance is unconditional")

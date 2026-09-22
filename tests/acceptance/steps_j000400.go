@@ -14,8 +14,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -126,8 +128,8 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		return j000400AssertMCP(worldFrom(c), engine)
 	})
 
-	ctx.Step(`^the materialized (\S+) MCP configuration invokes ctxloom's own server as "([^"]*)"$`, func(c context.Context, engine, want string) error {
-		return j000400AssertCtxloomMCPInvocation(worldFrom(c), engine, want)
+	ctx.Step(`^the materialized (\S+) MCP configuration registers no server under ctxloom's own name$`, func(c context.Context, engine string) error {
+		return j000400AssertNoCtxloomMCPEntry(worldFrom(c), engine)
 	})
 
 	ctx.Step(`^the materialized (\S+) hook configuration carries the shared hook's command, in its own native shape$`, func(c context.Context, engine string) error {
@@ -489,18 +491,12 @@ func j000400AssertMCP(w *World, engine string) error {
 	return nil
 }
 
-// j000400AssertCtxloomMCPInvocation reads the engine's OWN materialized MCP
-// registry and asserts the subcommand ctxloom's auto-registered entry invokes.
-//
-// It is the argv, not the entry's presence, that decides whether the engine
-// gets ctxloom's tools: an entry naming a spelling that does not speak the
-// protocol produces a session that starts perfectly and has no ctxloom tools
-// in it. Every existence check in this suite passes against exactly that.
-//
-// The two native shapes are both the engine's own: most registries carry a
-// string `command` plus an `args` array, while opencode folds the binary and
-// its arguments into ONE `command` array.
-func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
+// j000400AssertNoCtxloomMCPEntry reads the engine's registry in its own
+// native shape and pins that no entry sits under ctxloom's own name: a
+// registry materialized at rest carries the bundle's shared servers and
+// nothing for ctxloom, whose server the session injects (URL + bearer) into
+// its own registry at session start.
+func j000400AssertNoCtxloomMCPEntry(w *World, engine string) error {
 	rel, key, err := j000400MCPRegistryFor(j000400Of(w).target, engine)
 	if err != nil {
 		return err
@@ -513,23 +509,9 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 	if !ok {
 		return fmt.Errorf("%s: no %q table in the generated MCP configuration; parsed: %+v", engine, key, doc)
 	}
-	srv, ok := top[agent.MCPServerName].(map[string]any)
-	if !ok {
-		return fmt.Errorf("%s: no %q server entry under %q, so this engine's session gets none of ctxloom's tools; parsed: %+v", engine, agent.MCPServerName, key, top)
-	}
-
-	var tokens []string
-	if args := j000400FormatArgs(srv["args"]); args != "" {
-		tokens = strings.Fields(strings.Trim(args, "[]"))
-	} else if argv, ok := srv["command"].([]any); ok && len(argv) > 1 {
-		tokens = strings.Fields(strings.Trim(j000400FormatArgs(argv[1:]), "[]"))
-	}
-	got := strings.Join(tokens, " ")
-
-	w.docStepMaterialized = fmt.Sprintf("%s → %s.%s\n  command: %s\n  invokes: ctxloom %s",
-		rel, key, agent.MCPServerName, j000400ServerCommand(srv), got)
-	if got != want {
-		return fmt.Errorf("%s's ctxloom MCP entry invokes %q, want %q — an engine launching it would come up with no ctxloom tools and nothing saying why", engine, got, want)
+	w.docStepMaterialized = fmt.Sprintf("%s → %s: servers %v", rel, key, slices.Sorted(maps.Keys(top)))
+	if srv, present := top[agent.MCPServerName]; present {
+		return fmt.Errorf("%s's materialized registry carries an entry under %q (%v): ctxloom's own server is served by the running session's endpoint and is never materialized at rest — an engine launching this entry would come up with no ctxloom tools and nothing saying why", engine, agent.MCPServerName, srv)
 	}
 	return nil
 }

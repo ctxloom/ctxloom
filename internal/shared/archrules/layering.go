@@ -78,9 +78,9 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{"internal/adapters/cli"},
 	},
 	{
-		// operations is the ports-and-adapters core: it may depend only on the
-		// injected, polymorphic internal/lm/backends seam, never on a concrete
-		// engine package, so backend identity cannot be branched on directly.
+		// operations is the ports-and-adapters core: it reads engines through
+		// engine.Registry and the port, never a concrete engine package, so
+		// backend identity cannot be branched on directly.
 		Name:   "operations-must-not-import-engine-plugins",
 		From:   []string{"internal/adapters/operations"},
 		Forbid: []string{"internal/engines/claude"},
@@ -266,7 +266,6 @@ var LayeringRules = []LayeringRule{
 
 			// cli reaching past operations
 			"internal/adapters/cli -> internal/engines/claude":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
-			"internal/adapters/cli -> internal/lm/backends":               "slice 11b: lm/backends is deleted whole",
 			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
 			"internal/adapters/operations -> internal/engines":            "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
@@ -286,7 +285,6 @@ var LayeringRules = []LayeringRule{
 			// operations reaching sibling adapters (it is the application-services
 			// layer; it holds ports, not adapters)
 			"internal/adapters/operations -> internal/adapters/content/attest":          "slice 5: attest.VerifyBundle is behind the trust ports composite.Trust holds",
-			"internal/adapters/operations -> internal/lm/backends":                      "slice 11b: lm/backends is deleted whole",
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
 			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
@@ -320,7 +318,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/cli -> internal/adapters/runner/mcp":    "slice 14a: runner.Main composes its Dynamic port under cmd/*; until then the runner command stands for the composition root",
 
 			// the runner's two halves today
-			"internal/adapters/mcp -> internal/lm/backends":         "the host relay's session tools resolve the backend (backends.Exists)",
 			"internal/adapters/mcp -> internal/adapters/memory":     "slice 14a: memory off the plugin; the compactor is an operation",
 			"internal/adapters/mcp -> internal/adapters/operations": "carried from slice 8, deferred by slice 9: the seven relayed handler bodies behind mcp.HostApp move under operations (which then implements coord.HostApp itself); the relay CONTRACT already lives there",
 			"internal/adapters/mcp -> internal/adapters/transcript": "slice 14a: the engine-host half of the runner records the transcript",
@@ -334,7 +331,6 @@ var LayeringRules = []LayeringRule{
 			// the runner it stands up imports, and dies with those tests.
 			"internal/adapters/runner/coordtest -> internal/adapters/runner":    "sanctioned: a package's own parent tree (runner/*)",
 			"internal/adapters/runner/coordtest -> internal/adapters/isolation": "the double stands in for a runner in the host relay's tests (measured)",
-			"internal/adapters/runner/coordtest -> internal/lm/backends":        "the double stands in for a runner in the host relay's tests (measured)",
 
 			// isolation, memory, and the leaf adapters
 			"internal/adapters/companions -> internal/adapters/signing":                   "slice 4: adapters/companions probes; signing is reached through the trust ports",
@@ -346,11 +342,10 @@ var LayeringRules = []LayeringRule{
 		// THE ENGINES RING (Part 1.1, `engines-import-nothing-above-the-port`):
 		// an engine package imports the port (core/engine) and the leaves its
 		// vocabulary names, and no adapter. core/agent still carries the
-		// instance half's contract (Backend, the writers) until slice 11b
-		// moves it, so it stands in the except list beside the port. Every
+		// instance half's remaining contract (agent.Backend, agent.Hosted, the
+		// writers), so it stands in the except list beside the port. Every
 		// allowlisted edge is MEASURED and leaves in the slice its reason
-		// names; lm/backends is measured engines-ring and retired in place
-		// (slice 11b).
+		// names.
 		Name:   "engines-import-nothing-above-the-port",
 		From:   []string{"internal/engines", "internal/lm/backends", "internal/lm/hosting"},
 		Forbid: []string{"internal/core", "internal/adapters"},
@@ -366,18 +361,6 @@ var LayeringRules = []LayeringRule{
 			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "slice 11b: the reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",
 			"internal/engines/claude -> internal/adapters/confpatch":                             "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the engine",
 			"internal/engines/claude -> internal/core/paths":                                     "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no paths",
-			"internal/lm/hosting -> internal/adapters/engineversion":                             "slice 11b: lm/hosting dies with lm/backends; the version command is the engine's own",
-			"internal/lm/backends -> internal/adapters/engineversion":                            "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/adapters/isolation":                                "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/adapters/remote":                                   "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/adapters/tmuxhost":                                 "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/adapters/transcript/vendorreader":                  "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/adapters/transcript/vendorreader/mock":             "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/core/bundles":                                      "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/core/config":                                       "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/core/paths":                                        "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/core/profiles":                                     "slice 11b: lm/backends is deleted whole",
-			"internal/lm/backends -> internal/core/trust":                                        "slice 11b: lm/backends is deleted whole",
 		},
 	},
 	{

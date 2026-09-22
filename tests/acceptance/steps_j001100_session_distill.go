@@ -52,8 +52,8 @@ func registerJ001100SessionDistillSteps(ctx *godog.ScenarioContext) {
 	// on RunOptions.Env — internal/adapters/cli/run.go's st.llmEnv/runEnv) but NOT for
 	// this journey's command: internal/adapters/memory/compactor.go's runDistill
 	// builds its own bare pb.RunOptions{} with no Env field at all, so
-	// nothing ever carries the config-declared env to the "ctxloom llm serve
-	// mock" subprocess it spawns. Confirmed by hand: pointing only the
+	// nothing ever carries the config-declared env to the mock runner
+	// subprocess it spawns. Confirmed by hand: pointing only the
 	// The mock's knobs are set as PROCESS env, not via the config env.
 	//
 	// The config path (llm.configs.<label>.mock_control) is now forwarded correctly

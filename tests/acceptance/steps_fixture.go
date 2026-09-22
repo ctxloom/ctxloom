@@ -357,12 +357,9 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	})
 
 	// A directory profile carrying deny_tools, written directly (no CLI surface
-	// sets deny_tools at creation time). This is the launch-flow's T2 regression
-	// fixture: deny_tools/skills were silently dropped crossing
-	// internal/lm/grpc's proto wire, and this step
-	// plus "the mock recorded input contains" is what lets a scenario prove the
-	// field survives ctxloom run end to end, not just the unit-level proto
-	// round-trip.
+	// sets deny_tools at creation time). This step plus "the mock recorded
+	// input contains" is what lets a scenario prove the field survives ctxloom
+	// run end to end.
 	ctx.Step(`^a profile "([^"]*)" with bundle "([^"]*)" and deny_tools "([^"]*)"$`, func(c context.Context, name, bundle, tool string) error {
 		body := "description: acceptance fixture profile\nbundles:\n  - " + bundle + "\ndeny_tools:\n  - " + tool + "\n"
 		return worldFrom(c).env.WriteFile(".ctxloom/profiles/"+name+".yaml", body)

@@ -138,6 +138,7 @@ var undocumentedHidden = map[string]bool{
 	"completion": true,
 	"hook":       true,
 	"plan":       true,
+	"runner":     true, // the process entry the coordinator starts (runner.Main); never typed by a user
 	"util":       true,
 }
 

@@ -872,8 +872,8 @@ func (h *Home) Request(ctx context.Context, req *agentcoordpb.AgentRequest) (*ag
 // against it for up to wait (one park; a newer receive preempts —
 // ErrRecvPreempted). Returned messages stay TENTATIVE at the coordinator
 // until acknowledged: this call first acks the PREVIOUS Recv's returned ids
-// (cursor-ack — the closest observable point to "the shim actually returned
-// them": the harness calling again proves it received the last batch), and
+// (cursor-ack — the closest observable point to "the engine actually
+// received them": the harness calling again proves it got the last batch), and
 // a clean Close acks the final batch. A crash before the ack re-delivers
 // (at-least-once, deduped on message_id).
 func (h *Home) Recv(ctx context.Context, wait time.Duration) ([]*agentcoordpb.PeerMessage, error) {

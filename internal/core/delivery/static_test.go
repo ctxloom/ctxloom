@@ -23,6 +23,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery/deliverytest"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
@@ -115,10 +116,10 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 	session := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: rec, Writer: sessionW}
 	project := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: projectW}
 
-	d1, err := static.Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root().Surfaces(), session)
+	d1, err := static.Deliver(context.Background(), loadoutFor(t, eng, sessionRoots), eng.Root(), session)
 	require.NoError(t, err)
 	lo := loadoutFor(t, eng, projectRoots)
-	d2, err := static.Deliver(context.Background(), lo, eng.Root().Surfaces(), project)
+	d2, err := static.Deliver(context.Background(), lo, eng.Root(), project)
 	require.NoError(t, err)
 
 	require.Equal(t, d1.Wrote, d2.Wrote)
@@ -129,7 +130,7 @@ func TestStatic_SessionAndMaterialize_ShareWritersAndDifferOnlyInTarget(t *testi
 
 	// Uninstall is delivering the EMPTY plan against the same target.
 	empty := delivery.Loadout{Package: lo.Package}
-	_, err = static.Deliver(context.Background(), empty, eng.Root().Surfaces(), project)
+	_, err = static.Deliver(context.Background(), empty, eng.Root(), project)
 	require.NoError(t, err)
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/p"))
 	require.Empty(t, rec.AllOwned(projectW))
@@ -152,13 +153,13 @@ func TestStatic_TwoWritersOneTarget_ReconcileRemovesOnlyOwnEntries(t *testing.T)
 
 	sessionT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("harp-1")}
 	projectT := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.ProjectWriter}
-	_, err = static.Deliver(context.Background(), lo, eng.Root().Surfaces(), sessionT)
+	_, err = static.Deliver(context.Background(), lo, eng.Root(), sessionT)
 	require.NoError(t, err)
-	_, err = static.Deliver(context.Background(), lo, eng.Root().Surfaces(), projectT)
+	_, err = static.Deliver(context.Background(), lo, eng.Root(), projectT)
 	require.NoError(t, err)
 
 	// The project writer uninstalls; the session's entries survive.
-	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root().Surfaces(), projectT)
+	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root(), projectT)
 	require.NoError(t, err)
 	require.Empty(t, rec.AllOwned(delivery.ProjectWriter))
 	require.NotEmpty(t, rec.AllOwned(delivery.SessionWriter("harp-1")))
@@ -171,7 +172,7 @@ func TestStatic_ZeroTarget_Refused(t *testing.T) {
 	eng := mock.New()
 	lo := loadoutFor(t, eng, sessionRoots)
 	fs := afero.NewMemMapFs()
-	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root().Surfaces(), delivery.Target{})
+	_, err := fsstatic.New(fs).Deliver(context.Background(), lo, eng.Root(), delivery.Target{})
 	require.ErrorIs(t, err, delivery.ErrNoRoot)
 	require.Empty(t, deliverytest.RelativeFiles(fs, "/"))
 }
@@ -186,7 +187,7 @@ func TestStatic_UnrootableApproach_RefusesWithRemedy_NeverSubstitutes(t *testing
 	require.NoError(t, err)
 	fs := afero.NewMemMapFs()
 	noProject := delivery.Target{Root: present.New(present.OnHost(sessionRoots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), noProject)
+	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), noProject)
 	require.ErrorIs(t, err, delivery.ErrUnrootable)
 	var u delivery.Unrootable
 	require.True(t, errors.As(err, &u))
@@ -209,7 +210,7 @@ func TestStatic_SharedRootIsASelection_NotAFallback(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	rec := deliverytest.NewOwnership(fs)
 	withProject := delivery.Target{Root: present.ProjectOnHost("/p"), Ownership: rec, Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), withProject)
+	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), withProject)
 	require.NoError(t, err)
 	require.Equal(t, []present.Kind{present.MCP}, d.Wrote)
 	require.ElementsMatch(t, rec.AllOwned(delivery.SessionWriter("h")), deliverytest.RelativeFiles(fs, "/p"))
@@ -240,7 +241,7 @@ func TestInputsFor_ProjectsThePackageOnce(t *testing.T) {
 	pkg.Statusline = true
 	exports, err := eng.Exports(items(pkg, eng))
 	require.NoError(t, err)
-	in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, Exports: exports})
+	in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, Exports: exports}, nil)
 	require.NoError(t, err)
 	require.Equal(t, []byte("hello"), in.Context.Text)
 	require.Equal(t, map[string]wire.MCPServer{"tasks": tasks}, in.MCP.Servers)
@@ -249,4 +250,70 @@ func TestInputsFor_ProjectsThePackageOnce(t *testing.T) {
 	require.Equal(t, pkg.Hooks.Unified, in.Hooks.Hooks)
 	require.Len(t, in.Commands.Commands, 1)
 	require.Len(t, in.Skills.Skills, 1)
+}
+
+// sessionEndpointApproach is a dynamic approach for the test: it RECORDS the
+// endpoint it was asked to render and answers in a shape of its own (the
+// credential lands in Notes, not a header), so the test can tell the
+// ENGINE's rendering from a name-keyed swap in core spelling
+// engine.BearerEntry.
+type sessionEndpointApproach struct{ rendered *[]sessions.Endpoint }
+
+func (sessionEndpointApproach) Name() string { return "test-endpoint" }
+func (sessionEndpointApproach) Traits() present.Traits {
+	return present.Traits{Roots: []present.RootKind{present.RootSessionHome}}
+}
+func (a sessionEndpointApproach) Endpoint(ep sessions.Endpoint) wire.MCPServer {
+	*a.rendered = append(*a.rendered, ep)
+	rendered := wire.MCPServer{URL: ep.URL}
+	rendered.Notes = "rendered by the engine with " + ep.Credential
+	return rendered
+}
+
+// TestInputsFor_SessionEndpointEntry_IsOneMechanism proposes the ONE
+// mechanism behind ctxloom's own MCP entry: the companion DECLARES the entry
+// as served by the session's endpoint (wire.ServedBySessionEndpoint), and
+// the engine's dynamic approach RENDERS it from the endpoint the loadout
+// carries. Inside a session the entry is whatever the approach returns —
+// URL + bearer, under the declared key; at rest (no endpoint bound) the entry
+// renders NOTHING, because there is no session to inject; and an engine with
+// no dynamic approach receives nothing for it either, on the same terms
+// Base.Delegate already states (the session endpoint is the dynamic half's).
+// Every other server is passed through as declared.
+func TestInputsFor_SessionEndpointEntry_IsOneMechanism(t *testing.T) {
+	declared := wire.MCPServer{ServedBy: wire.ServedBySessionEndpoint, Notes: "served by the session"}
+	pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.CtxloomServerName, declared), compositetest.WithMCP("tasks", tasks))
+	ep := sessions.Endpoint{URL: "http://127.0.0.1:4242/mcp", Credential: "bearer-1"}
+
+	t.Run("in a session, the engine's dynamic approach renders the endpoint under the declared key", func(t *testing.T) {
+		var rendered []sessions.Endpoint
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, sessionEndpointApproach{&rendered})
+		require.NoError(t, err)
+		require.Equal(t, []sessions.Endpoint{ep}, rendered, "the approach renders the endpoint the loadout carries, once")
+		require.Equal(t, map[string]wire.MCPServer{
+			wire.CtxloomServerName: {URL: ep.URL, Notes: "rendered by the engine with bearer-1"},
+			"tasks":                tasks,
+		}, in.MCP.Servers)
+	})
+	t.Run("at rest, the entry renders nothing", func(t *testing.T) {
+		var rendered []sessions.Endpoint
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg}, sessionEndpointApproach{&rendered})
+		require.NoError(t, err)
+		require.Empty(t, rendered, "nothing is rendered when no endpoint is bound")
+		require.Equal(t, map[string]wire.MCPServer{"tasks": tasks}, in.MCP.Servers)
+	})
+	t.Run("an engine with no dynamic approach receives nothing for it", func(t *testing.T) {
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, nil)
+		require.NoError(t, err)
+		require.Equal(t, map[string]wire.MCPServer{"tasks": tasks}, in.MCP.Servers)
+	})
+	t.Run("a stdio entry under ctxloom's key is NOT swapped by name", func(t *testing.T) {
+		stdio := wire.MCPServer{Command: "ctxloom", Args: []string{"mcp", "serve"}}
+		pkg := compositetest.Fixture(t, compositetest.WithMCP(wire.CtxloomServerName, stdio))
+		var rendered []sessions.Endpoint
+		in, err := delivery.InputsFor(delivery.Loadout{Package: pkg, MCP: ep}, sessionEndpointApproach{&rendered})
+		require.NoError(t, err)
+		require.Empty(t, rendered)
+		require.Equal(t, map[string]wire.MCPServer{wire.CtxloomServerName: stdio}, in.MCP.Servers, "the declaration, not the key, selects the dynamic rendering")
+	})
 }

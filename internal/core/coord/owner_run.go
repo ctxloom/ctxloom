@@ -141,7 +141,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": l.Identity.Harp, "run_id": rt.runID, "backend": string(l.Engine)})
 
-	kill, containerName, err := start(ctx, runnerEnv(l.Identity.Harp, rt.runID, token, url))
+	kill, containerName, err := start(ctx, runnerEnv(rt.runID, token, url))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the

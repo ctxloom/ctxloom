@@ -20,11 +20,11 @@ import (
 // take them from the environment. A degraded launch (url == "") omits the
 // trio whole and carries nothing at all.
 func TestRunnerEnv_CarriesTheReachBackTrioOnly(t *testing.T) {
-	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp")
+	withURL := runnerEnv("run-1", "tok", "http://127.0.0.1:1/mcp")
 	assert.ElementsMatch(t, []string{EnvCoordURL, EnvCoordCred, EnvRunID}, envKeys(withURL))
 	assert.Equal(t, "run-1", withURL[EnvRunID])
 
-	degraded := runnerEnv("harp-1", "run-1", "tok", "")
+	degraded := runnerEnv("run-1", "tok", "")
 	assert.Empty(t, degraded, "the trio is omitted whole on a degraded launch, and nothing else is stamped")
 }
 

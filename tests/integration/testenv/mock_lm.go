@@ -154,6 +154,18 @@ func (m *MockLM) WriteConfig() error {
 // fixture rewrites that file, so it survives a later rewrite of the
 // project's config.
 func (e *TestEnvironment) EnsureHomeMockLabel(label string) error {
+	return e.mergeHomeConfig(func(root *yaml.Node) {
+		configs := yamlx.EnsureMap(yamlx.EnsureMap(root, "llm"), "configs")
+		mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		yamlx.MapSet(mockNode, "type", yamlx.ScalarNode("mock"))
+		yamlx.MapSet(configs, label, mockNode)
+	})
+}
+
+// mergeHomeConfig applies edit to the isolated HOME's config.yaml document,
+// creating it (at the current version) when absent and leaving everything
+// else in the file as it was.
+func (e *TestEnvironment) mergeHomeConfig(edit func(root *yaml.Node)) error {
 	configPath := filepath.Join(e.HomeDir, ".ctxloom", "config.yaml")
 	var doc yaml.Node
 	if data, err := os.ReadFile(configPath); err == nil && len(bytes.TrimSpace(data)) > 0 {
@@ -167,10 +179,7 @@ func (e *TestEnvironment) EnsureHomeMockLabel(label string) error {
 	}
 	root := doc.Content[0]
 	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
-	configs := yamlx.EnsureMap(yamlx.EnsureMap(root, "llm"), "configs")
-	mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	yamlx.MapSet(mockNode, "type", yamlx.ScalarNode("mock"))
-	yamlx.MapSet(configs, label, mockNode)
+	edit(root)
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)

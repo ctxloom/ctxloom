@@ -9,17 +9,16 @@ import (
 )
 
 // TestMarshalChatMCPConfig_StdioPreservesEnvVerbatim: a stdio server's Env
-// map (carrying the coordinator's CTXLOOM_MCP_SOCKET stamp) must reach the
-// marshaled document byte-for-byte — this is the reach-back channel a
-// delegated child uses to call back to its parent, so a dropped key here
-// breaks delegation silently.
+// map must reach the marshaled document byte-for-byte — a server's Env is
+// what it was configured with, and a dropped key hands the engine a server
+// that starts and cannot reach what it was configured for.
 func TestMarshalChatMCPConfig_StdioPreservesEnvVerbatim(t *testing.T) {
 	servers := []ChatMCPServer{
 		{
 			Name:    "ctxloom",
 			Command: "/usr/local/bin/ctxloom",
 			Args:    []string{"mcp", "serve"},
-			Env:     map[string]string{"CTXLOOM_MCP_SOCKET": "/run/sock.sock"},
+			Env:     map[string]string{"EXAMPLE_SOCKET": "/run/sock.sock"},
 		},
 	}
 
@@ -32,10 +31,10 @@ func TestMarshalChatMCPConfig_StdioPreservesEnvVerbatim(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "/usr/local/bin/ctxloom", entry.Command)
 	assert.Equal(t, []string{"mcp", "serve"}, entry.Args)
-	assert.Equal(t, map[string]string{"CTXLOOM_MCP_SOCKET": "/run/sock.sock"}, entry.Env)
+	assert.Equal(t, map[string]string{"EXAMPLE_SOCKET": "/run/sock.sock"}, entry.Env)
 	assert.Equal(t, "", entry.Type)
 
-	assert.Contains(t, string(data), `"CTXLOOM_MCP_SOCKET":"/run/sock.sock"`)
+	assert.Contains(t, string(data), `"EXAMPLE_SOCKET":"/run/sock.sock"`)
 	assert.Contains(t, string(data), `"command":"/usr/local/bin/ctxloom"`)
 }
 

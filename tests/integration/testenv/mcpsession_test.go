@@ -29,15 +29,17 @@ import (
 // caught.
 const rawClientProtocolPin = "2024-11-05"
 
-// startSession spawns `ctxloom mcp` in a fresh isolated environment and
-// returns the connected session; both are torn down with the test.
+// startSession spawns `taskloom mcp` — a companion's stdio server; ctxloom
+// has none of its own — in a fresh isolated environment and returns the
+// connected session; both are torn down with the test. What is under test is
+// the harness's SDK session plumbing, which every stdio companion shares.
 func startSession(t *testing.T) *MCPSession {
 	t.Helper()
 	env, err := NewTestEnvironment()
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, env.Cleanup()) })
 	require.NoError(t, env.Setup())
-	s, err := env.StartMCP()
+	s, err := env.StartTaskloomMCP()
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 	return s
@@ -50,7 +52,7 @@ func TestMCPSession_Close_NilSessionIsANoOp(t *testing.T) {
 
 // A returned session has already completed the initialize handshake — there
 // is no separate Initialize step whose error could go uninspected.
-func TestStartMCP_ReturnsAnInitializedSession(t *testing.T) {
+func TestConnectMCP_ReturnsAnInitializedSession(t *testing.T) {
 	s := startSession(t)
 	res := s.InitializeResult()
 	require.NotNil(t, res, "session returned without a captured initialize result")
@@ -59,7 +61,7 @@ func TestStartMCP_ReturnsAnInitializedSession(t *testing.T) {
 		"the SDK client must negotiate newer than the retired client's oldest-version pin")
 }
 
-func TestStartMCP_ToolsIteratorFollowsPagesToANonEmptySurface(t *testing.T) {
+func TestConnectMCP_ToolsIteratorFollowsPagesToANonEmptySurface(t *testing.T) {
 	s := startSession(t)
 	ctx, cancel := context.WithTimeout(context.Background(), MCPCallTimeout)
 	defer cancel()
@@ -68,13 +70,13 @@ func TestStartMCP_ToolsIteratorFollowsPagesToANonEmptySurface(t *testing.T) {
 		require.NoError(t, err)
 		names = append(names, tool.Name)
 	}
-	assert.NotEmpty(t, names, "ctxloom mcp advertised no tools")
+	assert.NotEmpty(t, names, "taskloom mcp advertised no tools")
 }
 
 // A JSON-RPC error answer is surfaced as a typed jsonrpc.Error, not swallowed
 // as success and not misdiagnosed as a timeout: calling a tool the server
 // does not have is the cheapest way to make it send one.
-func TestStartMCP_JSONRPCErrorSurfacesAsATypedError(t *testing.T) {
+func TestConnectMCP_JSONRPCErrorSurfacesAsATypedError(t *testing.T) {
 	s := startSession(t)
 	ctx, cancel := context.WithTimeout(context.Background(), MCPCallTimeout)
 	defer cancel()

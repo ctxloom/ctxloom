@@ -497,7 +497,8 @@ func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
 //
 // A server is EXACTLY ONE of two things, and the rule is wire.MCPServer's:
 // a stdio server ctxloom launches (Command, with Args/Env) or a network-hosted
-// server an engine dials (URL, with Headers). Command is therefore NOT
+// server an engine dials (URL, with Headers), or served by the running
+// session's endpoint (ServedBy). Command is therefore NOT
 // required — the `omitempty` on it is load-bearing for the remote case — and
 // the one-of rule is checked at LOAD by Bundle.checkMCPTargets, which calls
 // wire.MCPServer.Validate so there is one definition of it rather than two.
@@ -514,15 +515,24 @@ func (h BundleHooks) EntryByID(id string) (HookEntry, bool) {
 // unclassified field here is an executable detail reaching the host outside
 // what the reviewer approved.
 type BundleMCP struct {
-	Command      string            `yaml:"command,omitempty"`
-	Args         []string          `yaml:"args,omitempty"`
-	Env          map[string]string `yaml:"env,omitempty"`
-	URL          string            `yaml:"url,omitempty"`                            // Endpoint of a network-hosted server; its scheme is the transport
-	Headers      map[string]string `yaml:"headers,omitempty"`                        // HTTP headers sent when dialing URL (e.g. Authorization)
-	Tags         []string          `yaml:"tags,omitempty" surface:"selection"`       // Additional tags (merged with bundle tags); host-evaluated routing, never executed
-	Notes        string            `yaml:"notes,omitempty" surface:"human"`          // Human-readable notes, not sent to AI
-	Installation string            `yaml:"installation,omitempty"`                   // Setup/installation instructions; presented to the user, and inside the preimage
-	ContentHash  string            `yaml:"content_hash,omitempty" surface:"derived"` // recorded hash of the executable surface; circular to sign
+	Command string            `yaml:"command,omitempty"`
+	Args    []string          `yaml:"args,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty"`
+	URL     string            `yaml:"url,omitempty"`     // Endpoint of a network-hosted server; its scheme is the transport
+	Headers map[string]string `yaml:"headers,omitempty"` // HTTP headers sent when dialing URL (e.g. Authorization)
+	// ServedBy is the companion's DYNAMIC declaration (wire.ServedBySessionEndpoint):
+	// the running session's endpoint serves this entry, and the bundle
+	// contributes nothing executable — the host renders the endpoint through
+	// the engine's dynamic approach at delivery. It is host-evaluated
+	// ROUTING, outside the executable preimage on purpose: the entry's
+	// preimage is the empty target set, which no launchable entry can share
+	// (checkMCPTargets refuses an entry with no target at all), so an
+	// approval of the declaration approves exactly nothing that runs.
+	ServedBy     string   `yaml:"served_by,omitempty" surface:"selection"`
+	Tags         []string `yaml:"tags,omitempty" surface:"selection"`       // Additional tags (merged with bundle tags); host-evaluated routing, never executed
+	Notes        string   `yaml:"notes,omitempty" surface:"human"`          // Human-readable notes, not sent to AI
+	Installation string   `yaml:"installation,omitempty"`                   // Setup/installation instructions; presented to the user, and inside the preimage
+	ContentHash  string   `yaml:"content_hash,omitempty" surface:"derived"` // recorded hash of the executable surface; circular to sign
 }
 
 // AsWire converts to the wire shape for validation. It deliberately does NOT
@@ -531,11 +541,12 @@ type BundleMCP struct {
 // config.extractMCPFromBundle is where it is applied.
 func (m BundleMCP) AsWire() wire.MCPServer {
 	return wire.MCPServer{
-		Command: m.Command,
-		Args:    m.Args,
-		Env:     m.Env,
-		URL:     m.URL,
-		Headers: m.Headers,
+		Command:  m.Command,
+		Args:     m.Args,
+		Env:      m.Env,
+		URL:      m.URL,
+		Headers:  m.Headers,
+		ServedBy: m.ServedBy,
 	}
 }
 

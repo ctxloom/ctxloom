@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/contextmetrics"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -143,8 +144,8 @@ func TestContextStatus_NoIdentitySaysSoToo(t *testing.T) {
 // to say that measuring beats guessing, and has to warn that an absent reading
 // is not a low one.
 func TestContextStatus_DescriptionStatesWhatItIsFor(t *testing.T) {
-	assert.Contains(t, contextStatusDesc, "Measure")
-	assert.Contains(t, contextStatusDesc, "trend")
-	assert.Contains(t, contextStatusDesc, "NO percentage",
+	assert.Contains(t, operations.ContextStatusDesc, "Measure")
+	assert.Contains(t, operations.ContextStatusDesc, "trend")
+	assert.Contains(t, operations.ContextStatusDesc, "NO percentage",
 		"the description must warn that no data is reported as absence, not as zero")
 }

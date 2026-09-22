@@ -6,7 +6,8 @@ upgrade that unlinked the executing inode.
 
 **The contract it owns.** *Return a path that names the binary that is running right now.* Its
 consumers all **re-invoke ctxloom as a child process** within this session — `cli.runCmd`'s
-self-executable resolution, `lm/grpc`'s plugin client and host runner. For those, "the binary
+self-executable resolution, the coordinator's runner spawn (`internal/adapters/isolation`'s host
+runner), the companion self-probe. For those, "the binary
 running right now" is exactly the right answer.
 
 **It is NOT the source for a materialized surface.** `agent.CtxloomCommand()` — the funnel through
@@ -32,7 +33,7 @@ flowchart TD
   end
 
   PATH --> RUN["cli.runCmd — self-executable for session distill"]
-  PATH --> GRPC["lm/grpc.Client · lm/grpc host runner"]
+  PATH --> ISO["isolation host runner (the runner spawn)"]
 
   CC["agent.CtxloomCommand() = agent.CtxloomBinary<br/>(bare name — does NOT read selfexec)"]
   CC --> SURF[".mcp.json · config.toml · hooks · statusline"]
@@ -53,7 +54,7 @@ flowchart TD
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Path` | `selfexec.go:51` | The whole package. 4 production call sites: `internal/core/agent/settings_io.go:44`, `internal/adapters/cli/run.go:290`, `internal/lm/grpc/client.go:364`, `internal/lm/grpc/host_runner.go:60` |
+| `Path` | `selfexec.go` | The whole package. Its production callers are the child-spawn and self-probe sites (`git grep 'selfexec\.'`): the session host, the isolation host runner, the companion prober, the confpatch healer, the countersign home resolver, the home guard |
 | `SetPathForTesting` | `selfexec.go:32` | Sets `override`, returns a closure restoring the *previous* value, so it nests correctly. **Zero production call sites**; 4 external test packages use it (`internal/adapters/operations`, `internal/engines/claude`, `internal/lm/backends`, `internal/adapters/cli`) |
 | `override` / `osExecutable` / `osStat` | `selfexec.go:15`, `:20`, `:22` | Package-level state. `{osExecutable, osStat}` are the in-package seams over the two syscalls; `override` is the cross-package short-circuit that bypasses both — it exists *because* the syscall seams are unexported and therefore unreachable from the four packages that need a stable answer |
 
@@ -81,8 +82,8 @@ flowchart TD
   fallback to `"ctxloom"` re-resolves against `PATH` and may spawn a different build than the one
   running, with nothing reported.
 - **`override` is exported test-only mutable global state in a production package**, unsynchronized
-  and read from child-spawn paths (`lm/grpc/host_runner.go:60`, `client.go:364`) at a time when
-  the project runs `agent_run` children concurrently. No writer package currently uses
+  and read from child-spawn paths (the isolation host runner) at a time when the project runs
+  `agent_run` children concurrently. No writer package currently uses
   `t.Parallel()`, so the exposure is future rather than demonstrated.
 - **There are three different answers to "where is the running binary" in this repo**, with three
   different semantics and nothing reconciling them:

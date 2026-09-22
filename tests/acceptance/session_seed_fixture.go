@@ -52,3 +52,40 @@ func seedSessionSidecar(w *World, harp string, seed sessionSeed) error {
 	}
 	return w.env.WriteHomeFile(".ctxloom/sessions/"+harp+"/"+paths.SessionSidecarFileName, string(body))
 }
+
+// mergeSessionSidecar overlays seed's SET fields onto harp's existing
+// sidecar and leaves every other key as the store wrote it. It exists for a
+// fixture that seeds history under a LIVE session — the standing owner's,
+// whose record carries the MCP endpoint its runner serves and whatever else
+// the launch bound — where a rewrite from the seed alone would erase the
+// session the scenario is about.
+func mergeSessionSidecar(w *World, harp string, seed sessionSeed) error {
+	rel := ".ctxloom/sessions/" + harp + "/" + paths.SessionSidecarFileName
+	existing, err := w.env.ReadHomeFile(rel)
+	if err != nil {
+		return fmt.Errorf("merge into session %q: read its record: %w", harp, err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(existing), &doc); err != nil {
+		return fmt.Errorf("merge into session %q: parse its record: %w", harp, err)
+	}
+	overlay, err := yaml.Marshal(seed)
+	if err != nil {
+		return fmt.Errorf("merge into session %q: %w", harp, err)
+	}
+	var fields map[string]any
+	if err := yaml.Unmarshal(overlay, &fields); err != nil {
+		return err
+	}
+	if doc == nil {
+		doc = map[string]any{}
+	}
+	for k, v := range fields {
+		doc[k] = v
+	}
+	body, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return w.env.WriteHomeFile(rel, string(body))
+}

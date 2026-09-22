@@ -98,21 +98,22 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      | context_surface                 | context_marker                |
         | mock        | MOCK_CONTEXT.md                 | Isolation: specify both axes  |
 
-    # ONE CLAIM, MANY SHAPES. Every engine ctxloom drives gets the SAME
-    # registration — ctxloom as an MCP server, launched by the ctxloom binary
-    # with the `mcp` subcommand — and each writes it into a different file in
-    # a different dialect. Some fold it into a config file they already own;
-    # others give it a file of its own.
+    # ONE CLAIM, MANY SHAPES. ctxloom's own MCP server is the companion's
+    # DYNAMIC declaration — served by the running session's endpoint, injected
+    # into the SESSION's registry with that session's URL and bearer at
+    # session start. At rest there is no session to inject, so the explicit
+    # project-side install registers NO server under ctxloom's name, in any
+    # engine's dialect: an entry there would name a command that speaks no
+    # protocol, and the engine launching it would come up with none of
+    # ctxloom's tools and nothing saying why.
     #
-    # The marker is a field from INSIDE the server's body, never the key that
-    # names it: a registration with the right key and an empty body gives the
-    # engine a server with no command to launch, and a key-only assertion
-    # cannot tell that apart from a working one.
-    # TWO engines carry an MCP surface, which is what makes this a fan-out
-    # rather than a single-row claim that proves no dialect at all.
-    # (ruled 2026-09-21: sessions carry their surfaces — the project-side
-    # registration is the explicit hooks install's)
-    Scenario Outline: Every engine gets ctxloom registered as an MCP server, in its own dialect
+    # ABSENCE UNDER THE KEY, asserted by PARSING the engine's own registry
+    # when one exists — a bare "file does not exist" would also be satisfied
+    # by an install that wrote nothing at all, which the context rows above
+    # already rule out.
+    # (ruled 2026-09-21: sessions carry their surfaces; ctxloom injects its
+    # MCP only while it is running, via its own companion)
+    Scenario Outline: No engine gets ctxloom registered as an MCP server at rest
       Given an empty project directory
       When Alice installs ctxloom for <engine> and wires its files in:
         """
@@ -120,16 +121,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file "<mcp_surface>" contains "<server_key>"
-      And the file "<mcp_surface>" contains "<launch_marker>"
+      And the file "<mcp_surface>" registers no MCP server named "ctxloom"
 
-      # No "folded into a config the engine already owns" block: no shipped
-      # engine folds its MCP registry into another surface today. The block is
-      # restored, not invented, when one does.
       Examples: a file of its own
-        | engine      | mcp_surface     | server_key | launch_marker |
-        | claude-code | .mcp.json       | mcpServers | ${CLAUDE_PROJECT_DIR} |
-        | mock        | .mock/mcp.json  | mcpServers | ctxloom |
+        | engine      | mcp_surface     |
+        | claude-code | .mcp.json       |
+        | mock        | .mock/mcp.json  |
 
     # THE COMMAND SURFACE, the third thing install writes. ctxloom ships
     # first-party commands, and every engine gets them in its own idiom: a flat
@@ -223,6 +220,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # "claude-code: hooks=true ...", so matching it says nothing about whether
     # anything was wired. The per-surface flags are what "wired" means, so the
     # assertion is a regex over them.
+    #
+    # mcp is NOT wired at rest, and the report says so: ctxloom's own server
+    # is served by the running session's endpoint and injected into the
+    # session's registry at start, so the explicit hooks install registers no
+    # managed MCP server in the project — a "true" here would claim a wiring
+    # the engine could not launch (ruled 2026-09-21: ctxloom injects its MCP
+    # only while it is running, via its own companion).
     Scenario Outline: Check reports which surfaces are actually wired
       Given an initialized ctxloom project
       When Alice wires the hooks in and asks what is configured:
@@ -236,9 +240,9 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | hooks are wired | mcp is wired |
-        |               | true              | true          |
-        | --format json | true              | true          |
-        | --format text | hooks=true        | mcp=true      |
+        |               | true              | false         |
+        | --format json | true              | false         |
+        | --format text | hooks=true        | mcp=false     |
 
   Rule: A materialized hook reaches every engine in its own native shape
 
@@ -595,16 +599,16 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file ".claude/settings.json" contains "hook inject-context"
       And the file ".claude/settings.json" contains "ctxloom hook hud"
-      And the file ".mcp.json" registers an MCP server named "ctxloom"
+      And the file ".mcp.json" registers no MCP server named "ctxloom"
       When Alice takes it back out:
         """
         ctxloom manage uninstall
         """
       Then the command succeeds
-      # ctxloom created both files in this empty project, so the empty plan
-      # removes them outright: nothing of the harness is left to strip.
+      # ctxloom created the settings file in this empty project, so the empty
+      # plan removes it outright: nothing of the harness is left to strip.
       And the file ".claude/settings.json" does not exist
-      And the file ".mcp.json" does not exist
+      And the file ".mcp.json" registers no MCP server named "ctxloom"
       And the file ".ctxloom/config.yaml" exists
 
     # THE GATE FOR THE DELIVERY LAYER: uninstall is the empty plan over the

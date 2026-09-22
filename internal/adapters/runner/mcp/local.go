@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -220,7 +221,10 @@ func matchesQuery(query string, fields ...string) bool {
 }
 
 // fragment finds a fragment the package carries — loaded or premised — by
-// its qualified ref, or by its bare name when that is unambiguous.
+// its qualified ref, or by its bare item name when that is unambiguous. A
+// package item is named by the ask that selected it (composite.Assemble),
+// which for a profile's selection is the qualified ref, so the bare name is
+// the ref's item half (bundles.ParseItemAsk), not a second field.
 func (s loadoutSurface) fragment(ask string) (composite.Item[composite.Fragment], bool) {
 	var byName []composite.Item[composite.Fragment]
 	for _, set := range [][]composite.Item[composite.Fragment]{s.lo.Package.Premised, s.lo.Package.Fragments} {
@@ -228,7 +232,7 @@ func (s loadoutSurface) fragment(ask string) (composite.Item[composite.Fragment]
 			if it.Ref == ask {
 				return it, true
 			}
-			if it.Value.Name == ask {
+			if itemName(it.Ref, it.Value.Name) == ask {
 				byName = append(byName, it)
 			}
 		}
@@ -237,6 +241,15 @@ func (s loadoutSurface) fragment(ask string) (composite.Item[composite.Fragment]
 		return byName[0], true
 	}
 	return composite.Item[composite.Fragment]{}, false
+}
+
+// itemName is the bare item name a package item answers to: the ref's
+// "#<kind>/<name>" half when the ref is scoped, else the name it carries.
+func itemName(ref, name string) string {
+	if parsed, err := bundles.ParseItemAsk(ref); err == nil && parsed.Scoped && parsed.Item != "" {
+		return parsed.Item
+	}
+	return name
 }
 
 func (s loadoutSurface) registerResources(server *mcp.Server) {
@@ -327,7 +340,7 @@ func (s loadoutSurface) handleFragment(_ context.Context, req *mcp.ReadResourceR
 func (s loadoutSurface) handleCommand(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	name := strings.TrimPrefix(req.Params.URI, resourceCommandsURI+"/")
 	for _, it := range s.lo.Package.Commands {
-		if it.Ref == name || it.Value.Name == name || it.Value.ExportName == name {
+		if it.Ref == name || itemName(it.Ref, it.Value.Name) == name || it.Value.ExportName == name {
 			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: req.Params.URI, MIMEType: "text/markdown", Text: it.Value.Body}}}, nil
 		}
 	}

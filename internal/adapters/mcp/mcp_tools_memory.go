@@ -99,54 +99,6 @@ const (
 	recoverNothingToRecoverMsg = "Nothing to recover for this session (%s): its transcript lineage holds no session other than the current one, whose content is already in context. Pass session_id, or use load_session with harp_name, to target another session deliberately."
 )
 
-// This and the sibling registerXTools functions share a duplicate shape by
-// construction (a run of mcp.AddTool calls). Their tool descriptions are
-// independent content; a change to one implies nothing about the others.
-// reprise:accept-drift
-func (s *ctxServer) registerMemoryTools(server *mcp.Server) {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "compact_session",
-			Description: compactSessionDesc,
-		},
-		s.handleCompactSession)
-
-	// browse_session_history remains a resource (ctxloom://sessions/recent).
-	// list_sessions is back as a TOOL, not a resource: a caller deciding which
-	// harp to resume needs to name it in a following load_session call, and
-	// distill_missing has a side effect (it runs the compactor) — neither fits
-	// the read-only resource model.
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "list_sessions",
-			Description: listSessionsDesc,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		},
-		s.handleListSessions)
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "load_session",
-			Description: loadSessionDesc,
-		},
-		s.handleLoadSession)
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "recover_session",
-			Description: recoverSessionDesc,
-		},
-		s.handleRecoverSession)
-
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "get_previous_session",
-			Description: getPreviousSessionDesc,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
-		},
-		s.handleGetPreviousSession)
-}
-
 // withDistillBudget bounds ctx to the relay's distill budget when it carries
 // no deadline of its own, and returns it unchanged when it does.
 //
@@ -216,7 +168,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		backend = s.cfg.GetDefaultLLM()
 	}
 
-	workDir, err := s.resourceProjectDir()
+	workDir, err := s.projectDir()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
@@ -337,7 +289,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 		if in.AllProjects {
 			return operations.ListAllSessions()
 		}
-		workDir, err := s.resourceProjectDir()
+		workDir, err := s.projectDir()
 		if err != nil {
 			return nil, fmt.Errorf("resolve project directory: %w", err)
 		}
@@ -460,7 +412,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
 	}
 
-	workDir, err := s.resourceProjectDir()
+	workDir, err := s.projectDir()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
@@ -588,7 +540,7 @@ func ownerHarpOf(sessionID string) string {
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
-	workDir, err := s.resourceProjectDir()
+	workDir, err := s.projectDir()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}
@@ -840,7 +792,7 @@ var policyArchived = sessionLoadPolicy{}
 // requiring the user to import the vendor transcript by hand first made the tool fail
 // at exactly the moment it was reached for.
 func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, policy sessionLoadPolicy) (*mcp.CallToolResult, *loadSessionResult, error) {
-	workDir, err := s.resourceProjectDir()
+	workDir, err := s.projectDir()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}

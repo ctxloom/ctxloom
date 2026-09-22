@@ -60,39 +60,69 @@ func NewDocServer() (server *mcp.Server, closeHome func(), err error) {
 	return server, closeHome, nil
 }
 
-// ListDocToolNames returns the sorted tool names registered on the
-// documented MCP surface built by NewDocServer, via an in-memory client round
-// trip -- the SDK exposes no direct accessor on the server itself. It exists
-// so a completeness gate can measure the SAME surface this package documents:
-// the one a real engine talks to, not the reduced standalone `ctxloom mcp
-// serve` surface.
-func ListDocToolNames(ctx context.Context) ([]string, error) {
+// DocSurface is the documented MCP surface as a client enumerates it: the
+// tool names, the resource URIs and the resource-template URIs, each sorted.
+type DocSurface struct {
+	Tools     []string
+	Resources []string
+	Templates []string
+}
+
+// ListDocSurface enumerates the documented MCP surface built by NewDocServer
+// via an in-memory client round trip — the SDK exposes no direct accessor on
+// the server itself. It exists so a completeness gate can measure the SAME
+// surface this package documents: the one a real engine dials, in a session.
+func ListDocSurface(ctx context.Context) (DocSurface, error) {
 	server, closeHome, err := NewDocServer()
 	if err != nil {
-		return nil, err
+		return DocSurface{}, err
 	}
 	defer closeHome()
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
-		return nil, fmt.Errorf("connect doc server: %w", err)
+		return DocSurface{}, fmt.Errorf("connect doc server: %w", err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "completeness-check"}, nil)
 	cs, err := client.Connect(ctx, clientT, nil)
 	if err != nil {
-		return nil, fmt.Errorf("connect doc client: %w", err)
+		return DocSurface{}, fmt.Errorf("connect doc client: %w", err)
 	}
 	defer cs.Close()
 
-	res, err := cs.ListTools(ctx, nil)
+	var out DocSurface
+	// The cursor-following iterators, so a server that pages its surface is
+	// enumerated whole rather than to its first page.
+	for tool, err := range cs.Tools(ctx, nil) {
+		if err != nil {
+			return DocSurface{}, fmt.Errorf("list tools: %w", err)
+		}
+		out.Tools = append(out.Tools, tool.Name)
+	}
+	for res, err := range cs.Resources(ctx, nil) {
+		if err != nil {
+			return DocSurface{}, fmt.Errorf("list resources: %w", err)
+		}
+		out.Resources = append(out.Resources, res.URI)
+	}
+	for tmpl, err := range cs.ResourceTemplates(ctx, nil) {
+		if err != nil {
+			return DocSurface{}, fmt.Errorf("list resource templates: %w", err)
+		}
+		out.Templates = append(out.Templates, tmpl.URITemplate)
+	}
+	sort.Strings(out.Tools)
+	sort.Strings(out.Resources)
+	sort.Strings(out.Templates)
+	return out, nil
+}
+
+// ListDocToolNames returns the sorted tool names of the documented surface.
+func ListDocToolNames(ctx context.Context) ([]string, error) {
+	surface, err := ListDocSurface(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list tools: %w", err)
+		return nil, err
 	}
-	names := make([]string, 0, len(res.Tools))
-	for _, t := range res.Tools {
-		names = append(names, t.Name)
-	}
-	sort.Strings(names)
-	return names, nil
+	return surface.Tools, nil
 }
 
 // ToolContract is one tool exactly as an MCP client receives it: description
@@ -109,14 +139,10 @@ type ToolContract struct {
 // ListDocToolNames uses.
 //
 // It exists because the OUTPUT schema is where a coordination tool's result
-// SHAPE is advertised, and nothing could observe it. `tests/acceptance`'s only
-// MCP client is a `ctxloom mcp serve` subprocess, whose agent-delegation surface
-// is a deliberately reduced one with DIFFERENT, hand-written schemas (see
-// mcpIntro's caution block and mcp_tools_agents.go) — so a change to the
-// proto-canonical shape a real harness is told to expect was invisible to every
-// black-box test in the repo. agent_recv is the case that forced it: its result
-// shape is a projection of PeerMessage, it has no hand-written twin on this
-// surface, and plane-2 §4.B changes it.
+// SHAPE is advertised, and a change to the proto-canonical shape a real
+// harness is told to expect must be observable without a live session.
+// agent_recv is the case that forced it: its result shape is a projection of
+// PeerMessage, and plane-2 §4.B changes it.
 //
 // Registration reads only static tool literals and the embedded generated
 // schemas, so this dials nothing and invokes no handler.

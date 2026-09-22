@@ -23,8 +23,7 @@ after the fact).
 ```mermaid
 flowchart TD
     subgraph live["Regime A — live structured chat"]
-      GC["lm/grpc.GRPCClient.Chat<br/>chat.go:388"]
-      EH["agentcoord/coord.EngineHost<br/>enginehost.go:298"]
+      EH["adapters/runner.EngineHost<br/>(the runner's engine host)"]
       CR["CoordinatedRecorder<br/>coordinated.go:32<br/>N producers → 1 owner goroutine"]
       TEE["Tee / TeeAndClose<br/>recorder.go:233,255"]
       RUT["RecordUserText<br/>recorder.go:207"]
@@ -65,7 +64,7 @@ flowchart TD
     CH["CanonicalHistory<br/>history.go:51<br/>{workDir, sessions.Store}"] --> PTF
     CH -.structurally satisfies.-> PBS["pb.SessionSource"]
     IDX[("sessions/index.yaml<br/>Entry.CanonicalTranscriptPath")] --> CH
-    SESS --> CONS["lm/grpc/canonical_source.go<br/>lm/grpc/sessionwatch.go<br/>operations/sessionfeed.go<br/>internal/adapters/memory compaction"]
+    SESS --> CONS["transcript/canonical_source.go · transcript/source.go<br/>(the transcript readers are this package's own)<br/>operations/sessionfeed.go<br/>internal/adapters/memory compaction"]
 ```
 
 **The two things to hold in mind:**
@@ -115,19 +114,16 @@ enforcing parity. `record.go:9-12` claims the payloads mirror `agent.ChatEvent` 
 | `RecorderOption` / `WithRawPolicy` | `recorder.go:50`, `:56` | The only option. Reachable only through `agent.ChatRequest.TranscriptRawPolicy`, which nothing in the codebase ever sets — so in production the policy is always `DefaultRawPolicy` |
 | `fileRecorder.Record` | `recorder.go:116` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |
 | `fileRecorder.Close` | `recorder.go:181` | Idempotent (nil-guarded) |
-| `RecordUserText` | `recorder.go:207` | The **only** path that captures user turns; called from `coord/enginehost.go:306,326` |
+| `RecordUserText` | `recorder.go` | The **only** path that captures user turns; called by the runner's engine host |
 | `Tee` / `TeeAndClose` | `recorder.go:233`, `:255` | Passthrough goroutine: `Record` then forward. `TeeAndClose` closes the recorder when the source drains — without it the fd leaks for process lifetime |
-| `RecordOneshot` | `oneshot.go:43` | Writes a two-entry (user + assistant) transcript for a oneshot `Backend.Execute` run, which emits no `ChatEvent` stream. Called from `cli/run.go:1277`, `cli/run_owned.go:205`, `operations/oneshot.go:471` |
-| `CoordinatedRecorder` | `coordinated.go:32` | Funnels N producers into one owner goroutine so `seq` order is a function of `Submit` arrival, not lock scheduling. Fixes a measured 79/80-record drop (`lm/grpc/chat.go:441-461`) |
+| `RecordOneshot` | `oneshot.go` | Writes a two-entry (user + assistant) transcript for a one-shot run, which emits no event stream. Called by the one-shot drive (`cli/run.go`, `cli/run_owned.go`) and `operations`' one-shots |
+| `CoordinatedRecorder` | `coordinated.go` | Funnels N producers into one owner goroutine so `seq` order is a function of `Submit` arrival, not lock scheduling (a measured 79/80-record drop under the old lock-scheduled wiring) |
 | `NewCoordinatedRecorder` / `ProducerDone` / `Submit` / `Done` | `coordinated.go:67`,`:92`,`:100`,`:115` | `recordRequest` (`coordinated.go:50`) carries an ack channel so `Submit` returns only after `Record` has *returned*, not after the channel handoff |
 
 **Error handling on the live path.** Every `Record`/`Close` error is discarded with `_ =` —
-`recorder.go:211` (`RecordUserText`), `:238` (`Tee`), `:260` (`TeeAndClose`), `coordinated.go:80`
-and `:82` (the owner goroutine) — with no counter, warning, or metric. `recorder.go:229` defers
-the decision to "S2, which owns the actual host wiring"; neither live seam passes a logger
-(`lm/grpc/chat.go:437` `coord.Submit` returns nothing; `coord/enginehost.go:316`
-`transcript.TeeAndClose(rec, out)` takes no logger). The package already imports `clidiag`
-(`history.go:38`).
+in `RecordUserText`, `Tee`, `TeeAndClose` and the coordinated recorder's owner goroutine —
+with no counter, warning, or metric; neither live seam passes a logger. The package already
+imports `clidiag`.
 
 ---
 
@@ -136,7 +132,7 @@ the decision to "S2, which owns the actual host wiring"; neither live seam passe
 | Symbol | file:line | Notes |
 |---|---|---|
 | `CanonicalHistory` | `history.go:51` | `{workDir string, store sessions.Store}`; harp-keyed, project-scoped read view. **Structurally satisfies `pb.SessionSource`** (asserted in `history_interface_test.go:18`) |
-| `NewCanonicalHistory` | `history.go:59` | Called from `lm/grpc/canonical_source.go:84` |
+| `NewCanonicalHistory` | `history.go` | Called from this package's own `canonical_source.go` |
 | `GetSession` | `history.go:71` | Validates harp, resolves + stats the path, delegates to `ParseTranscriptFile`. Touches **neither** of the type's fields — it is a free function wearing a method's clothes, which exists to satisfy `pb.SessionSource` |
 | `ListSessions` | `history.go:103` | Enumerates project harps from the index, parses each, builds `SessionMeta`; a per-harp parse failure warns via `clidiag` and continues |
 | `CurrentSession` | `history.go:134` | Returns the newest canonical-backed session. Returns the **first** candidate's `GetSession` error rather than skipping to the next — unlike `ListSessions` |
@@ -147,11 +143,11 @@ the decision to "S2, which owns the actual host wiring"; neither live seam passe
 `ListSessions` trusts `Entry.CanonicalTranscriptPath` from the session store. They agree today only
 because `sessions.fillCanonicalTranscript` happens to stat the same path.
 
-**The version-mismatch contract has no teeth end to end.** Three of four consumers swallow the
-hard error: `lm/grpc/canonical_source.go:135,150` falls through to legacy on *any* canonical error;
-`operations/sessionfeed.go:443` warns and returns nil; `lm/grpc/sessionwatch.go:210` warns on
-**every poll tick, forever**, since a version error is permanent. `sessionwatch` also re-parses
-the whole file on each tick — `ParseTranscriptFile` offers no incremental/tail API.
+**The version-mismatch contract has no teeth end to end.** The consumers swallow the hard
+error: `canonical_source.go` falls through to legacy on *any* canonical error;
+`operations/sessionfeed.go` warns and returns nil; the transcript watch (`source.go`) warns on
+**every poll tick, forever**, since a version error is permanent, and re-parses the whole file
+on each tick — `ParseTranscriptFile` offers no incremental/tail API.
 
 **Empty-file behaviour.** A zero-byte file, or one whose every line fails to parse, yields
 `(Session{Entries: []}, nil)`. `canonical_source.go:135` then takes the `err == nil` branch and
@@ -295,5 +291,6 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   consequence of "the vendor reader cannot report a count" surfaces there, not here.
 - **`internal/adapters/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
   `pb.NewCanonicalFallbackSource` (canonical first, legacy second).
-- **`internal/lm/grpc`** owns both live producers (`chat.go`'s `CoordinatedRecorder` wiring) and
-  the reader adapters (`canonical_source.go`, `sessionwatch.go`).
+- **`internal/adapters/runner`** owns the live producer (the engine host's `CoordinatedRecorder`
+  wiring); the reader adapters (`canonical_source.go`, `source.go`, `filtered_source.go`) are this
+  package's own.

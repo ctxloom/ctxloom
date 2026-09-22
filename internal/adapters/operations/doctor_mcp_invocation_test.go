@@ -18,45 +18,46 @@ func writeSurface(t *testing.T, root, rel, body string) {
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
 }
 
-// TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed drives the shape
-// this check exists for: a settings file materialized before the machine
-// surface moved to `mcp serve`, still naming the noun on its own.
-//
-// The engine starts, the entry launches ctxloom, ctxloom answers a listing
-// into a JSON-RPC pipe, and the session comes up with none of ctxloom's tools
-// and nothing anywhere saying why. The report has to name the file, or a user
-// with five engines configured cannot tell which one to fix.
+// TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed: a materialized
+// ctxloom entry that LAUNCHES ctxloom is stale in every spelling — ctxloom
+// ships no stdio MCP server; its tools are served by the running session's
+// endpoint, injected at session start. An engine launching such an entry
+// starts normally, the command answers something that is not the protocol,
+// and the session comes up with none of ctxloom's tools and nothing anywhere
+// saying why. The report has to name the file, or a user with five engines
+// configured cannot tell which one to fix.
 func TestDoctorCheckMCPInvocation_WrongState_StaleEntryIsNamed(t *testing.T) {
-	root := t.TempDir()
-	writeSurface(t, root, ".mcp.json", `{
-	  "mcpServers": {
-	    "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp"]}
-	  }
-	}`)
+	for name, body := range map[string]string{
+		"the retired serve leaf": `{"mcpServers": {"ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
+		"the bare noun":          `{"mcpServers": {"ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp"]}}}`,
+		"a bare command":         `{"mcpServers": {"ctxloom": {"command": "ctxloom"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writeSurface(t, root, ".mcp.json", body)
 
-	check := doctorCheckMCPInvocation(root)
+			check := doctorCheckMCPInvocation(root)
 
-	assert.Equal(t, DoctorWarn, check.Status,
-		"a stale entry is a real problem, and warn is this command's fail-loud signal")
-	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file to fix")
-	assert.Contains(t, check.Detail, "ctxloom init", "the report names re-init as the fix")
+			assert.Equal(t, DoctorWarn, check.Status,
+				"a stale entry is a real problem, and warn is this command's fail-loud signal")
+			assert.Contains(t, check.Detail, ".mcp.json", "the report names the file to fix")
+			assert.Contains(t, check.Detail, "manage hooks install", "the report names the explicit project-side rewrite as the fix")
+		})
+	}
 }
 
-// TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet is the other
-// half, and the one that keeps the check honest. A check that warned on every
-// project would be indistinguishable from one that works, and would teach a
-// user to ignore doctor.
-func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
+// TestDoctorCheckMCPInvocation_RightState_NoCtxloomEntryIsQuiet is the other
+// half, and the one that keeps the check honest: a registry with no entry
+// under ctxloom's name is the healthy at-rest state (the session injects its
+// own endpoint), and a check that warned on every project would be
+// indistinguishable from one that works.
+func TestDoctorCheckMCPInvocation_RightState_NoCtxloomEntryIsQuiet(t *testing.T) {
 	root := t.TempDir()
-	writeSurface(t, root, ".mcp.json", `{
-	  "mcpServers": {
-	    "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp", "serve"]}
-	  }
-	}`)
+	writeSurface(t, root, ".mcp.json", `{"mcpServers": {"taskloom": {"command": "taskloom", "args": ["mcp"]}}}`)
 
 	check := doctorCheckMCPInvocation(root)
 
-	assert.Equal(t, DoctorOK, check.Status, "an entry naming the server leaf is fine")
+	assert.Equal(t, DoctorOK, check.Status, "a registry naming no ctxloom launch is fine")
 	assert.NotContains(t, check.Detail, ".mcp.json",
 		"a healthy surface is not named as needing a fix")
 }
@@ -67,7 +68,7 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
 // materialized entry is the broken one.
 func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	staleFor := map[string]string{
-		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
+		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
 	}
 
 	for rel, body := range staleFor {
@@ -83,22 +84,16 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	}
 }
 
-// TestDoctorCheckMCPInvocation_RightState_CurrentEntryInEveryFormatIsQuiet is
-// the paired negative for the walk above: each format's CORRECT spelling must
-// read as healthy, or the check is just a file-exists probe wearing a warning.
-func TestDoctorCheckMCPInvocation_RightState_CurrentEntryInEveryFormatIsQuiet(t *testing.T) {
-	currentFor := map[string]string{
-		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
-	}
+// TestDoctorCheckMCPInvocation_SessionEndpointEntryIsQuiet: an entry under
+// ctxloom's name that DIALS a URL is a session's rendering of the endpoint
+// (a session home's registry, or a copy of one) — it launches nothing and is
+// not stale.
+func TestDoctorCheckMCPInvocation_SessionEndpointEntryIsQuiet(t *testing.T) {
+	root := t.TempDir()
+	writeSurface(t, root, ".mcp.json",
+		`{"mcpServers": {"ctxloom": {"type": "http", "url": "http://127.0.0.1:4242/mcp", "headers": {"Authorization": "Bearer x"}}}}`)
 
-	for rel, body := range currentFor {
-		t.Run(rel, func(t *testing.T) {
-			root := t.TempDir()
-			writeSurface(t, root, rel, body)
-
-			assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(root).Status)
-		})
-	}
+	assert.Equal(t, DoctorOK, doctorCheckMCPInvocation(root).Status)
 }
 
 // TestDoctorCheckMCPInvocation_LeavesForeignServersAlone: only ctxloom's own

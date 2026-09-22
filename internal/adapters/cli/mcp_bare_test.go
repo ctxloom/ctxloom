@@ -4,11 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/core/agent"
 )
 
 // presentTerminal points the isInteractiveTerminal seam at a fixed answer for
@@ -47,27 +44,26 @@ func TestMcpBare_AnswersAHumanWithTheServerListing(t *testing.T) {
 		"an empty answer is the silent no-op, not a listing")
 }
 
-// TestMcpBare_RefusesAMachineAndNamesServe is the loud half of the break.
+// TestMcpBare_RefusesAMachineAndSaysThereIsNoServer is the loud half of the
+// break.
 //
 // A protocol client whose configured invocation is the bare noun opens a pipe
 // and waits for JSON-RPC. A server listing written into that pipe is not
 // merely wrong — it is indistinguishable from a hang: the client sees bytes it
 // cannot frame, no initialize response, and nothing anywhere naming the cause.
-// Off a terminal the bare noun therefore refuses outright and names the
-// spelling that IS the server.
-func TestMcpBare_RefusesAMachineAndNamesServe(t *testing.T) {
+// Off a terminal the bare noun therefore refuses outright and says what IS
+// the server: the running session's endpoint, not any ctxloom command.
+func TestMcpBare_RefusesAMachineAndSaysThereIsNoServer(t *testing.T) {
 	remoteBareFixture(t)
 	presentTerminal(t, false)
 
 	out, err := runRoot(t, "mcp")
 
 	require.Error(t, err, "off a terminal the bare noun must refuse, not answer")
-	// Backtick-delimited, because a bare "ctxloom mcp serve" is a SUBSTRING of
-	// "ctxloom mcp server list" — which this same message also names. Measured:
-	// deleting the invocation from the message left an undelimited assertion
-	// green.
-	assert.Contains(t, err.Error(), "`ctxloom mcp serve`",
-		"the refusal names the invocation that is the stdio server")
+	assert.Contains(t, err.Error(), "no stdio MCP server",
+		"the refusal says no ctxloom command speaks the protocol")
+	assert.Contains(t, err.Error(), "session's endpoint",
+		"the refusal names what serves ctxloom's tools")
 	assert.NotContains(t, out, "Auto-register",
 		"no part of the server listing may reach a caller framing JSON-RPC")
 }
@@ -102,41 +98,20 @@ func TestMcpBare_RejectsAStrayArgAsAnUnknownSubcommand(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown command")
 }
 
-// TestMcpServe_IsTheOnlyStdioServerEntryPoint pins the machine surface: one
-// spelling, symmetric with `acp serve`, and it still refuses stray args rather
-// than sitting on stdin.
-func TestMcpServe_IsTheOnlyStdioServerEntryPoint(t *testing.T) {
-	require.NotNil(t, mcpServeCmd.Args, "mcp serve must declare an Args validator")
-	assert.Error(t, mcpServeCmd.Args(mcpServeCmd, []string{"list"}),
-		"a stray arg must be refused, not served on stdin")
-	assert.NoError(t, mcpServeCmd.Args(mcpServeCmd, nil))
-
+// TestMcpNoun_HasNoServeLeaf pins that the noun is a namespace whose default
+// view is the configured-server listing, and that NO `serve` leaf exists:
+// ctxloom's server is the running session's endpoint, and a command that
+// answered the protocol here would be a second, unauthenticated door to it.
+func TestMcpNoun_HasNoServeLeaf(t *testing.T) {
 	assert.True(t, isGroupNode(mcpCmd),
-		"the `mcp` noun is a namespace; the server is its `serve` leaf")
+		"the `mcp` noun is a namespace")
 
 	child, ok := groupNodeDefaultChild(mcpCmd)
 	require.True(t, ok, "bare `mcp` answers with a default view")
 	assert.Equal(t, "server", child,
 		"the bare noun's answer is the configured-server listing")
-}
 
-// TestCtxloomMCPArgs_NamesTheServeLeaf pins the argv every materialized engine
-// surface carries. This one value is what .mcp.json, .agents/mcp_config.json,
-// .kiro/settings/mcp.json, .codex/config.toml and opencode.json all emit, so a
-// drift here is a drift in every engine at once.
-func TestCtxloomMCPArgs_NamesTheServeLeaf(t *testing.T) {
-	assert.Equal(t, []string{"mcp", "serve"}, agent.CtxloomMCPArgs,
-		"a materialized entry must invoke the stdio server, not the listing")
-
-	serve := findSub(findSub(rootCmd, "mcp"), "serve")
-	require.NotNil(t, serve)
-	assert.Equal(t, agent.CtxloomMCPArgs, mcpArgvPath(serve),
-		"the emitted argv is the real command path, not a hand-kept twin")
-}
-
-// mcpArgvPath is the command path of cmd below the root, as argv tokens.
-func mcpArgvPath(cmd *cobra.Command) []string {
-	return strings.Fields(strings.TrimPrefix(cmd.CommandPath(), "ctxloom "))
+	assert.Nil(t, findSub(mcpCmd, "serve"), "no ctxloom command speaks the MCP protocol")
 }
 
 // TestRunMCPServerEdit_RefusesAnythingButABundleScopedMCPRef pins the refusal

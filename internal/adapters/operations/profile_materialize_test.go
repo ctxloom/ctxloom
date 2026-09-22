@@ -140,35 +140,32 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 	assert.Equal(t, string(first), string(second), "re-materialize is a clean overwrite")
 }
 
-// TestMaterializeProfile_ExportsCtxloomsOwnMCPServer proves ctxloom's own
-// companion loadout reaches a materialized export: the exported .mcp.json
-// carries ctxloom's own server, written as the loadout declares it. No profile
-// names the loadout — a companion's servers are registered unconditionally —
-// so this is also the proof that the companion route carries MCP.
+// TestMaterializeProfile_ExportsCtxloomsOwnMCPServer proves a materialized
+// export carries NO entry for ctxloom's own server: the companion loadout's
+// entry is the session-endpoint declaration, rendered only inside a session
+// (the runner binds the endpoint; delivery writes its URL and bearer into
+// the session's registry). At rest there is nothing to render, and an entry
+// written anyway would name a command that speaks no protocol.
 func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 	cfg = withCtxloomLoadout(t, cfg)
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, res.Wrote, "mcp")
 
 	data, err := os.ReadFile(filepath.Join(target, ".mcp.json"))
-	require.NoError(t, err, "the backend MCP config must be written")
+	if os.IsNotExist(err) {
+		return // no registry at all: nothing under ctxloom's name, in the strongest form
+	}
+	require.NoError(t, err)
 	var doc struct {
-		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
-		} `json:"mcpServers"`
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	require.NoError(t, json.Unmarshal(data, &doc))
-	entry, ok := doc.MCPServers[agent.MCPServerName]
-	require.True(t, ok, "ctxloom's own MCP server must be exported; got %v", doc.MCPServers)
-	assert.Equal(t, agent.CtxloomMCPArgs, entry.Args, "the exported entry must invoke `mcp serve`")
-	assert.Equal(t, agent.CtxloomCommand(), entry.Command,
-		"the exported command is the bare name the loadout declares, written as declared")
+	_, ok := doc.MCPServers[agent.MCPServerName]
+	assert.False(t, ok, "ctxloom's own MCP server is served by the session and never exported at rest; got %v", doc.MCPServers)
 }
 
 // materializeHookFixture is materializeFixture with the selected profile shipping

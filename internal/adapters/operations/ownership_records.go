@@ -78,7 +78,7 @@ func DeliverProject(ctx context.Context, fs afero.Fs, kind engine.Engine, pkg co
 		return delivery.Delivered{}, delivery.Plan{}, err
 	}
 	lo := delivery.Loadout{Plan: plan, Package: pkg, Exports: exports, WorkDir: dir}
-	d, err := fsstatic.New(fs).Deliver(ctx, lo, root.Surfaces(), ProjectTarget(dir, records))
+	d, err := fsstatic.New(fs).Deliver(ctx, lo, root, ProjectTarget(dir, records))
 	return d, plan, err
 }
 
@@ -89,6 +89,6 @@ func RemoveProject(ctx context.Context, fs afero.Fs, kind engine.Engine, dir str
 	if err != nil {
 		return err
 	}
-	_, err = fsstatic.New(fs).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root().Surfaces(), ProjectTarget(dir, records))
+	_, err = fsstatic.New(fs).Deliver(ctx, delivery.Loadout{WorkDir: dir}, kind.Root(), ProjectTarget(dir, records))
 	return err
 }

@@ -144,3 +144,58 @@ func TestMCPServer_Validate(t *testing.T) {
 		})
 	}
 }
+
+// TestMCPServer_Validate_SessionEndpointDeclaration pins the third target:
+// an entry SERVED BY the running session's endpoint declares no command and
+// no URL — the bundle contributes nothing executable, and the host supplies
+// its own endpoint (URL + bearer) at delivery. It is exclusive with both
+// other targets, and the declaration's value is the one the host knows.
+func TestMCPServer_Validate_SessionEndpointDeclaration(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		in   MCPServer
+		want error
+	}{
+		{"declared", MCPServer{ServedBy: ServedBySessionEndpoint}, nil},
+		{"with a command", MCPServer{ServedBy: ServedBySessionEndpoint, Command: "cmd"}, ErrMCPServerTwoTargets},
+		{"with a url", MCPServer{ServedBy: ServedBySessionEndpoint, URL: "https://x"}, ErrMCPServerTwoTargets},
+		{"with args only", MCPServer{ServedBy: ServedBySessionEndpoint, Args: []string{"mcp", "serve"}}, ErrMCPServerTwoTargets},
+		{"unknown server", MCPServer{ServedBy: "some-other-thing"}, ErrMCPServerServedBy},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.in.Validate()
+			if !errors.Is(err, tt.want) {
+				t.Errorf("Validate() = %v, want %v", err, tt.want)
+			}
+		})
+	}
+	if !(MCPServer{ServedBy: ServedBySessionEndpoint}).IsSessionEndpoint() {
+		t.Error("a session-endpoint declaration must report IsSessionEndpoint")
+	}
+	if (MCPServer{Command: "cmd"}).IsSessionEndpoint() || (MCPServer{URL: "https://x"}).IsSessionEndpoint() {
+		t.Error("a stdio or remote server is not a session-endpoint declaration")
+	}
+}
+
+// TestMCPServer_SessionEndpoint_RoundTripsAsServedBy pins the on-disk
+// spelling: `served_by: session-endpoint`, nothing else on the entry.
+func TestMCPServer_SessionEndpoint_RoundTripsAsServedBy(t *testing.T) {
+	var got MCPServer
+	if err := yaml.Unmarshal([]byte("served_by: session-endpoint\n"), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ServedBy != ServedBySessionEndpoint {
+		t.Fatalf("decoded ServedBy = %q, want %q", got.ServedBy, ServedBySessionEndpoint)
+	}
+	out, err := yaml.Marshal(MCPServer{ServedBy: ServedBySessionEndpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "served_by: session-endpoint\n" {
+		t.Errorf("encoded = %q, want the bare declaration", out)
+	}
+	j, _ := json.Marshal(MCPServer{ServedBy: ServedBySessionEndpoint})
+	if string(j) != `{"served_by":"session-endpoint"}` {
+		t.Errorf("json = %s, want the bare declaration", j)
+	}
+}

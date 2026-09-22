@@ -60,7 +60,7 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	opened, err := operations.OpenLaunch(context.Background(), env.deps, host)
 	require.NoError(t, err)
 	static, rec := staticWriter(t), records(t)
-	_, err = static.Deliver(context.Background(), opened.Loadout, mock.New().Root().Surfaces(), host.Target(rec))
+	_, err = static.Deliver(context.Background(), opened.Loadout, mock.New().Root(), host.Target(rec))
 	require.NoError(t, err)
 
 	// The delegated arm: the launch crosses the wire and the runner delivers.
@@ -95,8 +95,8 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	require.True(t, strings.HasPrefix(mcpConfig, child.Cell.Paths.Paths().Scratch.Host), "the MCP file lands under the session's own root, never the project tree")
 	body, err := os.ReadFile(mcpConfig)
 	require.NoError(t, err)
-	require.Contains(t, string(body), `"ctxloom"`, "the composed servers are what .mcp.json names")
-	require.Contains(t, string(body), `"deploy-tool"`)
+	require.Contains(t, string(body), `"deploy-tool"`, "the composed servers are what .mcp.json names")
+	require.NotContains(t, string(body), `"ctxloom"`, "the mock provides no dynamic approach, so ctxloom's session-endpoint declaration renders nothing for it")
 }
 
 // TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext: a resume with the
@@ -293,7 +293,7 @@ func (fixedAssembler) Assemble(_ context.Context, _ *config.Snapshot, sel launch
 		}, Ref: "dev#skills/triage"}},
 		Hooks: wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "echo pre", Type: "command"}}}},
 		MCP: map[string]wire.MCPServer{
-			"ctxloom":     {Command: "ctxloom", Args: []string{"mcp"}},
+			"ctxloom":     {ServedBy: wire.ServedBySessionEndpoint},
 			"deploy-tool": {Command: "deploy", Args: []string{"--serve"}},
 		},
 		DenyTools:  []string{"Task"},

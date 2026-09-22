@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -39,4 +41,21 @@ func TestMcpServerShow_NotFound_TextAndJSONAgree(t *testing.T) {
 			require.Contains(t, err.Error(), "not found")
 		})
 	}
+}
+
+// TestPrintMCPServerEntry_SessionEndpointEntry_DescribesItWithoutACommand
+// pins how ctxloom's own entry reads at rest: `mcp server show ctxloom`
+// describes it as served by the running session's endpoint and prints NO
+// command line — there is nothing executable to show, because the session
+// injects the endpoint and nothing else ever launches ctxloom as a server.
+func TestPrintMCPServerEntry_SessionEndpointEntry_DescribesItWithoutACommand(t *testing.T) {
+	var out bytes.Buffer
+	printMCPServerEntry(&out, operations.MCPServerEntry{Name: "ctxloom", Source: "ctxloom+companion:ctxloom", ServedBy: wire.ServedBySessionEndpoint})
+	require.Contains(t, out.String(), "Served by: the running session's endpoint")
+	require.NotContains(t, out.String(), "Command:", "nothing executable is shown for a dynamic entry")
+
+	out.Reset()
+	printMCPServerEntry(&out, operations.MCPServerEntry{Name: "tasks", Source: "demo", Command: "taskloom", Args: []string{"mcp"}})
+	require.Contains(t, out.String(), "Command: taskloom")
+	require.NotContains(t, out.String(), "Served by")
 }

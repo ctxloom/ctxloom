@@ -50,7 +50,7 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 
 	target := delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter}
 	static := fsstatic.New(fs)
-	d, err := static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root().Surfaces(), target)
+	d, err := static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Len(t, d.Wrote, 6)
 	delivered := deliverytest.RelativeFiles(fs, project)
@@ -62,12 +62,12 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	require.Len(t, owned, len(delivered)-1, "one record per delivered file; the user's README has none")
 
 	// A second delivery is idempotent: the same files, the same records.
-	_, err = static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root().Surfaces(), target)
+	_, err = static.Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Equal(t, delivered, deliverytest.RelativeFiles(fs, project))
 
 	// Uninstall: the empty plan over the record.
-	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root().Surfaces(), target)
+	_, err = static.Deliver(context.Background(), delivery.Loadout{Package: pkg}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Equal(t, []string{"README.md"}, deliverytest.RelativeFiles(fs, project), "only the user's file remains")
 	owned, err = rec.Targets(delivery.ProjectWriter)
@@ -82,7 +82,7 @@ func TestDeliver_OverTheProductionRecord_MaterializeThenUninstallLeavesTheProjec
 	sessionPlan, err := delivery.Route(items, eng.Root(), delivery.Preference{}, cell)
 	require.NoError(t, err)
 	session := delivery.Target{Root: present.New(present.OnHost(cell)), Ownership: rec, Writer: delivery.SessionWriter("h")}
-	_, err = static.Deliver(context.Background(), delivery.Loadout{Plan: sessionPlan, Package: pkg, Exports: exports}, eng.Root().Surfaces(), session)
+	_, err = static.Deliver(context.Background(), delivery.Loadout{Plan: sessionPlan, Package: pkg, Exports: exports}, eng.Root(), session)
 	require.NoError(t, err)
 	require.Equal(t, []string{"README.md"}, deliverytest.RelativeFiles(fs, project), "the run delivered into its session, not the project")
 	require.NotEmpty(t, deliverytest.RelativeFiles(fs, home))
@@ -105,7 +105,7 @@ func TestDeliver_KeepsTheModeAnApproachWrote(t *testing.T) {
 	pref := delivery.Preference{Root: map[present.Kind]present.RootKind{present.Context: present.RootProjectRoot, present.Skills: present.RootProjectRoot}}
 	plan, err := delivery.Route(items, eng.Root(), pref, present.Paths{ProjectRoot: present.Root{Host: project, Engine: project}})
 	require.NoError(t, err)
-	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root().Surfaces(), delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
+	_, err = fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg, Exports: exports}, eng.Root(), delivery.Target{Root: present.ProjectOnHost(project), Ownership: rec, Writer: delivery.ProjectWriter})
 	require.NoError(t, err)
 	for rel, want := range map[string]os.FileMode{mock.ContextFileName: 0o600, ".mock/skills/greet/SKILL.md": 0o644, ".mock/skills/greet/scripts/run.sh": 0o755} {
 		info, err := os.Stat(filepath.Join(project, rel))

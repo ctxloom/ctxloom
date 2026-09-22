@@ -69,8 +69,6 @@ Feature: profile — the composition that decides what an agent actually receive
       Then the command succeeds
       And the output reports "$.0.name" as "<the sole entry>"
       And the output reports "$.0.description" as "<names the description>"
-      When the agent reads resource "ctxloom://profiles"
-      Then the resource contains "dev"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
         | flags         | the sole entry | names the description |
@@ -112,13 +110,6 @@ Feature: profile — the composition that decides what an agent actually receive
         |               | dev                | demo                 |
         | --format json | dev                | demo                 |
         | --format text | Profile: dev       | - demo               |
-
-    Scenario: Reading a single profile over MCP
-      Given an initialized ctxloom project
-      And a bundle "demo" exists
-      And a profile "dev" with bundle "demo"
-      When the agent reads resource "ctxloom://profiles/dev"
-      Then the resource contains "demo"
 
     # The bare noun answers rather than teaches, through the same seam
     # `ctxloom remote` and `ctxloom deps` use. The `ls` alias is driven in the

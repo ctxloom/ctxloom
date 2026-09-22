@@ -28,6 +28,7 @@ package acceptance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -947,6 +948,14 @@ func tsAssertMCP(w *World, present bool) error {
 	rel := filepath.Join("out", ".mcp.json")
 	doc, err := j000400ReadJSON(w, rel)
 	if err != nil {
+		// A withheld server can leave NO registry at all: ctxloom's own entry
+		// is served by the session and never materialized at rest, so the
+		// rejected server was the only candidate. Absent is the strongest
+		// form of withheld; the positive arm still needs the file.
+		if !present && errors.Is(err, os.ErrNotExist) {
+			w.docStepMaterialized = fmt.Sprintf("%s → absent: registers nothing", rel)
+			return nil
+		}
 		return err
 	}
 	top, _ := doc["mcpServers"].(map[string]any)

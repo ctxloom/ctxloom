@@ -37,13 +37,13 @@ type ownedRunSession struct {
 }
 
 // ownedRunLaunch is startOwnedRun's request: the owner's resolved launch,
-// the composed MCP names the enqueue journal records, and the env the
-// coordinator stamped for this session's owner (its credential identifies
-// the owner). A keyed literal makes each value say what it is.
+// the composed MCP names the enqueue journal records, and the credential
+// the coordinator registered this session's owner under (it identifies the
+// owner). A keyed literal makes each value say what it is.
 type ownedRunLaunch struct {
 	Launch     launch.Launch
 	MCPServers []agent.ChatMCPServer
-	RunnerEnv  map[string]string
+	OwnerToken string
 }
 
 // processStarter is the owner run's starter for a launch whose runner is a
@@ -65,7 +65,7 @@ func startOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunc
 		return nil, fmt.Errorf("this run needs the session coordinator it hosts, which failed to stand up (a runner receives its launch from it)")
 	}
 
-	owner, ok := c.Identify(spec.RunnerEnv[coord.EnvCoordCred])
+	owner, ok := c.Identify(spec.OwnerToken)
 	if !ok {
 		// The owner Identity is used only for lineage journaling (ParentHarp /
 		// Depth); if the owner token can't be resolved, the session harp at

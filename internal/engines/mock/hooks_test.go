@@ -109,7 +109,7 @@ func deliverHookedAt(t *testing.T, set func(u *wire.UnifiedHooks, h wire.Hook), 
 	require.NoError(t, err)
 	fs := afero.NewOsFs()
 	target := delivery.Target{Root: present.New(present.OnHost(roots)), Ownership: deliverytest.NewOwnership(fs), Writer: delivery.SessionWriter("h")}
-	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root().Surfaces(), target)
+	d, err := fsstatic.New(fs).Deliver(context.Background(), delivery.Loadout{Plan: plan, Package: pkg}, eng.Root(), target)
 	require.NoError(t, err)
 	require.Contains(t, d.Wrote, present.Hooks, "the hook item was delivered statically")
 	inst, err := eng.Instance(engine.Session{Mode: engine.Structured, WorkDir: home})

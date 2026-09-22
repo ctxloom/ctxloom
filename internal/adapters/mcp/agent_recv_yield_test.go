@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
@@ -24,132 +23,17 @@ import (
 // plain error, which a harness renders as a failed tool call. A coordinator
 // reading "failed" retries, and the retry preempts the receive that was about
 // to deliver; observed more than six times in one session, every one caused
-// by the verdict itself. These tests pin the contract that stops that loop:
-// the superseded call completes successfully with no messages and a
-// disposition saying so, and the survivor still gets the mail exactly once.
+// by the verdict itself. These tests pin the contract that stops that loop on
+// the session endpoint's handler (runnermcp.RecvHandler): the superseded
+// call completes successfully with no messages and a disposition saying so.
 // The timeout verdicts — a coordinator's is a success, a leaf's an error —
 // are pinned beside these in agent_recv_timeout_test.go.
-
-// stdioPreemption stages two overlapping receives on the stdio surface against
-// a quiet coordinator mailbox, then sends one message once the yield has been
-// observed. It returns the call that yielded, the call that survived to
-// receive, and the server for follow-up receives. Which goroutine registers
-// first is not controlled — the contract is symmetric, so the test only needs
-// exactly one of the two to yield.
-type stdioPreemption struct {
-	s        *ctxServer
-	yield    *agentRecvResult
-	yieldErr error
-	survivor *agentRecvResult
-	survErr  error
-	sent     string
-}
 
 // instructionToFinish is the word the child's guidance turns on. The pins
 // below check for it directly, not only for the guidance constant: the defect
 // was a coordinator obeying "finish", and a pin on the constant alone would
 // let a rephrased copy of the same instruction back in.
 const instructionToFinish = "finish"
-
-type stdioRecvOutcome struct {
-	out *agentRecvResult
-	err error
-}
-
-func stageStdioPreemption(t *testing.T) stdioPreemption {
-	t.Helper()
-	cfg, c, _ := buildHostCoordinator(t, map[string]agents.Agent{
-		"worker": headlessAgent("p1"),
-	})
-	self := coord.Identity{Harp: "coordinator-harp", Depth: 0}
-	s := &ctxServer{
-		cfg:    cfg,
-		self:   self,
-		agents: &agentDelegation{self: self, c: c},
-	}
-	_, runOut, err := s.handleAgentRun(context.Background(), nil, agentRunInput{Agent: "worker", Prompt: "go"})
-	require.NoError(t, err)
-	child := coord.Identity{Harp: runOut.Harp, Depth: 1}
-
-	// The spawned child's first turn is bridged into this mailbox unasked.
-	// Drain until a receive times out, so the only message that can complete
-	// the staged receives is the one this test sends.
-	require.Eventually(t, func() bool {
-		_, out, rerr := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-		return rerr == nil && out != nil && out.Disposition == mcpschema.RecvDispositionTimedOut
-	}, 30*time.Second, time.Millisecond, "the coordinator mailbox never went quiet")
-
-	outcomes := make(chan stdioRecvOutcome, 2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			_, out, rerr := s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 10})
-			outcomes <- stdioRecvOutcome{out: out, err: rerr}
-		}()
-	}
-
-	st := stdioPreemption{s: s, sent: "after the yield"}
-	select {
-	case first := <-outcomes:
-		st.yield, st.yieldErr = first.out, first.err
-	case <-time.After(10 * time.Second):
-		t.Fatal("neither receive completed, so the older one was never superseded")
-	}
-
-	// Only now — with the supersession a fact — does mail land, so it can only
-	// be delivered to the survivor.
-	_, err = c.AgentSend(child, "parent", coord.KindMessage, st.sent, nil, "")
-	require.NoError(t, err)
-	select {
-	case second := <-outcomes:
-		st.survivor, st.survErr = second.out, second.err
-	case <-time.After(10 * time.Second):
-		t.Fatal("the surviving receive never completed")
-	}
-	return st
-}
-
-// wireShape is the tool result as the harness sees it: the JSON keys, not
-// the Go field names, are the contract.
-func wireShape(t *testing.T, out *agentRecvResult) map[string]any {
-	t.Helper()
-	raw, err := json.Marshal(out)
-	require.NoError(t, err)
-	var m map[string]any
-	require.NoError(t, json.Unmarshal(raw, &m))
-	return m
-}
-
-func TestHandleAgentRecv_SupersededReceiveYieldsAsSuccess(t *testing.T) {
-	st := stageStdioPreemption(t)
-
-	require.NoError(t, st.yieldErr, "a superseded receive is a yield, never an error: an error renders as a failed call and the caller retries into the receive that would have delivered")
-	require.NotNil(t, st.yield)
-	assert.Empty(t, st.yield.Messages, "the yielded call delivers nothing; the survivor holds the park")
-	shape := wireShape(t, st.yield)
-	assert.Equal(t, mcpschema.RecvDispositionYielded, shape["disposition"],
-		"the result must SAY it yielded, that nothing was lost, and that it must not be retried")
-}
-
-func TestHandleAgentRecv_SurvivingReceiveDeliversThePendingMessageExactlyOnce(t *testing.T) {
-	st := stageStdioPreemption(t)
-
-	require.NoError(t, st.survErr)
-	require.NotNil(t, st.survivor)
-	seen := 0
-	for _, m := range st.survivor.Messages {
-		if m.Body == st.sent {
-			seen++
-		}
-	}
-	assert.Equal(t, 1, seen, "the message queued across the supersession reaches the survivor exactly once; got %+v", st.survivor.Messages)
-	assert.Empty(t, wireShape(t, st.survivor)["disposition"], "a delivering receive carries no yield disposition")
-
-	// The next receive cursor-acks the batch; the message must not come back.
-	_, again, err := st.s.handleAgentRecv(context.Background(), nil, agentRecvInput{Wait: 1})
-	require.NoError(t, err)
-	assert.Empty(t, again.Messages, "nothing else is pending; got %+v", again.Messages)
-	assert.Equal(t, mcpschema.RecvDispositionTimedOut, again.Disposition)
-}
 
 // TestRecvOutcome_TimeoutVerdictFollowsTheAudience: one sentinel, two
 // audiences, two verdict SHAPES. The coord sentinel cannot know who is

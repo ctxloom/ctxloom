@@ -56,8 +56,7 @@ type Product struct {
 	// MCPSource is the code the registrations live in, cited in the banner.
 	MCPSource string
 	// MCPCommand is the command that serves the registered surface to an agent
-	// ("ctxloom run", "taskloom mcp") — the one a reader can actually reach,
-	// which is not always the command literally named "mcp serve".
+	// ("ctxloom run", "taskloom mcp") — the one a reader can actually reach.
 	MCPCommand string
 	// MCPIntro is the page's opening prose. It comes from code (e.g. the
 	// server's instructions constant), never hand-copied into the page.

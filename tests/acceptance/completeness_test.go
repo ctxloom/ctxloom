@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
-	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // ranAsTool reports whether an MCP tool was actually invoked by a scenario (a
@@ -28,42 +27,25 @@ func ranAsTool(corpus, name string) bool {
 }
 
 // knownUncoveredTools is knownUncoveredCLI's MCP-tool counterpart: the exact
-// set of registered tools (from a plain, non-forwarding `mcp serve`) this
-// gate accepts as uncovered, checked for exact-set equality the same way.
+// set of tools registered on the session endpoint (runnermcp.NewDocServer —
+// the one surface an engine dials, and the one the harness dials through a
+// standing session owner) this gate accepts as uncovered, checked for
+// exact-set equality the same way.
 var knownUncoveredTools = []string{
-	// Agent-delegation bus + trigger evaluation: agent_run is exercised by J002100
-	// (steps_j002100_delegation.go, j002100_delegation.feature — a coordinator spawning
-	// delegated children and auditing their journaled privilege grant).
-	// agent_send/agent_recv are now exercised by J002300
-	// (steps_j002300_cross_engine_delegation.go, j002300_cross_engine_delegation.feature
-	// — the real two-way bus, both directions, content asserted on each side).
-	// agent_stop is now exercised by J002100's failure-path scenario: idempotent
-	// double-stop plus a refused stop on a run id that was never spawned (a
-	// real regression this scenario now pins).
+	// agent_run is exercised by J002100 (steps_j002100_delegation.go,
+	// j002100_delegation.feature — a coordinator spawning delegated children
+	// and auditing their journaled privilege grant); agent_send/agent_recv by
+	// J002300 (the real two-way bus, both directions, content asserted on each
+	// side); agent_stop by J002100's failure-path scenario. evaluate_triggers,
+	// compact_session, get_previous_session and list_sessions are INVOKED by
+	// mcp_tools.feature — being named in a feature's prose is not coverage,
+	// which is the hole ranAsTool closes.
 	//
-	// evaluate_triggers LEFT this list when mcp_tools.feature gained a scenario
-	// that seeds a Deferred task, cans the model's verdict around the harp
-	// taskloom mints for it, and asserts the verdict is ATTRIBUTED to that
-	// task — the result's counters cannot distinguish a real answer from a
-	// silently dropped one, which is exactly why the tool carries an `omitted`
-	// field. Writing it found runTriageCall omitting the label's env entirely.
-	//
-	// compact_session, get_previous_session and list_sessions are absent
-	// because mcp_tools.feature actually INVOKES them — being named in a
-	// feature's prose is not coverage, which is the hole ranAsTool closes.
-	// Each is asserted on a marker that exists only in its own fixture's
-	// transcript, so a well-formed report of nothing cannot pass.
-}
-
-// knownUncoveredRunnerOnlyTools is the exact set of tools that exist ONLY on
-// the documented (runner-terminated, runnermcp.NewDocServer) MCP surface -- not
-// on the standalone `ctxloom mcp serve` surface knownUncoveredTools governs
-// -- and are not yet exercised by any scenario. roster, agent_report and
-// agent_fetch_artifact are named in scripts/gendocs/main.go's mcpIntro as
-// existing only on this surface, which is exactly why they need a list of
-// their own: the standalone-surface census cannot see them at all, so without
-// this list they are invisible rather than red. Backfill still needed.
-var knownUncoveredRunnerOnlyTools = []string{
+	// The control tools, roster, agent_report and agent_fetch_artifact are
+	// pinned at the runner surface against a live coordinator in
+	// internal/adapters/mcp (mcp_runner_control_test.go) and on the wire in
+	// internal/core/coord (controlwire_test.go); no scenario here drives them
+	// yet. Backfill still needed.
 	"agent_ask",
 	"agent_fetch_artifact",
 	"agent_pause",
@@ -138,9 +120,8 @@ var excludedTools = map[string]string{}
 // against a seeded file:// remote.
 var excludedTemplates = map[string]string{}
 
-// maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 0 MCP tools + 3 runner-only MCP tools
-// = 3). CLI leaves are NOT counted here: they are decided from real coverage
+// maxKnownUncoveredTotal is a RATCHET on the size of the knownUncoveredTools
+// allowlist. CLI leaves are NOT counted here: they are decided from real coverage
 // data by TestCLICoverage_EveryLeafActuallyRan in the test-acceptance-cover
 // lane, which reads block counters rather than this corpus.
 //
@@ -195,14 +176,13 @@ var excludedTemplates = map[string]string{}
 // which has its own exemption list and its own fails-in-both-directions
 // contract. What remains under this ratchet is the MCP surface alone.
 // RAISED 3 -> 8 by the five control tools (agent_steer, agent_ask,
-// agent_summarize, agent_pause, agent_resume): they are runner-only, and this
-// harness drives the STANDALONE surface — no scenario here reaches a spawned
-// child's runner socket, which is the same reason roster, agent_report and
-// agent_fetch_artifact sit in knownUncoveredRunnerOnlyTools. Their behaviour
-// is pinned at the runner surface against a live coordinator in
+// agent_summarize, agent_pause, agent_resume), which with roster,
+// agent_report and agent_fetch_artifact sit in knownUncoveredTools. Their
+// behaviour is pinned at the runner surface against a live coordinator in
 // internal/adapters/mcp (mcp_runner_control_test.go) and on the wire in
-// internal/core/coord (controlwire_test.go); the backfill this ratchet
-// waits for is a harness that can drive the runner surface at all.
+// internal/core/coord (controlwire_test.go). The harness now dials the
+// session endpoint (a standing owner) — the same surface — so the backfill
+// is scenarios that drive them, nothing structural.
 const maxKnownUncoveredTotal = 8
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
@@ -210,11 +190,8 @@ const maxKnownUncoveredTotal = 8
 func TestCompleteness(t *testing.T) {
 	corpus := loadCorpus(t)
 
-	// Populated by the three allowlisted subtests below, then folded into one
-	// prominent deficit statement (and ratcheted) once they've all run.
-	var toolsUncovered, runnerOnlyUncovered int
-
-	tools, resources, templates := liveSurface(t)
+	surface := liveSurface(t)
+	tools, resources, templates := surface.Tools, surface.Resources, surface.Templates
 
 	// "The server advertised zero tools" and "the response never parsed" must
 	// not look identical: the loop below iterates an empty slice and passes
@@ -224,12 +201,13 @@ func TestCompleteness(t *testing.T) {
 	// exists to catch — an explicit floor makes that case loud too,
 	// independent of the decode-error path.
 	if len(tools) == 0 {
-		t.Fatal("the live MCP server advertised zero tools — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
+		t.Fatal("the MCP surface advertised zero tools — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
 	}
 	if len(resources) == 0 {
-		t.Fatal("the live MCP server advertised zero resources — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
+		t.Fatal("the MCP surface advertised zero resources — either a real regression or a parsing failure masquerading as one; completeness cannot be checked against an empty surface")
 	}
 
+	var toolsUncovered int
 	t.Run("mcp tools", func(t *testing.T) {
 		var uncovered []string
 		for _, name := range tools {
@@ -242,50 +220,6 @@ func TestCompleteness(t *testing.T) {
 			}
 		}
 		toolsUncovered = assertExactUncovered(t, "mcp tools", uncovered, knownUncoveredTools)
-	})
-
-	// Everything above measures the STANDALONE `ctxloom mcp
-	// serve` surface (liveSurface spawns it via env.StartMCP()). That is
-	// NOT the surface ctxloom documents: scripts/gendocs/main.go's
-	// mcpIntro states outright that the standalone surface is a reduced
-	// agent-delegation surface with different schemas, and points its
-	// generated reference page at runnermcp.NewDocServer() instead -- the
-	// RUNNER-terminated surface every harness actually sees through
-	// `ctxloom run`. Before this subtest, the tools that
-	// exist ONLY on that documented surface (roster, agent_report,
-	// agent_fetch_artifact -- named explicitly in mcpIntro's own caution
-	// block) had ZERO completeness coverage: they never appeared in
-	// `tools` above, so the loop just never saw them, and the gate
-	// stayed green regardless of whether a real scenario ever touched
-	// them.
-	t.Run("mcp tools (documented runner surface)", func(t *testing.T) {
-		docTools, err := runnermcp.ListDocToolNames(t.Context())
-		if err != nil {
-			t.Fatalf("list documented MCP tools: %v", err)
-		}
-		standalone := make(map[string]bool, len(tools))
-		for _, name := range tools {
-			standalone[name] = true
-		}
-
-		var uncovered []string
-		for _, name := range docTools {
-			if standalone[name] {
-				// Covered (or allowlisted) by the standalone subtest
-				// above -- this subtest exists for the DELTA, the
-				// runner-only tools the standalone enumeration cannot
-				// see at all.
-				continue
-			}
-			if reason, ok := excludedTools[name]; ok {
-				t.Logf("excluded runner-only tool: %s — %s", name, reason)
-				continue
-			}
-			if !ranAsTool(corpus, name) {
-				uncovered = append(uncovered, name)
-			}
-		}
-		runnerOnlyUncovered = assertExactUncovered(t, "mcp tools (runner-only)", uncovered, knownUncoveredRunnerOnlyTools)
 	})
 
 	// One prominent, always-printed deficit statement — the per-subtest
@@ -301,20 +235,18 @@ func TestCompleteness(t *testing.T) {
 	// straight to the process's real stderr bypasses that buffering
 	// entirely, so a green run cannot look indistinguishable from a run with
 	// zero coverage gaps.
-	totalUncovered := toolsUncovered + runnerOnlyUncovered
-	fmt.Fprintf(os.Stderr, "COMPLETENESS DEFICIT: %d MCP surfaces are allowlisted UNCOVERED — "+
-		"%d MCP tools, %d runner-only MCP tools. This is accepted debt (see "+
-		"backfill-task comments above each list), not a clean pass. CLI LEAF "+
-		"coverage is no longer counted here: it is decided from real coverage "+
-		"data by TestCLICoverage_EveryLeafActuallyRan in the "+
+	fmt.Fprintf(os.Stderr, "COMPLETENESS DEFICIT: %d MCP tools are allowlisted UNCOVERED. "+
+		"This is accepted debt (see the backfill comment on knownUncoveredTools), "+
+		"not a clean pass. CLI LEAF coverage is not counted here: it is decided "+
+		"from real coverage data by TestCLICoverage_EveryLeafActuallyRan in the "+
 		"`just test-acceptance-cover` lane.\n",
-		totalUncovered, toolsUncovered, runnerOnlyUncovered)
-	if totalUncovered > maxKnownUncoveredTotal {
+		toolsUncovered)
+	if toolsUncovered > maxKnownUncoveredTotal {
 		t.Errorf("COMPLETENESS DEFICIT ratchet: %d allowlisted-uncovered surfaces "+
 			"exceeds the recorded ceiling of %d (maxKnownUncoveredTotal) — either "+
 			"back-fill coverage, or if this growth is deliberate, bump "+
 			"maxKnownUncoveredTotal in this same commit and say why",
-			totalUncovered, maxKnownUncoveredTotal)
+			toolsUncovered, maxKnownUncoveredTotal)
 	}
 
 	t.Run("mcp resources", func(t *testing.T) {
@@ -339,60 +271,19 @@ func TestCompleteness(t *testing.T) {
 	})
 }
 
-// liveSurface starts an MCP server against a minimal project and returns the
-// registered tools, resources, and resource templates.
-func liveSurface(t *testing.T) (tools, resources, templates []string) {
+// liveSurface enumerates the session endpoint's surface — the tools,
+// resources and templates the runner serves — from the same registration
+// the runner builds (runnermcp.NewDocServer), in memory: nothing is spawned
+// and nothing is dialed.
+func liveSurface(t *testing.T) runnermcp.DocSurface {
 	t.Helper()
-	env, err := testenv.NewTestEnvironment()
-	if err != nil {
-		t.Fatalf("test env: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := env.Cleanup(); err != nil {
-			t.Errorf("test environment cleanup: %v", err)
-		}
-	})
-	if err := env.Setup(); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	if err := env.InitGitRepo(); err != nil {
-		t.Fatalf("git init: %v", err)
-	}
-	if err := writeMinimalConfig(env); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	session, err := env.StartMCP()
-	if err != nil {
-		t.Fatalf("start mcp: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := session.Close(); err != nil {
-			t.Errorf("mcp session close: %v", err)
-		}
-	})
 	ctx, cancel := callCtx()
 	defer cancel()
-	// The cursor-following iterators, so a server that pages its surface is
-	// enumerated whole rather than to its first page.
-	for tool, err := range session.Tools(ctx, nil) {
-		if err != nil {
-			t.Fatalf("list tools: %v", err)
-		}
-		tools = append(tools, tool.Name)
+	surface, err := runnermcp.ListDocSurface(ctx)
+	if err != nil {
+		t.Fatalf("enumerate the MCP surface: %v", err)
 	}
-	for res, err := range session.Resources(ctx, nil) {
-		if err != nil {
-			t.Fatalf("list resources: %v", err)
-		}
-		resources = append(resources, res.URI)
-	}
-	for tmpl, err := range session.ResourceTemplates(ctx, nil) {
-		if err != nil {
-			t.Fatalf("list resource templates: %v", err)
-		}
-		templates = append(templates, tmpl.URITemplate)
-	}
-	return tools, resources, templates
+	return surface
 }
 
 // loadCorpus concatenates step-definition source plus the feature-file text of

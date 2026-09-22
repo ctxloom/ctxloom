@@ -23,16 +23,31 @@ Feature: MCP tools
   # always-on builtin companion fragments make its contents depend on what the
   # machine has installed, which is how a green-for-the-wrong-reason scenario
   # is born.)
-  Scenario: Assemble context from a profile
+  #
+  # The tool is served by the SESSION's endpoint over the package its launch
+  # carried: a fragment is asked for by its qualified ref (what the
+  # ctxloom://fragments catalog lists), and a profile or tag ask is refused
+  # by name — profile resolution is the originator's, made when the launch
+  # was resolved, not something a running session re-does against a catalog
+  # it does not hold. Both halves are pinned, or a session that quietly
+  # re-resolved profiles would pass the first.
+  Scenario: Assemble context from a fragment the session's package carries
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "testing" in bundle "demo" exists
     And a profile "dev" with bundle "demo"
+    And a session owner is standing
+    When the agent reads resource "ctxloom://fragments"
+    Then the resource contains "ctxloom+local:session-owner#fragments/session-owner"
+    When the agent calls tool "assemble_context" with:
+      | bundles[] | ctxloom+local:session-owner#fragments/session-owner |
+    Then the tool call succeeds
+    And the tool result contains "ctxloom+local:session-owner#fragments/session-owner"
+    And the tool result contains "the session owner's own context"
     When the agent calls tool "assemble_context" with:
       | profile | dev |
-    Then the tool call succeeds
-    And the tool result contains "demo#fragments/testing"
-    And the tool result contains "FRAGMENT-BODY-testing"
+    Then the tool call fails
+    And the tool failure message contains "cannot be resolved inside a running session"
 
   # SearchContentResult.Query has no omitempty, so the QUERY is echoed into
   # the envelope whether or not the search matched anything: `the tool result
@@ -144,7 +159,8 @@ Feature: MCP tools
   Scenario: recover_session with no session_id recovers the cleared session's own prior thread
     Given an initialized ctxloom project
     And the compaction LLM is a mock that never compresses
-    And a cleared session "dana-context-wipe" whose prior thread is in its lineage
+    And a session owner is standing
+    And the standing session was cleared and its prior thread is in its lineage
     When the agent calls tool "recover_session"
     Then the tool call succeeds
     And the tool result field "loaded" equals "true"

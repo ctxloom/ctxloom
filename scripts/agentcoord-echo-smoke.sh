@@ -43,8 +43,8 @@ agentcoord-echo-smoke.sh — the sonnet `coder` echo (Wave B acceptance 1)
 The live round-trip (B1.6 runner-terminated topology):
   1. `ctxloom run` stands up the runtime coordinator (durable stores + gRPC
      RunnerChannel/RunChannel) and stamps CTXLOOM_COORD_URL / _CRED onto the
-     RUNNER's spawn env; the runner serves MCP on a local unix socket the
-     harness's stdio shim forwards to (CTXLOOM_MCP_SOCKET).
+     RUNNER's spawn env; the runner serves the session's MCP endpoint
+     (URL + bearer in the session's own registry), which the engine dials.
   2. The harness calls agent_run(role=<AGENT>, input.prompt="echo ... <MARKER>").
   3. The child's runner turns its agent_send(to_role:"parent") into a typed
      plane-2 PeerSendRequest back to the coordinator.
@@ -127,11 +127,8 @@ prompt="$(build_prompt "$MARKER")"
 coordinator_brief="Call agent_run(role:\"$AGENT\", input:{prompt:\"$prompt\"}). Then call agent_recv (wait:120) and print any message text you receive. Then stop."
 
 # CTXLOOM_VERBOSE=1 turns on the CHILD-side launch diagnostics: the
-# coordinator's spawner forwards the child `llm serve` plugin's stderr (which
-# carries the ACP adapter's stderr) through its own process stderr. For the
-# --one-shot topology that process is the parent engine's stdio `ctxloom mcp serve`,
-# so the trail lands in the engine's MCP server logs (claude:
-# ~/.cache/claude-cli-nodejs/<project>/mcp-logs-ctxloom/).
+# coordinator's spawner forwards the child runner's stderr through its own
+# process stderr.
 export CTXLOOM_VERBOSE=1
 
 # mtime_epoch prints a file's mtime as a unix epoch (GNU or BSD stat).

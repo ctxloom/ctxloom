@@ -45,17 +45,8 @@ type evaluateTriggersResult struct {
 	Verdicts               []triggers.Verdict `json:"verdicts"`
 }
 
-func (s *ctxServer) registerTriggerTools(server *mcp.Server) {
-	mcp.AddTool(server,
-		&mcp.Tool{
-			Name:        "evaluate_triggers",
-			Description: evaluateTriggersDesc,
-		},
-		s.handleEvaluateTriggers)
-}
-
 func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolRequest, in evaluateTriggersInput) (*mcp.CallToolResult, *evaluateTriggersResult, error) {
-	cwd, err := s.resourceProjectDir()
+	cwd, err := s.projectDir()
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve project directory: %w", err)
 	}

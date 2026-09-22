@@ -50,11 +50,14 @@ Feature: fragment — reusable context units, and the engine surface each one re
 
     # The MIME type is a static field on the envelope: every MCP resource
     # returning an EMPTY body left this green on the type alone. The body is
-    # the resource.
+    # the resource. The session endpoint serves the fragment as the SESSION's
+    # package carries it, so the owner stands on a profile that selects it.
     Scenario: Reading a single fragment over MCP
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And a session owner is standing on the profile "dev"
       When the agent reads resource "ctxloom://fragments/testing"
       Then the resource MIME type is "text/markdown"
       And the resource contains "FRAGMENT-BODY-testing"

@@ -31,6 +31,7 @@ package operations
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -472,9 +473,12 @@ func TestApplyHooks_NoGeneration_Refuses(t *testing.T) {
 	assert.Contains(t, err.Error(), "config generation is required")
 }
 
-// TestApplyHooks_WithMCPServers proves apply-hooks materializes the MCP surface
-// with ctxloom's own server in it. Nothing configures a server: the builtin
-// ctxloom bundle is injected unconditionally, so its entry is what must land.
+// TestApplyHooks_WithMCPServers proves the at-rest apply writes NO ctxloom
+// MCP server into the project. ctxloom's own entry (its companion loadout's)
+// is served by the running session's endpoint and rendered only inside a
+// session; at rest there is no session to inject, so the project's MCP
+// registry carries no entry under ctxloom's name — neither a command nor a
+// URL — whether or not the file itself exists for other servers.
 func TestApplyHooks_WithMCPServers(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	tmpDir := "/project"
@@ -493,16 +497,19 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
 
-	// Verify MCP config file was created
 	exists, err := afero.Exists(fs, "/project/.mcp.json")
 	require.NoError(t, err)
-	assert.True(t, exists)
-
-	// Verify the MCP config carries ctxloom's own server, invoking `mcp serve`.
+	if !exists {
+		return // nothing materialized is the strongest form of "no ctxloom entry"
+	}
 	content, err := afero.ReadFile(fs, "/project/.mcp.json")
 	require.NoError(t, err)
-	assert.Contains(t, string(content), `"`+agent.MCPServerName+`"`)
-	assert.Contains(t, string(content), `"serve"`)
+	var doc struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(content, &doc), "the registry is JSON: %s", content)
+	assert.NotContains(t, doc.Servers, agent.MCPServerName, "at rest the project registers no ctxloom server: %s", content)
+	assert.NotContains(t, string(content), `"serve"`)
 }
 
 // ==========================================================================

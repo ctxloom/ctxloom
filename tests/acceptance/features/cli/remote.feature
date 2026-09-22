@@ -171,8 +171,3 @@ Feature: remote — registering the sources content comes from, and browsing the
       Then the command succeeds
       And the output contains "//bundles/demo"
 
-    Scenario: A remote's catalog is also readable over MCP
-      Given an initialized ctxloom project
-      And a git remote "origin" serving a ctxloom bundle
-      When the agent reads resource "ctxloom://remotes/origin/contents"
-      Then the resource contains "demo"

@@ -13,7 +13,7 @@ import (
 // to a resolved server set: the bare binary name and the `mcp serve` leaf,
 // written to every surface as declared.
 func ctxloomBundleServer() wire.MCPServer {
-	return wire.MCPServer{Command: CtxloomBinary, Args: []string{"mcp", "serve"}}
+	return wire.MCPServer{ServedBy: wire.ServedBySessionEndpoint}
 }
 
 // TestComposeChatMCPServers_ManagedSet: the composed chat set carries the SAME
@@ -30,7 +30,8 @@ func TestComposeChatMCPServers_ManagedSet(t *testing.T) {
 	got := ComposeChatMCPServers(bundle, nil)
 
 	require.Len(t, got, 3)
-	assert.Equal(t, ChatMCPServer{Name: MCPServerName, Command: CtxloomCommand(), Args: CtxloomMCPArgs}, got[0])
+	assert.Equal(t, ChatMCPServer{Name: MCPServerName, Transport: MCPTransportHTTP}, got[0],
+		"ctxloom's session-endpoint declaration composes as a name-only http server: the URL is the session's, rendered at delivery")
 	assert.Equal(t, ChatMCPServer{Name: "taskloom", Command: "taskloom", Args: []string{"mcp"}}, got[1])
 	assert.Equal(t, ChatMCPServer{Name: "tools", Command: "/bin/tools", Args: []string{"serve"}, Env: map[string]string{"A": "1"}}, got[2])
 }
@@ -93,16 +94,20 @@ func TestComposeChatMCPServers_NoManagedPayload(t *testing.T) {
 	assert.Nil(t, ComposeChatMCPServers(nil, nil))
 }
 
-// TestComposeChatMCPServers_BareCommand pins the portability invariant at the
-// structured-chat composer: ctxloom's own entry names the BARE executable and
-// nothing machine-specific, so the same composed set is exec'able on any host
-// and inside any container. A self-exec absolute path here is the defect.
-func TestComposeChatMCPServers_BareCommand(t *testing.T) {
+// TestComposeChatMCPServers_SessionEndpointDeclaration pins what the
+// composer makes of ctxloom's own entry: a name-only http server. The journal
+// records NAMES; a file writer handed this shape refuses it
+// (ChatMCPConfigEntryOf, wire.ErrMCPServerUnrendered) because the URL is the
+// session's and only the engine's dynamic approach renders it.
+func TestComposeChatMCPServers_SessionEndpointDeclaration(t *testing.T) {
 	got := ComposeChatMCPServers(map[string]wire.MCPServer{MCPServerName: ctxloomBundleServer()}, nil)
 	require.Len(t, got, 1)
-	assert.Equal(t, "ctxloom", got[0].Command,
-		"the composed ctxloom command must be the bare name, resolved on PATH at fire time")
-	assert.Equal(t, CtxloomMCPArgs, got[0].Args)
+	assert.Equal(t, MCPTransportHTTP, got[0].Transport)
+	assert.Empty(t, got[0].Command, "nothing executable")
+	assert.Empty(t, got[0].URL, "the URL is the session's, not the declaration's")
+
+	_, err := ChatMCPConfigEntryOf(got[0])
+	assert.ErrorIs(t, err, wire.ErrMCPServerUnrendered, "a writer refuses the unrendered declaration")
 }
 
 // TestManagedConfigChatMCPServers: the ManagedConfig-shaped entry point — the

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
 
 // ChatMCPConfigDoc is the on-disk shape a caller's --mcp-config-style file
@@ -45,6 +47,12 @@ func ChatMCPConfigEntryOf(s ChatMCPServer) (ChatMCPConfigEntry, error) {
 	case MCPTransportStdio:
 		return ChatMCPConfigEntry{Command: s.Command, Args: s.Args, Env: s.Env}, nil
 	case MCPTransportHTTP, MCPTransportSSE:
+		if s.URL == "" {
+			// The shape ChatMCPServerFromWire gives a session-endpoint
+			// declaration: a URL-less http server is one the session was
+			// meant to render, never one to write as is.
+			return ChatMCPConfigEntry{}, fmt.Errorf("%w: server %q", wire.ErrMCPServerUnrendered, s.Name)
+		}
 		return ChatMCPConfigEntry{Type: string(s.Transport), URL: s.URL, Headers: s.Headers}, nil
 	default:
 		return ChatMCPConfigEntry{}, fmt.Errorf("%w %q for server %q (supported: stdio, http, sse)",

@@ -77,14 +77,21 @@ type sessionOwner struct {
 // waits until it is standing. It must run BEFORE the first agent tool call:
 // the agent session is dialed once per scenario, to the owner's endpoint.
 func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
+	if err := w.env.WriteFile(bundleFilePath(sessionOwnerFragment), fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  %s:\n    content: %q\n", sessionOwnerFragment, "the session owner's own context")); err != nil {
+		return fmt.Errorf("session owner: author its fragment: %w", err)
+	}
+	return w.standSessionOwnerSelecting(bin, []string{"-f", sessionOwnerFragment}, extraEnv...)
+}
+
+// standSessionOwnerSelecting is standSessionOwner with the launch's
+// selection named by the caller — a profile the scenario authored, so the
+// owner's package (what its endpoint serves) carries the scenario's items.
+func (w *World) standSessionOwnerSelecting(bin string, selection []string, extraEnv ...string) error {
 	if w.owner != nil {
 		return errors.New("a session owner is already standing for this scenario")
 	}
 	if w.mcp != nil {
 		return errors.New("the agent MCP session is already open; the session owner must stand before the first tool call, or there is no owner to dial")
-	}
-	if err := w.env.WriteFile(bundleFilePath(sessionOwnerFragment), fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  %s:\n    content: %q\n", sessionOwnerFragment, "the session owner's own context")); err != nil {
-		return fmt.Errorf("session owner: author its fragment: %w", err)
 	}
 	if err := w.env.EnsureHomeMockLabel(sessionOwnerLabel); err != nil {
 		return fmt.Errorf("session owner: %w", err)
@@ -95,7 +102,7 @@ func (w *World) standSessionOwner(bin string, extraEnv ...string) error {
 		return err
 	}
 
-	sess, err := w.env.RunPTYFrom(bin, 100, 30, append([]string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, extraEnv...), "run", "--llm", sessionOwnerLabel, "-f", sessionOwnerFragment)
+	sess, err := w.env.RunPTYFrom(bin, 100, 30, append([]string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, extraEnv...), append([]string{"run", "--llm", sessionOwnerLabel}, selection...)...)
 	if err != nil {
 		return fmt.Errorf("session owner: start `ctxloom run`: %w", err)
 	}
@@ -192,5 +199,13 @@ func registerSessionOwnerSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a session owner is standing$`, func(c context.Context) error {
 		w := worldFrom(c)
 		return w.standSessionOwner(w.env.AppBinary)
+	})
+
+	// The owner launched on a profile the scenario authored: its package —
+	// what its endpoint serves as ctxloom://fragments/{name} and the like —
+	// carries that profile's items rather than the fixture's own fragment.
+	ctx.Step(`^a session owner is standing on the profile "([^"]*)"$`, func(c context.Context, profile string) error {
+		w := worldFrom(c)
+		return w.standSessionOwnerSelecting(w.env.AppBinary, []string{"--profile", profile})
 	})
 }

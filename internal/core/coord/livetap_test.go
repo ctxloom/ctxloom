@@ -183,7 +183,7 @@ func (s *liveTapSpawner) AssignSession(projectDir, backend string) (string, erro
 // test observes the drive.
 type noDelivery struct{}
 
-func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Surfaces, delivery.Target) (delivery.Delivered, error) {
+func (noDelivery) Deliver(context.Context, delivery.Loadout, engine.Base, delivery.Target) (delivery.Delivered, error) {
 	return delivery.Delivered{}, nil
 }
 

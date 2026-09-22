@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -256,17 +257,31 @@ func searchProfiles(cfg *config.Config, query string) []SearchResult {
 func searchMCPServers(cfg *config.Config, query string) []SearchResult {
 	var results []SearchResult
 	for name, srv := range cfg.ResolveBundleMCPServers(nil) {
+		target := mcpServerTarget(srv)
 		if strings.Contains(strings.ToLower(name), query) ||
-			strings.Contains(strings.ToLower(srv.Command), query) {
+			strings.Contains(strings.ToLower(target), query) {
 			results = append(results, SearchResult{
 				Type:   "mcp_server",
 				Name:   name,
-				Source: srv.Command,
+				Source: target,
 				Match:  "name",
 			})
 		}
 	}
 	return results
+}
+
+// mcpServerTarget is how a server is reached, as one searchable string: the
+// stdio command, the remote URL, or the session-endpoint declaration.
+func mcpServerTarget(srv wire.MCPServer) string {
+	switch {
+	case srv.IsSessionEndpoint():
+		return srv.ServedBy
+	case srv.IsRemote():
+		return srv.URL
+	default:
+		return srv.Command
+	}
 }
 
 // sortResults orders results in place by sortBy ("name", "type", or

@@ -15,24 +15,22 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
   engines in their own native format — is
   journeys/j000400_multi_engine.feature, which asserts what a PERSON sees.
 
-  Rule: Composing a bundle that declares a server makes its command reachable from every axis ctxloom exposes
+  Rule: Composing a bundle that declares a server makes it reachable from the listing
 
-    # "toolserver" is the bundle's key, and it is the listed name and the
-    # resource entry alike — so an implementation that stored the name but
-    # dropped the command string would still satisfy every check that only
-    # looks for "toolserver". The command's own executable is checked at each
-    # axis alongside the name for exactly that reason: a name echoed back
-    # three times proves nothing about whether the command it names actually
-    # landed.
+    # "toolserver" is the bundle's key and the listed name alike — so an
+    # implementation that stored the name but dropped the command string
+    # would still satisfy a check that only looks for "toolserver". The
+    # command's own executable is asserted beside the name for exactly that
+    # reason. (The session endpoint serves the session's package — fragments,
+    # commands, skills — and no server listing: what an engine registers is
+    # what its session's registry names, which the run scenarios assert.)
     Scenario: Alice's team bundle registers a shared MCP server
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       And I run "ctxloom agent create dev --profiles team"
       And I run "ctxloom agent default dev"
       When I run "ctxloom mcp server list"
       Then the command succeeds
-      And the output contains "toolserver"
-      When the agent reads resource "ctxloom://mcp-servers"
-      Then the resource contains "toolserver"
+      And the output reports "servers[name=toolserver].command" as "j000400-mcp-tool-9e1b52"
 
   Rule: ctxloom's own MCP server ships in ctxloom's own companion loadout, so it needs no configuration
 
@@ -49,17 +47,21 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
       And the output contains "ctxloom"
       And the output contains "ctxloom+companion:ctxloom"
 
-  Rule: Showing a server surfaces its stored command, not just its name
+  Rule: Showing a server surfaces how it is reached, not just its name
 
     # `show` prints the server's own name as a header, echoed straight from
-    # the argument the scenario already passed — so a command of "" would
-    # still satisfy an assertion that only checks for the name. The bundle
-    # identity exists nowhere in the output except because the lookup really
-    # resolved the registered server.
+    # the argument the scenario already passed — so an entry with nothing in
+    # it would still satisfy an assertion that only checks for the name. The
+    # bundle identity exists nowhere in the output except because the lookup
+    # really resolved the registered server.
+    #
+    # ctxloom's own entry is the companion's DYNAMIC declaration: served by
+    # the running session's endpoint, with nothing executable on it. At rest
+    # `show` DESCRIBES that — there is no command to print, and printing one
+    # would be describing a server that does not exist.
     # Tabled by format: `mcp server show` is wired to emit(), so off a
-    # terminal (which this harness always is) the no-flag row now gets the
-    # JSON GetMCPServerResult, not the "Command:"/"Args:" text lines the old
-    # assertion checked unconditionally.
+    # terminal (which this harness always is) the no-flag row gets the JSON
+    # GetMCPServerResult, not the text lines.
     Scenario Outline: Showing an MCP server's configuration
       Given an initialized ctxloom project
       When Alice inspects the server's configuration:
@@ -68,13 +70,14 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         """
       Then the command succeeds
       And the output reports "entries.0.source" as "<names the bundle>"
-      And the output reports "entries.0.args" containing "<names the verb>"
+      And the output reports "entries.0.served_by" as "<names the endpoint>"
+      And the output does not contain "mcp serve"
 
       Examples: no --format at all takes the derived default off a terminal; an explicit one wins in both directions
-        | flags         | names the bundle            | names the verb |
-        |               | ctxloom+companion:ctxloom   | serve           |
-        | --format json | ctxloom+companion:ctxloom   | serve           |
-        | --format text | ctxloom+companion:ctxloom   | mcp serve       |
+        | flags         | names the bundle            | names the endpoint                        |
+        |               | ctxloom+companion:ctxloom   | session-endpoint                          |
+        | --format json | ctxloom+companion:ctxloom   | session-endpoint                          |
+        | --format text | ctxloom+companion:ctxloom   | Served by: the running session's endpoint |
 
   Rule: There is no config-level MCP store to create in or remove from
 
@@ -190,21 +193,24 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
         | engine      |
         | claude-code |
 
-  Rule: What an engine is told to launch is `mcp serve`, and nothing else
+  Rule: A materialized registry launches ctxloom as nothing — the session serves ctxloom's own server
 
-    An engine reads its MCP configuration, launches the command it finds, and
-    waits for a JSON-RPC handshake. Which ctxloom SUBCOMMAND that entry names
-    is therefore the whole of whether the engine ends up with ctxloom's tools —
-    and the difference is invisible to every check that only asks whether the
-    entry is there.
+    An engine reads its MCP configuration and launches every command it
+    finds. ctxloom's own server is not one of them: it is served by the
+    running session's endpoint, injected into the session's own registry at
+    session start with that session's URL and bearer. A registry materialized
+    AT REST therefore carries the shared servers a bundle declares and NO
+    entry under ctxloom's name — an entry there would name a command that
+    speaks no protocol, and the engine launching it would come up with none
+    of ctxloom's tools and nothing saying why.
 
-    # ARGV, NOT PRESENCE. Every other assertion in this file is satisfied by an
-    # entry naming any subcommand at all. This one reads the subcommand out of
-    # each engine's own native shape and pins it.
-    Scenario Outline: <engine>'s generated configuration launches the protocol server
+    # ABSENCE UNDER THE KEY, NOT PRESENCE OF ANYTHING. The shared server's
+    # presence is asserted by the Rule above; this one reads the registry in
+    # the engine's own native shape and pins that ctxloom's key is not in it.
+    Scenario Outline: <engine>'s materialized configuration registers no ctxloom server
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for <engine>
-      Then the materialized <engine> MCP configuration invokes ctxloom's own server as "mcp serve"
+      Then the materialized <engine> MCP configuration registers no server under ctxloom's own name
 
       Examples:
         | engine      |
@@ -218,21 +224,19 @@ Feature: mcp — the MCP servers ctxloom hands to every engine
     is waiting for JSON-RPC, and a server listing written into that pipe is
     indistinguishable from a hang: nothing frames, nothing errors, the session
     comes up with no ctxloom tools and no cause named anywhere. So off a
-    terminal the bare noun refuses, and says what to run instead.
+    terminal the bare noun refuses, and says what IS the server: the running
+    session's endpoint — no ctxloom command speaks the protocol.
 
     # Every command in this suite is a subprocess on pipes, which IS the
     # machine side — the harness has no terminal to offer. The human half, the
     # listing itself, is driven in internal/adapters/cli's mcp_bare_test.go, where the
     # terminal predicate can be presented either way.
-    # The invocation is asserted BACKTICKED. A bare "ctxloom mcp serve" is a
-    # substring of "ctxloom mcp server list", which this same message also
-    # names, so an undelimited assertion stays green against a message that
-    # stopped naming the server at all — measured, by deleting exactly that.
-    Scenario: A client pointed at the bare noun is told which invocation speaks the protocol
+    Scenario: A client pointed at the bare noun is told there is no stdio server to point at
       Given an initialized ctxloom project
       When I run "ctxloom mcp"
       Then the command fails
-      And the output contains "`ctxloom mcp serve`"
+      And the output contains "no stdio MCP server"
+      And the output contains "session's endpoint"
 
     # The shape a script reaches for next. Asking for JSON does not make a
     # listing safe to hand a caller that wanted a protocol stream, so the

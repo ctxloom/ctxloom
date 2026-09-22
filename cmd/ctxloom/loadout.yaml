@@ -15,10 +15,16 @@
 # presents it as trust. This file is the single source of truth for what
 # ctxloom tells an engine about itself.
 #
-# The MCP entry names the BARE binary (agent.CtxloomCommand's invariant): it
-# is written into engine settings as declared, resolving against PATH where
-# it fires. A session that wants ctxloom's tools off excludes the item
-# (`exclude_mcp: [ctxloom]`) or rejects it.
+# The MCP entry is the companion's DYNAMIC declaration: ctxloom's own server
+# is SERVED BY THE RUNNING SESSION'S ENDPOINT (`served_by: session-endpoint`,
+# wire.ServedBySessionEndpoint) — there is no command to launch. The runner
+# binds the session's endpoint and delivery renders this entry through the
+# engine's dynamic approach as that endpoint's URL and bearer, into the
+# session's own registry, at session start; at rest (`manage hooks install`,
+# a profile materialize) there is no session to inject and the entry renders
+# nothing. ctxloom injects its MCP only while it is running. A session that
+# wants ctxloom's tools off excludes the item (`exclude_mcp: [ctxloom]`) or
+# rejects it.
 #
 # The isolation-axes fragment is an always-on FRAGMENT, not a skill: the ask
 # is that an agent creating, configuring, or delegating to a ctxloom agent
@@ -46,15 +52,13 @@ run:
 
   mcp:
     ctxloom:
-      command: ctxloom
-      args:
-        - mcp
-        - serve
+      served_by: session-endpoint
       notes: |
-        ctxloom's own stdio MCP server. The command is written into an
-        engine's settings exactly as declared here — the bare binary name,
-        resolved against PATH where it fires — so a tracked settings file
-        carries no one machine's absolute path.
+        ctxloom's own MCP server, served by the running session's endpoint.
+        Nothing here is launched: the session's runner serves the endpoint
+        and delivery writes its URL and bearer into the session's own
+        registry at start, so no tracked project file ever carries the
+        entry.
 
   fragments:
     isolation-axes:

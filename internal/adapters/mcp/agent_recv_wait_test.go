@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
-	"reflect"
+
 	"testing"
 	"time"
 
@@ -12,8 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/mcpschema"
 )
 
-// agent_recv's `wait` contract is advertised on two surfaces and enforced by two
-// handlers. A model reads the advertised default and maximum and plans around
+// agent_recv's `wait` contract is advertised on the session endpoint and
+// enforced by its handler. A model reads the advertised default and maximum and plans around
 // them, so an enforcing clamp that disagrees with the advertised numbers is a
 // silent lie: the caller asks for 600 seconds, is told that is allowed, and is
 // cut off earlier. These tests hold all of it to one declaration.
@@ -56,14 +56,4 @@ func TestAgentRecvWait_GeneratedSchemaDescribesTheRealBounds(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &schema))
 	assert.Equal(t, mcpschema.RecvWaitDoc, schema.Properties["wait"].Description,
 		"the advertised wait description must be the one declared alongside the bounds it quotes")
-}
-
-// TestAgentRecvWait_StdioSchemaDescribesTheSameBounds: the stdio surface's
-// description rides a struct tag, which Go requires to be a literal — so it
-// cannot reference the constant and is pinned here instead.
-func TestAgentRecvWait_StdioSchemaDescribesTheSameBounds(t *testing.T) {
-	field, ok := reflect.TypeOf(agentRecvInput{}).FieldByName("Wait")
-	require.True(t, ok)
-	assert.Equal(t, mcpschema.RecvWaitDoc, field.Tag.Get("jsonschema"),
-		"the stdio surface must advertise the same wait contract as the runner surface; update the tag to match mcpschema.RecvWaitDoc")
 }

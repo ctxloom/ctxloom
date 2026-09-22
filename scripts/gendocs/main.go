@@ -81,35 +81,24 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 
 		MCPServer: mcpServer,
 		MCPSource: "internal/adapters/mcp",
-		// The documented surface is the RUNNER-terminated one (runnermcp.NewDocServer →
-		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
-		// through its stdio `ctxloom mcp serve` shim. Naming
-		// `ctxloom mcp serve` here would be a lie — that standalone server
-		// registers a REDUCED agent surface with different schemas (see mcpIntro).
+		// The documented surface is the session endpoint (runnermcp.NewDocServer):
+		// what an engine dials inside `ctxloom run`, named by URL and bearer in
+		// the session's own registry. There is no command that speaks it.
 		MCPCommand: "ctxloom run",
 		MCPIntro:   mcpIntro,
 	}, closeMCP, nil
 }
 
 // mcpIntro is the ctxloom MCP page's opening prose: which surface this is (the
-// runner-terminated mainline, not standalone `mcp serve`), what it is for, and,
-// just as importantly, what it deliberately is not (management is CLI-only;
-// tasks live in taskloom).
+// session's endpoint, served by the runner inside `ctxloom run`), what it is
+// for, and, just as importantly, what it deliberately is not (management is
+// CLI-only; tasks live in taskloom).
 const mcpIntro = "Reference for the tools and resources ctxloom exposes to the agent it launches — the " +
-	"**runner-terminated** MCP surface a harness sees inside `ctxloom run`, " +
-	"reached through the stdio `ctxloom mcp serve` shim ctxloom wires into the harness's settings. " +
-	"This is the surface you get in a normal ctxloom session, and it is the one generated here.\n" +
-	"\n" +
-	":::caution[A standalone `ctxloom mcp serve` is not this surface]\n" +
-	"Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's " +
-	"config, gets you the retrieval and session-memory tools below **unchanged** — but a " +
-	"**reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, " +
-	"`agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no " +
-	"`agent_fetch_artifact`, and none of the control tools `agent_steer`, `agent_ask`, " +
-	"`agent_summarize`, `agent_pause`, `agent_resume`), and `agent_run`, `agent_send` and `agent_stop` take different " +
-	"parameters there than documented here. " +
-	"Agent delegation is coordinated by the runner, so drive it from `ctxloom run`.\n" +
-	":::\n" +
+	"MCP surface a session's runner serves inside `ctxloom run`. ctxloom's own companion loadout " +
+	"declares the server as **served by the running session's endpoint**: at session start the " +
+	"endpoint's URL and bearer are written into the session's own MCP registry, and the engine " +
+	"dials it directly. There is no `ctxloom` command that speaks this protocol and nothing is " +
+	"registered in the project at rest — ctxloom injects its MCP only while it is running.\n" +
 	"\n" +
 	"The MCP surface is for **working inside a session**: assembling context, searching content, " +
 	"session memory, and delegating to child agents. Everything that *manages* ctxloom " +

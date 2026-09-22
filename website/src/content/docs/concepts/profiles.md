@@ -53,7 +53,7 @@ blocking.
 ### Preferred LLM (`llm:`)
 
 A profile can name the LLM it should launch with via `llm:` — a config label
-(e.g. `claude-fast`, `agy-code`) or a backend type. `ctxloom run` uses it
+(e.g. `claude-fast`, `claude-big`) or a backend type. `ctxloom run` uses it
 unless `--llm`/`-l` overrides; a misconfigured value warns and falls back to the
 primary role rather than blocking startup. Set it with `--llm` on
 `profile create`/`profile modify`.

@@ -34,7 +34,7 @@
                   "type": "string"
                 },
                 "harness": {
-                  "description": "e.g. \"claude-agent-sdk\", \"codex\", \"kiro-cli\"",
+                  "description": "e.g. \"claude-code\"",
                   "type": "string"
                 },
                 "harness_version": {

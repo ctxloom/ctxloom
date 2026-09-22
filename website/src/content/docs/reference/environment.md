@@ -99,7 +99,7 @@ An unset or empty value keeps the default silently. A set-but-invalid value (unp
 | `CTXLOOM_PROJECT_ID` | Project identifier for session/task keying. Read back by ctxloom and taskloom (it's the second-priority rule in taskloom's project-id resolution, after `--project`) |
 | `CTXLOOM_RESUMED_FROM` | Harp name of the session this one resumed from, if any. Read back by ctxloom's hooks and MCP server |
 | `CTXLOOM_RESUMED_PARTS` | Companion to `CTXLOOM_RESUMED_FROM`: which parts of the prior session were carried into the resume. Read back alongside it |
-| `CTXLOOM_CONTEXT_FILE` | Path to the assembled-context file for this session. This one is *not* read back by ctxloom — it's written into the launched engine's environment for the engine itself to consume (e.g. codex keys its context materialization off it); nothing under `internal/` reads it back |
+| `CTXLOOM_CONTEXT_FILE` | Path to the assembled-context file for this session. This one is *not* read back by ctxloom — it's written into the launched engine's environment for the engine itself to consume; nothing under `internal/` reads it back |
 
 ## Template Variables
 

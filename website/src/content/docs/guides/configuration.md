@@ -55,7 +55,6 @@ llm:
   configs:
     big:   { type: claude-code, model: claude-opus-4-8 }
     quick: { type: claude-code, model: claude-haiku-4-5-20251001 }
-    g:     { type: antigravity }         # Antigravity CLI (agy); model optional
   defaults:
     primary: big      # coding/interactive role → label
     fast: quick       # compression role (distill, compaction) → label
@@ -171,31 +170,6 @@ llm:
 ```
 
 `ctxloom llm list` shows the available backends; `ctxloom llm default <label>` sets the primary.
-
-### Antigravity
-
-The `antigravity` backend wraps Google's Antigravity CLI (`agy`,
-`curl -fsSL https://antigravity.google/cli/install.sh | bash`). Authentication
-is Google OAuth handled by `agy` itself — there are no API key environment
-variables to configure. Supported fields are `model` (optional; agy's own
-default is used when unset), `binary_path` (default `agy`), `args`, and `env`:
-
-```yaml
-llm:
-  configs:
-    antigravity:
-      type: antigravity
-      model: "gemini-3-pro"    # Optional
-      binary_path: "agy"       # Optional
-```
-
-:::note[Migrating from the gemini backend]
-Google discontinued Gemini CLI in June 2026, and ctxloom's `gemini` backend was
-replaced by `antigravity` (config version 4). Older v3 configs with
-`type: gemini` are auto-migrated on load: the type flips to `antigravity`, and
-the gemini-only `trust_workspace` and `approval_mode` knobs (which have no
-antigravity equivalent) are dropped.
-:::
 
 ## Defaults
 
@@ -314,9 +288,7 @@ ctxloom injects context via **SessionStart hooks** rather than editing `CLAUDE.m
 - Keeps `CLAUDE.md` clean for your own project documentation
 - Injects fresh context at the start of each session
 
-Context is written to `.ctxloom/cache/context/[hash].md` and injected via hook. For
-the Antigravity backend (which has no SessionStart event), context is delivered
-via a ctxloom-managed section in `.agents/AGENTS.md` instead. See
+Context is written to `.ctxloom/cache/context/[hash].md` and injected via hook. See
 [Hooks and Context Injection](/guides/hooks) for details.
 
 ## Sync Configuration

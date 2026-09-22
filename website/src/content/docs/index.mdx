@@ -32,13 +32,13 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <Card title="Share Across Teams" icon="github">
     Shared remotes for org standards, personal remotes for yours.
   </Card>
-  <Card title="Multi-LLM Support" icon="random">
-    Write once, run everywhere. Same context works with Claude Code, Antigravity CLI, and more.
+  <Card title="Engine-Native Delivery" icon="random">
+    Write once; ctxloom hands the assembled context to the engine on its own channel. Claude Code is the supported engine.
   </Card>
 </CardGrid>
 
 :::note[Why not just CLAUDE.md?]
-Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Fragments and commands can also be distilled by a cheap, fast LLM, so a long guideline costs fewer tokens every session.
+Claude Code has `CLAUDE.md` - but it is **project-level only** and encourage intermingling project-specific context with general best practices. ctxloom separates concerns: your standards in a personal remote, project context in `.ctxloom/`, team standards in shared remotes. Fragments and commands can also be distilled by a cheap, fast LLM, so a long guideline costs fewer tokens every session.
 
 **ctxloom replaces the native context file, it does not merge with it.** `ctxloom run` assembles context itself and launches the engine in isolation, ignoring `CLAUDE.md` entirely. And if you install ctxloom's hooks into an externally-launched Claude Code, the assembled context is written to `CLAUDE.md` as the whole file - a hand-written `CLAUDE.md` is overwritten. Keep your standards in fragments, not in `CLAUDE.md`.
 :::
@@ -47,8 +47,8 @@ Claude Code has `CLAUDE.md`, Antigravity has `AGENTS.md` - but these are **proje
 
 | Capability | Description |
 |------------|-------------|
-| **Context Assembly** | Combine fragments into profiles, deliver to Claude/Antigravity through the engine's own context channel |
-| **Slash Commands** | Commands become `/commands` in Claude Code and Antigravity automatically |
+| **Context Assembly** | Combine fragments into profiles, deliver to Claude Code through the engine's own context channel |
+| **Slash Commands** | Commands become `/commands` in Claude Code automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
@@ -78,7 +78,7 @@ ctxloom deps pull
 
 ## Slash Commands
 
-Commands in bundles become slash commands in Claude Code and Antigravity CLI:
+Commands in bundles become slash commands in Claude Code:
 
 ```yaml
 # .ctxloom/content/bundles/my-tools.yaml
@@ -125,12 +125,12 @@ flowchart LR
     Bundles["Bundles<br/>(fragments)"] --> Profiles["Profiles<br/>(combos)"]
     Profiles --> Context["Context<br/>(assembled)"]
     Bundles --> Remotes["Remotes<br/>(GitHub/GL)"]
-    Context --> AI["Claude/Antigravity<br/>(native context channel)"]
+    Context --> AI["Claude Code<br/>(native context channel)"]
 ```
 
 1. **Bundles** contain fragments (context), commands (slash commands), and MCP servers
 2. **Profiles** combine bundles with inheritance and exclusions
-3. **Context** is assembled and handed to the engine on its own context channel - Claude Code is launched with `--append-system-prompt-file`, Antigravity reads `.agents/AGENTS.md`. No MCP is involved in delivery; `ctxloom mcp serve` is a separate, opt-in surface your agent can *retrieve* from mid-session.
+3. **Context** is assembled and handed to the engine on its own context channel - Claude Code is launched with `--append-system-prompt-file`. No MCP is involved in delivery; `ctxloom mcp serve` is a separate, opt-in surface your agent can *retrieve* from mid-session.
 4. **Remotes** provide team sharing and community bundles. Pulled content is withheld from the agent until you accept it with `ctxloom review`
 
 ## Core Concepts
@@ -165,7 +165,7 @@ irm https://raw.githubusercontent.com/ctxloom/ctxloom/main/scripts/install.ps1 |
 ## Running
 
 ```bash
-# Standalone (wraps Claude/Antigravity)
+# Standalone (wraps Claude Code)
 ctxloom run -p developer "help with code"
 
 # As MCP server (integrate with existing Claude Code)
@@ -211,7 +211,7 @@ default_agent: go-developer
 ---
 
 :::note[LLM Compatibility]
-ctxloom is primarily tested with **Claude Code** (Anthropic's CLI). Secondary testing is performed with **Antigravity CLI** (`agy`), which is the next LLM to receive comprehensive testing coverage. Other LLM backends may work but are not actively tested.
+ctxloom drives **Claude Code** (Anthropic's CLI), the one supported engine.
 :::
 
 :::note[Pre-release]

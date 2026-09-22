@@ -2,9 +2,9 @@
 title: "Hooks and Context Injection"
 ---
 
-You never paste your standards into a new session again. Start Claude Code (or Antigravity) in a project with ctxloom configured, and your fragments and profile are already in the conversation before you type a word.
+You never paste your standards into a new session again. Start Claude Code in a project with ctxloom configured, and your fragments and profile are already in the conversation before you type a word.
 
-For Claude Code, this rides a **SessionStart hook**: ctxloom assembles your configured context, writes it to disk, and the hook injects it when the session starts. Antigravity has no SessionStart event, so it gets the same context a different way (below). This guide explains both flows and how to configure them.
+For Claude Code, this rides a **SessionStart hook**: ctxloom assembles your configured context, writes it to disk, and the hook injects it when the session starts. This guide explains the flow and how to configure it.
 
 ## How Context Injection Works
 
@@ -41,15 +41,6 @@ ctxloom adds a hook to `.claude/settings.json`. Each event maps to an **array** 
   }
 }
 ```
-
-### Antigravity
-
-For the Antigravity CLI (`agy`), hooks live in the workspace `.agents/hooks.json`, using the same Claude-style nested shape (`PreToolUse`/`PostToolUse`).
-
-Antigravity has **no SessionStart event**, so context injection works differently:
-
-- Assembled context is delivered via a ctxloom-managed section in `.agents/AGENTS.md`, which agy reads at the start of each session.
-- The session-bind hook fires on **PreToolUse** instead. Bundle hooks can declare `pre_tool_fallback: true` to run an idempotent `session_start` hook on PreToolUse for this backend.
 
 ## Manual Hook Management
 
@@ -146,7 +137,7 @@ The SessionStart hook itself takes the hash and project directory as command-lin
 | Variable | Description |
 |----------|-------------|
 | `CTXLOOM_VERBOSE` | Enable verbose output for debugging |
-| `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched process for backends with no hook mechanism (codex, antigravity) — not read by the SessionStart hook |
+| `CTXLOOM_CONTEXT_FILE` | Path to the assembled context file, set on the launched engine's environment whenever context was assembled — not read by the SessionStart hook |
 
 ## Debugging Hooks
 

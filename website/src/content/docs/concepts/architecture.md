@@ -2,7 +2,7 @@
 title: "Architecture"
 ---
 
-Every AI coding tool wants its own copy of your standards, and every fresh session starts blank. You paste the same conventions into Claude Code, then into Codex, then retype them again next week once the context window fills up and you clear it. Nothing ties those copies together, so they drift.
+Every AI coding tool wants its own copy of your standards, and every fresh session starts blank. You paste the same conventions into one tool, then another, then retype them again next week once the context window fills up and you clear it. Nothing ties those copies together, so they drift.
 
 ctxloom replaces the copies with one layered system: author context once, and bundles, profiles, hooks, and the MCP server all read from the same assembled source, so every engine and every session sees the same rules without you re-entering them.
 
@@ -13,7 +13,7 @@ This page uses the project's canonical launch-architecture terms (defined in
 
 | term | meaning |
 |---|---|
-| **engine** | The thing ctxloom drives to produce agent behavior — Claude Code, Codex, opencode. Not "backend", not "AI tool". |
+| **engine** | The thing ctxloom drives to produce agent behavior — e.g. Claude Code. Not "backend", not "AI tool". |
 | **agent** | A ctxloom actor: a profile in action. The primary you launch with `run --agent`, and each delegated worker it spawns. |
 | **engine agent** | The engine's *own* internal subagent (claude's `--agent`). Always qualified — bare "agent" never means this. |
 | **session** | One launched ctxloom run, harp-named. Hosts the primary agent and its delegated agents. |
@@ -30,7 +30,7 @@ the session's own isolated workspace and drives the **engine**.
 ```mermaid
 flowchart LR
     CP["control-plane<br/>(config, profiles,<br/>context assembly,<br/>isolation policy)"] -->|"wire<br/>(loadout)"| R["runner<br/>(materializes surfaces,<br/>launches)"]
-    R -->|drives| E["engine<br/>(claude-code / codex /<br/>opencode)"]
+    R -->|drives| E["engine<br/>(e.g. claude-code)"]
 ```
 
 The wire is network-agnostic: it carries **data**, not file handles, so nothing
@@ -324,28 +324,6 @@ five surfaces into whatever the target actually looks at.
 Note that MCP registration goes to **`.mcp.json`**, not to `.claude/settings.json`.
 Only hooks and settings live there.
 
-### Antigravity
-
-| surface | delivered as |
-|---|---|
-| context | ctxloom-managed section in `.agents/AGENTS.md` |
-| MCP | `.agents/mcp_config.json` (managed entries tracked in `.agents/.ctxloom-mcp-managed`) |
-| hooks | `.agents/hooks.json` → `hooks.PreToolUse` (agy has no SessionStart event) |
-
-### Codex
-
-| surface | delivered as |
-|---|---|
-| hooks + MCP + settings | `.codex/config.toml` (one atomic writer) |
-| context | injected by the SessionStart hook declared in `config.toml` |
-| commands | `$CODEX_HOME/prompts` (with `CODEX_HOME` scoped to the session's cell) |
-
-:::caution[Experimental engines]
-The `codex` engine is **experimental**: implemented and hermetically tested, but
-live operation is not fully verified. Use it knowing the live path may have gaps;
-`claude-code` is the exercised default.
-:::
-
 ## Extension Points
 
 ### Custom Engines
@@ -446,8 +424,6 @@ flowchart TB
     subgraph Engines["Engines"]
         direction LR
         claude["Claude Code"]
-        codex["Codex"]
-        opencode["opencode"]
     end
 
     Engines -->|"MCP / hooks / native config"| Core

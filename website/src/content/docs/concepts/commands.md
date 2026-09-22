@@ -4,7 +4,7 @@ title: "Commands"
 
 You've got a five-paragraph code-review request you paste into every PR, the one that reminds the AI to check error handling and watch for N+1 queries. Or you don't, because retyping it every time is tedious enough that you skip it on the small changes — the ones that turn out to matter anyway.
 
-A **command** saves that request once in a bundle and, once trusted, exposes it as a slash command in Claude Code, Codex, or opencode, so invoking it costs one line instead of five paragraphs. (Earlier ctxloom versions called this item kind "prompts", then "skills"; bundles using the old `prompts:`/`skills:` key are migrated on load.)
+A **command** saves that request once in a bundle and, once trusted, exposes it as a slash command in your engine (Claude Code), so invoking it costs one line instead of five paragraphs. (Earlier ctxloom versions called this item kind "prompts", then "skills"; bundles using the old `prompts:`/`skills:` key are migrated on load.)
 
 ## Command Structure
 
@@ -41,7 +41,7 @@ commands:
 The slash command name isn't the bare command name — it's `<bundle>-<command>`, taken from the owning bundle's last path segment. A `code-review` command defined in a bundle called `my-bundle` becomes:
 
 ```bash
-# Claude Code, Codex, or opencode:
+# Claude Code:
 /my-bundle-code-review
 ```
 
@@ -49,8 +49,6 @@ Only a builtin command (one with no bundle metadata) falls back to its bare name
 
 ctxloom writes command files to the appropriate location:
 - **Claude Code**: `.claude/commands/*.md` (nested names flatten: `/` becomes `-` in the filename)
-- **Codex**: `$CODEX_HOME/prompts/*.md` — global, not project-scoped (Codex only discovers prompts there)
-- **Antigravity CLI**: `.agents/skills/<bundle>/*.md` (subdirectories are preserved, not flattened)
 
 ### Command Configuration
 
@@ -71,14 +69,6 @@ commands:
           - Read
           - Grep
         model: "sonnet"            # Override model
-      antigravity:
-        enabled: true              # Also expose in Antigravity CLI
-        description: "Review code"
-      codex:
-        enabled: true              # Also expose as a Codex custom prompt
-        description: "Review code"
-        argument_hint: "<file>"
-        description: "Review code"
 ```
 
 The `llm:` map has one key per backend.
@@ -89,7 +79,7 @@ The `llm:` map has one key per backend.
 |-------|---------|-------------|
 | `enabled` | `true` | Set to `false` to hide from slash commands |
 | `description` | command description | Short description for `/help` |
-| `argument_hint` | none | Hint shown during autocomplete (Claude, Codex) |
+| `argument_hint` | none | Hint shown during autocomplete |
 | `allowed_tools` | all | Restrict which tools the command can use (Claude only) |
 | `model` | default | Override the model (Claude only) |
 
@@ -106,8 +96,6 @@ commands:
     llm:
       claude-code:
         enabled: false
-      antigravity:
-        enabled: false
 ```
 
 ## Using Commands
@@ -115,7 +103,7 @@ commands:
 ### As Slash Commands
 
 ```bash
-# In Claude Code, Codex, or opencode, just use the slash command
+# In Claude Code, just use the slash command
 # (a `code-review` command in bundle `my-bundle` exports as /my-bundle-code-review):
 /my-bundle-code-review
 
@@ -154,7 +142,7 @@ ctxloom command edit my-bundle#commands/code-review
 | Purpose | Context/instructions | Specific actions/requests |
 | Usage | Combined with user input | Standalone commands or combined |
 | Typical content | Guidelines, patterns, standards | Review requests, generation tasks |
-| In Claude/Codex/opencode | Injected as context | Exposed as slash commands (once trusted) |
+| In the engine | Injected as context | Exposed as slash commands (once trusted) |
 
 **Fragments** provide context that's always available. **Commands** provide specific actions you invoke when needed.
 
@@ -164,7 +152,7 @@ ctxloom command edit my-bundle#commands/code-review
 # Fragment provides context, command defines the action
 ctxloom run -f python-standards -r code-review
 
-# In Claude Code, Codex, or opencode:
+# In Claude Code:
 # 1. Context from fragments is already injected
 # 2. Just invoke the command:
 /my-bundle-code-review

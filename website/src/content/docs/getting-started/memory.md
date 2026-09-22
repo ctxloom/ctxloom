@@ -15,14 +15,14 @@ With ctxloom, that ritual is two commands:
 
 ## Why ctxloom captures its own transcript
 
-Earlier versions of ctxloom didn't record a conversation at all — they went looking for it afterward, in each engine's own private, undocumented session file (a Claude Code JSONL under `~/.claude/projects/...`, a Codex rollout file, and so on), and re-derived the pieces ctxloom needed: which file belongs to which project, how to decode that engine's particular record shape. That worked until it didn't: a wrong filename, an unhandled record shape, or a store format ctxloom's reader didn't know about, and recovery silently came back with nothing — no error, no warning, just an empty distillation for a session that plainly wasn't empty. `/recover` above only works if there's actually something to recover.
+Earlier versions of ctxloom didn't record a conversation at all — they went looking for it afterward, in each engine's own private, undocumented session file (a Claude Code JSONL under `~/.claude/projects/...`, for instance), and re-derived the pieces ctxloom needed: which file belongs to which project, how to decode that engine's particular record shape. That worked until it didn't: a wrong filename, an unhandled record shape, or a store format ctxloom's reader didn't know about, and recovery silently came back with nothing — no error, no warning, just an empty distillation for a session that plainly wasn't empty. `/recover` above only works if there's actually something to recover.
 
 ctxloom no longer goes looking. For every engine driven through ctxloom's structured chat path, the conversation already flows through ctxloom's own process as it happens — every message, tool call, and tool result crosses ctxloom on its way between you and the model. ctxloom now captures that stream itself into one canonical, engine-agnostic transcript per session, instead of trying to reconstruct it later from a file it doesn't control. There is one format, one reader, and no per-engine guessing. See [docs/transcript-schema.md](https://github.com/ctxloom/ctxloom/blob/main/docs/transcript-schema.md) for the on-disk schema, if you want the detail.
 
 Two capture regimes cover ctxloom's structured usage:
 
 - **Structured / chat sessions** (the default for `ctxloom run`) get full-fidelity capture: every user turn, assistant message, reasoning step, tool call, and tool result, in order.
-- **Oneshot runs** (`ctxloom run --one-shot`, `codex exec`-style one-off prompts) don't stream turn-by-turn, so capture is lower-fidelity: just the prompt you sent and the reply that came back. No tool-by-tool detail, but never nothing — a oneshot run that used to leave no memory behind now leaves at least the shape of what happened.
+- **Oneshot runs** (`ctxloom run --one-shot`) don't stream turn-by-turn, so capture is lower-fidelity: just the prompt you sent and the reply that came back. No tool-by-tool detail, but never nothing — a oneshot run that used to leave no memory behind now leaves at least the shape of what happened.
 
 The one gap this release doesn't close: if you drive an engine's own interactive terminal UI directly rather than through ctxloom's structured chat, the conversation never crosses ctxloom's process, so there's nothing for ctxloom to capture — the old per-engine file scrapers that used to (unreliably) cover this case have been removed, not replaced. That path has no ctxloom memory for now; it's tracked for a future release. Everything else below assumes the structured or oneshot path, which is how `ctxloom run` operates by default.
 
@@ -165,17 +165,17 @@ session up by ID instead of harp name, not a legacy fallback.
 
 ### Cross-Agent Workflows
 
-Distilled memory is portable across agents — it's stored as plain markdown. Raw session history is now captured in the same engine-agnostic format regardless of which backend produced it (see "Why ctxloom captures its own transcript" above) — for any session driven through ctxloom's structured chat or a oneshot run. Antigravity is the one backend without a structured chat mode at all, so an interactive Antigravity session falls into the interactive-pty gap noted above and has no raw history captured; running it with a oneshot prompt (`-p`) does.
+Distilled memory is portable across agents — it's stored as plain markdown. Raw session history is now captured in the same engine-agnostic format regardless of which backend produced it (see "Why ctxloom captures its own transcript" above) — for any session driven through ctxloom's structured chat or a oneshot run.
 
 ```bash
-# Morning: Write code with Claude
-ctxloom run --llm claude-code "implement the auth module"
+# Morning: Write code with your primary model
+ctxloom run --llm big "implement the auth module"
 # When done, just exit. Distill it when you want it: ctxloom session distill <harp>
 
-# Afternoon: Review with Antigravity
-ctxloom run --llm antigravity
+# Afternoon: Review with a different model (another llm label)
+ctxloom run --llm quick
 "Load the distilled session from this morning"
-# Antigravity loads the markdown summary, continues the work
+# The new session loads the markdown summary, continues the work
 ```
 
 Use cases:

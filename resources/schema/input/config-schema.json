@@ -179,7 +179,7 @@
     },
     "isolation_images": {
       "type": "object",
-      "description": "Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER \u2014 except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity \u2014 its writes into the mounted project would land root-owned or otherwise not yours \u2014 is a fatal startup finding; --degraded launches it anyway with the image's own identity.",
+      "description": "Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (e.g. claude-code). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER \u2014 except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity \u2014 its writes into the mounted project would land root-owned or otherwise not yours \u2014 is a fatal startup finding; --degraded launches it anyway with the image's own identity.",
       "additionalProperties": {
         "type": "string",
         "minLength": 1
@@ -300,7 +300,7 @@
           },
           "surfaces": {
             "type": "object",
-            "description": "Delivery preference for this binding: which approach each surface kind is delivered by. Keys are surface kinds (context, mcp, settings, commands, skills); values are approaches (unsafe-file, system-prompt, hook). Omitted takes the engine's own default. Validated against the bound engine when written \u2014 system-prompt is claude-only, so a kiro binding naming it is refused rather than quietly downgraded.",
+            "description": "Delivery preference for this binding: which approach each surface kind is delivered by. Keys are surface kinds (context, mcp, settings, commands, skills); values are approaches (unsafe-file, system-prompt, hook). Omitted takes the engine's own default. Validated against the bound engine when written \u2014 an approach the bound engine does not declare is refused rather than quietly downgraded.",
             "additionalProperties": {
               "type": "string"
             }

@@ -213,18 +213,14 @@ injection carried in data the agent merely processes. None of those pass through
 gate, because ctxloom never resolved them. "Reviewed context" does not mean "this agent
 cannot be given a malicious instruction".
 
-**On Docker Desktop the host-to-container LLM transport has no cryptographic authentication, and is reachable across the container network.**
-On non-Linux hosts (macOS and Windows, under Docker Desktop) ctxloom reaches the isolated LLM
-plugin over plain gRPC — there is no per-run bearer token, no mTLS (go-plugin's AutoMTLS is
-off), and the only handshake value is a static, compiled-in magic cookie that guards against
-mis-execution rather than a credential. The host-side port is published to `127.0.0.1` only, so
-it is not reachable from off the host. But the in-container listener binds all interfaces
-(`0.0.0.0`) and ctxloom does not place agent containers on an isolated network, so any other
-container on the same Docker bridge can reach the plugin directly at the container's IP — the
-`127.0.0.1` host publish constrains only host-side access, never container-to-container traffic.
-On a shared or multi-tenant container host, treat this as a trust boundary and isolate untrusted
-workloads on separate Docker networks. On Linux the same transport is a bind-mounted unix socket
-rather than TCP, so this caveat is specific to the Docker Desktop path.
+**The runner-to-coordinator link is bearer-authenticated but not encrypted.**
+Every runner — a host process or a container — dials the coordinator's gRPC listener and
+authenticates every stream with the run credential it was minted; a guessed port buys nothing
+without that token. The link is cleartext (h2c) in this release, so the bearer crosses it
+unencrypted. For a container child the coordinator binds a container-reachable listener, which
+can fall back to the host's primary outbound interface — visible on the LAN — so on a shared
+network treat that bearer as observable in flight. The container itself opens no listener and
+publishes no port.
 
 **We own the MCP servers we seed. We do not own the ones we did not write.** An MCP
 declaration is not text — a server entry names an executable, and the engine spawns it. So a
@@ -240,10 +236,6 @@ promise:
   servers via `--mcp-config`, pointing at an out-of-cwd file, and deliberately omits
   `--strict-mcp-config` so the engine *layers* ctxloom's set on top of yours instead of
   replacing it. Your file is untouched because ctxloom never opens it.
-- For **Codex**, ctxloom does write the engine's native registry in place —
-  and records the names it wrote in a sidecar **ledger**. Removal keys off that ledger, not off
-  the file, so user-authored entries (including remote `url` servers) survive byte-for-byte,
-  along with top-level fields ctxloom does not model.
 
 Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not
 to us** — and an agent you configured with `permissions: bypass` is launched with that engine's

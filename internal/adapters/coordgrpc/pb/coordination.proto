@@ -274,9 +274,8 @@ message RuntimeFrame {
 // capabilities and active runs.
 message RunnerHello {
   string version = 1;
-  // Harness adapters this runner can drive: "claude-code",
-  // "codex-app-server", "kiro-acp", ... Runtime MUST NOT StartRun a
-  // harness the runner didn't advertise.
+  // Harness adapters this runner can drive (e.g. "claude-code"). Runtime
+  // MUST NOT StartRun a harness the runner didn't advertise.
   repeated string harnesses = 2;
   uint32 max_concurrent_runs = 3;
   map<string, string> labels = 4;  // placement hints: region, gpu, repo...
@@ -856,7 +855,7 @@ message Hello {
 message AgentIdentity {
   string agent_id = 1;       // stable identity across runs
   string display_name = 2;
-  string harness = 3;        // e.g. "claude-agent-sdk", "codex", "kiro-cli"
+  string harness = 3;        // e.g. "claude-code"
   string harness_version = 4;
   string model = 5;
   string role = 6;           // coordinator-assigned role, e.g. "reviewer"

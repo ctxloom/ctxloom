@@ -210,10 +210,10 @@ in slice 9.
 | `resolveApproval` | see [approvals.md](approvals.md) |
 | `usageFromMeta` / `usdToMicros` / `nonNegU64` | `TurnMeta` → `Usage`, with round-half-even micro-USD and NaN/Inf/negative guards |
 
-`EngineHost` calls `eh.backend.Chat(ctx, dec.Chat, in, out)` **in-process**
-(`enginehost.go`) — the go-plugin `Chat` RPC is never dialed on this path, which is
-why `ChatRequest` fields that the `ChatStart` proto drops (`Runtime`,
-`ResumeSessionID`) still survive here.
+`EngineHost.runTurn` drives `Instance.Drivers()[0].Turn(ctx, ex, engine.Turn{Prompt, Resume}, out)`
+**in-process** (`enginehost.go`): one engine process per turn, the native events
+relayed on `out` as `agent.ChatEvent` payloads; no RPC sits between the host
+and the engine.
 
 ## Invariants
 

@@ -9,9 +9,9 @@ is the only place `coord` touches `internal/adapters/operations`' launch tail; `
 owns the per-harp retry budget and stop flag; `owner_run.go` is the parent-less
 top-level container run.
 
-Two mutually exclusive launch drivers coexist: the **migrated** StartRun path
-(`plan.ViaStartRun` — the members of `viaStartRunBackends`) and the **legacy** go-plugin chat
-path, which now has no registered backend at all.
+One launch driver: the StartRun path — the coordinator starts the runner
+through the spawner and issues `StartRun{Launch}` over the runner channel
+(`runChildViaStartRun`); the runner drives the engine per turn.
 
 ```mermaid
 flowchart TD

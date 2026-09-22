@@ -19,7 +19,7 @@ its own documentation.
 | [sessions.md](sessions.md) | `internal/core/sessions` | The harp-keyed session index (`~/.ctxloom/sessions/index.yaml`) binding harp → backend session ID → project dir → transcript path → summary, behind a two-adapter storage port |
 | [memory.md](memory.md) | `internal/adapters/memory` | Map/reduce compaction of a session transcript into a persisted essence document, plus the index projection `session list` renders, plus plan-file harp stamping |
 | [termui.md](termui.md) | `internal/adapters/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
-| [vpio.md](vpio.md) | `internal/adapters/vpio` + `internal/adapters/vpio/{goplugin,dockerexec}` | The transport seam for one interactive agent turn, and its two implementations (go-plugin gRPC stream, `docker exec -it` under a host pty) |
+| [hostpty.md](hostpty.md) | `internal/adapters/hostpty` + `internal/adapters/attach` | The pty the originator holds around `ctxloom runner`: a host process (hostpty) or `docker run -i -t … ctxloom runner` as a container's foreground (attach) |
 | [docsgen.md](docsgen.md) | `internal/shared/docsgen` | Deterministic generation of man pages, per-command markdown, an MCP tool page, and a config page from a product's live cobra tree, live MCP registrations, and tracked JSON Schema |
 | [selfexec.md](selfexec.md) | `internal/adapters/selfexec` | Resolving the path of the running ctxloom binary, so a materialized engine surface names the binary that materialized it |
 | [clifmt.md](clifmt.md) | `pkg/clifmt` | Rendering an arbitrary Go value to json / yaml / toml / text / markdown for first-party CLI commands |
@@ -36,7 +36,7 @@ flowchart TD
     subgraph run["A ctxloom run"]
       SESS["internal/core/sessions<br/>mint harp → bind session ID"]
       TERM["internal/adapters/termui<br/>terminal frontend"]
-      VP["internal/adapters/vpio<br/>transport seam"]
+      VP["internal/adapters/hostpty · attach<br/>the runner on a pty"]
       TR["internal/adapters/transcript<br/>capture"]
       MEM["internal/adapters/memory<br/>compaction"]
     end
@@ -71,9 +71,8 @@ shorter to read:
 1. **The type has nowhere to put the bad news.** `ltk`'s `engine.Response` has no "unanalyzed"
    state, so a parse failure is encoded as an allow. `vendorreader.VendorAdapter.Convert` returns only
    `error` with no count, so "the format drifted and I recognized nothing" is encoded as success.
-   `vpio.Session` has no `Close`, so each implementation invents its own teardown. In each case the
-   diagnostic exists at the point of failure and is destroyed by the signature it has to pass
-   through.
+   In each case the diagnostic exists at the point of failure and is destroyed by the signature
+   it has to pass through.
 
 2. **A guard whose precondition is checked at the call site, not in the writer.**
    `sessions.BindSession` accepts an empty session ID and the guard lives in

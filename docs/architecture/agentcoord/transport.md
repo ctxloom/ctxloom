@@ -15,7 +15,7 @@ is decoded INTO: the runner session and run channel over `BidiSession`
 dispatch, the ack discipline), typed without the proto. `internal/adapters/runner`
 owns the runner side: the clients (`home.go`, `runnerlink.go`, `homeartifacts.go`),
 the tail that redeems, decodes and delivers the launch (`runner.Execute`) and the
-engine host that drives a backend's `StructuredChat` in-process (`enginehost.go`).
+engine host that drives each turn through the instance's driver (`enginehost.go`).
 
 ```mermaid
 flowchart TD

@@ -41,10 +41,9 @@ cell, which is what the isolation axes below provide. claude takes every
 surface but commands at a path ctxloom chooses, so it needs none of that for
 those surfaces.
 
-The `agent.StructuredChat` interface still exists and the runner still
-type-asserts for it (`internal/adapters/cli/llm_runner_common.go`), but **no shipped
-engine implements it** — the only implementation is the mock backend used by the
-conformance suites. Engines are driven through their own CLI instead.
+A structured (headless) turn is one engine process per turn, driven through
+the instance's driver (`engine.Instance.Drivers`); engines are driven through
+their own CLI.
 
 ## Hook translation
 

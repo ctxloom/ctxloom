@@ -174,7 +174,7 @@ whether a slot was held) → `runChild` (`acquireRunSlot` blocks in FIFO order) 
 reach-back trio in the runner's env) → `issueStartRun` (`awaitRunner` for the
 runner's `RunnerHello`, then `RunnerRequest.start_run{run_id, launch}`) →
 runner `EngineHost.startRun` → `runner.Execute` (redeem, decode, deliver) →
-`EngineHost.Drive` → `agent.StructuredChat.Chat`. The runner's identity on
+`EngineHost.Drive` → `Instance.Drivers()[0].Turn`, one engine process per turn. The runner's identity on
 every subsequent frame is minted from its bearer credential
 (`Coordinator.Identify`), never from anything the frame claims. Detail, including
 the slot/park/idle/one-shot state machine and the exactly-once terminal, is in

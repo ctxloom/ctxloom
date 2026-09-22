@@ -460,7 +460,7 @@ var probeRegistry = []probeSpec{
 		Paid:    true,
 		Cells: []probeCell{
 			hostCell("claude-code", probeLiveVerified,
-				"measured 2026-08-13 on this branch: 1 scenario / 11 steps green, the child echoed the minted harp `still-brave-ankle` as its whole body, and the coordinator's steer was on disk as in/consumed/…coord.md carrying that harp. RE-PROVES what J002300-LIVE-ECHO-TOKEN proves inside a LOCKED scenario; the two now guard the claim by different routes and this one asserts the spool substrate as well. Assertion-side mutation run (the verdict looking for harp+\"-MUTANT\") went RED with a BUS-DELIVERY shape."),
+				"measured 2026-08-13 on this branch: 1 scenario / 11 steps green, the child echoed the minted harp `still-brave-ankle` as its whole body, and the coordinator's steer was on disk as in/consumed/…coord.md carrying that harp. The only live proof of the coordinator->child steer; it asserts the spool substrate as well. Assertion-side mutation run (the verdict looking for harp+\"-MUTANT\") went RED with a BUS-DELIVERY shape."),
 			// THE ISOLATED CELL. Every row above runs host/none — isolated on
 			// NEITHER axis — so until this one goes green, "delegation works"
 			// and "delegation works across the isolation boundary" are

@@ -9,16 +9,13 @@
 // It lives beside steps_j002300_cross_engine_delegation.go and deliberately
 // REUSES that journey's steps rather than restating them: the harp-remembering
 // step, the payload-draining agent_recv, the bundle/profile writer and the
-// per-engine config renderer are all j002300's, hardened by that journey's own
-// history (the empty-coordinator-harp defect, the runner-wiring defect, the
-// codex 401 detour). The three steps below are the ones P6 genuinely adds — a
+// per-engine config renderer are all j002300's. The three steps below are the
+// ones P6 genuinely adds — a
 // gate that also mints and switches on the mail plane, the steer itself, and
 // the two assertions.
 //
 // THE LOCKED SCENARIOS ARE UNTOUCHED. The design's instruction for this slice is
-// explicit: add the outline BESIDE the existing proofs, never rewrite them. So
-// the claude-code row here does not replace J002300-LIVE-ECHO-TOKEN; it stands
-// next to it, and the two now guard the same property by different routes.
+// explicit: add the outline BESIDE the existing proofs, never rewrite them.
 package acceptance
 
 import (

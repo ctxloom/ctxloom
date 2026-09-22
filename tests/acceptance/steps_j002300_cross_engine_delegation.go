@@ -1,7 +1,7 @@
 //go:build acceptance
 
-// J002300: "cross-engine delegation — different engines, different context, a
-// real two-way bus" (j002300_cross_engine_delegation.feature). Complements J002100
+// J002300: "delegation — each child sees only its own context, over a real
+// two-way bus" (j002300_cross_engine_delegation.feature). Complements J002100
 // (j002100_delegation.feature, steps_j002100_delegation.go), which proved the
 // PRIVILEGE half of delegation (MCP servers, permission modes, the
 // journaled audit trail) using `agent_run` alone. This file proves the two
@@ -115,51 +115,6 @@ func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: bypass\n", s.Name, s.Profile)
 	}
 	return b.String()
-}
-
-// j002300LiveConfigYAML renders config.yaml for the @live tier: two distinct
-// VENDOR engines, each pinned to the same cheap model the rest of the @live
-// suite already uses, so the scenario is genuinely cross-vendor rather than one
-// engine wearing two labels.
-//
-// THE codex LITERAL IS A DELIBERATE PLACEHOLDER, NOT RESIDUE. codex was DELETED
-// in the engine sweep, so this fixture names a backend type that no longer
-// registers — and its scenario is @wip for precisely that reason: claude-code
-// is currently the only real vendor, and cross-VENDOR context isolation cannot
-// be proven with one vendor. Kept rather than deleted because nothing else
-// records that intent, and the @live tier self-skips, so carrying it costs a
-// run nothing.
-//
-// Do NOT "repair" this by swapping in mock or mock-lossy. Those are registered
-// but they are not VENDORS: the scenario would keep its name while proving
-// cross-BACKEND isolation, which the hermetic tier already covers — a test that
-// lies about what it establishes. codex is replaced only by a second real
-// vendor.
-func j002300LiveConfigYAML(claudeSpec, codexSpec *j002300AgentSpec) string {
-	return fmt.Sprintf(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)+`workspace: none
-llm:
-  configs:
-    claude:
-      type: claude-code
-      model: claude-haiku-4-5-20251001
-    codex:
-      type: codex
-      model: gpt-5.4-mini
-  defaults:
-    primary: claude
-    fast: claude
-agents:
-  %s:
-    llm: claude
-    profiles:
-      - %s
-    permissions: bypass
-  %s:
-    llm: codex
-    profiles:
-      - %s
-    permissions: bypass
-`, claudeSpec.Name, claudeSpec.Profile, codexSpec.Name, codexSpec.Profile)
 }
 
 // j002300PerEngineAgent is the ONE delegated child the per-engine live outline
@@ -455,75 +410,6 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			return w.env.WriteFile(".ctxloom/config.yaml", j002300HermeticConfigYAML(specA, specB))
 		})
 
-	// --- @live fixture ------------------------------------------------------
-	//
-	// Gate-and-skip mirrors steps_live.go's "a real X agent is available" and
-	// isolation_probe.go's per-cell loudness: both engines are probed BEFORE
-	// anything is written or spent, and a skip names exactly which engine and
-	// why. Unlike steps_live.go (one engine per scenario), this needs TWO —
-	// so it is its own step rather than a second call to the shared one
-	// (which would overwrite config.yaml between calls).
-
-	ctx.Step(`^real "claude" and a second agent-capable engine are both available for cross-engine delegation$`,
-		func(c context.Context) error {
-			w := worldFrom(c)
-			j002300 := j002300Of(w)
-			optIn := resolveOptIn()
-			claudeStatus := probeEngine("claude", liveAgents["claude"], realHomeDir, optIn)
-			// No second agent-capable engine ships; the probe reports it unavailable
-			// and the scenario skips loudly rather than asserting a reply nothing
-			// can produce.
-			secondStatus := engineStatus{name: "second engine", available: false, reason: "no second agent-capable engine is registered"}
-			// Loud regardless of outcome: named per engine, not a single bit.
-			w.docStepMaterialized = formatLiveEngineReport([]engineStatus{claudeStatus, secondStatus})
-			if !claudeStatus.available || !secondStatus.available {
-				var missing []string
-				if !claudeStatus.available {
-					missing = append(missing, fmt.Sprintf("claude (%s)", claudeStatus.reason))
-				}
-				if !secondStatus.available {
-					missing = append(missing, fmt.Sprintf("%s (%s)", secondStatus.name, secondStatus.reason))
-				}
-				fmt.Printf("SKIP j002300 cross-engine @live: %s\n", strings.Join(missing, "; "))
-				return godog.ErrSkip
-			}
-
-			claudeSpec := &j002300AgentSpec{
-				Name: "claude-child", Profile: "claude-child-profile", Bundle: "bundle-claude-child", Fragment: "marker",
-				Guidance: "J002300-LIVE-MARKER-CLAUDE-9e1b52",
-			}
-			codexSpec := &j002300AgentSpec{
-				Name: "codex-child", Profile: "codex-child-profile", Bundle: "bundle-codex-child", Fragment: "marker",
-				Guidance: "J002300-LIVE-MARKER-CODEX-4a6f18",
-			}
-			j002300.specs[claudeSpec.Name] = claudeSpec
-			j002300.specs[codexSpec.Name] = codexSpec
-
-			if err := w.env.InitGitRepo(); err != nil {
-				return err
-			}
-			if err := j002300WriteAgent(w, claudeSpec); err != nil {
-				return err
-			}
-			if err := j002300WriteAgent(w, codexSpec); err != nil {
-				return err
-			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", j002300LiveConfigYAML(claudeSpec, codexSpec)); err != nil {
-				return err
-			}
-
-			// Subscription path: MAP each engine at its own real credential
-			// directory (erased-collar) for whichever isn't using the
-			// API-key path — exactly steps_live.go's own per-engine logic,
-			// applied twice since this scenario runs both at once. This is
-			// the scenario jovial-employee was measured on: the codex half
-			// used to be seeded by COPY, and a refresh inside the throwaway
-			// HOME consumed the host's refresh token server-side.
-			return seedLiveCredentials("claude", liveAgents["claude"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
-		})
-
-	// --- @live per-engine fixture -------------------------------------------
-	//
 	// The per-engine floor's gate (see the feature file's own header for what
 	// each row proves). One engine, named by its BACKEND TYPE — the same
 	// vocabulary isolation_probe.feature's rows use, resolved onto the
@@ -532,8 +418,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	//
 	// Everything the row needs is written HERE, before a single paid turn is
 	// spent, and an unavailable engine skips with its own reason printed by
-	// name — the identical discipline steps_live.go and the cross-engine gate
-	// above apply.
+	// name — the identical discipline steps_live.go applies.
 	ctx.Step(`^a real "([^"]*)" engine is available for a delegated child carrying marker "([^"]*)"$`,
 		func(c context.Context, engine, marker string) error {
 			w := worldFrom(c)
@@ -750,7 +635,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// testenv.MCPCallTimeout hard-caps EVERY single JSON-RPC round trip
 	// this harness makes at 15s, client-side, regardless of the
 	// agent_recv tool's own `wait` argument — shared harness code this task
-	// must not change. A real claude/codex turn (context load + reasoning +
+	// must not change. A real engine turn (context load + reasoning +
 	// deciding to call agent_send) routinely exceeds that. Retrying
 	// agent_recv from the TEST side tolerates it without touching that file:
 	// each retry is a free mailbox poll, never a second paid model call, so a
@@ -880,26 +765,6 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			}
 			if strings.Contains(body, otherSpec.Guidance) {
 				return fmt.Errorf("CONTEXT LEAK: %s's reported body unexpectedly carries %s's guidance %q; body:\n%s", self, other, otherSpec.Guidance, body)
-			}
-			return nil
-		})
-
-	ctx.Step(`^the received message is from "([^"]*)" and its body contains "([^"]*)"$`,
-		func(c context.Context, self, want string) error {
-			w := worldFrom(c)
-			j002300 := j002300Of(w)
-			harp, ok := j002300.harps[self]
-			if !ok {
-				return fmt.Errorf("j002300: no session harp remembered for %q", self)
-			}
-			msg, err := j002300FindMessageFrom(w, harp, "")
-			if err != nil {
-				return err
-			}
-			body, _ := msg[recvTextField].(string)
-			w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", self, harp, body)
-			if !strings.Contains(body, want) {
-				return fmt.Errorf("%s's reported body does not contain %q; body:\n%s", self, want, body)
 			}
 			return nil
 		})

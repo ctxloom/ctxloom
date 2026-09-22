@@ -1,17 +1,17 @@
-Feature: Cross-engine delegation — different engines, different context, a real two-way bus
+Feature: Delegation — each child sees only its own context, over a real two-way bus
 
   ctxloom's differentiator is not "an agent can spawn another agent" — every
-  competitor with a coordinator loop can do that. It is that the coordinator
-  and its children can ride DIFFERENT engines from DIFFERENT vendors, each
-  child sees ONLY its own composed profile (not the coordinator's, not a
-  sibling's), and the two sides talk to each other over a real, durable
-  message bus, not a synchronous return value. j002100_delegation.feature proved
-  the privilege half of that claim (MCP servers, permission modes, the
-  journaled audit trail) with `agent_run` alone. This journey proves the
-  other half `agent_run` cannot: that two children genuinely see DIFFERENT
-  content (asserted on the payload a child itself emits, never a config
-  diff), and that `agent_send`/`agent_recv` carry real words between
-  coordinator and child.
+  competitor with a coordinator loop can do that. It is that each child sees
+  ONLY its own composed profile (not the coordinator's, not a sibling's), and
+  that coordinator and child talk to each other over a real, durable message
+  bus, not a synchronous return value. j002100_delegation.feature proved the
+  privilege half of delegation (MCP servers, permission modes, the journaled
+  audit trail) with `agent_run` alone. This journey proves the half
+  `agent_run` cannot: that two children genuinely see DIFFERENT content
+  (asserted on the payload a child itself emits, never a config diff), that
+  `agent_send`/`agent_recv` carry real words between coordinator and child in
+  both directions, and that a delegated child on a real engine completes that
+  round trip, isolated and not.
 
   # WHAT THE HERMETIC TIER READS, and who writes it. Both observables below
   # are produced by the child's OWN runner process, never by the coordinator:
@@ -26,14 +26,6 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # agent_send-by-model-decision needs a real engine, and that is the @live
   # tier's job. The @negative-probe scenario withholds the runner and shows
   # neither observable survives its absence.
-  #
-  # A finding surfaced live-verifying the @live scenario below, first
-  # recorded here as "a real permission-ladder gap". It was not one: the root
-  # cause turned out to be runner WIRING, and the last thing keeping that
-  # scenario red after the fix was a consumed refresh token on the host.
-  # Both are resolved and both are kept, in full, in that scenario's own
-  # comment — the misdiagnosis included, because it is the reason the
-  # per-engine floor at the bottom of this file exists at all.
 
   # LOCKED — requirement 3 (distinct context): each child's OWN reported
   # turn is read straight off its canonical transcript, never off an
@@ -90,11 +82,13 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # mailbox message body — the same payload class the @live tier asserts —
   # never a transcript read and never an in-process struct.
   #
-  # BREAK-POINT: this is the regression gate for the empty-coordinator-harp
-  # defect (see the @live scenario's comment). Revert
-  # selfIdentityFromEnv's minted-harp fallback and this goes red
-  # for exactly that reason — agent_recv drains role "" forever while
-  # agent_run still reports success.
+  # BREAK-POINT: this is the regression gate for an EMPTY COORDINATOR HARP.
+  # The harp IS the coordinator's mailbox address, and a bare `ctxloom mcp`
+  # coordinator has no ambient session to supply one, so with it empty the
+  # child's turn report is refused (queueMailPayloadID's `to == ""` guard)
+  # while agent_run keeps returning success. Revert selfIdentityFromEnv's
+  # minted-harp fallback and this goes red for exactly that reason —
+  # agent_recv drains role "" forever while agent_run still reports success.
   @reach-back @R2
   Scenario: A delegated child's own turn result reaches the coordinator's mailbox over the bus
     Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
@@ -191,128 +185,15 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     And the received message from "librarian" is the withheld runner's launch failure, and no result carrying its guidance arrived
     And "librarian" recorded no turn
 
-  # @live, both requirement 2 (genuine cross-ENGINE, the claim the hermetic
-  # tier above explicitly declines — the
-  # proven-working pair; the isolation probe just passed both, both axes)
-  # and the one part of requirement 4 the hermetic tier cannot supply: a
-  # child that DECIDES to call agent_send itself. Each child's marker
-  # phrase lives in its OWN materialized profile context, the exact "repeat
-  # the marker you can see in your context" technique
-  # j000400_multi_engine.feature's own @live scenario already verified live
-  # against these engines — the difference here is the reply crosses the
-  # AGENT-TO-AGENT BUS (agent_send/agent_recv), not a synchronous CLI return
-  # value, and each child is instructed, in its OWN turn, to make that call
-  # itself — a real model decision, not a scripted echo, which is exactly
-  # what the hermetic tier's mock backend cannot supply.
-  # SELF-SKIPS LOUDLY: the gate step probes each engine independently
-  # and names whichever is missing, and how, before spending a single live
-  # turn.
-  #
-  # GREEN END TO END, live-verified 2026-08-12: 18 of 18 steps, both children
-  # returned their OWN marker over the bus and the round-trip ECHO token came
-  # back. It spent months @wip, and the history below is kept in full because
-  # each entry names a real defect this scenario caught — and the last one is
-  # the reminder that a red @live row is not automatically a product bug.
-  # History, live-verified 2026-07-22 (task woozy-hasty-karma):
-  #
-  # ORIGINAL finding (icy-value), now FIXED: a live claude-haiku-4-5 child
-  # decided to call agent_send, emitted a tool_use for
-  # mcp__ctxloom__agent_send, and its PermissionRequest parked forever
-  # (90s+, twice) — never resolved despite a `[{"action":"auto_accept"}]`
-  # ladder. ROOT CAUSE was NOT the approval ladder (a full-stack
-  # reproduction resolved it every time). It was runner WIRING:
-  # internal/adapters/cli/llm_serve.go bound the engine host (which unblocks
-  # StartRun -> the engine spawn) BEFORE exporting CTXLOOM_MCP_SOCKET, so
-  # the child engine could spawn with no reach-back socket; its `ctxloom
-  # mcp` shim then ran its LOCAL surface — a second, rogue in-process
-  # coordinator — and the child engine's own MCP-tool permission flow stalls
-  # on that mis-wired server. FIX: export the socket (and fail loud if it
-  # can't be stood up) BEFORE BindHome. With it, the claude child now
-  # reports its marker over the real bus — the two claude assertions here
-  # pass.
-  #
-  # AN EMPTY COORDINATOR HARP SILENTLY EATS MAIL, and it is
-  # ENGINE-INDEPENDENT: the bare-`ctxloom mcp` coordinator can run with an
-  # EMPTY Identity.Harp
-  # (internal/adapters/cli's selfIdentityFromEnv read CTXLOOM_SESSION_HARP, which
-  # `ctxloom run` exports but the .mcp.json entry `manage install` writes
-  # does not). The harp IS the coordinator's mailbox address, so with it
-  # empty, bridgeTurnResult's mail is refused at queueMailPayloadID's
-  # `to == ""` guard and childSend's `parent == ""` arm rejects any
-  # agent_send(to:"parent") — while agent_run keeps returning success. A harp
-  # is minted when no ambient session supplies one; gated hermetically by the
-  # bridge scenario above.
-  #
-  # STATE AFTER THAT FIX, live-verified 2026-08-03 on this host:
-  #   - CLAUDE half: GREEN end to end. The claude child decided to call
-  #     agent_send, the coordinator's agent_recv returned its OWN marker,
-  #     and the round-trip ECHO token came back over the bus. All four
-  #     claude assertions pass (12 of 18 steps, up from 4).
-  #   - CODEX half: the BUS works — agent_recv really did return a message
-  #     from the second child — but the body is a runner-exit report, not the
-  #     marker, because that ENGINE could not authenticate:
-  #     "Your access token could not be refreshed because your refresh
-  #     token was already used" (401 refresh_token_reused).
-  #
-  # RESOLVED 2026-08-12 — and it was never a ctxloom defect, exactly as the
-  # entry above judged. The host's own engine invocation, with no ctxloom in
-  # the picture, failed with the identical 401; a human re-authenticated; this
-  # scenario then passed unchanged, no product change of any kind. Read a
-  # future red here with that precedent in hand: a runner-exit body carrying a
-  # 401 means re-authenticate the engine, and only a body that is neither the
-  # marker nor a credential error is evidence against ctxloom. The per-engine
-  # floor below now guards each engine of that pair separately, so a repeat of
-  # this failure names ONE engine instead of taking the pair down together.
-  # PARKED — this scenario needs TWO engines that can each ACT as an agent:
-  # read the context they were given and call agent_send back. Only one such
-  # engine ships. The registered double cannot stand in — it reports which
-  # surfaces it received, it does not reason over them — so repointing the
-  # second child at it would assert a reply nothing can produce.
-  #
-  # What is NOT in doubt is the machinery: per-child profile isolation and the
-  # two-way bus are exercised by the hermetic rows below. What goes unproven
-  # meanwhile is the differently-vendored half, which is the headline claim.
-  #
-  # UNTAG WHEN: a second engine that can act as an agent is available.
-  @live @wip
-  Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
-    Given real "claude" and a second agent-capable engine are both available for cross-engine delegation
-    And a session owner is standing
-    When the agent calls tool "agent_run" with:
-      | role         | claude-child |
-      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
-    Then the tool call succeeds
-    And "claude-child"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "claude-child" reports
-    Then the tool call succeeds
-    And the received message is from "claude-child" and its body carries its own guidance, not "second-child"'s
-    When the agent calls tool "agent_run" with:
-      | role         | second-child |
-      | input.prompt | Look at the additional context available to you in this session (not this message) for the one distinctive marker phrase it contains. Call the MCP tool agent_send with to="parent" and body set to EXACTLY that marker phrase, verbatim and in full, nothing else. Do this now. |
-    Then the tool call succeeds
-    And "second-child"'s session harp is remembered
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "second-child" reports
-    Then the tool call succeeds
-    And the received message is from "second-child" and its body carries its own guidance, not "claude-child"'s
-    When the agent calls tool "agent_send" addressed to "claude-child"'s session with body "Call the MCP tool agent_send with recipient parent and body set to EXACTLY this token, verbatim: J002300-LIVE-ECHO-TOKEN-4a6f18. Do this now, then stop."
-    Then the tool call succeeds
-    When the agent calls tool "agent_recv" repeatedly, waiting up to 120s total, until "claude-child" reports
-    Then the tool call succeeds
-    And the received message is from "claude-child" and its body contains "J002300-LIVE-ECHO-TOKEN-4a6f18"
-
   # THE PER-ENGINE FLOOR — one live row per engine ctxloom 0.7 can delegate to.
   #
-  # WHY IT EXISTS. Every scenario above proves delegation against either the
-  # mock (hermetic) or a real engine PAIR (@live). Neither answers the
-  # question an operator actually asks before trusting `agent_run` on their own
-  # box: "does a delegated child on MY engine really launch, really receive its
-  # composed context, and really get a word back to its coordinator?" Until
-  # this outline existed, two of the three 0.7 engines had never had a full
-  # live delegation round trip verified AT ALL — that child path was
-  # migrated onto the StartRun/runner model (see coord.viaStartRunBackends)
-  # with no live proof behind it. A per-engine
-  # matrix, in the suite's own live lane, is the difference between "the code
-  # path exists" and "the engine came back".
+  # WHY IT EXISTS. Every scenario above proves delegation against the mock
+  # (hermetic). That does not answer the question an operator actually asks
+  # before trusting `agent_run` on their own box: "does a delegated child on
+  # MY engine really launch, really receive its composed context, and really
+  # get a word back to its coordinator?" A per-engine row, in the suite's own
+  # live lane, is the difference between "the code path exists" and "the
+  # engine came back".
   #
   # WHAT EACH ROW PROVES, AND WHY IT CANNOT BE FAKED. The marker phrase exists
   # in exactly ONE place: a fragment in the child's OWN bundle, written fresh
@@ -370,14 +251,11 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # exactly as they are.
   #
   # WHAT IT ADDS TO THE FLOOR ABOVE. The per-engine floor proves the
-  # CHILD -> COORDINATOR direction on all three engines: a marker that exists
-  # only in the child's own composed context reaches the coordinator's mailbox.
-  # The other direction — the coordinator reaching INTO a live session
-  # mid-flight, and the child acting on what it was handed — was proven for
-  # claude-code alone, by the J002300-LIVE-ECHO-TOKEN step of the @live
-  # cross-engine scenario above. Capability-inventory row 13 records the
-  # removed engines as claimed-and-unproven for exactly that half. These three rows
-  # are that gap.
+  # CHILD -> COORDINATOR direction: a marker that exists only in the child's
+  # own composed context reaches the coordinator's mailbox. This outline
+  # proves the other direction on a real engine — the coordinator reaching
+  # INTO a live session mid-flight, and the child acting on what it was
+  # handed.
   #
   # THE CHANNEL IS THE BUS MESSAGE BODY, AND ONLY THAT. The value the child must
   # produce is a harp minted per cell at fixture time (probeHarps.Mint) and
@@ -413,7 +291,7 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # fixture still sent the real one — and each went RED with a BUS-DELIVERY
   # shape, so no row is passing because the check cannot fail.
   #
-  # WHAT THE SPOOL CENSUS ACTUALLY SHOWED, on every one of the three: three
+  # WHAT THE SPOOL CENSUS ACTUALLY SHOWED, on every row: three
   # message files, and BOTH directions on disk.
   #
   #   in/consumed   1: <ts>.00000001.coord.md            <- the coordinator's steer

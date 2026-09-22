@@ -10,8 +10,8 @@ Here's what that buys you, then how to get it running in a few minutes.
 
 | Capability | Description |
 |------------|-------------|
-| **Context Assembly** | Combine fragments into profiles, deliver to Claude/Antigravity through the engine's own context channel |
-| **Slash Commands** | Commands become `/commands` in Claude Code and Antigravity automatically |
+| **Context Assembly** | Combine fragments into profiles, deliver to Claude Code through the engine's own context channel |
+| **Slash Commands** | Commands become `/commands` in Claude Code automatically |
 | **Session Memory** | Persist context across `/clear`, recover seamlessly |
 | **Remote Pull** | Pull bundles from GitHub/GitLab, lockfile for reproducibility |
 | **Token Optimization** | Distill fragments and commands with a cheap, fast LLM |
@@ -166,7 +166,7 @@ returns before it is ever consulted.)
 
 ## Use Slash Commands
 
-Commands in bundles become slash commands in Claude Code and Antigravity CLI:
+Commands in bundles become slash commands in Claude Code:
 
 ```yaml
 # .ctxloom/content/bundles/my-tools.yaml

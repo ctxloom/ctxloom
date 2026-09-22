@@ -29,9 +29,8 @@ type SettingsWriter interface {
 
 // ContextWriter is the CONTEXT facet of an agent: it writes the assembled
 // context string to the backend's native on-disk context surface (CLAUDE.md,
-// .agents/AGENTS.md, .kiro/steering/…). It is a SIBLING of SettingsWriter, not
-// an extension — a backend with no native context surface (codex/acp/mock)
-// simply does not implement it, so the dispatch opts it out. Kept separate so a
+// MOCK_CONTEXT.md, …). It is a SIBLING of SettingsWriter, not an extension — a
+// backend with no native context surface simply does not implement it, so the dispatch opts it out. Kept separate so a
 // consumer that only writes context does not drag in the hooks/MCP surface, and
 // a settings-only backend does not grow an unused WriteContext method.
 type ContextWriter interface {

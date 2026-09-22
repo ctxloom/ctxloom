@@ -29,17 +29,17 @@ func writeStoreFile(t *testing.T, home, harp, rel string, mtime time.Time) strin
 }
 
 // TestLocateTranscript_NewestJSONLWins: discovery walks the engine's nested
-// store (claude's <encoded-project>/<uuid>.jsonl, antigravity's dot-dir
-// nesting) and returns the newest .jsonl.
+// store (claude's <encoded-project>/<uuid>.jsonl, or deeper nesting under a
+// dot-dir) and returns the newest .jsonl.
 func TestLocateTranscript_NewestJSONLWins(t *testing.T) {
 	home := testsupport.Isolate(t)
 	base := time.Now().Add(-time.Hour)
 
 	writeStoreFile(t, home, "brisk-teal-otter", "-proj-enc/old.jsonl", base)
-	// Antigravity nests under a DOT directory; the walk must not skip it.
+	// A store may nest under a DOT directory; the walk must not skip it.
 	want := writeStoreFile(t, home, "brisk-teal-otter",
 		"uuid-1/.system_generated/logs/transcript_full.jsonl", base.Add(30*time.Minute))
-	// A newer kiro-style .json never outranks an existing .jsonl.
+	// A newer .json never outranks an existing .jsonl.
 	writeStoreFile(t, home, "brisk-teal-otter", "meta.json", base.Add(45*time.Minute))
 
 	got, ok := LocateTranscript("brisk-teal-otter")
@@ -97,8 +97,8 @@ func TestLocateTranscript_SubagentOnlyStore_NeverResolves(t *testing.T) {
 	}
 }
 
-// TestLocateTranscript_JSONFallback: with no .jsonl in the store (the kiro
-// layout), the newest .json is returned.
+// TestLocateTranscript_JSONFallback: with no .jsonl in the store, the newest
+// .json is returned.
 func TestLocateTranscript_JSONFallback(t *testing.T) {
 	home := testsupport.Isolate(t)
 	base := time.Now().Add(-time.Hour)

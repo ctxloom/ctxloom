@@ -21,8 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
-// HookOutput is the JSON output format for AI tool SessionStart hooks,
-// compatible with Claude Code and Codex.
+// HookOutput is the JSON output format for Claude Code's SessionStart hook.
 type HookOutput = claude.SessionStartOutput
 
 // HookSpecificOutput contains hook-specific data to inject.

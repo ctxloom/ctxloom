@@ -379,9 +379,8 @@ func frontmatterBlock(content string) (block string, ok bool) {
 
 // SessionPlanPaths returns the absolute paths of ONE harp's plan documents,
 // sorted by base name. It is the single definition of "where does a session's
-// plans live" for the readers that collect a session's own plans — the agent
-// server's plan service (lm/grpc.ReadPlanFiles) and the runner's artifact
-// stamper (mcp.artifactStamper.planCandidates) — so a plan an agent was told
+// plans live" for the readers that collect a session's own plans — e.g. the
+// runner's artifact stamper (mcp.artifactStamper.planCandidates) — so a plan an agent was told
 // to write can never be somewhere none of them look.
 //
 // TWO DIRECTORIES, IN PRECEDENCE ORDER:

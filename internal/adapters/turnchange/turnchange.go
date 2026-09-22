@@ -448,9 +448,8 @@ func (c *collector) Close() error { return nil }
 // same reader that produces ctxloom's canonical transcript — and returns its
 // events.
 //
-// src is adapter's own locator, not necessarily a file path: a
-// JSONL-per-session engine takes the transcript file, kiro takes its
-// "<db-path>#<conversation-id>" composite (vendorreader.VendorAdapter).
+// src is adapter's own locator (vendorreader.VendorAdapter), not necessarily
+// a file path: a JSONL-per-session engine takes the transcript file.
 //
 // Exported so a second caller cannot arrive at the same bytes by a second
 // route. A hand-rolled JSONL scan is the obvious shortcut for anyone who only

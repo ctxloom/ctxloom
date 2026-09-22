@@ -17,8 +17,9 @@ import (
 // the NDJSON contract the container structured arm actually delivers.
 //
 // The contract a structured frontend consumes has three discriminators --
-// entry, complete and session (chatEventType*). The go-plugin arm emits all
-// three (chatEventToJSON). This arm emits entry only, so a frontend that
+// entry, complete and session (chatEventType*). chatEventToJSON projects all
+// three, but no production path calls it: this arm, the one structured arm,
+// emits entry only, so a frontend that
 // switches on type gets the prose and nothing else: no per-turn usage or cost
 // line, and no harness-native session id -- which is the resume handle, so
 // "continue this conversation" cannot be offered for a container session at

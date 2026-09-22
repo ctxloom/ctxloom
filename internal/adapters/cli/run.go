@@ -1279,17 +1279,14 @@ func finalizeRunPrompt(prompt string, print, stdinPiped bool, stdin io.Reader) (
 	return prompt, nil
 }
 
-// recordOneshotAnswer is the single seam both `--one-shot` arms use to close out a
-// one-shot run: the go-plugin/Backend.Execute arm (run.go) and the Transport-2
-// container arm (runOneshotViaCoord). It records the two-entry canonical
-// transcript and reports the zero-answer case as a failure.
+// recordOneshotAnswer closes out a `--one-shot` run (runOneshotViaCoord): it
+// records the two-entry canonical transcript and reports the zero-answer case
+// as a failure.
 //
-// The container arm warned about an empty answer and returned nil
-// anyway; the go-plugin arm had no check at all and simply handed the empty
-// string to RecordOneshot, which treats "nothing to record" as a legitimate
-// no-op. Either way `ctxloom run --one-shot ... > out.txt` produced an empty file
-// and exit 0. There is no legitimately-empty one-shot answer — one question was
-// asked and none was answered — so it exits nonzero and says so.
+// transcript.RecordOneshot treats "nothing to record" as a legitimate no-op, so
+// without this check `ctxloom run --one-shot ... > out.txt` would produce an
+// empty file and exit 0. There is no legitimately-empty one-shot answer — one
+// question was asked and none was answered — so it exits nonzero and says so.
 //
 // Transcript capture itself stays best-effort: losing capture must never change
 // the exit code of a run that DID answer.
@@ -1308,7 +1305,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 // convertVendorTranscriptOnExit runs the vendor-transcript heal
 // (operations.ResolveAndHeal) for an interactive-pty session that just
 // exited. Extracted to its own small, directly-unit-testable function (no
-// goplugin/pty involved) rather than inlined at the call site above,
+// pty involved) rather than inlined at the call site above,
 // mirroring how transcript.RecordOneshot itself is a standalone function the
 // oneshot branch just calls. A blank harp (no session identity) or an
 // unindexed harp are silent no-ops; any other lookup/heal failure is warned,

@@ -75,7 +75,6 @@ registry) and never branches on its name: `tests/arch`'s
 |---|---|
 | **"Does engine X support Y?"** | **[Capability matrix](capability-matrix.md)** — engine × capability, every cell sourced |
 | What the `Backend` interface still is, and how engines are composed | [Backend abstraction & registry](backend-abstraction.md) |
-| How a run got from the host to an engine process over the go-plugin wire (RETIRED, slice 13 — kept as history until the runner is documented here) | [The plugin wire](grpc-wire.md) |
 | What "isolated" actually means, per axis and per engine | [Isolation](isolation.md) |
 
 ## Per-engine adapters
@@ -114,12 +113,9 @@ projection of a managed config left to drift.
 These are documented in full on the pages above; they are collected here because
 each one contradicts what the surrounding code looks like it does.
 
-1. ~~**The launch wire is hand-written and nothing but a test binds it to the Go struct.**~~ — **RETIRED with the go-plugin wire (slice 13).** The runner decodes the same `launch.Launch` the originator resolved; the historical account stays in [wire](grpc-wire.md).
-2. ~~**`wire.Hook.PreToolFallback` is always `false` on the engine side**~~ — **RESOLVED `40b49a7f`.** It is persisted, bundled, trust-hashed and now carried; no registered engine reads it at launch today, and it stays wired for whichever engine needs it next. → [wire](grpc-wire.md)
-3. ~~**`ChatRequest.Runtime` does not cross the wire**~~ — **RESOLVED `40b49a7f`.** It used to mean a container-bound structured session ran the engine on the host while the session summary reported container isolation. Repairing it *activated* a path-confinement hole it had been masking, which is why confinement landed first (`73ea8d7f`). → [wire](grpc-wire.md)
-4. ~~**An unprofiled backend's container inherits claude's credentials.**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm of `engineContainerSpecFor` returned `resolveClaudeContainerAuth` for any unrecognized engine. It now fails closed, and `runtime: container-*` for an engine with no auth mapping is refused when the binding is *written*, not when it is launched. → [isolation](isolation.md)
-5. **Isolating a shared cwd without a container requires `agent.OutOfCwd`.** claude-code's approaches declare it; a backend whose approaches lack it falls back to the loudly-warned well-known write, and concurrent per-agent isolation for it needs a worktree or a container cell. → [matrix §4](capability-matrix.md)
-6. **No composed engine has a live transcript scraper.** claude-code's was deleted outright rather than demoted (its `Backend.History()` is nil, which `operations.HistoryForBackend` refuses by name), and the mock's answers every read with an error; canonical capture is written runner-side into `internal/adapters/transcript`. → [matrix §6](capability-matrix.md)
+1. ~~**An unprofiled backend's container inherits claude's credentials.**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm of `engineContainerSpecFor` returned `resolveClaudeContainerAuth` for any unrecognized engine. It now fails closed, and `runtime: container-*` for an engine with no auth mapping is refused when the binding is *written*, not when it is launched. → [isolation](isolation.md)
+2. **Isolating a shared cwd without a container requires `agent.OutOfCwd`.** claude-code's approaches declare it; a backend whose approaches lack it falls back to the loudly-warned well-known write, and concurrent per-agent isolation for it needs a worktree or a container cell. → [matrix §4](capability-matrix.md)
+3. **No composed engine has a live transcript scraper.** claude-code's was deleted outright rather than demoted (its `Backend.History()` is nil, which `operations.HistoryForBackend` refuses by name), and the mock's answers every read with an error; canonical capture is written runner-side into `internal/adapters/transcript`. → [matrix §6](capability-matrix.md)
 
 ## Scope
 

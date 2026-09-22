@@ -256,8 +256,8 @@ func TestComposeAgentContainerfile_ExactlyOneEngineStage(t *testing.T) {
 // Docker invalidates every layer after a changed one. The version ARG/LABEL
 // interpolate a string that changes on EVERY build, so while they sat ABOVE the
 // engine install they invalidated the engine layer every single time — re-running
-// the vendor installer on every ctxloom change. That is how a claude-code cell
-// came to die on opencode's installer hitting GitHub's anonymous API quota.
+// the vendor installer on every ctxloom change, where a vendor installer that
+// hits a rate-limited network API can kill the build.
 func TestComposeAgentContainerfile_EngineInstallPrecedesTheVolatileLayers(t *testing.T) {
 	cf := string(composeAgentContainerfile("claude-code"))
 	engineAt := strings.Index(cf, "claude --version")

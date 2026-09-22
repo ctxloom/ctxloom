@@ -183,7 +183,7 @@ func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]str
 		Interactive:  interactive,
 		StdinCleanup: stdinCleanup,
 		// The harp is read from the REQUEST env, which is where the caller
-		// already puts it (internal/lm/grpc/chat.go stamps SessionHarpEnv);
+		// already puts it (launch.Launch.EngineEnv stamps SessionHarpEnv);
 		// a run nobody named one for gets "", which addresses no pane. The
 		// engine name is b.name rather than a closure injected at the four
 		// SetLauncher sites: the backend already knows what engine it is, so
@@ -199,12 +199,11 @@ func (b *BaseBackend) run(ctx context.Context, args []string, env map[string]str
 // delivers.
 //
 // It is THE assembler. There is exactly one, and every path that needs "the
-// assembled context" goes through it: WriteContextFile's full-setup delivery,
-// the launch surfaces, and the fan-out path in lm/grpc/server.go. That is the
-// point — a second implementation meant the same fragment set produced
-// different bytes depending on which route it took, and only one of the two
-// emitted the oversize warning, so a run could deliver an oversize context in
-// silence by choosing the other route. A warning a caller can skip by picking a
+// assembled context" goes through it: WriteContextFile's full-setup delivery
+// and the launch surfaces. That is the point — a second implementation would
+// produce different bytes for the same fragment set depending on the route,
+// and a warning only one route emits lets a run deliver an oversize context in
+// silence by choosing the other. A warning a caller can skip by picking a
 // different function is not a warning.
 //
 // The work itself lives in assembleDedupedContext (contextfile.go), beside the

@@ -61,7 +61,7 @@ func New(rep report.Sink, app *operations.App, projectDir string, starter Starte
 // The bar for admitting one is a per-backend recon showing that delta is
 // empty. What makes it empty generally: the runner-side standup
 // (internal/adapters/cli's standUpRunner), the isolation starter
-// (`ctxloom llm host <backend> --label ...`) and the launch codec
+// (`ctxloom runner <backend>`) and the launch codec
 // (coordgrpc.EncodeLaunch) never name a backend at all, and the runner
 // delivers the package through the engine's own Setup (runner.Execute), the
 // same writers every host launch goes through.
@@ -74,7 +74,7 @@ func New(rep report.Sink, app *operations.App, projectDir string, starter Starte
 var viaStartRunBackends = map[string]bool{
 	"claude-code": true,
 	// mock is reviewed onto StartRun because the binary can HOST it: `ctxloom
-	// llm host mock` stands up a real runner around the deterministic echo, so
+	// runner mock` stands up a real runner around the deterministic echo, so
 	// a mock child is a driveable run, not a run nothing can answer. That is
 	// what the acceptance journeys rely on when they delegate through a real
 	// ctxloom binary. It is safe in a user's binary for the same reason it was
@@ -84,7 +84,7 @@ var viaStartRunBackends = map[string]bool{
 
 // admit is Resolve's backend gate: checkStartRunAllowlist, nothing else. A
 // Starter (Options.Starter) changes HOW an admitted backend's runner is
-// stood up — in-process double instead of `ctxloom llm host` — never WHETHER
+// stood up — in-process double instead of `ctxloom runner` — never WHETHER
 // it is admitted. An earlier shape special-cased mock here on the premise
 // that it had no runner process of its own; that was false (the binary hosts
 // it), so mock is on the allowlist and the special case is gone.
@@ -439,11 +439,11 @@ func warnNoReachBack(rep report.Reporter, agentName string, servers []agent.Chat
 		agentName, agent.MCPServerName)
 }
 
-// childVerbosity gates the child launch's plugin/adapter diagnostics. A dead
-// child's only stderr trail (the go-plugin logger forwarding `llm serve` —
-// and through it the ACP adapter's stderr) is DISCARDED at verbosity 0, and
-// the coordinator often lives in a flagless `ctxloom mcp` process, so the
-// knob is env-only: CTXLOOM_VERBOSE (the existing process-wide verbose
+// childVerbosity is the verbosity handed to the child's runner starter
+// (isolation.StarterForWorkspace): above 0 a container runner reports its
+// auth route, and a host runner reads the same variable itself. The
+// coordinator often lives in a flagless `ctxloom mcp` process, so the knob is
+// env-only: CTXLOOM_VERBOSE (the existing process-wide verbose
 // switch) turns the trail on at trace. It is read through envswitch so this
 // site cannot disagree with the binary's own reading of the same variable —
 // a switch that is on for logging and off for child diagnostics is worse than

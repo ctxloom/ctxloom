@@ -71,9 +71,9 @@ type Agent struct {
 	// argv sink at rest and so cannot be any table's default.
 	//
 	// Validated against the engine's Declaration when it is WRITTEN
-	// (Validate below), not at launch: system-prompt is claude-only, and a kiro
-	// agent asking for it should learn so from the command that set it rather
-	// than from a session that behaves unexpectedly later.
+	// (Validate below), not at launch: an approach the engine does not declare
+	// should be refused by the command that set it rather than surface as a
+	// session that behaves unexpectedly later.
 	Surfaces map[string]string `yaml:"surfaces,omitempty"`
 	// Roots is this binding's ROOT selection per surface kind
 	// (delivery.Preference.Root): under which of the roots the engine's

@@ -231,8 +231,8 @@ type KindedDelivery interface {
 }
 
 // SurfaceInputs is the shared, per-run superset of everything a backend's
-// surfaces write: the assembled context (as a string for the ContextWriter-core
-// engines, and the raw fragments for codex's file writer), the merged MCP config
+// surfaces write: the assembled context (as a string, and as the raw fragments
+// for an approach that assembles its own), the merged MCP config
 // + profile/companion bundle servers, the merged hook set + statusline policy, and
 // the command exports. A caller fills it once and hands it to every
 // approach's Construct (Declaration.Construct), which picks the fields IT
@@ -267,14 +267,6 @@ type SurfaceInputs struct {
 	// DenyTools carries ManagedConfig.DenyTools through to the backend's
 	// settings surface — see its doc for the deny-tools semantics.
 	DenyTools []string
-	// AgentName carries a backend-specific override for a materialized
-	// per-agent config's own identity/name — currently only kiro's, whose
-	// `--agent <name>` launch flag selects a custom agent by name (kiro's
-	// settingsSurface used to always write the hardcoded default name
-	// regardless of this override, so buildArgs and the materialized file
-	// silently disagreed). Empty uses the backend's own default and is a
-	// no-op for every other backend.
-	AgentName string
 }
 
 // CellKind is the resolved isolation cell a run executes in, decided from

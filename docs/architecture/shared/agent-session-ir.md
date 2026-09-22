@@ -1,6 +1,6 @@
 # agent — session transcript IR
 
-The normalized conversation representation every engine's transcript is mapped *into* and every consumer (memory compaction, resume, the transcript importers) reads *out of*. `SessionEntry` is the hub type: one struct per conversation turn, a discriminated union flattened into fields whose liveness depends on `Type` and `SystemKind`. Each of these DTOs has a proto mirror in `internal/lm/grpc` and a JSON mirror in `internal/adapters/transcript/record.go` — three declarations of one shape, the standing cost of a hub IR.
+The normalized conversation representation every engine's transcript is mapped *into* and every consumer (memory compaction, resume, the transcript importers) reads *out of*. `SessionEntry` is the hub type: one struct per conversation turn, a discriminated union flattened into fields whose liveness depends on `Type` and `SystemKind`. Each of these DTOs has a JSON mirror in `internal/adapters/transcript/record.go` — two declarations of one shape, the standing cost of a hub IR.
 
 ```mermaid
 classDiagram
@@ -93,4 +93,4 @@ classDiagram
 - **`MostRecentSession` returns an unwrapped `fmt.Errorf("no sessions found")`** with no sentinel, so "this project has no history" cannot be distinguished from a real failure.
 - **`SessionStore` has two disjoint field partitions**: `{FS} → ParseSessionFile` and `{HomeDir} → ResolveHomeDir`. No caller uses both; the `ParseSessionFile` caller constructs a throwaway store purely to reach the method.
 - **Two defaulting mechanisms for the OS filesystem coexist**: `NewSessionStore` sets `FS: afero.NewOsFs()` and `ParseSessionFile` calls `GetFS(s.FS)` (`settings_io.go:89`) which does the same, so a zero-value `SessionStore{}` behaves identically.
-- **Every DTO here has three declarations** — this package, the proto in `internal/lm/grpc`, and the JSON record in `internal/adapters/transcript/record.go`. Adding a field means editing all three plus the converters.
+- **Every DTO here has two declarations** — this package and the JSON record in `internal/adapters/transcript/record.go`. Adding a field means editing both plus the converters.

@@ -149,7 +149,7 @@ func GetBuiltinCommand(name string) ([]byte, error) {
 // for callers that want to consume the command's own prompt text directly
 // (e.g. composing it into another session's prompt) rather than exporting it
 // as a slash-command file. This is a second consumption path onto the SAME
-// embedded file `internal/lm/backends.builtinCommands` exports as a slash
+// embedded file operations.builtinCommands exports as a slash
 // command; the two must never drift, so both read the identical bytes from
 // this package rather than each keeping their own copy.
 func GetBuiltinCommandBody(name string) (string, error) {
@@ -181,7 +181,7 @@ func MustGetBuiltinCommandBody(name string) string {
 //
 // It is exported because the SAME embedded files are consumed two ways — as a
 // prompt body through GetBuiltinCommandBody here, and as a slash-command
-// export through internal/lm/backends.builtinCommands — and both must agree
+// export through operations.builtinCommands — and both must agree
 // about where the frontmatter ends. That package imports this one, so the
 // parser lives here, next to the bytes it parses; the reverse direction would
 // cycle.

@@ -932,9 +932,8 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 		c.failChild(rt, err)
 		return err
 	}
-	// The journal proof (acceptance: no go-plugin Chat dial for a migrated
-	// child): the interaction journal records start_run for this run — and
-	// the legacy path's chat-close cause can never appear for it.
+	// The journal proof: the interaction journal records start_run for this
+	// run.
 	c.audit("start_run", rt.harp, map[string]string{
 		"run_id": rt.runID, "harness": rt.plan.Backend, "model": model,
 		"resume_session_id": resumeSessionID,

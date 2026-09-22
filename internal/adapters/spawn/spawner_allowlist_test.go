@@ -18,7 +18,7 @@ import (
 // generic failure.
 func TestCheckStartRunAllowlist(t *testing.T) {
 	t.Run("StartRun backends pass", func(t *testing.T) {
-		// mock is on the list because the binary hosts it (ctxloom llm host
+		// mock is on the list because the binary hosts it (ctxloom runner
 		// mock); see TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt.
 		for _, backend := range []string{"claude-code", "mock"} {
 			assert.NoError(t, checkStartRunAllowlist(backend), "backend %q", backend)
@@ -67,7 +67,7 @@ func TestProdSpawner_Resolve_Allowlist(t *testing.T) {
 
 // TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt pins the reason mock
 // may run delegated children: it is on the StartRun allowlist, and it is there
-// because `ctxloom llm host mock` stands up a real runner around it. The
+// because `ctxloom runner mock` stands up a real runner around it. The
 // Starter seam is orthogonal — it swaps the runner for an in-process double
 // and admits nothing on its own — and the allowlist admits nothing unreviewed.
 func TestProdSpawner_MockIsAdmittedBecauseTheBinaryHostsIt(t *testing.T) {

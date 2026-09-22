@@ -105,9 +105,9 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 
 	// Refuse (or, with --force, loudly warn) when workDir resolves onto a
 	// TARGET backend's user-global scope — see checkHookTargetScope. Scoped to
-	// `backend` (not every backend unconditionally) so a codex-only apply is
-	// never blocked on a claude collision neither of them is asking about,
-	// and vice versa.
+	// `backend` (not every backend unconditionally) so an apply aimed at one
+	// backend is never blocked on another backend's collision it is not
+	// asking about.
 	if err := checkHookTargetScope(freshCfg, workDir, backend, req.Force); err != nil {
 		return nil, err
 	}

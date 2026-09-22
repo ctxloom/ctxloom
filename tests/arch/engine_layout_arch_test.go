@@ -19,12 +19,7 @@
 //     ContainerOverlayDirsFor / ContainerTranscriptStoreRelFor — so the
 //     check covers the declaration AND that the push delivered it.
 //   - internal/adapters/gitignore/gitignore.go's WorktreeArtifactPatterns (the LIVE
-//     per-agent-worktree exclude set) and TransientArtifactPatterns/
-//     WorktreeArtifactPatterns' pinned LEGACY .codex/* entries (the
-//     pre-relocation project-root home, superseded by the per-session
-//     instance (paths.HarpSessionEngineHomes) but kept forever for a checkout that never
-//     re-opens — see that file's own "THE .codex ENTRIES ARE NOW LEGACY"
-//     comment).
+//     per-agent-worktree exclude set).
 //
 // internal/adapters/gitignore still carries its facts as literals rather than
 // importing the engine packages, so nothing in PRODUCTION code makes the two
@@ -51,13 +46,6 @@
 //   - the shared ".ctxloom/cache" overlay entry isolation appends for every
 //     engine is ctxloom's own cache path, not a fact about any engine's file
 //     arrangement — never checked here.
-//   - TransientArtifactPatterns' and WorktreeArtifactPatterns' ".codex/
-//     config.toml"/".codex/auth.json" entries are PINNED LEGACY (see the
-//     package doc above) — checked against locally-pinned legacy constants
-//     in THIS file, deliberately NOT against codex.ConfigFileName/
-//     AuthFileName, so a future rename of codex's LIVE constants cannot
-//     silently rewrite what a pre-migration checkout's .gitignore is
-//     required to still exclude.
 package arch
 
 import (
@@ -72,13 +60,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
-
-// legacyCodexConfigFileName and legacyCodexAuthFileName are gitignore.go's
-// OWN pinned pre-migration codex filenames (TransientArtifactPatterns /
-// WorktreeArtifactPatterns' ".codex/config.toml" and ".codex/auth.json").
-// Deliberately declared HERE rather than borrowed from codex.ConfigFileName/
-// codex.AuthFileName — see this file's package doc.
-const ()
 
 // TestArch_EngineLayoutAgreement is the single gate for every table named in
 // this file's package doc. Each sub-test below covers one table x one axis;

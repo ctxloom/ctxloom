@@ -104,4 +104,4 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 
 ## See also
 
-[Capability matrix](capability-matrix.md) · [Backend abstraction](backend-abstraction.md) · [Plugin wire](grpc-wire.md) · [Isolation](isolation.md)
+[Capability matrix](capability-matrix.md) · [Backend abstraction](backend-abstraction.md) · [Transport](../agentcoord/transport.md) · [Isolation](isolation.md)

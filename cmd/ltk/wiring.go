@@ -91,12 +91,10 @@ func knownShells() string {
 // path (empty when falling back to the built-in allow-all config).
 //
 // The ancestor walk matters because hook hosts can differ in the cwd they
-// give hooks: Claude Code runs them at the project root; antigravity, before
-// it was removed in 0.7.0, ran them inside <workspace>/.agents instead. A
-// cwd-only search would have missed the project's rules under that second
-// cwd and silently fallen back to the built-in allow-all config — the wrong
-// direction for a guard to fail — so the walk stays general for whichever
-// second host arrives next.
+// give hooks: Claude Code runs them at the project root, but a host may run
+// them in a subdirectory of the workspace. A cwd-only search would miss the
+// project's rules from there and silently fall back to the built-in
+// allow-all config — the wrong direction for a guard to fail.
 func loadConfig(path string) (*rules.Config, string, error) {
 	if path != "" {
 		c, err := rules.Load(path)

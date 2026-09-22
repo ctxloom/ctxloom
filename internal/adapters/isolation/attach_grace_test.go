@@ -181,8 +181,7 @@ func attachRecordingScript(t *testing.T, argvFile, envFile string) string {
 // KEY→VALUE env to deliver had only spec.Env — which renders `-e KEY=VAL` into a
 // `run` argv that stays world-readable via /proc/<pid>/cmdline for the whole life
 // of the container. That is precisely the exposure the rest of this package
-// avoids (containerAuth.envPassthrough's bare-name form, and LaunchSpec.SpawnEnv
-// on the go-plugin path). The value must reach the container without the argv
+// avoids (containerAuth.envPassthrough's bare-name form). The value must reach the container without the argv
 // ever holding it.
 //
 // The second: the bare-name `-e NAME` form only works because the `run` process

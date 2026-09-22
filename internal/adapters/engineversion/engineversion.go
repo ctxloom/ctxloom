@@ -18,10 +18,9 @@
 // care.
 //
 // PARSING IS PER-ENGINE, BY MEASUREMENT. `--version` output has no shared
-// shape across vendors — measured 2026-08-07 on this project's dev host,
-// claude prints "2.1.225 (Claude Code)", codex prints "codex-cli 0.144.4" and
-// opencode prints a bare "1.18.4". One regex over all of them is a guess, so
-// each engine declares its own Command (flag + parse) in its backend
+// shape across vendors — claude prints "2.1.225 (Claude Code)", where other
+// vendor CLIs lead with their own name or print a bare semver. One regex over
+// all of them is a guess, so each engine declares its own Command (flag + parse) in its backend
 // descriptor, next to the rest of that engine's per-engine facts.
 //
 // EVERY FAILURE HERE IS A REFUSAL, NEVER A DEFAULT. A binary that is absent, a
@@ -101,8 +100,8 @@ type Resolver func(engine string) (binaryPath string, cmd Command, err error)
 
 // BinaryAbsentError reports that the engine's own CLI could not be found, so
 // there is nothing to ask. Distinguished from the other failures because an
-// uninstalled engine is an ordinary state of the world (a user who has claude
-// but not kiro), not evidence of anything wrong.
+// uninstalled engine is an ordinary state of the world, not evidence of
+// anything wrong.
 type BinaryAbsentError struct {
 	Engine string
 	Err    error
@@ -334,28 +333,6 @@ func TokenAt(output string, i int) (string, error) {
 		return "", fmt.Errorf("expected a version token at position %d of %q, but it has only %d token(s)", i, line, len(fields))
 	}
 	return validate(fields[i])
-}
-
-// FirstSemverToken scans the first non-empty line for the first token that
-// parses as a semver, and is the DELIBERATELY TOLERANT counterpart of TokenAt.
-//
-// It exists only for engines whose real `--version` output this project has
-// never measured, because their binary is not installed on any dev host
-// (kiro-cli as of 2026-08-07). Guessing a POSITION for those
-// would refuse a working engine on a formatting detail nobody has checked;
-// scanning at least accepts any of the three shapes actually seen in the wild.
-// It is still a refusal when nothing on the line is semver-shaped.
-//
-// Replace a caller of this with TokenAt the moment that engine's output is
-// measured on a real install — the strict form is the one that reports drift.
-func FirstSemverToken(output string) (string, error) {
-	line := firstNonEmptyLine(output)
-	for _, f := range strings.Fields(line) {
-		if v, err := validate(f); err == nil {
-			return v, nil
-		}
-	}
-	return "", fmt.Errorf("no semver-shaped token in %q", line)
 }
 
 func firstNonEmptyLine(output string) string {

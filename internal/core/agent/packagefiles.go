@@ -47,9 +47,8 @@ type preparedItem struct {
 // per-agent package writer (a command-file writer with exactly one rendered
 // file per item, and a skill-package writer with SKILL.md plus its sibling
 // files). dir is shared territory with user-authored files, and can ALSO be
-// shared with a co-located surface's own managed set (kiro writes commands and
-// skills into one native directory — see internal/shared/ledger's package
-// doc), so it is never wiped wholesale: ctxloom tracks every file it wrote in
+// shared with a co-located surface's own managed set (see
+// internal/shared/ledger's package doc), so it is never wiped wholesale: ctxloom tracks every file it wrote in
 // a manifest (the shared managed-content ledger, scoped to this surface).
 //
 // items is the caller's list of exportable things (CommandExport, SkillExport,
@@ -81,12 +80,10 @@ type preparedItem struct {
 // item rather than leaving a partial tree on disk — the silent-no-op /
 // partial-materialize discipline this codebase holds writers to. An item whose
 // render() call itself returns an error is treated the SAME way, a per-item
-// warn-and-skip: existing per-agent writers already depend on one bad item
-// (opencode: a command with no content) not taking the rest of a delivery
-// down with it. What the historical bug actually needed fixed is not
-// per-item tolerance — it is that this surface's previously-tracked files
-// used to be deleted before any of this validation ran at all. Under
-// render-then-swap nothing is deleted until the new content has been
+// warn-and-skip: one bad item (e.g. a command with no content) must not take
+// the rest of a delivery down with it. What must hold instead is that this
+// surface's previously-tracked files are never deleted before this validation
+// runs. Under render-then-swap nothing is deleted until the new content has been
 // confirmed live, so a single item's tolerated failure costs it that one
 // item's slot in the ledger, never anyone else's, and never anything before
 // the swap has actually landed. The one failure shape that DOES abort the
@@ -129,10 +126,8 @@ func WriteManagedPackageFiles[T any](
 	// failure for one item is a per-item WARN-AND-SKIP, same as an unsafe
 	// path, and NOT a whole-call abort — a caller-level content-validation
 	// failure (e.g. a command with no body to render) is an expected,
-	// recoverable per-item condition existing per-agent writers already
-	// depend on tolerating so one bad item doesn't take the rest of a
-	// delivery down with it (see e.g. opencode's
-	// TestWriteCommandFiles_EmptyContentIsSkippedNotWritten). What must never
+	// recoverable per-item condition, tolerated so one bad item doesn't take
+	// the rest of a delivery down with it. What must never
 	// happen is EVERY enabled item failing while content used to exist here —
 	// that is the empty-render guard below, evaluated once over the whole
 	// batch rather than per item.
@@ -289,10 +284,9 @@ func WriteManagedPackageFiles[T any](
 	// → live, remove aside" — a whole-DIRECTORY version of that dance (renaming
 	// dir itself aside and a fully-assembled temp tree into its place) was
 	// ruled out on reading the actual call sites: dir is shared territory a
-	// bare directory swap would destroy. kiro writes its commands surface AND
-	// its skills surface into the SAME native directory (two ledger surfaces,
-	// one dir), and a hand-authored file can sit
-	// right beside managed content in any engine's dir. Swapping dir itself
+	// bare directory swap would destroy. Two ledger surfaces may share one
+	// native directory, and a hand-authored file can sit right beside managed
+	// content in any engine's dir. Swapping dir itself
 	// would evict the co-located surface's files and any user content in the
 	// same breath as this call's own content. Per-file rename against a temp
 	// tree that is a sibling of dir (same parent, same volume) gets the

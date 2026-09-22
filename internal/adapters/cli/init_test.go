@@ -357,7 +357,7 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	writeEngineConfig(t, projectApp, "claude-code")
 	chdir(t, project)
 
-	// The .ctxloom this init actually targets: names codex.
+	// The .ctxloom this init actually targets: names mock.
 	target := t.TempDir()
 	targetApp := filepath.Join(target, ".ctxloom")
 	writeEngineConfig(t, targetApp, "mock")

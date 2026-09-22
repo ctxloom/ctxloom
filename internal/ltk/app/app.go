@@ -89,7 +89,7 @@ func New(cfg *rules.Config, shells Shells) *App {
 // resolveShell picks the shell to parse with, in precedence order:
 //  1. Shells.Force — operator override (--shell)
 //  2. hint — the adapter's per-call, tool-derived shell (authoritative; e.g.
-//     Claude's PowerShell tool → pwsh, or a future Codex adapter → bash)
+//     Claude's PowerShell tool → pwsh)
 //  3. defaults.shell — explicit operator config
 //  4. Shells.Host — the user's $SHELL (Claude's Bash tool runs in the login shell)
 //  5. DefaultShell — final fallback (bash)

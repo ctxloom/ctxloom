@@ -17,10 +17,9 @@
 // ledger removes the need for the copy: content nobody claims is never touched.
 //
 // THE CO-LOCATION INVARIANT, which is load-bearing. Two surfaces can share one
-// directory — kiro writes COMMANDS and SKILLS into the same
-// skills dir — and before this package they depended on two separate manifest
-// FILENAMES so one surface's cleanup could not delete the other's files. One
-// marker with SURFACE-TYPED entries preserves that separation without
+// directory (an engine may read COMMANDS and SKILLS from the same dir), and one
+// surface's cleanup must not delete the other's files. One marker with
+// SURFACE-TYPED entries preserves that separation without
 // preserving five filenames. Every read and write here is surface-scoped for
 // that reason, and an untyped line is adopted by no surface at all.
 package ledger
@@ -148,8 +147,7 @@ func (l Ledger) Read(s Surface) ([]string, error) {
 //
 // The lock is deliberately NOT here. Every production caller already wraps
 // its whole load-modify-save-and-ledger-write cycle in agent.WithFileLock,
-// keyed on the settings file it is editing (claude, codex, opencode,
-// agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
+// keyed on the settings file it is editing (claude, agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
 // package from its scan for exactly that reason: this is the primitive, and
 // "their own callers are what must hold the lock". A second lock in here
 // would be a second idiom over the same file with no way to make the two

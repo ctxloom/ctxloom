@@ -46,7 +46,7 @@ func writeRMWDoc(t *testing.T, path string, d rmwDoc) {
 // contribution to a race. Without the lock, writer B's read can be STALE
 // relative to writer A's write, so B's write (based on the stale read)
 // silently discards A's — this is the lost update D6/D7 describe for
-// ~/.claude/settings.json, .mcp.json, and codex's config.toml.
+// ~/.claude/settings.json and .mcp.json.
 //
 // The seam is deterministic, not wall-clock: writer A holds the EXACT same
 // home lock WithFileLock itself takes (paths.HomePathFor(target)),
@@ -152,7 +152,7 @@ func TestWithFileLock_FailsClosedOnLockAcquisitionError(t *testing.T) {
 }
 
 // TestWithFileLock_SkipsLockingForNonOSBackedFs pins the guard that keeps
-// every existing claude/codex/opencode unit test green: a
+// every afero-backed writer unit test green: a
 // test double (afero.MemMapFs and friends) has no cross-process reader to
 // exclude, and composing a lock path from one of its often-bogus absolute
 // addresses and asking the REAL OS to create and flock it would touch

@@ -133,8 +133,8 @@ const NextStepTimeout = 15
 //
 // TurnEnd is the seam and the choice is load-bearing. The capture has to
 // happen while a live agent still holds the context; by session_end there is
-// nobody left to ask, and session_end is additionally not the same event on
-// every engine (kiro maps it to its per-TURN stop). Firing every turn and
+// nobody left to ask, and session_end need not be the same event on every
+// engine. Firing every turn and
 // OVERWRITING is what makes that survivable: whatever the final turn said is
 // what remains when the session ends, without anything having to detect that
 // the session was ending.

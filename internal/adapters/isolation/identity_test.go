@@ -86,7 +86,7 @@ func TestRunAsIsIdentityProblem(t *testing.T) {
 // TestCheckRunAsIsIdentity_UngovernedIsAFinding: a run-as-is override whose
 // image would START with the wrong identity records a ClassIsolation finding
 // (strict mode) — the container is never silently spawned wrong: the choke
-// owner aborts on the finding BEFORE SpawnClient, exactly like the
+// owner aborts on the finding BEFORE StartRunner, exactly like the
 // launch-failure gate it complements.
 func TestCheckRunAsIsIdentity_UngovernedIsAFinding(t *testing.T) {
 	resetStrictness(t)

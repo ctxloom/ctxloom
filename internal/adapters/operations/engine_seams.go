@@ -13,13 +13,11 @@ import (
 
 // checkHookTargetScopeOf refuses (or, with force, loudly warns) when workDir
 // resolves onto the named backend's user-GLOBAL scope instead of a project's
-// per-PROJECT scope — Claude Code's settings.json, codex's whole
-// config.toml/prompts/skills home
+// per-PROJECT scope — e.g. Claude Code's settings.json
 // (see each one's hookGlobalScopePaths wiring in registry.go for the
 // collision class itself). A backend with no hookGlobalScopePaths hook
-// (opencode, mock — audited as unable to hit this
-// collision; see each descriptor's comment) or an unregistered name is a
-// no-op: nothing to guard.
+// (mock — audited as unable to hit this collision; see its descriptor's
+// comment) or an unregistered name is a no-op: nothing to guard.
 //
 // force downgrades a real collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
@@ -53,8 +51,8 @@ func checkHookTargetScopeOf(name, workDir string, force bool) error {
 // variable, the per-session directory it points at, and the preparation (if
 // any) that has to happen before the engine is launched at it.
 type InTreeAgentHomeSpec struct {
-	// EnvVar is the engine's home-relocation variable (CLAUDE_CONFIG_DIR,
-	// CODEX_HOME).
+	// EnvVar is the engine's home-relocation variable (e.g.
+	// CLAUDE_CONFIG_DIR).
 	EnvVar string
 	// Dir is THIS SESSION's instance home: paths.HarpSessionEngineHomes with the
 	// engine's own leaf appended — the engine owns its leaf, so no two

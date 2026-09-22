@@ -642,7 +642,7 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 		LLM:      ptr("mock"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
-	require.Error(t, err, "system-prompt is claude-only; opencode must refuse it")
+	require.Error(t, err, "system-prompt is claude-only; mock must refuse it")
 
 	reloaded, rerr := configload.Load(configload.WithAppDir(appDir))
 	require.NoError(t, rerr)

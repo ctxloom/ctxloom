@@ -258,20 +258,14 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 // would itself merge back. Safe: excludes only affect UNTRACKED files, so a repo
 // that genuinely tracks .mcp.json is unaffected.
 //
-// CLAUDE.md and the root AGENTS.md belong here too (a worktree
-// orphan-accumulation fix): they are TRACKED per-agent context surfaces
-// (claude.ClaudeCodeHookWriter.WriteContext, codex.CodexHookWriter.WriteContext
-// — internal/core/agent/managedcontext.go's doc names all three: CLAUDE.md,
-// .agents/AGENTS.md, codex's AGENTS.md), and WriteManagedContext DELETES the
-// file outright when the merged content is empty and the file was wholly
-// ctxloom's. Omitting them here left isolation/worktree.go's
-// skipTrackedConfig unable to hide that mutation: a per-agent run's
-// materialize step turned a repo's committed CLAUDE.md into a tracked
-// deletion (`git status` showed ` D CLAUDE.md`) that no skip-worktree bit
-// covered, so teardown's WIP-safety check (correctly) read the worktree as
-// dirty and refused `git worktree remove`, permanently orphaning it. agy's
-// (antigravity, removed in 0.7.0) .agents/AGENTS.md was unaffected — already
-// covered wholesale by the ".agents/" entry below.
+// CLAUDE.md belongs here too: it is a TRACKED per-agent context surface
+// (claude.ClaudeCodeHookWriter.WriteContext), and agent.WriteManagedContext
+// DELETES the file outright when the merged content is empty and the file was
+// wholly ctxloom's. Without this entry the Worktree's skipTrackedConfig cannot
+// hide that mutation: a per-agent run's materialize step turns a repo's
+// committed CLAUDE.md into a tracked deletion that no skip-worktree bit
+// covers, so teardown's WIP-safety check (correctly) reads the worktree as
+// dirty and refuses `git worktree remove`, permanently orphaning it.
 var WorktreeArtifactPatterns = []string{
 	".mcp.json",
 	".claude/",
@@ -290,10 +284,8 @@ var WorktreeArtifactPatterns = []string{
 	".mock/",
 	"MOCK_CONTEXT.md",
 	// The shared managed-content marker, in whatever directory a writer puts
-	// it. It replaces the five per-engine sidecar names this list used to
-	// enumerate one at a time, and the per-file "*.ctxloom.bak" settings
-	// backups, which no longer exist at all — every writer now knows what it
-	// owns and edits only that, so nothing is copied aside first.
+	// it. Every writer knows what it owns and edits only that, so nothing is
+	// copied aside first and no backup file needs covering.
 	ledger.Name,
 }
 

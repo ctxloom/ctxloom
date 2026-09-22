@@ -482,7 +482,7 @@ func tee(rec Recorder, events <-chan agent.ChatEvent) <-chan agent.ChatEvent {
 // like tee, and once the source channel is fully drained (so tee's internal
 // goroutine has recorded and forwarded every event and closed its own output),
 // calls rec.Close(). This is the shape S2's host seams actually need —
-// GRPCClient.Chat and coord/enginehost.adapt own no separate "the chat is
+// coord/enginehost.adapt owns no separate "the chat is
 // over" signal of their own beyond the events channel closing, so a bare tee
 // would leak the Recorder's open file handle for the lifetime of the process.
 // Close's error is swallowed for the same reason tee swallows Record's: a

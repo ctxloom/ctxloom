@@ -1,11 +1,9 @@
 // Package stderrtail keeps a bounded, concurrency-safe TAIL of a child
 // process's stderr, so a process that dies can still say WHY.
 //
-// It is the one implementation of a pattern this repo had already grown
-// twice, independently, for the same reason: internal/lm/grpc's host runner
-// and internal/adapters/isolation's docker-direct runner each kept their own
-// private ring so a runner dying pre-dial-home surfaced its stderr instead of
-// a bare "exit status 1". The 2026-07-24 containerized-agent incident showed
+// It is the one implementation of that pattern: isolation's runner starters keep
+// a tail so a runner dying pre-dial-home surfaces its stderr instead of a
+// bare "exit status 1". The 2026-07-24 containerized-agent incident showed
 // the pattern was missing at the layer where it mattered MOST — the engine
 // subprocess itself, which was spawned with its stderr INHERITED — so the
 // engine adapter's dying words ("SyntaxError: Unexpected token 'with'", a

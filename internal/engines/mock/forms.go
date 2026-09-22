@@ -92,8 +92,8 @@ const MockConfigDirName = ".mock"
 
 // mockSkillsDirName is the directory the mock engine "reads" its Agent Skill
 // packages from, relative to the delivery dir. Unlike the context file it is
-// NESTED, because that is the shape every real engine has (.claude/skills,
-// .agents/skills, .opencode/skill, .codex/skills) and because a
+// NESTED, because that is the shape a real engine has (.claude/skills) and
+// because a
 // bare top-level `skills/` would collide with the `skills/` directory of a
 // bundle content tree materialized into the same project.
 const mockSkillsDirName = MockConfigDirName + "/skills"
@@ -107,7 +107,7 @@ func mockSkillsPath(dir string) string {
 // newMockSkillsSurface builds mock's skills surface: the SHARED
 // agent.ManagedSkillPackagesDelivery bound to the SHARED
 // agent.WriteManagedSkillPackages writer, exactly as claude's newSkillsSurface
-// and opencode's do. Everything that makes a skill
+// does. Everything that makes a skill
 // package land correctly — the per-skill directory prefix, the DECLARED mode
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
@@ -119,7 +119,7 @@ func newMockSkillsSurface(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 
 // mockMCPFilename, mockSettingsFilename and mockCommandsDirName are mock's
 // remaining native surfaces, all under its own .mock/ config dir — the shape
-// every real engine has (.claude/, .codex/, .kiro/), not a top-level scatter.
+// a real engine has (.claude/), not a top-level scatter.
 const (
 	mockMCPFilename      = MockConfigDirName + "/mcp.json"
 	mockSettingsFilename = MockConfigDirName + "/settings.json"

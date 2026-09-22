@@ -283,27 +283,12 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 	return entry.HarpName
 }
 
-// TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: a prior change
-// deleted the by-location legacy-file readers for claude-code/codex
-// outright (the user's DELETE decision, not a demoted reader —
-// see each package's backend.go doc). A watch addressed by HARP whose only
-// association is a located legacy-format transcript (no hook-bound session,
-// no captured canonical transcript.jsonl — the containerized-child
-// by-location shape this test used to successfully parse for these
-// engines before that change) must now fail CLEANLY through
-// operations.HistoryForBackend ("no session history") rather than hang,
-// panic, or silently stream zero entries — matching the task's explicit
-// acceptance that a retired-scraper backend with no canonical transcript
-// "simply has no legacy reader" this release (interactive-pty/by-location
-// memory for these two is scoped out to a later task). opencode is
-// deliberately absent — its
-// native reader was never file/path-addressable to begin with
-// (GetSessionByPath always errored, see opencode/capabilities.go), so it was
-// never covered by this by-location mechanism. antigravity and kiro were
-// retired-scraper backends here until each engine was removed outright — a
-// harp addressed to either now fails one gate earlier, with "unknown
-// backend", since the backend itself no longer resolves; that is a different
-// failure shape than this test pins, not the same one with a renamed message.
+// TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: claude-code has
+// no by-location legacy-file reader. A watch addressed by HARP whose only
+// association is a located legacy-format transcript (no hook-bound session, no
+// captured canonical transcript.jsonl) must fail CLEANLY through
+// operations.HistoryForBackend ("no session history") rather than hang, panic,
+// or silently stream zero entries.
 func TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly(t *testing.T) {
 	for _, backend := range []string{"claude-code"} {
 		t.Run(backend, func(t *testing.T) {

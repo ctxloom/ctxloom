@@ -93,8 +93,8 @@ func warnIfNoSignKey() {
 // (internal/adapters/signing/agentkey.Discoverer.GitConfig, defaulted by
 // operations.SignerDiscoverer()) that DOCTOR-CHECK-GITIDENT-l2 uses, so this warn
 // says the exact same thing `ctxloom doctor --deps` reports. Agents ctxloom
-// launches commit their own work inside isolated worktrees (internal/lm/
-// isolation/worktree.go's teardown), so an incomplete identity here can
+// launches commit their own work inside isolated worktrees (isolation's
+// Worktree teardown), so an incomplete identity here can
 // surface later as a failed or mis-attributed commit deep inside a run —
 // surfacing it at init time, before that happens, beats discovering it then.
 func warnIfGitIdentityMissing() {

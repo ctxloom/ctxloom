@@ -163,7 +163,7 @@ type Config struct {
 	// turns. The retired spelling is REFUSED at load (UnmarshalYAML), not
 	// silently ignored — see errRetiredAgentTurnCapKey.
 	delegation DelegationConfig
-	// isolationImages maps a backend name (claude-code | kiro | ...) to a
+	// isolationImages maps a backend name (e.g. claude-code) to a
 	// USER-PROVIDED agent image for containerized runs. An entry overrides the
 	// built-in per-backend default tag and is run AS-IS: never locally built or
 	// overlaid (the user owns it), so an absent override degrades with a warning

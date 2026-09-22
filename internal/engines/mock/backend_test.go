@@ -57,13 +57,9 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 }
 
 // TestRecordMockInput_CapturesDenyToolsAndSkills pins the mock backend's half
-// of the flow-level regression guard for deny_tools/skills that were silently
-// dropped crossing internal/lm/grpc's proto wire — see
-// TestArch_ProtoConverters_MirrorEveryStructField. Before this test's fix,
-// recordMockInput had no way to see req.Managed at all — b.managed did not
-// exist on Mock, so an acceptance scenario had nothing to assert against even
-// once the wire itself carried the fields correctly. This proves the LAST
-// hop: what Setup received actually reaches the recorded input a caller can
+// of the flow-level regression guard for deny_tools/skills: without
+// b.managed, recordMockInput cannot see req.Managed, and an acceptance scenario
+// has nothing to assert against. This proves the LAST hop: what Setup received actually reaches the recorded input a caller can
 // observe.
 func TestRecordMockInput_CapturesDenyToolsAndSkills(t *testing.T) {
 	dir := t.TempDir()

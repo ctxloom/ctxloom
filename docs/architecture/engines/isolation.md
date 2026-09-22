@@ -2,7 +2,7 @@
 
 `internal/adapters/isolation` decides **where an agent's working directory lives** and
 **where its engine process executes**, prepares that workspace, and hands back
-either a `pb.Client` (go-plugin transport) or a transport-free `RunnerHandle`. It
+a transport-free `RunnerHandle`. It
 owns an **ordered degrade chain whose floor is always the host**, and the rule that
 every drop of an explicitly-requested boundary is *refused* — a
 `strictness.FailAlways(ClassIsolation, …)` finding that aborts in **both** modes,
@@ -96,18 +96,16 @@ requested worktree is never dropped because the container failed.
 
 **Zero-value polarity is correct throughout these axes.** They are strings where
 `""` means unset (host default), and a non-empty unknown runtime raises a fatal
-finding. This does *not* repeat the `CELL_KIND_UNSPECIFIED → Shared` inversion found
-in `llm.proto` (see [grpc-wire](grpc-wire.md)); two reviewers independently confirmed
-that inversion is local, not a house style.
+finding.
 
-### Cells — the plugin-side mirror
+### Cells — the engine-side mirror
 
-`agent.CellKind` is what actually crosses to the plugin: `CellKindShared`
+`agent.CellKind` is what actually reaches the engine backend: `CellKindShared`
 (zero), `CellKindDirectoryIsolated`, `CellKindProcessIsolated` — note this is a
-THREE-value enum, one per **workspace posture** the plugin can observe (shared /
+THREE-value enum, one per **workspace posture** the backend can observe (shared /
 worktree / container), not a mirror of the six-value runtime-ownership space:
 `CellKindProcessIsolated` covers a container cell in **either** ownership mode,
-since ownership is a host-side launch decision the plugin itself never needs to
+since ownership is a host-side launch decision the backend itself never needs to
 see. A backend's `buildArgs` switches on it directly rather than inferring the
 cell from `WorkDir` — claude gates its out-of-cwd launch flags on
 `CellKindShared`, since an isolated cell reads the engine's well-known files in
@@ -179,7 +177,7 @@ honored** (`warnDevcontainerFeatures`).
 ### Run mechanics
 
 In-container conventions: image `ctxloom-agent:latest`, binary
-`/usr/local/bin/ctxloom`, `HOME=/home/ctxloom`, socket dir `/run/ctxloom/plugin`.
+`/usr/local/bin/ctxloom`, `HOME=/home/ctxloom`.
 
 `Container.PrepareWorkspace` is the whole gate: **gate → host scratch → base
 workspace → shared-FS probe → mounts/env**. Failure at any point returns an
@@ -207,16 +205,14 @@ run the engine as root, and ctxloom passes no way to override that** — the
 `--userns=keep-id`.
 
 **Network**: nothing in the package sets any `--network` flag; no network isolation
-is applied or claimed. Host reach-back is by **unix-socket bind mount**, not TCP —
-`containerAddrTranslator` prefix-swaps the go-plugin socket path across the
-namespace boundary. The transport-free path (`Container.buildRunnerSpec`) has no
-socket and no port at all; "the absences are the security contract".
+is applied or claimed. The runner spec (`Container.buildRunnerSpec`) has no
+socket mount and no published port at all; "the absences are the security
+contract".
 
-### Three launch paths
+### Launch path
 
 | Path | Entry | Shape |
 |---|---|---|
-| go-plugin over a mounted socket | `Container.SpawnClient` → `Container.launchSpec` → `ociRuntime.spawn` | linux-only gate, `containerSpawnUnsupportedErr` |
 | Attached `docker run`, transport-free | `Container.StartRunner` → `startDirectRunner` | stderr to a bounded ring; background reap (`reapRunProcess` — the fix for a measured 846-zombie PID leak); teardown `removeContainer` |
 
 ### Shared-FS verification
@@ -628,7 +624,6 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
   the cost of the file-read path but says so itself: "THIS IS BAR-RAISING,
   NOT A BOUNDARY … The isolation boundary is a container" (`procsec.go:12-17`).
 - **`gitCommonDirMount` mounts the entire git common dir read-write**. The accepted risk is recorded in an implementation comment and not in the user-facing isolation claim or `docs/trust-model.md`. A member can therefore rewrite main's refs/objects/index and other agents' worktree admin dirs.
-- **`containerHandshakeEnv` promises "ONLY the go-plugin handshake vars" but prefix-matches `PLUGIN_*` across the full host env**; `SkipHostEnv` is set nowhere, so any host `PLUGIN_*` variable crosses the boundary and lands in world-readable argv.
 - **`TraceProbe`'s doc claims the loosened seccomp profile is structurally unreachable from a normal run**, but the gate is a plain `os.Getenv` (`traceProbeFromEnv`) — any parent exporting `CTXLOOM_ISOLATION_PROBE_TRACE_DIR` makes every container run in that process ptrace-permitted and strace-wrapped.
 - **`worktreeWorkspace.Env()` advertises `HomeVar` target directories that nothing creates** if `prepareHomeVarDirs` failed; isolation then depends on each engine choosing to `mkdir -p` rather than falling back to its global home.
 - **`ImageConfig`'s doc claims "zero value = devcontainer auto-detect ON"** but `resolveDevBase` turns detection *off* when `AppRoot == ""`.
@@ -649,5 +644,5 @@ worktrees at startup, leaking rather than destroying anything WIP-bearing.
 ## See also
 
 - [Capability matrix](capability-matrix.md) — the per-engine isolation summary table
-- [The plugin wire](grpc-wire.md) — how `CellKind` reaches the plugin, and why `ChatRequest.Runtime` does not
+- [Transport](../agentcoord/transport.md) — how a launch reaches the runner
 - [The `Backend` abstraction and registry](backend-abstraction.md)

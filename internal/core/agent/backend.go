@@ -22,8 +22,8 @@ import (
 // interface and never type-switches on the backend. It is part of the
 // engine-agnostic contract alongside Backend.
 type BackendConfig interface {
-	// BackendType returns the discriminator (claude-code / codex)
-	// naming the backend this config drives.
+	// BackendType returns the discriminator (e.g. claude-code) naming the
+	// backend this config drives.
 	BackendType() string
 }
 
@@ -56,23 +56,11 @@ const (
 // Fragments); it has nothing to do with slash commands, which travel
 // separately as ManagedConfig.Commands ([]CommandExport).
 //
-// Only Content is ever read (base.go, contextfile.go, and codex/surfaces.go's
-// WriteContextFile). Name/Version/Tags/IsDistilled/DistilledBy are write-only
-// across the whole system and stay anyway: each is carried by llm.proto's
-// Fragment message (fields 1,2,3,5,6), so removing one is a schema edit, not an
-// implementer's call. The honest alternative is to add the consumer that
-// justifies them (a per-fragment provenance header in the assembled context);
-// that is a product decision, not a cleanup.
-//
-// A field with NO proto backing is a different case: it cannot have crossed the
-// wire even in principle, so dropping it is a pure Go-side change.
+// Name is part of the assembler's dedup key (assembleDedupedContext), so two
+// fragments with the same content but different names both survive.
 type Fragment struct {
-	Name        string
-	Version     string
-	Tags        []string
-	Content     string
-	IsDistilled bool
-	DistilledBy string
+	Name    string
+	Content string
 }
 
 // ModelInfo contains information about the model used for the response.
@@ -134,7 +122,6 @@ type SessionHistory interface {
 	// Tracking for /clear recovery
 	// TranscriptPathFromHook extracts or computes the transcript path from hook input.
 	// Claude: computes path from sessionID + workDir
-	// Codex: returns transcriptPath directly
 	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
 
 	// Note: "which session is previous" is resolved by ctxloom from its session
@@ -313,8 +300,7 @@ type ContentBlock struct {
 // These are named BY PURPOSE, never after the vendor field that produced
 // them, because the transcript policy layer (internal/adapters/transcript/policy)
 // discriminates on them and a policy rule naming a vendor field is a defect:
-// the same rule has to read correctly for claude, codex, kiro and whatever
-// comes next.
+// the same rule has to read correctly for every engine.
 //
 // The vocabulary is deliberately NOT a taxonomy of every vendor shape. It is
 // exactly the set of discriminators the policy needs, plus the generic
@@ -460,8 +446,8 @@ type ExecuteRequest struct {
 	Temperature float32
 	// CellKind is the resolved isolation cell this run executes in, decided
 	// by the launch's cell (cli.cellKindOf). It is carried for diagnostics and
-	// for the env a cell-aware backend computes (codex's cell-scoped
-	// CODEX_HOME); it is NOT what an argv site switches on. Where a surface
+	// for the env a cell-aware backend computes; it is NOT what an argv site
+	// switches on. Where a surface
 	// lands, and therefore what the engine is told about it, is the launch
 	// plan's decision, delivered by the runner and handed here as Presented.
 	CellKind CellKind

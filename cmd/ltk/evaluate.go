@@ -162,11 +162,10 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 // An unknown --engine in the installed hook (a manual edit or a cross-version
 // rename) would otherwise exit 1, which the host treats as a silent allow, and
 // there is no adapter for the NAMED engine to deny with. Guessing claude-code
-// unconditionally was itself a bug: on a SECOND host (antigravity, before it
-// was removed in 0.7.0, was the case that surfaced it) the deny
-// then rode claude-code's wire format, which that host did not recognize, so
-// the "fail closed" deny was invisible and the action proceeded anyway — the
-// exact failure mode this branch exists to prevent. Try every registered
+// unconditionally is wrong: on any other host the deny would ride
+// claude-code's wire format, which that host does not recognize, so the
+// "fail closed" deny would be invisible and the action would proceed anyway —
+// the exact failure mode this branch exists to prevent. Try every registered
 // engine's own Decode against the payload actually received; the first one
 // that decodes something meaningful (a tool name, command, or file path) is
 // presumably the real host, so fail closed in ITS wire format instead of
@@ -235,10 +234,9 @@ func detectEngineFromPayload(input []byte) engine.Engine {
 // over a VENDOR-OWNED, mutating tool set (claudeGatedTools today; a future
 // second host would add its own): when the vendor ships or renames a
 // shell/file tool, the installed PreToolUse matcher can end up firing on it
-// while Decode's exact-name list does not recognise it — confirmed live on
-// antigravity before it was removed in 0.7.0 (its matcher was a real,
-// unanchored regex: a tool like "safe_run_command" matched the
-// "run_command" alternative). Claude Code evaluates a matcher
+// while Decode's exact-name list does not recognise it — a host whose
+// matcher is a real, unanchored regex fires on a tool like
+// "safe_run_command" through a "run_command" alternative. Claude Code evaluates a matcher
 // built purely of plain identifiers and "|" (exactly what claudeMatcher is
 // today) as an EXACT list instead — see claudecode.go's claudeMatcher comment
 // — so this specific collision needs the matcher to contain a genuine regex
@@ -272,10 +270,8 @@ func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
 
 // failClosed renders reason as a well-formed deny decision in the engine's wire
 // format, exit 0. It exists because a hook host fails OPEN when a hook exits
-// non-zero — Claude Code treats exit 1 as non-blocking (antigravity, before
-// its removal in 0.7.0, proceeded on any crashing hook the same way) — so a
-// broken ltk installation must
-// never surface as an error exit on the hook path: that would silently disable
+// non-zero — Claude Code treats exit 1 as non-blocking — so a broken ltk
+// installation must never surface as an error exit on the hook path: that would silently disable
 // every rule. Explicit user-facing commands (manage, --print) keep their
 // fail-loud exit-1 behavior; only `evaluate` fails closed.
 //

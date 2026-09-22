@@ -1,5 +1,5 @@
 // Package selfexec resolves the path to use when re-invoking the running
-// ctxloom binary (spawning `ctxloom llm serve`, `ctxloom session distill`,
+// ctxloom binary (spawning `ctxloom runner`, `ctxloom session distill`,
 // `ctxloom run`, ...). It exists because the obvious os.Executable() answer
 // goes stale after an in-place upgrade: a long-running process (e.g. the MCP
 // server) would exec "/path/ctxloom (deleted)" and fail.

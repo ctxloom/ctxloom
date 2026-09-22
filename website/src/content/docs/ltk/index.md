@@ -80,10 +80,10 @@ the legacy flat `.ltk.yaml`, `llm-tool-killer.yaml`, `.llm-tool-killer.yaml`, an
 layering — exactly one config is ever in effect, so a subdirectory can override a
 repo's rules wholesale but can never add to them.
 
-The ancestor walk exists because hook hosts disagree about the working directory
-they hand a hook. Claude Code runs them at the project root; Antigravity runs them
-inside `<workspace>/.agents`. A search of the working directory alone would miss
-your rules under Antigravity and quietly fall back to allowing everything.
+The ancestor walk exists because hook hosts may disagree about the working
+directory they hand a hook. Claude Code runs them at the project root, but a host
+that runs them in a subdirectory would have its search of the working directory
+alone miss your rules and quietly fall back to allowing everything.
 
 The walk stops at the first ancestor containing a `.git` *directory*. A `.git`
 *file* — the gitfile pointer a submodule or a linked worktree gets instead of a
@@ -129,6 +129,5 @@ Commit `.ltk/config.yaml` alongside your code.
 - **[CLI reference](/ltk/reference/cli/)** — every command, generated from the binary.
 
 :::note
-Claude Code and Antigravity CLI (`agy`) are the agents `ltk` can install a hook
-for today.
+Claude Code is the agent `ltk` can install a hook for today.
 :::

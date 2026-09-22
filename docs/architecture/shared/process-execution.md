@@ -112,9 +112,8 @@ A bounded, mutex-guarded tail of a child's stderr, filled by the child's own std
 | Consumer | Site | Shape |
 |---|---|---|
 | `internal/adapters/isolation` | `attach.go:85-86` (tee), `direct_runner.go:129-130` (`New`) | tail read via `AttachedContainer.StderrTail()` (`attach.go:36`) |
-| `internal/lm/grpc` | `host_runner.go:72-73` (`New`) | tail read via `HostRunner.StderrTail()` (`host_runner.go:123`) |
 
-Related but distinct implementations of the bounded-byte-tail concept live at `internal/vpio/dockerexec/dockerexec.go:255-277` (`tailRing`, byte-identical `Write`, `execTailBytes = 8192` at `dockerexec.go:44`, and without the `max <= 0` and nil-receiver guards) and `internal/adapters/termui/ring.go:6-54` (`Ring` — a true fixed-capacity circular buffer with a `dropped` counter and `Drain()`-and-reset, deliberately not goroutine-safe). Real vs documented: the package doc says it is "the one implementation of a pattern this repo had already grown twice"; the count at authoring was four — two were absorbed, the `dockerexec` copy was not.
+A related but distinct implementation of the bounded-byte-tail concept lives at `internal/adapters/termui/ring.go:6-54` (`Ring` — a true fixed-capacity circular buffer with a `dropped` counter and `Drain()`-and-reset, deliberately not goroutine-safe).
 
 ## `internal/shared/shellenv`
 
@@ -172,7 +171,7 @@ Widens binary resolution from the process's inherited `PATH` to the user's login
 - **Capture is ADDITIVE via `TeeStderr`.** The obvious `cmd.Stderr = ring` silently removes a passthrough an operator may depend on. Both spellings are offered; `direct_runner.go:130` and `host_runner.go:73` use plain `New` and do replace stderr.
 - `Tail()` is nil-receiver safe and returns `""` when the child said nothing; consumers guard on non-emptiness before wrapping it into an error.
 - Peak memory is bounded by the largest *single* write, not by `max`: `append` happens before the budget check, so one 50 MB line transiently grows `buf` to 50 MB before re-slicing to 8 KB.
-- `DefaultBytes` is re-aliased to a private constant at `internal/adapters/isolation/direct_runner.go:25` and `internal/lm/grpc/host_runner.go:19`, while `internal/adapters/isolation/attach.go:85` uses it directly.
+- `DefaultBytes` is re-aliased to a private constant at `internal/adapters/isolation/direct_runner.go`, while `internal/adapters/isolation/attach.go` uses it directly.
 
 **PATH resolution (`shellenv`)**
 

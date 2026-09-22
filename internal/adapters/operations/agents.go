@@ -233,8 +233,9 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 	}
 
 	// Validate the preference against the engine this write RESULTS IN, not the
-	// one recorded before it. `agent set x --engine kiro --surface
-	// context=system-prompt` must be refused as one act: checking against the
+	// one recorded before it. `agent set x --engine <e> --surface
+	// context=system-prompt` for an engine without that approach must be
+	// refused as one act: checking against the
 	// OLD engine would accept a pair the new engine cannot honour, and the
 	// binding would be written already broken.
 	if len(req.Surfaces) > 0 {

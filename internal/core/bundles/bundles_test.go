@@ -1950,9 +1950,8 @@ func TestParseBundle_AcceptsAVersionOnlySkeleton(t *testing.T) {
 // The `no_distill: true` item is exactly where the two predicates part company:
 // resolveEffective refuses the distilled form and serves the raw content, while
 // `preferDistilled && Distilled != ""` still reports true. A consumer is then
-// told it received a distillation it did not receive — and IsDistilled travels
-// off this package, through internal/lm/grpc, to whoever is deciding whether the
-// full text is still available.
+// told it received a distillation it did not receive, and so is whoever is
+// deciding whether the full text is still available.
 func TestLoader_IsDistilled_HonoursNoDistill(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundleYAML := `

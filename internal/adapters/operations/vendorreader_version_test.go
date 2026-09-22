@@ -182,7 +182,7 @@ func TestConvertVendorTranscript_MalformedLineInAKnownVersionDegradesToPartial(t
 		HarpName:       harp,
 		Backend:        "claude-code",
 		TranscriptPath: corrupted,
-		EngineVersion:  stubEngineVersion, // a version the codex adapter IS validated for
+		EngineVersion:  stubEngineVersion, // a version the adapter IS validated for
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)

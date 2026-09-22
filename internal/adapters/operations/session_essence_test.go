@@ -84,7 +84,7 @@ func TestSessionEssenceInfo_NeitherPresentIsNotDistilled(t *testing.T) {
 // directory-exclusion the inlined os.Stat check preserves from cli's former
 // fileExists helper: a DIRECTORY sitting at a candidate path must not
 // read as a distilled essence. This is the one deliberate divergence from
-// the near-identical checks in internal/adapters/isolation and internal/codex (see
+// the near-identical check in internal/adapters/isolation (see
 // SessionEssenceInfo's doc) — it must not be lost by future refactoring.
 func TestSessionEssenceInfo_DirectoryAtEssencePathIsNotDistilled(t *testing.T) {
 	testsupport.Isolate(t)

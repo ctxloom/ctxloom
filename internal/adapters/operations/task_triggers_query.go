@@ -165,7 +165,7 @@ func defaultGrepBudget() grepBudget {
 // gitignored per-agent worktree COPIES under .claude/; the scan blew its
 // budget on that junk long before reaching the actual source, and reported a
 // truncated empty search. Hidden directories are agent/tool state (.git,
-// .claude, .codex, .kiro), and node_modules/vendor are third-party trees; a
+// .claude, ...), and node_modules/vendor are third-party trees; a
 // trigger asking "does the CODEBASE contain X" means none of them.
 func skipGrepDir(name string) bool {
 	if strings.HasPrefix(name, ".") && name != "." {

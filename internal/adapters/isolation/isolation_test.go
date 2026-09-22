@@ -27,7 +27,7 @@ func resetStrictness(t *testing.T) {
 // failingPolicy is a test Policy whose Name is configurable and whose
 // PrepareWorkspace always fails — a stand-in for a tier that cannot launch
 // (a container whose image is absent / probe failed / auth unresolvable, or a
-// worktree that cannot be added). SpawnClient is never reached: the chain
+// worktree that cannot be added). StartRunner is never reached: the chain
 // always degrades past a failing policy to None.
 type failingPolicy struct{ name string }
 
@@ -52,7 +52,7 @@ func (failingPolicy) InteractiveRunner(context.Context, string, Workspace, map[s
 // project dir, via None); its Name is configurable so a chain can place a
 // SUCCEEDING non-container tier (e.g. a bare worktree) right after a failing
 // container tier — the shape that exercises a lost-CONTAINER-boundary degrade
-// which still yields a workspace. SpawnClient is never reached (prepareChain
+// which still yields a workspace. StartRunner is never reached (prepareChain
 // stops at the first success).
 type passingPolicy struct{ name string }
 

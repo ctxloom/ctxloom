@@ -83,8 +83,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	// ("claude-code" == "claude-code"), not the reader
 	// package's own short test-fixture name ("claude") — see
 	// vendorReaderFor's doc comment for why: RecordOneshot and the live
-	// structured-chat tee (lm/grpc/chat.go's openRecorder, keyed off the
-	// plugin's own Info RPC name) both already stamp "claude-code" for this
+	// structured-chat tee both already stamp "claude-code" for this
 	// harp/engine, and a mismatched Engine value on the SAME harp would be
 	// a real, visible inconsistency to a transcript reader.
 	for _, l := range lines {

@@ -210,21 +210,6 @@ func TestTokenAt_ReturnsTheEnginesOwnRendering(t *testing.T) {
 	assert.Equal(t, "1.18", v, "the recorded version must be the characters the engine printed")
 }
 
-// FirstSemverToken is the deliberately tolerant parser, used ONLY for engines
-// whose real output shape has never been measured. It still refuses when
-// nothing on the line is a version.
-func TestFirstSemverToken_ToleratesShapeButStillRefusesJunk(t *testing.T) {
-	for _, out := range []string{"2.13.0", "kiro-cli 2.13.0", "2.13.0 (kiro)"} {
-		v, err := FirstSemverToken(out)
-		require.NoError(t, err, out)
-		assert.Equal(t, "2.13.0", v, out)
-	}
-
-	_, err := FirstSemverToken("kiro-cli (development build)")
-	assert.ErrorContains(t, err, "no semver-shaped token",
-		"tolerant is not the same as credulous: output with no version in it must refuse")
-}
-
 // A version probe is an exec of somebody else's CLI, and the caller on the
 // delegation spawn path handed down a context with no deadline at all — so a
 // `--version` that never returned parked a whole agent spawn for as long as

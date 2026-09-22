@@ -55,7 +55,7 @@ func withDefaultProfiles(cfg *Config, names ...string) *Config {
 // IMPORTANT BEHAVIORS:
 // - Profile inheritance is depth-first, parents processed in order
 // - Hooks are deduplicated by command+matcher combination
-// - MCP servers can be scoped to specific backends (claude-code, codex)
+// - MCP servers can be scoped to specific backends
 // - Config is fault-tolerant: invalid entries warn but don't block startup
 //
 // =============================================================================

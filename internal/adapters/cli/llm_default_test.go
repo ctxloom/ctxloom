@@ -1,5 +1,5 @@
 // Plugin discovery tests verify that ctxloom correctly identifies built-in LM plugins
-// (claude-code, codex) and any user-configured plugins. This is essential
+// (e.g. claude-code) and any user-configured plugins. This is essential
 // for the `ctxloom run` command to know which backends are available for context injection.
 package cli
 

@@ -280,8 +280,8 @@ func TestSharedFSProbe_MultiRoot(t *testing.T) {
 // TestMountProbeRoots: the real mount-root derivation the fix threads into
 // the probe — the run's cwd and the scratch root always appear; a mount whose
 // Host is a directory (a config overlay, a gitdir mirror) probes ITSELF, a
-// mount whose Host is a FILE (a direct read-only credential mount, e.g.
-// codex's ~/.codex/auth.json) probes its PARENT dir instead — never the file
+// mount whose Host is a FILE (a direct read-only credential mount) probes its
+// PARENT dir instead — never the file
 // itself, so the probe's own marker write never touches a real credential.
 // Deduplicated and sorted.
 func TestMountProbeRoots(t *testing.T) {

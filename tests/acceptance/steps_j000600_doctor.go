@@ -157,36 +157,4 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		}
 		return j000400FileContains(w, rel, marker)
 	})
-
-	ctx.Step(`^opencode\.json registers the skills surface$`, func(c context.Context) error {
-		w := worldFrom(c)
-		j000600 := j000600Of(w)
-		rel := filepath.Join(j000600.target, "opencode.json")
-		doc, err := j000400ReadJSON(w, rel)
-		if err != nil {
-			return err
-		}
-		skills, ok := doc["skills"].(map[string]any)
-		if !ok {
-			return fmt.Errorf("%s: no %q table; parsed: %+v", rel, "skills", doc)
-		}
-		paths, ok := skills["paths"].([]any)
-		if !ok {
-			return fmt.Errorf("%s: skills.paths is not an array; parsed: %+v", rel, skills)
-		}
-		var found bool
-		var have []string
-		for _, p := range paths {
-			s, _ := p.(string)
-			have = append(have, s)
-			if s == ".opencode/skill" {
-				found = true
-			}
-		}
-		w.docStepMaterialized = fmt.Sprintf("%s -> skills.paths: %v", rel, have)
-		if !found {
-			return fmt.Errorf("%s's skills.paths %v does not register \".opencode/skill\"", rel, have)
-		}
-		return nil
-	})
 }

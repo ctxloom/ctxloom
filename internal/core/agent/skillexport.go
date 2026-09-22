@@ -4,8 +4,7 @@ package agent
 // skill — the SurfaceSkills sibling of CommandExport. Unlike a command (a
 // single rendered file), a skill is a whole TREE: SKILL.md plus whatever
 // sibling files (scripts/, assets/, references/) its package carries. The
-// per-agent skill writers (currently claude only — codex/opencode/kiro are
-// the next parallel wave) consume this without importing ctxloom's bundle
+// per-agent skill writers consume this without importing ctxloom's bundle
 // types, mirroring how CommandExport decouples the writers from
 // bundles.LoadedContent.
 type SkillExport struct {

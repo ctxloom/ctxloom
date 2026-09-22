@@ -59,7 +59,7 @@ pins the predicate so it cannot degrade into "is this backend known?".
 
 One further permission fact:
 
-- A headless **oneshot** floors any non-`SafeHeadless()` posture to `PermissionBypass` (`internal/lm/grpc/server.go:253-255`), so a oneshot cannot hang on an engine approval prompt. `SafeHeadless()` is true only for `bypass` and `plan` (`permissions.go:127`).
+- A headless **structured** run cannot hang on an engine approval prompt (`launch.floorPermission`): a top-level run floors any non-`SafeHeadless()` posture to `PermissionBypass`, a degraded delegated run to `PermissionFloor`, and any other delegated run is refused with a message naming the agent. `SafeHeadless()` is true only for `bypass` and `plan`.
 
 ## 3. Native per-tool deny list
 
@@ -70,16 +70,14 @@ One further permission fact:
 
 ### The deny-list reality check
 
-**`ManagedConfig.DenyTools` reaches the launch path** since `40b49a7f`. The Go
-struct carries it (`internal/core/agent/backend.go:362`) and so does the proto
-(`repeated string deny_tools = 7`, `internal/lm/grpc/llm.proto`); `ManagedConfigToProto`
-and `managedConfigFromProto` both carry it. See [the plugin wire](grpc-wire.md).
+**`ManagedConfig.DenyTools` reaches the launch path.** The runner decodes the
+same `launch.Launch` the originator resolved (see
+[transport](../agentcoord/transport.md)).
 
 All three delivery paths now carry it:
 
 | Path | Carries `DenyTools`? | Carries `Skills`? | Site |
 |---|---|---|---|
-| `ctxloom run` / oneshot (gRPC launch) | yes — **since `40b49a7f`** | yes — **since `40b49a7f`** | `internal/lm/grpc/managed.go` |
 | `ctxloom apply-hooks` | yes | **no** | `internal/adapters/operations/hooks.go:452` |
 | `ctxloom profile materialize` | yes | yes | `internal/adapters/operations/profile_materialize.go:129`, `:131` |
 
@@ -88,13 +86,6 @@ table above is the one that answers it. An engine whose surface constructors
 never read `in.DenyTools` accepts the field at the seam and drops it without a
 warning; the wire carrying the field does not give an engine a capability it
 never had.
-
-> **This used to be false and it is the reason to distrust "it is configured, so
-> it applies".** Before `40b49a7f` the proto had 5 fields and `ManagedConfigToProto`
-> dropped `deny_tools` and `skills` outright, so a `deny_tools` entry applied when
-> you materialized or applied hooks and **did not apply to the engine ctxloom
-> launched** — exit 0, no diagnostic. The field's own comment called it "the
-> deny-tools.md root-cause fix"; it had been inert since it was written.
 
 ## 4. Context surface — how assembled context actually reaches the engine
 
@@ -166,10 +157,8 @@ an engine with a declared loss and say nothing — neither calls
 | `claude-code` | **nil** | scraper **deleted** | its cwd→slug encoder produced non-existent dirs for any path with a dot/underscore/space |
 | the doubles | `NilSessionHistory` — non-nil, holds nothing | the double keeps no transcript store | — |
 
-`RetiredScraperBackendNames` (`internal/lm/grpc/canonical_source.go`) lists the
-backends whose legacy scraper was deleted rather than demoted. A `nil` history
-**fails loudly** at both consumers (`internal/adapters/operations/sessionfeed.go`,
-`internal/lm/grpc/sessionhistory.go`). Canonical capture is written runner-side
+A `nil` history **fails loudly** at its consumer
+(`internal/adapters/operations/sessionfeed.go`). Canonical capture is written runner-side
 into `internal/adapters/transcript`'s canonical JSONL; each engine declares its own
 vendor reader on its descriptor (`engine.Descriptor.TranscriptReaders`), and
 `internal/adapters/operations/vendorreader.go` reads that declaration for the
@@ -183,9 +172,6 @@ and `oneShotSupportedBackends`; both name `claude-code` alone.
 `driving: oneshot` on a backend outside their intersection **fails loud** rather
 than silently degrading — `resolveResumeMode` refuses at the resume gate, and
 `prodSpawner.Resolve` refuses at the oneshot gate.
-
-Note that `ChatRequest.ResumeSessionID` does not cross the plugin wire at all
-([grpc-wire](grpc-wire.md) §3).
 
 ## 8. Isolation support
 
@@ -210,12 +196,12 @@ with a container install fragment; an engine absent from
 
 ## 10. Capabilities that exist on every engine and fire on none
 
-- ~~**`ManagedConfig.Skills`**~~, ~~**`ManagedConfig.DenyTools`**~~, ~~**`wire.Hook.PreToolFallback`**~~ — **all three now cross the launch wire** (`40b49a7f`). They belonged in this section because none of them did: every declared `skillExports` received nothing, claude's deny list was never applied at launch, and `PreToolFallback` arrived `false` on the engine side. Left visible because "declared everywhere, fires nowhere" is the pattern this section catalogues, and these were its three clearest instances. `PreToolFallback` is carried today and read by no registered engine at launch.
-- **`RunOptions.temperature` and `RunOptions.max_tokens`** — carried by the proto, constructed by nothing, read by no backend.
+- **`wire.Hook.PreToolFallback`** — carried to the engine, read by no registered engine at launch.
+- **`agent.ExecuteRequest.Temperature`** — declared, set by nothing, read by no backend.
 
 ## See also
 
 - [The `Backend` abstraction and registry](backend-abstraction.md)
-- [The plugin wire](grpc-wire.md)
+- [Transport](../agentcoord/transport.md)
 - [Isolation](isolation.md)
 - Per-engine pages: [claude](claude.md) · [mockengine](mockengine.md)

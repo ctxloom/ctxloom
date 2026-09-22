@@ -34,11 +34,11 @@ func ReadHarpEssence(harpName string) ([]byte, error) {
 // session whose harp has since been distilled again.
 //
 // The existence check is inlined here rather than shared with the
-// near-identical checks in internal/adapters/isolation and internal/codex: those
-// exclude only fs.ErrNotExist (a transcript path that is merely unreadable
-// still counts as "there"), while this one also excludes directories
-// (!info.IsDir()) — a deliberate difference in semantics, not an oversight,
-// so it must not be unified with theirs.
+// near-identical check in internal/adapters/isolation: that one excludes only
+// fs.ErrNotExist (a transcript path that is merely unreadable still counts as
+// "there"), while this one also excludes directories (!info.IsDir()) — a
+// deliberate difference in semantics, not an oversight, so it must not be
+// unified with that one.
 func SessionEssenceInfo(harp string, entry *sessions.Entry) (string, bool) {
 	if p, err := paths.HarpEssencePath(harp); err == nil {
 		if info, statErr := os.Stat(p); statErr == nil && !info.IsDir() {

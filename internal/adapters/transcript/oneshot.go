@@ -1,6 +1,5 @@
 // This file (oneshot.go) captures the ONE regime the ChatEvent-driven
-// Recorder/Tee (recorder.go) structurally cannot reach: a ONESHOT
-// Backend.Execute run (`kiro --no-interactive`, `codex exec`)
+// Recorder/Tee (recorder.go) structurally cannot reach: a ONESHOT run
 // returns prose on stdout with no ChatEvent stream at all, so the tee at
 // the engine chat client and the engine host's startRun
 // never fires for it — the structured-capture win of S2/S3 leaves this path
@@ -10,10 +9,8 @@
 // transcript instead: one `user` entry from the request prompt, one
 // `assistant` entry from the captured stdout. No tool granularity (the
 // engine's own tool calls inside a oneshot Execute never cross ctxloom's
-// process as discrete events), but non-empty memory — closing exactly the
-// silent-no-op blind spot memory "silent-no-op-failure-mode" names for the
-// kiro-oneshot-sqlite case, without parsing sqlite or any other engine-native
-// store.
+// process as discrete events), but non-empty memory — closing the
+// silent-no-op blind spot without parsing any engine-native store.
 package transcript
 
 import (

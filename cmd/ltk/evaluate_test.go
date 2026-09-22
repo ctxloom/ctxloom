@@ -361,21 +361,6 @@ func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
 	}
 }
 
-// TestEvaluateUnknownEngineDetectsRealHostFromPayload and
-// TestEvaluateFindsConfigFromHookCwd used to pin two-host (Claude Code +
-// Antigravity) behavior — the unknown-engine fail-closed branch picking the
-// wire format that actually decoded the payload (rather than blindly
-// guessing claude-code), and the default-config search walking up from
-// Antigravity's `.agents` hook cwd to find project rules. Both were deleted
-// with antigravity in 0.7.0: ltk now has exactly one registered host
-// (engine.engines() == []Engine{ClaudeCode{}}), so there is no second wire
-// format for the first test to disambiguate and no second hook cwd for the
-// second to search from. denyUnknownEngine's every-registered-engine loop and
-// loadConfig's ancestor walk both remain general-purpose (see their own
-// docs) for whichever engine is added next; this is not a design reversion,
-// only the loss of the second data point that made these two tests
-// meaningful.
-
 // TestEvaluateNoConfigFoundAnywhereWarns is a DEFECT WITH NO CENSUS ROW found
 // while walking the guardrail flow's fail-open paths: when no rules config
 // exists anywhere from cwd up to the repository root, loadConfig silently

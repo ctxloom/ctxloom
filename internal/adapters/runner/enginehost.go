@@ -305,7 +305,7 @@ func (eh *EngineHost) Handle(req *agentcoordpb.RunnerRequest) *agentcoordpb.Runn
 		// C1-minimal termination: cancel the engine context (Chat returns,
 		// RunExited flows). The graceful interrupt-then-escalate StopRun
 		// ladder is Wave C2's; the coordinator's terminal path kills the
-		// runner PROCESS via go-plugin either way.
+		// runner PROCESS either way.
 		eh.mu.Lock()
 		cancel := eh.cancel
 		eh.mu.Unlock()

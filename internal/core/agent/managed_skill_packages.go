@@ -80,11 +80,9 @@ func (s *ManagedSkillPackagesDelivery) Deliver(start present.Start) (Delivered, 
 // later call with fewer (or
 // no) skills reverts precisely that set and nothing a user put there.
 //
-// This is the ONE skill-materialization body in the tree. claude, codex,
-// antigravity, kiro and opencode each used to carry a byte-identical copy of
-// it, differing only in the two arguments this function takes; the mock engine
-// would have been a sixth. Those copies are what a shared seam is supposed to
-// make impossible: an engine whose skills materialize through its OWN code
+// This is the ONE skill-materialization body in the tree: every engine calls
+// it, differing only in the two arguments it takes. A per-engine copy is what
+// a shared seam is supposed to make impossible: an engine whose skills materialize through its OWN code
 // cannot prove the seam works, it can only prove its own copy does.
 //
 // A file's MODE comes from PackageFile.Mode — the export's declaration, which

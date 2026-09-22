@@ -13,14 +13,12 @@ import (
 )
 
 // Managed-section markers frame ctxloom-owned content inside a file a human may
-// also hand-edit (CLAUDE.md, .agents/AGENTS.md, codex's AGENTS.md, …). Content
+// also hand-edit (CLAUDE.md, MOCK_CONTEXT.md, …). Content
 // BETWEEN the markers is ctxloom-owned and reconciled on every apply; content
 // OUTSIDE them is the user's and is preserved byte-for-byte. This is the shared
 // merge core every ContextWriter that owns a human-editable file merges
-// through, rather than each backend reimplementing the merge (originally
-// written for antigravity's .agents/AGENTS.md; ported here so claude's
-// CLAUDE.md and codex's AGENTS.md share one implementation instead of three —
-// closing a P0 data-loss bug for claude).
+// through, rather than each backend reimplementing the merge — a per-backend
+// merge that overwrote the whole file was a data-loss bug.
 const (
 	ManagedContextBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
 	ManagedContextEnd   = "<!-- ctxloom:context:end -->"
@@ -38,14 +36,11 @@ const (
 // the second write reads back its own markers, strips them, and reinserts the
 // same section.
 //
-// The whole read-splice-write(-or-remove) cycle runs under WithFileLock: this
-// is a genuine D7 gap the fs-consolidation plan's closing verification found
-// (N2) — claude.ClaudeCodeHookWriter.WriteContext, codex, and
-// backends.mock_surfaces all call this on the SAME managed files (CLAUDE.md /
-// AGENTS.md) C6 already locks their OTHER settings writes for
-// (claude.writeSettingsFile, codex's config writers, ...), so leaving this one
-// unlocked left a lock taken in one sibling call and not the next, inside the
-// very same packages. See WithFileLock's own doc for the fail-closed/
+// The whole read-splice-write(-or-remove) cycle runs under WithFileLock:
+// claude.ClaudeCodeHookWriter.WriteContext and mock's context writer call this
+// from the same packages whose OTHER settings writes are locked
+// (ClaudeCodeHookWriter.writeSettingsFile), so leaving this one unlocked would
+// take a lock in one sibling call and not the next. See WithFileLock's own doc for the fail-closed/
 // skip-for-non-OS-fs contract this inherits unchanged.
 func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (report ContextReport, err error) {
 	err = sessions.WithFileLock(fs, path, func() error {
@@ -187,9 +182,8 @@ var SurfacePersistsAfterExit Delivered = DeliveredFunc(func() error { return nil
 // ContextWriter that owns a human-editable managed-marker file: write content,
 // then wrap the reversal (re-writing with empty content, which strips the
 // managed section) in a Delivered handle. Every native-file ContextWriter
-// context surface — claude's CLAUDE.md and codex's AGENTS.md — shares this
-// exact shape, so it lives here once rather
-// than as two (and counting) copy-pasted Deliver methods.
+// context surface shares this exact shape, so it lives here once rather than
+// as copy-pasted Deliver methods.
 func DeliverManagedContext(w ContextWriter, dir, content string) (Delivered, error) {
 	if _, err := w.WriteContext(ContextWriteRequest{ProjectDir: dir, Context: content}); err != nil {
 		return nil, err

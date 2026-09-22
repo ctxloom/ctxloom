@@ -39,8 +39,7 @@ func tryLockProbe(t *testing.T, path string) (unlock func(), acquired bool) {
 
 // TestRecorder_DefaultPath_HoldsSharedOwnershipLockUntilClose asserts a
 // default-path Recorder (no WithPath override — the shape
-// internal/lm/grpc/chat.go and internal/core/coord/enginehost.go
-// construct for a live structured/ACP session) takes the shared ownership
+// coord/enginehost constructs for a live structured session) takes the shared ownership
 // lock on ITS OWN canonical path once it actually opens the file (first
 // successful Record, per ensureFile's lazy-open contract), holds it for as
 // long as the file stays open, and releases it in Close — proven by probing

@@ -65,9 +65,9 @@ func (c *Coordinator) livenessMonitor() *liveness.Monitor {
 // Target.WorkDir's mtime clock, which is real evidence rather than an
 // inference.
 //
-// A run with no connected runner yields Observed:false, NOT Observed+dead: the
-// legacy go-plugin Chat path never dials home at all, and a child on it must
-// not be declared dead merely because this probe cannot see it.
+// A run with no connected runner yields Observed:false, NOT Observed+dead: a
+// runner that has not yet dialed home must not be declared dead merely because
+// this probe cannot see it.
 func (c *Coordinator) runnerHeartbeatProbe() liveness.Probe {
 	return liveness.ProbeFunc{Fn: func(_ context.Context, t liveness.Target) liveness.ProcState {
 		var credHash string
@@ -87,7 +87,7 @@ func (c *Coordinator) runnerHeartbeatProbe() liveness.Probe {
 		}
 		c.mu.Unlock()
 		if rs == nil {
-			return liveness.ProcState{Detail: "no runner connected (legacy chat path, or not yet dialed home)"}
+			return liveness.ProcState{Detail: "no runner connected (not yet dialed home)"}
 		}
 		since := c.now().Sub(last)
 		return liveness.ProcState{

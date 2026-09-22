@@ -99,9 +99,7 @@ var hardenedConfigKeys = map[string]any{
 //
 // This is a VENDOR-DOCUMENTED surface: claude's own error text instructs
 // setting `projects.<dir>.hasTrustDialogAccepted` when a headless run meets an
-// untrusted directory (probe-verified). It is the exact shape codex's
-// addProjectTrust already has for `[projects."<abs>"] trust_level`, for the
-// exact same reason: ctxloom answers the trust prompt only for homes it
+// untrusted directory (probe-verified). ctxloom answers the trust prompt only for homes it
 // created and only for the directory the run was asked for. See
 // docs/trust-model.md, "Engine workspace-trust prompts", for the normative
 // statement of that boundary.

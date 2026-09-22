@@ -70,8 +70,8 @@ type HookSpecificOutput struct {
 
 // --- SessionStart wire shapes ----------------------------------------------
 //
-// SessionStart is the context-injection event: Claude Code (and Codex, which
-// adopted the same shape) writes session identity to the hook's stdin and
+// SessionStart is the context-injection event: Claude Code writes session
+// identity to the hook's stdin and
 // accepts an additionalContext envelope on stdout. ctxloom's hook targets
 // (`ctxloom hook inject-context`, `ctxloom hook session-bind`) sit on this
 // wire; they import these types instead of redefining them.

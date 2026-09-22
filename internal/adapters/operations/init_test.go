@@ -286,19 +286,11 @@ func TestBuildInitialConfig(t *testing.T) {
 // one, so the lone entry serves both roles (init.go's `if fastLabel == ""
 // { fastLabel = primaryLabel }`).
 //
-// This used to ride TestBuildInitialConfig's "antigravity" case, back when the
-// shipped resources/default-config.yaml still marked an antigravity entry
-// role: primary with no fast counterpart. Now that entry is gone (antigravity
-// engine removal) and default-config.yaml marks roles for claude-code only
-// (both primary AND fast), so no surviving engine takes this branch through
-// the real shipped registry any more — repointing the old case at any other
-// shipped engine would silently retest the OTHER branch (primaryLabel == "", full
-// fallbackRegistry) that the "engine without role markers" case above already
-// covers, not this one. That is exactly the kind of hole this removal keeps
-// finding: the table-driven case still passed, but for the wrong reason. This
-// test isolates engineRegistry with a synthetic single-role registry instead,
-// so the branch stays covered without depending on antigravity or on any
-// particular shipped registry shape.
+// No shipped engine takes this branch through the real shipped registry —
+// pointing a table case at a shipped engine would silently retest the OTHER
+// branch (primaryLabel == "", full fallbackRegistry). This test isolates
+// engineRegistry with a synthetic single-role registry instead, so the branch
+// stays covered without depending on any particular shipped registry shape.
 func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
 	registry := config.LMConfig{
 		Configs: map[string]config.LLMConfig{

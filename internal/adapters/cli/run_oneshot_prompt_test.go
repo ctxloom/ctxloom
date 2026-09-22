@@ -67,10 +67,10 @@ func TestFinalizeRunPrompt_KeepsWorkingCases(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// TestRecordOneshotAnswer_EmptyAnswerFails pins a fix: the go-plugin --one-shot
-// arm handed an empty capture straight to transcript.RecordOneshot, whose
-// contract is that "nothing to record" is a legitimate no-op — so a run that
-// answered nothing wrote nothing, said nothing and exited 0.
+// TestRecordOneshotAnswer_EmptyAnswerFails: transcript.RecordOneshot's
+// contract is that "nothing to record" is a legitimate no-op, so without this
+// check a run that answered nothing would write nothing, say nothing and exit
+// 0.
 func TestRecordOneshotAnswer_EmptyAnswerFails(t *testing.T) {
 	for name, answer := range map[string]string{
 		"zero bytes":      "",

@@ -33,19 +33,9 @@ import (
 // simply disagree about what was approved. That is exactly what happened to
 // Hook.PreToolFallback.
 //
-// This gate is a DIFFERENT AXIS from the two that already exist and it is not
-// reachable from either:
-//
-//   - internal/lm/grpc's total-struct proto parity gate couples the Go WIRE
-//     type to its PROTO mirror, in both directions. It starts one step
-//     downstream of here: it can prove wire.Hook.PreToolFallback reaches the
-//     proto, and says nothing about whether the signed preimage reached
-//     wire.Hook.
-//   - internal/testsupport/parity couples agent.ChatEvent to its transcript and
-//     `--format json` mirrors. Different types entirely.
-//
-// This gate and the proto parity gate compose into the whole chain: preimage
-// → wire (here) → proto (the proto parity gate).
+// This gate is a DIFFERENT AXIS from internal/testsupport/parity, which couples
+// agent.ChatEvent to its transcript and `--format json` mirrors — different
+// types entirely.
 //
 // WHAT COUNTS AS EVIDENCE, and why nothing weaker will do
 //

@@ -86,14 +86,6 @@ func TestApplyHooksRequest_ClaudeCode(t *testing.T) {
 	assert.Equal(t, "claude-code", req.Backend)
 }
 
-func TestApplyHooksRequest_Antigravity(t *testing.T) {
-	req := ApplyHooksRequest{
-		Backend: "mock",
-	}
-
-	assert.Equal(t, "mock", req.Backend)
-}
-
 func TestApplyHooksResult_Fields(t *testing.T) {
 	result := ApplyHooksResult{
 		Status:      "applied",
@@ -326,10 +318,6 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	// Verify Antigravity hooks file was NOT created
-	exists, err = afero.Exists(fs, "/project/.agents/hooks.json")
-	require.NoError(t, err)
-	assert.False(t, exists)
 }
 
 // TestApplyHooks_AllBackends tests applying hooks to all backends.

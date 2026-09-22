@@ -18,11 +18,10 @@ const (
 	// Context is the engine's context surface (CLAUDE.md, .agents/AGENTS.md,
 	// steering, or a context cache file).
 	Context Kind = iota
-	// MCP is the engine's MCP server config (.mcp.json, mcp_config.json,
-	// .kiro/settings/mcp.json). An engine may fold MCP into Settings.
+	// MCP is the engine's MCP server config (.mcp.json). An engine may fold MCP
+	// into Settings.
 	MCP
-	// Settings is the engine's settings surface (.claude/settings.json,
-	// codex config.toml, kiro agent JSON).
+	// Settings is the engine's settings surface (.claude/settings.json).
 	Settings
 	// Hooks is the engine's hook registrations — the surface ltk and the
 	// context-injection hook are delivered through. It is a Kind of its own

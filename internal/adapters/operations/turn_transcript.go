@@ -19,10 +19,9 @@ import (
 // never disagree about which parser an engine's bytes get, and no second
 // engine-identity roster is minted.
 //
-// The returned src is the ADAPTER'S OWN LOCATOR, not necessarily a file path:
-// kiro's is a "<db-path>#<conversation-id>" composite, which is exactly why a
-// hook cannot simply pass the payload's transcript_path through for every
-// engine.
+// The returned src is the ADAPTER'S OWN LOCATOR, not necessarily a file path,
+// which is why a hook cannot simply pass the payload's transcript_path through
+// for every engine.
 //
 // hookTranscriptPath — the transcript_path the engine put in its own hook
 // payload — WINS when it names a file that exists. It is the freshest possible

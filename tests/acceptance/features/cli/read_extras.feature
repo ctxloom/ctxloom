@@ -28,12 +28,12 @@ Feature: Additional read and configuration commands
     And the output contains "review"
     And the output contains "COMMAND-BODY-review"
 
-  Scenario: ctxloom's own server reaches .mcp.json through the builtin bundle
+  # ctxloom's own MCP server is served by the running session's endpoint and
+  # written into the SESSION's registry at start; nothing at rest carries it —
+  # not even the explicit project-side install. (Ruled 2026-09-21: sessions
+  # carry their surfaces; the stdio server no longer exists.)
+  Scenario: The explicit project-side install registers no ctxloom MCP server at rest
       Given an initialized ctxloom project
       When I run "ctxloom manage hooks install"
       Then the command succeeds
-      # cwd is set ONLY on ctxloom's own entry, so it tracks that one server.
-      # The old token here was the _ctxloom marker, which ctxloom no longer
-      # writes into the user's file — ownership rides the §9.7 record.
-      And the file ".mcp.json" contains "${CLAUDE_PROJECT_DIR}"
-      And the file ".mcp.json" contains "ctxloom"
+      And the file ".mcp.json" registers no MCP server named "ctxloom"

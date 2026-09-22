@@ -14,7 +14,7 @@
 // and is not listed. The listing is an enumeration, never a judgement.
 //
 // Backend-native session transcripts are still produced by the backend
-// (Claude Code, Codex, etc.); this package only adds a cross-cutting
+// (e.g. Claude Code); this package only adds a cross-cutting
 // harp-keyed layer on top.
 package sessions
 

@@ -54,22 +54,14 @@ import (
 // is the wake. They were previously the same thing only in the sense that
 // neither reached a waiting parent.
 //
-// THE SESSION OWNER is a spool recipient too. Its in/ is read by its own
-// runner (the plugin-hosted owner arm's agent_recv sweeps it like any
-// runner's), by its turn-start hook, and in-process by AgentRecv (the Verbs
-// surface: claimSpoolInbox / ackSpoolInbox in mailbox.go, with the same
-// park/wake, consume-on-next-recv ack and burst settle the mailbox gave it).
-// The owner is identified by DECLARATION (Options.OwnerHarp), never by a run
-// record — no launch minted it, so it has none, and keying on one is what
-// left every child->parent message on the mailbox at full cutover, and the
-// owner's every SEND unrouted (spoolRoles).
+// THE SESSION OWNER is a spool recipient too. Its in/ is read by its
+// turn-start hook and in-process by AgentRecv. The owner is identified by
+// DECLARATION (Options.OwnerHarp), never by a run record — no launch minted it,
+// so it has none (spoolRoles).
 //
-// Only a FROZEN legacy go-plugin child still stays on the mailbox: it has no
-// runner sweeping a spool, so a file written for it would sit in a directory
-// nothing ever reads.
-//
-// FLAG OFF means byte-identical pre-spool behaviour: no branch below is
-// entered, no reactor runs, and no directory is created.
+// Any other recipient — a harp with no tracked current run — has no spool
+// reader, so mail to it is REFUSED (ErrNoSpoolReader): a file written for it
+// would sit in a directory nothing ever reads.
 
 // spoolSweepInterval is the slow reconciliation cadence on BOTH sides: the
 // backstop for a doorbell dropped on a stream that never went down (the
@@ -350,15 +342,13 @@ func MailFromSpool(e spool.Entry, from string) (Message, error) {
 //   - THE OWNER: this session's own harp, whose in/ is read by AgentRecv
 //     in-process and by its turn-start hook (ownerSpool). It is a class of
 //     its own because it is identified by declaration, not by a run record.
-//   - A MIGRATED CHILD, drained by its runner: a run this coordinator tracks
-//     that rides StartRun and so has a ctxloom runner sweeping its own spool.
-//     The class is fixed at ENQUEUE (childRt.viaStartRun), so mail written
-//     while the child waits on the execution cap is already a file its
-//     runner's startup sweep will find.
+//   - A CHILD, drained by its runner: a run this coordinator tracks, whose
+//     ctxloom runner sweeps its own spool. Mail written while the child waits
+//     on the execution cap is already a file its runner's startup sweep will
+//     find.
 //
-// A frozen legacy go-plugin child is neither: it has no runner at all, and a
-// file written for it would be a message delivered to a directory nobody
-// reads, with every signal green.
+// Any other harp has neither: a file written for it would be a message
+// delivered to a directory nobody reads, with every signal green.
 func (c *Coordinator) spoolDeliverTo(role string) bool {
 	if c.ownerSpool(role) {
 		return true

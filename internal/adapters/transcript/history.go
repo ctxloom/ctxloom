@@ -10,16 +10,6 @@
 // structured engine. It makes no assumption that a transcript's engine name
 // is currently registered: a canonical transcript captured under a
 // since-removed engine still reads.
-//
-// Deliberately NOT imported here: the plugin wire (aliased `pb` elsewhere),
-// whose pb.SessionSource interface this type's method set structurally
-// satisfies (GetSession/ListSessions/CurrentSession, matching signatures
-// exactly — see history_interface_test.go's external black-box assertion).
-// A parallel effort wires the plugin wire's
-// chat.go to import THIS package for Tee; importing pb back from here would
-// create transcript -> grpc -> transcript, an import cycle. A consumer
-// package (S4) declares the `var _ pb.SessionSource = (*CanonicalHistory)(nil)`
-// assertion when it wires CanonicalHistory in.
 package transcript
 
 import (

@@ -259,7 +259,7 @@ const ImageTag = "ctxloom-cell:latest"
 // RunPolicyImageTag is the cell image built for CTXLOOM'S OWN container
 // isolation to launch, rather than for the cell to launch itself. It is a
 // SEPARATE tag from ImageTag for one reason: the isolation policy runs
-// `<defaultContainerBinary> llm serve <backend>`, a fixed in-image path
+// `<defaultContainerBinary> runner <backend>`, a fixed in-image path
 // (/usr/local/bin/ctxloom) that is not the cell's own /ctxloom — so the two
 // images differ in exactly one COPY destination and must not share a tag that
 // would make whichever built last win.
@@ -361,9 +361,9 @@ func (r Runtime) EnsureImage(ctx context.Context) error {
 // the policy imposes on any image it is handed:
 //
 //  1. ctxloom sits at RunPolicyBinary, the fixed in-image path the policy
-//     execs (`<binary> llm serve <backend>`). An image carrying ctxloom
+//     execs (`<binary> runner <backend>`). An image carrying ctxloom
 //     anywhere else produces a container that starts and immediately dies with
-//     no such file — indistinguishable, from the host, from a plugin that came
+//     no such file — indistinguishable, from the host, from a runner that came
 //     up and answered nothing.
 //  2. A `cat` sits at /bin/cat, because the policy REFUSES to prepare a
 //     workspace until its own shared-filesystem probe has run `cat

@@ -260,8 +260,8 @@ type SettingsConfig struct {
 	// carried" lines naming what the selected engine has no structural place
 	// for. Default false, because a loss the user's own bundles asked for is
 	// worth hearing once. Set true when the answer is known and the line is
-	// just noise -- someone who runs opencode deliberately and does not want
-	// to be told it has no hook mechanism on every check.
+	// just noise -- someone who runs an engine without a hook mechanism
+	// deliberately and does not want to be told so on every check.
 	//
 	// It silences only DECLARED losses; ctxloom's own machinery is already
 	// excluded upstream (ManagedHooks.WireDeclared).

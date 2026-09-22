@@ -7,9 +7,7 @@
 //
 // Closing that window needs an identity token taken while the process is known
 // to be the right one (a pidfd, or a start-time stamp read from the process
-// table) and persisted alongside the pid; internal/lm/grpc's procHandle is the
-// worked example, pinning identity with a pidfd before it reads /proc. Every
-// caller here instead reads a pid out of a file written by an earlier process
+// table) and persisted alongside the pid. Every caller here instead reads a pid out of a file written by an earlier process
 // — an MCP discovery marker, a worktree owner file, a state-dir lock — and has
 // no such token, so the protection would have to be added to those three
 // on-disk formats, not here. Probe takes an int and nothing else precisely

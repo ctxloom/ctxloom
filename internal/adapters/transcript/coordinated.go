@@ -8,14 +8,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// CoordinatedRecorder fixes outer-petal: GRPCClient.Chat (and
-// coord/enginehost.go's analogous seam) used to let two INDEPENDENT
+// CoordinatedRecorder serializes a chat's producers. Two INDEPENDENT
 // goroutines — the inbound user-turn tap and the outbound backend-event tee —
-// call a shared Recorder's Record method directly. fileRecorder's own mutex
-// keeps that data-race-free, but it does nothing to make the resulting
-// record ORDER (and therefore Seq assignment) reflect a coordinated policy:
-// which goroutine's write landed first was decided by Go's mutex-acquisition
-// scheduling, not anything the caller controlled or could reason about.
+// both record into one transcript. fileRecorder's own mutex keeps direct calls
+// data-race-free, but it does nothing to make the resulting record ORDER (and
+// therefore Seq assignment) reflect a coordinated policy: which goroutine's
+// write lands first would be decided by Go's mutex-acquisition scheduling, not
+// anything the caller controls or can reason about.
 //
 // A CoordinatedRecorder removes the "two independent, uncoordinated
 // goroutines sharing one seq counter" shape entirely: exactly one internal

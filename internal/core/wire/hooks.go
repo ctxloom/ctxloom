@@ -41,9 +41,7 @@ type Hook struct {
 	// has no session-start event. Only meaningful for idempotent hooks — the
 	// author opts in because the hook may run many times per session rather
 	// than once. Writers for agents with a working session-start event ignore
-	// it. No currently-registered backend lacks a session-start event (the
-	// one that did, antigravity, was removed in 0.7.0); the field stays wired
-	// for whichever future engine needs it next.
+	// it.
 	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty" json:"pre_tool_fallback,omitempty"`
 }
 

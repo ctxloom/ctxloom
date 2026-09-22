@@ -14,8 +14,7 @@ import (
 // A non-dumpable process's state-bearing /proc/<pid> entries — environ, mem,
 // maps, and the exe/cwd/root magic links — become root-owned, so a same-uid
 // peer's read is denied. /proc/<pid>/stat and /proc/<pid>/cmdline stay
-// readable, which is what internal/lm/grpc's session sweeper needs to keep
-// enumerating members of a runner's session.
+// readable, so a process can still be enumerated by session.
 //
 // The flag is per-process and is RESET TO DUMPABLE ON execve, so it covers
 // this process and nothing it spawns.

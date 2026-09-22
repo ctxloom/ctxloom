@@ -335,7 +335,6 @@ func TokenAt(output string, i int) (string, error) {
 	return validate(fields[i])
 }
 
-
 func firstNonEmptyLine(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		if s := strings.TrimSpace(line); s != "" {

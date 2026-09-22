@@ -29,7 +29,7 @@ const (
 	// PermissionDefault.
 	PermissionAcceptEdits
 	// PermissionPlan is read-only / planning: the engine may inspect but not
-	// mutate (claude plan; codex --sandbox read-only).
+	// mutate (claude's plan mode).
 	PermissionPlan
 	// PermissionBypass drops all in-engine prompting. The blast radius is
 	// whatever contains the process — a real boundary, or nothing on the host.

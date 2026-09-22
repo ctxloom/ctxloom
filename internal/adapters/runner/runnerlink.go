@@ -47,7 +47,7 @@ func rejectedHelloError(what string, reason *rpcstatus.Status) error {
 // spawn the harness) and must not block the link's single receive loop.
 type RunnerRequestHandler func(*agentcoordpb.RunnerRequest) *agentcoordpb.RunnerResponse
 
-// RunnerLink is the runner side of RunnerChannel: `ctxloom llm serve` dials
+// RunnerLink is the runner side of RunnerChannel: `ctxloom runner` dials
 // home when its process env carries the coordinator trio. It sends
 // RunnerHello (capabilities + active runs — never an identity claim),
 // heartbeats on HeartbeatInterval, a best-effort RunExited at shutdown, and —

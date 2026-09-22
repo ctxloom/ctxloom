@@ -89,7 +89,7 @@ func splitAppDir(protected string) (appDir, rel string, err error) {
 // package does not own: one OUTSIDE any project .ctxloom tree entirely — an
 // engine's own settings.json/.mcp.json/config.toml, sitting either in a
 // project directory (.mcp.json, .claude/settings.json) or in the user's REAL
-// engine home (~/.claude/settings.json, ~/.codex/config.toml) — that more
+// engine home (~/.claude/settings.json) — that more
 // than one ctxloom-FAMILY BINARY (ctxloom, ltk, taskloom) may read-modify-write.
 //
 // It lives at ~/.ctxloom/locks/<flattened-absolute-protected-path>.lock:
@@ -101,8 +101,8 @@ func splitAppDir(protected string) (appDir, rel string, err error) {
 // fs-consolidation plan's N1 finding — agent.WithFileLock's prior use of
 // PathFor for these targets had been leaving `.mcp.json.lock`,
 // `.claude/settings.json.lock`, and (worse) sidecars inside the user's REAL
-// `~/.claude` and `~/.codex` homes, untracked by any .gitignore pattern and,
-// for the home-rooted pair, a ctxloom-owned file inside a directory ctxloom
+// `~/.claude` home, untracked by any .gitignore pattern and, for the
+// home-rooted one, a ctxloom-owned file inside a directory ctxloom
 // otherwise never writes to at all); ProjectPathFor only resolves paths
 // INSIDE a project .ctxloom tree, which a foreign file is by definition not.
 //

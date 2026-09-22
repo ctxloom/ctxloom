@@ -30,8 +30,8 @@ import (
 
 // doctorDepBinariesRequired are the non-engine binaries ctxloom's own
 // features genuinely hard-depend on regardless of which engines are
-// configured: git — worktree isolation shells `git worktree` (internal/lm/
-// isolation), remote clone/pull reads/writes real git repos (internal/
+// configured: git — worktree isolation shells `git worktree`
+// (internal/adapters/isolation), remote clone/pull reads/writes real git repos (internal/
 // remote/repo_cache.go, internal/adapters/git/exec.go), and `ctxloom init`/`manage
 // install` themselves clone the default remote. A machine without git
 // silently can't do worktrees or pull content; this makes that a visible

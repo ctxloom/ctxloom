@@ -43,17 +43,9 @@
 //     correctly. Half 4 fills an agent value totally, runs the REAL write
 //     converter and the REAL read converter back to back (through the actual
 //     serialized bytes where the mirror has an on-disk form), and requires
-//     WHOLE-STRUCT equality with what it started from. This is the shape
-//     internal/lm/grpc's T7 total-struct proto parity already uses in both
-//     directions, and the reason it caught five dropped fields a per-field
-//     named assertion had missed: total equality of a fully-populated value is
-//     the only assertion that can see an ABSENT STATEMENT.
-//
-// A FOURTH mirror exists — the runner↔plugin gRPC wire (internal/lm/grpc) —
-// and is deliberately NOT a pair here: it already carries a stronger gate of
-// its own (its T7 total-struct proto parity, a reflection-filled round trip
-// requiring whole-struct equality in BOTH directions). Nothing is gained by
-// pointing a weaker one-directional gate at it.
+//     WHOLE-STRUCT equality with what it started from: total equality of a
+//     fully-populated value is the only assertion that can see an ABSENT
+//     STATEMENT.
 //
 // Which mirror gets half 4 is decided by whether a read side EXISTS, not by
 // whether anyone remembered to gate it: the `--format json` NDJSON DTOs have
@@ -218,9 +210,7 @@ type RoundTripPair struct {
 //
 // It asserts on TOTAL equality rather than on named fields deliberately. A
 // per-field assertion covers the fields whoever wrote it thought of, and a
-// field added tomorrow is silently uncovered — which is exactly how five
-// dropped fields survived underneath internal/lm/grpc's previous round-trip
-// test. Filling by reflection means a field added tomorrow is gated the day it
+// field added tomorrow is silently uncovered. Filling by reflection means a field added tomorrow is gated the day it
 // lands, with nobody editing this file.
 func CheckRoundTrip(t *testing.T, pairs []RoundTripPair) {
 	t.Helper()

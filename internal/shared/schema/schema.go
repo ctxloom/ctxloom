@@ -151,9 +151,9 @@ func (v *ConfigValidator) ValidateAt(path []string, value any) error {
 // counterpart config/unknown_keys.go's did-you-mean suggestion needs, and it
 // deliberately does NOT reuse schemaChild's "first branch that recognizes"
 // policy for the union step: that policy is correct for KnownPath's yes/no
-// question, but wrong here — a typo inside a kiro-typed llm.configs entry
-// must be able to suggest kiro's own field names, which first-match-wins
-// would never reach if an earlier branch (e.g. claude-code) also partially
+// question, but wrong here — a typo inside one engine's llm.configs entry
+// must be able to suggest that engine's own field names, which
+// first-match-wins would never reach if an earlier branch also partially
 // matches. Nil (not empty) when path does not resolve to anything, so a
 // caller can tell "resolved, zero properties" from "did not resolve" if it
 // ever needs to.

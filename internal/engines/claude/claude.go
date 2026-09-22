@@ -160,8 +160,7 @@ func (w *ClaudeCodeHookWriter) WriteSettings(hooks *wire.HooksConfig, bundleMCP 
 	// shared across every backend, so extending its signature is a
 	// cross-module change out of scope here) — real launches deliver
 	// deny_tools through the surfaces × cells seam (surfacedelivery.go's
-	// DeliverSettings) instead, which this method's only live callers
-	// (opencode's own writer, conformance tests) never route through.
+	// DeliverSettings) instead. This method's only callers are tests.
 	if err := w.writeSettingsFile(hooks, nil, projectDir); err != nil {
 		return err
 	}
@@ -313,9 +312,8 @@ func (w *ClaudeCodeHookWriter) ContextPath(projectDir string) string {
 // out-of-cwd <hash>.sysprompt.md from the context string directly and never
 // reads CLAUDE.md, so it is unaffected by this change.)
 //
-// The marker merge itself is the shared core (agent.WriteManagedContext),
-// ported from antigravity's original .agents/AGENTS.md implementation so every
-// backend that owns a human-editable context file shares one merge.
+// The marker merge itself is the shared core (agent.WriteManagedContext), so
+// every backend that owns a human-editable context file shares one merge.
 func (w *ClaudeCodeHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
 	path := w.ContextPath(req.ProjectDir)
 	return agent.WriteManagedContext(w.getFS(), path, ContextFileName, req.Context, ContextFileName)

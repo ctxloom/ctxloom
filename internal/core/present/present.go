@@ -52,7 +52,7 @@ type Root struct{ Host, Engine string }
 type Paths struct {
 	// ProjectRoot is the user's code.
 	ProjectRoot Root
-	// EngineHome is the engine's own home (CODEX_HOME and the like).
+	// EngineHome is the engine's own home (CLAUDE_CONFIG_DIR and the like).
 	EngineHome Root
 	// CtxloomHome is ctxloom's own: spool, sessions, task log.
 	CtxloomHome Root

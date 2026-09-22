@@ -29,11 +29,10 @@ func (c Container) StartRunner(_ context.Context, backendName, label string, ver
 		return nil, fmt.Errorf("container start-runner: unexpected workspace %T (expected a container workspace)", ws)
 	}
 	if verbosity > 0 {
-		fmt.Fprintf(os.Stderr, "ctxloom: container runner (docker-direct, no plugin transport) auth via %s\n", cw.authMode)
+		fmt.Fprintf(os.Stderr, "ctxloom: container runner (docker-direct) auth via %s\n", cw.authMode)
 	}
 	name := containerName(cw.agentID)
-	// Same reason as the plugin-transport spawn in runtime.go: this name is
-	// the no-tmux fallback's only handle, is randomly suffixed, and dies with
+	// This name is the no-tmux fallback's only handle, is randomly suffixed, and dies with
 	// the container. Unconditional on purpose.
 	fmt.Fprintf(os.Stderr, "ctxloom: container %s (watch: docker logs -f %s)\n", name, name)
 	spec := c.buildRunnerSpec(backendName, name, cw, spawnEnv)

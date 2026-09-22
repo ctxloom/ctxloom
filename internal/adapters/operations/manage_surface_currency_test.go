@@ -14,7 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -130,7 +131,7 @@ func TestContextFileCurrency_ReadsOnlyWhatTheRecordOwns(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, owned, "the user's own file is not ctxloom's to judge")
 
-	kind, ok := backends.Kind("mock")
+	kind, ok := engines.Registry().Lookup(engine.Name("mock"))
 	require.True(t, ok)
 	pkg := composite.Package{Context: composite.Context{Text: "COMPOSED"}, Fragments: []composite.Item[composite.Fragment]{{Ref: "t#fragment/f", Value: composite.Fragment{Name: "f", Body: "COMPOSED"}}}}
 	_, _, err = DeliverProject(context.Background(), fs, kind, pkg, dir)

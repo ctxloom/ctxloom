@@ -12,8 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // The approach vocabulary is an OPEN SET declared per engine. The failure
@@ -31,15 +32,19 @@ import (
 const sharedAgentDir = "internal/core/agent"
 
 func TestArch_SharedAgent_NamesNoEngineOnlyApproach(t *testing.T) {
-	names := backends.List()
+	names := operations.EngineNames()
 	if len(names) == 0 {
-		t.Fatal("backends.List() returned nothing — the registry did not populate")
+		t.Fatal("operations.EngineNames() returned nothing — the registry did not populate")
 	}
 
 	// Which engines declare each approach name.
 	declaredBy := map[string]map[string]bool{}
 	for _, engine := range names {
-		for _, n := range backends.Declared(engine).AllNames() {
+		h, ok := engines.Hosted(engine)
+		if !ok {
+			t.Fatalf("%s is composed but not agent.Hosted", engine)
+		}
+		for _, n := range h.Declaration().AllNames() {
 			if declaredBy[n] == nil {
 				declaredBy[n] = map[string]bool{}
 			}

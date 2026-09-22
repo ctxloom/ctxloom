@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestStarterSeam_MockChildRidesTheSpool names the seam's contract: a
@@ -28,7 +29,7 @@ import (
 func TestStarterSeam_MockChildRidesTheSpool(t *testing.T) {
 	resetStrictness(t)
 	cfg, root := delegationFixture(t, map[string]agents.Agent{"worker": headlessAgent("p1")})
-	runners := coordtest.NewRunners()
+	runners := coordtest.NewRunners(engines.Registry())
 	t.Cleanup(runners.Close)
 	c, err := coord.New(coord.Options{
 		Spawner: spawn.New(nil, fixtureApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: t.TempDir(),

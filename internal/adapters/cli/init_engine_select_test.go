@@ -3,10 +3,9 @@ package cli
 import (
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // TestPrimaryEngines_AreAllRegisteredBackends is the floor for the curated
@@ -14,12 +13,12 @@ import (
 //
 // An unregistered name here is not a cosmetic error — init OFFERS it, the user
 // PICKS it, and the failure lands later at launch on an engine ctxloom does
-// not have. This gate reads backends.List() live and names no engine, so
+// not have. This gate reads operations.EngineNames() live and names no engine, so
 // adding a correctly-registered engine never requires editing it; only a
 // roster entry that has drifted out of registration trips it.
 func TestPrimaryEngines_AreAllRegisteredBackends(t *testing.T) {
 	require.NotEmpty(t, primaryEngines(), "an empty curated menu offers the user nothing")
-	registered := backends.List()
+	registered := operations.EngineNames()
 	require.NotEmpty(t, registered, "no backend is registered; this comparison would be vacuous")
 
 	for _, name := range primaryEngines() {
@@ -33,8 +32,8 @@ func TestPrimaryEngines_AreAllRegisteredBackends(t *testing.T) {
 // relationship to the registry rather than a literal that would rot with it.
 func TestUserEngineNames_ListsRegisteredNonTestBackendsOnly(t *testing.T) {
 	got := userEngineNames()
-	for _, name := range backends.List() {
-		if backends.IsTestOnly(name) {
+	for _, name := range operations.EngineNames() {
+		if operations.IsTestOnlyEngine(name) {
 			assert.NotContains(t, got, name, "test-only backend must not be advertised")
 		} else {
 			assert.Contains(t, got, name, "registered backend missing from help")

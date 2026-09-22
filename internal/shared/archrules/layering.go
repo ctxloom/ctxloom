@@ -357,8 +357,9 @@ var LayeringRules = []LayeringRule{
 			"internal/core/wire",
 		},
 		Allowed: map[string]string{
-			"internal/engines/claude/engine -> internal/adapters/engineversion":                  "slice 11b: the version command is the engine's own, on the instance half of the port",
-			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "slice 11b: the reader becomes an engine.TranscriptReader the engine package supplies (Engine.Transcripts)",
+			"internal/engines -> internal/adapters/transcript/vendorreader/mock":                 "sanctioned: the composition root hands each kind the readers of its own store (Engine.Transcripts)",
+			"internal/engines/claude/engine -> internal/adapters/engineversion":                  "sanctioned: the reading of `claude --version` is the version adapter's parse, handed to the kind by the root (Definition.Version)",
+			"internal/engines/claude/engine -> internal/adapters/transcript/vendorreader/claude": "sanctioned: the composition root hands the kind the readers of its own store (Engine.Transcripts)",
 			"internal/engines/claude -> internal/adapters/confpatch":                             "slice 12: delivery.Ownership (adapters/confpatch) is reached through delivery, not from the engine",
 			"internal/engines/claude -> internal/core/paths":                                     "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no paths",
 		},

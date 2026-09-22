@@ -16,8 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // The cells adapter is the ONE place a launch's workspace is prepared and
@@ -26,7 +26,7 @@ import (
 
 func claudeKind(t *testing.T) launch.CellRequest {
 	t.Helper()
-	eng, ok := backends.Engines().Lookup("claude-code")
+	eng, ok := engines.Registry().Lookup("claude-code")
 	require.True(t, ok)
 	return launch.CellRequest{
 		Axes:     launch.Axes{Workspace: launch.WorkspaceNone, Runtime: launch.RuntimeHost},

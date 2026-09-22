@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -46,8 +45,8 @@ func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
 
 	backend := "claude-code"
-	require.NotEmpty(t, backends.NoLegacyHistoryReason(backend),
-		"fixture assumes a backend with no legacy scraper leg")
+	_, herr := HistoryForBackend(backend)
+	require.ErrorIs(t, herr, errNoSessionHistory, "fixture assumes a backend with no legacy scraper leg")
 
 	_, err := distillSource(backend, home)
 	require.Error(t, err)

@@ -9,9 +9,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // EnvWorkspace is NOT the engine's config-home carrier, and this pins it: a
@@ -31,7 +31,7 @@ func TestWorktreeWorkspace_EnvCarriesNoEngineHomeVar(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	// The composition root, so the engine's declaration is the shipped one.
 	// Idempotent: a second registration of the same descriptors is a no-op.
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 
 	spec, ok := backends.InTreeAgentHomeFor("claude-code", "ugly-icy-squid")
 	require.True(t, ok, "claude-code declares a relocatable home; without one there is nothing to assert against")

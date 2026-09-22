@@ -53,6 +53,16 @@ type HomeVar struct {
 // Relocates reports whether the spec moves anything: the zero spec does not.
 func (h HomeSpec) Relocates() bool { return len(h.Vars) > 0 }
 
+// Seed is the credential seed a relocated home is seeded from; false when
+// nothing seeds it — the seed is declared absent, or the home relocates
+// nothing and so has nowhere to seed.
+func (h HomeSpec) Seed() (CredentialSeed, bool) {
+	if !h.Relocates() {
+		return CredentialSeed{}, false
+	}
+	return h.Credentials.Get()
+}
+
 // CredentialSeed is the host credential material copied into a session
 // home, the deliveries the engine ACCEPTS for it, and the two facts a
 // fail-loud "nothing to seed" message needs: the env vars that carry usable

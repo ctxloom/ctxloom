@@ -1,4 +1,4 @@
-package backends
+package mock
 
 import (
 	"context"
@@ -26,7 +26,7 @@ func TestMock_InteractiveEcho(t *testing.T) {
 		Resize: resize,
 	}
 	var out strings.Builder
-	res, err := NewMock().Execute(context.Background(), req, &out, &out)
+	res, err := newTestBackend().Execute(context.Background(), req, &out, &out)
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), res.ExitCode)
 	assert.Contains(t, out.String(), "mock echo: typed-line", "the typed line is reflected")
@@ -42,7 +42,7 @@ func TestMock_EchoDisabledByDefault(t *testing.T) {
 		Stdin:  strings.NewReader("should-not-be-read\n"),
 	}
 	var out strings.Builder
-	_, err := NewMock().Execute(context.Background(), req, &out, &out)
+	_, err := newTestBackend().Execute(context.Background(), req, &out, &out)
 	require.NoError(t, err)
 	assert.NotContains(t, out.String(), "mock echo:", "default mode never enters the interactive echo path")
 	assert.Contains(t, out.String(), "prompt=hi", "default prompt echo preserved")
@@ -74,7 +74,7 @@ func TestMock_InteractiveEcho_CtxCancelInterruptsBlockedRead(t *testing.T) {
 	var out strings.Builder
 	go func() {
 		defer close(done)
-		_, _ = NewMock().Execute(ctx, req, &out, &out)
+		_, _ = newTestBackend().Execute(ctx, req, &out, &out)
 	}()
 
 	select {

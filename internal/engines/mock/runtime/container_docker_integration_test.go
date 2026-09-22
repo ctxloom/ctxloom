@@ -38,9 +38,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	mockrt "github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/stretchr/testify/require"
 )
 
 const mockEngineImage = "ctxloom-mockengine-itest:latest"
@@ -91,7 +92,7 @@ func buildMockEngineImage(t *testing.T) string {
 // present:false rows are the point.
 func materializeClaudeContext(t *testing.T, workspace, context string) string {
 	t.Helper()
-	a, ok := backends.Declared("claude-code").Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: context}, nil)
+	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, agent.SurfaceInputs{Context: context}, nil)
 	if !ok {
 		t.Fatal("claude declared no project-file context delivery — cannot set up the test")
 	}
@@ -211,4 +212,13 @@ func recordFor(t *testing.T, rep mockrt.Report, kind, scope string) mockrt.Probe
 	}
 	t.Fatalf("no probe record for kind=%s scope=%s", kind, scope)
 	return mockrt.ProbeRecord{}
+}
+
+// claudeDeclaration is claude's named-form table off the engine value
+// (agent.Hosted).
+func claudeDeclaration(t *testing.T) agent.Declaration {
+	t.Helper()
+	h, ok := engines.Hosted("claude-code")
+	require.True(t, ok)
+	return h.Declaration()
 }

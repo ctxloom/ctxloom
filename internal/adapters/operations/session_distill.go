@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -175,11 +175,11 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // exactly when there is no leg — never a typed nil the fallback would
 // dereference.
 func legacyTranscriptSource(backend, workDir string) (transcript.Source, error) {
-	if backends.NoLegacyHistoryReason(backend) != "" {
-		return nil, nil
-	}
 	hist, err := HistoryForBackend(backend)
 	if err != nil {
+		if errors.Is(err, errNoSessionHistory) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return transcript.NewEngineReader(hist, workDir), nil
@@ -225,7 +225,7 @@ func ResolveSessionSource(cfg *config.Config, backendName, workDir string) (tran
 	if backendName == "" {
 		backendName = cfg.GetDefaultLLM()
 	}
-	if !backends.Exists(backendName) {
+	if !EngineExists(backendName) {
 		return nil, backendName, fmt.Errorf("unknown backend: %s", backendName)
 	}
 	legacy, err := legacyTranscriptSource(backendName, workDir)

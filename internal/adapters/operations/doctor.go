@@ -23,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
@@ -144,7 +143,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckAgents(ctx, cfg, cfgErr),
 			doctorCheckCapabilityLoss(ctx, cfg, cfgErr),
 			doctorCheckVersion(),
-			doctorCheckTranscriptReaders(ctx, cfg, backends.ProbeEngineVersion),
+			doctorCheckTranscriptReaders(ctx, cfg, ProbeEngineVersion),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
 			doctorCheckMCPInvocation(doctorProjectDir(cfg)),
 			doctorCheckContentTrust(cfg, cfgErr),
@@ -279,8 +278,8 @@ func doctorMissingFromPath(bins []string) []string {
 func doctorMissingEngineClients(cfg *config.Config) []string {
 	var missing []string
 	for _, engine := range doctorConfiguredEngines(cfg) {
-		bin := backends.EngineBinary(engine)
-		if bin == "" || backends.IsTestOnly(engine) {
+		bin := EngineBinary(engine)
+		if bin == "" || IsTestOnlyEngine(engine) {
 			continue
 		}
 		if _, err := exec.LookPath(bin); err != nil {

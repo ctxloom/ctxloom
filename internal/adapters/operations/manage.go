@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -71,7 +72,7 @@ func RemoveHooks(ctx context.Context, _ *config.Config, req RemoveHooksRequest) 
 // the project writer's record says what ctxloom put there and only that is
 // removed — the user's own hooks, servers, commands and context stay.
 func removeBackendHarness(ctx context.Context, name, workDir string, fs afero.Fs) error {
-	kind, ok := backends.Kind(name)
+	kind, ok := engines.Registry().Lookup(engine.Name(name))
 	if !ok {
 		return fmt.Errorf("failed to remove %s: no engine kind is composed for it", name)
 	}
@@ -210,10 +211,10 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 		return nil, []string{err.Error()}
 	}
 	for _, name := range backends.BackendsWithSettings() {
-		if backends.IsTestOnly(name) {
+		if IsTestOnlyEngine(name) {
 			continue
 		}
-		kind, ok := backends.Kind(name)
+		kind, ok := engines.Registry().Lookup(engine.Name(name))
 		if !ok {
 			continue
 		}

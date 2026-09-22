@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -338,13 +337,13 @@ func isolationGateErr(mode strictness.Mode, found []strictness.Finding) error {
 func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
 	_, configured := cfg.GetLLMEntry(label)
-	if !configured && backends.Exists(label) {
+	if !configured && EngineExists(label) {
 		return label, ""
 	}
 	if !configured && label != "" {
 		strictness.Fail(strictness.ClassConfig,
 			fmt.Sprintf("add an `llm:` entry for %q in .ctxloom/config.yaml, or name one of the configured labels (%s) or a known engine (%s)",
-				label, knownLLMLabels(cfg), strings.Join(backends.List(), ", ")),
+				label, knownLLMLabels(cfg), strings.Join(EngineNames(), ", ")),
 			"llm label %q names neither a configured `llm:` entry nor a known engine; this run would silently use the built-in default backend %q instead of the engine you named",
 			label, backend)
 	}

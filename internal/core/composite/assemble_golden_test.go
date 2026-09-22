@@ -26,8 +26,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -229,7 +229,7 @@ func normalize(s, appDir string) string {
 
 func goldenEngines() []string {
 	var names []string
-	for _, n := range backends.Engines().Names(nil) {
+	for _, n := range engines.Registry().Names(nil) {
 		names = append(names, string(n))
 	}
 	sort.Strings(names)

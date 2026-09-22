@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -137,7 +136,7 @@ func renderLLMWritten(out io.Writer, entry *operations.LLMEntry, edited bool) er
 	}
 	typ := entry.Type
 	if typ == "" {
-		typ = backends.DefaultEngineName()
+		typ = operations.DefaultEngineName()
 	}
 	w.Printf("%s llm %q (type: %s", verb, entry.Label, typ)
 	if entry.Model != "" {
@@ -166,7 +165,7 @@ func registerLLMWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
 	_ = cmd.RegisterFlagCompletionFunc("type", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return backends.List(), cobra.ShellCompDirectiveNoFileComp
+		return operations.EngineNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 }
@@ -182,7 +181,7 @@ func applyEngineNamedHelp() {
 	// The scaffolding flags' HELP names the engine shipped by default — a
 	// registry fact; the value itself is resolved where each command runs.
 	for _, f := range []*pflag.Flag{configCreateCmd.Flags().Lookup("engine"), manageInstallCmd.Flags().Lookup("engine")} {
-		f.DefValue = backends.DefaultEngineName()
+		f.DefValue = operations.DefaultEngineName()
 	}
 	llmCreateCmd.Long = `Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a

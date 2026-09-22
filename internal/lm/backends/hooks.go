@@ -1,52 +1,34 @@
 package backends
 
 import (
-	"sort"
-
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
-// Settings options + shared write helpers live in shared/agent (the
-// engine-agnostic core) so the per-agent writers can use them without importing
-// backends. SettingsOption and the With* funcs are re-exported for external
-// callers (internal/adapters/operations) that reach the KEPT settings-writer dispatch —
-// GetSettingsWriter / RemoveSettings / BackendStatus. (The cross-backend settings
-// WRITE now rides the surfaces × cells seam — see BuildSurfaces + agent.Select.)
+// SettingsOption and WithSettingsFS are re-exported for the callers that
+// reach the settings-writer dispatch (BackendStatus).
 type SettingsOption = agent.SettingsOption
 
-// WithSettingsFS is the only option this facade re-exports, because the
-// filesystem seam is the only thing SettingsOptions carries: statusline policy
-// rides DeliverSettings on the surfaces seam.
 var WithSettingsFS = agent.WithSettingsFS
 
-// GetSettingsWriter returns a settings writer for the named backend, or nil if
-// not supported. If fs is provided, it will be used for filesystem operations;
-// otherwise the OS filesystem is used. The per-backend writer constructors
-// live in the descriptor table (registry.go).
-func GetSettingsWriter(name string, o agent.SettingsOptions) agent.SettingsWriter {
-	if d, ok := lookup(name); ok {
-		if w, ok := d.SettingsWriter.Get(); ok {
-			return w(o)
-		}
+// settingsWriter constructs the named engine's settings writer, nil for an
+// unregistered name.
+func settingsWriter(name string, o agent.SettingsOptions) agent.SettingsWriter {
+	h, ok := engines.Hosted(name)
+	if !ok {
+		return nil
 	}
-	return nil
+	return h.SettingsWriter(o)
 }
 
-// BackendsWithSettings returns the names of all backends that support
-// settings, sorted (List()'s settings-scoped twin).
+// BackendsWithSettings returns the names of the engines that carry a
+// settings writer, sorted: every Hosted engine.
 func BackendsWithSettings() []string {
-	names := make([]string, 0, len(records))
-	for name, r := range records {
-		d := &r.host
-		if _, ok := d.SettingsWriter.Get(); ok {
-			names = append(names, name)
+	var names []string
+	for _, n := range engines.Registry().Names(nil) {
+		if _, ok := engines.Hosted(string(n)); ok {
+			names = append(names, string(n))
 		}
 	}
-	sort.Strings(names)
 	return names
 }
-
-// The per-agent settings-writer helpers (hook-hash, managed-command detection,
-// fs/atomic-write, ctxloom binary/args) now live in shared/agent and are used
-// directly by the claude/codex writer modules — the transitional wrappers
-// that used to bridge them here are gone.

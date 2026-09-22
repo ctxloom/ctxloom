@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -271,7 +272,7 @@ func ManagedSurfacesOf(pkg composite.Package) agent.ManagedSurfaces {
 // ExportsFor is what the named engine says about the package: its own
 // Exports over the engine-facing projection of the package.
 func ExportsFor(pkg composite.Package, engineName string) (engine.Exports, error) {
-	eng, ok := backends.Engines().Lookup(engine.Name(engineName))
+	eng, ok := engines.Registry().Lookup(engine.Name(engineName))
 	if !ok {
 		return engine.Exports{}, fmt.Errorf("unknown backend %q", engineName)
 	}

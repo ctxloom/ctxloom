@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // pingTestHarp is any non-empty harp: these tests exercise the ping's own
@@ -41,7 +41,7 @@ func testLaunchDeps(t *testing.T, cfg *config.Config) launch.Deps {
 	t.Helper()
 	deps := launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   backends.Engines(),
+		Engines:   engines.Registry(),
 		Assembler: launchtestAssembler{},
 		Cells:     dryCells{},
 		Endpoints: sequenceMinter{},
@@ -267,13 +267,13 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 // naming BOTH the engine and its specific fix — never a bare "failed."
 //
 // EVERY registered backend runs the SAME assertions: this is a conformance
-// suite over backends.List(), not a hand-maintained table of engine/expected
+// suite over operations.EngineNames(), not a hand-maintained table of engine/expected
 // pairs. A table drifts the moment a backend is added or removed, and it
 // duplicates the fix strings each engine's own declaration owns — so the expected
 // text is read from production via engineAuthFixHint rather than re-typed
 // here. A newly registered backend is covered without editing this file.
 func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
-	engines := backends.List()
+	engines := operations.EngineNames()
 	require.NotEmpty(t, engines,
 		"the backend registry is empty — every subtest below would be skipped and this suite would pass having checked nothing")
 

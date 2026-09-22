@@ -1,4 +1,4 @@
-package backends
+package mock
 
 import (
 	"path/filepath"
@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -112,7 +111,7 @@ func mockPresent(t *testing.T, kind agent.SurfaceKind, start present.Start) pres
 
 func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start present.Start) present.Presentation {
 	t.Helper()
-	a, ok := mockDeclaration(config.BackendMock).Construct(kind, name, agent.SurfaceInputs{}, nil)
+	a, ok := New().(Mock).Declaration().Construct(kind, name, agent.SurfaceInputs{}, nil)
 	require.True(t, ok)
 	return a.Present(start)
 }
@@ -122,7 +121,7 @@ func mockPresentNamed(t *testing.T, kind agent.SurfaceKind, name string, start p
 // which presents beneath the run's Scratch — not the project root, not the
 // engine home — and presents nothing rootable when no Scratch was advised.
 func TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome(t *testing.T) {
-	decl := mockDeclaration(config.BackendMock)
+	decl := New().(Mock).Declaration()
 	start := present.New(present.OnHost(present.Paths{
 		ProjectRoot: present.Root{Host: "/proj"},
 		EngineHome:  present.Root{Host: "/elsewhere/home"},
@@ -146,7 +145,7 @@ func TestMockDefaultForm_RootsUnderScratch_NotProjectRootOrEngineHome(t *testing
 // resolved to something else. The message must distinguish "the approach is unsupported" from "the
 // kind is absent": it names the surface, the name and what IS declared.
 func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
-	decl := mockDeclaration(config.BackendMock)
+	decl := New().(Mock).Declaration()
 
 	_, ok := decl.Construct(agent.SurfaceContext, agent.ApproachHook, agent.SurfaceInputs{Context: "X"}, nil)
 	assert.False(t, ok, "an undeclared approach is refused")
@@ -163,7 +162,7 @@ func TestMockDeclaration_UnsupportedApproach_IsRefused(t *testing.T) {
 // takes a position), and it is the branch that must report absence rather
 // than return a nil Approach a caller would then use.
 func TestMockDeclaration_UnsupportedKind_IsAbsent(t *testing.T) {
-	decl := mockDeclaration(config.BackendMock)
+	decl := New().(Mock).Declaration()
 
 	const notASurface = agent.SurfaceKind(9999)
 	a, ok := decl.Construct(notASurface, agent.ApproachUnsafeFile, agent.SurfaceInputs{}, nil)

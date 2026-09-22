@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -16,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -538,13 +539,18 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 // HistoryForBackend returns the named backend's in-process transcript reader,
 // used for host-located (by-location) transcript reads.
 func HistoryForBackend(name string) (agent.SessionHistory, error) {
-	b := backends.Get(name)
-	if b == nil {
+	h, ok := engines.Hosted(name)
+	if !ok {
 		return nil, fmt.Errorf("unknown backend %q", name)
 	}
-	h := b.History()
-	if h == nil {
-		return nil, fmt.Errorf("backend %q has no session history", name)
+	hist := h.Backend(nil).History()
+	if hist == nil {
+		return nil, fmt.Errorf("backend %q: %w", name, errNoSessionHistory)
 	}
-	return h, nil
+	return hist, nil
 }
+
+// errNoSessionHistory is the refusal for an engine whose backend keeps no
+// legacy session store: canonical capture is its only transcript source, so
+// a session-source builder constructs no legacy leg for it.
+var errNoSessionHistory = errors.New("has no session history")

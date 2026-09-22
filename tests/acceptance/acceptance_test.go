@@ -10,12 +10,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
-
 	"github.com/cucumber/godog"
 	"github.com/cucumber/godog/colors"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -31,7 +30,7 @@ func TestMain(m *testing.M) {
 	for _, k := range testsupport.EnvKeys {
 		_ = os.Unsetenv(k)
 	}
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	code := m.Run()
 	// The taskloom binary testenv builds for the j002500/j002600/trigger steps lives
 	// behind a sync.Once and is shared by every scenario, so its ~30MB

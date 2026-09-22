@@ -42,7 +42,7 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	require.True(t, before.StatusLine)
 	require.True(t, before.MCPPresent)
 
-	require.NoError(t, RemoveSettings("claude-code", dir, WithSettingsFS(fs)))
+	require.NoError(t, settingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings(dir))
 
 	after, err := BackendStatus("claude-code", dir, WithSettingsFS(fs))
 	require.NoError(t, err)
@@ -58,8 +58,8 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, RemoveSettings("claude-code", "/empty", WithSettingsFS(fs)))
-	require.NoError(t, RemoveSettings("mock", "/empty", WithSettingsFS(fs)))
+	require.NoError(t, settingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
+	require.NoError(t, settingsWriter("mock", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
 
 	// Uninstall must never create config files.
 	exists, _ := afero.Exists(fs, "/empty/.claude/settings.json")
@@ -68,22 +68,6 @@ func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	assert.False(t, exists)
 	exists, _ = afero.Exists(fs, "/empty/.agents/mcp_config.json")
 	assert.False(t, exists)
-}
-
-// A settings-writer failure surfaced through RemoveSettings must
-// name the backend it came from — a caller looping over multiple backends
-// (operations.RemoveHooks) cannot otherwise attribute the failure.
-func TestRemoveSettings_FailureNamesBackend(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	const dir = "/project"
-	require.NoError(t, fs.MkdirAll(dir+"/.claude", 0755))
-	// Malformed settings.json: the writer's loadSettings must fail.
-	require.NoError(t, afero.WriteFile(fs, dir+"/.claude/settings.json", []byte("{not valid json"), 0644))
-
-	err := RemoveSettings("claude-code", dir, WithSettingsFS(fs))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "claude-code",
-		"a settings-writer failure must name the backend it came from: got %q", err.Error())
 }
 
 // BackendStatus must be able to tell "typo'd/unregistered name"

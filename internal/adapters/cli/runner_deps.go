@@ -13,8 +13,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // runnerDepsFor composes the runner's ports for the one engine this process
@@ -28,7 +29,7 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 	if err != nil {
 		return runner.Deps{}, fmt.Errorf("runner: sessions root: %w", err)
 	}
-	kind, ok := backends.Kind(backendName)
+	kind, ok := engines.Registry().Lookup(engine.Name(backendName))
 	if !ok {
 		return runner.Deps{}, fmt.Errorf("runner: no engine kind %q is composed", backendName)
 	}
@@ -45,9 +46,9 @@ func runnerDepsFor(backend agent.Backend, backendName string, host *runner.Engin
 		Dynamic:    dynamic,
 		Driver:     host,
 	}
-	if c, ok := backend.(backends.Configurable); ok {
+	if c, ok := backend.(agent.Configurable); ok {
 		deps.Configure = func(body map[string]any) error {
-			bc, err := backends.DecodeLLMConfig(backendName, body)
+			bc, err := operations.DecodeEngineConfig(backendName, body)
 			if err != nil {
 				return err
 			}

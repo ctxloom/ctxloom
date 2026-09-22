@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // ResolveAgentSurfaces parses an agent binding's declared delivery preference
@@ -27,7 +28,7 @@ func ResolveAgentSurfaces(engine string, declared map[string]string) (map[agent.
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	decl, serr := backends.SurfacesFor(engine)
+	decl, serr := engineDeclaration(engine)
 	if serr != nil {
 		return nil, fmt.Errorf("surfaces: %w", serr)
 	}
@@ -62,7 +63,7 @@ func ResolveAgentRoots(engineName string, declared map[string]string) (map[prese
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	kind, ok := backends.Kind(engineName)
+	kind, ok := engines.Registry().Lookup(engine.Name(engineName))
 	if !ok {
 		return nil, fmt.Errorf("roots: no engine kind %q is composed", engineName)
 	}
@@ -87,4 +88,15 @@ func ResolveAgentRoots(engineName string, declared map[string]string) (map[prese
 		out[k] = root
 	}
 	return out, nil
+}
+
+// engineDeclaration is the named engine's named-form table (agent.Hosted),
+// distinguishing "unknown engine" (an error) from "an engine with no
+// surfaces" (an empty Declaration that renders as "no surface information").
+func engineDeclaration(name string) (agent.Declaration, error) {
+	h, ok := engines.Hosted(name)
+	if !ok {
+		return nil, fmt.Errorf("unknown engine %q", name)
+	}
+	return h.Declaration(), nil
 }

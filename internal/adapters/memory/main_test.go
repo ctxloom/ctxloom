@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // TestMain closes config.findAppDir's walk-up from the working directory for
@@ -14,6 +14,6 @@ import (
 // engines too: the compactor reads each backend's retirement declaration off
 // the registry, and an empty registry would hand every backend a legacy leg.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))
 }

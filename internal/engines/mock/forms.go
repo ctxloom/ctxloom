@@ -1,4 +1,4 @@
-package backends
+package mock
 
 import (
 	"bytes"
@@ -15,37 +15,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// This file lands the mock backend on the unified surface-delivery seam
-// (internal/core/agent/cells.go) — the CONTEXT and SKILLS surfaces (see
-// docs/design/engine-delivery-seam.design.md, "The mock engine implements
-// both halves").
-//
-// Before this file, mock declared nothing:
-// the mock materialized nothing, so no hermetic test could prove a fragment
-// actually reached a delivered FILE — every delivery assertion either ran
-// against a live engine or was vacuous. This is not a test convenience; it is
-// the hermetic vehicle J001400's own delivery-matrix scenario names as its own
-// untag condition.
-//
-// mock's context surface writes the managed section of MOCK_CONTEXT.md at the
-// target dir's root — a plain, single well-known file, exactly the shape
-// claude's CLAUDE.md already uses — via the
-// SAME shared marker-merge core (agent.WriteManagedContext /
-// agent.ReadManagedContext) rather than a second implementation of the
-// marker split. It additionally implements agent.StateReader, which nothing
-// did before this: the read half the design's "manage check" step (3) will
-// walk.
-//
-// mock's SKILLS surface is that same reuse argument applied to a TREE: the
-// shared agent.ManagedSkillPackagesDelivery bound to the shared
-// agent.WriteManagedSkillPackages writer — byte-for-byte the machinery
-// claude's .claude/skills/ and opencode's
-// .opencode/skill/ go through, differing only in the directory it targets. A
-// second skill-materializing path in the mock would prove the mock, not the
-// seam.
-//
-// mock's hook loss stays DECLARED via noHooksReason (registry.go) where a
-// double declares one; the complete mock carries a settings surface.
+// This file is the mock's NAMED FORMS on the agent.Declaration seam: per
+// surface kind, the session-rooted form (MockSessionFile, the default) and
+// the project form (agent.ApproachUnsafeFile). What survives of the seam is
+// its NAMES — a binding's `surfaces:` preference is validated against them
+// (Mock.Declaration) — and the settings-writer equity suite; the forms'
+// delivery bodies reuse the shared marker-merge and managed-tree writers so
+// the mock proves the seam rather than a second implementation of it.
 
 // mockContextFilename is the mock engine's well-known context file — its
 // analogue of CLAUDE.md / AGENTS.md. It lives at the target dir's ROOT (not
@@ -378,52 +354,73 @@ func (s *scratchForm) Deliver(start present.Start) (agent.Delivered, error) {
 	return s.inner.Deliver(s.rebase(start))
 }
 
-// mockDeclaration is mock's DECLARATION for the registered backend name: per
-// surface, the session-rooted form (MockSessionFile, the default) and the
-// project form (agent.ApproachUnsafeFile) of one constructor. It carries
-// EVERY SurfaceKind, deliberately: mock is a complete engine with no real
-// model behind it, not a hole in the registry. A partial double makes its
-// gaps load-bearing somewhere else, where nothing states that they are.
-//
-// It is a function of the registered NAME rather than a package-level literal
-// because four doubles share these constructors: the settings approach strips
-// the hook kinds the NAMED descriptor declares unsupported, and a refusal that
-// spelled a hardcoded "mock" told a caller asking about mock-lossy or
-// mock-launch about a different backend entirely. It is still STATIC — no
-// roots, no run state — so Names and Default stay pure for --help.
-func mockDeclaration(name string) agent.Declaration {
+// Declaration is agent.Hosted's: the named forms per surface kind this
+// double carries — the session-rooted form (MockSessionFile, the default)
+// and the project form (agent.ApproachUnsafeFile) of one constructor. It is
+// derived from the kind's own surfaces: a kind the double does not carry
+// (the launch double keeps only its context surface; the rest arrive per
+// session, inside an engine home) has no form to name, so a static
+// materialize skips it. The settings form strips the hook events THIS
+// double declares it cannot fire, so the delivered file matches the loss
+// report. STATIC — no roots, no run state — so Names and Default stay pure
+// for --help.
+func (m Mock) Declaration() agent.Declaration {
+	name := string(m.Name)
 	both := func(kind agent.SurfaceKind, ctor agent.Construct) agent.Presentations {
 		return agent.Presents(name, kind, MockSessionFile, scratchRooted(ctor)).Or(agent.ApproachUnsafeFile, ctor)
 	}
-	return agent.Declaration{
+	all := agent.Declaration{
 		agent.SurfaceContext: both(agent.SurfaceContext, newMockContext),
 		agent.SurfaceSkills:  both(agent.SurfaceSkills, newMockSkillsSurface),
 		agent.SurfaceMCP: both(agent.SurfaceMCP, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
 			return &mockMCPSurface{bundle: in.BundleMCP, fs: agent.GetFS(fs)}
 		}),
 		agent.SurfaceSettings: both(agent.SurfaceSettings, func(in agent.SurfaceInputs, fs afero.Fs) agent.Approach {
-			return &mockSettingsSurface{hooks: stripUnsupportedHookKinds(name, in.Hooks), fs: agent.GetFS(fs)}
+			return &mockSettingsSurface{hooks: m.stripUnfiredHooks(in.Hooks), fs: agent.GetFS(fs)}
 		}),
 		agent.SurfaceCommands: both(agent.SurfaceCommands, newMockCommandsSurface),
 	}
+	d := agent.Declaration{}
+	for kind, p := range all {
+		if m.Carries(kind) {
+			d[kind] = p
+		}
+	}
+	return d
 }
 
-// mockLaunchDeclaration is the launch-delivered double's declaration: CONTEXT
-// ONLY. The other four surfaces are absent because a launch-keyed engine has
-// no stable path a static materialize could write them to — they arrive per
-// session, inside an engine home this harpless call cannot name.
-//
-// Absent from the declaration is what makes materialize SKIP them. That is
-// only half the contract: the descriptor's launchOnlySettingsReason supplies
-// the other half, the report line saying where they DO come from. Skipping
-// without declaring writes four true "wrote" lines and stays silent about
-// everything that went nowhere — this project's characteristic silent no-op.
-// Declaring without skipping reports a surface as not-carried while its file
-// sits in the tree. Neither half is optional.
-func mockLaunchDeclaration(name string) agent.Declaration {
-	return agent.Declaration{
-		agent.SurfaceContext: mockDeclaration(name)[agent.SurfaceContext],
+// stripUnfiredHooks removes the hook events this double declares it has no
+// native form for (Definition.HookLosses), so the delivered file matches
+// the loss report — a file that carried an event the report called lost
+// would have the report and the filesystem disagree, and the report is the
+// one people act on. Returns the input unchanged when nothing is declared,
+// and never mutates the caller's config: the same HooksConfig is handed to
+// every surface in a run. Nothing left to deliver is reported as NO CONFIG,
+// not an empty one: an empty-but-present config writes a managed block
+// claiming ctxloom manages hooks here and found none.
+func (m Mock) stripUnfiredHooks(hooks *wire.HooksConfig) *wire.HooksConfig {
+	if hooks == nil || len(m.HookLosses) == 0 {
+		return hooks
 	}
+	stripped := *hooks
+	for event := range m.HookLosses {
+		stripped.Unified.SetEvent(event, nil)
+	}
+	if len(stripped.Unified.All()) == 0 && !carriesNativeHook(stripped) {
+		return nil
+	}
+	return &stripped
+}
+
+// carriesNativeHook reports whether the backend-native passthrough map still
+// has a hook to deliver.
+func carriesNativeHook(h wire.HooksConfig) bool {
+	for _, hs := range h.Ext {
+		if len(hs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Compile-time capability contracts.

@@ -36,8 +36,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // channelProbeHarp is a stand-in nonce for the structural tests. It never
@@ -58,7 +58,7 @@ func deliverContextUnder(t *testing.T, engine string, approach string) map[strin
 	dir := "/work"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	delivery, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
+	delivery, ok := hostedDeclaration(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
 		Context:   "The nonce for this session is " + channelProbeHarp,
 		Fragments: []*agent.Fragment{{Name: "nonce", Content: "The nonce for this session is " + channelProbeHarp}},
 	}, fs)
@@ -121,7 +121,7 @@ func deliverContextAcrossRoots(t *testing.T, engine, approach string) (inProject
 	}
 
 	body := "The nonce for this session is " + channelProbeHarp
-	delivery, ok := backends.Declared(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
+	delivery, ok := hostedDeclaration(engine).Construct(agent.SurfaceContext, approach, agent.SurfaceInputs{
 		Context:   body,
 		Fragments: []*agent.Fragment{{Name: "nonce", Content: body}},
 	}, fs)
@@ -229,4 +229,14 @@ func keysOf(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// hostedDeclaration is the named engine's named-form table off the engine
+// value (agent.Hosted); empty for an engine that is not Hosted.
+func hostedDeclaration(name string) agent.Declaration {
+	h, ok := engines.Hosted(name)
+	if !ok {
+		return agent.Declaration{}
+	}
+	return h.Declaration()
 }

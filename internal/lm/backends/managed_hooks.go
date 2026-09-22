@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -151,28 +150,9 @@ type ManagedHooks struct {
 	ext map[string]map[string][]ResolvedHook
 }
 
-// HookEvents returns the unified lifecycle event names in canonical order —
-// bundles' own hook-identity order, so a reader comparing this against a
-// bundle's hooks does not have to re-map anything. A fresh slice each call:
-// callers range over it, and a shared package-level slice is one stray
-// assignment away from silently reordering every hook report in the process.
-func HookEvents() []string {
-	return []string{
-		bundles.HookEventPreTool, bundles.HookEventPostTool, bundles.HookEventSessionStart,
-		bundles.HookEventSessionEnd, bundles.HookEventPreShell, bundles.HookEventPostFileEdit,
-		bundles.HookEventTurnEnd, bundles.HookEventTurnStart,
-	}
-}
-
-// IsHookEvent reports whether name is one of the unified events.
-func IsHookEvent(name string) bool {
-	for _, e := range HookEvents() {
-		if e == name {
-			return true
-		}
-	}
-	return false
-}
+// HookEvents and IsHookEvent are the unified event vocabulary (wire).
+func HookEvents() []string      { return wire.HookEvents() }
+func IsHookEvent(n string) bool { return wire.IsHookEvent(n) }
 
 // newManagedHooks returns an empty model.
 func newManagedHooks() *ManagedHooks {
@@ -327,7 +307,7 @@ func (m *ManagedHooks) Wire() *wire.HooksConfig {
 		return out
 	}
 	for _, event := range HookEvents() {
-		setUnifiedEventHooks(&out.Unified, event, wireHooks(m.events[event]))
+		out.Unified.SetEvent(event, wireHooks(m.events[event]))
 	}
 	for backend, events := range m.ext {
 		bh := make(wire.BackendHooks, len(events))
@@ -359,7 +339,7 @@ func (m *ManagedHooks) WireDeclared() *wire.HooksConfig {
 		return out
 	}
 	for _, event := range HookEvents() {
-		setUnifiedEventHooks(&out.Unified, event, wireHooks(declaredOnly(m.events[event])))
+		out.Unified.SetEvent(event, wireHooks(declaredOnly(m.events[event])))
 	}
 	for backend, events := range m.ext {
 		bh := make(wire.BackendHooks, len(events))
@@ -473,7 +453,7 @@ func (m *ManagedHooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor
 // mergeUnified merges every unified event.
 func (m *ManagedHooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributor) {
 	for _, event := range HookEvents() {
-		hooks := UnifiedEventHooks(u, event)
+		hooks := u.Event(event)
 		if len(hooks) == 0 {
 			continue
 		}
@@ -492,52 +472,4 @@ func (m *ManagedHooks) resolve(hooks []wire.Hook, base int, attribute hookAttrib
 		out = append(out, ResolvedHook{Hook: h, Source: attribute(h), Declared: base + i + 1})
 	}
 	return out
-}
-
-// UnifiedEventHooks selects one event's slice. A switch rather than reflection
-// so an event added to wire.UnifiedHooks and not added here is a hole a
-// reader can see — and TestManagedHooks_EveryUnifiedEventIsCovered makes it a
-// failing test rather than a silently absent row in every hook report.
-func UnifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
-	switch event {
-	case bundles.HookEventPreTool:
-		return u.PreTool
-	case bundles.HookEventPostTool:
-		return u.PostTool
-	case bundles.HookEventSessionStart:
-		return u.SessionStart
-	case bundles.HookEventSessionEnd:
-		return u.SessionEnd
-	case bundles.HookEventPreShell:
-		return u.PreShell
-	case bundles.HookEventPostFileEdit:
-		return u.PostFileEdit
-	case bundles.HookEventTurnEnd:
-		return u.TurnEnd
-	case bundles.HookEventTurnStart:
-		return u.TurnStart
-	}
-	return nil
-}
-
-// setUnifiedEventHooks is UnifiedEventHooks' write half, used by Wire.
-func setUnifiedEventHooks(u *wire.UnifiedHooks, event string, hooks []wire.Hook) {
-	switch event {
-	case bundles.HookEventPreTool:
-		u.PreTool = hooks
-	case bundles.HookEventPostTool:
-		u.PostTool = hooks
-	case bundles.HookEventSessionStart:
-		u.SessionStart = hooks
-	case bundles.HookEventSessionEnd:
-		u.SessionEnd = hooks
-	case bundles.HookEventPreShell:
-		u.PreShell = hooks
-	case bundles.HookEventPostFileEdit:
-		u.PostFileEdit = hooks
-	case bundles.HookEventTurnEnd:
-		u.TurnEnd = hooks
-	case bundles.HookEventTurnStart:
-		u.TurnStart = hooks
-	}
 }

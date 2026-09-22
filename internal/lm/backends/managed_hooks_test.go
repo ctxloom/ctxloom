@@ -3,9 +3,7 @@ package backends
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,38 +18,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
-
-// --- event coverage ---------------------------------------------------------
-
-// TestManagedHooks_EveryUnifiedEventIsCovered turns the drift wire.HooksConfig.Append
-// warns about into a failing test. HookEvents/UnifiedEventHooks/setUnifiedEventHooks
-// enumerate the six events by hand; a SEVENTH field added to wire.UnifiedHooks
-// and not added here would not fail to compile — it would silently never be
-// assembled, never reported, and never written, which is the same shape as the
-// bug the shared resolution point exists to prevent.
-func TestManagedHooks_EveryUnifiedEventIsCovered(t *testing.T) {
-	typ := reflect.TypeOf(wire.UnifiedHooks{})
-	var fields []string
-	for i := 0; i < typ.NumField(); i++ {
-		tag := typ.Field(i).Tag.Get("yaml")
-		fields = append(fields, strings.Split(tag, ",")[0])
-	}
-	events := HookEvents()
-	sortedFields := append([]string(nil), fields...)
-	sortedEvents := append([]string(nil), events...)
-	sort.Strings(sortedFields)
-	sort.Strings(sortedEvents)
-	require.Equal(t, sortedEvents, sortedFields,
-		"every wire.UnifiedHooks event must be in HookEvents(), or it is assembled by nothing and reported by nobody")
-
-	// And the accessors must actually reach each one, in both directions.
-	for _, event := range events {
-		var u wire.UnifiedHooks
-		marker := []wire.Hook{{Command: "marker-" + event}}
-		setUnifiedEventHooks(&u, event, marker)
-		assert.Equal(t, marker, UnifiedEventHooks(u, event), "accessors must round-trip %q", event)
-	}
-}
 
 // --- provenance -------------------------------------------------------------
 

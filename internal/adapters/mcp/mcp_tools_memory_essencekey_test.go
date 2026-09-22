@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -42,7 +42,7 @@ func canonicalRecords(harp, sessionID string) []byte {
 // fixedHistory reports one session, whatever is asked of it: the compactor only
 // needs a session to distill, and this test is about what happens to the RESULT.
 type fixedHistory struct {
-	backends.NilSessionHistory
+	mock.NilSessionHistory
 	session *agent.Session
 }
 

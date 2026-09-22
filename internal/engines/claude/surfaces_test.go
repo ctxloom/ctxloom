@@ -90,7 +90,7 @@ type builtSurfaces struct {
 // ones, so a test that reaches a field is reaching what a launch would.
 func newSurfaces(in agent.SurfaceInputs, fs afero.Fs) builtSurfaces {
 	must := func(kind agent.SurfaceKind, name string) agent.Approach {
-		a, ok := Declaration().Construct(kind, name, in, fs)
+		a, ok := testDeclaration().Construct(kind, name, in, fs)
 		if !ok {
 			panic("claude does not declare " + kind.String() + "=" + name)
 		}
@@ -340,19 +340,19 @@ func TestSkillsSurface_DeliverWritesSkills(t *testing.T) {
 // a declaration.
 func TestSurfaces_DeclaresContextThreeWaysMCPTwoSettingsTwoAndTheRestOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachSystemPrompt, agent.ApproachHook},
-		Declaration().Names(agent.SurfaceContext))
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, Declaration().Names(agent.SurfaceSettings))
-	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, Declaration().Names(agent.SurfaceMCP))
+		testDeclaration().Names(agent.SurfaceContext))
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachHewRecord}, testDeclaration().Names(agent.SurfaceSettings))
+	assert.ElementsMatch(t, []string{agent.ApproachUnsafeFile, ApproachMCPConfig}, testDeclaration().Names(agent.SurfaceMCP))
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceCommands, agent.SurfaceSkills} {
-		assert.Equal(t, []string{agent.ApproachUnsafeFile}, Declaration().Names(kind), "%s", kind)
+		assert.Equal(t, []string{agent.ApproachUnsafeFile}, testDeclaration().Names(kind), "%s", kind)
 	}
 
-	mcpDef, ok := Declaration().Default(agent.SurfaceMCP)
+	mcpDef, ok := testDeclaration().Default(agent.SurfaceMCP)
 	require.True(t, ok)
 	assert.Equal(t, ApproachMCPConfig, mcpDef,
 		"the project .mcp.json must never be the default — it is reachable only by name")
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceContext, agent.SurfaceSettings, agent.SurfaceCommands, agent.SurfaceSkills} {
-		def, ok := Declaration().Default(kind)
+		def, ok := testDeclaration().Default(kind)
 		require.True(t, ok, "%s has a default approach", kind)
 		assert.Equal(t, agent.ApproachUnsafeFile, def)
 	}
@@ -476,12 +476,12 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 // It walks the DECLARATION rather than a list repeated here, so a surface
 // added to Surfaces is covered the moment it is declared.
 func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
-	for kind := range Declaration() {
+	for kind := range testDeclaration() {
 		t.Run(kind.String(), func(t *testing.T) {
 			dir := t.TempDir()
-			def, ok := Declaration().Default(kind)
+			def, ok := testDeclaration().Default(kind)
 			require.True(t, ok, "%s is declared, so it must have a default", kind)
-			a, ok := Declaration().Construct(kind, def, sampleInputs(), nil)
+			a, ok := testDeclaration().Construct(kind, def, sampleInputs(), nil)
 			require.True(t, ok)
 
 			// Every root advised: a default approach may root under any of
@@ -504,14 +504,14 @@ func TestSurfaces_PresentedPathIsWhereTheApproachWrites(t *testing.T) {
 // construction — which is what keeps a worktree-isolated agent out of the
 // coordinator's checkout. Enumerating the declaration needs neither root.
 func TestSurfaces_RootsBindPerLaunchNotAtConstruction(t *testing.T) {
-	a, ok := Declaration().Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, sampleInputs(), nil)
+	a, ok := testDeclaration().Construct(agent.SurfaceContext, agent.ApproachUnsafeFile, sampleInputs(), nil)
 	require.True(t, ok)
 	host := a.Present(present.ProjectOnHost("/home/dev/project")).HostPath
 	worktree := a.Present(present.ProjectOnHost("/home/dev/worktrees/project--feat")).HostPath
 	assert.NotEqual(t, host, worktree)
 	assert.Equal(t, filepath.Join("/home/dev/project", ContextFileName), host)
 	assert.Equal(t, filepath.Join("/home/dev/worktrees/project--feat", ContextFileName), worktree)
-	assert.NotEmpty(t, Declaration().Names(agent.SurfaceContext), "enumeration needs no root and no construction")
+	assert.NotEmpty(t, testDeclaration().Names(agent.SurfaceContext), "enumeration needs no root and no construction")
 }
 
 // TestPrivateRootApproaches_RefuseWithoutAnEngineHome is feeble-sway's

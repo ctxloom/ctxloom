@@ -1,4 +1,4 @@
-package backends
+package mock
 
 import (
 	"os"
@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 )
 
@@ -240,7 +239,7 @@ func mockContext(content string, fs afero.Fs) contextApproach {
 // Each kind must also CONSTRUCT a concrete approach: declaring a name and
 // then failing to build would be a surface that exists only in the roster.
 func TestMockDeclaration_DeclaresEveryKind(t *testing.T) {
-	decl := mockDeclaration(config.BackendMock)
+	decl := New().(Mock).Declaration()
 
 	for _, kind := range []agent.SurfaceKind{
 		agent.SurfaceContext, agent.SurfaceMCP, agent.SurfaceSettings,

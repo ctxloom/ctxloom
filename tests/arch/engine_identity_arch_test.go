@@ -32,9 +32,9 @@
 //     has a generic host-credential seed spec) — collapsing them into one
 //     flat list would be wrong, not a fix. What must never happen instead is
 //     a roster naming a backend that ISN'T (or no longer is) a real,
-//     registered internal/lm/backends name — a typo, or a stale entry left
+//     registered composed engine name — a typo, or a stale entry left
 //     behind when a backend was renamed or removed from the canonical
-//     registry. This check names no engine (it reads backends.List() live,
+//     registry. This check names no engine (it reads operations.EngineNames() live,
 //     the same way TestArch_ProtoConverters_MirrorEveryStructField in
 //     internal/lm/grpc/arch_test.go names no struct field), so a new,
 //     correctly-registered backend never requires an edit here — only a
@@ -64,7 +64,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // enginePluginImportPaths are the concrete, engine-identity-branching plugin
@@ -118,22 +118,21 @@ type rosterCheck struct {
 // TestArch_EngineIdentityRosters_MembersAreRegisteredBackends is the roster
 // half of T12's fix: every name any of the four independently-maintained
 // engine-identity rosters lists must be a real, CURRENTLY-registered
-// internal/lm/backends name — never a typo, and never a stale reference left
+// composed engine name — never a typo, and never a stale reference left
 // behind when a backend was renamed or removed from the canonical registry
 // (internal/lm/backends/registry.go's descriptors table, the source of truth
 // every one of these rosters is a purpose-scoped VIEW over, per
-// docs/adr/0026-ports-and-adapters.md). Reads backends.List() live rather
+// docs/adr/0026-ports-and-adapters.md). Reads operations.EngineNames() live rather
 // than naming backends here, so a new, correctly-registered backend never
 // requires updating this test.
 func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
-	known := backends.List()
+	known := operations.EngineNames()
 	if len(known) == 0 {
-		t.Fatal("backends.List() returned nothing — the canonical registry did not populate; the gate has " +
+		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has " +
 			"nothing to validate against")
 	}
 
 	rosters := []rosterCheck{
-		{source: "internal/lm/backends.RetiredScraperBackendNames (engine.Descriptor.NoLegacyHistoryReason)", members: backends.RetiredScraperBackendNames()},
 		{source: "internal/adapters/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
 		{source: "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container)", members: isolation.ComposableEngines()},
 		{source: "internal/adapters/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},
@@ -147,7 +146,7 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 		}
 		for _, name := range r.members {
 			if !slices.Contains(known, name) {
-				t.Errorf("%s lists backend %q, which is not a currently-registered internal/lm/backends name "+
+				t.Errorf("%s lists backend %q, which is not a currently-registered composed engine name "+
 					"(known: %v) — a typo, or a stale entry from a rename/removal in the canonical registry",
 					r.source, name, known)
 			}
@@ -164,16 +163,23 @@ type derivedRoster struct {
 	absence func(name string) string
 }
 
-// declaredAbsence adapts a registry accessor returning engine.Declared[T]
-// into the reason-only reader derivedRoster wants.
-func declaredAbsence[T any](get func(string) engine.Declared[T]) func(string) string {
-	return func(name string) string { return get(name).AbsentReason() }
+// credentialAbsence explains a registered engine outside the seeded roster:
+// its Home relocates nothing, or declares its seed absent with a reason.
+func credentialAbsence(name string) string {
+	kind, ok := engines.Registry().Lookup(engine.Name(name))
+	if !ok {
+		return ""
+	}
+	if !kind.Home().Relocates() {
+		return name + " relocates no engine home: there is nothing to seed"
+	}
+	return kind.Home().Credentials.AbsentReason()
 }
 
 // transcriptAbsence explains a registered backend outside the vendor-reader
 // roster: its kind supplies no readers (an empty slice, the port's absence).
 func transcriptAbsence(name string) string {
-	if _, ok := backends.TranscriptReadersFor(name); ok {
+	if _, ok := operations.VendorReaderAdaptersFor(name); ok {
 		return ""
 	}
 	return name + " supplies no transcript readers (Engine.Transcripts is empty)"
@@ -187,9 +193,9 @@ func transcriptAbsence(name string) string {
 // (a filter that skips an engine the descriptor provides for) — the
 // mutation "remove an engine from the derived roster" dies here.
 func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
-	known := backends.List()
+	known := operations.EngineNames()
 	if len(known) == 0 {
-		t.Fatal("backends.List() returned nothing — the canonical registry did not populate; the gate has " +
+		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has " +
 			"nothing to validate against")
 	}
 
@@ -202,7 +208,7 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 		{
 			source:  "internal/adapters/isolation.AmbientSet (Engine.Home().Credentials)",
 			members: seededEngines(),
-			absence: declaredAbsence(backends.CredentialSeedFor),
+			absence: credentialAbsence,
 		},
 		{
 			source:  "internal/adapters/isolation.ComposableEngines (Engine.Container + Distribution)",
@@ -254,7 +260,7 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 // roster's own filter — capability or policy — excludes it, per why.
 func containerAbsence(why func(engine.ContainerSpec, engine.Distribution) string) func(string) string {
 	return func(name string) string {
-		kind, ok := backends.Kind(name)
+		kind, ok := engines.Registry().Lookup(engine.Name(name))
 		if !ok {
 			return ""
 		}
@@ -262,7 +268,7 @@ func containerAbsence(why func(engine.ContainerSpec, engine.Distribution) string
 		if err != nil {
 			return err.Error()
 		}
-		return why(c, backends.DistributionFor(name))
+		return why(c, kind.Root().Distribution)
 	}
 }
 
@@ -284,7 +290,7 @@ func seededEngines() []string {
 const transcriptSchemaRelPath = "docs/transcript.schema.json"
 
 // TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry holds the schema's
-// `engine` enum to EQUALITY with backends.List(), not just the floor the
+// `engine` enum to EQUALITY with operations.EngineNames(), not just the floor the
 // rosters gate above applies. The recorder writes the registered backend name
 // verbatim (internal/adapters/transcript.Record.Engine) and every registered backend
 // reaches it (a oneshot run records under whatever `--llm` resolved to), so
@@ -294,9 +300,9 @@ const transcriptSchemaRelPath = "docs/transcript.schema.json"
 // validation. Reads both sides live so neither a new backend nor a removal
 // needs an edit here — only the schema does.
 func TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry(t *testing.T) {
-	registered := backends.List()
+	registered := operations.EngineNames()
 	if len(registered) == 0 {
-		t.Fatal("backends.List() returned nothing — the canonical registry did not populate; the gate has " +
+		t.Fatal("operations.EngineNames() returned nothing — the canonical registry did not populate; the gate has " +
 			"nothing to validate against")
 	}
 
@@ -321,7 +327,7 @@ func TestArch_TranscriptSchemaEngineEnum_EqualsBackendRegistry(t *testing.T) {
 
 	sort.Strings(enum)
 	if !slices.Equal(enum, registered) {
-		t.Errorf("%s `engine` enum %v != backends.List() %v — the enum must name exactly the registered "+
+		t.Errorf("%s `engine` enum %v != operations.EngineNames() %v — the enum must name exactly the registered "+
 			"backends: a member nothing registers admits fixtures no writer produces, and a registered "+
 			"backend missing from it makes a real transcript fail validation",
 			transcriptSchemaRelPath, enum, registered)

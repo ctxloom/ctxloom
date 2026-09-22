@@ -212,3 +212,88 @@ func appendUniqueHooks(dst []Hook, src []Hook) []Hook {
 	}
 	return dst
 }
+
+// The unified hook events, spelled as the UnifiedHooks field tags. This is
+// the ONE vocabulary: bundles' hook-identity constants alias these, and
+// every per-event read or write goes through Event/SetEvent below.
+const (
+	HookEventPreTool      = "pre_tool"
+	HookEventPostTool     = "post_tool"
+	HookEventSessionStart = "session_start"
+	HookEventSessionEnd   = "session_end"
+	HookEventPreShell     = "pre_shell"
+	HookEventPostFileEdit = "post_file_edit"
+	HookEventTurnEnd      = "turn_end"
+	HookEventTurnStart    = "turn_start"
+)
+
+// HookEvents lists the unified events in their canonical order — the
+// bundles' hook-identity order, so a reader comparing a report against a
+// bundle's hooks re-maps nothing. A fresh slice each call: callers range
+// over it, and a shared slice is one stray assignment away from reordering
+// every hook report in the process. A new event goes LAST.
+func HookEvents() []string {
+	return []string{
+		HookEventPreTool, HookEventPostTool, HookEventSessionStart,
+		HookEventSessionEnd, HookEventPreShell, HookEventPostFileEdit,
+		HookEventTurnEnd, HookEventTurnStart,
+	}
+}
+
+// IsHookEvent reports whether name is one of the unified events.
+func IsHookEvent(name string) bool {
+	for _, e := range HookEvents() {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Event selects one event's slice; nil for a name that is not an event. A
+// switch rather than reflection so an event added to UnifiedHooks and not
+// added here is a hole a reader can see, and one the vocabulary test turns
+// into a failing test rather than a silently absent row in every report.
+func (u UnifiedHooks) Event(event string) []Hook {
+	switch event {
+	case HookEventPreTool:
+		return u.PreTool
+	case HookEventPostTool:
+		return u.PostTool
+	case HookEventSessionStart:
+		return u.SessionStart
+	case HookEventSessionEnd:
+		return u.SessionEnd
+	case HookEventPreShell:
+		return u.PreShell
+	case HookEventPostFileEdit:
+		return u.PostFileEdit
+	case HookEventTurnEnd:
+		return u.TurnEnd
+	case HookEventTurnStart:
+		return u.TurnStart
+	}
+	return nil
+}
+
+// SetEvent is Event's write half.
+func (u *UnifiedHooks) SetEvent(event string, hooks []Hook) {
+	switch event {
+	case HookEventPreTool:
+		u.PreTool = hooks
+	case HookEventPostTool:
+		u.PostTool = hooks
+	case HookEventSessionStart:
+		u.SessionStart = hooks
+	case HookEventSessionEnd:
+		u.SessionEnd = hooks
+	case HookEventPreShell:
+		u.PreShell = hooks
+	case HookEventPostFileEdit:
+		u.PostFileEdit = hooks
+	case HookEventTurnEnd:
+		u.TurnEnd = hooks
+	case HookEventTurnStart:
+		u.TurnStart = hooks
+	}
+}

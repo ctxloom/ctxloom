@@ -11,7 +11,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // doctorMCPInvocationSurfaces are the engine-native MCP registries a ctxloom
@@ -27,8 +27,8 @@ import (
 func doctorMCPInvocationSurfaces() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, name := range backends.List() {
-		clis, ok := backends.EngineCLIsFor(name)
+	for _, name := range EngineNames() {
+		clis, ok := engines.EngineCLIs(name)
 		if !ok {
 			continue
 		}

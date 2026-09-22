@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // TestMain composes the shipped engines into the backend registry for every
@@ -22,6 +22,6 @@ import (
 // about which engines exist. The guard is what keeps exactly one TestMain in
 // each build.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(m.Run())
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // configCmd is the top-level home of ctxloom configuration; the old `manage
@@ -243,7 +242,7 @@ func runConfigCreate(cmd *cobra.Command, _ []string) error {
 	if engine == "" {
 		// The flag's default is a registry fact: the engine shipped by
 		// default, resolved here rather than spelled at declaration.
-		engine = backends.DefaultEngineName()
+		engine = operations.DefaultEngineName()
 	}
 	if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
 		AppDir: appDir,

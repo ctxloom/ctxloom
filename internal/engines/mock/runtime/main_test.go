@@ -11,6 +11,6 @@ import (
 // test in this binary: registration is explicit (no init), so a test binary
 // that reads the registry composes it the same way the CLI does.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	engines.MustCompose()
 	os.Exit(m.Run())
 }

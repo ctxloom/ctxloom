@@ -1,4 +1,4 @@
-package backends
+package mock
 
 import (
 	"context"
@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewMock(t *testing.T) {
-	mock := NewMock()
+	mock := newTestBackend()
 
 	assert.Equal(t, "mock", mock.Name())
 	assert.Equal(t, "1.0.0", mock.Version())
@@ -21,12 +22,10 @@ func TestNewMock(t *testing.T) {
 }
 
 // TestRecordMockInput_CapturesCwdAndConfigHome is the seam this fixes: before,
-// recordMockInput recorded only mode/fragment-count/context/prompt, so no
-// hermetic test could prove WHERE the engine ran or WHAT isolation env it
-// received — the very things isolation tests need to assert on. cwd comes
-// from os.Getwd() (the process's REAL cwd, set by launcher.go's cmd.Dir at
-// spawn time), not an echoed-back request field, so this genuinely proves
-// the boundary rather than a request round-trip.
+// The record proves WHERE the engine ran and WHAT isolation env it received
+// — the things isolation tests assert on. cwd comes from os.Getwd() (the
+// process's REAL cwd), not an echoed-back request field; the home var
+// echoed is the KIND'S OWN declared one, and only when set.
 func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 	dir := t.TempDir()
 	recordFile := filepath.Join(dir, "record.txt")
@@ -34,12 +33,17 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 	req := &agent.ExecuteRequest{
 		Mode: agent.ModeOneshot,
 		Env: map[string]string{
-			"CLAUDE_CONFIG_DIR": "/agents/one/.claude",
-			// CODEX_HOME deliberately absent: only set keys should appear.
+			"FIXTURE_HOME": "/agents/one/.fixture",
+			// OTHER_HOME deliberately absent: only set keys should appear.
 		},
 	}
+	b := New(WithHome(engine.HomeSpec{
+		Vars:        []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}, {Name: "OTHER_HOME", Subdir: "other"}},
+		Credentials: engine.Absent[engine.CredentialSeed]("fixture seeds nothing"),
+	})).(Mock).Backend(nil).(*Backend)
+	b.fragments = []*agent.Fragment{{Content: "a"}, {Content: "b"}}
 
-	require.NoError(t, recordMockInput(recordFile, req, nil, "some context", "some prompt", 2))
+	require.NoError(t, b.recordInput(recordFile, req, "some context", "some prompt"))
 
 	data, err := os.ReadFile(recordFile)
 	require.NoError(t, err)
@@ -48,8 +52,8 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 	wantCwd, err := os.Getwd()
 	require.NoError(t, err)
 	assert.Contains(t, content, "cwd="+wantCwd)
-	assert.Contains(t, content, "CLAUDE_CONFIG_DIR=/agents/one/.claude")
-	assert.NotContains(t, content, "CODEX_HOME=")
+	assert.Contains(t, content, "FIXTURE_HOME=/agents/one/.fixture")
+	assert.NotContains(t, content, "OTHER_HOME=")
 }
 
 // TestRecordMockInput_CapturesDenyToolsAndSkills pins the mock backend's half
@@ -71,7 +75,9 @@ func TestRecordMockInput_CapturesDenyToolsAndSkills(t *testing.T) {
 		Skills:    []agent.SkillExport{{Name: "release-checklist"}},
 	}
 
-	require.NoError(t, recordMockInput(recordFile, req, managed, "some context", "some prompt", 0))
+	b := newTestBackend()
+	b.managed = managed
+	require.NoError(t, b.recordInput(recordFile, req, "some context", "some prompt"))
 
 	data, err := os.ReadFile(recordFile)
 	require.NoError(t, err)
@@ -92,7 +98,7 @@ func TestRecordMockInput_NilManaged_RecordsEmptySections(t *testing.T) {
 
 	req := &agent.ExecuteRequest{Mode: agent.ModeOneshot}
 
-	require.NoError(t, recordMockInput(recordFile, req, nil, "some context", "some prompt", 0))
+	require.NoError(t, newTestBackend().recordInput(recordFile, req, "some context", "some prompt"))
 
 	data, err := os.ReadFile(recordFile)
 	require.NoError(t, err)
@@ -112,7 +118,10 @@ func TestMock_Execute_RecordFileWriteFailurePropagates(t *testing.T) {
 		Env:    map[string]string{"CTXLOOM_MOCK_RECORD_FILE": t.TempDir()},
 	}
 	var out strings.Builder
-	res, err := NewMock().Execute(context.Background(), req, &out, &out)
+	res, err := newTestBackend().Execute(context.Background(), req, &out, &out)
 	require.Error(t, err, "a record-file write failure must not be swallowed as success")
 	assert.NotEqual(t, int32(0), res.ExitCode, "a record-file write failure must not report a zero (success) exit code")
 }
+
+// newTestBackend is the bare mock kind's backend.
+func newTestBackend() *Backend { return New().(Mock).Backend(nil).(*Backend) }

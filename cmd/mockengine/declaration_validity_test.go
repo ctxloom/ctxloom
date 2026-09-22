@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // run() never calls EngineCLI.Validate() on the
@@ -21,8 +21,8 @@ import (
 // before any run can quietly report it as an absent surface.
 func TestEveryImpersonableDeclarationIsSelfConsistent(t *testing.T) {
 	var checked int
-	for _, name := range backends.List() {
-		clis, ok := backends.EngineCLIsFor(name)
+	for _, name := range engineNames() {
+		clis, ok := engines.EngineCLIs(name)
 		if !ok {
 			continue // ACP-only backend: nothing for the mock to impersonate.
 		}
@@ -38,4 +38,13 @@ func TestEveryImpersonableDeclarationIsSelfConsistent(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no backend declared an engine CLI: this test validated nothing, which is this project's signature false green")
 	}
+}
+
+// engineNames lists every composed engine's name.
+func engineNames() []string {
+	var out []string
+	for _, n := range engines.Registry().Names(nil) {
+		out = append(out, string(n))
+	}
+	return out
 }

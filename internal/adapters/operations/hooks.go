@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -424,7 +425,7 @@ func hookBackendNames(cfg *config.Config, backend string) ([]string, error) {
 // the same fact and must read the same either side, or one door gets a guard
 // the other does not.
 func namedBackend(backend string) ([]string, error) {
-	if !backends.Exists(backend) {
+	if !EngineExists(backend) {
 		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(backends.BackendsWithSettings(), ", "))
 	}
 	return []string{backend}, nil
@@ -469,7 +470,7 @@ func ConfiguredEngines(cfg *config.Config) []string {
 	// default — so it is what an unqualified apply targets. Returning nothing
 	// here would silently write nothing for the simplest possible project.
 	if len(seen) == 0 {
-		if def := backends.DefaultEngineName(); def != "" {
+		if def := DefaultEngineName(); def != "" {
 			seen[def] = true
 		}
 	}
@@ -537,7 +538,7 @@ func contextRidesTheHook(root engine.Base, exports engine.Exports) bool {
 // (contextHash names the cache the hook reads), and any other engine as its
 // native file at the project root. A dry run stops before the write.
 func applyHooksToBackend(ctx context.Context, backendName string, p hookApplyParams) (retracted []string, err error) {
-	kind, ok := backends.Kind(backendName)
+	kind, ok := engines.Registry().Lookup(engine.Name(backendName))
 	if !ok {
 		return nil, fmt.Errorf("failed to apply %s: no engine kind is composed for it", backendName)
 	}

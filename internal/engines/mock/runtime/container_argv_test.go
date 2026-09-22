@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // The container tests spawn the mock with a HAND-WRITTEN vendor argv: there is
@@ -29,7 +29,7 @@ func claudeContainerVendorArgv() []string {
 // a copy of it.
 func oneshotCLI(t *testing.T, backend string) agent.EngineCLI {
 	t.Helper()
-	clis, ok := backends.EngineCLIsFor(backend)
+	clis, ok := engines.EngineCLIs(backend)
 	if !ok {
 		t.Fatalf("backend %q declares no engine CLI to impersonate", backend)
 	}

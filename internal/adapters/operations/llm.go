@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -65,7 +64,7 @@ func SetDefaultLLM(ctx context.Context, app *App, req SetDefaultLLMRequest) (*Se
 func AvailableLLMNames(cfg *config.Config) []string {
 	seen := map[string]bool{}
 	var names []string
-	for _, n := range backends.List() {
+	for _, n := range EngineNames() {
 		if !seen[n] {
 			seen[n] = true
 			names = append(names, n)
@@ -166,8 +165,8 @@ func SetLLM(ctx context.Context, app *App, req SetLLMRequest) (*LLMEntry, error)
 		// registry's exact-name membership check here is also what keeps an
 		// entry that would fail schema validation on every later load from
 		// landing on disk.
-		if !backends.Exists(*req.Type) {
-			return nil, fmt.Errorf("llm %q: unknown type %q; known: %s", req.Label, *req.Type, strings.Join(backends.List(), ", "))
+		if !EngineExists(*req.Type) {
+			return nil, fmt.Errorf("llm %q: unknown type %q; known: %s", req.Label, *req.Type, strings.Join(EngineNames(), ", "))
 		}
 	}
 	warnLLMPermissionsTypo(req.Label, req.Permissions)

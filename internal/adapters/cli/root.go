@@ -300,14 +300,14 @@ func rootCommand() *cobra.Command {
 		installHelpFlag(rootCmd)
 		disableHelpCommand(rootCmd)
 
-		// Compose the registry HERE as well as in Run(). Register is idempotent
-		// (sync.Once), and Run() still reports its error — but a path that only
+		// Compose the registry HERE as well as in Run(). Compose is idempotent,
+		// and Run() still reports its error — but a path that only
 		// DOCUMENTS the CLI (scripts/gendocs via GetRootCmd) never reaches Run(),
 		// so without this the generated reference renders every engine list
 		// empty while the shipped binary renders it correctly. This function's
 		// own contract is that every path which dispatches OR documents the CLI
 		// comes through here, which makes it the one place that cannot diverge.
-		_ = engines.Register()
+		_ = composeEngines()
 
 		// The help that NAMES the registered engines is filled in after that,
 		// for the same reason version.Version is read here: registration is
@@ -358,7 +358,7 @@ func run(comp Composition, args []string, stdout io.Writer) int {
 	// Compose the shipped engines before any command can read the registry.
 	// A refused declaration is a startup failure that names the engine and
 	// slot — never a silently empty registry.
-	if err := engines.Register(); err != nil {
+	if err := composeEngines(); err != nil {
 		fmt.Fprintf(os.Stderr, "ctxloom: %v\n", err)
 		return 1
 	}
@@ -427,3 +427,18 @@ func init() {
 		"override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container-rootless)")
 
 }
+
+// composeEngines composes the shipped engines once per process and installs
+// the same registry as the cells adapter's facts accessor: isolation
+// resolves engines by NAME (CopyAmbient is handed an engine name) and
+// cannot import the engine packages, so the root that built the registry
+// hands it over here. Idempotent, like Compose.
+func composeEngines() error {
+	if err := engines.Compose(); err != nil {
+		return err
+	}
+	engineFactsOnce.Do(func() { isolation.UseFacts(isolation.RegistryFacts{Registry: engines.Registry()}) })
+	return nil
+}
+
+var engineFactsOnce sync.Once

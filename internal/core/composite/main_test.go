@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // TestMain composes the shipped engines for the golden (it renders per
@@ -13,6 +13,6 @@ import (
 // (testsupport.SandboxedMain). External package: the golden drives the
 // adapters that import composite.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))
 }

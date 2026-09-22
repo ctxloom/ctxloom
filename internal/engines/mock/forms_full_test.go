@@ -1,4 +1,4 @@
-package backends
+package mock
 
 import (
 	"encoding/json"
@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 )
@@ -143,7 +142,7 @@ type mockBuilt struct {
 // newMockSurfaces constructs every mock approach from in through the
 // Declaration — the same path Build takes.
 func newMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) mockBuilt {
-	decl := mockDeclaration(config.BackendMock)
+	decl := New().(Mock).Declaration()
 	must := func(kind agent.SurfaceKind) agent.Approach {
 		a, ok := decl.Construct(kind, agent.ApproachUnsafeFile, in, fs)
 		if !ok {

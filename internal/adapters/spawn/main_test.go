@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // TestMain composes the shipped engines into the backend registry the way the
@@ -13,6 +13,6 @@ import (
 // binding's engine reads the registry — and closes config.findAppDir's walk-up
 // from the working directory for every test in this binary.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))
 }

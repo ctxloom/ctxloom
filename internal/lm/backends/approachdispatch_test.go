@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // allSurfaceKinds is every kind the SurfaceSelection builder can ask a backend
@@ -41,10 +42,9 @@ var allSurfaceKinds = []agent.SurfaceKind{
 func nativeSurfaceBackends(t *testing.T) []string {
 	t.Helper()
 	var names []string
-	for name, r := range records {
-		d := &r.host
-		if len(d.Surfaces) > 0 {
-			names = append(names, name)
+	for _, n := range engines.Registry().Names(nil) {
+		if h, ok := engines.Hosted(string(n)); ok && len(h.Declaration()) > 0 {
+			names = append(names, string(n))
 		}
 	}
 	sort.Strings(names)

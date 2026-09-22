@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // reexecEnv, when set to "1" in the test binary's environment, makes TestMain
@@ -20,7 +20,7 @@ const reexecEnv = "MOCKENGINE_TEST_REEXEC"
 // that reads the registry composes it the same way the CLI does. Under
 // reexecEnv it IS the mock: same registry composition, then run.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	if os.Getenv(reexecEnv) == "1" {
 		os.Exit(run(os.Args[1:]))
 	}

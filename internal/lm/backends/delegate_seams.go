@@ -5,46 +5,11 @@ import (
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
-
-// This file holds the two polymorphic seams T12 moved out of
-// internal/adapters/operations (hooks.go's checkHookTargetScope, delegate.go's
-// resolveChatModel): both used to branch on backend identity and call
-// claude/codex package functions directly from the operations core — a
-// literal ADR-0026 violation (operations, the core, reaching across the
-// subsidiary-application-plugin edge instead of depending on the injected,
-// polymorphic internal/lm/backends seam ADR-0020 already names for exactly
-// this). Per that ADR, this package IS the sanctioned place for
-// backend-identity branching; operations now calls ResolveModelFor /
-// CheckHookTargetScope and never imports claude/codex itself.
-//
-// Both seams are descriptor fields (hosting.HookGlobalScope, ResolveModel on
-// hosting.Hosting) rather than a hardcoded switch here, so a backend that needs either capability registers it once,
-// in its own descriptor block, and both operations call sites pick it up with
-// no operations-side edit — closing the gap the pre-fix hardcoded 3-way
-// if/else left: a NEW backend with its own project/global collision class (or
-// its own model-nickname table) got NEITHER protection until someone
-// remembered to add its name to operations' own copy of the list.
-
-// ResolveModelFor translates rs.Model through the named backend's own
-// resolveModel hook when it has one — the delegated-child launch path's
-// model resolution (internal/engines/claude.ResolveModel today), generalized
-// off a hardcoded "is this claude-code" branch in operations. A backend with
-// no resolveModel hook (every backend but claude-code today) or an
-// unregistered name passes model through unchanged with ok=true: "nothing to
-// resolve" is not a failure.
-func ResolveModelFor(name, model string) (resolved string, ok bool) {
-	d, exists := Definition(name)
-	if !exists {
-		return model, true
-	}
-	if alias, aliased := d.ModelAliases[model]; aliased {
-		return alias, true
-	}
-	return model, true
-}
 
 // CheckHookTargetScope refuses (or, with force, loudly warns) when workDir
 // resolves onto the named backend's user-GLOBAL scope instead of a project's
@@ -59,11 +24,11 @@ func ResolveModelFor(name, model string) (resolved string, ok bool) {
 // force downgrades a real collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
 func CheckHookTargetScope(name, workDir string, force bool) error {
-	d, ok := lookup(name)
+	h, ok := engines.Hosted(name)
 	if !ok {
 		return nil
 	}
-	scope, ok := d.HookGlobalScope.Get()
+	scope, ok := h.HookGlobalScope()
 	if !ok {
 		return nil
 	}
@@ -81,16 +46,6 @@ func CheckHookTargetScope(name, workDir string, force bool) error {
 		return nil
 	}
 	return fmt.Errorf("refusing to install hooks: %s resolves to %s (%s), which would apply ctxloom to every project instead of just this one; run from inside a project (or set CTXLOOM_ROOT), or pass --force to proceed anyway", workDir, label, globalPath)
-}
-
-// UnregisterForTesting removes a name's descriptor entirely — Register's
-// cleanup counterpart for a test's synthetic engine, so it does not linger in
-// the shared, package-level table for later tests to trip over. It unwinds
-// every table Register wrote.
-func UnregisterForTesting(name string) {
-	// The facts accessor reads records live, so forgetting the record is
-	// forgetting the facts.
-	delete(records, name)
 }
 
 // InTreeAgentHomeSpec is one backend's ctxloom-CONTROLLED config home INSTANCE
@@ -153,7 +108,7 @@ type InTreeAgentHomeSpec struct {
 // An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
 func InTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
-	kind, exists := Kind(name)
+	kind, exists := engines.Registry().Lookup(engine.Name(name))
 	if !exists {
 		return InTreeAgentHomeSpec{}, false
 	}

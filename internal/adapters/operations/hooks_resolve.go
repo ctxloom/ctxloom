@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
@@ -98,7 +99,7 @@ type ResolveHooksResult struct {
 // resolvedHookEventOrder is the order events are reported in: the resolved
 // model's own canonical order, so the report cannot enumerate a different set
 // of events than the assembly resolved.
-func resolvedHookEventOrder() []string { return backends.HookEvents() }
+func resolvedHookEventOrder() []string { return wire.HookEvents() }
 
 // ResolveHooks reports the hooks that will fire, per event, in their final order,
 // with where each came from.
@@ -125,7 +126,7 @@ func resolvedHookEventOrder() []string { return backends.HookEvents() }
 // withheld from the report too. Showing a hook that will not run is the same lie
 // in the other direction.
 func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksResult, error) {
-	if req.Event != "" && !backends.IsHookEvent(req.Event) {
+	if req.Event != "" && !wire.IsHookEvent(req.Event) {
 		return nil, fmt.Errorf("unknown hook event %q; the lifecycle events are %s",
 			req.Event, strings.Join(resolvedHookEventOrder(), ", "))
 	}

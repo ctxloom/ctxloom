@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // TestMain closes config.findAppDir's walk-up from the working directory for
@@ -17,6 +17,6 @@ import (
 // engine capability lookup finds nothing, so a refusal that depends on a
 // declared capability silently does not fire.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))
 }

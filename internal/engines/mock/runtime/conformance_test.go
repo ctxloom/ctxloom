@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // ---------------------------------------------------------------------------
@@ -197,8 +197,8 @@ func assertPromptChannelConforms(t *testing.T, cli agent.EngineCLI, f conformanc
 // first appear.
 func TestConformance_EveryImpersonableDeclaration_WalkReadsWhatL1Declares(t *testing.T) {
 	var checked int
-	for _, name := range backends.List() {
-		clis, ok := backends.EngineCLIsFor(name)
+	for _, name := range engineNames() {
+		clis, ok := engines.EngineCLIs(name)
 		if !ok {
 			continue
 		}
@@ -247,4 +247,13 @@ func TestConformance_SyntheticDeclaration_EveryScopeL1AcceptsIsWalked(t *testing
 	f := buildConformanceFixture(t, cli)
 	assertWalkConforms(t, cli, f)
 	assertEnvObservationConforms(t, cli)
+}
+
+// engineNames lists every composed engine's name.
+func engineNames() []string {
+	var out []string
+	for _, n := range engines.Registry().Names(nil) {
+		out = append(out, string(n))
+	}
+	return out
 }

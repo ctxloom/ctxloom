@@ -14,11 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
@@ -53,7 +54,7 @@ var matrixKinds = []agent.SurfaceKind{
 // derived, so an engine's new name joins the cross product on its own. Used
 // for the NEGATIVE direction: the cross product minus the declared pairs must
 // be refused loudly.
-func matrixApproaches() []string { return backends.KnownApproachNames() }
+func matrixApproaches() []string { return knownApproachNames() }
 
 // sentinel slots. Each names one SurfaceInputs field, so an assertion can say
 // WHICH input reached WHICH file rather than "the tree is non-empty".
@@ -143,8 +144,8 @@ func findSentinel(tree map[string]string, sentinel string) []string {
 func matrixBackends(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	for _, name := range backends.List() {
-		decl := backends.Declared(name)
+	for _, name := range operations.EngineNames() {
+		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
 			if len(decl.Names(k)) > 0 {
 				out = append(out, name)
@@ -168,7 +169,7 @@ func derivedPairs(t *testing.T) []string {
 	t.Helper()
 	var out []string
 	for _, name := range matrixBackends(t) {
-		decl := backends.Declared(name)
+		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
 			for _, a := range decl.Names(k) {
 				out = append(out, pairKey(name, k, a))
@@ -384,7 +385,7 @@ func TestDeliveryApproach_DeclaredPairsAreExhaustive(t *testing.T) {
 // something it cannot construct would silently materialize nothing.
 func TestDeliveryApproach_DefaultIsDeclared(t *testing.T) {
 	for _, name := range matrixBackends(t) {
-		decl := backends.Declared(name)
+		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
 			supported := decl.Names(k)
 			def, ok := decl.Default(k)
@@ -410,7 +411,7 @@ func TestDeliveryApproach_DefaultIsDeclared(t *testing.T) {
 func TestDeliveryApproach_EveryDeclaredPairDeliversItsPayload(t *testing.T) {
 	isolatedRecords(t)
 	for _, name := range matrixBackends(t) {
-		decl := backends.Declared(name)
+		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
 			for _, a := range decl.Names(k) {
 				key := pairKey(name, k, a)
@@ -516,7 +517,7 @@ func assertSentinelAt(t *testing.T, key string, tree map[string]string, want, se
 // rather than left to chance.
 func TestDeliveryApproach_UndeclaredPairsAreRefusedLoudly(t *testing.T) {
 	for _, name := range matrixBackends(t) {
-		decl := backends.Declared(name)
+		decl := hostedDeclaration(name)
 		for _, k := range matrixKinds {
 			supported := decl.Names(k)
 			if len(supported) == 0 {
@@ -556,7 +557,7 @@ func TestDeliveryApproach_ClaudeSystemPromptScratchPlacement(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 	require.NoError(t, fs.MkdirAll(private, 0o755))
 
-	a, ok := claude.Declaration().Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
 	handle, err := a.Deliver(present.New(present.OnHost(present.Paths{
@@ -591,11 +592,40 @@ func TestDeliveryApproach_SystemPromptRefusesAnUnrootedRun(t *testing.T) {
 	root := "/cell"
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 
-	a, ok := claude.Declaration().Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
+	a, ok := claudeDeclaration(t).Construct(agent.SurfaceContext, claude.ApproachSystemPrompt, matrixSentinelInputs(), fs)
 	require.True(t, ok)
 
 	_, err := a.Deliver(present.ProjectOnHost(root))
 	require.Error(t, err, "an unrooted run must be refused, never served the project file")
 	assert.ErrorIs(t, err, agent.ErrUnrootedEngineHome)
 	assert.Empty(t, matrixTree(t, fs, root), "a refused delivery must write zero files")
+}
+
+// claudeDeclaration is claude's named-form table off the engine value
+// (agent.Hosted), the seam the matrix constructs its forms from.
+func claudeDeclaration(t *testing.T) agent.Declaration {
+	t.Helper()
+	e, err := claude.Build()
+	require.NoError(t, err)
+	return e.(agent.Hosted).Declaration()
+}
+
+// hostedDeclaration is the named engine's named-form table off the engine
+// value (agent.Hosted); empty for an engine that is not Hosted.
+func hostedDeclaration(name string) agent.Declaration {
+	h, ok := engines.Hosted(name)
+	if !ok {
+		return agent.Declaration{}
+	}
+	return h.Declaration()
+}
+
+// knownApproachNames is the union of every approach name any composed
+// engine declares, sorted.
+func knownApproachNames() []string {
+	var decls []agent.Declaration
+	for _, n := range operations.EngineNames() {
+		decls = append(decls, hostedDeclaration(n))
+	}
+	return agent.ApproachNames(decls...)
 }

@@ -27,7 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -108,7 +108,7 @@ func LaunchDepsFor(snap *config.Snapshot, mode strictness.Mode) (launch.Deps, er
 	}
 	return launch.Deps{
 		Snapshot:  snap,
-		Engines:   backends.Engines(),
+		Engines:   engines.Registry(),
 		Assembler: &assembler{},
 		Cells:     Cells{cfg: snap.Config, mode: mode},
 		Endpoints: endpointMinter{},

@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 func oneshotTestConfig(t *testing.T) *config.Config {
@@ -45,7 +45,7 @@ func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) la
 	stubPrepareIsolation(t, nil)
 	return launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   backends.Engines(),
+		Engines:   engines.Registry(),
 		Assembler: &assembler{pipe: pipe},
 		Cells:     Cells{cfg: cfg},
 		Endpoints: endpointMinter{},
@@ -162,7 +162,7 @@ func TestResolveBackend(t *testing.T) {
 	}}})
 	// The degrade target is the engine shipped by default, bound by
 	// validating against the composed registry — never a literal in config.
-	require.NoError(t, cfg.Validate(backends.Engines()))
+	require.NoError(t, cfg.Validate(engines.Registry()))
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
 		backend, model := ResolveBackend(cfg, "agy-code")

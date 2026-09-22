@@ -13,11 +13,10 @@ import "strings"
 // as OUTPUT tokens at the responding model's rate (a ~5x swing across
 // haiku/sonnet/opus at the same nominal budget).
 //
-// Each backend that has a real mechanism translates this same vocabulary to
-// its own knob (internal/engines/claude: MAX_THINKING_TOKENS env var; internal/codex:
-// model_reasoning_effort config key). A backend with no mechanism (opencode)
-// treats an explicit setting as a documented, WARNED no-op rather than a
-// silent swallow — see their Configure methods.
+// The level is parsed and validated but reaches no engine: claude's
+// ClaudeCode.Configure resolves ClaudeConfig.Thinking into ClaudeCode.thinking
+// (warning on an unrecognized value), and nothing reads that field — no argv
+// or env var of a launch carries it, so setting it changes nothing.
 type ThinkingLevel int
 
 const (

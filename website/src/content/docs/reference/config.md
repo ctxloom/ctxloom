@@ -188,7 +188,7 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `thinking` | string | Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium. Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
+| `thinking` | string | Normalized reasoning/thinking-budget level. Accepted and validated (an unrecognized value warns and falls back to medium), but no claude launch carries it: it currently has no effect. Empty defaults to medium. Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
 | `type` | string | Must be `claude-code`. |
 
 #### codex

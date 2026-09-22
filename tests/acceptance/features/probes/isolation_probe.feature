@@ -11,11 +11,10 @@ Feature: Isolation probe — live proof against real vendor engines
   This feature is that other half, built to be run on its own — for ONE engine and
   ONE axis at a time — because its job is not "pass once in this repo's CI" but
   "answer the same question again, unattended, every time an engine
-  ships a new version." See
-  website/src/content/docs/security/isolation.md's "The executable probe" section
-  for how to run a single row and how to read a failure (vendor regression vs
-  ctxloom regression — they read differently, see below), and
-  tests/acceptance/isolation_probe.go's package doc for the two live-observation
+  ships a new version." `just isolation-probe ENGINE AXIS` runs a single row; how
+  to read a failure (vendor regression vs ctxloom regression — they read
+  differently) is below, and tests/acceptance/isolation_probe.go's package doc
+  covers the two live-observation
   problems this feature solves (the worktree scratch and the container's own
   writable layer both disappear the instant the run ends, so both must be caught
   DURING the run, not after).
@@ -51,7 +50,6 @@ Feature: Isolation probe — live proof against real vendor engines
   # regression check needs. Ten separate one-row Examples blocks (rather than
   # one ten-row table) is the standard Gherkin shape for per-row tagging —
   # tags attach to an Examples: block, not to an individual row within one.
-  # See website/src/content/docs/security/isolation.md.
   Scenario Outline: The isolation probe proves credentials and isolation hold for <engine> under the <axis> axis
     Given the isolation probe targets "<engine>" under the "<axis>" axis
     When the probe runs it live, writing a unique token in one turn
@@ -108,5 +106,4 @@ Feature: Isolation probe — live proof against real vendor engines
 
 
   # Back to: tests/acceptance/features/journeys/j002200_isolation.feature (the hermetic layer
-  # this feature complements) · website/src/content/docs/security/isolation.md
-  # (the narrative account of what these engines actually do).
+  # this feature complements).

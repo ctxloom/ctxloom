@@ -68,7 +68,6 @@ export default defineConfig({
 					items: [
 						{ label: 'A prompt is executable code', link: '/security/prompts-are-code/' },
 						{ label: 'Choosing an isolation boundary', link: '/security/environment-isolation/' },
-						{ label: 'The engine you don\'t control', link: '/security/isolation/' },
 						{ label: 'What a bundle can do to you', link: '/security/bundle-anatomy/' },
 						{ label: 'Threat model', link: '/security/threat-model/' },
 						{ label: 'Trust states and the gate', link: '/security/trust-states/' },

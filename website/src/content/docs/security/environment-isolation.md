@@ -56,10 +56,7 @@ state only where the engine exposes a way to be redirected. Where it doesn't, th
 to point anywhere. And even a redirect that appears to work can quietly not cover everything:
 credentials in particular sometimes live in an OS-level facility scoped to your login session
 rather than to any path at all, in which case relocating a config directory changes where the
-engine's *settings* live and changes nothing about where its *authentication* lives. [The
-engine you don't control](/security/isolation/) is the measured account of this — real engines,
-real behavior, checked rather than assumed. It's the deep dive on this one vector; this page
-only needed to name it.
+engine's *settings* live and changes nothing about where its *authentication* lives.
 
 None of these three is worktree isolation *failing*. A workspace boundary was never a request
 boundary, a privilege boundary, or a vendor-state boundary, and calling it best-effort isn't a
@@ -73,10 +70,8 @@ environment variable correctly, or because it chose to route its state through t
 It's held back because the boundary isn't a request at all — it's a property of the kernel.
 What the process can't see, it can't act on, correctly-behaved or not. That's the whole reason
 it closes gaps host-mode isolation structurally cannot: it doesn't need to locate what an
-engine reads before it can be sure the engine can't reach it. See [Containers don't
-ask](/security/isolation/#containers-dont-ask) for the full argument; the short version is that
-containment stops being something you negotiate with a vendor binary and becomes something you
-built and can verify yourself.
+engine reads before it can be sure the engine can't reach it. Containment stops being something
+you negotiate with a vendor binary and becomes something you built and can verify yourself.
 
 That's the honest upside. Here's the honest cost, and it is not small: this is what "somewhat
 expensive in time and complexity" means in practice.
@@ -206,8 +201,6 @@ implies.
 
 - [Agents & Isolation: the two isolation axes](/concepts/agents/#the-two-isolation-axes) —
   `runtime` and `workspace`, where each is set, and what `runtime: container-rootless` mounts.
-- [The engine you don't control](/security/isolation/) — the measured account of vector 3:
-  real engines, real config-home behavior, checked rather than assumed.
 - [A prompt is executable code](/security/prompts-are-code/) — why what an agent reads matters
   as much as where it can write.
 - [`ctxloom container`](/reference/cli/ctxloom_container/) — building and checking agent

@@ -1076,8 +1076,7 @@ test-acceptance-live-container: container-build-acceptance
 # MOST one real, paid engine call.
 # Requires real credentials for ENGINE (a host credential file, or its
 # API-key env var) — self-skips loudly, naming exactly what is missing, when
-# absent. See website/src/content/docs/security/isolation.md's "The
-# executable probe" section.
+# absent.
 isolation-probe ENGINE AXIS: build
     ACCEPTANCE_PATHS=features/probes/isolation_probe.feature \
     ACCEPTANCE_TAGS="@live && @{{ENGINE}} && @{{AXIS}}" \

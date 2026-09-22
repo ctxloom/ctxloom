@@ -112,8 +112,8 @@ warning, never a broken session:
 
 - **taskloom** — per-project task tracking: an append-only task log with a CLI
   and an MCP server (`task_list`/`task_add`/`task_set_status`/`task_edit`).
-  Standalone use: `taskloom manage install` registers it with Claude Code,
-  Antigravity, or Codex directly.
+  Standalone use: `taskloom manage install` registers it with Claude Code
+  directly.
 - **ltk** — a pre-tool hook that redirects commands you'd rather the agent not
   run (e.g. `go test` → "use the task runner" → the agent retries `just test`).
   ctxloom registers the hook; rules are opt-in per project via

@@ -41,9 +41,6 @@ func TestManageInstall_AutoRegistersOnlyPresentBackends(t *testing.T) {
 	require.Contains(t, servers, "taskloom")
 	entry := servers["taskloom"].(map[string]any)
 	assert.Equal(t, "taskloom", entry["command"])
-
-	// Absent backends must not have configs conjured for them.
-	assert.NoDirExists(t, filepath.Join(home, ".codex"))
 }
 
 func TestManageInstall_ExplicitEngineCreatesConfig(t *testing.T) {

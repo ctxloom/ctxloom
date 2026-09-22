@@ -104,10 +104,6 @@ flowchart TD
       PID
       PSD
     end
-    subgraph instance["PER-SESSION INSTANCE · disposable, no Layout row"]
-      SSP
-      SHP
-    end
 ```
 
 ## Constant groups

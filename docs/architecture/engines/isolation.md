@@ -339,7 +339,7 @@ there, path-keyed (claude's per-project keys). That stays the single durable
 location.
 
 What an opted-in agent run gets instead is a **per-session INSTANCE**,
-`<WorkDir>/.ctxloom/state/<harp>/home/<engine-leaf>`, created at session start
+`~/.ctxloom/sessions/<harp>/home/<engine-leaf>`, created at session start
 and disposable. Three content classes live in it: ctxloom-generated content
 (context, prompts, skills, config fragments) regenerated at each launch;
 engine-specific scaffolding synthesized by the engine package; and **ambient**
@@ -367,7 +367,7 @@ engine natively looks.
 
 | Engine | Var | `engine_home: session`, host cells (none / worktree) | `engine_home: session`, container | undeclared / `host` / no binding, host cells | undeclared / `host` / no binding, container |
 |---|---|---|---|---|---|
-| claude-code | `CLAUDE_CONFIG_DIR` | `<WorkDir>/.ctxloom/state/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told; the real `~/.claude/.credentials.json` is bind-mounted RW over the seeded copy inside it | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
+| claude-code | `CLAUDE_CONFIG_DIR` | `~/.ctxloom/sessions/<harp>/home/claude` | the same host directory, bind-mounted at `/ctxloom/home/claude` (the fixed instance root + the declared leaf), which is what the engine is told; the real `~/.claude/.credentials.json` is bind-mounted RW over the seeded copy inside it | **real `~/.claude`** | the container's fresh `$HOME/.claude` |
 
 An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
 `XDG_DATA_HOME`) cannot be given an instance this way: relocating those moves
@@ -398,7 +398,7 @@ host|session`:
 ```yaml
 agents:
   coder:
-    engine_home: session   # a per-session instance under .ctxloom/state/<harp>/home/
+    engine_home: session   # a per-session instance under ~/.ctxloom/sessions/<harp>/home/
     # or: host             # the engine's real host home (also the default)
 ```
 

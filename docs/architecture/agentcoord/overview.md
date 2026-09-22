@@ -41,9 +41,9 @@ hidden couplings through the environment or the filesystem.
 
 ```mermaid
 flowchart TD
-  CLI["internal/adapters/cli<br/>(run.go, llm_runner_common.go, llm_serve.go)"]
+  CLI["internal/adapters/cli<br/>(run.go: the session host; runner_deps.go: the runner's composition)"]
   TUI["internal/adapters/cli/tui"]
-  MCP["internal/adapters/mcp<br/>(the stdio server; owner_socket.go the plugin arm's socket;<br/>coord_host.go HostCoordinatorForSession — the one hosting path)"]
+  MCP["internal/adapters/mcp<br/>(coord_host.go: HostCoordinatorForSession — the one hosting path;<br/>HostApp — the coordinator's host relay, one ctxServer per relayed call)"]
   RMCP["internal/adapters/runner/mcp<br/>(delivery.Dynamic: Endpoint.Serve binds Launch.MCP;<br/>NewServer — coordination, relay and loadout surfaces)"]
   SPAWN["internal/adapters/spawn<br/>(coord.Spawner: Resolve/ResolveLaunch/Start/Adopt;<br/>StartRunner and its context contract)"]
   COORD["internal/core/coord<br/>(Coordinator, Verbs, Transport port, Event + frames — no proto)"]
@@ -60,7 +60,7 @@ flowchart TD
   LIVE["internal/shared/liveness"]
   PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]
-  ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID,<br/>SESSION_HARP, MCP_SOCKET, LAUNCH_* tunables")]
+  ENV[("process env: CTXLOOM_COORD_URL/CRED, RUN_ID (the runner's reach-back trio),<br/>SESSION_HARP (the engine's), LAUNCH_* tunables")]
 
   CLI --> COORD
   CLI --> CGRPC
@@ -69,9 +69,7 @@ flowchart TD
   TUI --> COORD
   MCP --> COORD
   MCP --> CGRPC
-  MCP --> RUNNER
   MCP --> SCHEMA
-  MCP --> RMCP
   RMCP --> COORD
   RMCP --> RUNNER
   RMCP --> PROTO
@@ -97,8 +95,7 @@ flowchart TD
   COORD -. "imports neither adapter: TestArch_CoordLinksNoAdapter (go list -deps)" .-x CGRPC
   COORD -. "imports neither adapter: TestArch_CoordLinksNoAdapter (go list -deps)" .-x RUNNER
   COORD -. "9 × spool.NewHomeMapper() per call; root re-resolved from $HOME at write time" .-> FS
-  COORD -. "OwnerRunnerEnv / sessions.EncodeReach write; consumeCoordinatorReachBack / selfIdentityFromEnv / os.Getenv(EnvMCPSocket) read" .-> ENV
-  MCP -. "selfIdentityFromEnv(cwd)" .-> ENV
+  COORD -. "runnerEnv / sessions.EncodeReach write (the trio, per spawn — the owner's runner on the same terms); runner.Main's one DecodeReach read" .-> ENV
 ```
 
 ## Process topology
@@ -106,9 +103,10 @@ flowchart TD
 Two processes per run, joined by gRPC and by the filesystem.
 
 **The coordinator process** (the session owner, `ctxloom run`, and ONLY that:
-a coordinator is hosted by a runner-bearing session, never by an MCP shim —
 `mcp.HostCoordinatorForSession` is the one hosting path, its constructor
-private; a bare `ctxloom mcp` refuses the agent tools instead) constructs one
+private, and it hands the host back the owner's credential — the identity
+the owner-owned run is minted under and revoked on teardown; no ctxloom
+command speaks MCP outside a session) constructs one
 `coord.Coordinator` (`coord.New`) which owns the journals, the state-dir lock
 (a second session claiming an owned project is refused with
 `coord.ErrStateOwned`, never degraded to a rival coordinator), the
@@ -123,17 +121,22 @@ coordinator-side `SpoolReactor`. Every LLM-facing verb lands on one of
 `AgentRequestFromWire` → `Coordinator.HandleRequest → serveAgentRequest` →
 `spawnDisposition` / `serveRoster` / `serveStopRun`).
 
-**The runner process** (`ctxloom llm serve|host|turn`, one per run;
-`llm_runner_common.go`) constructs a `runner.Home` which dials two streams —
-`RunnerChannel` (lifecycle, one per credential, via `DialRunner` / `RunnerLink`) and
-`RunChannel` (one per run) — and hosts the engine in-process through
-`runner.EngineHost` (`agent.StructuredChat`). It also serves the runner-hosted MCP
-socket (`mcp.ServeRunnerMCP`) the engine's stdio shim forwards to; that surface is
-generated from `mcpschema` and dispatches to `mcp.coordinationHandler`,
-`recvHandler` and `reportHandler`, which call `Home.Request`, `Home.Recv` and
-`Home.Report`. Its goroutines are `Home.runnerChannelLoop`, `runChannelLoop`, the
-runner-side `SpoolReactor`, `RunnerLink.heartbeatLoop`/`receiveLoop`, `Home.turnPump`
-and `EngineHost.adapt`.
+**The runner process** (`ctxloom runner <engine>`, one per run — the owner's
+included; `runner.Main`) decodes its reach-back trio once, constructs a
+`runner.Home` which dials two streams — `RunnerChannel` (lifecycle, one per
+credential, via `DialRunner` / `RunnerLink`) and `RunChannel` (one per run) —
+and hosts the engine through `runner.EngineHost`. It BINDS the session's ONE
+MCP endpoint (`runner/mcp.Endpoint`, `delivery.Dynamic`: Streamable HTTP under
+`ServePolicy`, a bearer on every request) and delivers the launch into the
+session's home with that endpoint named in the session's registry — ctxloom's
+own companion entry rendered through the engine's dynamic approach
+(`delivery.InputsFor`); the engine dials it directly. The surface is
+`runner/mcp.NewServer`: the coordination tools generated from `mcpschema`, the
+host relays (`HostRequest` frames the coordinator answers through
+`mcp.HostApp`) and the cell-local tools and `ctxloom://` resources over the
+Loadout. Its goroutines are `Home.runnerChannelLoop`, `runChannelLoop`, the
+runner-side `SpoolReactor`, `RunnerLink.heartbeatLoop`/`receiveLoop` and
+`Home.turnPump`.
 
 **Read-only consumers** (`internal/adapters/operations`' session feed, `ctxloom session
 transcript watch`, the TUI) reach `ConsumerService` on the same listener, located

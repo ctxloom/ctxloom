@@ -48,6 +48,33 @@ func TestInstance_StructuredDriver_ArgvIsExecPlusTheProtocol(t *testing.T) {
 	require.Equal(t, strings.Count(strings.Join(d.argv(ex, engine.Turn{Prompt: "hi", Resume: "native-key-2"}), " "), "--resume"), 1, "the driver adds no second --resume")
 }
 
+// TestInstance_ExecPinsClassicScreen: an interactive launch carries the
+// classic-renderer pin and declares it on its surface; a print run has no TUI
+// and carries neither.
+func TestInstance_ExecPinsClassicScreen(t *testing.T) {
+	kind, err := Build()
+	require.NoError(t, err)
+	for _, mode := range kind.Root().Modes {
+		s := engine.Session{Identity: sessions.Identity{Harp: "h"}, Label: engine.LabelConfig{Label: EngineName}, Mode: mode, Permission: engine.PermissionBypass, Prompt: "p"}
+		inst, err := kind.Instance(s)
+		require.NoError(t, err)
+		ex, err := inst.Exec(nil)
+		require.NoError(t, err)
+		if mode == engine.Interactive {
+			require.Equal(t, "1", ex.Env[classicScreenEnv], "%v", mode)
+			continue
+		}
+		require.NotContains(t, ex.Env, classicScreenEnv, "%v", mode)
+	}
+	for _, cli := range ClaudeEngineCLIs() {
+		if cli.Surface == agent.CLISurfaceInteractive {
+			require.Contains(t, cli.SetEnv, classicScreenEnv, "%v", cli.Surface)
+			continue
+		}
+		require.NotContains(t, cli.SetEnv, classicScreenEnv, "%v", cli.Surface)
+	}
+}
+
 // TestInstance_ExecParsesAgainstOwnGrammar: the argv Exec composes, for every
 // mode, parses against the grammar the Definition declares for that mode.
 func TestInstance_ExecParsesAgainstOwnGrammar(t *testing.T) {
@@ -76,6 +103,7 @@ func TestBuildArgs_IsInstanceExec(t *testing.T) {
 	ex, err := b.exec(req)
 	require.NoError(t, err)
 	require.Equal(t, ex.Args, b.buildArgs(req))
+	b.SetExecuteEnv(func(*agent.ExecuteRequest) map[string]string { return ex.Env }) // as Execute registers it
 	merged := maps.Clone(req.Env)
 	maps.Copy(merged, ex.Env)
 	require.Equal(t, fmt.Sprint(merged), fmt.Sprint(b.ExecuteEnv(req)), "the launch env is the request's with Exec's engine-native vars over it")

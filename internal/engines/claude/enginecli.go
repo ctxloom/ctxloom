@@ -173,6 +173,16 @@ func setEnv() []string {
 	return []string{agent.SCMContextFileEnv, agent.SessionHarpEnv}
 }
 
+// classicScreenEnv pins an interactive launch to claude's classic
+// main-screen renderer. Left alone, claude picks its fullscreen renderer —
+// which turns on any-motion mouse tracking — from the config home's install
+// history, and a ctxloom-provisioned home always reads as a fresh install, so
+// the same user got a different screen mode (and a mouse that typed escape
+// sequences into the prompt) under ctxloom than in their own terminal. The
+// variable outranks that heuristic and the `tui` setting alike; claude's own
+// crash text names it as the way to force the classic renderer.
+const classicScreenEnv = "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN"
+
 // EngineCLIs declares claude's oneshot and interactive process surfaces.
 //
 // The two differ in exactly three ways, all of them load-bearing:
@@ -212,7 +222,7 @@ func ClaudeEngineCLIs() []agent.EngineCLI {
 			agent.CLIFlag{Name: flagName, Value: agent.ValueString,
 				Note: "interactive only; names the session after ctxloom's harp (claude's /rename cannot be injected)"},
 		),
-		SetEnv: setEnv(),
+		SetEnv: append(setEnv(), classicScreenEnv),
 		Probes: probes(),
 	}
 	return []agent.EngineCLI{oneshot, interactive}

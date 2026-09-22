@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -268,6 +269,18 @@ func (s *mcpConfig) Present(start present.Start) present.Presentation {
 // fallback IS the defect. A FAILED write clears the path: Path() promises ""
 // for a file that does not exist, and the delivered presentation must never
 // hand claude --mcp-config naming one.
+//
+// The file is MATERIALIZED even when the run registers no servers, because
+// Present announces --mcp-config unconditionally and claude REFUSES to start
+// against a path that does not exist ("Invalid MCP configuration: MCP config
+// file not found"), exiting before it emits anything — which reaches the
+// caller as an empty answer and gets reported as a dead or unauthenticated
+// engine. The merge alone does not guarantee the file: an empty server set
+// records no edits, so confpatch writes nothing and reports success. Under
+// the PRIVATE session root the file is ctxloom's own to create, so the flag
+// is kept honest by construction. mcpUnsafeFile deliberately does NOT do
+// this — its target is the user's project .mcp.json, which ctxloom does not
+// conjure just to satisfy a flag.
 func (s *mcpConfig) Deliver(start present.Start) (agent.Delivered, error) {
 	if err := privateRooted(start); err != nil {
 		return nil, err
@@ -280,8 +293,32 @@ func (s *mcpConfig) Deliver(start present.Start) (agent.Delivered, error) {
 	// The recorded path comes from the DECLARED leaf, not from a second
 	// hand-written join: it is what --mcp-config is pointed at, so a wrong rel
 	// path cannot pass unnoticed.
-	s.path = underPrivateRoot(start, MCPFileName).Build().HostPath
+	p := underPrivateRoot(start, MCPFileName).Build().HostPath
+	if err := materializeEmptyMCPConfig(agent.GetFS(s.fs), p); err != nil {
+		s.path = ""
+		return nil, err
+	}
+	s.path = p
 	return handle, nil
+}
+
+// materializeEmptyMCPConfig writes an empty {"mcpServers":{}} document at
+// path when the merge left no file there. It never touches one that exists:
+// the merged document is the authority whenever there is one.
+func materializeEmptyMCPConfig(fs afero.Fs, path string) error {
+	switch ok, err := afero.Exists(fs, path); {
+	case err != nil:
+		return err
+	case ok:
+		return nil
+	}
+	doc, err := agent.MarshalChatMCPConfig(nil)
+	if err != nil {
+		return err
+	}
+	// iox.WriteFileAtomicFs, not afero.WriteFile: 0o600 must land EXACTLY,
+	// and a torn write here is a config file claude refuses to start against.
+	return iox.WriteFileAtomicFs(fs, path, doc, 0o600)
 }
 
 // PresentExisting names the session's private .mcp.json without writing it:

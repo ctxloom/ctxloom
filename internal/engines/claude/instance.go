@@ -229,6 +229,9 @@ func (i *instance) Exec(presented []present.Presentation) (engine.Exec, error) {
 	for _, p := range presented {
 		maps.Copy(env, p.Env)
 	}
+	if interactive {
+		env[classicScreenEnv] = "1"
+	}
 	binary := i.s.Label.Binary
 	if binary == "" {
 		binary = "claude"

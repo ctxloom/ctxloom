@@ -232,6 +232,48 @@ func TestMCPSurface_DeliverWritesPrivateConfig(t *testing.T) {
 	require.NoError(t, handle.Cleanup())
 }
 
+// TestMCPSurface_DeliverMaterializesConfigWithNoServers: a run that registers
+// NO MCP servers still gets a file on disk.
+//
+// Present announces --mcp-config unconditionally, and claude REFUSES to start
+// against a path that does not exist ("Invalid MCP configuration: MCP config
+// file not found"), exiting before it emits anything. That reaches the caller
+// as an EMPTY ANSWER, which is indistinguishable from a dead or
+// unauthenticated engine — `ctxloom init`'s auth probe reported exactly that,
+// and sent the user to re-run `claude login` on working credentials.
+//
+// The merge alone does not guarantee the file: an empty server set records no
+// edits, so the confpatch store writes nothing and reports SUCCESS. This is a
+// payload assertion on the file, not on Deliver's error, because that success
+// is precisely what made the defect invisible.
+func TestMCPSurface_DeliverMaterializesConfigWithNoServers(t *testing.T) {
+	cwd := t.TempDir()
+	scratch := t.TempDir()
+	home := t.TempDir()
+
+	in := sampleInputs()
+	in.BundleMCP = nil
+	s := newSurfaces(in, nil)
+
+	handle, err := s.MCP.Deliver(runRoots(cwd, scratch, home))
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(home, ".mcp.json"), s.MCP.Path(),
+		"the announced --mcp-config path is the private .mcp.json beneath the engine home")
+	require.FileExists(t, s.MCP.Path(),
+		"claude refuses to start against a --mcp-config naming a file that does not exist")
+
+	data, err := os.ReadFile(s.MCP.Path())
+	require.NoError(t, err)
+	var doc agent.ChatMCPConfigDoc
+	require.NoError(t, json.Unmarshal(data, &doc),
+		"the materialized file must be a valid MCP config document, not an empty or partial one")
+
+	assert.NoFileExists(t, filepath.Join(cwd, ".mcp.json"), "the shared cwd is never written")
+
+	require.NoError(t, handle.Cleanup())
+}
+
 // ---- settings surface ------------------------------------------------------
 
 // settings Delivery writes .claude/settings.json (hooks + statusline) into the

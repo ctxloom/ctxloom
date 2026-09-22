@@ -48,7 +48,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	agentaxis "github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -346,4 +348,68 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestArch_ConfigSchemaLLMTypes_MatchShippableEngines binds the one llmConfig
+// field schemaEnumPaths cannot see: each $defs/llmConfig anyOf branch's
+// `type` is a `const`, not an `enum`, so a branch naming an engine that no
+// longer ships passed every gate above. That is how dead codex and opencode
+// branches stayed in the schema after their engines were deleted.
+//
+// THE INVARIANT: the branch types that are not test-only
+// (operations.IsTestOnlyEngine) EQUAL the shippable engines, the set the
+// retired-backend warning in operations.DecodeBackendConfig lists
+// (operations.EngineNamesWhere keeping Distribution !=
+// engine.DistributionTestOnly). It is not plain equality with the registry,
+// and not equality with test-only engines left out of both sides. The reason
+// is that the schema carries a branch for the `mock` double, because
+// test configs declare `type: mock`, while the other mock.Doubles are reached
+// only through --backend and have no branch. A test-only branch is therefore
+// permitted but not required. An UNREGISTERED type is not test-only
+// (IsTestOnlyEngine is false for an unknown name), so a dead branch stays on
+// the left-hand side and breaks the equality.
+func TestArch_ConfigSchemaLLMTypes_MatchShippableEngines(t *testing.T) {
+	raw, err := resources.GetConfigSchema()
+	if err != nil {
+		t.Fatalf("read config schema: %v", err)
+	}
+	var doc struct {
+		Defs struct {
+			LLMConfig struct {
+				AnyOf []struct {
+					Properties struct {
+						Type struct {
+							Const string `json:"const"`
+						} `json:"type"`
+					} `json:"properties"`
+				} `json:"anyOf"`
+			} `json:"llmConfig"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parse config schema: %v", err)
+	}
+
+	var branchTypes []string
+	for i, b := range doc.Defs.LLMConfig.AnyOf {
+		typ := b.Properties.Type.Const
+		if typ == "" {
+			t.Errorf("$defs/llmConfig/anyOf/%d has no properties/type const: every branch must name the engine it configures", i)
+			continue
+		}
+		if !operations.IsTestOnlyEngine(typ) {
+			branchTypes = append(branchTypes, typ)
+		}
+	}
+	shippable := operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly })
+	if len(shippable) == 0 {
+		t.Fatal("fixture sanity: the composed registry has no shippable engine")
+	}
+
+	sort.Strings(branchTypes)
+	sort.Strings(shippable)
+	if !equalStrings(branchTypes, shippable) {
+		t.Errorf("$defs/llmConfig branch types (test-only doubles set aside) = %v, shippable registered engines = %v; these must match: a branch for an unregistered engine is dead config, and a shippable engine with no branch cannot be configured",
+			branchTypes, shippable)
+	}
 }

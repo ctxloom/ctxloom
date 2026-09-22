@@ -290,45 +290,46 @@ _ensure-covdata:
     go build -o "$tooldir/covdata" cmd/covdata
     echo "ctxloom: built version-matched covdata into $tooldir/"
 
-# THE developer/agent entry point: runs BOTH test groups and fails if EITHER
+# THE developer/agent entry point: runs EVERY test group and fails if ANY
 # fails.
 #
-# `test` is an aggregate over two targets that can also be run alone:
+# `test` is an aggregate over targets that can also be run alone; each one it
+# calls is a group below.
 #
-#   test-default  the untagged suite (`go test ./...`, plain and -race)
-#   test-arch     the architectural class gates, behind `-tags arch`
-#
-# CI does NOT call this recipe — .github/workflows/ci.yml invokes test-default
-# and test-arch as two separate steps, so a red step names the class of thing
-# that broke. This aggregate exists because humans and agents type `just test`,
+# CI does NOT call this recipe — .github/workflows/ci.yml invokes each group as
+# its own step, so a red step names the class of thing that broke. This aggregate exists because humans and agents type `just test`,
 # and every remediation batch in this programme is briefed to gate on its exit
-# code. A wrapper that ran both halves and returned only the LAST exit code
+# code. A wrapper that ran every group and returned only the LAST exit code
 # would report green while an architectural invariant was violated — a
 # false-green generator wired into the workflow that depends on it. Hence the
 # explicit per-group exit-code capture below rather than a bare dependency
-# list: both groups always run, both verdicts are printed, and ANY failure
+# list: every group always runs, every verdict is printed, and ANY failure
 # exits non-zero naming the group.
 test:
     #!/usr/bin/env bash
     # No `set -e`: each group's exit code is captured and checked explicitly, so
-    # a failing first group cannot abort before the second runs and cannot be
-    # masked by the second succeeding.
+    # a failing group cannot abort the groups after it and cannot be masked by
+    # a later one succeeding.
     set -uo pipefail
     failed=()
-    echo "===== [1/2] default suite (untagged) — just test-default"
+    echo "===== [1/3] default suite (untagged) — just test-default"
     if ! just test-default; then failed+=("test-default"); fi
     echo ""
-    echo "===== [2/2] architectural invariants (-tags arch) — just test-arch"
+    echo "===== [2/3] architectural invariants (-tags arch) — just test-arch"
     if ! just test-arch; then failed+=("test-arch"); fi
+    echo ""
+    echo "===== [3/3] cross-agent conformance (-tags conformance) — just test-conformance"
+    if ! just test-conformance; then failed+=("test-conformance"); fi
     echo ""
     if [ "${#failed[@]}" -ne 0 ]; then
         echo "FAILED GROUP(S): ${failed[*]}" >&2
         echo "  test-default = the ordinary untagged suite (go test ./..., plain + -race)" >&2
         echo "  test-arch    = the architectural class gates (-tags arch, -run TestArch_)" >&2
+        echo "  test-conformance = every registered backend through the shared contract (-tags conformance)" >&2
         echo "Re-run just that group to iterate on it." >&2
         exit 1
     fi
-    echo "both groups passed: test-default + test-arch"
+    echo "all groups passed: test-default + test-arch + test-conformance"
 
 # The untagged suite — everything that is NOT an architectural class gate.
 # Builds ctxloom first for acceptance tests.

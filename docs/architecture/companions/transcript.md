@@ -111,7 +111,7 @@ enforcing parity. `record.go:9-12` claims the payloads mirror `agent.ChatEvent` 
 |---|---|---|
 | `Recorder` (interface) | `recorder.go:20` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `vendorreader.VendorAdapter` takes it as a parameter |
 | `NewRecorder` | `recorder.go:79` | Validates harp + engine non-empty, resolves the path via `paths.HarpCanonicalTranscriptPath`, applies options. **Does not open the file** |
-| `RecorderOption` / `WithRawPolicy` | `recorder.go:50`, `:56` | The only option. Reachable only through `agent.ChatRequest.TranscriptRawPolicy`, which nothing in the codebase ever sets — so in production the policy is always `DefaultRawPolicy` |
+| `RecorderOption` / `WithRawPolicy` | `recorder.go:50`, `:56` | The only option. No production caller passes `WithRawPolicy` — so in production the policy is always `DefaultRawPolicy` |
 | `fileRecorder.Record` | `recorder.go:116` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |
 | `fileRecorder.Close` | `recorder.go:181` | Idempotent (nil-guarded) |
 | `RecordUserText` | `recorder.go` | The **only** path that captures user turns; called by the runner's engine host |
@@ -276,7 +276,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   reason given for it is not.
 - **`vendorreader/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
   leaf; the fixtures under `internal/adapters/transcript/testdata/fixtures/` carry the same stale suffix.
-- **`RawPolicy` is unreachable in production** — nothing sets `agent.ChatRequest.TranscriptRawPolicy`,
+- **`RawPolicy` is unreachable in production** — no production caller passes `WithRawPolicy`,
   so `RawOff`/`RawAll` are test-only constants and the default `RawLossyOnly` always applies.
 
 ---

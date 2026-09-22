@@ -188,7 +188,7 @@ budget constant, and the comment at `runnerlink.go` names all four.
 | `composite.Carrier` (`oneof inline \| claim` + digest) | the encoded package rides the frame under `composite.DefaultInlineMax`, as a claim on the session-dir store (`fsstore.PackageStore`, `<harp>/persist/package/<digest>`) above it; `MaxRecvMsgSize` bounds the frame explicitly |
 | `runner.Execute` | the ONE tail: redeem by the carrier's shape → `composite.Decode` (digest proved) → refuse a foreign engine → configure from `Launch.Label.Body` → serve the runner MCP under the Launch's identity → deliver through the engine's `Setup` and the session home's `.mcp.json` → `EngineHost.Drive` |
 | `coord.Runner` / `runner.Host` | the port the engine host executes a `StartRun` through; `runner.Host` decodes the frame's launch and calls `Execute` |
-| `coord.Turn` | what the runner asks the host to drive: the launch, the `agent.ChatRequest` built from it, the first turn's lead (the package's context ahead of the prompt; the prompt alone on a native-key resume) |
+| `runner.Turn` | what the runner asks the host to drive (`EngineHost.Drive`): the launch, the engine `Instance` and its `Exec`, the chat MCP servers, and the first turn's lead (the package's context ahead of the prompt; the prompt alone on a native-key resume) |
 
 The posture the runner drives is the one the resolver floored (`launch.Resolve`);
 nothing on the runner re-decides it. The superseded `StartRun` fields (`harness`,

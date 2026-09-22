@@ -85,12 +85,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -327,12 +323,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -571,12 +563,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -810,12 +798,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1051,12 +1035,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1290,12 +1270,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1531,12 +1507,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1770,12 +1742,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -1991,12 +1959,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -2187,12 +2151,8 @@
   "BundleMCP": {
     "ctxloom": {
       "_ctxloom": "bundle:ctxloom+companion:ctxloom",
-      "args": [
-        "mcp",
-        "serve"
-      ],
-      "command": "ctxloom",
-      "notes": "blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe"
+      "notes": "blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08",
+      "served_by": "session-endpoint"
     },
     "postgres": {
       "_ctxloom": "bundle:ctxloom+local:code-quality",
@@ -2453,6 +2413,13 @@ Scan the current project and discover matching ctxloom content from configured r
 5. `ctxloom profile create go-dev --parent ctxloom-default/go-developer`, then run `ctxloom deps pull`
 
 If the user says "skip", acknowledge and let them know they can run `/discover` again later.
+
+== blob:4463890a217062b9bd6378428aa8f5df959d3281e0ee62ceb2248674b8b81c08
+ctxloom's own MCP server, served by the running session's endpoint.
+Nothing here is launched: the session's runner serves the endpoint
+and delivery writes its URL and bearer into the session's own
+registry at start, so no tracked project file ever carries the
+entry.
 
 == blob:5acc0ba8fe791af8790ffe9d0d1e11c2daf7e445495147eeda55a460effc69e9
 You have just written or changed a test; you are reading a gate result and deciding what it proves; or you are about to describe something as verified, working, or done. For anyone about to treat a green result as evidence, however that moment arises. More than one fragment may apply here; this one is about whether the evidence is real.
@@ -4301,9 +4268,3 @@ credentials/state to a global path regardless.
 A bad or missing agent name silently degrades to `host`+`none` with only
 a stderr warning, discarding the runtime and permissions you asked for —
 confirm the name resolves before trusting the isolation you requested.
-== blob:e235950916f626ea8cc13f7c56f2b648a09d514beb9913c220fea969f3a468fe
-ctxloom's own stdio MCP server. The command is written into an
-engine's settings exactly as declared here — the bare binary name,
-resolved against PATH where it fires — so a tracked settings file
-carries no one machine's absolute path.
-

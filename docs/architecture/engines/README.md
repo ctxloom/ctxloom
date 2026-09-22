@@ -1,16 +1,15 @@
 # Engine & launch layer
 
 How ctxloom turns "run this agent" into a running vendor engine process. This
-directory documents `internal/lm` (the backend registry and the gRPC plugin wire,
-both retiring), `internal/adapters/isolation` (the isolation seam) and
-`internal/engines` (the per-engine adapters and the conformance suite).
+directory documents `internal/engines` (the composition root, the per-engine
+packages and the conformance suite) and `internal/adapters/isolation` (the
+isolation seam).
 
 **The one architectural fact to carry into everything else**: ctxloom holds no
-provider SDK and makes no direct model-API call. Every backend reaches its model by
-spawning the **vendor's own binary**. This is a
-licensing invariant, not a style preference, and it lives in the *shape* of the
-registry table — the doc comment above `init()` in
-`internal/lm/backends/registry.go` states it.
+provider SDK and makes no direct model-API call. Every engine reaches its model by
+spawning the **vendor's own binary**. This is a licensing invariant, not a style
+preference, and it lives in the *shape* of every engine's `Instance.Exec`: an
+argv for the vendor's binary, never an HTTP client.
 
 ## The definition / instance split
 
@@ -49,16 +48,22 @@ An engine is two halves on one port (`internal/core/engine`):
   (`isolation.FactsOf`), and `adapters/runner.Execute` binds the Instance
   before delivering. `core/engine/conformance` asserts both halves
   (Part 4.2 test A in full) for every kind.
-- **What `internal/lm/backends` still is.** The name-keyed registry over
-  `agent.Backend` (`Setup`/`Execute`/`Chat`), the managed-hooks assembly,
-  the pty launcher and the availability/version probes, paired with each
-  kind through the HOSTING remainder in `internal/lm/hosting` (the backend
-  constructor, the typed config, the named-form table, the settings writer,
-  the hook scope guard, the version command). The structured drive is still
-  `coord.EngineHost.Drive` over `agent.StructuredChat`: the port's per-turn
-  `StructuredDriver` carries no channel for the mid-turn control messages
-  the coordinator sends (permission answers, cancel, terminal), which is
-  the open fork before the drive can move onto it.
+- **The composition root and the seam's remainder.** `engines.Compose()`
+  builds the shipped kinds once per process (`engines.Registry()` is what
+  every adapter that resolves an engine by name reads; `engines.Use` is the
+  test seam; `isolation.RegistryFacts` is installed beside it by the root
+  that composed). What `agent.Backend` still needs that the port does not
+  carry — the backend constructor, the typed config, the named-form table a
+  binding's `surfaces:` is validated against, the settings writer `manage
+  status` reads, the project/global settings collision guard — is
+  `agent.Hosted`, implemented by each engine VALUE and asserted on the
+  registry's value (`engines.Hosted`); the L1 process-surface grammar the
+  standalone mock impersonates is `agent.EngineCLIProvider` on the same
+  value (`engines.EngineCLIs`). Both leave with `agent.Backend`. The
+  structured drive is per turn (`Instance.Drivers()[0].Turn`); the
+  interactive pane is the hosted engine's `Backend.Execute` over the
+  runner's launcher (`runner.RunLaunchSpec`, a tmux pane on the runner's
+  terminal). The managed-hooks assembly is `operations/managedhooks`.
 
 Core code reads an engine's facts off the Definition (through the
 registry) and never branches on its name: `tests/arch`'s
@@ -69,8 +74,8 @@ registry) and never branches on its name: `tests/arch`'s
 | If you want to know… | Read |
 |---|---|
 | **"Does engine X support Y?"** | **[Capability matrix](capability-matrix.md)** — engine × capability, every cell sourced |
-| What the `Backend` interface is, who implements it, how engines register | [Backend abstraction & registry](backend-abstraction.md) |
-| How a run gets from the host to an engine process — and which fields do *not* survive the trip | [The plugin wire](grpc-wire.md) |
+| What the `Backend` interface still is, and how engines are composed | [Backend abstraction & registry](backend-abstraction.md) |
+| How a run got from the host to an engine process over the go-plugin wire (RETIRED, slice 13 — kept as history until the runner is documented here) | [The plugin wire](grpc-wire.md) |
 | What "isolated" actually means, per axis and per engine | [Isolation](isolation.md) |
 
 ## Per-engine adapters
@@ -80,49 +85,45 @@ registry) and never branches on its name: `tests/arch`'s
 | [claude](claude.md) | `claude-code` | vendor CLI | **yes** | The exercised default. Carries a native per-tool deny list, and its approaches declare an out-of-cwd form (`agent.OutOfCwd`) so a shared cwd is never written into |
 | [mockengine](mockengine.md) | *(not a backend)* | it *is* the engine | n/a | A fake vendor CLI that proves context delivery — and what a mock-only pass does not prove |
 
-The in-process test doubles (`config.BackendMock` and its siblings) are
-registered backends too; they have no page of their own and are described
-alongside the registry in [Backend abstraction & registry](backend-abstraction.md).
+The in-process test doubles (`mock.Name` and its siblings, `mock.Doubles`) are
+composed engines too; they have no page of their own and are described
+alongside the composition in [Backend abstraction & registry](backend-abstraction.md).
 
 ## The shape of the launch path
 
 ```mermaid
 flowchart LR
-    CFG["config + profiles<br/>+ bundles"] --> ASM["backends.<br/>AssembleManagedConfig"]
-    ASM --> MC["agent.ManagedConfig<br/>(7 fields)"]
-    MC --> CONV["ManagedConfigToProto"]
-    CONV --> PB["pb.ManagedConfig<br/>(7 fields)"]
-    PB --> WIRE(["gRPC / unix socket<br/>go-plugin handshake"])
-    WIRE --> SRV["GRPCServer.RunTurn"]
-    SRV --> BE["agent.Backend<br/>Setup → Execute → Cleanup"]
-    BE --> ENG["vendor engine process"]
+    CFG["config + profiles<br/>+ bundles"] --> LNCH["launch.Resolve → launch.Launch<br/>(the package, the cell, the label)"]
+    LNCH --> CH(["RunnerChannel.StartRun<br/>(the coordinator → the runner)"])
+    CH --> RUN["runner.Execute: Kind.Instance(session),<br/>delivery.Static over the plan"]
+    RUN --> INT["interactive: Hosted.Backend.Execute<br/>over runner.RunLaunchSpec (tmux pane)"]
+    RUN --> STR["structured: Instance.Drivers()[0].Turn<br/>over Instance.Exec"]
+    INT --> ENG["vendor engine process"]
+    STR --> ENG
 
-    ISO["isolation.Prepare"] -.->|CellKind| SRV
-    ISO -.->|worktree / container| ENG
-
-    style CONV fill:#f884,stroke:#c44
+    ISO["isolation (the cell)"] -.->|host / worktree / container| RUN
 ```
 
-The highlighted hop is hand-written and has no compiler link to the Go struct — it
-carries all 7 fields today, and a reflective total-struct parity sweep
-(`internal/lm/grpc/arch_test.go`, `40b49a7f`) is what keeps it that way. **It
-used to carry 5**, silently zeroing `Skills` and `DenyTools` in transit.
+The runner is the ONE unit on both cells: `ctxloom runner <engine>` hosts the
+launch on the host or as a container's foreground, and the Launch it decodes
+is the same value the originator resolved — there is no hand-written wire
+projection of a managed config left to drift.
 
 ## Facts worth knowing before you read any source here
 
 These are documented in full on the pages above; they are collected here because
 each one contradicts what the surrounding code looks like it does.
 
-1. **The launch wire is hand-written and nothing but a test binds it to the Go struct.** `internal/core/agent.ManagedConfig` and proto `ManagedConfig` agree on 7 fields today; they disagreed on 2 until `40b49a7f`, and `Skills` + `DenyTools` reached **no** launched engine for as long as that lasted. The guard is now `internal/lm/grpc/arch_test.go` — a reflective sweep that names no field, so it covers fields added after it. → [wire](grpc-wire.md), [matrix §3](capability-matrix.md)
+1. ~~**The launch wire is hand-written and nothing but a test binds it to the Go struct.**~~ — **RETIRED with the go-plugin wire (slice 13).** The runner decodes the same `launch.Launch` the originator resolved; the historical account stays in [wire](grpc-wire.md).
 2. ~~**`wire.Hook.PreToolFallback` is always `false` on the engine side**~~ — **RESOLVED `40b49a7f`.** It is persisted, bundled, trust-hashed and now carried; no registered engine reads it at launch today, and it stays wired for whichever engine needs it next. → [wire](grpc-wire.md)
 3. ~~**`ChatRequest.Runtime` does not cross the wire**~~ — **RESOLVED `40b49a7f`.** It used to mean a container-bound structured session ran the engine on the host while the session summary reported container isolation. Repairing it *activated* a path-confinement hole it had been masking, which is why confinement landed first (`73ea8d7f`). → [wire](grpc-wire.md)
 4. ~~**An unprofiled backend's container inherits claude's credentials.**~~ — **RESOLVED `a6d9bd95`.** The `default:` arm of `engineContainerSpecFor` returned `resolveClaudeContainerAuth` for any unrecognized engine. It now fails closed, and `runtime: container-*` for an engine with no auth mapping is refused when the binding is *written*, not when it is launched. → [isolation](isolation.md)
 5. **Isolating a shared cwd without a container requires `agent.OutOfCwd`.** claude-code's approaches declare it; a backend whose approaches lack it falls back to the loudly-warned well-known write, and concurrent per-agent isolation for it needs a worktree or a container cell. → [matrix §4](capability-matrix.md)
-6. **No registered backend has a live transcript scraper.** claude-code's was deleted outright rather than demoted (its descriptor's `NoLegacyHistoryReason` says so), and a `nil` `History()` fails loudly at both consumers; canonical capture is written runner-side into `internal/adapters/transcript`. → [matrix §6](capability-matrix.md)
+6. **No composed engine has a live transcript scraper.** claude-code's was deleted outright rather than demoted (its `Backend.History()` is nil, which `operations.HistoryForBackend` refuses by name), and the mock's answers every read with an error; canonical capture is written runner-side into `internal/adapters/transcript`. → [matrix §6](capability-matrix.md)
 
 ## Scope
 
-Covered here: `internal/lm/backends`, `internal/engines/conformance`, `internal/lm/grpc`,
+Covered here: `internal/engines` (the composition root), `internal/engines/conformance`,
 `internal/adapters/isolation`, `internal/engines/claude`, `internal/engines/mock`.
 
 Types shared with the rest of the system — `agent.Backend`, `agent.ManagedConfig`,

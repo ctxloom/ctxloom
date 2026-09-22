@@ -10,7 +10,7 @@ never a weaker cell. `--degraded` does not reach these: it means "deliver less",
 not "drop the sandbox". It also owns the agent container image lifecycle and the
 host-side half of credential delivery.
 
-It deliberately does **not** import `internal/lm/backends` or `internal/adapters/operations`.
+It deliberately does **not** import `internal/engines` or `internal/adapters/operations`: it reads engine facts by name through `isolation.Facts`, installed by the composition root.
 Backend names cross as bare string keys (documented connascence of name), and
 `EngineStarter` and `SetBinaryVersion` exist purely to keep the dependency
 direction one-way.

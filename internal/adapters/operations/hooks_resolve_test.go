@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // cfgWithHooks builds a config whose single selected profile declares exactly
@@ -69,7 +68,7 @@ func TestResolveHooks_ReportsAllEventsEvenWhenEmpty(t *testing.T) {
 	for _, e := range res.Events {
 		events = append(events, e.Event)
 	}
-	assert.Equal(t, backends.HookEvents(), events)
+	assert.Equal(t, wire.HookEvents(), events)
 }
 
 // Position and Declared are both reported so a user can see whether a hook's

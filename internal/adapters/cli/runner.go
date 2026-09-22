@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/runner"
 	runnermcp "github.com/ctxloom/ctxloom/internal/adapters/runner/mcp"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
 )
 
@@ -33,10 +33,11 @@ var runnerCmd = &cobra.Command{
 
 func runRunner(cmd *cobra.Command, args []string) error {
 	engineName := args[0]
-	backend := backends.Get(engineName)
-	if backend == nil {
+	hosted, ok := engines.Hosted(engineName)
+	if !ok {
 		return fmt.Errorf("unknown engine: %s", engineName)
 	}
+	backend := hosted.Backend(runner.RunLaunchSpec)
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return runner.Main(ctx, runner.MainDeps{

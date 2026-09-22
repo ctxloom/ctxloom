@@ -13,16 +13,16 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // claudeInteractive resolves claude's interactive surface off L1, the same way
 // claudeOneshot does for the oneshot one.
 func claudeInteractive(t *testing.T) agent.EngineCLI {
 	t.Helper()
-	clis, ok := backends.EngineCLIsFor("claude-code")
+	clis, ok := engines.EngineCLIs("claude-code")
 	if !ok {
 		t.Fatal("claude-code declares no engine CLIs")
 	}

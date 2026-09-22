@@ -6,14 +6,14 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations/managedhooks"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // CapabilityLoss reports, for one resolved engine binding, which parts of the
 // named profiles' hooks configuration that engine has no structural place
-// for — the SAME backends.UncarriedSurfaces read MaterializeProfile already
+// for — the SAME uncarriedSurfaces read MaterializeProfile already
 // performs and reports as "NOT carried", now available to a
 // caller that names an engine binding without materializing anything at all:
 // `agent show`, `doctor`, `manage check` (trusting-ambiguity).
@@ -22,7 +22,7 @@ import (
 // today (see its doc). workDir/contextHash are irrelevant to which hooks are
 // LOST (only to the synthetic SessionStart context-injection hook this call
 // deliberately omits, passing contextHash "" exactly as
-// backends.AssembleManagedConfig does), so this never needs a target
+// managedhooks.Assemble does), so this never needs a target
 // directory the way `profile materialize` does.
 //
 // nil cfg or an empty backend name report no loss — there is nothing to
@@ -34,8 +34,8 @@ func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) [
 	if cfg.ShouldSilenceUnsupported() {
 		return nil
 	}
-	hooks := backends.AssembleManagedHooks(terminalReporter(), cfg, "", "", profileNames).WireDeclared()
-	return backends.UncarriedSurfaces(backend, agent.SurfaceInputs{Hooks: hooks})
+	hooks := managedhooks.Assemble(terminalReporter(), cfg, "", "", profileNames).WireDeclared()
+	return uncarriedSurfaces(backend, agent.SurfaceInputs{Hooks: hooks})
 }
 
 // CapabilityLossByAgent is the roster-wide read of CapabilityLoss: for every
@@ -46,7 +46,7 @@ func CapabilityLoss(cfg *config.Config, backend string, profileNames []string) [
 // user's engine can carry.
 //
 // Agents that lose nothing are omitted entirely rather than listed as clean:
-// the same "only when it costs something" rule backends.UncarriedSurfaces
+// the same "only when it costs something" rule uncarriedSurfaces
 // itself applies, so a caller can render the result unconditionally and stay
 // silent on a healthy project. Entries come out sorted by agent name, so the
 // report can be diffed across runs rather than reshuffling with a map's

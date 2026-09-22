@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
@@ -19,7 +19,6 @@ import (
 // would have to be remembered in.
 func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 	const name = "fixture-authfix"
-	d := enginefixture.Hosting(name)
 	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}},
 		Credentials: engine.Provide(engine.CredentialSeed{
@@ -30,8 +29,7 @@ func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 			Accept:      []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
 		}),
 	}))
-	require.NoError(t, backends.Register(enginefixture.RegistryOf(kind), d))
-	t.Cleanup(func() { backends.UnregisterForTesting(name) })
+	enginefixture.Install(t, kind)
 
 	hint := engineAuthFixHint(name)
 	assert.Contains(t, hint, "fixture login")
@@ -42,8 +40,8 @@ func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
 // An engine whose credential does not ride a seedable file has no login to
 // name; it gets the generic fix and no declared one can leak in.
 func TestEngineAuthFixHint_EngineWithNoSeedGetsTheGenericFix(t *testing.T) {
-	for _, engine := range backends.List() {
-		if _, seeded := backends.CredentialSeedFor(engine).Get(); seeded {
+	for _, engine := range operations.EngineNames() {
+		if _, seeded := engineCredentialSeed(engine); seeded {
 			continue
 		}
 		assert.Contains(t, engineAuthFixHint(engine), "authenticate the engine", engine)
@@ -55,8 +53,8 @@ func TestEngineAuthFixHint_EngineWithNoSeedGetsTheGenericFix(t *testing.T) {
 // the same conformance shape TestPingEngineAuth_FailsLoud_NamesTheFix uses.
 func TestEngineAuthFixHint_EveryDeclaredSeedIsNamed(t *testing.T) {
 	checked := 0
-	for _, engine := range backends.List() {
-		seed, ok := backends.CredentialSeedFor(engine).Get()
+	for _, engine := range operations.EngineNames() {
+		seed, ok := engineCredentialSeed(engine)
 		if !ok {
 			continue
 		}

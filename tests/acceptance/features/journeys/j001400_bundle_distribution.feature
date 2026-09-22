@@ -317,8 +317,8 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # The mock backend is now the vehicle for the host rows, because it now
   # genuinely delivers. Mock embeds agent.LaunchBackend, so its Setup routes
   # through the SAME surfaces × typed-cells seam every real launch backend uses
-  # (internal/lm/backends/mock.go), and it declares two surfaces of its own
-  # (internal/lm/backends/mock_surfaces.go): a CONTEXT surface writing the
+  # (internal/engines/mock/backend.go), and it declares two surfaces of its own
+  # (internal/engines/mock/forms.go): a CONTEXT surface writing the
   # ctxloom-managed section of MOCK_CONTEXT.md through the shared
   # agent.WriteManagedContext, and a SKILLS surface — the shared
   # agent.ManagedSkillPackagesDelivery bound to the shared

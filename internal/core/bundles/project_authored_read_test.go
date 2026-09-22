@@ -41,7 +41,7 @@ func TestProjectAuthoredRead_ProductionCallSites(t *testing.T) {
 		// The declaration itself.
 		"internal/core/bundles/reader_localfs.go": true,
 		// A .ctxloom/profiles/<name>.yaml profile's inline hooks.
-		"internal/lm/backends/managed.go": true,
+		"internal/adapters/operations/managedhooks/assemble.go": true,
 	}
 
 	root := repoRootFor(t)

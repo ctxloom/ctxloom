@@ -4,10 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // SentinelFail's response used to be the constant "mock-engine: fail sentinel
@@ -17,7 +16,7 @@ import (
 // received a full composed context and by one that received nothing at all, so
 // a test asserting it cannot fail for the reason it exists.
 //
-// The response now carries backends.MockFailPrefix followed by the OBSERVED
+// The response now carries mock.FailPrefix followed by the OBSERVED
 // prompt, which is what makes a negative scenario assertable positively.
 
 // TestDispatch_FailSentinel_CarriesTheObservedPrompt pins the marker and the
@@ -30,7 +29,7 @@ func TestDispatch_FailSentinel_CarriesTheObservedPrompt(t *testing.T) {
 
 	require.Equal(t, failExitCode, out.ExitCode,
 		"the fail sentinel still drives the nonzero fault path")
-	assert.True(t, strings.HasPrefix(out.Response, backends.MockFailPrefix),
+	assert.True(t, strings.HasPrefix(out.Response, mock.FailPrefix),
 		"the failure marker must lead the response, got %q", out.Response)
 	assert.Contains(t, out.Response, "OBSERVED-VALUE-9f42",
 		"the response must carry what the engine actually received; a constant proves the fault path fired but not that anything reached the engine")

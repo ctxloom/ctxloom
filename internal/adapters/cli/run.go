@@ -30,7 +30,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks"
@@ -625,7 +624,7 @@ func (st *runState) warnPosture() {
 	if st.launch.Mode == engine.Structured && st.permMode == agent.PermissionPlan {
 		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
 	}
-	pf := backends.PermissionFactsFor(st.backendName)
+	pf := operations.EnginePermissionFacts(st.backendName)
 	if runPermissions == "" && st.permMode == agent.PermissionBypass && pf.HostDefault == agent.PermissionBypass && runVerbosity > 0 {
 		clidiag.Warn("ctxloom", "%s", pf.HostDefaultReason)
 	}
@@ -1384,10 +1383,10 @@ func validateExplicitLLM(cfg *config.Config, override string) (string, error) {
 		return override, nil
 	}
 	// Otherwise allow naming a registered backend type whose binary is present.
-	if backends.Exists(override) && backends.IsAvailable(override) {
+	if operations.EngineExists(override) && operations.EngineAvailable(override) {
 		return override, nil
 	}
-	if backends.Exists(override) {
+	if operations.EngineExists(override) {
 		return "", fmt.Errorf("LLM %q is a known backend but not configured and its binary is not installed; usable now: %s",
 			override, strings.Join(usableLLMs(cfg), ", "))
 	}
@@ -1402,11 +1401,11 @@ func usableLLMs(cfg *config.Config) []string {
 	for _, label := range cfg.GetLLMLabels() {
 		set[label] = true
 	}
-	for _, name := range backends.List() {
+	for _, name := range operations.EngineNames() {
 		if isTestOnlyBackend(name) {
 			continue
 		}
-		if backends.IsAvailable(name) {
+		if operations.EngineAvailable(name) {
 			set[name] = true
 		}
 	}

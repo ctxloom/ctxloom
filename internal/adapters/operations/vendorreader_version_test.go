@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
@@ -44,13 +43,11 @@ func stubVersionedAdapter(a vendorreader.VendorAdapter) []vendorreader.Versioned
 func registerReaderFixture(t *testing.T, a vendorreader.VendorAdapter) string {
 	t.Helper()
 	name := "fixture-reader-" + strings.ToLower(strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()))
-	d := enginefixture.Hosting(name)
 	var readers []engine.TranscriptReader
 	for _, va := range stubVersionedAdapter(a) {
 		readers = append(readers, va)
 	}
-	require.NoError(t, backends.Register(enginefixture.RegistryOf(enginefixture.Kind(name, mock.WithTranscripts(readers...))), d))
-	t.Cleanup(func() { backends.UnregisterForTesting(name) })
+	enginefixture.Install(t, enginefixture.Kind(name, mock.WithTranscripts(readers...)))
 	return name
 }
 

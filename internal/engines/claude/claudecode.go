@@ -60,6 +60,11 @@ func NewClaudeCode() *ClaudeCode {
 	if err != nil {
 		panic(err) // the Definition literal is constant; conformance holds it valid
 	}
+	return newClaudeCode(kind.(Claude))
+}
+
+// newClaudeCode is the backend over one kind value (Claude.Backend).
+func newClaudeCode(kind Claude) *ClaudeCode {
 	b := &ClaudeCode{kind: kind}
 	b.BaseBackend = agent.NewBaseBackend(EngineName, "1.0.0")
 	b.BinaryPath = "claude"
@@ -71,8 +76,8 @@ func NewClaudeCode() *ClaudeCode {
 	b.InitLaunch(
 		agent.NewBaseLifecycle(EngineName),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: retired; the hosting record's NoLegacyHistoryReason says why
-		Declaration(),
+		nil, // SessionHistory: the legacy scraper was deleted; canonical capture is the only transcript source
+		kind.Declaration(),
 	)
 	// The run's CLAUDE_CONFIG_DIR is the engine home the record-backed
 	// settings write (surfaces_hewrecord.go) lands beneath; a run without one

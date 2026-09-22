@@ -67,8 +67,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 // legacyCodexConfigFileName and legacyCodexAuthFileName are gitignore.go's
@@ -109,9 +111,9 @@ func testCredentialSeedSourceFiles(t *testing.T) {
 
 	for _, c := range checks {
 		t.Run(c.seedKey, func(t *testing.T) {
-			seed, ok := backends.CredentialSeedFor(c.seedKey).Get()
+			seed, ok := credentialSeedOf(c.seedKey)
 			if !ok {
-				t.Fatalf("backends.CredentialSeedFor(%q) declares no seed", c.seedKey)
+				t.Fatalf("engine %q declares no credential seed on its Home", c.seedKey)
 			}
 			if len(seed.Files) == 0 {
 				t.Fatalf("%s's credential seed declares no files", c.seedKey)
@@ -158,8 +160,7 @@ func testCredentialSeedSourceFiles(t *testing.T) {
 
 // overlayCheck names one engineContainerSpecFor(backend) row's expected
 // project-relative managed-config directory, sourced from the owning engine
-// (or, for mock, internal/lm/backends itself — mock has no separate plugin
-// package).
+// (for mock, internal/engines/mock).
 type overlayCheck struct {
 	backend string
 	want    string
@@ -168,7 +169,7 @@ type overlayCheck struct {
 func testSpecOverlayDirs(t *testing.T) {
 	checks := []overlayCheck{
 		{backend: "claude-code", want: claude.ConfigDirName},
-		{backend: "mock", want: backends.MockConfigDirName},
+		{backend: "mock", want: mock.MockConfigDirName},
 	}
 	for _, c := range checks {
 		t.Run(c.backend, func(t *testing.T) {
@@ -222,4 +223,13 @@ func testGitignoreLivePatterns(t *testing.T) {
 				w.pattern, w.why)
 		}
 	}
+}
+
+// credentialSeedOf is the named engine's credential seed off its Home.
+func credentialSeedOf(name string) (engine.CredentialSeed, bool) {
+	kind, ok := engines.Registry().Lookup(engine.Name(name))
+	if !ok {
+		return engine.CredentialSeed{}, false
+	}
+	return kind.Home().Seed()
 }

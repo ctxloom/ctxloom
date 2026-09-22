@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // =============================================================================
@@ -160,7 +160,7 @@ func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stu
 	t.Helper()
 	deps := launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   backends.Engines(),
+		Engines:   engines.Registry(),
 		Assembler: &assembler{pipe: pipe},
 		Cells:     Cells{cfg: cfg},
 		Endpoints: endpointMinter{},
@@ -252,7 +252,7 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 // decision collected and then thrown away.
 func TestAgentRuntimeOffer_MenuCanOnlyHoldDeclaredMembers(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 6\n")
-	names := backends.List()
+	names := EngineNames()
 	require.NotEmpty(t, names)
 
 	sawContainer := false

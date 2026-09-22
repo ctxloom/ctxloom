@@ -63,7 +63,7 @@ type WindowSize struct {
 // Launcher runs a LaunchSpec, wiring the frontend's terminal to the agent's pty:
 // it copies stdin into the pty, streams the pty's output to stdout/stderr, and
 // applies resize events. Returns the process exit code. ctxloom injects a
-// pty-backed implementation (SetLauncher); see internal/lm/backends.RunLaunchSpec.
+// pty-backed implementation (SetLauncher); see runner.RunLaunchSpec.
 //
 // Launch is owned by ctxloom (the runtime), not the agent: a single home for the
 // pty owns terminal allocation, resize, and stdio wiring, shared by every agent.

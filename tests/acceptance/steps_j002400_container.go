@@ -31,7 +31,7 @@ import (
 )
 
 // j002400Record is one run's evidence of WHERE the engine executed, read from the
-// record file the mock backend writes (internal/lm/backends' writeMockRecord).
+// record file the mock backend writes (the mock backend's recordInput).
 //
 // Both fields are needed and neither is sufficient. Markers is a heuristic
 // that reads non-empty on BOTH legs when the harness itself runs inside a

@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -43,6 +44,9 @@ type Mock struct {
 	home        engine.HomeSpec
 	container   *engine.ContainerSpec
 	transcripts []engine.TranscriptReader
+	// hookScope is a declared project/global settings-path collision
+	// (WithHookGlobalScope), for a test standing a guarded engine in.
+	hookScope *agent.HookGlobalScope
 }
 
 // Option adjusts the kind before Validate.
@@ -128,10 +132,23 @@ func Without(kinds ...present.Kind) Option {
 // difference — TWO events, so a report that groups several is exercised).
 func WithoutHookEvents(events ...string) Option {
 	return func(m *Mock) {
+		if m.HookLosses == nil {
+			m.HookLosses = map[string]string{}
+		}
 		for _, e := range events {
 			delete(m.fires, e)
+			// Each event names its own reason so a report cannot attribute
+			// one event's absence to another's cause.
+			m.HookLosses[e] = string(m.Name) + " has no native " + e + " event"
 		}
 	}
+}
+
+// WithHookGlobalScope declares a project/global settings-path collision
+// class shaped like a guarded engine's own, so a test can prove the guard
+// without naming a real engine.
+func WithHookGlobalScope(s agent.HookGlobalScope) Option {
+	return func(m *Mock) { m.hookScope = &s }
 }
 
 // WithDistribution sets the shipping policy (registry fixtures use it to
@@ -355,3 +372,20 @@ func (m Mock) Exports(items engine.Items) (engine.Exports, error) {
 }
 
 var _ engine.Engine = Mock{}
+
+// SettingsWriter is agent.Hosted's: the writer over .mock/settings.json.
+func (Mock) SettingsWriter(opts agent.SettingsOptions) agent.SettingsWriter {
+	return NewMockSettingsWriter(opts)
+}
+
+// HookGlobalScope is agent.Hosted's: none unless declared (WithHookGlobalScope)
+// — the mock's settings surface is a project-relative file with no
+// user-global twin to collapse onto.
+func (m Mock) HookGlobalScope() (agent.HookGlobalScope, bool) {
+	if m.hookScope == nil {
+		return agent.HookGlobalScope{}, false
+	}
+	return *m.hookScope, true
+}
+
+var _ agent.Hosted = Mock{}

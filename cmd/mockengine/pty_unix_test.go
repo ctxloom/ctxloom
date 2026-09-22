@@ -17,8 +17,8 @@ import (
 	pty "github.com/aymanbagabas/go-pty"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // ptyWait bounds every deadline-poll in the pty test. Generous relative to a
@@ -227,7 +227,7 @@ func TestRun_SurfaceSelection(t *testing.T) {
 func TestImpersonable_NamesExactlyTheBackendsWithAnEngineCLI(t *testing.T) {
 	offered := map[string]bool{}
 	for _, name := range impersonable() {
-		if _, ok := backends.EngineCLIsFor(name); !ok {
+		if _, ok := engines.EngineCLIs(name); !ok {
 			t.Errorf("hint offers %q, which declares no engine CLI and so cannot be selected", name)
 		}
 		if _, ok := personalityFromFlag("--" + name); !ok {
@@ -235,8 +235,8 @@ func TestImpersonable_NamesExactlyTheBackendsWithAnEngineCLI(t *testing.T) {
 		}
 		offered[name] = true
 	}
-	for _, name := range backends.List() {
-		if _, ok := backends.EngineCLIsFor(name); ok && !offered[name] {
+	for _, name := range engineNames() {
+		if _, ok := engines.EngineCLIs(name); ok && !offered[name] {
 			t.Errorf("%q is selectable but the hint does not offer it", name)
 		}
 	}

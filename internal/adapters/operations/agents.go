@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -209,7 +208,7 @@ func warnAgentAxisTypos(name string, req SetAgentRequest) {
 // `agent create finder --engine claude-fast` is one of this command's own help
 // examples. That is the SAME set `llm default` accepts and the same one it
 // offers on rejection, so this message can never list a name it would refuse.
-// Checking backends.Exists alone (init's guard, where a freshly scaffolded
+// Checking EngineExists alone (init's guard, where a freshly scaffolded
 // config.yaml genuinely has no labels yet) would reject the documented
 // invocation. An explicitly empty engine stays legal: it CLEARS the override,
 // falling back to the composed profiles' llm and then the project default.
@@ -725,7 +724,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// launch would use, so it prints the floor rather than re-diagnosing it.
 	effectivePerm, _ := agent.ResolveDefault(report.To(strictness.Sink("ctxloom")),
 		[]string{sub.Permissions, labelEntry.Permissions, cfg.GetPermissions()},
-		backends.PermissionFactsFor(backend).HostDefault)
+		EnginePermissionFacts(backend).HostDefault)
 
 	return &ResolvedAgent{
 		Name:                 name,

@@ -26,9 +26,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript/vendorreader"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -89,9 +90,20 @@ type vendorReaderEntry struct {
 // so there is no path-derivation logic to duplicate here, and no chance of
 // resurrecting the deleted reader's claude cwd→slug bug (ADR 0035 names it,
 // and this sidestep).
-func vendorReaderFor(engine string) (vendorReaderEntry, bool) {
-	adapters, ok := backends.TranscriptReadersFor(engine)
+func vendorReaderFor(engineName string) (vendorReaderEntry, bool) {
+	kind, ok := engines.Registry().Lookup(engine.Name(engineName))
 	if !ok {
+		return vendorReaderEntry{}, false
+	}
+	// Every Engine.Transcripts value that IS a vendorreader adapter; none
+	// is the same answer as an unregistered name (no vendor store to read).
+	var adapters []vendorreader.VersionedAdapter
+	for _, r := range kind.Transcripts() {
+		if a, ok := r.(vendorreader.VersionedAdapter); ok {
+			adapters = append(adapters, a)
+		}
+	}
+	if len(adapters) == 0 {
 		return vendorReaderEntry{}, false
 	}
 	return vendorReaderEntry{adapters: adapters, locate: locateBoundTranscript}, true
@@ -102,8 +114,8 @@ func vendorReaderFor(engine string) (vendorReaderEntry, bool) {
 // newly registered engine that declares readers appears here without an
 // edit; an engine whose Transcripts() is empty does not.
 func VendorReaderEngineNames() []string {
-	return backends.ListWhere(func(name string) bool {
-		_, ok := vendorReaderFor(name)
+	return EngineNamesWhere(func(d engine.Definition) bool {
+		_, ok := vendorReaderFor(string(d.Name))
 		return ok
 	})
 }

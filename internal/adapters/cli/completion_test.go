@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // TestCompletionCmd_UnsupportedShellFailsInsteadOfWritingNothing pins that
@@ -36,7 +35,7 @@ func TestCompletionCmd_ValidArgsMatchTheGeneratorArms(t *testing.T) {
 }
 
 // TestCompleteLLMNames_BackendFallbackIsAdmissible refutes the claim that
-// completeLLMNames' fallback to backends.List() is an inconsistency with
+// completeLLMNames' fallback to operations.EngineNames() is an inconsistency with
 // completeFragmentNames/ProfileNames/TagNames/PromptNames (all of which return
 // nil when the config does not load), which would have it return nil too.
 //
@@ -46,14 +45,14 @@ func TestCompletionCmd_ValidArgsMatchTheGeneratorArms(t *testing.T) {
 // nothing to offer. The --llm/--engine value space is wider — operations.
 // ResolveBackend accepts a bare REGISTERED BACKEND NAME as well as a config
 // label (oneshot.go: `if _, configured := cfg.GetLLMEntry(label); !configured &&
-// backends.Exists(label) { return label, "" }`) — and those names are compiled
+// operations.EngineExists(label) { return label, "" }`) — and those names are compiled
 // in, so they remain valid, offerable values even when nothing loaded.
 //
 // This test pins that reason rather than the fallback line, so the fallback
 // stays defensible for as long as it stays true.
 func TestCompleteLLMNames_BackendFallbackIsAdmissible(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
-	names := backends.List()
+	names := operations.EngineNames()
 	require.NotEmpty(t, names)
 
 	for _, name := range names {

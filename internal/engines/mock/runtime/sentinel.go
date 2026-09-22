@@ -5,20 +5,20 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
 
 // Sentinels are deterministic control markers a test embeds in the prompt to
 // steer the mock's outcome. They match on a SUBSTRING of the incoming prompt,
 // never equality: ctxloom PREPENDS composed context to the task, so the bytes
 // the engine receives are never exactly the marker — an equals check would
-// never fire. This mirrors internal/lm/backends/mock.go's env-driven control
+// never fire. This mirrors the in-process mock backend's env-driven control
 // knobs, extended to prompt-embedded markers so a single-shot spawn a test does
 // not control the env of can still be steered.
 const (
 	// SentinelFail makes the run exit nonzero — the fault path, so a test can
 	// prove ctxloom surfaces a failing engine rather than swallowing it. The
-	// response carries backends.MockFailPrefix followed by the OBSERVED PROMPT,
+	// response carries mock.FailPrefix followed by the OBSERVED PROMPT,
 	// not a constant: a fixed failure string renders identically whether or not
 	// ctxloom delivered anything, so a test asserting it could not tell a
 	// surfaced failure from an engine that never received a thing.
@@ -31,7 +31,7 @@ const (
 	failExitCode = 7
 )
 
-// Env knobs, mirroring internal/lm/backends/mock.go, for tests that DO control
+// Env knobs, mirroring the in-process mock backend, for tests that DO control
 // the child's environment.
 const (
 	// EnvExitCode overrides the exit code (wins over any sentinel).
@@ -76,7 +76,7 @@ func Dispatch(prompt string, lookup func(string) (string, bool)) (Outcome, error
 	switch {
 	case strings.Contains(prompt, SentinelFail):
 		out.ExitCode = failExitCode
-		out.Response = backends.MockFailPrefix + " mock-engine: " + prompt
+		out.Response = mock.FailPrefix + " mock-engine: " + prompt
 	case strings.Contains(prompt, SentinelEcho):
 		out.Response = "mock-engine: " + echoPayload(prompt)
 	}

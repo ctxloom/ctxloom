@@ -32,7 +32,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch/launchtest"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -42,8 +41,12 @@ type Runners struct {
 	// Reporter is handed to every Home and EngineHost the double stands up;
 	// nil discards, as a test that asserts nothing about diagnostics wants.
 	Reporter report.Sink
-	ctx      context.Context
-	cancel   context.CancelFunc
+	// Engines are the kinds the double hosts, handed in by the test: the
+	// double resolves a launch's engine by name and imports no engine
+	// package.
+	Engines engine.Registry
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	mu      sync.Mutex
 	engines []*Engine
@@ -52,9 +55,9 @@ type Runners struct {
 }
 
 // NewRunners returns an empty set; Close tears down every runner it spawned.
-func NewRunners() *Runners {
+func NewRunners(reg engine.Registry) *Runners {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runners{ctx: ctx, cancel: cancel}
+	return &Runners{ctx: ctx, cancel: cancel, Engines: reg}
 }
 
 // Starter is coord.Options.Starter: the EngineStarter for one spawn, which
@@ -66,7 +69,7 @@ func (r *Runners) Starter(backend string, runnerEnv map[string]string) isolation
 }
 
 func (r *Runners) start(backend string, runnerEnv map[string]string) (*isolation.RunnerHandle, error) {
-	kind, ok := backends.Kind(backend)
+	kind, ok := r.Engines.Lookup(engine.Name(backend))
 	if !ok {
 		return nil, fmt.Errorf("coordtest: no engine kind %q is composed", backend)
 	}

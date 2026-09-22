@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/projectroot"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/termsafe"
 )
@@ -106,7 +106,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	if !engineRequested {
 		// The flag's default is a registry fact: the engine shipped by
 		// default, resolved here rather than spelled at declaration.
-		manageInstallEngine = backends.DefaultEngineName()
+		manageInstallEngine = operations.DefaultEngineName()
 	}
 	if err := checkEngineKnown(engineRequested, manageInstallEngine); err != nil {
 		return err
@@ -194,7 +194,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 // engines that exist — not about directory state, or a user who mistyped an
 // unfamiliar engine name learns nothing about how to fix it.
 //
-// The roster is backends.List(), not operations.AvailableLLMNames: this flag
+// The roster is operations.EngineNames(), not operations.AvailableLLMNames: this flag
 // ends up as the TYPE of a real `{type: engine}` LM config entry
 // (operations.engineRegistry/fallbackRegistry) when InitializeProject scaffolds
 // — the same set InitializeProject itself already enforces via
@@ -209,10 +209,10 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 // only ask whether .ctxloom exists — this check applies identically whether
 // or not .ctxloom exists yet, and runs first for that reason.
 func checkEngineKnown(engineRequested bool, engine string) error {
-	if !engineRequested || backends.Exists(engine) {
+	if !engineRequested || operations.EngineExists(engine) {
 		return nil
 	}
-	return fmt.Errorf("--engine %q: unknown engine; ctxloom knows: %s", engine, strings.Join(backends.List(), ", "))
+	return fmt.Errorf("--engine %q: unknown engine; ctxloom knows: %s", engine, strings.Join(operations.EngineNames(), ", "))
 }
 
 // checkInstallEngineApplies rejects a `manage install --engine <x>` whose
@@ -960,7 +960,7 @@ func init() {
 	manageHooksCmd.AddCommand(manageHooksCheckCmd)
 	manageHooksCmd.AddCommand(manageHooksListCmd)
 	manageHooksListCmd.Flags().StringVar(&manageHooksListEvent, "event", "",
-		"Report only this lifecycle event ("+strings.Join(backends.HookEvents(), ", ")+")")
+		"Report only this lifecycle event ("+strings.Join(wire.HookEvents(), ", ")+")")
 	manageHooksListCmd.Flags().StringSliceVar(&manageHooksListProfiles, "profile", nil,
 		"Resolve against these profiles instead of the configured defaults (repeatable)")
 	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")

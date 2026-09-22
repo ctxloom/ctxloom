@@ -465,7 +465,7 @@ func TestRunInteractive_ReleasesStdinWhenCopierStopsNotWhenRunEnds(t *testing.T)
 // stream. The child's fd 1 and fd 2 are both the pty slave, so the master
 // hands back a single interleaved byte stream and there is no separation left
 // to route anywhere. Any caller wanting split streams must not use a pty at
-// all (see internal/lm/backends' non-interactive branch, which wires
+// all (see runner.RunLaunchSpec's non-interactive branch, which wires
 // cmd.Stdout/cmd.Stderr directly). This is a characterization pin, green
 // before and after the parameter's removal — its job is to keep the claim the
 // signature now makes ("output" not "stdout") true if the copy path is ever

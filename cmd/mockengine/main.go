@@ -18,13 +18,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/engines/mock/runtime"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // envPersonality selects the personality when no --<backend>/--personality flag is
@@ -37,8 +38,8 @@ const envPersonality = "MOCKENGINE_PERSONALITY"
 const envSurface = "MOCKENGINE_SURFACE"
 
 func main() {
-	// The personality registry is the backend registry; compose it first.
-	if err := engines.Register(); err != nil {
+	// The personalities are the composed engines; compose them first.
+	if err := engines.Compose(); err != nil {
 		fmt.Fprintf(os.Stderr, "mockengine: %v\n", err)
 		os.Exit(2)
 	}
@@ -59,7 +60,7 @@ func personalityFromFlag(tok string) (string, bool) {
 	if !ok || name == "" {
 		return "", false
 	}
-	if _, ok := backends.EngineCLIsFor(name); !ok {
+	if _, ok := engines.EngineCLIs(name); !ok {
 		return "", false
 	}
 	return name, true
@@ -68,8 +69,8 @@ func personalityFromFlag(tok string) (string, bool) {
 // impersonable lists the registered backends that declare an engine CLI — the
 // personalities a --<backend> flag can select.
 func impersonable() []string {
-	return backends.ListWhere(func(name string) bool {
-		_, ok := backends.EngineCLIsFor(name)
+	return engines.NamesWhere(func(name string, _ engine.Engine) bool {
+		_, ok := engines.EngineCLIs(name)
 		return ok
 	})
 }
@@ -142,7 +143,7 @@ consume:
 		return 2
 	}
 
-	clis, ok := backends.EngineCLIsFor(personality)
+	clis, ok := engines.EngineCLIs(personality)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "mock-engine: backend %q declares no engine CLI to impersonate\n", personality)
 		return 2

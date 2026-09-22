@@ -164,7 +164,9 @@ func TestDynamic_NamesTheSessionEndpointWithItsBearer(t *testing.T) {
 // launch path reads is a projection of the typed approaches' Forms, kind by
 // kind — one table.
 func TestDeclaration_IsDerivedFromTheDefinition(t *testing.T) {
-	decl := Declaration()
+	e, err := Build()
+	require.NoError(t, err)
+	decl := e.(Claude).Declaration()
 	for _, kind := range claudeDef(t).Static() {
 		if kind == present.Hooks {
 			continue // hooks ride the settings forms; no named form of their own

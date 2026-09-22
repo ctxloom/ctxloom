@@ -145,3 +145,25 @@ func instanceConfigWriterFor(name string) engine.InstanceConfigWriter {
 	}
 	return f.Home.InstanceConfig
 }
+
+// RegistryFacts is the Facts accessor over a composed engine.Registry: the
+// composition root installs `UseFacts(RegistryFacts{reg})` beside the
+// registry, so the cells adapter reads the same kinds every other adapter
+// resolves by name.
+type RegistryFacts struct{ Registry engine.Registry }
+
+func (r RegistryFacts) For(name string) (EngineFacts, bool) {
+	e, ok := r.Registry.Lookup(engine.Name(name))
+	if !ok {
+		return EngineFacts{}, false
+	}
+	return FactsOf(e), true
+}
+
+func (r RegistryFacts) Names() []string {
+	var names []string
+	for _, n := range r.Registry.Names(nil) {
+		names = append(names, string(n))
+	}
+	return names
+}

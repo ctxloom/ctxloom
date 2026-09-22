@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // realHOME is the ambient HOME this process started with, captured before
@@ -32,7 +32,7 @@ var realHOME = os.Getenv("HOME")
 // would write ".ctxloom/..." into the package source dir (cwd during `go
 // test`). The sandbox's chdir discards any such relative fallback.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(func() int {
 		// Belt and braces: internal/adapters/remote's runGit already forces every git
 		// subprocess non-interactive (GIT_TERMINAL_PROMPT=0, cleared askpass), so

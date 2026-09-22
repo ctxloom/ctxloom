@@ -12,14 +12,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // primaryEngines are shown first in the selection menu: the engines shipped
 // by default (engine.DistributionDefault), read off the registry so the menu
 // cannot name an engine that is not there.
-func primaryEngines() []string { return backends.DefaultEngines() }
+func primaryEngines() []string {
+	return operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution == engine.DistributionDefault })
+}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
@@ -28,7 +31,7 @@ func primaryEngines() []string { return backends.DefaultEngines() }
 // Derived from the registry so the help cannot name an engine that no longer
 // exists.
 func userEngineNames() string {
-	return strings.Join(backends.ListWhere(func(name string) bool { return !isTestOnlyBackend(name) }), ", ")
+	return strings.Join(operations.EngineNamesWhere(func(d engine.Definition) bool { return d.Distribution != engine.DistributionTestOnly }), ", ")
 }
 
 func getAvailableEngines() (primary, secondary []string) {
@@ -39,17 +42,17 @@ func getAvailableEngines() (primary, secondary []string) {
 
 	// Check which primary engines are available
 	for _, name := range primaryEngines() {
-		if backends.IsAvailable(name) {
+		if operations.EngineAvailable(name) {
 			primary = append(primary, name)
 		}
 	}
 
 	// Get secondary engines (all others except mock)
-	for _, name := range backends.List() {
+	for _, name := range operations.EngineNames() {
 		if isTestOnlyBackend(name) || primarySet[name] {
 			continue
 		}
-		if backends.IsAvailable(name) {
+		if operations.EngineAvailable(name) {
 			secondary = append(secondary, name)
 		}
 	}
@@ -191,7 +194,7 @@ func pickDefaultEngine(selected string, primary []string) string {
 	if len(primary) > 0 {
 		return primary[0]
 	}
-	return backends.DefaultEngineName()
+	return operations.DefaultEngineName()
 }
 
 // noEnginesInstalled reports whether neither a primary nor a secondary engine

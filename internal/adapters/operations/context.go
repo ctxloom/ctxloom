@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // ProfileLoader interface for resolving profiles from directory (allows mocking in tests).
@@ -100,7 +100,7 @@ func (c ContextConsumer) static() (bool, error) {
 	if !c.materialized {
 		return false, nil
 	}
-	eng, ok := backends.Engines().Lookup(engine.Name(c.backend))
+	eng, ok := engines.Registry().Lookup(engine.Name(c.backend))
 	if !ok {
 		return false, fmt.Errorf("unknown backend %q", c.backend)
 	}

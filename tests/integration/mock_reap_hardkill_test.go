@@ -55,7 +55,7 @@ const hardKillSentinel = "hardkill-sentinel"
 // not "the reap function returned without error".
 //
 // CTXLOOM_MOCK_ECHO_STDIN keeps the run alive reading lines off an open pty
-// (internal/lm/backends/mock.go's executeInteractiveEcho: parks until "quit"
+// (internal/engines/mock/backend.go's executeInteractiveEcho: parks until "quit"
 // or EOF) instead of the normal interactive `run`, whose mock-backed session
 // round-trips and exits on its own on the order of 10ms (viewer_pty_test.go)
 // — far too fast to reliably observe, let alone hard-kill, the plugin

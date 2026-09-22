@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // This file carries `agent edit --surface <kind>=<approach>`'s parser: the
@@ -30,7 +30,7 @@ func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]string, error)
 	if len(pairs) == 0 {
 		return nil, nil
 	}
-	known := backends.KnownApproachNames()
+	known := operations.KnownApproachNames()
 	out := make(map[agent.SurfaceKind]string, len(pairs))
 	for _, p := range pairs {
 		name, approach, ok := strings.Cut(p, "=")

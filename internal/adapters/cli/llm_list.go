@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // llmEntry is one row of `llm list --format json`: an LLM config label (the
@@ -153,7 +152,7 @@ func runLLMList(cmd *cobra.Command, args []string) error {
 func availableLLMsWithDefault() ([]string, string, func(string) bool, func(string) operations.RuntimeOffer) {
 	cfg, err := GetConfig()
 	if err != nil {
-		names := backends.List()
+		names := operations.EngineNames()
 		sort.Strings(names)
 		return names, "", noneAuthored, nil
 	}

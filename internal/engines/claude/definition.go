@@ -59,6 +59,13 @@ func WithTranscripts(readers ...engine.TranscriptReader) Option {
 	return func(c *Claude) { c.transcripts = append(c.transcripts, readers...) }
 }
 
+// WithVersion hands the kind the reading of `claude --version`: the parse is
+// the version adapter's, so the composition root supplies it beside the
+// readers rather than this package importing an adapter.
+func WithVersion(v engine.VersionCommand) Option {
+	return func(c *Claude) { c.Version = v }
+}
+
 // Build is THE CONSTRUCTOR: the one place claude's declaration is assembled
 // and the one place an incoherent one is refused, by engine.Base.Validate.
 // The shape is the plain constructor: the literal, options, then Validate
@@ -115,17 +122,48 @@ func Build(opts ...Option) (engine.Engine, error) {
 
 var _ engine.Engine = Claude{}
 
-// Declaration is the named-form table today's launch path constructs
-// writers from, DERIVED from the Definition: each typed approach's Forms
-// under its kind. The Definition literal is constant and conformance holds
-// it valid, so a refusal here is a programming error and panics.
-func Declaration() agent.Declaration {
-	e, err := Build()
-	if err != nil {
-		panic(err)
-	}
-	return agent.DeclarationOf(e.Root().Surfaces())
+// Declaration is agent.Hosted's: the named-form table, DERIVED from the
+// Definition — each typed approach's Forms under its kind — so the engine
+// keeps ONE table.
+func (c Claude) Declaration() agent.Declaration {
+	return agent.DeclarationOf(c.Root().Surfaces())
 }
+
+// Backend is agent.Hosted's: a fresh backend over the injected launcher.
+func (c Claude) Backend(launch agent.Launcher) agent.Backend {
+	b := newClaudeCode(c)
+	b.SetLauncher(launch)
+	return b
+}
+
+// NewConfig is agent.Hosted's: the zero typed config a labeled entry's body
+// decodes into.
+func (Claude) NewConfig() agent.BackendConfig { return &ClaudeConfig{} }
+
+// SettingsWriter is agent.Hosted's: the writer over claude's settings.json.
+func (Claude) SettingsWriter(o agent.SettingsOptions) agent.SettingsWriter { return NewWriter(o) }
+
+// HookGlobalScope is agent.Hosted's. claude's project settings.json
+// collapses onto its user-global one exactly when workDir == $HOME — found
+// live (`manage hooks install` run from $HOME silently went global).
+func (Claude) HookGlobalScope() (agent.HookGlobalScope, bool) {
+	return agent.HookGlobalScope{
+		Paths: func(workDir string) (string, string, error) {
+			global, err := GlobalSettingsPath()
+			return ProjectSettingsPath(workDir), global, err
+		},
+		Label: "Claude Code's user-global settings file",
+	}, true
+}
+
+// EngineCLIs is the L1 grammar the standalone mock engine impersonates
+// (agent.EngineCLIProvider), read off the engine value.
+func (Claude) EngineCLIs() []agent.EngineCLI { return ClaudeEngineCLIs() }
+
+var (
+	_ agent.Hosted            = Claude{}
+	_ agent.EngineCLIProvider = Claude{}
+)
 
 // traits is the declared facts every typed approach here carries.
 type traits struct{ t present.Traits }

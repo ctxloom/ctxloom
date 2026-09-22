@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -408,7 +407,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	if backendName == "" {
 		backendName = s.cfg.GetDefaultLLM()
 	}
-	if !backends.Exists(backendName) {
+	if !operations.EngineExists(backendName) {
 		return nil, nil, fmt.Errorf("unknown backend: %s", backendName)
 	}
 
@@ -561,7 +560,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		// there is nothing for a backend store to reassemble. Materialize it by
 		// harp — the backend GetSession path can't read a canonical transcript,
 		// and ref.Backend here may be an ACP engine that isn't a registered
-		// backend at all, so it must not reach the backends.Exists gate below.
+		// backend at all, so it must not reach the operations.EngineExists gate below.
 		if ref.SessionID == "" && ref.Harp != "" {
 			return s.previousSessionByHarp(ctx, ref.Harp, in.Model)
 		}
@@ -571,7 +570,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		}
 	}
 
-	if !backends.Exists(backendName) {
+	if !operations.EngineExists(backendName) {
 		return nil, nil, fmt.Errorf("backend %q not found", backendName)
 	}
 

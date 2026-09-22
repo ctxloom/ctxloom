@@ -27,8 +27,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet is the
@@ -251,7 +251,7 @@ func newDeliveryEnv(t *testing.T) *deliveryEnv {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"primary": {Type: string(backends.NewMock().Name())}},
+			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},
 			Defaults: config.RoleDefaults{Primary: "primary"},
 		},
 		Agents:       map[string]agents.Agent{"x": {Name: "x", Profiles: []string{"base"}, Permissions: "bypass"}},
@@ -263,7 +263,7 @@ func newDeliveryEnv(t *testing.T) *deliveryEnv {
 		store:   store,
 		deps: launch.Deps{
 			Snapshot:   &config.Snapshot{Config: cfg},
-			Engines:    backends.Engines(),
+			Engines:    engines.Registry(),
 			Assembler:  fixedAssembler{},
 			Cells:      &cells{sessions: t.TempDir(), worktrees: t.TempDir()},
 			Endpoints:  &launchtest.StableMinter{},
@@ -417,7 +417,7 @@ func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T
 	shared := agents.Agent{Name: "shared", Profiles: []string{"base"}, Permissions: "bypass", Roots: map[string]string{"mcp": "project-root"}}
 	env.deps.Snapshot.Config = config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"primary": {Type: string(backends.NewMock().Name())}},
+			Configs:  map[string]config.LLMConfig{"primary": {Type: string(mock.Name)}},
 			Defaults: config.RoleDefaults{Primary: "primary"},
 		},
 		Agents:       map[string]agents.Agent{"shared": shared},

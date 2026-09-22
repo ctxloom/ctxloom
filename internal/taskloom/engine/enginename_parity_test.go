@@ -7,8 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	ltkengine "github.com/ctxloom/ctxloom/internal/ltk/engine"
 )
 
@@ -74,15 +75,15 @@ func parityRegistries() []engineRegistry {
 			},
 		},
 		{
-			pkg: "github.com/ctxloom/ctxloom/internal/lm/backends",
+			pkg: "github.com/ctxloom/ctxloom/internal/engines",
 			resolve: func(in string) (string, error) {
-				b := backends.Get(in)
-				if b == nil {
+				h, ok := engines.Hosted(in)
+				if !ok {
 					return "", fmt.Errorf("unknown engine %q", in)
 				}
-				return b.Name(), nil
+				return h.Backend(nil).Name(), nil
 			},
-			exists: backends.Exists,
+			exists: func(name string) bool { _, ok := engines.Registry().Lookup(engine.Name(name)); return ok },
 		},
 	}
 }

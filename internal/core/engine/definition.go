@@ -42,10 +42,31 @@ type Definition struct {
 	CLI []CLIGrammar
 	// ModelAliases translates configured model strings: a declared table.
 	ModelAliases map[string]string
+	// HookLosses names, per unified hook event, why the engine's hook
+	// mechanism has no native form for it — a declared gap, reported to the
+	// user only when a loadout actually configures that event. nil = every
+	// event is carried. Exports' HookEvent table cannot stand in for it:
+	// an engine carries an event through a matcher-narrowed native one
+	// without listing it there.
+	HookLosses map[string]string
 	// ExportSchema is the JSON schema of the per-engine `exports` block a
 	// bundle item may carry under Name.
 	ExportSchema []byte
+	// Version is how to ask the engine's binary for its version. The zero
+	// value means the engine has no binary to ask (a double).
+	Version VersionCommand
 }
+
+// VersionCommand is the argv an engine's binary answers its version to and
+// the parse of that answer: vendors print different shapes, so the engine
+// declares its own reading rather than one shared regex guessing.
+type VersionCommand struct {
+	Args  []string
+	Parse func(output string) (string, error)
+}
+
+// Declared reports whether the engine can be asked for its version at all.
+func (v VersionCommand) Declared() bool { return len(v.Args) > 0 && v.Parse != nil }
 
 // Base is the ENGINE ROOT: every engine struct embeds it, so the views over
 // a Definition and the COMMON DECISIONING are written once, in core, and no

@@ -34,7 +34,7 @@ import (
 // than reintroducing the hang.
 //
 // Timing note (why engage/quit keys are pre-queued, not sent reactively):
-// the mock backend's Execute (internal/lm/backends/mock.go) writes its
+// the mock backend's Execute (internal/engines/mock/backend.go) writes its
 // response and returns immediately — there is no real interactive engine
 // session to hold the process open. Empirically (repeated local runs,
 // serially and under 8-way parallel load, all with a fresh env per run) the

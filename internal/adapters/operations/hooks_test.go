@@ -47,9 +47,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/lm/hosting"
+	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
@@ -145,7 +145,7 @@ func TestApplyHooksRequest_FSField(t *testing.T) {
 // facade. manageStatusline mirrors the old WithStatusLineDisabled inverse.
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
-	kind, ok := backends.Kind(backend)
+	kind, ok := engines.Registry().Lookup(engine.Name(backend))
 	require.True(t, ok)
 	pkg := composite.Package{MCP: bundleMCP, Statusline: manageStatusline}
 	if hooks != nil {
@@ -185,16 +185,13 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 	assert.Contains(t, string(content), "SessionStart")
 }
 
-// TestManagedSettings_Antigravity tests writing Antigravity hooks with FS injection.
-// TestManagedSettings_UnsupportedBackend tests that an unsupported backend
-// declares nothing to deliver rather than erroring.
-func TestManagedSettings_UnsupportedBackend(t *testing.T) {
-	decl := backends.Declared("unknown-backend")
-	for _, kind := range agent.SurfaceKindNames() {
-		k, err := agent.ParseSurfaceKind(kind)
-		require.NoError(t, err)
-		assert.Empty(t, decl.Names(k), "unsupported backend declares no %s delivery", kind)
-	}
+// An unregistered engine has no declaration to read: the surfaces resolver
+// refuses it by name rather than answering with an engine that carries
+// nothing.
+func TestEngineDeclaration_UnknownEngineIsRefused(t *testing.T) {
+	_, err := engineDeclaration("unknown-backend")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown-backend")
 }
 
 // TestManagedSettings_PreservesExistingSettings verifies that user customizations survive.
@@ -582,7 +579,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 
 // TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is the
 // flow-level proof: the target-scope guard is a property of the
-// internal/lm/backends descriptor table, not a hardcoded per-engine list
+// composed engine registry, not a hardcoded per-engine list
 // operations maintains its own copy of. Before this fix,
 // checkHookTargetScope was a literal if/else naming each guarded backend and calling
 // those engines' packages directly (the ADR-0026 violation) — a
@@ -604,15 +601,12 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	// A collision class shaped exactly like the guarded engines' own: the
 	// "project" path is a workDir join that happens to equal the "global"
 	// path whenever workDir == HOME.
-	fake := enginefixture.Hosting(fakeBackend)
-	fake.HookGlobalScope = engine.Provide(hosting.HookGlobalScope{
+	enginefixture.Install(t, enginefixture.Kind(fakeBackend, mock.WithHookGlobalScope(agent.HookGlobalScope{
 		Paths: func(workDir string) (string, string, error) {
 			return filepath.Join(workDir, ".t12fake", "settings.json"), filepath.Join(home, ".t12fake", "settings.json"), nil
 		},
 		Label: "the T12 fake engine's global settings",
-	})
-	require.NoError(t, backends.Register(enginefixture.Registry(fake), fake))
-	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
+	})))
 
 	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend: fakeBackend,

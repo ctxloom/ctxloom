@@ -47,7 +47,7 @@ type LMConfig struct {
 }
 
 // BackendMock is the test/development double's registry name. It is a real
-// registered backend (internal/lm/backends holds a Declaration for it), and
+// composed engine (its kind is agent.Hosted, with a Declaration), and
 // it is the SECOND implementation that keeps engine-facing ports honest —
 // see internal/adapters/transcript/vendorreader/mock. Named here so the identity is
 // one constant rather than a literal re-typed at each site; a hand-written

@@ -79,7 +79,8 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // isoSpyEnvAllowlist is the CLOSED set of environment variables the spy is
@@ -228,7 +229,7 @@ func isoBinaryNames(engine string) ([]string, error) {
 // seeding for engine — read off the engine's own declaration
 // (engine.CredentialSeed.EnvTriggers), not re-typed here.
 func isoAPIKeyEnvVars(engine string) ([]string, error) {
-	seed, ok := backends.CredentialSeedFor(engine).Get()
+	seed, ok := isoCredentialSeed(engine)
 	if !ok || len(seed.EnvTriggers) == 0 {
 		return nil, fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
 	}
@@ -249,7 +250,7 @@ func isoAPIKeyEnvVar(engine string) (string, error) {
 // to HOME — the file whose absence is the seed's fail-loud case — read off
 // the engine's own declaration (engine.CredentialSeed.Files).
 func isoCredHostPath(engine string) (string, error) {
-	seed, ok := backends.CredentialSeedFor(engine).Get()
+	seed, ok := isoCredentialSeed(engine)
 	if !ok {
 		return "", fmt.Errorf("iso matrix: no known host credential path for engine %q", engine)
 	}
@@ -1371,4 +1372,13 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		w.docStepMaterialized = fmt.Sprintf("host %s credential file (%s), unchanged after the run:\n%s", engine, rel, strings.TrimSpace(got))
 		return nil
 	})
+}
+
+// isoCredentialSeed is the engine's credential seed off its own Home.
+func isoCredentialSeed(name string) (engine.CredentialSeed, bool) {
+	kind, ok := engines.Registry().Lookup(engine.Name(name))
+	if !ok {
+		return engine.CredentialSeed{}, false
+	}
+	return kind.Home().Seed()
 }

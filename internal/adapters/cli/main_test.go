@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -32,7 +32,7 @@ import (
 // seam that runs whether a test opts in or not — see testsupport.SandboxedMain,
 // which also refuses to run any test at all if the sandbox did not take.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))
 }
 

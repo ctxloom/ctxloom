@@ -4,7 +4,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // isTestOnlyBackend reports whether name is a test/development double that
@@ -16,7 +15,7 @@ import (
 // it is test-only where it is registered, so a newly registered double is
 // hidden everywhere at once rather than wherever someone remembers to skip
 // its name.
-func isTestOnlyBackend(name string) bool { return backends.IsTestOnly(name) }
+func isTestOnlyBackend(name string) bool { return operations.IsTestOnlyEngine(name) }
 
 // decodeBackendConfigForType returns the decoded config of a labeled entry
 // whose type matches backendType. Used where only a backend type is known

@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
@@ -88,7 +87,7 @@ func runContainerBuild(cmd *cobra.Command, args []string) error {
 	cfg, cerr := GetConfig()
 	if len(args) == 1 {
 		backend = args[0]
-		if names := backends.List(); !slices.Contains(names, backend) {
+		if names := operations.EngineNames(); !slices.Contains(names, backend) {
 			sort.Strings(names)
 			return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 		}
@@ -368,7 +367,7 @@ func runContainerCheck(cmd *cobra.Command, args []string) error {
 	var backend string
 	if len(args) == 1 {
 		backend = args[0]
-		if names := backends.List(); !slices.Contains(names, backend) {
+		if names := operations.EngineNames(); !slices.Contains(names, backend) {
 			sort.Strings(names)
 			return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 		}

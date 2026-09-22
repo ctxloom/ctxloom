@@ -1094,7 +1094,7 @@ type ResolvedProfile struct {
 
 	// SourceRef is this profile's OWN canonical origin ref, for keying the
 	// executable trust gate on its directly-declared hooks
-	// (internal/lm/backends/managed.go's gateProfileHooks) by
+	// (managedhooks.gateProfileHooks) by
 	// SOURCE rather than display name. It is
 	// the origin bundle's canonical ref ("<url>@bundles/<bundle>", WITHOUT
 	// the "#profiles/<name>" selector — carrying that selector into the gate

@@ -8,7 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -23,7 +22,7 @@ import (
 // PRESENTED — that is Runtime's job, and it can only move the Engine side of
 // the root, never make the home go away.
 type InTreeAgentHome struct {
-	// Backend is the resolved backend name (internal/lm/backends).
+	// Backend is the resolved engine name (the registry key).
 	Backend string
 	// Cwd is the directory the engine actually RUNS in — the prepared
 	// workspace's Dir(): the project root itself on the live tree, a checkout
@@ -174,7 +173,7 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: this run carries no session name and a config-home instance is per-session; using the runtime's own config home instead", in.Backend)
 		return absent("this run carries no session name and a config-home instance is per-session")
 	}
-	spec, ok := backends.InTreeAgentHomeFor(in.Backend, in.Harp)
+	spec, ok := inTreeAgentHomeFor(in.Backend, in.Harp)
 	if !ok {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: engine_home is %q but %s declares no relocatable config home; using the runtime's own config home instead", in.Backend, agents.HomeModeSession, in.Backend)
 		return absent("%s declares no relocatable config home", in.Backend)

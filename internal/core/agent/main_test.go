@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
 
 // TestMain closes config.findAppDir's walk-up from the working directory for
@@ -16,6 +16,6 @@ import (
 // shipped engines for the external tests that read the registry, and an
 // internal test file cannot import a package that imports this one.
 func TestMain(m *testing.M) {
-	engines.MustRegister()
+	enginefixture.MustComposeShipped()
 	os.Exit(testsupport.SandboxedMain(m))
 }

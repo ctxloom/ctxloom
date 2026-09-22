@@ -38,7 +38,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/archrules"
 )
 
@@ -317,7 +317,6 @@ var engineNameHomes = []string{
 	"internal/engines/claude",
 	"internal/engines/mock",
 	"internal/engines",
-	"internal/lm/backends",
 	"cmd/mockengine",
 }
 
@@ -327,7 +326,7 @@ var engineNameHomes = []string{
 // leaves.
 var noEngineNameInCoreAllowed = map[string]string{
 	// core packages that name an engine
-	"internal/core/config/config_types.go":                "slice 11b: the mock doubles' names are config data the tests and lm/backends spell through these constants; they leave with lm/backends",
+	"internal/core/config/config_types.go":                "the mock doubles' names are config data the tests spell through these constants; the kinds own their names (engines/mock)",
 	"internal/adapters/spawn/spawner.go":                  "slice 11b: Instance.Resume(key) succeeds or refuses; Resolve invokes it for a one-shot or a resume, and the three name-keyed tables go",
 	"internal/adapters/operations/session_adopt.go":       "slice 11b: adopt scans the engine's own store through Engine.Transcripts(); the reader knows its own format",
 	"internal/core/bundles/bundles.go":                    "contract: signing.CommandPreimageContract canonicalises the claude-code block into the frozen preimage bytes (CommandSurface.ExportsPayload); leaves with a contract bump that re-signs every bundle, which is a human's call, not a slice's",
@@ -344,9 +343,9 @@ var noEngineNameInCoreAllowed = map[string]string{
 // read from the live registry (composed by TestMain), never listed here.
 func scanEngineNameLiterals(t *testing.T) []ringSite {
 	t.Helper()
-	names := backends.List()
+	names := operations.EngineNames()
 	if len(names) == 0 {
-		t.Fatal("backends.List() returned nothing — the registry did not populate; the rule has nothing to look for")
+		t.Fatal("operations.EngineNames() returned nothing — the registry did not populate; the rule has nothing to look for")
 	}
 	isName := make(map[string]bool, len(names))
 	for _, n := range names {
@@ -448,11 +447,11 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/engines/claude/claude.go":                          "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/engines/claude/mcp_registrar.go":                   "slice 11b: Engine.Home() is a HomeSpec the runner realises; the engine reads no environment",
 	"internal/engines/mock/record.go":                            "the mock's TEST-CONTROL knobs (CTXLOOM_MOCK_*) fall back to the process environment so a scenario can script the engine through the run's env; a fake, never a production engine",
-	"internal/lm/backends/panelaunch.go":                         "slice 11b: lm/backends is deleted whole",
 	"internal/adapters/transcript/vendorreader/claude/locate.go": "slice 11b: the reader becomes an engine.TranscriptReader handed the home it reads",
 
 	// the runner's halves today
 	"internal/adapters/mcp/mcp_tools_triggers.go": "slice 8: host-relayed tools are Verbs.Host frames to coord.HostApp, which holds the project root",
+	"internal/adapters/runner/panelaunch.go":      "the pane's capture directory is a scratch root the runner makes for the tmux host; no slice carries a temp root to the runner yet (measured)",
 
 	// isolation: handed HostFacts and a CellRequest
 	"internal/adapters/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",

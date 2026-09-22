@@ -2,9 +2,9 @@
 
 // J002200: "the isolation seam's two axes actually land where they say they will"
 // (j002200_isolation.feature). The workspace axis (none|worktree) is proven via
-// the mock backend's now-honest req.WorkDir record (internal/lm/backends/
-// mock.go — the mock's own OS-level cwd never moves, since isolation never
-// os.Chdir's the plugin subprocess itself; only req.WorkDir, the value
+// the mock backend's now-honest req.WorkDir record (internal/engines/mock/
+// backend.go — the mock's own OS-level cwd never moves, since isolation never
+// os.Chdir's the hosting process itself; only req.WorkDir, the value
 // isolation.Prepare actually resolved, does). The runtime axis's fail-loud
 // contract (a requested container that can't launch aborts unless
 // --degraded) needs no such record — it is proven by exit code + stderr.
@@ -179,7 +179,7 @@ func j002200MaskContainerRuntime(w *World) error {
 }
 
 // j002200ParseRecord extracts the cwd= and workdir= lines the mock's
-// recordMockInput (internal/lm/backends/mock.go) wrote to its record file.
+// recordMockInput (internal/engines/mock/backend.go) wrote to its record file.
 func j002200ParseRecord(body string) (cwd, workDir string) {
 	for _, line := range strings.Split(body, "\n") {
 		switch {

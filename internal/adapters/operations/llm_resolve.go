@@ -1,10 +1,13 @@
 package operations
 
 import (
+	"fmt"
+
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/go-viper/mapstructure/v2"
 )
 
 // DecodeBackendConfig decodes the labeled LLM entry into its backend's typed
@@ -16,7 +19,7 @@ func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	if !ok {
 		return nil
 	}
-	bc, err := backends.DecodeLLMConfig(cfg.EffectiveType(entry), entry.Body)
+	bc, err := DecodeEngineConfig(cfg.EffectiveType(entry), entry.Body)
 	if err != nil {
 		clidiag.Warn("ctxloom", "LLM config %q: %v", label, err)
 		if cfg.EffectiveType(entry) == "gemini" || cfg.EffectiveType(entry) == "antigravity" {
@@ -35,7 +38,7 @@ func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 }
 
 // mockControlConfig is implemented by the mock doubles' BackendConfig types
-// (backends.MockConfig and its siblings), the only label bodies that carry a
+// (mock.Config), the only label bodies that carry a
 // map of variables for the launched process: the CTXLOOM_MOCK_* test-control
 // knobs. No real engine's config carries one — an engine's credentials and
 // environment are ambient, never ctxloom's (config.RetiredLLMEnvKey). It is a
@@ -59,4 +62,25 @@ func MockControlFor(cfg *config.Config, label string) map[string]string {
 		return mc.MockControl()
 	}
 	return nil
+}
+
+// DecodeEngineConfig decodes a labeled entry's raw body into the typed
+// config of the named engine (agent.Hosted.NewConfig). An unknown type is an
+// error the caller degrades (fault tolerance). The label that keyed the
+// entry is NOT consulted — only the explicit type drives which decoder runs.
+// One shared mapstructure pass fills the engine's own zero config from the
+// raw YAML body; the engine declares the TYPE, this owns the decode.
+func DecodeEngineConfig(engineType string, body map[string]interface{}) (agent.BackendConfig, error) {
+	h, ok := engines.Hosted(engineType)
+	if !ok {
+		return nil, fmt.Errorf("unknown LLM backend type %q", engineType)
+	}
+	cfg := h.NewConfig()
+	if err := mapstructure.Decode(body, cfg); err != nil {
+		// The mapstructure error names no backend, so a multi-backend
+		// config load could not attribute a decode failure to its source
+		// entry without this.
+		return nil, fmt.Errorf("backend %q: %w", engineType, err)
+	}
+	return cfg, nil
 }

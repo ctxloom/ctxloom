@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
@@ -63,7 +62,7 @@ const SeedProfileName = "default"
 // scaffold files are overwritten — EXCEPT the seed profile, which is left
 // untouched if it already exists so a re-init never clobbers user edits.
 //
-// req.Engine is validated against the backends registry (internal/lm/backends
+// req.Engine is validated against the composed engine registry (engines.Registry
 // — the one place a "known engine" is defined) BEFORE anything is written: an
 // unknown value refuses loud, with the value named and the valid set listed,
 // rather than scaffolding a config.yaml that then fails ctxloom's own
@@ -76,8 +75,8 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 	if req.AppDir == "" {
 		return nil, fmt.Errorf("app dir is required")
 	}
-	if !backends.Exists(req.Engine) {
-		return nil, fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(backends.List(), ", "))
+	if !EngineExists(req.Engine) {
+		return nil, fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(EngineNames(), ", "))
 	}
 	fs := getFS(req.FS)
 	// The authored-bundles home is the COMMITTED content tree; the cache is

@@ -23,7 +23,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/version"
@@ -144,7 +143,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 			doctorCheckAgents(ctx, cfg, cfgErr),
 			doctorCheckCapabilityLoss(ctx, cfg, cfgErr),
 			doctorCheckVersion(),
-			doctorCheckTranscriptReaders(ctx, cfg, backends.ProbeEngineVersion),
+			doctorCheckTranscriptReaders(ctx, cfg, ProbeEngineVersion),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
 			doctorCheckMCPInvocation(doctorProjectDir(cfg)),
 			doctorCheckContentTrust(cfg, cfgErr),
@@ -274,13 +273,13 @@ func doctorMissingFromPath(bins []string) []string {
 // doctorMissingEngineClients returns "<binary> (<engine>)" for every CONFIGURED
 // engine whose native client is not on PATH, for the DOCTOR-CHECK-DEPS-a1 PATH
 // probe. The binary is the one the engine's own grammar declares
-// (backends.EngineBinary); a test double declares none and is skipped rather
+// (EngineBinary); a test double declares none and is skipped rather
 // than reported as missing.
 func doctorMissingEngineClients(cfg *config.Config) []string {
 	var missing []string
 	for _, engine := range doctorConfiguredEngines(cfg) {
-		bin := backends.EngineBinary(engine)
-		if bin == "" || backends.IsTestOnly(engine) {
+		bin := EngineBinary(engine)
+		if bin == "" || IsTestOnlyEngine(engine) {
 			continue
 		}
 		if _, err := exec.LookPath(bin); err != nil {
@@ -531,7 +530,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 // saw two green checks, and lost it silently.
 //
 // It reads CapabilityLossByAgent, which is CapabilityLoss (the same
-// backends.UncarriedSurfaces read `profile materialize` prints as "NOT
+// uncarriedSurfaces read `profile materialize` prints as "NOT
 // carried" and `agent show` already reuses) asked once per configured agent —
 // not a second computation of the same fact.
 //

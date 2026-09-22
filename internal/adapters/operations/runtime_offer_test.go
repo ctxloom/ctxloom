@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // =============================================================================
@@ -136,7 +135,7 @@ func TestAgentRuntimeOffer_NilConfigWithholdsContainer(t *testing.T) {
 // This is the test a second roster would fail the moment a container spec was
 // added to one list and not the other.
 func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
-	names := backends.List()
+	names := EngineNames()
 	require.NotEmpty(t, names)
 
 	for _, backend := range names {

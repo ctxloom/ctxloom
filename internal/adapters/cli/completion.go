@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 var completionCmd = &cobra.Command{
@@ -124,7 +123,7 @@ func completeProfileNames(cmd *cobra.Command, args []string, toComplete string) 
 func completeLLMNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	cfg, err := GetConfig()
 	if err != nil {
-		return filterPrefix(backends.List(), toComplete), cobra.ShellCompDirectiveNoFileComp
+		return filterPrefix(operations.EngineNames(), toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
 	labels := cfg.GetLLMLabels()
 	return filterPrefix(labels, toComplete), cobra.ShellCompDirectiveNoFileComp

@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -435,7 +434,7 @@ func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, DefaultMaterializeBackend, got, "an unspecified backend means the default")
-	assert.True(t, backends.Exists(DefaultMaterializeBackend), "the default backend constant must itself be a registered name")
+	assert.True(t, EngineExists(DefaultMaterializeBackend), "the default backend constant must itself be a registered name")
 }
 
 // A premise-withheld fragment must be REPORTED, not silently dropped.

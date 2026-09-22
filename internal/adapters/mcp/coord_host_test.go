@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/spawn"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // buildHostCoordinator stands a real (production-spawner) coordinator up over
@@ -21,7 +22,7 @@ func buildHostCoordinator(t *testing.T, subs map[string]agents.Agent) (*config.C
 	t.Helper()
 	resetStrictness(t)
 	cfg, root := delegationFixture(t, subs)
-	runners := coordtest.NewRunners()
+	runners := coordtest.NewRunners(engines.Registry())
 	t.Cleanup(runners.Close)
 	c, err := coord.New(coord.Options{Spawner: spawn.New(nil, fixtureApp(t, cfg), root, runners.Starter), ProjectDir: root, StateDir: t.TempDir(), OwnerHarp: "coordinator-harp"})
 	require.NoError(t, err)

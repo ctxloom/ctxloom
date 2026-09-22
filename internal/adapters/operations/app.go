@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 
 	"github.com/spf13/pflag"
@@ -12,7 +13,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -121,7 +121,7 @@ func (a *App) Owner(ctx context.Context) (*config.Owner, error) {
 		a.mu.Lock()
 		a.opened = true
 		a.mu.Unlock()
-		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(backends.Engines()), config.WithReporter(a.Reporter))
+		a.owner, a.err = a.open(ctx, a.src, config.WithEngines(engines.Registry()), config.WithReporter(a.Reporter))
 	})
 	return a.owner, a.err
 }

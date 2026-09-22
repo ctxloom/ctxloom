@@ -13,7 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/delivery"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -111,10 +112,10 @@ func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest)
 }
 
 // registeredBackend refuses a name no engine is registered under exactly.
-// The registered name is what every backends.* lookup keys on and what
+// The registered name is what every registry lookup keys on and what
 // results report.
 func registeredBackend(name string) (string, error) {
-	if !backends.Exists(name) {
+	if !EngineExists(name) {
 		return "", fmt.Errorf("unknown backend %q", name)
 	}
 	return name, nil
@@ -199,11 +200,11 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// cannot be pulled later — as a skill the engine's own progressive
 	// disclosure carries it. A collision between two of them is fatal rather
 	// than a silent overwrite — see PremisedFragmentSkills.
-	withheld := make([]backends.PremisedFragment, 0, len(asm.WithheldFragments))
+	withheld := make([]PremisedFragment, 0, len(asm.WithheldFragments))
 	for _, w := range asm.WithheldFragments {
-		withheld = append(withheld, backends.PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
+		withheld = append(withheld, PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
 	}
-	fragmentSkills, err := backends.PremisedFragmentSkills(withheld)
+	fragmentSkills, err := PremisedFragmentSkills(withheld)
 	if err != nil {
 		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)
 	}
@@ -227,7 +228,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// not carried, never routed elsewhere. The context is the engine's
 	// native file — a materialized tree must be readable with ctxloom out
 	// of the loop, so no injection hook is written.
-	kind, ok := backends.Kind(backend)
+	kind, ok := engines.Registry().Lookup(engine.Name(backend))
 	if !ok {
 		return nil, fmt.Errorf("materialize: no engine kind is composed for %s", backend)
 	}
@@ -292,8 +293,8 @@ func notCarried(backend string, kind engine.Engine, pkg composite.Package, plan 
 	if err != nil {
 		return out
 	}
-	for _, event := range backends.HookEvents() {
-		n := len(backends.UnifiedEventHooks(pkg.Hooks.Unified, event))
+	for _, event := range wire.HookEvents() {
+		n := len(pkg.Hooks.Unified.Event(event))
 		if n == 0 || exports.HookEvent[event] != "" {
 			continue
 		}

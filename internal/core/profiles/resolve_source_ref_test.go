@@ -15,7 +15,7 @@ import (
 // selector, for a profile seeded under its "<bundle>#profiles/<name>" key —
 // exactly what config.loadBundleProfileSeed produces for a bundle shipped by
 // a remote (non-local) source. This is the ref
-// internal/lm/backends/managed.go's gateProfileMCP/gateProfileHooks now key
+// managedhooks' gateProfileMCP/gateProfileHooks now key
 // the executable trust gate by, instead of the display name.
 func TestResolveProfile_SourceRef_BundleShippedRemote(t *testing.T) {
 	key := defaultURI + "//bundles/kit#profiles/dev"

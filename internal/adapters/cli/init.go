@@ -19,7 +19,7 @@ import (
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -353,7 +353,7 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
-		selected = backends.DefaultEngineName()
+		selected = operations.DefaultEngineName()
 	}
 
 	if interactive && selected == "" {
@@ -601,13 +601,13 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 const authPingTask = "Reply with exactly: ok"
 
 // engineAuthFixHint names the fix for a failed auth probe, read off the
-// engine's OWN credential declaration (backends.CredentialSeedFor): the
+// engine's OWN credential declaration (Engine.Home().Credentials): the
 // login command that makes its credential file exist, and the env var that
 // carries usable auth instead. An engine that declares no seedable
 // credential — or is not registered at all — gets a generic but actionable
 // fix rather than a blank, since the probe still failed.
 func engineAuthFixHint(engine string) string {
-	seed, ok := backends.CredentialSeedFor(engine).Get()
+	seed, ok := engineCredentialSeed(engine)
 	if !ok {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
@@ -800,4 +800,15 @@ func reportSetupLaunchFailure(err error) error {
 func printReentryHint() {
 	fmt.Println("\nSetup session ended. `ctxloom run` is the primary way to reach ctxloom from here.")
 	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom init prompt`) to reconfigure any time.")
+}
+
+// engineCredentialSeed is the named engine's credential seed off its Home:
+// what seeds a relocated home; false when nothing does — an engine that
+// relocates no home, or an unregistered name.
+func engineCredentialSeed(name string) (enginepkg.CredentialSeed, bool) {
+	kind, ok := engines.Registry().Lookup(enginepkg.Name(name))
+	if !ok {
+		return enginepkg.CredentialSeed{}, false
+	}
+	return kind.Home().Seed()
 }

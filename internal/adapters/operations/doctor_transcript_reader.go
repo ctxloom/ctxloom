@@ -14,7 +14,7 @@ import (
 // the refusal this exists to make debuggable.
 const doctorTranscriptReaderMarker = "DOCTOR-CHECK-TRANSCRIPT-READER-v2"
 
-// engineVersionProbe is the shape of backends.ProbeEngineVersion, injected so
+// engineVersionProbe is the shape of ProbeEngineVersion, injected so
 // doctorCheckTranscriptReaders can be tested against chosen versions without
 // a real engine binary installed — the same discipline
 // doctorCheckGitIdentity's gitConfig parameter uses.

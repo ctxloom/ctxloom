@@ -9,7 +9,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/engineversion"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/sessionlock"
 )
@@ -175,8 +174,8 @@ func ForgetSession(harp string) error {
 
 // probeEngineVersion is the seam AssignSession probes through. A package var
 // so tests can drive both outcomes without an engine binary installed — the
-// production value execs the real CLI through backends' shared cached prober.
-var probeEngineVersion = backends.ProbeEngineVersion
+// production value execs the real CLI through the shared cached prober.
+var probeEngineVersion = ProbeEngineVersion
 
 // AssignSession mints a fresh harp for a new run in projectDir under backend,
 // records the engine's version against it, and returns the pending index entry

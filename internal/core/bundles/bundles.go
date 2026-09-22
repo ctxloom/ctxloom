@@ -392,12 +392,12 @@ func (h BundleHooks) HasAny() bool {
 // hook's trust identity ("<bundle>#hooks/<event>/<index>") and as the canonical
 // iteration order below, and match the BundleHooks YAML field tags.
 const (
-	HookEventPreTool      = "pre_tool"
-	HookEventPostTool     = "post_tool"
-	HookEventSessionStart = "session_start"
-	HookEventSessionEnd   = "session_end"
-	HookEventPreShell     = "pre_shell"
-	HookEventPostFileEdit = "post_file_edit"
+	HookEventPreTool      = wire.HookEventPreTool
+	HookEventPostTool     = wire.HookEventPostTool
+	HookEventSessionStart = wire.HookEventSessionStart
+	HookEventSessionEnd   = wire.HookEventSessionEnd
+	HookEventPreShell     = wire.HookEventPreShell
+	HookEventPostFileEdit = wire.HookEventPostFileEdit
 	// HookEventTurnEnd and HookEventTurnStart are APPENDED to hookEventOrder
 	// rather than slotted in beside their siblings: that order is a hook's
 	// trust identity ("<bundle>#hooks/<event>/<index>" is per-event, but
@@ -405,8 +405,8 @@ const (
 	// renumber nothing while still reordering every hook report against a
 	// baselined one. TestBundleHooks_TrustIdentityIsStableUnderVocabularyGrowth
 	// holds the baseline.
-	HookEventTurnEnd   = "turn_end"
-	HookEventTurnStart = "turn_start"
+	HookEventTurnEnd   = wire.HookEventTurnEnd
+	HookEventTurnStart = wire.HookEventTurnStart
 )
 
 // hookEventOrder is the canonical event order for hook identity + enumeration.

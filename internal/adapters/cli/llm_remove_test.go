@@ -11,7 +11,7 @@ import (
 )
 
 func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: codex }\n")
+	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	llmRemoveYes = false
 	cmd, out := textCmd()
 	require.NoError(t, runLLMRemove(cmd, []string{"big"}))
@@ -28,7 +28,7 @@ func TestRunLLMRemove_BareReportsAndDestroysNothing(t *testing.T) {
 // TestRunLLMRemove_YesRemovesAndReports pins the apply side, paired with the
 // bare-path test above so a regression in either direction is caught.
 func TestRunLLMRemove_YesRemovesAndReports(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: codex }\n")
+	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	llmRemoveYes = true
 	t.Cleanup(func() { llmRemoveYes = false })
 	cmd, out := textCmd()

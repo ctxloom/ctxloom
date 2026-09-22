@@ -273,9 +273,6 @@ ctxloom holds no model API client of its own (this is a licensing requirement, n
 | Backend | Binary | Install |
 |---|---|---|
 | `claude-code` | `claude` | [claude.ai/code](https://claude.ai/code) |
-| `antigravity` | `agy` | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
-| `codex` | `codex` | [github.com/openai/codex](https://github.com/openai/codex) |
-| `opencode` | `opencode` | [opencode.ai](https://opencode.ai) |
 
 If the backend you launch (the configured default, or `--llm <label>`) has no binary on `PATH`,
 `ctxloom run` fails immediately with an error naming which backends **are** currently usable —

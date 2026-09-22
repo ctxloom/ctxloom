@@ -54,8 +54,6 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **executor** | An agent the orchestrator spawns to do work, including HEAVY work. Orchestrators dispatch the full suite, acceptance and mutation to executors and consume the verdict rather than running them — that is what keeps every heavy job countable against `delegation.concurrency`. | the `developer` binding; `delegation.concurrency` |
 | **subagent** | A light agent (find/search) that serves an executor. A PEER of the executors, not below them — same delegation depth. The executor REQUESTS it; the ORCHESTRATOR spawns it. Never spawned by the executor itself — the tree stays flat. | `agent_run`; `Coordinator.AgentRun` |
 
-> Status: the `codex` engine above is implemented and hermetically tested; live operation is untested (no codex account on any dev host).
-
 ## Naming decisions (why these words)
 
 - **"agent" is reserved for the ctxloom actor.** It was the most user-facing sense

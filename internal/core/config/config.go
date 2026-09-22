@@ -195,9 +195,9 @@ type Config struct {
 	isolationDevcontainerService string
 	// isolationEngines selects which engine fragments compose into the
 	// shared multi-engine agent image (locked decision 3: "all engines CAN
-	// be present, composition is per build") —
-	// claude-code, codex, kiro, opencode today (each via its OWN official
-	// installer, one independently-cacheable Containerfile RUN layer). Empty/unset = every
+	// be present, composition is per build"): each registered engine
+	// installs via its OWN official installer, in one independently-cacheable
+	// Containerfile RUN layer. Empty/unset = every
 	// known engine (the biggest image, "one instance runs any engine"); an
 	// unrecognized name is dropped with a warning, never silently promoted to
 	// "use everything".

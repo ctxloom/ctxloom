@@ -34,7 +34,7 @@ func TestIsKnownLLM_BuiltIn(t *testing.T) {
 		t.Error("expected claude-code to be known")
 	}
 	if !isKnownLLM(cfg, "mock") {
-		t.Error("expected codex to be known")
+		t.Error("expected mock to be known")
 	}
 }
 
@@ -79,7 +79,7 @@ func memConfig(t *testing.T) (*config.Config, *operations.App) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, fs.MkdirAll(appDir, 0o755))
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 5\nllm:\n  defaults:\n    primary: codex\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 5\nllm:\n  defaults:\n    primary: mock\n"), 0o644))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	cfg.SetFS(fs)
 	app := testApp(t, configload.WithFS(fs), configload.WithAppDir(appDir))

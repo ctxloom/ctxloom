@@ -192,7 +192,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"llm config entry with explicit type",
-			"llm:\n  configs:\n    main:\n      type: codex\n      model: gpt-codex\n",
+			"llm:\n  configs:\n    main:\n      type: claude-code\n      model: claude-opus-4-8\n",
 		},
 		{
 			"top-level workspace default (session axis)",
@@ -220,7 +220,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"llm config entry with permissions posture",
-			"llm:\n  configs:\n    main:\n      type: codex\n      permissions: plan\n",
+			"llm:\n  configs:\n    main:\n      type: claude-code\n      permissions: plan\n",
 		},
 		{
 			"agent-level permissions posture",
@@ -228,7 +228,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"per-backend isolation image overrides",
-			"isolation_images:\n  opencode: registry.example.com/my-opencode:v2\n  claude-code: my-claude:latest\n",
+			"isolation_images:\n  mock: registry.example.com/my-mock:v2\n  claude-code: my-claude:latest\n",
 		},
 		{
 			"user base containerfile for local agent-image builds",

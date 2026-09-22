@@ -154,7 +154,6 @@ config:
 llm:
   configs:
     big:    { type: claude-code, model: opus }
-    g:      { type: codex, model: gpt-5-codex }
   defaults:
     primary: big
     fast: big

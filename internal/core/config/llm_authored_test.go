@@ -15,8 +15,7 @@ import (
 // TestIsLLMUserAuthored_EmptyRegistry_DefaultLabelsAreNotUserAuthored pins
 // the defect `llm remove`/`llm edit`'s CRUD relies on: the default-registry overlay
 // (config.LMConfig's own doc, "not a per-key overlay") fills a COMPLETELY EMPTY
-// llm.configs with the WHOLE shipped registry (claude-code,
-// codex, ...) so a project with none configured still resolves an engine.
+// llm.configs with the WHOLE shipped registry so a project with none configured still resolves an engine.
 // That merge happens on the READ side cfg.GetLLMLabels() reflects — so a naive
 // "is label in cfg.GetLLMLabels()" check would see "claude-code" as already
 // present on a project that never wrote a single llm.configs line, and
@@ -43,7 +42,7 @@ func TestIsLLMUserAuthored_ExplicitEntry_IsUserAuthored(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(
-		"version: 6\nllm:\n  configs:\n    big: { type: codex }\n"), 0644))
+		"version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n"), 0644))
 
 	cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(appDir))
 	require.NoError(t, err)

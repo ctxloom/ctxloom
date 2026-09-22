@@ -152,7 +152,7 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 		t.Fatalf("read config.yaml: %v", err)
 	}
 	if !strings.Contains(string(cfg), "mock") {
-		t.Errorf("second write should have overwritten engine to codex; got:\n%s", cfg)
+		t.Errorf("second write should have overwritten engine to mock; got:\n%s", cfg)
 	}
 }
 

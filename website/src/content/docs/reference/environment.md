@@ -57,15 +57,12 @@ Agents with `runtime: container-rootless` or `runtime: container-rootful` pass a
 | `PUID`, `PGID` | *Not* read from your environment — set by the isolation runtime from `os.Getuid()`/`os.Getgid()` and passed into the container. Under a rootful daemon (rootful Docker, Podman) the entrypoint uses them to remap the image's baked-in `ctxloom` user to your uid/gid and drop privileges to it before the engine starts, so files the engine writes into the bind-mounted project are owned by you, not by the container's generic user or by root. If the remap can't be performed (no usable `gosu`/`setpriv` in the image) the entrypoint refuses to run the engine as root and fails the launch loudly, unless `--degraded` (or `CTXLOOM_DEGRADED=1`) is in effect, which downgrades the refusal to a warning and lets the engine run as root. Rootless Docker never sets these — container-root there already is the launching user |
 | `CLAUDECODE` | Claude's own nested-session guard. When driving claude, ctxloom strips this from the spawned child's environment unconditionally, because claude 2.x refuses to start with it set — it would otherwise leak in as pure process-tree lineage under delegation |
 
-Status: the `codex` backend is **experimental** — implemented and hermetically tested, but live operation is not fully verified. `claude-code` is the exercised default.
-
 ## Host and Engine Integration
 
 These are read on the host (or inside the launched engine process) rather than crossing into a container — they don't appear in either scoped passthrough list above.
 
 | Variable | Description |
 |----------|-------------|
-| `CODEX_HOME` | Codex's home directory. It **is** the `.codex` directory itself, not its parent (default `~/.codex`). This is a host-side lookup only — `CODEX_HOME` is honored when ctxloom resolves Codex's prompts directory, MCP registrar config path, and sessions directory, all of which key off it as the single source of truth for Codex-home precedence, but it never crosses into a container (it is not in the claude auth passthrough list). ctxloom itself sets it (alongside `CLAUDE_CONFIG_DIR`) for a worktree-isolated agent run, to give each concurrent agent its own global config layer rather than sharing yours |
 | `SSH_AUTH_SOCK` | ssh-agent socket used when signing a bundle with an ssh-agent-held key |
 | `XDG_RUNTIME_DIR` | Preferred base directory for the MCP runner's local unix-socket dir (`$XDG_RUNTIME_DIR/ctxloom`), tried after `/run/ctxloom/local` and before a `MkdirTemp` fallback |
 

@@ -166,7 +166,7 @@ func Doctor(ctx context.Context, app *App, req DoctorRequest) (DoctorReport, err
 }
 
 // doctorConfiguredEngines returns the sorted, de-duplicated set of registered
-// backend names (claude-code/codex/...) every configured agent's Engine
+// backend names (e.g. claude-code) every configured agent's Engine
 // label resolves to. nil cfg (config failed to load) yields none — the
 // deps check then reports only the engine-independent binaries.
 func doctorConfiguredEngines(cfg *config.Config) []string {
@@ -526,8 +526,8 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 // true; a hook that could never land anywhere is invisible in it by
 // construction. Agent RESOLUTION (DOCTOR-CHECK-AGENTS-b2) reports that the
 // binding is valid, which it is — the engine simply cannot do this. So a user
-// who switched an agent to codex or opencode kept a guardrail in their config,
-// saw two green checks, and lost it silently.
+// who switched an agent to an engine without a hook surface would keep a
+// guardrail in their config, see two green checks, and lose it silently.
 //
 // It reads CapabilityLossByAgent, which is CapabilityLoss (the same
 // uncarriedSurfaces read `profile materialize` prints as "NOT

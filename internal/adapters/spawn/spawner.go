@@ -439,11 +439,11 @@ func warnNoReachBack(rep report.Reporter, agentName string, servers []agent.Chat
 		agentName, agent.MCPServerName)
 }
 
-// childVerbosity gates the child launch's plugin/adapter diagnostics. A dead
-// child's only stderr trail (the go-plugin logger forwarding `llm serve` —
-// and through it the ACP adapter's stderr) is DISCARDED at verbosity 0, and
-// the coordinator often lives in a flagless `ctxloom mcp` process, so the
-// knob is env-only: CTXLOOM_VERBOSE (the existing process-wide verbose
+// childVerbosity is the verbosity handed to the child's runner starter
+// (isolation.StarterForWorkspace): above 0 a container runner reports its
+// auth route, and a host runner reads the same variable itself. The
+// coordinator often lives in a flagless `ctxloom mcp` process, so the knob is
+// env-only: CTXLOOM_VERBOSE (the existing process-wide verbose
 // switch) turns the trail on at trace. It is read through envswitch so this
 // site cannot disagree with the binary's own reading of the same variable —
 // a switch that is on for logging and off for child diagnostics is worse than

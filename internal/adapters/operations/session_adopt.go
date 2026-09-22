@@ -109,9 +109,8 @@ type adoptTimelineSpan struct {
 // called here (see ApplyAdopt for the write half), so a caller can run this
 // as many times as it likes without changing anything on disk.
 //
-// Only claude-code entries are supported today (see runSessionAdopt's
-// backend check doc for why: codex/kiro have no locate-by-directory
-// equivalent yet). Errors clearly, naming the backend, rather than silently
+// Only claude-code entries are supported: the scan locates candidates by
+// claude's per-project transcript directory. Errors clearly, naming the backend, rather than silently
 // scanning nothing.
 func ScanAdoptCandidates(harp string) (*AdoptScan, error) {
 	store, err := openSessions()

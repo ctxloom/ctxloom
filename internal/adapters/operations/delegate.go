@@ -202,12 +202,10 @@ func (d dirtyFileList) writeTo(b *strings.Builder) {
 // is deliberately NOT a bespoke ignore-pattern allowlist reimplementing "what
 // counts as noise": this codebase's own per-agent worktree preparation
 // already writes the delivered-surface noise that would otherwise make this
-// gate unusable (.mcp.json, .claude/, .agents/, .codex/config.toml, .kiro/,
-// .ctxloom/cache/) into the shared common-dir .git/info/exclude
+// gate unusable into the shared common-dir .git/info/exclude
 // (gitignore.WorktreeArtifactPatterns, written by
-// internal/adapters/isolation/worktree.go's Worktree.excludeConfigFromMerge), and
-// the tracked .gitignore separately covers .codex/* (config.toml excepted),
-// .opencode/, and the generated living-docs journeys. Once a repo has
+// Worktree.excludeConfigFromMerge), and the tracked .gitignore separately
+// covers the generated living-docs journeys. Once a repo has
 // prepared even ONE agent worktree, that noise is invisible to `git status
 // --porcelain` for every tree sharing the repo's common dir — including the
 // parent's, which is exactly the tree this inspects. Reusing git's own

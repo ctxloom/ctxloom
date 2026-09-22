@@ -15,7 +15,7 @@ import (
 // # Why a model and not a wire config
 //
 // wire.Hook carries yaml:/json: tags because it IS what gets written into an
-// engine's settings file (.claude/settings.json, codex config.toml, …). It has
+// engine's settings file (.claude/settings.json, …). It has
 // nowhere to put "where did this come from" and must not grow one: provenance
 // written into a settings file would leak ctxloom's bookkeeping into another
 // tool's configuration. So the assembly used to merge by pure append into a

@@ -141,8 +141,7 @@ type HarnessStatusResult struct {
 }
 
 // SurfaceCurrency reports one backend's native context-surface delivery
-// currency: whether the file (CLAUDE.md, AGENTS.md, .kiro/steering/
-// ctxloom-context.md, MOCK_CONTEXT.md, …) still carries what the project's
+// currency: whether the file (CLAUDE.md, MOCK_CONTEXT.md, …) still carries what the project's
 // default profiles currently compose — or, where the engine declares that file
 // its default context route and there is context to deliver, that it is not
 // there at all. Route/Status/Detail mirror agent.DeliveryState's

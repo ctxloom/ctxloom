@@ -163,7 +163,7 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // the result. The registry is built from the shipped default-config: the two
 // entries whose type matches the engine and whose role is primary/fast are
 // copied in (role stripped) and pointed at by llm.defaults. Engines without
-// role-marked entries (e.g. codex, mock) get a single self-contained
+// role-marked entries (e.g. mock) get a single self-contained
 // {type: engine} entry serving both roles.
 //
 // dirtyTreeHandler carries the init interview's dirty-tree-handler answer

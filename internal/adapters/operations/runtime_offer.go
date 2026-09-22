@@ -39,7 +39,7 @@ type RuntimeOffer struct {
 	// Backend is the registered backend Label resolved to — the key
 	// isolation.HasContainerAuth is actually asked about. Reported because a
 	// label and its backend routinely differ (a project's "big" label on
-	// backend "codex"), and a withheld container offer is otherwise
+	// backend "claude-code"), and a withheld container offer is otherwise
 	// unattributable.
 	Backend string `json:"backend"`
 	// Runtimes are the axis values `agent create --runtime` may be offered for

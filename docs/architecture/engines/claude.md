@@ -21,9 +21,9 @@ the one place claude's surface membership is stated.
 |---|---|---|
 | `ClaudeCode` | `claudecode.go` | The launch backend; embeds `agent.LaunchBackend` |
 | `NewClaudeCode` | `claudecode.go` | Constructor: sets the binary, embeds `agent.LaunchBackend`, and hands `InitLaunch` the lifecycle, the context provider, a nil `SessionHistory`, and `Surfaces` — claude's `agent.Declaration` |
-| `ClaudeConfig` | `claudecode.go:18` | Typed decode target. `BinaryPath`/`Args`/`Env`/`Thinking` are live; `Model` is decoded and never read |
+| `ClaudeConfig` | `claudecode.go:18` | Typed decode target. `BinaryPath`/`Args`/`Env` are live; `Model` is decoded and never read |
 | `ClaudeConfig.BackendType` | `claudecode.go:33` | `"claude-code"` |
-| `Configure` | `claudecode.go:96` | `agent.Configurable`: binary/args/env + thinking level |
+| `Configure` | `claudecode.go:96` | `agent.Configurable`: binary/args/env |
 | `Execute` | `claudecode.go:114` | Minimal-oneshot JSON branch, else `ExecuteCLI` |
 | `buildArgs` | `claudecode.go:231` | The whole claude argv |
 | `ResolveModel` | `chat.go:254` | Nickname → concrete model id; `ok=false` fails loud. Sole production caller `internal/adapters/operations/delegate.go:317` |

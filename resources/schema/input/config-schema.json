@@ -400,17 +400,6 @@
               "items": {
                 "type": "string"
               }
-            },
-            "thinking": {
-              "type": "string",
-              "enum": [
-                "off",
-                "low",
-                "medium",
-                "high"
-              ],
-              "default": "medium",
-              "description": "Normalized reasoning/thinking-budget level. Accepted and validated (an unrecognized value warns and falls back to medium), but no claude launch carries it: it currently has no effect. Empty defaults to medium."
             }
           },
           "additionalProperties": false
@@ -451,17 +440,6 @@
               "items": {
                 "type": "string"
               }
-            },
-            "thinking": {
-              "type": "string",
-              "enum": [
-                "off",
-                "low",
-                "medium",
-                "high"
-              ],
-              "default": "medium",
-              "description": "Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh \u2014 codex has no bare \"high\"; ctxloom's \"high\" maps to \"xhigh\") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob)."
             }
           },
           "additionalProperties": false
@@ -507,16 +485,6 @@
               "items": {
                 "type": "string"
               }
-            },
-            "thinking": {
-              "type": "string",
-              "enum": [
-                "off",
-                "low",
-                "medium",
-                "high"
-              ],
-              "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning)."
             }
           },
           "additionalProperties": false

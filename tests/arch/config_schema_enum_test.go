@@ -155,9 +155,8 @@ var schemaEnumBindings = []schemaEnumBinding{
 }
 
 func init() {
-	// $defs/llmConfig/anyOf has four backend branches. `permissions` and
-	// `thinking` (where present) mirror the same ctxloom-owned vocabularies
-	// as everywhere else; `role` is registry-only display metadata the
+	// $defs/llmConfig/anyOf has four backend branches. `permissions` mirrors
+	// the same ctxloom-owned vocabulary as everywhere else; `role` is registry-only display metadata the
 	// schema's own description says is "stripped from persisted user configs
 	// and ignored otherwise" — no Go vocabulary backs it, by design, so it is
 	// excluded rather than bound.
@@ -166,7 +165,6 @@ func init() {
 	// the branches are homogeneous in which fields they share, and a
 	// loop keeps that homogeneity from silently drifting between branches as
 	// a hand-copied literal could.
-	branchesWithThinking := map[int]bool{0: true, 1: true, 2: true}
 	for i := 0; i < 4; i++ {
 		prefix := fmt.Sprintf("$defs/llmConfig/anyOf/%d/properties", i)
 		schemaEnumBindings = append(schemaEnumBindings,
@@ -176,10 +174,6 @@ func init() {
 			},
 			schemaEnumBinding{path: prefix + "/permissions", goNames: agentaxis.PermissionModeNames},
 		)
-		if branchesWithThinking[i] {
-			schemaEnumBindings = append(schemaEnumBindings,
-				schemaEnumBinding{path: prefix + "/thinking", goNames: agentaxis.ThinkingLevelNames})
-		}
 	}
 }
 

@@ -10,7 +10,7 @@ The largest package in the layer (26 internal importers). It has no single respo
 
 | Page | Purpose |
 |---|---|
-| [`agent-backend-contract.md`](agent-backend-contract.md) | What a backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsWriter`, `ContextWriter`), the `Base*` embeddables every engine reuses, the `Launcher` process seam, and the cross-cutting `PermissionMode` / `ThinkingLevel` enums. |
+| [`agent-backend-contract.md`](agent-backend-contract.md) | What a backend must implement (`Backend`, `ContextProvider`, `SessionHistory`, `SettingsWriter`, `ContextWriter`), the `Base*` embeddables every engine reuses, the `Launcher` process seam, and the cross-cutting `PermissionMode` enum. |
 | [`agent-session-ir.md`](agent-session-ir.md) | The normalized transcript IR (`SessionEntry` and friends) every engine's history is mapped into, plus the shared JSONL parse loop. |
 | [`agent-chat.md`](agent-chat.md) | The optional `StructuredChat` capability: request/event unions and chat MCP-server composition. |
 | [`agent-enginecli.md`](agent-enginecli.md) | `EngineCLI` — the declared vendor-CLI grammar that both the real driver and the mock engine parse against; the anti-drift mechanism of the launch path. |

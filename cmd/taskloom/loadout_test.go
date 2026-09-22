@@ -187,17 +187,9 @@ func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	assert.Empty(t, buf.Bytes())
 }
 
-// The comment above loadout.yaml's session_start hook set `pre_tool_fallback`
-// for antigravity — the harness that shipped with no session-start event and
-// needed the bind to land on PreToolUse instead. antigravity was removed in
-// 0.7.0 (no currently-registered backend has this gap), but the flag is
-// harmless to keep set: it is a no-op for every backend with a working
-// session-start event, and keeps the loadout ready for whichever future
-// engine needs it next rather than requiring every consumer to re-add it.
-//
-// This pins taskloom's END of the chain only. The wire crossing is pinned by
-// the total-struct parity sweep in internal/lm/grpc/arch_test.go (build tag
-// `arch`).
+// loadout.yaml's session_start hook sets `pre_tool_fallback` so the bind can
+// land on PreToolUse for an agent without a session-start event. It is a no-op
+// for every backend with a working session-start event.
 func TestLoadout_SessionBindKeepsPreToolFallback(t *testing.T) {
 	lo, err := bundles.ParseLoadout(loadoutYAML)
 	require.NoError(t, err)

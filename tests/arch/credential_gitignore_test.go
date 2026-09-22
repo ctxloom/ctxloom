@@ -9,13 +9,9 @@ import (
 	"testing"
 )
 
-// ctxloom seeds real engine credentials into the working tree so a vendor CLI
-// can authenticate: codex reads auth.json from $CODEX_HOME, and ctxloom points
-// CODEX_HOME at a project-scoped home. There is no vendor surface that
-// separates the credential from the rest of CODEX_HOME (checked against
-// codex-cli 0.144.4: no auth-path flag, no auth-path env var), so the file
-// genuinely lands in the tree and .gitignore is the ONLY thing keeping it out
-// of a commit.
+// A vendor CLI whose home is project-scoped keeps its credential inside that
+// home, so the file genuinely lands in the tree and .gitignore is the ONLY
+// thing keeping it out of a commit.
 //
 // A lone .gitignore line is one careless edit away from gone, and the failure is
 // silent and unrecoverable — a leaked credential cannot be un-pushed. This gate

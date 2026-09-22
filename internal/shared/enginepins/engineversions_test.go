@@ -7,7 +7,7 @@
 // consumer can't silently stop deriving from the lock file.
 //
 // engine-versions.env pins the last-known-good CLI version per engine that
-// ctxloom's reader (internal/adapters/transcript/vendorreader/{codex,claude})
+// ctxloom's reader (internal/adapters/transcript/vendorreader/<engine>)
 // has been validated against. It is deliberately NOT
 // folded into .devcontainer/tool-versions.env / buildpins: that file pins
 // build/codegen tooling baked into the devcontainer image, and engine CLIs
@@ -90,8 +90,8 @@ func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
 // matrixLockKeyRE matches one `- engine: <name>` / `lock_key: <KEY>` pair in
 // engine-drift-detect.yml's matrix `include:` list, e.g.:
 //
-//   - engine: codex
-//     lock_key: CODEX_CLI_VERSION
+//   - engine: claude-code
+//     lock_key: CLAUDE_CODE_CLI_VERSION
 var matrixLockKeyRE = regexp.MustCompile(`(?m)^\s*-\s*engine:\s*(\S+)\s*\n\s*lock_key:\s*(\S+)\s*$`)
 
 // matrixEntries returns engine name -> lock_key for every matrix include
@@ -158,7 +158,7 @@ func TestWorkflowMatrixMatchesEngineVersionsEnv(t *testing.T) {
 }
 
 // engineCaseRE matches one `case`-arm engine name in
-// detect-engine-version.sh's `case "$engine" in ... esac`, e.g. `codex)` or
+// detect-engine-version.sh's `case "$engine" in ... esac`, e.g.
 // `claude-code)` at the start of a line.
 var engineCaseRE = regexp.MustCompile(`(?m)^([a-z][a-z0-9-]*)\)\s*$`)
 

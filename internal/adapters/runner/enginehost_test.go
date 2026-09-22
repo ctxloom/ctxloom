@@ -311,9 +311,8 @@ func TestEngineHost_StartRunDrivesTheFirstTurnThroughTheDriver(t *testing.T) {
 
 // readCanonicalTranscript reads back harp's canonical transcript file
 // (paths.HarpCanonicalTranscriptPath) into transcript.Record values, in file
-// order. Mirrors the same small helper internal/lm/grpc's chat_test.go uses
-// for its own S2 seam — Record's fields are exported, so each package reads
-// the file directly rather than sharing a test-only helper across packages.
+// order. Record's fields are exported, so the test reads the file directly
+// rather than sharing a test-only helper across packages.
 func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {
 	t.Helper()
 	path, err := paths.HarpCanonicalTranscriptPath(harp)

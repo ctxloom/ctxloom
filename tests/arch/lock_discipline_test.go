@@ -24,7 +24,7 @@
 //   - READ SIGNAL: a call whose callee name (the bare identifier for a
 //     plain call, or the selector's method/function name for `x.Foo(...)`)
 //     matches /^(?i)(read|load)/ — covers afero.ReadFile, os.ReadFile,
-//     loadSettings, loadJSONObject, loadOpencodeConfig, ledger.Ledger.Read,
+//     loadSettings, loadJSONObject, ledger.Ledger.Read,
 //     Ledger.readAll, MCPFileConfig.load, ...
 //   - WRITE SIGNAL: a call whose callee name matches /^(?i)save/, or is
 //     exactly one of a short known-primitive list (AtomicWriteFile,
@@ -32,7 +32,7 @@
 //     WriteManagedCommandFiles, WriteServers, RemoveServers) — covers every
 //     settings-family persist path in this module (see settings_io.go,
 //     managedcontext.go, packagefiles.go and every engine's own
-//     save/saveSettings/saveMCPConfig/saveOpencodeConfig wrapper).
+//     save/saveSettings/saveMCPConfig wrapper).
 //   - LOCK SIGNAL: a call whose callee name is exactly "WithFileLock"
 //     (sessions.WithFileLock, the SettingsWriter family's one lock idiom —
 //     config.Owner.Update, M7's OWN transactional lock for ctxloom's own
@@ -82,12 +82,10 @@
 //     foreign-engine-directory files, not ctxloom's own config.yaml.
 //   - A LEAF HELPER split out of an already-locked closure for readability
 //     (agent.writeManagedContextLocked, called BY NAME from inside
-//     WriteManagedContext's own WithFileLock closure; codex's
-//     CodexHookWriter.save, always called from within writeSettingsIn's or
-//     removeSettingsIn's WithFileLock closure) reads+writes with no lock
-//     call of ITS OWN and is flagged — a real false positive this gate
-//     cannot resolve without call-graph analysis. Both are in
-//     archrules.LockDisciplineAllowed naming exactly this.
+//     WriteManagedContext's own WithFileLock closure) reads+writes with no
+//     lock call of ITS OWN and is flagged — a real false positive this gate
+//     cannot resolve without call-graph analysis. archrules.LockDisciplineAllowed
+//     names exactly this.
 //   - THE WRITE SIGNAL MISSES THE RENDER-TO-TEMP-THEN-SWAP IDIOM, and this
 //     is a REAL FALSE NEGATIVE, not just a false positive risk: B3
 //     (agent.WriteManagedPackageFiles, config-patching-review.md — ledgered

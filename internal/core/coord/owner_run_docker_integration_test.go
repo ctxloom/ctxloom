@@ -2,9 +2,9 @@
 
 // queer-shrug Phase 2a-B's docker-gated proof that a TOP-LEVEL structured or
 // oneshot container run rides Transport 2 / EngineHost — an OWNER-OWNED run
-// (Coordinator.StartOwnedRun) whose in-container `ctxloom llm host` runner
-// dials home and drives the engine, watched host-side via WatchRuns — instead
-// of a go-plugin client, and opens NO network port inside the container.
+// (Coordinator.StartOwnedRun) whose in-container `ctxloom runner` dials home
+// and drives the engine, watched host-side via WatchRuns, and opens NO network
+// port inside the container.
 //
 // Unlike container_direct_docker_integration_test.go (the DELEGATED path via
 // AgentRun/StartEngine), this exercises the TOP-LEVEL owner-owned path the
@@ -116,8 +116,8 @@ func (s *dockerOwnerRunStarter) containerNames() []string {
 //  1. STRUCTURED: a top-level owner-owned container run completes a first turn
 //     (StartRun input) and a SECOND turn (SendOwnedRunTurn) — both mock echoes
 //     reach the host over WatchRuns (payloads, not exit codes), proving the
-//     container dialed home over Transport 2 and drove the engine via EngineHost
-//     with NO go-plugin client anywhere;
+//     container dialed home over Transport 2 and drove the engine via
+//     EngineHost;
 //  2. the run is PARENT-LESS (ParentRunID "") and owner-owned (the owner's harp
 //     as role) — the §5.B2 collision decision, live;
 //  3. the container publishes NO port, exposes NO port (docker inspect), and

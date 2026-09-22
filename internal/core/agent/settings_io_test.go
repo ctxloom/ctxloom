@@ -13,8 +13,7 @@ import (
 )
 
 // These cover the shared settings-writer helpers the per-agent writer modules
-// (claude/codex) call directly. They moved here from the host backends
-// package along with the helpers themselves.
+// call directly.
 
 // TestCtxloomCommand_IsBareName pins the portability invariant at its source.
 // Every materialized surface — a hook command, a statusline, an .mcp.json

@@ -65,7 +65,7 @@ func TestCurrentSession_SkipsAnUnreadableCandidate(t *testing.T) {
 // project whose every transcript is unreadable into a clean "no sessions".
 // That distinction is the whole point — "the file was unreadable"
 // and "the conversation was empty" are different facts — and the caller
-// (lm/grpc's CanonicalFallbackSource) routes on exactly it.
+// (CanonicalFallbackSource) routes on exactly it.
 func TestCurrentSession_AllCandidatesUnreadableStillErrors(t *testing.T) {
 	testsupport.Isolate(t)
 	const projectDir = "/proj/all-broken"

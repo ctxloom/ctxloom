@@ -40,9 +40,8 @@ func writeConfigTree(t *testing.T, dir, marker string) string {
 }
 
 // TestProjectConfigMount pins the whole decision table of the worktree cell's
-// config delivery — the fix for the {worktree, container} run that died as an
-// unreadable go-plugin handshake because the in-container ctxloom found no
-// config in its checkout and refused to start (exit 3).
+// config delivery: a {worktree, container} run whose in-container ctxloom finds
+// no config in its checkout refuses to start (exit 3).
 //
 // Each subtest names the fact it would lose. The delivery arm is the defect
 // itself; the two skip arms are the ways an over-eager delivery would do harm

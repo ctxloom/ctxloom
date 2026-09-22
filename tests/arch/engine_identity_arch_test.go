@@ -1,11 +1,9 @@
 //go:build arch
 
-// T12: engine identity was enumerated in (at least) four independently
-// maintained rosters with four different memberships —
-// internal/lm/grpc.RetiredScraperBackendNames, internal/adapters/operations'
-// vendorReaderRegistry, internal/adapters/isolation's composableEngines, and
-// internal/adapters/isolation's credentialSeedSpecs — and internal/adapters/operations (the
-// ADR-0026 core) imported concrete engine plugin packages directly to branch
+// T12: engine identity is enumerated in several purpose-scoped rosters with
+// different memberships (see the rosters TestArch_EngineIdentityRosters_
+// MembersAreRegisteredBackends checks), and internal/adapters/operations (the
+// ADR-0026 core) once imported concrete engine plugin packages directly to branch
 // on backend identity (hooks.go's checkHookTargetScope, delegate.go's
 // resolveChatModel), a literal violation of the ports-and-adapters boundary
 // docs/adr/0026-ports-and-adapters.md and docs/adr/0020-operations-llm-
@@ -25,18 +23,17 @@
 //     double importing an engine package for fixture purposes never trips
 //     it).
 //   - TestArch_EngineIdentityRosters_MembersAreRegisteredBackends is the
-//     roster gate: each of the four rosters is a legitimately DIFFERENT
-//     purpose-scoped subset of engines (which backend had a scraper worth
-//     retiring; which backend has a vendor-native transcript to import from;
+//     roster gate: each roster is a legitimately DIFFERENT
+//     purpose-scoped subset of engines (which backend has a vendor-native
+//     transcript to import from;
 //     which backend has a known official container installer; which backend
 //     has a generic host-credential seed spec) — collapsing them into one
 //     flat list would be wrong, not a fix. What must never happen instead is
 //     a roster naming a backend that ISN'T (or no longer is) a real,
 //     registered composed engine name — a typo, or a stale entry left
 //     behind when a backend was renamed or removed from the canonical
-//     registry. This check names no engine (it reads operations.EngineNames() live,
-//     the same way TestArch_ProtoConverters_MirrorEveryStructField in
-//     internal/lm/grpc/arch_test.go names no struct field), so a new,
+//     registry. This check names no engine (it reads operations.EngineNames()
+//     live), so a new,
 //     correctly-registered backend never requires an edit here — only a
 //     roster member that has drifted out of registration does.
 //

@@ -24,9 +24,7 @@ import (
 // OWN agent.WithFileLock around the whole load-modify-write cycle, at dest
 // (the .claude.json path), matching the SettingsWriter family's discipline.
 //
-// Mirrors internal/opencode/rmw_lock_test.go's
-// TestWriteOpencodeConfig_SerializesAgainstConcurrentSettingsWrite: writer A
-// takes the exact home lock WriteInstanceConfig's own agent.WithFileLock
+// Writer A takes the exact home lock WriteInstanceConfig's own agent.WithFileLock
 // would take (paths.HomePathFor(dest)) DIRECTLY, standing in for a
 // concurrent writer already mid-critical-section (a second in-tree
 // delegated child sharing this instance, racing THIS PROCESS rather than

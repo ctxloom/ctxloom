@@ -98,7 +98,7 @@ type progressSpawnMode int
 const (
 	// progressSpawnReal launches the child through the production isolation
 	// starter (isolation.StarterForWorkspace → Container.StartRunner →
-	// docker-direct `ctxloom llm host mock`) — the same seam
+	// docker-direct `ctxloom runner mock`) — the same seam
 	// container_direct_docker_integration_test.go proves.
 	progressSpawnReal progressSpawnMode = iota
 	// progressSpawnDark launches a REAL container from the same image that

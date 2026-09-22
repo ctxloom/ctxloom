@@ -55,8 +55,7 @@ func TestAssignSession_RecordsAVersionAheadOfThePin(t *testing.T) {
 		"an installed version ahead of the tested-version lock is still the truth about what ran")
 }
 
-// And a version BEHIND the pin (codex installed at 0.144.4 against a 0.144.6
-// pin on this host) is recorded just as plainly — the pin is not a floor on
+// And a version BEHIND the pin is recorded just as plainly — the pin is not a floor on
 // what a user may have installed.
 func TestAssignSession_RecordsAVersionBehindThePin(t *testing.T) {
 	testsupport.Isolate(t)

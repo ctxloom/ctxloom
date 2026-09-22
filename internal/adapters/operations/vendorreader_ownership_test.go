@@ -43,10 +43,9 @@ func TestRefreshVendorTranscript_SkipsRebuildWhileALiveRecorderOwnsTheCanonicalT
 	harp := "easeful-dial-harp"
 	e := claudeEntry(harp, claudeFixturePath)
 
-	// A live structured/ACP recorder opens harp's DEFAULT canonical path —
-	// exactly what internal/lm/grpc/chat.go's GRPCClient.Chat and
-	// internal/core/coord/enginehost.go's adapt do for a live
-	// session — and holds it open (Record, no Close yet) the way a
+	// A live structured recorder opens harp's DEFAULT canonical path —
+	// exactly what coord/enginehost's adapt does for a live session — and
+	// holds it open (Record, no Close yet) the way a
 	// still-running chat would.
 	rec, err := transcript.NewRecorder(harp, e.Backend)
 	require.NoError(t, err)

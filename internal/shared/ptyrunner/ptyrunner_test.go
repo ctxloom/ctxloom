@@ -187,8 +187,8 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 // that can never catch a child whose first paint runs before the size
 // arrives. In production the real size travels a whole chain of goroutine
 // hops plus a gRPC round trip before it reaches here (see run.go's
-// interactiveTerminal → termui.Controller → ResizeTranslator →
-// goplugin.Launcher → the wire → this package); a single in-process channel
+// interactiveTerminal → termui.Controller → ResizeTranslator → the runner
+// → this package); a single in-process channel
 // send is far faster than that, so a same-process test has to reintroduce a
 // comparable delay to exercise the real race — otherwise the pre-start
 // goroutine always "wins" trivially and the test can't tell the two

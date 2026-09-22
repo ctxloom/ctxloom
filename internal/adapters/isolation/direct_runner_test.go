@@ -36,8 +36,8 @@ func newRunnerTestWorkspace() *containerWorkspace {
 }
 
 // TestBuildRunnerSpec_NoPluginTransport is the Phase 1 unit gate:
-// the docker-direct runner spec renders NO plugin socket mount, NO -p publish,
-// NO PLUGIN_*/magic-cookie env, runs `llm host` (not `llm serve`), rides the
+// the docker-direct runner spec renders NO socket mount, NO -p publish,
+// runs `ctxloom runner <backend>`, rides the
 // spawn env as BARE-NAME `-e` (values never in argv), and PRESERVES the
 // session-state + auth + overlay mounts (§6.4). This is the spec-level proof
 // that closes the peer-container hole for the delegated path.
@@ -92,8 +92,7 @@ func (s scriptRuntime) RunArgs(RunSpec) []string { return s.args }
 
 // TestStartDirectRunner_StderrTailSurfacesOnExit is the failure-path gate: a
 // runner that dies (the container that never dials home) surfaces its stderr
-// TAIL in the Wait error — the diagnostic that replaces go-plugin's Diagnose —
-// not just a bare "exit status N".
+// TAIL in the Wait error, not just a bare "exit status N".
 func TestStartDirectRunner_StderrTailSurfacesOnExit(t *testing.T) {
 	rt := scriptRuntime{
 		fakeRuntime: fakeRuntime{name: "docker", binary: "sh", available: true},

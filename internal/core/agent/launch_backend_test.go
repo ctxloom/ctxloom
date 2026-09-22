@@ -14,8 +14,8 @@ import (
 // ---- ExecuteEnv seam --------------------------------------------------------
 
 // TestExecuteEnv_MergesExtraEnv proves the per-backend env contributor
-// (SetExecuteEnv) is merged on top of the request env (the seam codex uses for
-// its cell-scoped CODEX_HOME), and wins on a key clash.
+// (SetExecuteEnv) is merged on top of the request env, and wins on a key
+// clash.
 func TestExecuteEnv_MergesExtraEnv(t *testing.T) {
 	b := &LaunchBackend{}
 	b.BaseBackend = NewBaseBackend("test", "1.0.0")

@@ -9,10 +9,9 @@
 // R6 is this gate's other half: a file ctxloom exclusively owns
 // inside a foreign engine's directory is locked AND ledgered like a shared
 // file. tests/arch/lock_discipline_test.go proves the lock half; this proves
-// the record half. Caveat C1 (codex's [mcp_servers] had structural-only
-// ownership until unit 4 added a SurfaceMCP ledger — a renamed managed
-// server orphaned its old entry forever) is exactly the failure mode this
-// gate exists to stop from recurring anywhere else in the module.
+// the record half. Structural-only ownership — where a renamed managed entry
+// orphans its old one forever — is exactly the failure mode this gate exists
+// to stop.
 //
 // THE HEURISTIC. For every non-test top-level function in the scoped
 // packages, three name-based questions over every call expression AND every
@@ -78,15 +77,10 @@
 //   - Exactly lock_discipline_test.go's blind spot 4: a managed write split
 //     across a caller (which owns the ledger read/write) and a callee (which
 //     does the byte-level edit) is invisible if the callee alone is
-//     inspected — the ownership-record calls live in the OUTER function.
-//     codex's addMCPServers/removeManagedMCP/removeLedgeredMCPServers are
-//     all called FROM writeSettingsIn/removeSettingsIn, which is where the
-//     ledger.Ledger{...} and led.Write/led.Read calls actually sit; the
-//     helpers themselves have the "managed" signal but not the "ledger"
-//     signal and would be false positives if the gate reached them — they
-//     do not have a write signal of their own (they mutate the in-memory
-//     cfg map, not the file), so they are not even candidates here. Recorded
-//     for a future reader who adds a helper that DOES write directly.
+//     inspected — the ownership-record calls live in the OUTER function. A
+//     helper that only mutates an in-memory map has no write signal of its
+//     own, so it is not even a candidate here; a helper that DOES write
+//     directly would be flagged.
 //   - A ledger reference under a name that is not literally the package
 //     identifier "ledger" (a dot-import, or a local package alias) is
 //     invisible — this module uses neither anywhere today.

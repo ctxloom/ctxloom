@@ -16,9 +16,8 @@ import (
 
 // registeredClaudeBackendName is the literal internal/engines/claude/claudecode.go
 // hands agent.NewBaseBackend, and therefore the literal that reaches
-// NewRecorder in production: GRPCClient.openRecorder passes the plugin's own
-// LLMInfo.Name (internal/lm/grpc/chat.go), and runner.EngineHost passes the
-// backend name RunnerHello advertised (enginehost.go). Neither normalizes.
+// NewRecorder in production: runner.EngineHost passes the backend name
+// RunnerHello advertised (enginehost.go), and does not normalize it.
 const registeredClaudeBackendName = "claude-code"
 
 // registeredMockBackendName is the test double's registry name. It is a

@@ -14,9 +14,8 @@ import (
 // End-to-end conformance for the MIGRATED (StartRun) spawn path — the C1
 // cutover, hermetic: a real coordinator (live gRPC listeners, durable
 // stores), a real runner half (Home + EngineHost dialed in by the fake
-// spawner's StartEngine), and a scripted structured-driver engine. No go-plugin,
-// no containers — which is exactly the point: the delegated child's engine
-// control rides StartRun; go-plugin's Chat is never dialed.
+// spawner's StartEngine), and a scripted structured-driver engine. No
+// containers — the delegated child's engine control rides StartRun.
 
 // startRunSpawner builds a fakeSpawner with one migrated agent named
 // "worker".
@@ -139,8 +138,8 @@ func awaitItemsDurable(t *testing.T, c *Coordinator, sp *fakeSpawner, harp strin
 // turn delivery, journaling) is backend-agnostic by construction (it only
 // ever threads plan.Backend through as an opaque string, see
 // runChildViaStartRun's Harness: rt.plan.Backend), so this is a hermetic,
-// per-backend structural proof: each backend label reaches the migrated
-// path (no legacy go-plugin Chat dial), completes a turn, and journals a
+// per-backend structural proof: each backend label reaches the StartRun
+// path, completes a turn, and journals a
 // RunStarted whose harness field records the SPECIFIC backend. The
 // backend-SPECIFIC deltas (model delivery argv/env) are each backend's own
 // concern and out of scope here. Note what this test is NOT: it drives a FAKE
@@ -174,7 +173,7 @@ func TestStartRun_BackendParity(t *testing.T) {
 
 			require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateIdle }, conformanceWait, 10*time.Millisecond)
 
-			// No legacy go-plugin Chat launch fired for this backend.
+			// Exactly one StartRun-path engine was spawned for this backend.
 			assert.Equal(t, 1, sp.chatCount())
 
 			// The journal records THIS backend as the run's harness (proves

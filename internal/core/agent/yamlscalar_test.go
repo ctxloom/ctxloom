@@ -11,13 +11,12 @@ import (
 // TestYAMLQuoters_AgreeWhenBothQuote is the parity gate between this package's
 // two YAML-frontmatter scalar quoters:
 //
-//	yamlDoubleQuoted  (skillcommandshape.go) — ALWAYS quotes, escaping via
+//	yamlDoubleQuoted  (commandfiles.go) — ALWAYS quotes, escaping via
 //	                   json.Marshal, so quotes, backslashes AND control
-//	                   characters are all handled. Serves kiro's
-//	                   SKILL.md frontmatter.
-//	EscapeYAMLString  (commandfiles.go)      — quotes CONDITIONALLY, and
+//	                   characters are all handled.
+//	EscapeYAMLString  (commandfiles.go) — quotes CONDITIONALLY, and
 //	                   delegates the escaping itself to yamlDoubleQuoted.
-//	                   Serves claude/codex/opencode command frontmatter.
+//	                   Serves command frontmatter.
 //
 // The conditional-quoting policy is deliberate and is NOT what this pins. What
 // it pins is the escaping: whenever EscapeYAMLString decides to quote, the

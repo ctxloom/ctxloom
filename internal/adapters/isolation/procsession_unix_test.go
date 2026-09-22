@@ -20,9 +20,8 @@ import (
 // TestKillSession_ReapsOrphanedGrandchild spawns via os.Args[0] (the
 // standard library's own TestHelperProcess idiom, os/exec_test.go). Guarded
 // by an env var so `go test` running it directly (as an ordinary test) is an
-// instant no-op. It plays the part of a go-plugin runner: spawns a
-// grandchild in its OWN process group, records that pid, then blocks — like a
-// runner sitting inside plugin.Serve().
+// instant no-op. It plays the part of a runner: spawns a grandchild in its
+// OWN process group, records that pid, then blocks.
 func TestHelperKillSessionRunner(t *testing.T) {
 	if os.Getenv("CTXLOOM_GRPC_HELPER_PROCESS") != "1" {
 		return
@@ -92,8 +91,7 @@ func TestKillSession_ReapsOrphanedGrandchild(t *testing.T) {
 		"the grandchild must actually be running before we can prove anything about reaping it")
 
 	// The pre-fix failure mode, on the record: killing ONLY the runner's own
-	// pid (what go-plugin's raw fallback does, and what the graceful path
-	// degrades to on any hard kill) never reaches a grandchild the runner
+	// pid (what the graceful path degrades to on any hard kill) never reaches a grandchild the runner
 	// put in its own process group.
 	require.NoError(t, syscall.Kill(runnerPID, syscall.SIGKILL))
 	require.Eventually(t, func() bool { return !processAlive(runnerPID) }, time.Second, 10*time.Millisecond,

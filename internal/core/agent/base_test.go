@@ -1,5 +1,5 @@
-// Backend base tests verify the shared functionality across all LM backends
-// (claude-code, codex). The base backend provides common operations
+// Backend base tests verify the shared functionality across all LM backends.
+// The base backend provides common operations
 // like environment variable merging and working directory management.
 package agent
 

@@ -69,8 +69,7 @@ func numberedSurfaces(n int) []Surface {
 // That is NOT a defect in this package. The serialization is real and it
 // lives at the CALLER: every production writer wraps its whole
 // load-modify-save-and-ledger-write cycle in agent.WithFileLock (see
-// claude.claudeSettingsWriter, codex's settings writer, opencode's, and
-// agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
+// claude.ClaudeCodeHookWriter and agent.MCPFileConfig), and tests/arch/lock_discipline_test.go excludes this
 // package from its scan for exactly that reason: "internal/shared/ledger and
 // internal/shared/filelock are the lock/record PRIMITIVES themselves ...
 // their own callers are what must hold the lock."

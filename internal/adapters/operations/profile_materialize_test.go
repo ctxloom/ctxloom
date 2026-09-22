@@ -189,8 +189,8 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 }
 
 // TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the
-// characterization: opencode has no hook mechanism at all, so a profile's
-// session_start hook lands NOWHERE — and pre-fix the report said only "wrote
+// characterization: the lossy mock engine (config.BackendMockLossy) declares no
+// hook mechanism, so a profile's session_start hook lands NOWHERE — and pre-fix the report said only "wrote
 // context / settings / commands / skills", every line true and the loss absent
 // from all of them. A reader could not tell "this engine has no hooks" from
 // "this profile declared no hooks"; both were silence.
@@ -220,7 +220,7 @@ func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 // half: the loss report must be silent when there IS no loss. claude-code writes
 // the same hook into .claude/settings.json, so a "not carried" line there would
 // be a false alarm — and a report that cries wolf gets ignored, taking the real
-// opencode case with it.
+// losses with it.
 func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 

@@ -1,9 +1,8 @@
 //go:build docker_integration
 
 // queer-shrug Phase 1's docker-gated proof that the DELEGATED container spawn
-// now goes docker-direct — `ctxloom llm host <backend>` launched through the
-// REAL isolation.Container.StartRunner (no go-plugin handshake, no plugin
-// listener) — and still round-trips a real turn while opening NO network port.
+// now goes docker-direct — `ctxloom runner <backend>` launched through the
+// REAL isolation.Container.StartRunner — and still round-trips a real turn while opening NO network port.
 //
 // Unlike container_bus_docker_integration_test.go (whose dockerBusSpawner
 // hand-rolls `docker run … llm serve mock` + the plugin magic cookie), this
@@ -47,7 +46,7 @@ const directAgentName = "direct-container-worker"
 
 // directBusSpawner is the docker_integration Spawner whose StartEngine launches
 // the child through the REAL production isolation starter — the docker-direct
-// Container.StartRunner (`ctxloom llm host mock`), NOT a hand-rolled `docker
+// Container.StartRunner (`ctxloom runner mock`), NOT a hand-rolled `docker
 // run`. Everything else mirrors dockerBusSpawner.
 type directBusSpawner struct {
 	image      string
@@ -92,7 +91,7 @@ func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, er
 // ResolveLaunch prepares the REAL Container policy's workspace for the child
 // and resolves its launch over it; Start launches the runner via
 // isolation.StarterForWorkspace → Container.StartRunner (docker-direct
-// `ctxloom llm host mock`). The session harp on env drives the session-state
+// `ctxloom runner mock`). The session harp on env drives the session-state
 // mounts (transcript survival).
 func (s *directBusSpawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, start coord.SpawnStart) (coord.Resolved, error) {
 	env := sessions.HookEnv(start.Identity)
@@ -243,8 +242,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 
 	// (1) PAYLOAD: the mock echo of the composed prompt crosses back out — proof
 	// the docker-direct runner dialed home over Transport 2, completed StartRun,
-	// and ran a real turn through EngineHost/Mock.Chat, with NO go-plugin
-	// handshake anywhere.
+	// and ran a real turn through EngineHost/Mock.Chat.
 	wantSeedEcho := "mock chat: " + seedPayload
 	if snap, ok := waitForFeedText(tail, wantSeedEcho, 90*time.Second); !ok {
 		t.Fatalf("the docker-direct container's mock engine never echoed the seed prompt; want substring %q, saw:\n%s", wantSeedEcho, snap)

@@ -15,10 +15,9 @@ import (
 
 // The `type` field is the NDJSON contract's discriminator: the VSCode frontend
 // switches on it, so these three strings are a published wire contract and not
-// an internal label. Two independent producers emit them — the go-plugin
-// structured path and the owner-owned container path — so the values are pinned
-// here for both, and both producers name the same constants so the compiler
-// links what a frontend already assumes is linked.
+// an internal label. chatEventToJSON and the owned-run renderer both name the
+// same constants, so the compiler links what a frontend already assumes is
+// linked.
 func TestChatEventJSON_DiscriminatorValues(t *testing.T) {
 	assert.Equal(t, "entry", chatEventTypeEntry)
 	assert.Equal(t, "complete", chatEventTypeComplete)

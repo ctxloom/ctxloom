@@ -49,8 +49,8 @@ func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
 // TestResizeTranslator_EstablishesSurroundRegionSynchronously pins the other
 // half: run.go's watchResize emits the real terminal
 // size synchronously (buffered) BEFORE termui.New/newResizeTranslator is ever
-// called, and setupTerminalUI runs strictly before the plugin's Run stream is
-// started (goplugin.Launcher.Start / RunStart) — so if newResizeTranslator
+// called, and setupTerminalUI runs strictly before the engine is started — so
+// if newResizeTranslator
 // establishes the surround's scroll region synchronously too, the region is
 // guaranteed to exist on the tty before the engine can possibly exist to
 // paint into it. If establishment is left entirely to the async t.run

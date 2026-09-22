@@ -47,15 +47,15 @@ func New(rep report.Sink, app *operations.App, projectDir string, starter Starte
 // viaStartRunBackends is the delegation allowlist: the set of backend types
 // that may run delegated children at all. Every child's engine control rides
 // the StartRun path (spawn the runner process, await its dial-home, issue
-// StartRun on its RunnerChannel). The runner-side EngineHost
-// (internal/adapters/cli/llm_serve.go) gates on the agent.StructuredChat type
-// assertion alone, never a backend name, so every member of this set gets
-// the identical StartRun/adaptation/approval-forwarding/resume machinery;
-// the per-backend deltas were only ever in model delivery.
+// StartRun on its RunnerChannel). The runner-side EngineHost drives every
+// engine through its instance's driver (engine.Instance.Drivers), never a
+// backend name, so every member of this set gets the identical
+// StartRun/adaptation/resume machinery; the per-backend deltas are in model
+// delivery.
 //
 // Any backend NOT in this set is refused at Resolve (checkStartRunAllowlist)
 // — this gate is deliberately an allowlist of VERIFIED backends, not
-// "implements StructuredChat", so a new backend must be reviewed onto
+// "has a structured driver", so a new backend must be reviewed onto
 // StartRun explicitly rather than swept in.
 //
 // The bar for admitting one is a per-backend recon showing that delta is
@@ -123,7 +123,7 @@ func checkStartRunAllowlist(backend string) error {
 //     (the rendered-history lead, ResumeHistory), over StartRun all the same.
 //   - mock (tests) and any unlisted/future backend: FALSE — an allowlist,
 //     exactly like viaStartRunBackends, so a new backend is reviewed onto
-//     resume explicitly rather than swept in by implementing StructuredChat.
+//     resume explicitly rather than swept in by having a structured driver.
 var resumeCapableBackends = map[string]bool{
 	"claude-code": true,
 }

@@ -64,7 +64,7 @@ type capabilityRow struct {
 // renumbered, so a probe's claim cannot silently come to mean something else.
 var capabilityInventory = []capabilityRow{
 	{1, "agent.Backend.Execute — one-shot launch round trip (ctxloom run --one-shot)"},
-	{2, "agent.StructuredChat.Chat — structured chat over ACPTransport"},
+	{2, "engine.StructuredDriver.Turn — the structured per-turn drive (Instance.Drivers)"},
 	{3, "agent.ApproachUnsafeFile — native context file (CLAUDE.md / AGENTS.md / steering / instructions[])"},
 	{4, "agent.ApproachSystemPrompt — --append-system-prompt-file (claude only)"},
 	{5, "agent.ApproachHook — SessionStart inject-context"},
@@ -74,7 +74,7 @@ var capabilityInventory = []capabilityRow{
 	{9, "agent.CommandExport / agentDescriptor.exports — slash-command export"},
 	{10, "agent.SkillExport / agentDescriptor.skillExports — skills export"},
 	{11, "agent.PermissionMode / enforcesReadOnlyPlan — permission tiers, plan read-only"},
-	{12, "ChatRequest.ForwardPermissions / agent.PermissionRequest — approval flow"},
+	{12, "agent.PermissionRequest — approval flow"},
 	{13, "agent_send / coord.peerSend / the runner's automatic turn report — steer and mail at turn boundaries"},
 	{14, "ChatRequest.ResumeSessionID / ChatSessionInfo.Resumable — resume and session identity"},
 	{15, "transcript.Record / paths.HarpCanonicalTranscriptPath — canonical transcript capture"},
@@ -420,7 +420,7 @@ var probeRegistry = []probeSpec{
 	},
 	{
 		Name:         probeP5,
-		Title:        "approval surface: ForwardPermissions must SURFACE a PermissionRequest, and the gated effect must appear only after the allow",
+		Title:        "approval surface: an engine permission request must SURFACE as a PermissionRequest, and the gated effect must appear only after the allow",
 		Capabilities: []int{2, 12},
 		Channel:      channelGatedAction,
 		Paid:         true,

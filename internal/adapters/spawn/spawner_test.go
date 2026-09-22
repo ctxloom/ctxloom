@@ -29,7 +29,7 @@ func TestChildVerbosity(t *testing.T) {
 // Backends NOT reviewed onto the migrated path stay on the FROZEN legacy
 // chat path only if legacyChatBackends admits them (since S3b: mock alone);
 // any other name is refused at Resolve by checkLegacyChatFreeze — this is a
-// deliberate allowlist, not "implements StructuredChat", so a new backend
+// deliberate allowlist, not "has a structured driver", so a new backend
 // never gets swept onto StartRun unreviewed (nor onto the retired legacy
 // path at all).
 func TestViaStartRunBackends(t *testing.T) {

@@ -4,20 +4,19 @@
 every cobra command, its flags, its rendering, and a handful of runtime helpers
 that happen to live here because that is where the cobra tree is. It is the
 outermost layer — the intended direction is `cmd/ctxloom` → `internal/adapters/cli` →
-`internal/adapters/operations` → domain, and no file in the package reaches past
-`operations`, `config`, `isolation`, or `resources` into domain internals. Its
-contract to callers is: parse flags, load config, call exactly one `operations`
-function, and render the result through `emit()` in the format the global
-`--format` flag selected.
-
-All file:line references are pinned to `0f59fbae` (branch
-`docs/architecture-review`), the commit the source review was performed against.
+`internal/adapters/operations` → domain. What the package may import is not
+stated here: it is the `archrules.LayeringRules` table
+(`internal/shared/archrules/layering.go`), which `archlint` and `tests/arch`
+enforce. Its contract to callers is: parse flags, reach configuration through
+the one `operations.App` the composition root installed, call the
+`operations` function for the verb, and render the result through `emit()` in
+the format the global `--format` flag selected.
 
 ## Layering and the shape of the package
 
 ```mermaid
 flowchart TD
-    MAIN["cmd/ctxloom/main.go — 48 lines<br/>env pre-flight + cli.Execute()"]
+    MAIN["cmd/ctxloom — the composition root<br/>compose() → cli.Run(Composition)"]
     GD["scripts/gendocs<br/>cli.GetRootCmd()"]
     ACC["tests/acceptance<br/>cli.GetRootCmd()"]
 
@@ -25,13 +24,13 @@ flowchart TD
     GD --> ROOT
     ACC --> ROOT
 
-    subgraph cli["internal/adapters/cli — 93 files, 22.5 kLOC, one flat package"]
-        ROOT["root.go — rootCmd · Execute · ExitError<br/>GetConfig · PersistentPreRun"]
-        ROOT --> FMT["format.go — emit() chokepoint"]
-        ROOT --> SH["startup_helpers.go — failOnFindings gate"]
-        ROOT --> CMDS["~30 init() funcs, one per command family"]
-        CMDS --> THIN["thin frontends (~70 files):<br/>bundle · fragment · command · skill · profile<br/>agent · remote · trust · sign · session · config"]
-        CMDS --> THICK["real logic (6 files):<br/>run.go (930-line RunE) · run_owned.go<br/>mcp_*.go · init.go · coord_*.go"]
+    subgraph cli["internal/adapters/cli — one flat package"]
+        ROOT["root.go — rootCmd · Run · ExitError<br/>App · GetConfig · rootPersistentPreRunE"]
+        ROOT --> FMT["format.go — emit() chokepoint + the two --format guards"]
+        ROOT --> SH["startup_helpers.go — phaseGates"]
+        ROOT --> CMDS["one init() per command family, each file registering its own verbs"]
+        CMDS --> THIN["thin frontends:<br/>bundle · fragment · command · skill · profile<br/>agent · remote · deps · signer · session · config"]
+        CMDS --> THICK["real logic:<br/>run.go (runState) · run_owned.go<br/>init.go · coord_*.go · util_config_write.go"]
     end
 
     THIN --> OPS[["internal/adapters/operations — frontend-neutral core"]]
@@ -44,49 +43,36 @@ flowchart TD
     SH --> STR[["shared/strictness"]]
 ```
 
-## Structural reality (read this before trusting any layering claim)
-
-| Fact | Value |
-|---|---|
-| Production files in `internal/adapters/cli` | 93 |
-| Production LOC | 22,479 |
-| Test files | 85 |
-| `cmd/ctxloom/main.go` | 48 lines — env pre-flight + zap logger + `cli.Execute()` |
-| Largest single unit of logic | `runCmd.RunE`, an anonymous closure spanning `run.go:367-1300` (~930 lines) |
-| Package sub-structure | none — no subpackages, no internal layering; files are grouped only by name prefix |
-| Command registration | ~30 separate `init()` funcs, each calling `rootCmd.AddCommand(...)` from its own file |
-| Shared mutable state | package-level flag globals (20 in `run.go` alone, `run.go:43-81`; more across `skill_cmd.go`/`util_config_write.go` and others) |
-
-The idealised picture — thin cobra frontends over `operations` — is accurate for
-roughly 70 of the 93 files. It is **not** accurate for the six exceptions below,
-which is where a future reader should look first when behaviour does not match a
+The idealised picture — thin cobra frontends over `operations` — is accurate
+for most of the package. It is **not** accurate for the exceptions below, which
+is where a future reader should look first when behaviour does not match a
 command's help text:
 
 | File | Why it is not a thin frontend |
 |---|---|
-| `run.go` | The `RunE` closure serially performs ~20 unrelated phases (see [run.md](run.md)). Being a func literal, it is invisible to the repo's cyclomatic-complexity tooling. |
-| `run_owned.go` | 283 lines of coordinator-driven transport with its own event renderer. |
-| `mcp.go` | The `mcp` noun: the configured-server listing; no ctxloom command speaks MCP (see [mcp.md](mcp.md)). |
-| `init.go` | 1,160 lines: bootstrap, an interactive interview, terminal predicates, dependency probes, and a pty engine launch. |
-| `startup_helpers.go` | The strict-startup gate and config-warning reporting that `run`/`mcp`/`profile materialize` depend on. |
+| `run.go` | `runRun` is a sequence of `runState` methods, one per launch phase (see [run.md](run.md)). |
+| `run_owned.go` | Coordinator-driven transport with its own event renderer. |
+| `init.go` | Bootstrap, an interactive interview, dependency probes, and a pty engine launch. |
+| `util_config_write.go` | The guarded merge-writer for foreign config files, with its own verify step and `hew` application record. |
+| `startup_helpers.go` | The phase gates that `run` and `profile materialize` close before spawning. |
 
 ## Page index
 
 | Page | Covers |
 |---|---|
-| [entrypoints.md](entrypoints.md) | `cmd/*` binaries, `root.go`, `Execute`, `ExitError`, `PersistentPreRun`, `GetConfig`, startup gates |
-| [output-and-format.md](output-and-format.md) | `emit()`, `--format`, which commands honour it, writer conventions, paging |
-| [run.md](run.md) | `ctxloom run` — the full launch path and the four transport arms |
+| [entrypoints.md](entrypoints.md) | `cmd/*` binaries, the composition root, `root.go`, `Run`, `ExitError`, `App`, the phase gates |
+| [output-and-format.md](output-and-format.md) | `emit()`, `--format`, the two guards that enforce it, writer conventions, paging |
+| [run.md](run.md) | `ctxloom run` — the full launch path and the transport arms |
 | [terminal-and-prompts.md](terminal-and-prompts.md) | Raw-mode ownership, resize, the terminal UI, `stdinReader`/`promptLine`, signals |
 | [mcp.md](mcp.md) | `ctxloom mcp *`, the companion's session-endpoint declaration, and the one MCP surface |
 | [llm-runners.md](llm-runners.md) | `ctxloom llm` (engine labels) and `ctxloom runner`, the one runner process |
 | [bundles-items-skills.md](bundles-items-skills.md) | `bundle`, `fragment`, `command`, `skill`, distillation, `search` |
 | [profiles-and-agents.md](profiles-and-agents.md) | `profile *`, `agent *` |
-| [sessions-and-memory.md](sessions-and-memory.md) | `session *`, deprecated `memory *`, memory MCP tools, `plan watch` |
-| [remotes.md](remotes.md) | `remote add/remove/list/default/pull/browse/discover/update/upgrade` |
-| [trust-signing-review.md](trust-signing-review.md) | `trust`, `blacklist`, `sign`, `signer`, `review`, interactive trust prompts |
+| [sessions-and-memory.md](sessions-and-memory.md) | `session *`, the memory MCP tools (by pointer), `plan watch` |
+| [remotes.md](remotes.md) | `remote *` and `deps *` — the dependency lifecycle |
+| [trust-signing-review.md](trust-signing-review.md) | `bundle sign`, `signer`, `bundle trust/reject/forget`, `review`, interactive trust prompts |
 | [setup-and-diagnostics.md](setup-and-diagnostics.md) | `init`, `config`, `manage`, `container`, `doctor`, `completion`, `version`, `util config-write` |
-| [hooks.md](hooks.md) | The hidden `hook` namespace: `hud`, `inject-context`, `stamp-plan`, `session-bind` |
+| [hooks.md](hooks.md) | The hidden `hook` namespace |
 
 ## Package-wide invariants
 
@@ -95,71 +81,12 @@ the rule lives.
 
 | # | Invariant | Owned by |
 |---|---|---|
-| I1 | **`internal/adapters/cli` owns config loading for commands.** Every command reads config through `GetConfig()` (`root.go:50`) or `GetConfigForUpdate()` (`root.go:66`); both echo `cfg.GetWarnings()` through `printConfigWarnings` (`startup_helpers.go:55`). `operations` never loads config itself. | `root.go:50,66` |
-| I2 | **Read/write config split.** `GetConfig` returns the *memoized, shared* config (~35 call sites share one parse); `GetConfigForUpdate` returns a *fresh* instance via `config.LoadFresh`. Any command that mutates and saves config must use the latter, so an abandoned edit cannot leak into later readers in the same process (an MCP server, the coordinator). | `root.go:62-73` |
-| I3 | **One buffered reader over stdin.** `stdinReader` (`run.go:1692-1696`) is the single `bufio.Reader` over `os.Stdin`; every interactive y/N prompt goes through `promptLine`/`promptYesNo` (`run.go:1703,1716`). A fresh `bufio.Reader` per prompt would discard bytes a previous reader buffered past its line. *Real behaviour:* `remote_discover.go:110` opens its own `bufio.NewReader(os.Stdin)` — the only violation in the package. | `run.go:1692-1696` |
-| I4 | **`--format` is a presentation choice, never a branch in business logic.** Commands build one result value and hand both it and a text closure to `emit()` (`format.go:43`). See [output-and-format.md](output-and-format.md) for the (large) set of commands that accept `--format` and ignore it. | `format.go:43,62` |
-| I5 | **Process-wide flags are applied once, in `PersistentPreRun`** (`root.go:87`): `--degraded`, `--no-companions`, the `CTXLOOM_CONFIG_*` override funnel, and `clidiag`'s structured-diagnostics mode. This depends on no subcommand defining its own `PersistentPreRun` (cobra runs only the closest one; `EnableTraverseRunHooks` is not set anywhere in the repo). | `root.go:86-115` |
-| I6 | **Process-owning entry points gate on strictness.** Any command that spawns an engine must take a `strictness.Mark` and call `failOnFindings` (`startup_helpers.go:96`, returns `ExitError{3}`). Honoured by `run` (`runState.gateStartup`) and `profile materialize`. | `startup_helpers.go` |
-| I7 | **The runner is the one credential holder.** `runner.Main` decodes the reach-back trio once and unsets it before the engine spawns; the session host keeps only the owner's credential (`mcp.HostCoordinatorForSession`) and stamps nothing on its own environment. | `internal/adapters/runner` |
-| I8 | **Relayed MCP handlers derive identity from the caller, not from process env.** `mcp.HostApp.Serve` binds each relayed call to the caller's credential-derived `coord.Identity`; `ctxServer.projectDir` is that identity's project with no cwd fallback (the `env-literals-once` arch gate holds it). | `coord_host.go`, `mcp_server.go` |
-| I9 | **Exit codes travel as `ExitError`,** not `os.Exit`, so deferred cleanup runs. `Execute` (`root.go:159`) unwraps it with `errors.As`; exit 3 is reserved for a strictness abort. | `root.go:38,159` |
-| I10 | **`emit()` renders; the text closure runs only for `--format text`.** A not-found check placed *inside* the text closure therefore does not fire for structured formats. | `internal/shared/cliemit/cliemit.go:30-33` |
-
-## Which commands mutate state
-
-Grouped so a reader can tell at a glance whether invoking something is safe.
-
-**Read-only:** `version`, `doctor`, `container check`/`provenance`/`tooling`,
-`config show`/`get`, `bundle list`/`show`/`view`, `fragment|command|skill list`/`show`,
-`profile list`/`show`/`export`, `agent list`/`show`, `llm list`, `mcp list`/`server list`/`server show`,
-`session list`/`show`/`query`/`watch`, `search`, `remote list`/`browse`/`discover`,
-`signer list`/`show`, `plan watch`, `run --dry-run`.
-
-**Mutates local state:** `init`, `config create`/`edit`, `manage install`/`uninstall`/`hooks *`/`statusline *`/`gitignore install`,
-`mcp register`/`unregister`/`server add`/`server remove`, `bundle create`/`edit`/`delete`/`move`/`hold`/`unhold`/`mcp edit`/`import`/`distill`,
-`fragment|command create`/`delete`/`edit`/`distill`, `skill create`/`sync`/`import`,
-`profile create`/`delete`/`modify`/`edit`/`import`/`materialize`, `agent set`/`default`/`remove`,
-`llm default`, `remote add`/`remove`/`default`/`pull`/`update`/`upgrade`,
-`bundle trust`/`reject`/`signer add`/`signer remove`, `sign`, `review`,
-`session rename`/`forget`/`distill`/`backfill`/`bind`, `util config-write`,
-`hook stamp-plan`.
-
-**Publishes to a remote:** `bundle push`, `fragment push`, `command push`, `bundle move --to <remote>`, `skill export`.
-
-**Spawns an engine process:** `run`,
-`llm serve`/`host`/`turn`, `init` (launches the vendor TUI for the setup interview),
-`bundle distill` / `fragment distill` / `command distill` (spawn an LLM for compression),
-`session distill` and the memory MCP tools (spawn a compactor).
-
-## Conventions this package follows unevenly
-
-Documented here because a reader will otherwise assume uniformity that does not exist.
-
-- **Writers.** The convention is `iox.NewErrWriter(cmd.OutOrStdout())` with the
-  sticky error returned at the end. Roughly half the package instead uses bare
-  `fmt.Printf` to process stdout, which bypasses `cmd.SetOut` (so cobra output
-  capture in tests sees nothing) and bypasses the pager seam. Rough counts of
-  bare `fmt.Print*` per file, highest first: `init.go` (38), `manage.go` (25),
-  `memory.go` (20), `run.go` (18), `item_helpers.go` (18), `search.go` (14).
-- **`name == "help"` guard.** Eleven commands short-circuit when their argument is
-  the literal `"help"` and print help instead (`agent.go:110,263,348,376`;
-  `profile.go:131,216,242,328`; `bundle_edit.go:28,95`; `bundle_list.go:132`).
-  It is not applied uniformly — `bundle delete help` and `bundle move help` really
-  act on a resource named `help`, and `profile edit` omits the guard its four
-  siblings in the same file have.
-- **`context.Background()` vs `cmd.Context()`.** Six of seven `skill` subcommands
-  (`skill_cmd.go:54,120,170,216,278,326`), `config create` (`config.go:161`) and
-  `editProfileFile` (`edit_helpers.go:20,34`) use `context.Background()`, so
-  Ctrl-C does not reach the operations layer.
-- **Deprecated alias trees** are carried in five places (`signer *` → `trust signer *`,
-  `sign` → `bundle sign`, `manage mcp *` → `mcp *`, `manage config *` → `config *`,
-  `mcp list|add|remove|show` → `mcp server *`, `fragment search|push`, `memory *` → `session *`,
-  `tooling` → `container tooling`), against the project's
-  stated "no backward-compat shims" rule.
-- **Cyclomatic complexity.** CI runs `lizard -C 10`; on this tree that command
-  exits 1 with 251 warnings, so exceeding CCN 10 is the norm in this package and
-  carries no signal. The highest here: `renderOwnedRunEvents` 21 (`run_owned.go:226`),
-  `runConfigWrite` 18 (`util_config_write.go:111`),
-  `runPlanWatch` 16 (`plan_watch.go:48`). `runCmd.RunE` is larger than all of
-  them and is not measured at all, because lizard does not descend into func literals.
+| I1 | **The composition root mints; the CLI composes.** `config.Open` and `coord.New` are reached only through `cli.Composition`'s closures, and every command reaches configuration through `App()` — one owner, one generation per operation. `GetConfig()` echoes the warnings the reader downgraded from hard errors. `operations` never loads config itself. | `root.go` (`Composition`, `App`, `GetConfig`) |
+| I2 | **One buffered reader over stdin.** `stdinReader` is the single `bufio.Reader` over `os.Stdin`; every interactive y/N prompt goes through `promptLine`/`promptYesNo`. A fresh `bufio.Reader` per prompt would discard bytes a previous reader buffered past its line. | `prompt.go` |
+| I3 | **`--format` is a presentation choice, never a branch in business logic.** Commands build one result value and hand both it and a text closure to `emit()`. `refuseUnsupportedFormat` (pre-run) and `checkFormatWasHonored` (post-run) make an ignored `--format` a loud error. See [output-and-format.md](output-and-format.md). | `format.go` |
+| I4 | **Process-wide flags are applied once, in the root's persistent pre-run** (`rootPersistentPreRunE`): `--degraded`, `--no-companions`, the config-override funnel, and `clidiag`'s structured-diagnostics mode. This depends on no subcommand defining its own persistent hook (cobra runs only the closest one); `TestNoSubcommandDefinesPersistentHooks` fails if one does. | `root.go`, `root_test.go` |
+| I5 | **Process-owning entry points close a phase gate before spawning.** Any command that spawns an engine opens `phaseGates` and closes the startup phase, which aborts with `strictness.ExitCodeFatalFindings` on an actionable finding. Honoured by `run` (`runState.gateStartup`) and `profile materialize`; the root's `refuseUnstampedBuild` closes one of its own. | `startup_helpers.go` |
+| I6 | **The runner is the one credential holder.** `runner.Main` decodes the reach-back once and unsets it before the engine spawns; the session host keeps only the owner's credential (`mcp.HostCoordinatorForSession`) and stamps nothing on its own environment. | `internal/adapters/runner` |
+| I7 | **Relayed MCP handlers derive identity from the caller, not from process env.** `mcp.HostApp.Serve` binds each relayed call to the caller's credential-derived `coord.Identity`; `ctxServer.projectDir` is that identity's project with no cwd fallback (`TestArch_EnvLiteralsOnce` holds the env-key discipline). | `internal/adapters/mcp` |
+| I8 | **Exit codes travel as `ExitError`,** not `os.Exit`, so deferred cleanup runs. `run` unwraps it with `errors.As` (`exitCodeFor`); `strictness.ExitCodeFatalFindings` is reserved for a phase-gate abort. | `root.go` |
+| I9 | **`emit()` renders; the text closure runs only for `--format text`.** A not-found check placed *inside* the text closure therefore does not fire for structured formats. | `internal/shared/cliemit` |

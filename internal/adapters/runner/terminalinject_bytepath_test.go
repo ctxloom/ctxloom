@@ -79,7 +79,7 @@ func TestHelperWakeStdinProbe(t *testing.T) {
 
 // TestTerminalInject_SubmitReachesEngineStdinAsItsOwnRead is the byte-path
 // measurement: it drives the REAL injector through the REAL interactive
-// consumer (ptyrunner.RunInteractive, which internal/lm/backends hands every
+// consumer (ptyrunner.RunInteractive, which the runner's launcher hands every
 // interactive engine) into a REAL pty, and reads back the read boundaries the
 // child process actually observed on its stdin.
 //

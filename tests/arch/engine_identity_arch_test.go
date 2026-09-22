@@ -10,7 +10,7 @@
 // resolveChatModel), a literal violation of the ports-and-adapters boundary
 // docs/adr/0026-ports-and-adapters.md and docs/adr/0020-operations-llm-
 // boundary.md already name: operations may depend only on the injected,
-// polymorphic internal/lm/backends seam, never on a concrete engine package.
+// polymorphic engine registry, never on a concrete engine package.
 //
 // Both defects are gated here, deliberately kept apart because they are
 // different SHAPES of drift:
@@ -68,7 +68,7 @@ import (
 )
 
 // enginePluginImportPaths are the concrete, engine-identity-branching plugin
-// packages ADR-0020/0026 reserve for internal/lm/backends (and each plugin's
+// packages ADR-0020/0026 reserve for the engine registry (and each plugin's
 // own family). Nothing else in the module's core may import them directly;
 // internal/adapters/operations doing so was T12's confirmed violation.
 var enginePluginImportPaths = []string{
@@ -77,7 +77,7 @@ var enginePluginImportPaths = []string{
 
 // TestArch_Operations_DoesNotImportEnginePlugins is the layering half of
 // T12's fix: internal/adapters/operations (the ADR-0026 core) must depend only on the
-// injected, polymorphic internal/lm/backends seam for anything
+// composed engine registry (engines.Registry, agent.Hosted) for anything
 // engine-identity-shaped, never construct or branch on a concrete engine
 // package itself. Scans production (non-_test.go) source only, via this
 // package's own scan() (see arch_test.go) — a test fixture importing an
@@ -100,9 +100,9 @@ func TestArch_Operations_DoesNotImportEnginePlugins(t *testing.T) {
 		for _, ip := range pkgs[dir].imports {
 			if slices.Contains(enginePluginImportPaths, ip) {
 				t.Errorf("package %s imports %s directly — internal/adapters/operations is the ADR-0026 core and may "+
-					"only reach engine-identity-branching behavior through the injected internal/lm/backends "+
-					"seam (see registry.go's agentDescriptor: resolveModel, hookGlobalScopePaths, and friends), "+
-					"never by importing a concrete engine plugin package itself", dir, ip)
+					"only reach engine-identity-branching behavior through the composed engine registry "+
+					"(engines.Registry, the port and agent.Hosted), never by importing a concrete engine "+
+					"plugin package itself", dir, ip)
 			}
 		}
 	}
@@ -120,8 +120,8 @@ type rosterCheck struct {
 // engine-identity rosters lists must be a real, CURRENTLY-registered
 // composed engine name — never a typo, and never a stale reference left
 // behind when a backend was renamed or removed from the canonical registry
-// (internal/lm/backends/registry.go's descriptors table, the source of truth
-// every one of these rosters is a purpose-scoped VIEW over, per
+// (the composed engine registry, engines.Registry, the source of truth every
+// one of these rosters is a purpose-scoped VIEW over, per
 // docs/adr/0026-ports-and-adapters.md). Reads operations.EngineNames() live rather
 // than naming backends here, so a new, correctly-registered backend never
 // requires updating this test.

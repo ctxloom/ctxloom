@@ -273,7 +273,7 @@ func doctorMissingFromPath(bins []string) []string {
 // doctorMissingEngineClients returns "<binary> (<engine>)" for every CONFIGURED
 // engine whose native client is not on PATH, for the DOCTOR-CHECK-DEPS-a1 PATH
 // probe. The binary is the one the engine's own grammar declares
-// (backends.EngineBinary); a test double declares none and is skipped rather
+// (EngineBinary); a test double declares none and is skipped rather
 // than reported as missing.
 func doctorMissingEngineClients(cfg *config.Config) []string {
 	var missing []string
@@ -530,7 +530,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) Do
 // saw two green checks, and lost it silently.
 //
 // It reads CapabilityLossByAgent, which is CapabilityLoss (the same
-// backends.UncarriedSurfaces read `profile materialize` prints as "NOT
+// uncarriedSurfaces read `profile materialize` prints as "NOT
 // carried" and `agent show` already reuses) asked once per configured agent —
 // not a second computation of the same fact.
 //

@@ -197,7 +197,7 @@ var approachDegradeMarkers = []approachDegradeMarker{
 	},
 	{
 		Marker: "launching without managed hooks/commands",
-		Why:    "backends.AssembleManagedConfig returned nil (the config read failed), and internal/adapters/cli/run.go only attaches the binding's Surfaces preference to a NON-nil managed payload — so the pin was dropped on the way to the wire and the engine's default delivery ran instead.",
+		Why:    "the managed config returned nil (the config read failed), and internal/adapters/cli/run.go only attaches the binding's Surfaces preference to a NON-nil managed payload — so the pin was dropped on the way to the wire and the engine's default delivery ran instead.",
 	},
 }
 

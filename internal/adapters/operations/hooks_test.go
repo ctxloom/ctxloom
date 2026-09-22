@@ -579,7 +579,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 
 // TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is the
 // flow-level proof: the target-scope guard is a property of the
-// internal/lm/backends descriptor table, not a hardcoded per-engine list
+// composed engine registry, not a hardcoded per-engine list
 // operations maintains its own copy of. Before this fix,
 // checkHookTargetScope was a literal if/else naming each guarded backend and calling
 // those engines' packages directly (the ADR-0026 violation) — a

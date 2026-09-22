@@ -764,7 +764,7 @@ func TestAssembleContext_DeliversCompanionFragmentUnconditionally(t *testing.T) 
 
 // TestAssembleContext_ExcludesCtxloomInitCommandBody is the OTHER half of the
 // init-as-skill slice 3 load-bearing proof (see
-// internal/lm/backends.TestLoadCommandExports_CtxloomInitAlwaysPresent for the
+// TestLoadCommandExports_CtxloomInitAlwaysPresent for the
 // "invocable" half): ctxloom's five-phase setup body
 // (resources/commands/ctxloom-init.md) must NEVER be part of an ordinary
 // session's always-on ASSEMBLED CONTEXT, no matter how bare the request is.

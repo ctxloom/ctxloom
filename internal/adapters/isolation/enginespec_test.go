@@ -66,7 +66,7 @@ func TestEngineContainerSpecFor_UnknownIsDefault(t *testing.T) {
 // vendorlessFixture is the shape of a test double's container declaration:
 // composable (a non-nil fragment, so `container build` has a recipe) with
 // NO vendor client, an auth plan that authenticates against nothing, its own
-// overlay dir, and no transcript store. It is what internal/lm/backends'
+// overlay dir, and no transcript store. It is what the mock kind's
 // mock declares; this binary cannot link that package, so the shape is
 // authored here and registered under a fixture name.
 func registerVendorlessFixture(t *testing.T, name string, dist engine.Distribution) {

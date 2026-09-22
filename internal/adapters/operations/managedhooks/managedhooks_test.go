@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"os"
@@ -22,8 +22,8 @@ import (
 // --- provenance -------------------------------------------------------------
 
 // sourcesByCommand indexes an assembled event by hook command.
-func sourcesByCommand(m *ManagedHooks, event string) map[string]HookSource {
-	out := make(map[string]HookSource)
+func sourcesByCommand(m *Hooks, event string) map[string]Source {
+	out := make(map[string]Source)
 	for _, h := range m.For(event) {
 		out[h.Hook.Command] = h.Source
 	}
@@ -52,11 +52,11 @@ func TestAssembleManagedHooks_ProvenanceNamesDirectoryProfileAndItsBundles(t *te
 		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 	})
 
-	got := sourcesByCommand(AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil), "pre_tool")
+	got := sourcesByCommand(Assemble(report.Reporter{}, cfg, "/tmp", "", nil), "pre_tool")
 
-	assert.Equal(t, HookOriginProfileDirectory, got["from-dir-profile"].Origin)
+	assert.Equal(t, OriginProfileDirectory, got["from-dir-profile"].Origin)
 	assert.Equal(t, "dev", got["from-dir-profile"].Profile)
-	assert.Equal(t, HookOriginBundle, got["from-bundle"].Origin,
+	assert.Equal(t, OriginBundle, got["from-bundle"].Origin,
 		"a bundle a profile references must be told apart from the profile's OWN hooks")
 	assert.Contains(t, got["from-bundle"].Ref, "kit",
 		"the bundle origin must name the bundle, since that is the thing a user goes and changes")
@@ -84,27 +84,27 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 	cases := []struct {
 		name string
 		scm  string
-		want HookSource
+		want Source
 	}{
 		{
 			name: "companion",
 			scm:  "bundle:" + string(mustRef(trust.CompanionRef("ltk")).BundleIdentity()),
-			want: HookSource{Origin: HookOriginCompanion, Ref: "ctxloom+companion:ltk"},
+			want: Source{Origin: OriginCompanion, Ref: "ctxloom+companion:ltk"},
 		},
 		{
 			name: "local",
 			scm:  "bundle:" + string(mustRef(trust.LocalRef("local-kit")).BundleIdentity()),
-			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+local:local-kit"},
+			want: Source{Origin: OriginBundle, Ref: "ctxloom+local:local-kit"},
 		},
 		{
 			name: "git",
 			scm:  "bundle:" + string(mustRef(trust.GitRef("github.com", "/acme/tools", "kit")).BundleIdentity()),
-			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+git://github.com/acme/tools//bundles/kit"},
+			want: Source{Origin: OriginBundle, Ref: "ctxloom+git://github.com/acme/tools//bundles/kit"},
 		},
 		{
 			name: "file",
 			scm:  "bundle:" + string(mustRef(trust.FileRef("/srv/repo", "kit")).BundleIdentity()),
-			want: HookSource{Origin: HookOriginBundle, Ref: "ctxloom+file:///srv/repo//bundles/kit"},
+			want: Source{Origin: OriginBundle, Ref: "ctxloom+file:///srv/repo//bundles/kit"},
 		},
 		// A marker that fails to parse (the retired, non-canonical spelling
 		// included) is answered "I do not know" rather than the nearest
@@ -113,11 +113,11 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 		{
 			name: "unparseable marker",
 			scm:  "bundle:builtin:core",
-			want: HookSource{Origin: HookOriginUnattributed, Ref: "builtin:core"},
+			want: Source{Origin: OriginUnattributed, Ref: "builtin:core"},
 		},
 		// No marker at all: unreachable in practice, and answered the same way.
-		{name: "empty SCM", scm: "", want: HookSource{Origin: HookOriginUnattributed}},
-		{name: "no bundle: prefix", scm: "something-else", want: HookSource{Origin: HookOriginUnattributed}},
+		{name: "empty SCM", scm: "", want: Source{Origin: OriginUnattributed}},
+		{name: "no bundle: prefix", scm: "something-else", want: Source{Origin: OriginUnattributed}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,12 +130,12 @@ func TestBundleSource_ClassifiesEveryClass(t *testing.T) {
 // synthesised hook honest: it is authored nowhere, so it must not be reported as
 // if some file declared it.
 func TestAssembleManagedHooks_ContextInjectionIsAttributedToContext(t *testing.T) {
-	m := AssembleManagedHooks(report.Reporter{}, gatedFixture(config.Fixture{}), t.TempDir(), "deadbeef", nil)
+	m := Assemble(report.Reporter{}, gatedFixture(config.Fixture{}), t.TempDir(), "deadbeef", nil)
 
 	hooks := m.For("session_start")
 	require.NotEmpty(t, hooks, "a non-empty context hash must synthesise the injection hook")
 	for _, h := range hooks {
-		assert.Equal(t, HookOriginContext, h.Source.Origin)
+		assert.Equal(t, OriginContext, h.Source.Origin)
 	}
 }
 
@@ -150,7 +150,7 @@ func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
 		"dev":   "hooks:\n  unified:\n    pre_tool:\n      - command: p1\n        type: command\n      - command: p2\n        type: command\n",
 	})
 
-	hooks := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil).For("pre_tool")
+	hooks := Assemble(report.Reporter{}, cfg, "/tmp", "", nil).For("pre_tool")
 
 	require.Len(t, hooks, 4)
 	for i, h := range hooks {
@@ -162,17 +162,17 @@ func TestAssembleManagedHooks_DeclaredPositionsAreContiguous(t *testing.T) {
 
 // eventWithCommands assembles a model whose pre_tool event is exactly these
 // commands, in this order.
-func eventWithCommands(t *testing.T, cmds ...string) *ManagedHooks {
+func eventWithCommands(t *testing.T, cmds ...string) *Hooks {
 	hooks := make([]wire.Hook, 0, len(cmds))
 	for _, c := range cmds {
 		hooks = append(hooks, wire.Hook{Command: c, Type: "command"})
 	}
 	body, err := yaml.Marshal(map[string]any{"hooks": wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: hooks}}})
 	require.NoError(t, err)
-	return AssembleManagedHooks(report.Reporter{}, dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
+	return Assemble(report.Reporter{}, dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
 }
 
-func commandsOf(hooks []ResolvedHook) []string {
+func commandsOf(hooks []Resolved) []string {
 	out := make([]string, 0, len(hooks))
 	for _, h := range hooks {
 		out = append(out, h.Hook.Command)
@@ -191,12 +191,12 @@ func TestManagedHooks_ReorderIsAPermutation(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		cmds = append(cmds, "cmd-"+string(rune('a'+i)))
 	}
-	rankers := map[string]HookRanker{
-		"everything ranked identically": func(ResolvedHook) (int, bool) { return 7, true },
-		"nothing ranked":                func(ResolvedHook) (int, bool) { return 0, false },
-		"reverse of declared":           func(h ResolvedHook) (int, bool) { return -h.Declared, true },
-		"alternating unranked":          func(h ResolvedHook) (int, bool) { return h.Declared, h.Declared%2 == 0 },
-		"negative and huge ranks":       func(h ResolvedHook) (int, bool) { return (h.Declared%3)*1000000 - 500000, true },
+	rankers := map[string]Ranker{
+		"everything ranked identically": func(Resolved) (int, bool) { return 7, true },
+		"nothing ranked":                func(Resolved) (int, bool) { return 0, false },
+		"reverse of declared":           func(h Resolved) (int, bool) { return -h.Declared, true },
+		"alternating unranked":          func(h Resolved) (int, bool) { return h.Declared, h.Declared%2 == 0 },
+		"negative and huge ranks":       func(h Resolved) (int, bool) { return (h.Declared%3)*1000000 - 500000, true },
 	}
 	for name, rank := range rankers {
 		t.Run(name, func(t *testing.T) {
@@ -222,7 +222,7 @@ func TestManagedHooks_ReorderMovesRankedHooksAheadAndKeepsBlocks(t *testing.T) {
 	m := eventWithCommands(t, "a1", "b1", "a2", "c1", "b2")
 	block := map[string]int{"b1": 0, "b2": 0, "a1": 1, "a2": 1}
 
-	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
+	require.NoError(t, m.Reorder("pre_tool", func(h Resolved) (int, bool) {
 		r, ok := block[h.Hook.Command]
 		return r, ok
 	}))
@@ -237,7 +237,7 @@ func TestManagedHooks_ReorderMovesRankedHooksAheadAndKeepsBlocks(t *testing.T) {
 func TestManagedHooks_ReorderKeepsUnrankedHooksLast(t *testing.T) {
 	m := eventWithCommands(t, "first", "second", "third")
 
-	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
+	require.NoError(t, m.Reorder("pre_tool", func(h Resolved) (int, bool) {
 		return 0, h.Hook.Command == "third"
 	}))
 
@@ -251,7 +251,7 @@ func TestManagedHooks_ReorderKeepsUnrankedHooksLast(t *testing.T) {
 func TestManagedHooks_ReorderPreservesDeclaredPositions(t *testing.T) {
 	m := eventWithCommands(t, "one", "two", "three")
 
-	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
+	require.NoError(t, m.Reorder("pre_tool", func(h Resolved) (int, bool) {
 		return 0, h.Hook.Command == "three"
 	}))
 
@@ -270,7 +270,7 @@ func TestManagedHooks_ReorderPreservesDeclaredPositions(t *testing.T) {
 func TestManagedHooks_ReorderIsVisibleToInspectionAndWireAlike(t *testing.T) {
 	m := eventWithCommands(t, "alpha", "beta", "gamma")
 
-	require.NoError(t, m.Reorder("pre_tool", func(h ResolvedHook) (int, bool) {
+	require.NoError(t, m.Reorder("pre_tool", func(h Resolved) (int, bool) {
 		return map[string]int{"gamma": 0, "beta": 1, "alpha": 2}[h.Hook.Command], true
 	}))
 
@@ -290,15 +290,15 @@ func TestManagedHooks_ReorderIsVisibleToInspectionAndWireAlike(t *testing.T) {
 func TestManagedHooks_ReorderRefusesWhatItCannotDo(t *testing.T) {
 	m := eventWithCommands(t, "a", "b")
 
-	err := m.Reorder("pre_toll", func(ResolvedHook) (int, bool) { return 0, true })
+	err := m.Reorder("pre_toll", func(Resolved) (int, bool) { return 0, true })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pre_toll")
 	assert.Contains(t, err.Error(), "pre_tool", "the error must name the events that DO exist")
 
 	require.Error(t, m.Reorder("pre_tool", nil), "a nil ranker is a caller error, not a no-op")
 
-	var nilModel *ManagedHooks
-	require.Error(t, nilModel.Reorder("pre_tool", func(ResolvedHook) (int, bool) { return 0, true }))
+	var nilModel *Hooks
+	require.Error(t, nilModel.Reorder("pre_tool", func(Resolved) (int, bool) { return 0, true }))
 
 	assert.Equal(t, []string{"a", "b"}, commandsOf(m.For("pre_tool")),
 		"a refused reorder must leave the order untouched")
@@ -308,7 +308,7 @@ func TestManagedHooks_ReorderRefusesWhatItCannotDo(t *testing.T) {
 // event" is a real state, not a mistake — unlike a misspelled event name.
 func TestManagedHooks_ReorderOfAnEmptyEventIsNotAnError(t *testing.T) {
 	m := eventWithCommands(t, "a")
-	assert.NoError(t, m.Reorder("session_end", func(ResolvedHook) (int, bool) { return 0, true }))
+	assert.NoError(t, m.Reorder("session_end", func(Resolved) (int, bool) { return 0, true }))
 	assert.Empty(t, m.For("session_end"))
 }
 
@@ -327,14 +327,14 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	m := AssembleManagedHooks(report.Reporter{}, dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
+	m := Assemble(report.Reporter{}, dirProfileCfg(t, []string{"p"}, map[string]string{"p": string(body)}), "/tmp", "", nil)
 
 	native := m.BackendNative()
 
 	require.Len(t, native, 2, "only backend events with hooks are reported")
 	assert.Equal(t, "claude", native[0].Backend)
 	assert.Equal(t, "PreToolUse", native[0].Event)
-	assert.Equal(t, HookOriginProfileDirectory, native[0].Hooks[0].Source.Origin)
+	assert.Equal(t, OriginProfileDirectory, native[0].Hooks[0].Source.Origin)
 	assert.Equal(t, "zed", native[1].Backend, "sorted by backend, so the report can be diffed between runs")
 
 	// ...and the gated wire projection carries no empty key either.
@@ -345,17 +345,17 @@ func TestManagedHooks_BackendNativeIsSortedAndOmitsTheEmptyKeys(t *testing.T) {
 // TestHookSource_StringNamesWhateverTheOriginCarries keeps the human label
 // honest for each shape of source.
 func TestHookSource_StringNamesWhateverTheOriginCarries(t *testing.T) {
-	assert.Equal(t, "profile-directory", HookSource{Origin: HookOriginProfileDirectory}.String())
-	assert.Equal(t, "profile-directory dev", HookSource{Origin: HookOriginProfileDirectory, Profile: "dev"}.String())
-	assert.Equal(t, "bundle acme/tools", HookSource{Origin: HookOriginBundle, Ref: "acme/tools"}.String())
+	assert.Equal(t, "profile-directory", Source{Origin: OriginProfileDirectory}.String())
+	assert.Equal(t, "profile-directory dev", Source{Origin: OriginProfileDirectory, Profile: "dev"}.String())
+	assert.Equal(t, "bundle acme/tools", Source{Origin: OriginBundle, Ref: "acme/tools"}.String())
 }
 
-// TestManagedHooks_NilModelIsInertRatherThanPanicking: AssembleManagedHooks is
+// TestManagedHooks_NilModelIsInertRatherThanPanicking: Assemble is
 // fault-tolerant by contract (a config load failure yields an empty managed set
 // rather than blocking a launch), so every accessor has to survive the degraded
 // case.
 func TestManagedHooks_NilModelIsInert(t *testing.T) {
-	var m *ManagedHooks
+	var m *Hooks
 	assert.Nil(t, m.For("pre_tool"))
 	assert.Nil(t, m.BackendNative())
 	assert.Equal(t, &wire.HooksConfig{Ext: map[string]wire.BackendHooks{}}, m.Wire())

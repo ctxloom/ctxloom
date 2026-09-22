@@ -593,7 +593,7 @@ func InContainer() bool { return containerprobe.InContainer() }
 // for InContainer and the `container check` diagnosis.
 //
 // The probe itself lives in internal/shared/containerprobe because
-// internal/lm/backends' mock records the same answer as evidence of where an
+// the mock backend records the same answer as evidence of where an
 // engine ran, and backends cannot import this package (isolation -> backends
 // -> acp -> isolation). Two copies of the marker list would drift the first
 // time a runtime changed a sentinel.

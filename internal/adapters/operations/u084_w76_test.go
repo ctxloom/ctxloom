@@ -383,7 +383,7 @@ func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
 //
 // So the set is marginally LESS complex than the package it is drawn from —
 // it is not a hotspot, and 15 distinct dependencies across eight facade files
-// is what a facade over remote/, bundles/, config/ and lm/backends/ costs by
+// is what a facade over remote/, bundles/, config/ and the engine registry costs by
 // construction, not evidence of incohesion. (The claim's "42" matches neither
 // the per-file nor the package-wide distinct-dependency count.)
 //

@@ -208,7 +208,7 @@ func warnAgentAxisTypos(name string, req SetAgentRequest) {
 // `agent create finder --engine claude-fast` is one of this command's own help
 // examples. That is the SAME set `llm default` accepts and the same one it
 // offers on rejection, so this message can never list a name it would refuse.
-// Checking backends.Exists alone (init's guard, where a freshly scaffolded
+// Checking EngineExists alone (init's guard, where a freshly scaffolded
 // config.yaml genuinely has no labels yet) would reject the documented
 // invocation. An explicitly empty engine stays legal: it CLEARS the override,
 // falling back to the composed profiles' llm and then the project default.

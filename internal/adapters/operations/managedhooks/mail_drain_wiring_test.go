@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"strings"
@@ -14,7 +14,7 @@ import (
 // resolved commands for one unified event.
 func eventCommands(t *testing.T, event string) []string {
 	t.Helper()
-	m := newManagedHooks()
+	m := newHooks()
 	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	var cmds []string
@@ -49,7 +49,7 @@ func TestAppendManagedDynamicHooks_InstallsTheMailDrainHookOnTurnStart(t *testin
 // the hook survives into the DELIVERED wire set and stays out of the declared
 // one that capability-loss reporting reads (see the next-step twin).
 func TestAppendManagedDynamicHooks_MailDrainIsDeliveredNotOnlyDeclared(t *testing.T) {
-	m := newManagedHooks()
+	m := newHooks()
 	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	delivered := wireCommandsOf(m.Wire().Unified.TurnStart)

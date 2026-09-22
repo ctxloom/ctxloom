@@ -1,7 +1,7 @@
 // Context file tests verify that assembled context is persisted correctly and
 // can be retrieved by the context injection hook. The hash-based naming enables
 // content-addressable storage and cache invalidation when context changes.
-package backends
+package agent_test
 
 import (
 	"bytes"

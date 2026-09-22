@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"testing"
@@ -19,7 +19,7 @@ import (
 // MUTATION -- drop the mergeUnified call for NewSkillMatesHook -- turns this
 // red.
 func TestAppendManagedDynamicHooks_InstallsTheSkillMatesHook(t *testing.T) {
-	m := newManagedHooks()
+	m := newHooks()
 	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	var matchers []string

@@ -38,7 +38,7 @@ func DecodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 }
 
 // mockControlConfig is implemented by the mock doubles' BackendConfig types
-// (backends.MockConfig and its siblings), the only label bodies that carry a
+// (mock.Config), the only label bodies that carry a
 // map of variables for the launched process: the CTXLOOM_MOCK_* test-control
 // knobs. No real engine's config carries one — an engine's credentials and
 // environment are ambient, never ctxloom's (config.RetiredLLMEnvKey). It is a

@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"

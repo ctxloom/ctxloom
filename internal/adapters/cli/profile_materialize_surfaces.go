@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // This file carries `agent edit --surface <kind>=<approach>`'s parser: the
@@ -30,7 +30,7 @@ func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]string, error)
 	if len(pairs) == 0 {
 		return nil, nil
 	}
-	known := knownApproachNames()
+	known := operations.KnownApproachNames()
 	out := make(map[agent.SurfaceKind]string, len(pairs))
 	for _, p := range pairs {
 		name, approach, ok := strings.Cut(p, "=")
@@ -53,18 +53,4 @@ func parseSurfaceOverrides(pairs []string) (map[agent.SurfaceKind]string, error)
 		out[k] = a
 	}
 	return out, nil
-}
-
-// knownApproachNames is the union of every approach name any composed
-// engine declares, sorted — what the flag offers as "names that exist at
-// all" before an engine is chosen. Derived from the declarations, never
-// listed.
-func knownApproachNames() []string {
-	var decls []agent.Declaration
-	for _, n := range engines.Registry().Names(nil) {
-		if h, ok := engines.Hosted(string(n)); ok {
-			decls = append(decls, h.Declaration())
-		}
-	}
-	return agent.ApproachNames(decls...)
 }

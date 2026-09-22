@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations/managedhooks"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
 // Hook source kinds, as reported by ResolvedHook.SourceKind. Each is a distinct
 // place a user can go and edit, which is the only reason to report a source at
-// all — and each is carried by the resolved model (backends.HookOrigin) rather
+// all — and each is carried by the resolved model (managedhooks.Origin) rather
 // than guessed after the fact.
 //
 // These used to be three coarse labels, because the merge appended into a wire
@@ -22,20 +22,20 @@ import (
 const (
 	// SourceKindProfileDirectory: a directory profile's own `hooks:` block.
 	// Source names the profile.
-	SourceKindProfileDirectory = string(backends.HookOriginProfileDirectory)
+	SourceKindProfileDirectory = string(managedhooks.OriginProfileDirectory)
 	// SourceKindCompanion: a companion binary's loadout, discovered on PATH.
 	// Source is "ctxloom:companion@<bin>".
-	SourceKindCompanion = string(backends.HookOriginCompanion)
+	SourceKindCompanion = string(managedhooks.OriginCompanion)
 	// SourceKindBundle: a bundle a selected profile references, and Source
 	// names it.
-	SourceKindBundle = string(backends.HookOriginBundle)
+	SourceKindBundle = string(managedhooks.OriginBundle)
 	// SourceKindContext: ctxloom's own context-injection hook, synthesised per
 	// apply rather than authored anywhere. Nothing to go and edit.
-	SourceKindContext = string(backends.HookOriginContext)
+	SourceKindContext = string(managedhooks.OriginContext)
 	// SourceKindUnattributed: a bundle-resolved hook carrying no origin marker.
 	// Unreachable in practice, and reported as "I do not know" rather than
-	// rounded to the nearest plausible source — see backends.HookOriginUnattributed.
-	SourceKindUnattributed = string(backends.HookOriginUnattributed)
+	// rounded to the nearest plausible source — see managedhooks.OriginUnattributed.
+	SourceKindUnattributed = string(managedhooks.OriginUnattributed)
 )
 
 // ResolveHooksRequest asks what hooks will actually fire, and in what order.
@@ -112,7 +112,7 @@ func resolvedHookEventOrder() []string { return wire.HookEvents() }
 // sequencing only its own hooks within an event. No single input states the
 // result, which is exactly why the result was invisible.
 //
-// So this calls backends.AssembleManagedHooks — the SAME function
+// So this calls managedhooks.Assemble — the SAME function
 // applyHooksToBackend calls — rather than re-deriving the set from bundles. An
 // inspect surface that computed the answer its own way would be a second
 // implementation of the merge, and the two would drift; the failure mode is an
@@ -153,7 +153,7 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	// identity is an artefact of having asked the question is not inspection.
 	// Apply computes a real hash because it is about to write it down; this is
 	// not, and says so rather than faking one.
-	assembled := backends.AssembleManagedHooks(terminalReporter(), cfg, workDir, "", req.Profiles)
+	assembled := managedhooks.Assemble(terminalReporter(), cfg, workDir, "", req.Profiles)
 
 	out := &ResolveHooksResult{}
 	for _, event := range resolvedHookEventOrder() {
@@ -173,7 +173,7 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 // the slice index because on this path position IS the answer: the model holds
 // each event's hooks in the order they will fire, and the per-bundle order field
 // has already been consumed upstream in config.extractHooksFromBundle.
-func describeHooks(hooks []backends.ResolvedHook) []ResolvedHook {
+func describeHooks(hooks []managedhooks.Resolved) []ResolvedHook {
 	out := make([]ResolvedHook, 0, len(hooks))
 	for i, h := range hooks {
 		out = append(out, ResolvedHook{
@@ -196,7 +196,7 @@ func describeHooks(hooks []backends.ResolvedHook) []ResolvedHook {
 // profile kinds, the bundle ref for the bundle kinds, nothing for the kinds that
 // name nothing. A bundle-shipped directory profile carries both; the PROFILE is
 // what a user selected and what they would deselect, so it wins.
-func hookSourceName(s backends.HookSource) string {
+func hookSourceName(s managedhooks.Source) string {
 	if s.Profile != "" {
 		return s.Profile
 	}
@@ -211,7 +211,7 @@ func hookSourceName(s backends.HookSource) string {
 // backend's own event names rather than the unified six — so `--event pre_tool`
 // on a backend that happens to spell an event that way still narrows honestly,
 // and one that does not simply reports nothing native.
-func describeBackendNative(native []backends.BackendNativeHooks, eventFilter string) []ResolvedBackendHooks {
+func describeBackendNative(native []managedhooks.BackendNative, eventFilter string) []ResolvedBackendHooks {
 	var out []ResolvedBackendHooks
 	for _, n := range native {
 		if eventFilter != "" && n.Event != eventFilter {

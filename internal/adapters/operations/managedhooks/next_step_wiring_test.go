@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"strings"
@@ -14,7 +14,7 @@ import (
 // resolved turn_end commands.
 func turnEndCommands(t *testing.T) []string {
 	t.Helper()
-	m := newManagedHooks()
+	m := newHooks()
 	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	var cmds []string
@@ -48,10 +48,10 @@ func TestAppendManagedDynamicHooks_InstallsTheNextStepHookOnTurnEnd(t *testing.T
 // drops ctxloom's own hooks from capability-loss reporting; a hook that only
 // existed there would be reported about and never written.
 //
-// MUTATION — attribute the hook to HookOriginBundle, or have Wire() filter
-// HookOriginContext — turns this red.
+// MUTATION — attribute the hook to OriginBundle, or have Wire() filter
+// OriginContext — turns this red.
 func TestAppendManagedDynamicHooks_NextStepIsDeliveredNotOnlyDeclared(t *testing.T) {
-	m := newManagedHooks()
+	m := newHooks()
 	appendManagedDynamicHooks(report.Reporter{}, m, gatedFixture(config.Fixture{}), t.TempDir(), "", nil)
 
 	delivered := wireCommandsOf(m.Wire().Unified.TurnEnd)

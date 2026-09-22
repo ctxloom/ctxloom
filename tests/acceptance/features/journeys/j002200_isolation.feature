@@ -41,7 +41,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #      with Cmd.Dir = the resolved WorkDir; the mock never spawns a
   #      grandchild, so it cannot observe isolation via os.Getwd() — that
   #      value is identical across every workspace axis, confirmed live. The
-  #      mock now also records req.WorkDir (internal/lm/backends/mock.go),
+  #      mock now also records req.WorkDir (internal/engines/mock/backend.go),
   #      the value isolation.Prepare actually resolved and threaded through
   #      RunOptions.WorkDir — THAT is the honest signal this journey reads.
   #   2. Per-engine config-home isolation (CLAUDE_CONFIG_DIR) is decided off

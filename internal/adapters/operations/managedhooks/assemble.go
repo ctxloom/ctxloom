@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"fmt"
@@ -79,7 +79,7 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 	return br, nil
 }
 
-// AssembleManagedHooks builds the COMPLETE ctxloom-managed hook set that every
+// Assemble builds the COMPLETE ctxloom-managed hook set that every
 // writer of a backend settings file must produce identically: config-level
 // hooks, default-profile-shipped hooks, bundle-shipped hooks, and (when
 // contextHash is non-empty) the context-injection hook.
@@ -93,26 +93,26 @@ func parseSourceRef(source string) (trust.BundleRef, error) {
 // class that once broke forward-bind. Keeping the full assembly here guarantees
 // both writers produce an identical, complete set.
 //
-// Returns a fresh ManagedHooks each call (never aliases cfg.Hooks), so callers
+// Returns a fresh Hooks each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
 // accumulate duplicate hooks by mutating shared config state.
 //
 // The return value is the RESOLVED MODEL (managed_hooks.go), not a wire config:
 // it keeps each hook's provenance and declared position, which the pure-append
 // merge used to discard at every step, and it is what any project-level hook
-// ORDERING has to act on. Writers take the projection, ManagedHooks.Wire, which
+// ORDERING has to act on. Writers take the projection, Hooks.Wire, which
 // is byte-for-byte the wire config this function used to return.
-func AssembleManagedHooks(rep report.Reporter, cfg *config.Config, workDir, contextHash string, profileNames []string) *ManagedHooks {
+func Assemble(rep report.Reporter, cfg *config.Config, workDir, contextHash string, profileNames []string) *Hooks {
 	if cfg == nil {
-		return newManagedHooks()
+		return newHooks()
 	}
-	return AssembleManagedHooksFor(rep, cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
+	return AssembleFor(rep, cfg, workDir, contextHash, cfg.ResolveProfileSet(profileNames))
 }
 
-// AssembleManagedHooksFor is AssembleManagedHooks over an already resolved
+// AssembleFor is Assemble over an already resolved
 // profile set — the one assembly resolved, so its faults are reported once.
-func AssembleManagedHooksFor(rep report.Reporter, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *ManagedHooks {
-	hooks := newManagedHooks()
+func AssembleFor(rep report.Reporter, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) *Hooks {
+	hooks := newHooks()
 	if cfg == nil {
 		return hooks
 	}
@@ -129,8 +129,8 @@ func AssembleManagedHooksFor(rep report.Reporter, cfg *config.Config, workDir, c
 		// a genuinely local one) — the same distinction the gate keys on, so the
 		// report names the bundle a remote-sourced profile came from rather than
 		// only the ref a user pasted into their agent's profile list.
-		hooks.mergeHooks(gated, fixedSource(HookSource{
-			Origin:  HookOriginProfileDirectory,
+		hooks.mergeHooks(gated, fixedSource(Source{
+			Origin:  OriginProfileDirectory,
 			Profile: profileName,
 			Ref:     resolved.SourceRef,
 		}))
@@ -150,7 +150,7 @@ func AssembleManagedHooksFor(rep report.Reporter, cfg *config.Config, workDir, c
 // The bundle set arrives FLAT — builtins, companion loadouts, and each selected
 // profile's bundles in one slice — so it is attributed per hook off the marker
 // config.extractHooksFromBundle stamped (bundleSource), not from this call site.
-func appendManagedDynamicHooks(rep report.Reporter, m *ManagedHooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
+func appendManagedDynamicHooks(rep report.Reporter, m *Hooks, cfg *config.Config, workDir, contextHash string, set []profiles.ResolvedProfile) {
 	if m == nil || cfg == nil {
 		return
 	}
@@ -161,7 +161,7 @@ func appendManagedDynamicHooks(rep report.Reporter, m *ManagedHooks, cfg *config
 	if minBytes, enabled := cfg.GetToolReflectBytes(); enabled {
 		m.mergeUnified(
 			wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewToolReflectHook(minBytes)}},
-			fixedSource(HookSource{Origin: HookOriginContext}))
+			fixedSource(Source{Origin: OriginContext}))
 	}
 	// The PostToolUse skill-mates hook rides the same managed set: link
 	// groups are ctxloom's own delivery unit, so the step that follows one
@@ -170,7 +170,7 @@ func appendManagedDynamicHooks(rep report.Reporter, m *ManagedHooks, cfg *config
 	// the only thing to configure would be whether a group may be followed.
 	m.mergeUnified(
 		wire.UnifiedHooks{PostTool: []wire.Hook{agent.NewSkillMatesHook()}},
-		fixedSource(HookSource{Origin: HookOriginContext}))
+		fixedSource(Source{Origin: OriginContext}))
 	// The TurnEnd next-step hook rides the same managed set, for the same
 	// reason as the reflect hook above: it exists to make the distilled
 	// essence task-aware, so it belongs to ctxloom rather than to any bundle.
@@ -179,18 +179,18 @@ func appendManagedDynamicHooks(rep report.Reporter, m *ManagedHooks, cfg *config
 	// session was doing.
 	m.mergeUnified(
 		wire.UnifiedHooks{TurnEnd: []wire.Hook{agent.NewNextStepHook()}},
-		fixedSource(HookSource{Origin: HookOriginContext}))
+		fixedSource(Source{Origin: OriginContext}))
 	// The turn_start mail-drain hook rides the same managed set: it is the
 	// session owner's only spool reader, so it belongs to ctxloom rather than
 	// to any bundle. Ungated — a session with no mail is handed nothing, so
 	// the only thing to configure would be whether the owner may receive.
 	m.mergeUnified(
 		wire.UnifiedHooks{TurnStart: []wire.Hook{agent.NewMailDrainHook()}},
-		fixedSource(HookSource{Origin: HookOriginContext}))
+		fixedSource(Source{Origin: OriginContext}))
 	if contextHash != "" {
 		m.mergeUnified(
 			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(rep, contextHash, workDir)},
-			fixedSource(HookSource{Origin: HookOriginContext}))
+			fixedSource(Source{Origin: OriginContext}))
 	}
 }
 

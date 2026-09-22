@@ -68,9 +68,9 @@ const DefaultProbeTimeout = 10 * time.Second
 // Command declares HOW to ask one engine's binary for its own version: the
 // arguments to pass, and how to read a version out of what it prints.
 //
-// It lives in the backend descriptor (internal/lm/backends) with the engine's
-// other per-engine facts, not in a switch here — this package holds the
-// mechanism, the descriptor holds the per-engine detail.
+// The per-engine detail is the engine's own declaration
+// (engine.Definition.Version), not a switch here — this package holds the
+// mechanism, the Definition holds the per-engine detail.
 //
 // Parse receives the command's combined stdout+stderr, trimmed of surrounding
 // whitespace, and returns the version string EXACTLY as it should be recorded
@@ -89,9 +89,9 @@ type Command struct {
 // Resolver maps an engine's registry name to the binary that would be launched
 // for it and the Command that asks that binary for its version.
 //
-// It is a function rather than a direct import because the descriptor table
-// that answers it (internal/lm/backends) imports THIS package for Command —
-// injecting the lookup keeps the dependency one-directional.
+// It is a function rather than a direct import because the registry read
+// that answers it (operations) imports THIS package for Command — injecting
+// the lookup keeps the dependency one-directional.
 //
 // A resolver returning an error is reporting that the version cannot be
 // determined at all; it should return a *BinaryAbsentError when the engine's

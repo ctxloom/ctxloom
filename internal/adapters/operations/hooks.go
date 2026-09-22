@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/spf13/afero"
@@ -256,50 +255,27 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 }
 
 // checkHookTargetScope refuses to apply hooks when the resolved workDir would
-// write a TARGET backend's user-GLOBAL scope instead of a project's
-// per-PROJECT scope — claude's settings.json, codex's whole
-// config.toml/prompts/skills home, and kiro's whole
-// agents/settings/steering home — all the SAME collision
-// class: each backend's project-scoped home is a workDir join, so it
-// collapses onto the bare global exactly when workDir == $HOME too. Scoped
-// to backend (empty targets the project's configured engines; a named
-// backend runs only itself) so a single-backend apply is never blocked on a
-// collision for a DIFFERENT backend it never touches.
-//
-// The per-backend collision paths and messages live in
-// internal/lm/backends (registry.go's hookGlobalScopePaths /
-// hookGlobalScopeLabel descriptor fields, read by backends.
-// CheckHookTargetScope) rather than here — this used to be a hardcoded
-// claude/codex/kiro if/else that imported those three backend packages
-// directly, a literal ADR-0026 violation (operations, the core, branching on
-// backend identity and reaching past the injected backends seam). Routing
-// through the descriptor table means a backend that later needs this guard
-// registers hookGlobalScopePaths ONCE, in its own descriptor, and this loop
-// (and any other caller of backends.CheckHookTargetScope) picks it up with no
-// operations-side edit.
-//
-// opencode is AUDITED, not guarded (nil hookGlobalScopePaths in its
-// descriptor), because it cannot hit this collision class: opencode's actual
-// global config lives at a DIFFERENT path (~/.config/opencode/opencode.json,
-// per opencode's own docs) than its project file (workDir/opencode.json —
-// see OpencodeWriter.SettingsPath), so workDir==$HOME never makes the two
-// paths equal.
+// write a TARGET engine's user-GLOBAL scope instead of a project's
+// per-PROJECT scope. Scoped to backend (empty targets the project's
+// configured engines; a named backend runs only itself) so a single-backend
+// apply is never blocked on a collision for a DIFFERENT backend it never
+// touches. The collision class is each engine's own declaration
+// (agent.Hosted.HookGlobalScope, read by checkHookTargetScopeOf): an engine
+// declaring none is audited as unable to hit it, and this loop branches on
+// no engine's identity.
 //
 // force downgrades every collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
 //
-// Found live: `manage hooks install` run from
-// $HOME silently went global, injecting context into every project and
-// duplicating the /clear banner; home entries were removed by hand as a
-// stopgap. The codex/kiro guards above are completions of the
-// same audit.
+// Found live: `manage hooks install` run from $HOME silently went global,
+// injecting context into every project and duplicating the /clear banner.
 func checkHookTargetScope(cfg *config.Config, workDir, backend string, force bool) error {
 	// Deliberately UNVALIDATED: the scope guard also covers engines registered
 	// through the guard's own table rather than the descriptor registry, and
 	// rejecting those here would skip the very check they need. ApplyHooks
 	// validates the name on its own path.
 	for _, name := range hookBackendNamesUnchecked(cfg, backend) {
-		if err := backends.CheckHookTargetScope(name, workDir, force); err != nil {
+		if err := checkHookTargetScopeOf(name, workDir, force); err != nil {
 			return err
 		}
 	}
@@ -412,8 +388,14 @@ func trustStoreFindingsError(mark strictness.Mark) error {
 // success having applied nothing. manageBackendNames guards the removal door
 // the same way.
 func hookBackendNames(cfg *config.Config, backend string) ([]string, error) {
+	return backendNames(backend, ConfiguredEngines(cfg))
+}
+
+// backendNames resolves a backend filter: the empty filter is the caller's
+// default set; a name is ONE backend, refused when unregistered.
+func backendNames(backend string, defaults []string) ([]string, error) {
 	if backend == "" {
-		return ConfiguredEngines(cfg), nil
+		return defaults, nil
 	}
 	return namedBackend(backend)
 }
@@ -426,7 +408,7 @@ func hookBackendNames(cfg *config.Config, backend string) ([]string, error) {
 // the other does not.
 func namedBackend(backend string) ([]string, error) {
 	if !EngineExists(backend) {
-		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(backends.BackendsWithSettings(), ", "))
+		return nil, fmt.Errorf("unknown backend %q (supported: %s)", backend, strings.Join(EngineNames(), ", "))
 	}
 	return []string{backend}, nil
 }

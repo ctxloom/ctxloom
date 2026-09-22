@@ -16,7 +16,7 @@
 // of every
 // @doc-tagged scenario has its real, run-produced evidence — CLI stdout/
 // stderr and, where applicable, the mock engine's recorded input (the
-// "=== Prompt ===" payload from internal/lm/backends/mock.go) — routed
+// "=== Prompt ===" payload from internal/engines/mock/backend.go) — routed
 // through godog's NATIVE cucumber-message attachment channel
 // (godog.Attach/godog.Attachments, confirmed present in
 // github.com/cucumber/godog v0.15.1: see attachment_test.go and

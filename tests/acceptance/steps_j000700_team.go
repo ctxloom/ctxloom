@@ -422,7 +422,7 @@ func readBobFile(w *World, rel string) (string, error) {
 // findBobCommandFile globs for the materialized slash-command file backing
 // commandName under Bob's "out" materialize target and reads the first match.
 // The exact basename is an internal naming detail (bundle-prefixed on any
-// export-name collision, see internal/lm/backends/commandfiles.go's
+// export-name collision, see internal/engines/claude/commandfiles.go's
 // exportNames), so this asserts on CONTENT rather than an exact path.
 func findBobCommandFile(w *World, commandName string) (string, error) {
 	glob := filepath.Join(w.j000700().bobDir, "out", ".claude", "commands", "*"+commandName+"*.md")

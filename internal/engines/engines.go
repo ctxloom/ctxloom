@@ -98,6 +98,19 @@ func Use(reg engine.Registry) (restore func()) {
 	}
 }
 
+// NamesWhere lists, sorted, the composed engines keep accepts — a view over
+// the engine VALUES (what they implement), where Registry.Names is a view
+// over their Definitions.
+func NamesWhere(keep func(name string, e engine.Engine) bool) []string {
+	var out []string
+	for _, n := range Registry().Names(nil) {
+		if e, ok := Registry().Lookup(n); ok && keep(string(n), e) {
+			out = append(out, string(n))
+		}
+	}
+	return out
+}
+
 // Hosted resolves name to its kind's instance-half contract (agent.Hosted)
 // by EXACT match on the registered name. No alias, case or prefix
 // resolution: an engine has one spelling, and any other reaches the caller

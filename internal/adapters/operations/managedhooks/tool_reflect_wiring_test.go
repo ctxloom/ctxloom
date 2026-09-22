@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"strings"
@@ -18,7 +18,7 @@ func reflectHooksFor(t *testing.T, setting int) []string {
 	cfg := gatedFixture(config.Fixture{
 		Settings: config.SettingsConfig{ToolReflectBytes: setting},
 	})
-	m := newManagedHooks()
+	m := newHooks()
 	appendManagedDynamicHooks(report.Reporter{}, m, cfg, t.TempDir(), "", nil)
 
 	var cmds []string
@@ -78,13 +78,13 @@ func TestAppendManagedDynamicHooks_CarriesTheConfiguredThreshold(t *testing.T) {
 // excluding nothing re-introduces the "gap nobody asked to use" line for a hook
 // ctxloom added on the user's behalf.
 func TestWireDeclared_ExcludesCtxloomsOwnHooksButKeepsDeclaredOnes(t *testing.T) {
-	m := newManagedHooks()
+	m := newHooks()
 	m.mergeUnified(
 		wire.UnifiedHooks{PostTool: []wire.Hook{{Command: "CTXLOOM_OWN", Type: "command"}}},
-		fixedSource(HookSource{Origin: HookOriginContext}))
+		fixedSource(Source{Origin: OriginContext}))
 	m.mergeUnified(
 		wire.UnifiedHooks{PostTool: []wire.Hook{{Command: "BUNDLE_DECLARED", Type: "command"}}},
-		fixedSource(HookSource{Origin: HookOriginBundle}))
+		fixedSource(Source{Origin: OriginBundle}))
 
 	declared := wireCommandsOf(m.WireDeclared().Unified.PostTool)
 	if hasCommand(declared, "CTXLOOM_OWN") {

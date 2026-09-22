@@ -28,7 +28,7 @@ import (
 // writes a manifest whose hashes match the tree and updates on edit; export
 // then import round-trips byte-identically with the exec bit intact; import
 // rejects a path-traversal archive; and (skill curation itself is covered in
-// internal/lm/backends/skill_curation_test.go, which needs the profile
+// the skill curation tests, which needs the profile
 // resolver this package's cfg does not wire standalone).
 
 // writeDirFormBundle creates an empty directory-form bundle (bundle.yaml with

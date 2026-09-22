@@ -3,7 +3,7 @@
 //
 // It lives at the leaf because its two consumers sit on opposite sides of an
 // import cycle: internal/adapters/isolation owns the launch decision, while
-// internal/lm/backends' mock records the answer as evidence of WHERE an engine
+// the mock backend records the answer as evidence of WHERE an engine
 // ran, and backends cannot import isolation (isolation -> backends -> acp ->
 // isolation). A second copy of the marker list is exactly the drift this
 // package exists to prevent: the copies would answer differently the first

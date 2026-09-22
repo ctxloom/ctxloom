@@ -24,7 +24,7 @@ import (
 // discovery launch (discoverySessionPrompt, init.go), `ctxloom init prompt`'s
 // re-entry pointer, and the `/ctxloom-init` slash command available in
 // every ordinary session (resources/commands/ctxloom-init.md, exported via
-// internal/lm/backends.builtinCommands — unconditional, on ALL backends'
+// the managed built-in commands — unconditional, on ALL backends'
 // command catalogs, loaded by the engine only on invocation, never injected
 // into always-on assembled context). It is deliberately a markdown
 // RESOURCE, not Go: the role palette and example names are data that can

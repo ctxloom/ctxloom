@@ -21,7 +21,7 @@ import (
 //
 // Scoped to the three packages that mint or consume a bundle-shipped
 // executable's SCM/source ref — internal/core/bundles, internal/core/config,
-// internal/lm/backends — which is where every genuine producer lives.
+// operations/managedhooks — which is where every genuine producer lives.
 // Deliberately NOT a whole-repo sweep: internal/core/trust.IsRetiredBuiltinSpelling
 // and internal/adapters/operations.ResolveSignTarget both still recognize the RETIRED
 // "builtin:<name>" ASK spelling on purpose — recognizing it is what lets it be
@@ -34,7 +34,7 @@ import (
 // (reader_localfs.go, catalog.go) as if they were code.
 func TestNoBuiltinSourceRefLiteralSurvives(t *testing.T) {
 	root := repoRootForTest(t)
-	dirs := []string{"internal/core/bundles", "internal/core/config", "internal/lm/backends"}
+	dirs := []string{"internal/core/bundles", "internal/core/config", "internal/adapters/operations/managedhooks"}
 
 	var offenders []string
 	for _, dir := range dirs {
@@ -91,7 +91,7 @@ func stringLitValue(raw string) (string, error) {
 
 // repoRootForTest locates the module root by walking up from the working
 // directory (which `go test` sets to the package directory) until it finds
-// go.mod, so this test finds internal/core/config and internal/lm/backends
+// go.mod, so this test finds the scanned directories
 // regardless of which package it happens to run from.
 func repoRootForTest(t *testing.T) string {
 	t.Helper()

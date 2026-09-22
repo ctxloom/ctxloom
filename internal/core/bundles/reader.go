@@ -301,10 +301,10 @@ func warnUnmintableSource(rep report.Reporter, source string, err error) {
 // TrustRef is built from, and REFUSES a source it cannot address. The grammar
 // lives in trust.ItemRef, so every producer that mints an item ref from a
 // bundle's structured source — this package's own loaders, config's
-// executable-surface extractors, lm/backends' profile gate — cannot drift on
+// executable-surface extractors, managedhooks' profile gate — cannot drift on
 // what an item ref is.
 //
-// Exported because config and lm/backends are the same kind of caller this
+// Exported because config and managedhooks are the same kind of caller this
 // package's own loaders are: each holds a trust.BundleRef (a BundleRead's
 // SourceRef, or the structured counterpart of one) and needs the identical
 // mint behavior, not a private copy of it.

@@ -9,17 +9,15 @@ import (
 )
 
 // The companion binaries resolve engine names by exact match against their
-// own lean registries; they never link the composition root or the hosting
-// records. The hosting records are typed on the bundle model, which those
+// own lean registries; they never link the composition root, whose kinds
+// carry the adapters (readers, the version probe) and the bundle model those
 // binaries were kept free of deliberately. This gate holds that line as a
 // checked fact rather than a measurement someone did once: the lean
-// binaries' transitive link set must contain neither the hosting package
+// binaries' transitive link set must contain neither the composition root
 // nor the bundle model.
 func TestArch_LeanBinaries_DoNotLinkEngineDescriptors(t *testing.T) {
 	forbidden := []string{
-		modulePath + "/internal/lm/hosting",
 		modulePath + "/internal/engines",
-		modulePath + "/internal/lm/backends",
 		modulePath + "/internal/core/bundles",
 	}
 	for _, bin := range []string{"./cmd/ltk", "./cmd/taskloom"} {

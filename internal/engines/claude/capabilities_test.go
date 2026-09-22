@@ -76,7 +76,7 @@ func TestClaudeContext_Clear(t *testing.T) {
 // The agent-side seam: MergeManaged folds the host-assembled (wire-typed)
 // ManagedConfig into the lifecycle and appends the agent's own context-injection
 // hook. The config/profile/bundle resolution that produces ManagedConfig is
-// covered host-side in internal/lm/backends (managed_test.go).
+// covered host-side in operations/managedhooks (assemble_test.go).
 
 func TestClaudeLifecycle_MergeManaged_AppendsContextInjection(t *testing.T) {
 	lifecycle := newClaudeLifecycle()

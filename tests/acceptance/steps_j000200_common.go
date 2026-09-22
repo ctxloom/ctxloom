@@ -243,7 +243,7 @@ func materializeDefault(w *World, target string) (string, error) {
 // this environment spawns, and anything IT self-invokes with no explicit
 // spawn env, inherits it; the mock backend's Execute falls back to
 // os.Getenv for any CTXLOOM_MOCK_* key its config's own env map doesn't
-// carry, internal/lm/backends/mock.go's getEnvFromMap). Used by scenarios
+// carry, the mock backend's knob reads (mock.Env)). Used by scenarios
 // that need to observe delivery via the mock while the rest of the project
 // stays configured for a real (declared) engine.
 func addMockAlongside(w *World) (recordFile string, err error) {
@@ -342,7 +342,7 @@ func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
 }
 
 // promptSection extracts the "=== Prompt ===" section the mock backend
-// records (internal/lm/backends/mock.go's recordMockInput) — the exact text
+// records (the mock backend's recordInput (internal/engines/mock/backend.go)) — the exact text
 // the discovery session handed the engine as its interview prompt. The
 // marker's absence is a harness/product break (a mock that recorded
 // something other than a prompt, or a record-file format change) — not an

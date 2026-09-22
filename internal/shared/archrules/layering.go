@@ -177,9 +177,8 @@ var LayeringRules = []LayeringRule{
 		Forbid: []string{
 			// the adapters (the from-set again)
 			"internal/adapters",
-			// the engines, and the retired-in-place backends (slice 11b)
+			// the engines
 			"internal/engines",
-			"internal/lm/backends",
 		},
 		Allowed: map[string]string{
 			"internal/adapters/configload -> internal/adapters/configload/layerscope": "sanctioned: a package's own subpackage",
@@ -288,6 +287,9 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/operations -> internal/adapters/isolation":               "slice 7: launch.Cells is the port; isolation is injected at cmd/*",
 			"internal/adapters/operations -> internal/adapters/memory":                  "slice 14a: memory.NewCompactor(entry, source, llm); the compactor is injected",
 			"internal/adapters/operations -> internal/adapters/remote":                  "slice 5: the pull-walk is behind composite.Transport / bundles.Reader",
+			"internal/adapters/operations -> internal/adapters/operations/managedhooks": "sanctioned: a package's own subpackage — the managed hook set operations assembles and reports",
+			"internal/adapters/operations/managedhooks -> internal/adapters/remote":     "slice 5: the profile gate's bundle refs are parsed through the pull-walk's ref grammar (remote.ParseReference); behind composite.Transport / bundles.Reader with the operations edge above",
+			"internal/adapters/runner -> internal/adapters/tmuxhost":                    "sanctioned: the runner hosts an interactive engine in a tmux pane on its own terminal (runner.RunLaunchSpec)",
 			"internal/adapters/operations -> internal/adapters/signing":                 "slice 5: one verifier behind the trust ports",
 			"internal/adapters/operations -> internal/adapters/signing/agentkey":        "slice 5: one verifier behind the trust ports",
 			"internal/adapters/operations -> internal/adapters/signing/allowedsigners":  "slice 5: composite.SignerDecision is core-owned; the adapter is injected",
@@ -347,7 +349,7 @@ var LayeringRules = []LayeringRule{
 		// allowlisted edge is MEASURED and leaves in the slice its reason
 		// names.
 		Name:   "engines-import-nothing-above-the-port",
-		From:   []string{"internal/engines", "internal/lm/backends", "internal/lm/hosting"},
+		From:   []string{"internal/engines"},
 		Forbid: []string{"internal/core", "internal/adapters"},
 		Except: []string{
 			"internal/core/agent",

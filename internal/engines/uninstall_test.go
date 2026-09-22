@@ -1,4 +1,4 @@
-package backends
+package engines
 
 import (
 	"encoding/json"
@@ -36,15 +36,15 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	deliverManagedSettings(t, "claude-code", ctxloomManagedHooks(), map[string]wire.MCPServer{agent.MCPServerName: {Command: agent.CtxloomBinary, Args: []string{"mcp", "serve"}}}, true, dir, fs)
 
 	// Sanity: ctxloom is wired before removal.
-	before, err := BackendStatus("claude-code", dir, WithSettingsFS(fs))
+	before, err := hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).Status(dir)
 	require.NoError(t, err)
 	require.True(t, before.Wired(), "ctxloom should be wired after delivery")
 	require.True(t, before.StatusLine)
 	require.True(t, before.MCPPresent)
 
-	require.NoError(t, settingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings(dir))
+	require.NoError(t, hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings(dir))
 
-	after, err := BackendStatus("claude-code", dir, WithSettingsFS(fs))
+	after, err := hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).Status(dir)
 	require.NoError(t, err)
 	assert.False(t, after.Wired(), "no ctxloom artifacts should remain")
 
@@ -58,8 +58,8 @@ func TestClaudeCodeRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
-	require.NoError(t, settingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
-	require.NoError(t, settingsWriter("mock", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
+	require.NoError(t, hostedSettingsWriter("claude-code", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
+	require.NoError(t, hostedSettingsWriter("mock", agent.SettingsOptions{FS: fs}).RemoveSettings("/empty"))
 
 	// Uninstall must never create config files.
 	exists, _ := afero.Exists(fs, "/empty/.claude/settings.json")
@@ -68,30 +68,6 @@ func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	assert.False(t, exists)
 	exists, _ = afero.Exists(fs, "/empty/.agents/mcp_config.json")
 	assert.False(t, exists)
-}
-
-// BackendStatus must be able to tell "typo'd/unregistered name"
-// apart from "registered backend that genuinely has no settings support"
-// (mock) — both used to return a zero SettingsStatus and a nil error,
-// so a caller passing a typo got a clean, empty, successful-looking read.
-// An UNREGISTERED name now errors; a registered-but-no-writer backend still
-// reports an empty status with a nil error (that IS a legitimate "nothing to
-// report" — the case TestBackendStatus_UnsupportedBackendIsUnwired covers is
-// renamed to reflect this).
-func TestBackendStatus_UnregisteredBackendErrors(t *testing.T) {
-	_, err := BackendStatus("unknown-backend", "/project")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown-backend")
-}
-
-func TestBackendStatus_RegisteredNoWriterBackendIsUnwiredNoError(t *testing.T) {
-	// "mock" is a REGISTERED backend that deliberately has no settings writer
-	// (no native config format to materialize) — this must stay a clean,
-	// error-free empty read, unlike an unregistered name.
-	status, err := BackendStatus("mock", "/project")
-	require.NoError(t, err)
-	assert.False(t, status.Wired())
-	assert.False(t, status.SettingsExists)
 }
 
 func readJSON(t *testing.T, fs afero.Fs, path string) map[string]any {

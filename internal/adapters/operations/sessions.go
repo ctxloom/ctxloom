@@ -174,7 +174,7 @@ func ForgetSession(harp string) error {
 
 // probeEngineVersion is the seam AssignSession probes through. A package var
 // so tests can drive both outcomes without an engine binary installed — the
-// production value execs the real CLI through backends' shared cached prober.
+// production value execs the real CLI through the shared cached prober.
 var probeEngineVersion = ProbeEngineVersion
 
 // AssignSession mints a fresh harp for a new run in projectDir under backend,

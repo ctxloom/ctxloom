@@ -6,7 +6,7 @@
 // unaffected by this fix) and TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed
 // below for the uncut-grub double-'#' regression proven through PRODUCTION
 // bundle-profile seeding (config.loadBundleProfileSeed), not a hand-built fixture.
-package backends
+package managedhooks
 
 import (
 	"os"
@@ -110,7 +110,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 // seeds a bundle-shipped profile in production, local or remote) carrying an
 // inline hook, and the default agent's profile IS that bundle-shipped
 // profile's "<bundle>#profiles/<name>" ref (the directory-profile fallback
-// branch in AssembleManagedMCP/AssembleManagedHooks, NOT an inline
+// branch in AssembleManagedMCP/Assemble, NOT an inline
 // config.yaml profile).
 //
 // Before the fix, the gate ref was built as
@@ -143,7 +143,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	var gotRefs []string
 	cfg.BindTrustForTesting(recordingTrust(&gotRefs))
 
-	assembled := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil)
+	assembled := Assemble(report.Reporter{}, cfg, "/tmp", "", nil)
 	// Reaching the authorizer AT ALL is the fix: a double-'#' ref does not parse
 	// (trust.ParseSelector rejects kind "profiles"), so bundles.Decide withholds
 	// it before any authorizer is consulted and gotRefs would be empty.
@@ -179,7 +179,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 	})
 	cfg.BindTrustForTesting(rejectingAll())
 
-	assembled := AssembleManagedHooks(report.Reporter{}, cfg, "/tmp", "", nil)
+	assembled := Assemble(report.Reporter{}, cfg, "/tmp", "", nil)
 	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")
 }
 

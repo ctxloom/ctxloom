@@ -1,4 +1,4 @@
-package backends
+package operations
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// CheckHookTargetScope refuses (or, with force, loudly warns) when workDir
+// checkHookTargetScopeOf refuses (or, with force, loudly warns) when workDir
 // resolves onto the named backend's user-GLOBAL scope instead of a project's
 // per-PROJECT scope — Claude Code's settings.json, codex's whole
 // config.toml/prompts/skills home
@@ -23,7 +23,7 @@ import (
 //
 // force downgrades a real collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
-func CheckHookTargetScope(name, workDir string, force bool) error {
+func checkHookTargetScopeOf(name, workDir string, force bool) error {
 	h, ok := engines.Hosted(name)
 	if !ok {
 		return nil
@@ -84,7 +84,7 @@ type InTreeAgentHomeSpec struct {
 	Prepare func(cwd, orchestrator string) (release func() error, err error)
 }
 
-// InTreeAgentHomeFor resolves the named backend's controlled config-home
+// inTreeAgentHomeFor resolves the named backend's controlled config-home
 // INSTANCE for harp, or ok=false when that backend has none — or when the
 // harp cannot name one. It is the polymorphic seam
 // operations.ResolveInTreeAgentHome reads instead of branching on engine
@@ -107,7 +107,7 @@ type InTreeAgentHomeSpec struct {
 // pointing at it, prepared by THE ambient copy-in (isolation.CopyAmbient).
 // An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
-func InTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
+func inTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
 	kind, exists := engines.Registry().Lookup(engine.Name(name))
 	if !exists {
 		return InTreeAgentHomeSpec{}, false

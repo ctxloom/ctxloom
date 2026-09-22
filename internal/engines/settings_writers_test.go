@@ -3,7 +3,7 @@
 // system - hooks enable ctxloom to inject context at session start, and MCP
 // servers expose ctxloom's tools to AI assistants. Tests ensure user-defined
 // settings are preserved while ctxloom-managed ones are updated.
-package backends
+package engines
 
 import (
 	"encoding/json"
@@ -32,7 +32,7 @@ import (
 func deliverManagedSettings(t *testing.T, backend string, hooks *wire.HooksConfig, bundleMCP map[string]wire.MCPServer, manageStatusline bool, dir string, fs afero.Fs) {
 	t.Helper()
 	in := agent.SurfaceInputs{Hooks: hooks, BundleMCP: bundleMCP, ManageStatusline: manageStatusline}
-	decl := Declared(backend)
+	decl := hostedDeclaration(backend)
 	for _, kind := range []agent.SurfaceKind{agent.SurfaceSettings, agent.SurfaceMCP} {
 		a, ok := decl.Construct(kind, agent.ApproachUnsafeFile, in, fs)
 		require.True(t, ok, "%s declares no %s/%s", backend, kind, agent.ApproachUnsafeFile)
@@ -142,7 +142,7 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			writer := settingsWriter(tt.backend, agent.SettingsOptions{})
+			writer := hostedSettingsWriter(tt.backend, agent.SettingsOptions{})
 			if tt.expected {
 				assert.NotNil(t, writer)
 			} else {

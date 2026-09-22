@@ -1,4 +1,4 @@
-package backends
+package managedhooks
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 )
 
 // This file holds the RESOLVED MODEL of the ctxloom-managed hook set:
-// ManagedHooks, what AssembleManagedHooks returns.
+// Hooks, what Assemble returns.
 //
 // # Why a model and not a wire config
 //
@@ -29,47 +29,47 @@ import (
 //
 // # The lifecycle
 //
-// A ManagedHooks is resolved once (AssembleManagedHooks), inspected (For,
+// A Hooks is resolved once (Assemble), inspected (For,
 // BackendNative), worked with (Reorder), and only then assembled into the
 // serializable form (Wire). Order is a property of the object throughout, so
 // the order inspection reports and the order Wire emits cannot be different
 // numbers — they are the same slice read twice.
 
-// HookOrigin classifies WHERE a resolved hook was declared. It is as specific as
+// Origin classifies WHERE a resolved hook was declared. It is as specific as
 // the merge can honestly be: each value corresponds to a distinct place a user
 // can go and edit, which is the only reason to report provenance at all.
-type HookOrigin string
+type Origin string
 
 const (
-	// HookOriginProfileDirectory: a directory profile's own `hooks:` block
+	// OriginProfileDirectory: a directory profile's own `hooks:` block
 	// (.ctxloom/profiles/<name>.yaml, or a bundle-shipped profile reached
 	// through the same loader). These pass the executable trust gate; a hook
 	// with this origin was ALLOWED by it.
-	HookOriginProfileDirectory HookOrigin = "profile-directory"
-	// HookOriginCompanion: a companion binary's loadout bundle, discovered on
+	OriginProfileDirectory Origin = "profile-directory"
+	// OriginCompanion: a companion binary's loadout bundle, discovered on
 	// PATH. Ref is the canonical "ctxloom+companion:<bin>". Also
 	// unconditional: the lever is whether the binary is installed.
-	HookOriginCompanion HookOrigin = "companion"
-	// HookOriginBundle: a bundle a selected profile references. Ref is the
+	OriginCompanion Origin = "companion"
+	// OriginBundle: a bundle a selected profile references. Ref is the
 	// bundle's source ref.
-	HookOriginBundle HookOrigin = "bundle"
-	// HookOriginContext: ctxloom's own context-injection hook, synthesised per
+	OriginBundle Origin = "bundle"
+	// OriginContext: ctxloom's own context-injection hook, synthesised per
 	// apply from the assembled-context hash rather than authored anywhere.
 	// Nothing to go and edit.
-	HookOriginContext HookOrigin = "context"
-	// HookOriginUnattributed: a hook that arrived through the bundle-resolution
+	OriginContext Origin = "context"
+	// OriginUnattributed: a hook that arrived through the bundle-resolution
 	// pass WITHOUT the "bundle:<ref>" marker config.extractHooksFromBundle
 	// stamps. This should be unreachable, and it is a named value rather than a
-	// silent fallback to HookOriginBundle precisely so that if it ever happens
+	// silent fallback to OriginBundle precisely so that if it ever happens
 	// the report says "I do not know" instead of inventing an origin. A
 	// confident wrong attribution sends someone to edit the wrong file.
-	HookOriginUnattributed HookOrigin = "unattributed"
+	OriginUnattributed Origin = "unattributed"
 )
 
-// HookSource is one resolved hook's provenance.
-type HookSource struct {
+// Source is one resolved hook's provenance.
+type Source struct {
 	// Origin is which KIND of place declared the hook.
-	Origin HookOrigin
+	Origin Origin
 
 	// Profile names the profile a hook was declared in, for the two profile
 	// origins. It is EMPTY for the bundle origins, and that is a real limit
@@ -88,7 +88,7 @@ type HookSource struct {
 
 // String renders a source as "<origin>" or "<origin> <name>", where name is the
 // profile or the bundle ref, whichever the origin carries.
-func (s HookSource) String() string {
+func (s Source) String() string {
 	switch {
 	case s.Profile != "":
 		return string(s.Origin) + " " + s.Profile
@@ -99,15 +99,15 @@ func (s HookSource) String() string {
 	}
 }
 
-// ResolvedHook is one hook in the assembled set, with everything the merge knew
+// Resolved is one hook in the assembled set, with everything the merge knew
 // about it at the point it was merged in.
-type ResolvedHook struct {
+type Resolved struct {
 	// Hook is the wire form, exactly as a writer will serialize it. Provenance
 	// lives beside it, never inside it.
 	Hook wire.Hook
 
 	// Source is where the hook was declared.
-	Source HookSource
+	Source Source
 
 	// Declared is the hook's 1-based position within its event as the MERGE
 	// produced it, before any Reorder. A hook's effective position is its index
@@ -117,17 +117,17 @@ type ResolvedHook struct {
 	Declared int
 }
 
-// BackendNativeHooks is one engine-native (ext passthrough) event's hooks.
+// BackendNative is one engine-native (ext passthrough) event's hooks.
 // These bypass the unified events entirely, so they are kept — and reported
 // — separately: folding them in would imply an ordering relationship with
 // unified hooks that does not exist.
-type BackendNativeHooks struct {
+type BackendNative struct {
 	Backend string
 	Event   string
-	Hooks   []ResolvedHook
+	Hooks   []Resolved
 }
 
-// ManagedHooks is the resolved ctxloom-managed hook set: every hook that will
+// Hooks is the resolved ctxloom-managed hook set: every hook that will
 // fire, per event, in the order it will fire in, with where each came from.
 //
 // It is MUTABLE and reordered IN PLACE (see Reorder). That is deliberate. The
@@ -136,10 +136,10 @@ type BackendNativeHooks struct {
 // the pre-reorder one and hand THAT to a writer — reintroducing exactly the
 // divergence the single shared resolution point was built to prevent. One
 // object, one order, both callers reading the same slice.
-type ManagedHooks struct {
+type Hooks struct {
 	// events maps a unified event name to its hooks in EFFECTIVE order. An
 	// absent key and an empty slice mean the same thing (no hooks).
-	events map[string][]ResolvedHook
+	events map[string][]Resolved
 
 	// ext maps engine → native event → hooks, the model of wire.HooksConfig.Ext.
 	// Key PRESENCE is meaningful and is preserved: the append merge creates an
@@ -147,18 +147,14 @@ type ManagedHooks struct {
 	// event key whose value is a nil slice for an event declared empty. Wire
 	// reproduces that skeleton, so a writer sees the same structure it always
 	// did.
-	ext map[string]map[string][]ResolvedHook
+	ext map[string]map[string][]Resolved
 }
 
-// HookEvents and IsHookEvent are the unified event vocabulary (wire).
-func HookEvents() []string      { return wire.HookEvents() }
-func IsHookEvent(n string) bool { return wire.IsHookEvent(n) }
-
-// newManagedHooks returns an empty model.
-func newManagedHooks() *ManagedHooks {
-	return &ManagedHooks{
-		events: make(map[string][]ResolvedHook),
-		ext:    make(map[string]map[string][]ResolvedHook),
+// newHooks returns an empty model.
+func newHooks() *Hooks {
+	return &Hooks{
+		events: make(map[string][]Resolved),
+		ext:    make(map[string]map[string][]Resolved),
 	}
 }
 
@@ -170,7 +166,7 @@ func newManagedHooks() *ManagedHooks {
 // The returned slice aliases the model's own: callers read it, and reorder
 // through Reorder rather than by sorting it, so that a reorder cannot happen
 // where the object does not know about it.
-func (m *ManagedHooks) For(event string) []ResolvedHook {
+func (m *Hooks) For(event string) []Resolved {
 	if m == nil {
 		return nil
 	}
@@ -182,17 +178,17 @@ func (m *ManagedHooks) For(event string) []ResolvedHook {
 // between runs cannot be diffed. Events with no hooks are omitted — the empty
 // keys the merge creates are structure Wire has to reproduce, not hooks anyone
 // asked about.
-func (m *ManagedHooks) BackendNative() []BackendNativeHooks {
+func (m *Hooks) BackendNative() []BackendNative {
 	if m == nil {
 		return nil
 	}
-	var out []BackendNativeHooks
+	var out []BackendNative
 	for backend, events := range m.ext {
 		for event, hooks := range events {
 			if len(hooks) == 0 {
 				continue
 			}
-			out = append(out, BackendNativeHooks{Backend: backend, Event: event, Hooks: hooks})
+			out = append(out, BackendNative{Backend: backend, Event: event, Hooks: hooks})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -204,12 +200,12 @@ func (m *ManagedHooks) BackendNative() []BackendNativeHooks {
 	return out
 }
 
-// HookRanker assigns one hook its sort rank within an event. ok=false leaves the
+// Ranker assigns one hook its sort rank within an event. ok=false leaves the
 // hook UNRANKED: it keeps its relative order and sits after every ranked hook —
 // the same reasoning as wire.HookOrderLess's absent-sorts-last, that an explicit
 // claim beats no claim and a hook nobody mentioned must not overtake one someone
 // did.
-type HookRanker func(ResolvedHook) (rank int, ok bool)
+type Ranker func(Resolved) (rank int, ok bool)
 
 // Reorder stable-sorts one unified event's hooks by rank, in place.
 //
@@ -235,7 +231,7 @@ type HookRanker func(ResolvedHook) (rank int, ok bool)
 // # Where this may be called from
 //
 // Anything that orders hooks for the PROJECT — the config-level override the
-// apply-time-reorder design describes — must run inside AssembleManagedHooks,
+// apply-time-reorder design describes — must run inside Assemble,
 // before either caller observes the object. A caller that reorders after
 // assembly reorders only its own copy, and then inspection and apply are two
 // different answers again, which is the one failure this seam exists to make
@@ -243,13 +239,13 @@ type HookRanker func(ResolvedHook) (rank int, ok bool)
 //
 // An unknown event name is an ERROR rather than a no-op: a typo that silently
 // reorders nothing is indistinguishable from a rule that had no effect.
-func (m *ManagedHooks) Reorder(event string, rank HookRanker) error {
+func (m *Hooks) Reorder(event string, rank Ranker) error {
 	if m == nil {
 		return fmt.Errorf("reorder %q: no assembled hook set", event)
 	}
-	if !IsHookEvent(event) {
+	if !wire.IsHookEvent(event) {
 		return fmt.Errorf("reorder: unknown hook event %q; the lifecycle events are %s",
-			event, strings.Join(HookEvents(), ", "))
+			event, strings.Join(wire.HookEvents(), ", "))
 	}
 	if rank == nil {
 		return fmt.Errorf("reorder %q: nil ranker", event)
@@ -282,7 +278,7 @@ func (m *ManagedHooks) Reorder(event string, rank HookRanker) error {
 		}
 		return ranks[ia] < ranks[ib]
 	})
-	out := make([]ResolvedHook, len(hooks))
+	out := make([]Resolved, len(hooks))
 	for i, idx := range order {
 		out[i] = hooks[idx]
 	}
@@ -301,12 +297,12 @@ func (m *ManagedHooks) Reorder(event string, rank HookRanker) error {
 // a nil value — all of which is what the pure-append merge produced before the
 // model existed. TestAssembleManagedHooks_WireMatchesFrozenReference holds this
 // to deep equality against a frozen copy of that merge.
-func (m *ManagedHooks) Wire() *wire.HooksConfig {
+func (m *Hooks) Wire() *wire.HooksConfig {
 	out := &wire.HooksConfig{Ext: make(map[string]wire.BackendHooks)}
 	if m == nil {
 		return out
 	}
-	for _, event := range HookEvents() {
+	for _, event := range wire.HookEvents() {
 		out.Unified.SetEvent(event, wireHooks(m.events[event]))
 	}
 	for backend, events := range m.ext {
@@ -321,7 +317,7 @@ func (m *ManagedHooks) Wire() *wire.HooksConfig {
 
 // WireDeclared is Wire restricted to hooks somebody DECLARED — bundles,
 // profiles, companions — excluding the ones ctxloom assembles for
-// its own machinery (HookOriginContext: context injection, the PostToolUse
+// its own machinery (OriginContext: context injection, the PostToolUse
 // reflect hook).
 //
 // It exists for CAPABILITY-LOSS reporting, which asks a different question
@@ -333,12 +329,12 @@ func (m *ManagedHooks) Wire() *wire.HooksConfig {
 //
 // Delivery still uses Wire: a managed hook that CAN be carried must be, and
 // this projection is not a filter on what gets written.
-func (m *ManagedHooks) WireDeclared() *wire.HooksConfig {
+func (m *Hooks) WireDeclared() *wire.HooksConfig {
 	out := &wire.HooksConfig{Ext: make(map[string]wire.BackendHooks)}
 	if m == nil {
 		return out
 	}
-	for _, event := range HookEvents() {
+	for _, event := range wire.HookEvents() {
 		out.Unified.SetEvent(event, wireHooks(declaredOnly(m.events[event])))
 	}
 	for backend, events := range m.ext {
@@ -353,10 +349,10 @@ func (m *ManagedHooks) WireDeclared() *wire.HooksConfig {
 
 // declaredOnly drops hooks ctxloom assembled for itself, keeping every hook
 // that came from content a user or a bundle author wrote.
-func declaredOnly(hooks []ResolvedHook) []ResolvedHook {
-	out := make([]ResolvedHook, 0, len(hooks))
+func declaredOnly(hooks []Resolved) []Resolved {
+	out := make([]Resolved, 0, len(hooks))
 	for _, h := range hooks {
-		if h.Source.Origin == HookOriginContext {
+		if h.Source.Origin == OriginContext {
 			continue
 		}
 		out = append(out, h)
@@ -369,7 +365,7 @@ func declaredOnly(hooks []ResolvedHook) []ResolvedHook {
 
 // wireHooks strips the model down to the wire form. nil for an empty list —
 // see Wire on why that distinction is preserved rather than smoothed over.
-func wireHooks(hooks []ResolvedHook) []wire.Hook {
+func wireHooks(hooks []Resolved) []wire.Hook {
 	if len(hooks) == 0 {
 		return nil
 	}
@@ -385,10 +381,10 @@ func wireHooks(hooks []ResolvedHook) []wire.Hook {
 // hookAttributor decides one merged hook's provenance. Sources whose identity is
 // known at the merge site use fixedSource; the bundle-resolution pass, which
 // arrives as one flat set of several kinds of bundle, uses bundleSource.
-type hookAttributor func(wire.Hook) HookSource
+type hookAttributor func(wire.Hook) Source
 
-func fixedSource(s HookSource) hookAttributor {
-	return func(wire.Hook) HookSource { return s }
+func fixedSource(s Source) hookAttributor {
+	return func(wire.Hook) Source { return s }
 }
 
 // bundleHookMarkerPrefix is the marker config.extractHooksFromBundle stamps into
@@ -411,21 +407,21 @@ const bundleHookMarkerPrefix = "bundle:"
 // start with the same characters the way a raw prefix test could be. A marker
 // that fails to parse is Unattributed with the ref reported unattributed
 // rather than misclassified, matching the "I do not know" posture
-// HookOriginUnattributed documents.
-func bundleSource(h wire.Hook) HookSource {
+// OriginUnattributed documents.
+func bundleSource(h wire.Hook) Source {
 	ref, ok := strings.CutPrefix(h.SCM, bundleHookMarkerPrefix)
 	if !ok {
-		return HookSource{Origin: HookOriginUnattributed}
+		return Source{Origin: OriginUnattributed}
 	}
 	br, err := trust.ParseBundleRef(ref)
 	if err != nil {
-		return HookSource{Origin: HookOriginUnattributed, Ref: ref}
+		return Source{Origin: OriginUnattributed, Ref: ref}
 	}
 	switch br.Class {
 	case trust.ClassCompanion:
-		return HookSource{Origin: HookOriginCompanion, Ref: ref}
+		return Source{Origin: OriginCompanion, Ref: ref}
 	default:
-		return HookSource{Origin: HookOriginBundle, Ref: ref}
+		return Source{Origin: OriginBundle, Ref: ref}
 	}
 }
 
@@ -434,11 +430,11 @@ func bundleSource(h wire.Hook) HookSource {
 // (agent.MergeHooksConfig → wire.HooksConfig.Append): same order, same
 // per-event concatenation, same ext key skeleton — with the source recorded
 // instead of discarded.
-func (m *ManagedHooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor) {
+func (m *Hooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor) {
 	m.mergeUnified(src.Unified, attribute)
 	for backend, events := range src.Ext {
 		if m.ext[backend] == nil {
-			m.ext[backend] = make(map[string][]ResolvedHook)
+			m.ext[backend] = make(map[string][]Resolved)
 		}
 		for event, hooks := range events {
 			// Assigning unconditionally (rather than only when hooks is
@@ -451,8 +447,8 @@ func (m *ManagedHooks) mergeHooks(src wire.HooksConfig, attribute hookAttributor
 }
 
 // mergeUnified merges every unified event.
-func (m *ManagedHooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributor) {
-	for _, event := range HookEvents() {
+func (m *Hooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributor) {
+	for _, event := range wire.HookEvents() {
 		hooks := u.Event(event)
 		if len(hooks) == 0 {
 			continue
@@ -463,13 +459,13 @@ func (m *ManagedHooks) mergeUnified(u wire.UnifiedHooks, attribute hookAttributo
 
 // resolve pairs each wire hook with its provenance and its declared position,
 // numbering from base (the count already merged into that event).
-func (m *ManagedHooks) resolve(hooks []wire.Hook, base int, attribute hookAttributor) []ResolvedHook {
+func (m *Hooks) resolve(hooks []wire.Hook, base int, attribute hookAttributor) []Resolved {
 	if len(hooks) == 0 {
 		return nil
 	}
-	out := make([]ResolvedHook, 0, len(hooks))
+	out := make([]Resolved, 0, len(hooks))
 	for i, h := range hooks {
-		out = append(out, ResolvedHook{Hook: h, Source: attribute(h), Declared: base + i + 1})
+		out = append(out, Resolved{Hook: h, Source: attribute(h), Declared: base + i + 1})
 	}
 	return out
 }

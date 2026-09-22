@@ -160,8 +160,7 @@ func testCredentialSeedSourceFiles(t *testing.T) {
 
 // overlayCheck names one engineContainerSpecFor(backend) row's expected
 // project-relative managed-config directory, sourced from the owning engine
-// (or, for mock, internal/lm/backends itself — mock has no separate plugin
-// package).
+// (for mock, internal/engines/mock).
 type overlayCheck struct {
 	backend string
 	want    string

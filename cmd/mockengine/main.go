@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -68,13 +69,10 @@ func personalityFromFlag(tok string) (string, bool) {
 // impersonable lists the registered backends that declare an engine CLI — the
 // personalities a --<backend> flag can select.
 func impersonable() []string {
-	var out []string
-	for _, n := range engines.Registry().Names(nil) {
-		if _, ok := engines.EngineCLIs(string(n)); ok {
-			out = append(out, string(n))
-		}
-	}
-	return out
+	return engines.NamesWhere(func(name string, _ engine.Engine) bool {
+		_, ok := engines.EngineCLIs(name)
+		return ok
+	})
 }
 
 // surfaceByName resolves the requested surface name against the personality's

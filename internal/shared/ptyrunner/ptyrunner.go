@@ -184,7 +184,7 @@ func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
 // a pty gives the child one stream (fd 1 and fd 2 are both the slave), so
 // there is no separation left at the master to route to a second writer.
 // A caller that needs the two streams apart must not use a pty — see
-// internal/lm/backends' non-interactive branch, which wires cmd.Stdout and
+// runner.RunLaunchSpec's non-interactive branch, which wires cmd.Stdout and
 // cmd.Stderr directly.
 //
 // stdinCleanup releases whatever backs stdin, and is supplied by the layer

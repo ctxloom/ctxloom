@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -113,7 +112,7 @@ func resolveMaterializeTarget(cfg *config.Config, req MaterializeProfileRequest)
 }
 
 // registeredBackend refuses a name no engine is registered under exactly.
-// The registered name is what every backends.* lookup keys on and what
+// The registered name is what every registry lookup keys on and what
 // results report.
 func registeredBackend(name string) (string, error) {
 	if !EngineExists(name) {
@@ -201,11 +200,11 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// cannot be pulled later — as a skill the engine's own progressive
 	// disclosure carries it. A collision between two of them is fatal rather
 	// than a silent overwrite — see PremisedFragmentSkills.
-	withheld := make([]backends.PremisedFragment, 0, len(asm.WithheldFragments))
+	withheld := make([]PremisedFragment, 0, len(asm.WithheldFragments))
 	for _, w := range asm.WithheldFragments {
-		withheld = append(withheld, backends.PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
+		withheld = append(withheld, PremisedFragment{Ref: w.Name, Premise: w.Premise, Content: w.Content})
 	}
-	fragmentSkills, err := backends.PremisedFragmentSkills(withheld)
+	fragmentSkills, err := PremisedFragmentSkills(withheld)
 	if err != nil {
 		return nil, fmt.Errorf("materialize premised fragments as skills for %v: %w", req.Profiles, err)
 	}

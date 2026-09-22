@@ -27,7 +27,7 @@ import (
 // scenario.
 //
 // The mock backend's DEFAULT response (no custom CTXLOOM_MOCK_RESPONSE) is an
-// echo of the prompt it was sent (internal/lm/backends/mock.go's
+// echo of the prompt it was sent (internal/engines/mock/backend.go's
 // buildMockResponse: "[mock] prompt=%s" with the full promptContent, verbatim)
 // — i.e. it "compresses" by not compressing at all, exit 0 every time. That is
 // exactly quit-eagle's shape: a pipeline that behaves (no errors) but never

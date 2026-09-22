@@ -117,7 +117,7 @@ func llmEntryFromConfig(label string, c config.LLMConfig) LLMEntry {
 type SetLLMRequest struct {
 	Label string `json:"label"`
 	// Type is the backend discriminator (claude-code|codex|kiro|...).
-	// A non-empty value is REJECTED unless backends.Exists names it — an
+	// A non-empty value is REJECTED unless EngineExists names it — an
 	// unknown type leaves EffectiveType silently degrading to DefaultLLM at
 	// resolve time, exactly the "written already broken" defect
 	// SetAgent.validateAgentAxes' engine check exists to prevent. Empty

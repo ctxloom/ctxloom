@@ -10,7 +10,7 @@ import (
 // content is the existing per-engine adapters' business, selected by recorded
 // engine version, and nothing here should tempt a caller to parse for itself.
 type Located struct {
-	// Engine is the backend's registered name (internal/lm/backends), matching
+	// Engine is the engine's registered name (engines.Registry), matching
 	// the engine identifiers used everywhere else.
 	Engine string
 	// SessionID is the engine-native session identifier.

@@ -1,4 +1,4 @@
-package backends
+package resources_test
 
 import (
 	"testing"

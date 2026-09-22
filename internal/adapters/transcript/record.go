@@ -80,7 +80,7 @@ type Record struct {
 	// Engine carries the driving backend's REGISTERED name verbatim, exactly
 	// as NewRecorder received it: nothing on this path normalizes, allowlists
 	// or refuses a value. That name comes from the backend registry
-	// (internal/lm/backends), and the registry IS the vocabulary of the
+	// (engines.Registry), and the registry IS the vocabulary of the
 	// `engine` enum published in docs/transcript.schema.json — never a short
 	// form of it. engine_name_test.go pins both halves: verbatim passthrough
 	// here, and the schema admitting what the registry hands us.

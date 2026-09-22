@@ -23,7 +23,7 @@ import (
 // second copy of that deleted logic living in this test file: a prior draft
 // duplicated trust.BundleRefFromSource's body locally for exactly this
 // comparison, and the reprise duplication gate correctly flagged it as an
-// exact-normalized clone of lm/backends.parseSourceRef (the one production
+// exact-normalized clone of managedhooks.parseSourceRef (the one production
 // caller that still needs that conversion, documented there). Literal
 // expectations make this a golden test in the ordinary sense: no shared logic
 // to keep in sync, just the string a grant is keyed on.

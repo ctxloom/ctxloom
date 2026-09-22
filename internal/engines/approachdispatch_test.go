@@ -1,4 +1,4 @@
-package backends
+package engines
 
 import (
 	"sort"
@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/present"
-	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // allSurfaceKinds is every kind the SurfaceSelection builder can ask a backend
@@ -42,8 +41,8 @@ var allSurfaceKinds = []agent.SurfaceKind{
 func nativeSurfaceBackends(t *testing.T) []string {
 	t.Helper()
 	var names []string
-	for _, n := range engines.Registry().Names(nil) {
-		if h, ok := engines.Hosted(string(n)); ok && len(h.Declaration()) > 0 {
+	for _, n := range Registry().Names(nil) {
+		if h, ok := Hosted(string(n)); ok && len(h.Declaration()) > 0 {
 			names = append(names, string(n))
 		}
 	}
@@ -66,7 +65,7 @@ func nativeSurfaceBackends(t *testing.T) []string {
 func TestApproachDispatch_DefaultIsDeclared(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			decl := Declared(name)
+			decl := hostedDeclaration(name)
 
 			anyDeclared := false
 			for _, kind := range allSurfaceKinds {
@@ -95,7 +94,7 @@ func TestApproachDispatch_DefaultIsDeclared(t *testing.T) {
 func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			decl := Declared(name)
+			decl := hostedDeclaration(name)
 			for _, kind := range allSurfaceKinds {
 				for _, n := range decl.Names(kind) {
 					a, ok := decl.Construct(kind, n, agent.SurfaceInputs{Context: "ctx"}, afero.NewMemMapFs())
@@ -119,7 +118,7 @@ func TestApproachDispatch_DeclaredIsConstructible(t *testing.T) {
 func TestApproachDispatch_SharedPreferenceIsUnambiguous(t *testing.T) {
 	for _, name := range nativeSurfaceBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			decl := Declared(name)
+			decl := hostedDeclaration(name)
 			for _, kind := range allSurfaceKinds {
 				var converting []string
 				def, _ := decl.Default(kind)
@@ -136,4 +135,24 @@ func TestApproachDispatch_SharedPreferenceIsUnambiguous(t *testing.T) {
 			}
 		})
 	}
+}
+
+// hostedDeclaration is the named engine's named-form table off the engine
+// value (agent.Hosted); empty for an unregistered name.
+func hostedDeclaration(name string) agent.Declaration {
+	h, ok := Hosted(name)
+	if !ok {
+		return agent.Declaration{}
+	}
+	return h.Declaration()
+}
+
+// hostedSettingsWriter is the named engine's settings writer (agent.Hosted);
+// nil for an unregistered name.
+func hostedSettingsWriter(name string, o agent.SettingsOptions) agent.SettingsWriter {
+	h, ok := Hosted(name)
+	if !ok {
+		return nil
+	}
+	return h.SettingsWriter(o)
 }

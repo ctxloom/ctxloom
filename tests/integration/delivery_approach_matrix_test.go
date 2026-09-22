@@ -29,7 +29,7 @@ import (
 // "delivered" report.
 //
 // The matrix is DERIVED from the registered backends
-// (backends.List + agent.Declaration.Names), so a sixth backend or
+// (operations.EngineNames + agent.Declaration.Names), so a sixth backend or
 // a newly declared approach is picked up automatically and fails the
 // exhaustiveness assertion in TestDeliveryApproach_DeclaredPairsAreExhaustive
 // until it is given an expected destination here.
@@ -54,7 +54,7 @@ var matrixKinds = []agent.SurfaceKind{
 // derived, so an engine's new name joins the cross product on its own. Used
 // for the NEGATIVE direction: the cross product minus the declared pairs must
 // be refused loudly.
-func matrixApproaches() []string { return knownApproachNames() }
+func matrixApproaches() []string { return operations.KnownApproachNames() }
 
 // sentinel slots. Each names one SurfaceInputs field, so an assertion can say
 // WHICH input reached WHICH file rather than "the tree is non-empty".
@@ -263,7 +263,7 @@ var matrixSpecs = map[string]deliverySpec{
 	"mock/mcp/unsafe-file":      {wantFile: ".mock/mcp.json", wantSlot: slotMCPCmd},
 	"mock/settings/unsafe-file": {wantFile: ".mock/settings.json", wantSlot: slotHook},
 	"mock/commands/unsafe-file": {wantFile: ".mock/commands/ctxsentinelcmd.md", wantSlot: slotCommand},
-	// The session form of each surface (backends.MockSessionFile, the
+	// The session form of each surface (mock.MockSessionFile, the
 	// DEFAULT): the same well-known file beneath the run's Scratch, so a
 	// binding that selects no root leaves the project tree alone.
 	"mock/context/session-file":  {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext, underScratch: true},
@@ -618,14 +618,4 @@ func hostedDeclaration(name string) agent.Declaration {
 		return agent.Declaration{}
 	}
 	return h.Declaration()
-}
-
-// knownApproachNames is the union of every approach name any composed
-// engine declares, sorted.
-func knownApproachNames() []string {
-	var decls []agent.Declaration
-	for _, n := range operations.EngineNames() {
-		decls = append(decls, hostedDeclaration(n))
-	}
-	return agent.ApproachNames(decls...)
 }

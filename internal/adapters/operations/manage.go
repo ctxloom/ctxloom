@@ -16,7 +16,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -161,7 +160,7 @@ type SurfaceCurrency struct {
 func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
-	opts := []backends.SettingsOption{backends.WithSettingsFS(fs), agent.WithSettingsReporter(terminalReporter().Sink)}
+	opts := []agent.SettingsOption{agent.WithSettingsFS(fs), agent.WithSettingsReporter(terminalReporter().Sink)}
 
 	settings := cfg.GetSettings()
 	result := &HarnessStatusResult{
@@ -170,8 +169,8 @@ func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusReq
 		Backends:         []BackendWiring{},
 		RootFallback:     projectroot.RootFromFallback(),
 	}
-	for _, name := range backends.BackendsWithSettings() {
-		status, err := backends.BackendStatus(name, workDir, opts...)
+	for _, name := range EngineNames() {
+		status, err := engineSettingsStatus(name, workDir, opts...)
 		if err != nil {
 			// Warn-and-continue like the sibling RemoveHooks: one backend's
 			// unreadable settings.json must not abort the whole read-only status
@@ -210,7 +209,7 @@ func surfaceCurrencies(ctx context.Context, cfg *config.Config, fs afero.Fs, wor
 	if err != nil {
 		return nil, []string{err.Error()}
 	}
-	for _, name := range backends.BackendsWithSettings() {
+	for _, name := range EngineNames() {
 		if IsTestOnlyEngine(name) {
 			continue
 		}
@@ -349,7 +348,7 @@ func manageWorkDir(workDir string) string {
 // error ever surfaced and the name was appended to
 // `removed`. The user's harness was still installed and they had been told it
 // was gone. MaterializeProfile in this same package already guards with
-// backends.Exists — this is that guard, at the other door.
+// EngineExists — this is that guard, at the other door.
 // The empty default is EXHAUSTIVE here, and the asymmetry with the apply path
 // (hookBackendNames, which defaults to the project's configured engines) is
 // deliberate: removal must reach managed hooks in an engine the project has
@@ -359,8 +358,5 @@ func manageWorkDir(workDir string) string {
 // Exhaustiveness is a property of REMOVAL, not a value anyone types — there is
 // no "all".
 func manageBackendNames(backend string) ([]string, error) {
-	if backend == "" {
-		return backends.BackendsWithSettings(), nil
-	}
-	return namedBackend(backend)
+	return backendNames(backend, EngineNames())
 }

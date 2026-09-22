@@ -1,6 +1,6 @@
-// Package claude is ctxloom's Claude Code agent: the settings/hooks writer that
-// implements agent.SettingsWriter. Moved from internal/lm/backends in P0 step
-// 4c; the launch backend follows in 4e.
+// Package claude is ctxloom's Claude Code engine: the kind (definition.go),
+// its instance (instance.go), its backend (claudecode.go) and the
+// settings/hooks writer that implements agent.SettingsWriter (this file).
 package claude
 
 import (
@@ -35,7 +35,6 @@ func NewWriter(o agent.SettingsOptions) agent.SettingsWriter {
 	return &ClaudeCodeHookWriter{FS: o.FS, Reporter: o.Reporter}
 }
 
-// ----- moved verbatim from internal/lm/backends (hooks.go + uninstall.go) -----
 // ClaudeCodeHookWriter writes hooks to Claude Code's settings.json format.
 type ClaudeCodeHookWriter struct {
 	// FS is the filesystem to use. If nil, the real OS filesystem is used.

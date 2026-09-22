@@ -12,7 +12,7 @@ import (
 // steer the mock's outcome. They match on a SUBSTRING of the incoming prompt,
 // never equality: ctxloom PREPENDS composed context to the task, so the bytes
 // the engine receives are never exactly the marker — an equals check would
-// never fire. This mirrors internal/lm/backends/mock.go's env-driven control
+// never fire. This mirrors the in-process mock backend's env-driven control
 // knobs, extended to prompt-embedded markers so a single-shot spawn a test does
 // not control the env of can still be steered.
 const (
@@ -31,7 +31,7 @@ const (
 	failExitCode = 7
 )
 
-// Env knobs, mirroring internal/lm/backends/mock.go, for tests that DO control
+// Env knobs, mirroring the in-process mock backend, for tests that DO control
 // the child's environment.
 const (
 	// EnvExitCode overrides the exit code (wins over any sentinel).

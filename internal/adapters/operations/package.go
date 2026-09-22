@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations/managedhooks"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -16,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/resources"
@@ -101,7 +101,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		// resolvers take the set THIS assembly resolved, so a profile that
 		// did not resolve is reported once, here.
 		opts.MCP = cfg.ResolveBundleMCPServersFor(resolved)
-		opts.Hooks = *backends.AssembleManagedHooksFor(terminalReporter(), cfg, req.WorkDir, "", resolved).Wire()
+		opts.Hooks = *managedhooks.AssembleFor(terminalReporter(), cfg, req.WorkDir, "", resolved).Wire()
 		opts.Statusline = managedStatuslineEnabled(cfg)
 	}
 	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions})

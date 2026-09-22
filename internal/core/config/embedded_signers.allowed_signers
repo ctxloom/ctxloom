@@ -6,4 +6,12 @@
 # cannot approve content on a user's behalf (approval is the user's own key in
 # the approve namespace). Keeping publish and approve separate is why a stolen
 # publish key cannot forge approvals.
+#
+# The COMPANION namespace is deliberately absent, even though the same key
+# signs the companion binaries ctxloom ships. This store is a union member
+# nothing can remove, so a grant written here could never be withdrawn for one
+# project. Authorizing a binary to EXECUTE is a decision a project must be able
+# to revoke, so `ctxloom init` writes that grant into the project's own
+# .ctxloom/allowed_signers (cli.seedCompanionTrust), where deleting the line
+# actually withdraws it.
 ben+ctxloom@abbitt.me namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGEOgyPlwr63FRcLm0AfbN+Cmn1JwEPjrbYmTv+ddF+P

@@ -40,6 +40,18 @@ func TestEmbeddedSigners_ReleaseKeyTrustedForPublishOnly(t *testing.T) {
 	assert.False(t, appr.Trusted, "release key must NOT be trusted to approve")
 	rej := store.TrustedForNamespace(key, signing.NamespaceReject, now)
 	assert.False(t, rej.Trusted, "release key must NOT be trusted to reject")
+
+	// NOT trusted for COMPANION either, and this one is a PLACEMENT decision
+	// rather than a role-separation one: the same key really does sign the
+	// companions ctxloom ships, so the namespace is withheld here only because
+	// this store cannot be revoked per project. The grant belongs in the
+	// project's own allowed_signers, written by init, where deleting the line
+	// withdraws the authorization. Asserted so that "move it back into the
+	// binary for convenience" fails loudly rather than quietly removing a
+	// project's ability to say no to executing a binary.
+	comp := store.TrustedForNamespace(key, signing.NamespaceCompanion, now)
+	assert.False(t, comp.Trusted,
+		"the companion grant must live in the project store, not compiled in where no project can revoke it")
 }
 
 func TestEmbeddedSigners_UnknownKeyTrustsNothing(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -125,6 +126,14 @@ func TestManageInstall_PrintNamesNoHookApply(t *testing.T) {
 // something to remove.
 func TestManageUninstall_RemovesWhatAnEarlierInstallWrote(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
+	// The subject is the install/uninstall ROUND TRIP over the surfaces
+	// ctxloom itself writes. An admitted companion changes the CONTENT of
+	// assembled context, so the two installs below cache different context
+	// hashes and the diff picks up a derived cache file neither install was
+	// asked about — on developer machines that happen to have a companion
+	// installed, and only those. Pin the gate shut so the round trip is
+	// measured, not the PATH.
+	t.Cleanup(companions.AdmitNoCompanionForTesting())
 
 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "claude-code")
 	require.NoError(t, err)

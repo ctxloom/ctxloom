@@ -139,6 +139,31 @@ func AdmitEveryDiscoveredCompanionForTesting() func() {
 	})
 }
 
+// AdmitNoCompanionForTesting pins the exec-consent gate SHUT and returns a
+// restore function: every discovered name reports as not-installed, whatever
+// is on the developer's PATH and whatever the trust root says about it.
+//
+// It is the counterpart of AdmitEveryDiscoveredCompanionForTesting, for tests
+// whose subject is NOT companions but whose assertions a companion perturbs —
+// a listing that must come back empty, an install/uninstall pair that must
+// round-trip exactly. Those assertions are about ctxloom's own contribution,
+// and a companion silently adds fragments, MCP servers and hooks to it.
+//
+// Ask for it EXPLICITLY, exactly as with the admit-everything seam. A test
+// that leaves the real gate in place is measuring the machine it runs on: it
+// reports a different verdict for a developer with taskloom installed than for
+// one without, and neither verdict is about the code under test.
+func AdmitNoCompanionForTesting() func() {
+	return SetCompanionAdmissionForTesting(func(bins []string, _ trust.TrustRoot) []CompanionAdmission {
+		out := make([]CompanionAdmission, 0, len(bins))
+		for _, bin := range bins {
+			out = append(out, newCompanionAdmission(
+				CompanionKey{Bin: bin}, false, CompanionAdmissionNotInstalled))
+		}
+		return out
+	})
+}
+
 // admitCompanion is the per-binary decision cascade. The ORDER is the security
 // content, and it mirrors EffectiveTrust's: the fail-closed store gate first,
 // then the human's "no", then the exemptions, then the recorded "yes", then the

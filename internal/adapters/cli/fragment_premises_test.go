@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -95,6 +96,12 @@ func TestFragmentPremises_EmptyIndexIsAnEmptyListNotNull(t *testing.T) {
 // against the real bug.
 func TestFragmentPremises_ListingGoesToStdoutNotStderr(t *testing.T) {
 	testsupport.ProjectDir(t)
+	// This test's subject is WHICH STREAM the listing reaches, so the listing
+	// must be the empty one regardless of what the developer has installed. An
+	// admitted companion contributes premised fragments of its own (taskloom
+	// ships one), which makes the listing non-empty and the assertion below
+	// fail on exactly those machines — a verdict about the PATH, not the code.
+	t.Cleanup(companions.AdmitNoCompanionForTesting())
 
 	oldOut, oldErr := os.Stdout, os.Stderr
 	rOut, wOut, err := os.Pipe()

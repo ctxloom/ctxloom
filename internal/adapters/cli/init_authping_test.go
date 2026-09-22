@@ -292,6 +292,33 @@ func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
 	}
 }
 
+// TestPingEngineAuth_ReportsTheEngineError_NotAnAuthVerdict: the probe's
+// message carries the ENGINE'S OWN error and offers authentication as a
+// CANDIDATE cause, never as the verdict.
+//
+// This is the regression that cost the most. The probe used to report every
+// failure as "auth check failed" and hand back only the login hint, so a
+// launch the engine refused for its own reasons — here, a config file it
+// would not start against — sent the user to re-run a login that was already
+// good, while the actual refusal went unmentioned. The engine's error is the
+// load-bearing part of the message; the hint is a guess and must read as one.
+func TestPingEngineAuth_ReportsTheEngineError_NotAnAuthVerdict(t *testing.T) {
+	refusal := errors.New("Invalid MCP configuration: MCP config file not found")
+	stub := &stubRunHost{turnErr: refusal}
+	stubPingHosts(t, stub)
+
+	cfg := authPingTestConfig(t)
+	err := pingEngineAuth(context.Background(), testLaunchDeps(t, cfg), cfg, "claude-code", t.TempDir())
+	require.Error(t, err)
+
+	assert.Contains(t, err.Error(), refusal.Error(),
+		"the engine's own refusal is the load-bearing part of the message and must survive into it")
+	assert.Contains(t, err.Error(), probeDidNotAnswer,
+		"the message must name what actually failed — the liveness probe — as production states it")
+	assert.Contains(t, err.Error(), probeAuthGuess,
+		"the auth hint must stay CONDITIONAL; an unconditional auth verdict is what sent users to fix working credentials")
+}
+
 // TestPingEngineAuth_UnlistedEngine_GetsGenericFix: an engine that is not
 // registered still fails loud, with a generic-but-actionable fix, rather
 // than blanking on a missing declaration.

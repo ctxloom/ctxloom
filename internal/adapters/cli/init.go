@@ -173,6 +173,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	_ = seedCompanionTrust(!initHome)
+
 	// Ensure a concrete engine for the launch step (covers existing dirs whose
 	// config did not name one).
 	primary, _ := getAvailableEngines()
@@ -282,6 +284,61 @@ func ctxloomDefaultTrusted(cfg *config.Config) bool {
 		}
 	}
 	return false
+}
+
+// seedCompanionTrust authorizes ctxloom's own release key for the COMPANION
+// namespace in this project's allowed_signers, so the companion binaries
+// ctxloom ships are admitted to execute rather than skipped as untrusted.
+//
+// WHY HERE AND NOT IN THE EMBEDDED ROOT: the embedded store is a union member
+// nothing can remove, so a companion grant compiled in could never be withdrawn
+// for a single project. Authorizing a binary to EXECUTE has to stay revocable,
+// so the grant is written where deleting the line actually withdraws it. The
+// embedded root still trusts this key to PUBLISH; this adds the companion
+// namespace and nothing else — never approve, never reject.
+//
+// IDEMPOTENT, and that is load-bearing rather than tidiness: AddSigner
+// APPENDS, and init deliberately runs on pre-existing projects, so without the
+// trust check ahead of it every re-init would leave another copy of the same
+// entry behind.
+//
+// A failure WARNS rather than aborting. The cost of not writing it is that this
+// project's companions stay skipped — which each one then says out loud, so the
+// condition is visible and fixable — whereas failing here would abort an init
+// that has otherwise completely succeeded.
+// It returns the store it wrote, or "" when it wrote nothing — which is the
+// ordinary case on every init after the first, and is what a test asserts
+// idempotency against.
+func seedCompanionTrust(project bool) string {
+	cfg, err := GetConfig()
+	if err != nil || cfg == nil {
+		clidiag.Warn("ctxloom", "could not authorize ctxloom's companions: %v", err)
+		return ""
+	}
+	root := cfg.TrustRoot()
+	now := time.Now()
+	wrote := ""
+	for _, e := range config.EmbeddedSigners().Entries() {
+		if e.PublicKey == nil || len(e.Principals) == 0 {
+			continue
+		}
+		if root.TrustedForNamespace(e.PublicKey, signing.NamespaceCompanion, now).Trusted {
+			continue
+		}
+		res, addErr := operations.AddSigner(cfg, operations.AddSignerRequest{
+			Principal:  e.Principals[0],
+			Key:        operations.SignerKeyInfo{PublicKey: e.PublicKey},
+			Namespaces: []string{signing.NamespaceCompanion},
+			Project:    project,
+		})
+		if addErr != nil {
+			clidiag.Warn("ctxloom", "could not authorize ctxloom's companions (%s): %v", e.Principals[0], addErr)
+			continue
+		}
+		wrote = res.Path
+		fmt.Printf("Authorized the companions ctxloom ships, in %s — delete that line to revoke.\n", res.Path)
+	}
+	return wrote
 }
 
 // setupNewCtxloomDir performs first-time setup for a non-existent .ctxloom dir:
@@ -645,13 +702,41 @@ func pingEngineAuth(ctx context.Context, deps launch.Deps, cfg *config.Config, e
 	src.Permission = agent.PermissionBypass
 	probe, err := operations.StartOneShot(ctx, deps, pingHosts(), sessions.Seed{ProjectDir: workDir}, src, 0)
 	if err != nil {
-		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
+		return probeFailure(engine, probeFailedToStart, err)
 	}
 	defer probe.End()
 	if _, err := probe.Turn(ctx, authPingTask); err != nil {
-		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))
+		return probeFailure(engine, probeDidNotAnswer, err)
 	}
 	return nil
+}
+
+// The probe's two failure points, named for WHAT FAILED rather than for auth.
+// Both are liveness verdicts: the probe catches a missing binary, a rejected
+// flag, a config file the engine refuses to start against, or an unreachable
+// backend just as readily as a dead credential.
+const (
+	probeFailedToStart = "the startup probe could not be started"
+	probeDidNotAnswer  = "the startup probe did not answer"
+	// probeAuthGuess frames the login hint as a CANDIDATE, not a verdict.
+	// It is a constant so a test can pin the framing: an unconditional
+	// "authentication failed" is the defect this message exists to avoid,
+	// and nothing else would catch its return.
+	probeAuthGuess = "if it is not authenticated"
+)
+
+// probeFailure reports a failed liveness probe: what failed, the engine's own
+// error, and authentication as ONE CANDIDATE CAUSE rather than the diagnosis.
+//
+// Reporting every failure as "auth check failed" with only the login hint is
+// a diagnosis pointing AWAY from the defect whenever auth is not the defect —
+// and auth is usually not the defect: a probe killed by an argv the engine
+// rejected would send the user to re-run a login that was already good while
+// the real refusal went unmentioned. The engine's own error is the
+// load-bearing part of this message; the hint is a guess and is phrased as one.
+func probeFailure(engine, what string, err error) error {
+	return fmt.Errorf("%s isn't ready to launch: %s (%v) — %s, %s; if it is, the engine refused this launch for some other reason and `ctxloom doctor` runs the full check",
+		engine, what, err, probeAuthGuess, engineAuthFixHint(engine))
 }
 
 // launchEngineWithPrompt starts the engine's own raw CLI/TUI on the resolved

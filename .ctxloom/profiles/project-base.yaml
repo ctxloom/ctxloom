@@ -1,61 +1,10 @@
-description: 'Project-wide base: context every role working in this repo needs, regardless of what it is doing. Inherited by every other local profile — add shared context HERE, once, rather than to each profile.'
-# This profile exists to keep project-wide context DRY. Before it, adding one
-# shared fragment meant editing all 18 profiles; the second such addition would
-# have meant 18 more. A local profile may name a bare sibling as a parent
-# (internal/profiles: "a parent is either a bare local-profile name (passes
-# through) or a remote ref"), so every profile lists `project-base` first and
-# inherits whatever accumulates here.
-#
-# Keep this SMALL. Everything added here is delivered to every role — the
-# coordinator, every code-review lens, the finder. Context that only one role
-# needs belongs in that role's own profile, not here.
+description: 'Project-wide base: context every role in this repo needs regardless of its job. Every local profile lists it first; keep it small.'
 bundles:
-    # Writing discipline that binds every role, because every role writes
-    # comments, docs and config annotations. Its load-bearing rule: naming one
-    # thing from another creates a BINDING, and an UNCHECKED binding — prose,
-    # a comment, a doc — does not go red when it goes false. It keeps its
-    # authority while lying. Prefer no binding; if you must, make it checked.
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/core-practices
-    # The pointer to everything NOT delivered here. Fragments carrying a
-    # premise are withheld from launch context by design (pulled, never
-    # pushed), so an agent that does not know to run `ctxloom fragment
-    # premises` never learns they exist. This fragment carries no premise
-    # precisely so it can say that. It states WHERE the catalog is; the
-    # guidance for CHOOSING among premises is measured and travels with the
-    # listing itself, so it is deliberately not repeated here.
-    - ctxloom-project#fragments/conditional-guidance
-    # How ctxloom itself resolves configuration: home < project < ENV <
-    # --config-set, the two override channels, and why a command's own flags
-    # are deliberately NOT a config source.
-    - ctxloom-project#fragments/config-hierarchy
-    # The launch posture: REFUSE when something is amiss and state the remedy,
-    # rather than quietly launching something lesser. `--degraded` lowers every
-    # finding to a warning and ALWAYS reaches a working LLM -- except where
-    # launching is itself the harm, which is the one thing degraded mode may
-    # not wave through. Here because it binds every role: the check that
-    # decides its own fatality, the brief that omits the remedy, and the test
-    # that pins only one of the two arms are the same defect at three layers.
-    - ctxloom-project#fragments/fail-loud-launch
-    # A test passes when it is green AND a mutation to the code it names kills
-    # it. Here because it binds every role: whoever writes the test, whoever
-    # briefs the work, and whoever reviews it. An audit on 2026-08-04 found 25
-    # assertions in this repo that were green and proved nothing.
-    - ctxloom-project#fragments/green-is-not-passing
-    # Which command actually proves a change here, and how to read what it
-    # says: the real gate versus the one that only compiles, the exit codes
-    # that report success while telling you otherwise, and which mutation
-    # method can reach code driven through the CLI. Named by the close-out
-    # hook, which carries the checklist and leaves the why here.
-    - ctxloom-project#fragments/turn-gates
-    # State what a tool call is for before making it, and what its result
-    # told you afterwards. Not a style note: distillation reduces a tool
-    # result to its shape, so a finding nobody states is not recoverable from
-    # the essence — and an unstated one now costs an LLM call to reconstruct.
-    - ctxloom-project#fragments/tool-intent-and-finding
-    # This project is a PROTOTYPE and is developed as one: delete and rebuild
-    # rather than accommodate, own a red you did not cause, and reduce before
-    # implementing. It belongs here rather than in one role's profile because
-    # the disposition it governs is not the coordinator's alone — an
-    # implementer that files a task instead of fixing what it can, or waves a
-    # failure through as pre-existing, is the same defect one layer down.
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/prototyping
+    - ctxloom-project#fragments/conditional-guidance
+    - ctxloom-project#fragments/config-hierarchy
+    - ctxloom-project#fragments/fail-loud-launch
+    - ctxloom-project#fragments/green-is-not-passing
+    - ctxloom-project#fragments/turn-gates
+    - ctxloom-project#fragments/tool-intent-and-finding

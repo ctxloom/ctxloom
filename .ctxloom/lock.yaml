@@ -1,5 +1,5 @@
 version: 1
-locked_at: 2026-09-22T13:11:20.706575656Z
+locked_at: 2026-09-22T18:59:22.405342922Z
 bundles:
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble:
         sha: efdf65e0b9e2e8efe802820e15ca198f81a16393
@@ -17,11 +17,6 @@ bundles:
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
     https://github.com/benjaminabbitt/ctxloom-personal@bundles/developer-mindset:
-        sha: efdf65e0b9e2e8efe802820e15ca198f81a16393
-        url: https://github.com/benjaminabbitt/ctxloom-personal
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
-    https://github.com/benjaminabbitt/ctxloom-personal@bundles/github:
         sha: efdf65e0b9e2e8efe802820e15ca198f81a16393
         url: https://github.com/benjaminabbitt/ctxloom-personal
         kind: branch
@@ -191,11 +186,6 @@ bundles:
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
-    https://github.com/ctxloom/ctxloom-default@bundles/reprise:
-        sha: 679538f14cf80893bbf796642f42ec724fadb18d
-        url: https://github.com/ctxloom/ctxloom-default
-        kind: branch
-        fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/rtk:
         sha: 679538f14cf80893bbf796642f42ec724fadb18d
         url: https://github.com/ctxloom/ctxloom-default
@@ -206,7 +196,17 @@ bundles:
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch
         fetched_at: 0001-01-01T00:00:00Z
+    https://github.com/ctxloom/ctxloom-default@bundles/taskloom:
+        sha: 679538f14cf80893bbf796642f42ec724fadb18d
+        url: https://github.com/ctxloom/ctxloom-default
+        kind: branch
+        fetched_at: 0001-01-01T00:00:00Z
     https://github.com/ctxloom/ctxloom-default@bundles/testing:
+        sha: 679538f14cf80893bbf796642f42ec724fadb18d
+        url: https://github.com/ctxloom/ctxloom-default
+        kind: branch
+        fetched_at: 0001-01-01T00:00:00Z
+    https://github.com/ctxloom/ctxloom-default@bundles/versionator:
         sha: 679538f14cf80893bbf796642f42ec724fadb18d
         url: https://github.com/ctxloom/ctxloom-default
         kind: branch

@@ -1,53 +1,19 @@
-description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits ctxloom-default's developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom init prompt` re-enters that interview any time."
-tags:
-  - default
-# A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
-# remote reference. It composes ctxloom-default's `developer` bundle profile
-# (developer coding practices), so the seeded default is a real coding profile
-# you can extend, set as the orchestrating/developer member, or split into
-# tighter per-role profiles.
-#
-# It used to also inherit `bundles/default#profiles/default`. That bundle was
-# split into `conduct` upstream on 2026-08-07 and no longer exists at any
-# commit; the ref survived here only because it kept resolving out of the stale
-# repo cache, so a fresh clone would have aborted on a bundle nothing publishes.
-# There is no rename to make — `conduct` ships fragments, not profiles — and the
-# current seed template drops the parent rather than repointing it, so this
-# matches what `ctxloom init` emits today.
+description: 'The working profile: this project''s primary implementer context. Inherits project-base plus ctxloom-default''s developer practices; add stack, tooling and standards here.'
 parents:
-  - project-base
-  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer
+    - project-base
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ai-developer@branch:main#profiles/developer
+tags:
+    - default
 bundles:
-  # Language: upstream Go practices plus the personal composition on top.
-  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-ai-practices
-  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/go-development
-  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization
-  # Tooling this repo actually runs. Each one exists because an agent that does
-  # not know the tool reaches past it: invoking `go test` instead of the recipe,
-  # treating an ltk redirect as a failure, or re-solving duplication reprise
-  # already reports.
-  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just
-  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/lefthook
-  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ltk
-  - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/reprise
-  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/containers
-  - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/github
-  # serena is UNLINKED, deliberately. The bundle still exists and is not
-  # deleted; it is simply not composed here.
-  #
-  # Serena resolves its project ONCE, at server start, from the launching
-  # session's cwd. In-process sub-agents inherit the coordinator's MCP
-  # connections, so they share ONE server rooted at the coordinator's checkout.
-  # An agent working in a git worktree is therefore answered about the wrong
-  # tree, silently, in BOTH directions: a symbol that exists only in the
-  # worktree reads as not found, and an edit lands in the coordinator's
-  # checkout while the worktree stays untouched. There is no error — a symbol
-  # delete can report success while writing nothing the agent can see.
-  #
-  # Its --context claude-code prompt also asserts authority over tool choice
-  # (declaring native Read forbidden for discovery), so it pulls agents toward
-  # itself against project guidance rather than merely being available.
-  #
-  # Re-link only once an agent gets its OWN serena rooted at its OWN working
-  # directory, or once worktree-isolated agents cannot reach a host serena at
-  # all.
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/conduct
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/code-quality
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/developer-mindset
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/sequential-thinking
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/taskloom
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/ltk
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/versionator
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/go-ai-practices
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/go-development
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/just
+    - ctxloom+git://github.com/ctxloom/ctxloom-default//bundles/lefthook
+    - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/source-organization

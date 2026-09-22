@@ -1,31 +1,6 @@
-description: 'Coordinator role: sequences, brainstorms, architects, writes sub-agent prompts, and delegates; rarely edits code; carries no dev-language bundles. Inherits the personal agent-ensemble coordinator profile (single source of truth).'
+description: 'Orchestrator role: the session the user drives; sequences, brainstorms, architects and delegates; rarely edits code; carries no dev-language bundles.'
 parents:
     - project-base
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/agent-ensemble#profiles/coordinator
-# serena is UNLINKED, deliberately — the bundle still exists and is not deleted,
-# it is simply not composed here. It resolves its project once at server start
-# from the launching session's cwd, and in-process sub-agents share that one
-# server, so an agent working in a worktree is answered about the coordinator's
-# checkout instead — silently, for reads as well as edits. Its
-# --context claude-code prompt additionally asserts authority over tool choice,
-# so it pulls agents toward itself against project guidance. Re-link only once
-# an agent gets its own serena rooted at its own working directory.
 bundles:
-    # unattended carries the coordinator-only skills: working an admitted queue
-    # unattended, closing out a turn, deciding a design in a test, and putting
-    # blocked decisions to a human. Deliberately NOT enumerated by name or
-    # count — this comment previously said "two skills" and named one that had
-    # since been renamed, which is the unchecked binding this project's own
-    # rules forbid. `ctxloom skill list` answers it in seconds and cannot rot.
-    #
-    # Coordinator-only by design — merging, reaping worktrees, owning the
-    # morning report and holding the decision queue are this role's job, not a
-    # leaf's.
-    #
     - ctxloom+git://github.com/benjaminabbitt/ctxloom-personal//bundles/unattended
-# NOTE (2026-07-22): deny_tools deliberately does NOT list Task. Task is
-# claude-code's internal coordination mechanism and stays available. The
-# coordinator-persona leak it exposes (in-process sub-agents inheriting the
-# --append-system-prompt-file persona) must be fixed by giving those
-# sub-agents their own persona, not by denying the tool. The deny_tools
-# mechanism itself is wired and available for genuine cases.

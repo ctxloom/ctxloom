@@ -89,7 +89,7 @@ type RunnerLink struct {
 // after CloseSend with codes.Internal ("SendMsg called after CloseSend"),
 // which reads in a log as a library fault rather than as this process having
 // asked for something impossible during its own orderly shutdown.
-var ErrLinkSendClosed = errors.New("coord: this runner link's send side is closed (shutting down)")
+var ErrLinkSendClosed = errors.New("runner: this runner link's send side is closed (shutting down)")
 
 // send writes one frame under the single-writer mutex.
 //

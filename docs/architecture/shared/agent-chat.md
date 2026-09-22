@@ -9,7 +9,7 @@ classDiagram
         Chat(ChatRequest) chans
     }
     class ChatRequest {
-        Runtime, MCPServers, ThinkingLevel
+        Runtime, MCPServers
         PermissionMode, TranscriptRawPolicy, ...
     }
     class ChatMessage {

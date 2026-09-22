@@ -3,6 +3,7 @@ package coord
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,24 +14,30 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 )
 
-// attachedHome stands up a Home whose run channel has actually attached, so a
-// request failure can only be a budget expiry — never "we never got through".
-func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]string) TestHome {
-	t.Helper()
-	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
-		Reporter: termSink(),
-		URL:      env[EnvCoordURL],
-		Token:    env[EnvCoordCred],
-		RunID:    runID,
-		Harness:  "mock",
-		Version:  "test",
-		Harp:     env["CTXLOOM_SESSION_HARP"],
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { h.Close(0, "") })
-	require.Eventually(t, h.Attached, 5*time.Second, 10*time.Millisecond,
-		"the run channel must attach before the request's failure can be classified")
-	return h
+// expiredOnCue is a caller budget that expires exactly when the test says so:
+// Done closes on expire(), after which Err is DeadlineExceeded. It carries a
+// deadline so Request does not wrap it in its own default budget. A wall-clock
+// timeout cannot order "the coordinator accepted the request" before "the
+// budget ran out" — under load the timer can fire first.
+type expiredOnCue struct {
+	context.Context
+	done chan struct{}
+}
+
+func newExpiredOnCue() *expiredOnCue {
+	return &expiredOnCue{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *expiredOnCue) Deadline() (time.Time, bool) { return time.Now().Add(time.Hour), true }
+func (c *expiredOnCue) Done() <-chan struct{}       { return c.done }
+func (c *expiredOnCue) expire()                     { close(c.done) }
+func (c *expiredOnCue) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
 }
 
 // TestRequest_DeliveredButSlowIsADeadlineNotUnreachable pins the distinction a
@@ -39,21 +46,35 @@ func attachedHome(t *testing.T, c *Coordinator, runID string, env map[string]str
 // blown budget — not a down coordinator. Reporting it as "unreachable (the
 // runner keeps reconnecting)" sent recover_session's caller chasing a phantom
 // outage while the distillation ran happily to completion behind it.
+//
+// The request rides the child's OWN runner (childHome): a run has exactly one
+// runner, and a second Home dialed on the child's credential contends with it
+// for the run channel. The budget expires only once the host app holds the
+// request, so "delivered, then expired" is forced rather than hoped for.
 func TestRequest_DeliveredButSlowIsADeadlineNotUnreachable(t *testing.T) {
 	resetStrictness(t)
+	delivered := make(chan struct{})
+	var deliveredOnce sync.Once
 	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
+	// Released before the coordinator's Close (a t.Cleanup, which runs after
+	// this defer), so Close never joins a handler still parked on it.
+	defer close(release)
 	c := newTestCoordinatorWithHost(t, researcherSpawner(), &recordingHostApp{fn: func(context.Context, Identity, HostRequest) (HostResult, error) {
+		deliveredOnce.Do(func() { close(delivered) })
 		<-release // the host is WORKING, not gone
 		return HostResult{Body: json.RawMessage(`{}`)}, nil
 	}})
 
 	out := spawnResearcher(t, c)
-	env := waitForChildEnv(t, c, out.RunID)
-	h := attachedHome(t, c, out.RunID, env)
+	h := childHome(t, c, out.RunID)
+	require.Eventually(t, h.Attached, conformanceWait, 10*time.Millisecond,
+		"the child's runner must attach its run channel before the request's failure can be classified")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
+	ctx := newExpiredOnCue()
+	go func() {
+		<-delivered
+		ctx.expire()
+	}()
 	_, rerr := h.Request(ctx, &agentcoordpb.AgentRequest{
 		Kind: &agentcoordpb.AgentRequest_Host{Host: &agentcoordpb.HostRequest{Tool: "slow_tool", Args: &structpb.Struct{}}},
 	})

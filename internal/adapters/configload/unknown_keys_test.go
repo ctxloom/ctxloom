@@ -131,7 +131,7 @@ func TestLoad_UnknownKeyInsideArrayElement_StillSuggests(t *testing.T) {
 // through anyOf and offers the MATCHED branch's own field names (the "big"
 // label's type: codex pins which branch it validates against).
 func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      thinkign: high\n")
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      binary_pth: /usr/bin/codex\n")
 
 	// The per-branch fan-out this used to produce (one leaf failure per anyOf
 	// alternative, seven identical warnings for one typo) is deduplicated now;
@@ -141,8 +141,8 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 	warns := unknownKeyWarnings(cfg)
 	require.NotEmpty(t, warns, "warnings: %+v", cfg.GetWarnings())
 	for _, w := range warns {
-		assert.Contains(t, w.Text, "llm.configs.big.thinkign", "the dotted path must reach through the dynamic label and the anyOf branch")
-		assert.Contains(t, w.Text, "did you mean `thinking`?", "the matched branch's own field name must be offered, not silently dropped — `thinking` is absent from the mock branch, so offering it proves the branch actually resolved")
+		assert.Contains(t, w.Text, "llm.configs.big.binary_pth", "the dotted path must reach through the dynamic label and the anyOf branch")
+		assert.Contains(t, w.Text, "did you mean `binary_path`?", "the matched branch's own field name must be offered, not silently dropped — `binary_path` is absent from the mock branch, so offering it proves the branch actually resolved")
 		assert.Contains(t, w.Text, "known keys at", "a resolved anyOf branch must list its known keys, not degrade to no suggestion at all")
 	}
 }
@@ -263,12 +263,12 @@ func TestLoad_AgentDriving_NoUnknownKeyWarning(t *testing.T) {
 // that block the user got RIGHT. A diagnostic that repeats itself seven times
 // and then blames a correct line is worse than the raw error it replaced.
 func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      thinkign: high\n")
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      binary_pth: /usr/bin/codex\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1,
 		"one typo, one warning: the per-branch fan-out is the schema's business, not the user's")
-	assert.Contains(t, warns[0].Text, "llm.configs.big.thinkign")
+	assert.Contains(t, warns[0].Text, "llm.configs.big.binary_pth")
 
 	require.Len(t, cfg.GetWarnings(), 1,
 		"the rejected branches' const failures are how the schema picked a branch, not a second defect: %+v", cfg.GetWarnings())
@@ -282,7 +282,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.
 // ONLY fault sits inside a branch — a valid backend with a bad value — has no
 // unknown keys at all, so it still reports the raw validation error.
 func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      thinking: 12\n")
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      args: 12\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
 	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")

@@ -8,7 +8,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ClaudeConfig is claude-code's typed LLM config: the fields a claude-code
@@ -22,11 +21,6 @@ type ClaudeConfig struct {
 	// here would just be a second, dead reader of the same key.
 	BinaryPath string   `mapstructure:"binary_path"`
 	Args       []string `mapstructure:"args"`
-	// Thinking is the normalized reasoning/thinking-budget level
-	// (off|low|medium|high — agent.ThinkingLevel). Empty or unrecognized
-	// defaults to "medium". Accepted and validated; no launch of this
-	// package carries it (see ClaudeCode.thinking).
-	Thinking string `mapstructure:"thinking"`
 }
 
 // BackendType identifies the backend this config drives.
@@ -47,11 +41,6 @@ type ClaudeCode struct {
 	// measurement it rests on. Kept by VALUE, so a ClaudeCode must not be
 	// copied once in use — nothing copies one today (it is always *ClaudeCode).
 	gate inputGate
-	// thinking is the resolved normalized reasoning level from the label's
-	// config (Configure defaults it to agent.ThinkingMedium). NOTHING READS
-	// IT: no argv or env of this package carries it, so the knob is accepted
-	// and validated but has no effect on a launch.
-	thinking agent.ThinkingLevel
 }
 
 // NewClaudeCode creates a new Claude Code backend with default settings.
@@ -90,17 +79,6 @@ func newClaudeCode(kind Claude) *ClaudeCode {
 func (b *ClaudeCode) Configure(cfg agent.BackendConfig) {
 	if c, ok := cfg.(*ClaudeConfig); ok {
 		agent.ApplyLocalCLIConfig(&b.BaseBackend, c.BinaryPath, c.Args)
-		// An unrecognized (but non-empty) value still resolves to the
-		// documented medium default (ParseThinkingLevel's ok=false path) —
-		// advisory validation, matching agents.SetAgentRequest's tolerance for
-		// a typo'd permissions/runtime value, never a hard failure over a
-		// cost-tuning knob.
-		level, ok := agent.ParseThinkingLevel(c.Thinking)
-		if c.Thinking != "" && !ok {
-			clidiag.Warn("ctxloom", "claude-code config declares unknown thinking level %q (known: %s); using the default %q",
-				c.Thinking, strings.Join(agent.ThinkingLevelNames(), "|"), agent.ThinkingMedium)
-		}
-		b.thinking = level
 	}
 }
 

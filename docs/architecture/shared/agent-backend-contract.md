@@ -137,10 +137,6 @@ classDiagram
 | `ResolveDefault` | `internal/core/agent/permissions.go:98` | First parseable of the layered sources, else the claude-code bypass stopgap. |
 | `PermissionMode.CollapsePlanIfUnenforced` | `internal/core/agent/permissions.go:116` | Downgrades `plan` → `default` when the engine cannot enforce plan mode. |
 | `PermissionMode.SafeHeadless` | `internal/core/agent/permissions.go:127` | Whether this posture can run with no human present. |
-| `ThinkingLevel` | `internal/core/agent/thinking.go:22` | Normalized four-tier reasoning-budget enum handed to each backend's chat path. |
-| `ThinkingLevel.String` | `internal/core/agent/thinking.go:45` | Canonical spelling (`off`/`low`/`medium`/`high`). |
-| `ParseThinkingLevel` | `internal/core/agent/thinking.go:63` | Lenient string → enum with an `ok` bool. |
-| `ThinkingLevelNames` | `internal/core/agent/thinking.go:81` | The four spellings, for warning text. |
 | `ApplyLocalCLIConfig` | `internal/core/agent/localcli.go:9` | Applies per-backend binary/args/env overrides onto a `BaseBackend`. |
 | `GetPromptContent` | `internal/core/agent/base.go:185` | Nil-safe read of a prompt field; the nil guard is the whole point (7 call sites). |
 | `IsManaged` | `internal/core/agent/predicate.go:13` | Ownership test — is this command line one ctxloom installed, by exec-token identity. |
@@ -158,8 +154,7 @@ classDiagram
 - **`Clear` always returns nil and always clears `contextHash`** even when the removal failed — the `error` return is decorative and the hash needed to retry is discarded. Diverges from the `ContextProvider.Clear(workDir) error` signature's implied contract.
 - **`ExecutionMode` values are pinned to the proto enum** (`= 0`, `= 1`); the pin is not documented at the constant site.
 - **Only `Fragment.Content` is ever read** anywhere in the system (`base.go:175`, `contextfile.go:92`). `Installation` is never populated — the grpc converter omits it entirely.
-- **`ThinkingLevel` is NOT monotonic in effort.** The iota order is `Medium = 0`, then `Off`, `Low`, `High`. Ordered comparisons (`level > ThinkingLow`) are meaningless; every consumer switches on the value.
 - **`PermissionMode.String()`'s `default:` arm returns `"default"`**, so an out-of-range or corrupted wire value renders as an intentional posture. `PermissionDefault` has no explicit case.
-- **Three hand-maintained parallel tables** describe `PermissionMode` (`String` at `:36`, `ParsePermissionMode` at `:61`, `PermissionModeNames` at `:78`) with no compile-time link; likewise `ThinkingLevel` (`:45`, `:63`, `:81`).
+- **Three hand-maintained parallel tables** describe `PermissionMode` (`String` at `:36`, `ParsePermissionMode` at `:61`, `PermissionModeNames` at `:78`) with no compile-time link.
 - **`SettingsStatus.Wired()`** (`settings.go:69`) is reachable only from tests; production reads the four booleans directly.
 - **`SkillExport.Description`** (`skillexport.go:22`) is written by the loader and read by no engine.

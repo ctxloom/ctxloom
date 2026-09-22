@@ -188,7 +188,6 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `model` | string | Examples: `opus`, `sonnet`, `haiku`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `thinking` | string | Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium. Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
 | `type` | string | Must be `claude-code`. |
 
 #### codex
@@ -200,7 +199,6 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `model` | string |  |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `thinking` | string | Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh — codex has no bare "high"; ctxloom's "high" maps to "xhigh") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob). Allowed values: `off`, `low`, `medium`, `high`. Default: `medium`. |
 | `type` | string | Must be `codex`. |
 
 #### opencode
@@ -214,7 +212,6 @@ opencode driven over its first-party `opencode acp` mode (host-only chat spine).
 | `model` | string | opencode model string (provider/model); written into the run's opencode.json. Examples: `openrouter/meta-llama/llama-3.3-70b-instruct:free`. |
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `thinking` | string | The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning). Allowed values: `off`, `low`, `medium`, `high`. |
 | `type` | string | Must be `opencode`. |
 
 #### mock

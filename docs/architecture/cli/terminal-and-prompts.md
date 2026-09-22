@@ -2,7 +2,7 @@
 
 Two separate concerns share this page because they share one resource: the
 process's terminal. The first is `ctxloom run`'s terminal *ownership* — raw
-mode, SIGWINCH relaying, the prefix-key interceptor and surround status bar, and
+mode, resize relaying, the prefix-key interceptor and surround status bar, and
 diagnostics redirection so warnings do not scribble over an engine's TUI. The
 second is the package-wide *prompting* primitive: one buffered reader over
 stdin, shared by every y/N question in the CLI, plus the terminal predicates
@@ -12,130 +12,105 @@ that decide whether prompting is legal at all.
 
 ```mermaid
 flowchart TD
-    RUNE["run.go RunE — interactive arm"]
-    RUNE --> IT["interactiveTerminal(ctx)<br/>run_terminal.go:24"]
-    IT --> MR["term.MakeRaw(stdin fd)"]
-    IT --> WR["watchResize(ctx)<br/>run_resize_unix.go:21 / _windows.go:16"]
+    RUNE["runRun — interactive arm"]
+    RUNE --> IT["interactiveTerminal(ctx)<br/>run_terminal.go"]
+    IT --> MR["termMakeRaw(stdin fd)"]
+    IT --> WR["watchResize(ctx)<br/>run_resize_unix.go / run_resize_windows.go"]
     IT --> RESTORE["idempotent restore closure"]
-    WR --> SIG["SIGWINCH → term.GetSize<br/>latest-wins coalescing, closes on ctx"]
+    WR --> SIG["SIGWINCH → terminal size<br/>latest-wins coalescing, closes on ctx"]
 
-    RUNE --> RD["redirectDiagnosticsForTUI :1224<br/>run_terminal_ui.go:164"]
+    RUNE --> RD["redirectDiagnosticsForTUI<br/>run_terminal_ui.go"]
     RD --> LOG["clidiag → &lt;harpdir&gt;/diagnostics.log"]
-    RUNE --> STU["setupTerminalUI :1225<br/>run_terminal_ui.go:56"]
+    RUNE --> STU["setupTerminalUI"]
     STU --> PK["prefix-key interceptor (ui.prefix_key)"]
-    STU --> BAR["surround bar — termui.BarInfo"]
+    STU --> BAR["surround bar — termui.BarInfo over terminalUIIdentity"]
     STU --> OV["overlay factory"]
-    STU --> SRC["terminalUISources :92<br/>session index · feed resolver · harp dir · inject"]
-    SRC --> ROSTER["surroundRoster :136<br/>coord.RosterEntry → termui.RosterEntry"]
+    STU --> SRC["terminalUISources<br/>session index · feed resolver · harp dir · inject"]
+    SRC --> ROSTER["surroundRoster<br/>coord.RosterEntry → termui.RosterEntry"]
 
-    RUNE --> LAUNCH["vpio launcher.Start / Wait"]
-    WR --> PR["pumpResize :51 → vpio.Session"]
-    PR --> LAUNCH
+    RUNE --> LAUNCH["launcher Start / Wait"]
+    WR --> LAUNCH
     LAUNCH --> EXIT["restore() → status.Code"]
 
-    VAL["validateTerminalUIConfig<br/>run_terminal_ui.go:40 — called EARLY at run.go:598"]
-    VAL -.->|"bad ui.prefix_key ⇒ strictness finding"| GATE["failOnFindings :606"]
+    VAL["validateTerminalUIConfig — called from runState.gateStartup"]
+    VAL -.->|"bad ui.prefix_key ⇒ strictness finding"| GATE["gates.close(PhaseStartup)"]
 ```
 
-| Symbol | file:line | Contract |
-|---|---|---|
-| `interactiveTerminal` | `run_terminal.go:24` | Puts stdin in raw mode, starts the resize watcher, returns `(stdin, resize, restore)`. The restore closure is idempotent. |
-| `pumpResize` | `run_terminal.go:51` | Relays resize events onto a `vpio.Session` — the above-the-seam half of SIGWINCH plumbing. |
-| `watchResize` (unix) | `run_resize_unix.go:21` | Emits the initial size, then one per SIGWINCH, latest-wins; closes the channel on ctx cancel. |
-| `watchResize` (windows) | `run_resize_windows.go:16` | Emits one size then closes — the build-tagged counterpart of the same contract. |
-| `validateTerminalUIConfig` | `run_terminal_ui.go:40` | Parses `ui.prefix_key`; a bad value records a **fatal-class** strictness finding, consumed by the gate at `run.go:606`. Runs early, before anything is spawned. |
-| `setupTerminalUI` | `run_terminal_ui.go:56` | Builds the interceptor / surround bar / overlay factory. A bad key here only warns and returns nil — reachable only under `--degraded`, because the gate above already aborted otherwise. |
-| `terminalUIIdentity` | `run_terminal_ui.go:29` | `{WorkDir, Harp, Agent, Backend, Model}` — what the surround bar displays. Single write site (`run.go:1225`), single read site. |
-| `terminalUISources` | `run_terminal_ui.go:92` | Four closures wiring the overlay's data seams to the session index, the feed resolver, the harp dir, and injection. |
-| `surroundRoster` | `run_terminal_ui.go:136` | Adapts `coord.RosterEntry` → `termui.RosterEntry`. Its `error` return is structurally always nil; the signature exists to satisfy `termui.Options.FetchRoster`. |
-| `redirectDiagnosticsForTUI` | `run_terminal_ui.go:164` | Diverts `clidiag` warnings to `<harpdir>/diagnostics.log` and returns a restore func. Installed **only** for interactive runs with the observation layer (`run.go:1224`, guarded by `mode == INTERACTIVE && !runPlainTerminal`). |
-| `shutdownSignals` | `signals_unix.go:12` / `signals_windows.go:11` | Build-tagged signal set; 10 production references across the package. |
+- `interactiveTerminal` makes the frontend the terminal owner: it puts the
+  real terminal in raw mode so keystrokes pass through untouched to the
+  runner's pty, returns `os.Stdin` as the keystroke source plus a resize
+  channel, and a restore func that undoes raw mode. The restore is
+  idempotent, so callers defer it immediately (panic safety) and may also
+  call it inline before any normal-path output. When stdin is not a terminal
+  it returns `(nil, nil, no-op)` and the run proceeds without a pty owner; a
+  raw-mode failure on a real terminal warns that the session will not receive
+  keystrokes.
+- `watchResize` emits the initial size, then one per SIGWINCH, latest-wins,
+  and closes the channel on ctx cancel; the Windows build-tagged counterpart
+  emits one size and closes.
+- `validateTerminalUIConfig` parses `ui.prefix_key`; a bad value records a
+  **fatal-class** strictness finding, consumed when `runState.gateStartup`
+  closes the startup phase — before anything is spawned. `setupTerminalUI`
+  builds the interceptor / surround bar / overlay factory; a bad key there
+  only warns and returns nil, reachable only under `--degraded` because the
+  gate already aborted otherwise.
+- `terminalUIIdentity` is what the surround bar displays; `terminalUISources`
+  wires the overlay's data seams to the session index, the feed resolver, the
+  harp dir and injection; `surroundRoster` adapts `coord.RosterEntry` to
+  `termui.RosterEntry`.
+- `redirectDiagnosticsForTUI` diverts `clidiag` warnings to
+  `<harpdir>/diagnostics.log` and returns a restore func. It is installed
+  only for interactive runs that own a terminal and did not pass
+  `--plain-terminal`.
+- `shutdownSignals` (`signals_unix.go` / `signals_windows.go`) is the
+  build-tagged signal set every long-lived command's `signal.NotifyContext`
+  uses.
 
-`--plain-terminal` (`run.go:1608` block) disables the whole ctxloom terminal
-layer — the prefix-key viewer and the surround bar — for one session.
+`--plain-terminal` disables the whole ctxloom terminal layer — the prefix-key
+viewer and the surround bar — for one session.
 
 ## The stdin invariant
 
 ```mermaid
 flowchart LR
-    SR["stdinReader — run.go:1692-1696<br/>the single bufio.Reader over os.Stdin"]
-    PL["promptLine(prompt) :1703"] --> SR
-    PYN["promptYesNo(prompt) :1716"] --> PL
-    PL --> C1["run.go:1687,1763 — confirmUpgrade / confirmSyncInstall"]
-    PL --> C2["review.go:118,184,224"]
-    PL --> C3["trust_interactive.go:89,142"]
-    OWN["remote_discover.go:110<br/>own bufio.NewReader(os.Stdin)"] -.->|"violates the invariant"| STDIN["os.Stdin"]
-    SR --> STDIN
+    SR["stdinReader — prompt.go<br/>the single bufio.Reader over os.Stdin"]
+    PL["promptLine(prompt)"] --> SR
+    PYN["promptYesNo(prompt)"] --> PL
+    PL --> C["every interactive y/N prompt in the package"]
+    SR --> STDIN["os.Stdin"]
 ```
 
-**I3.** `stdinReader` is the single buffered reader over `os.Stdin`, shared by
-every interactive y/N prompt. A fresh `bufio.Reader` per prompt would silently
-discard any bytes a previous reader buffered past its line, so all prompts read
-through this one reader. The invariant is documented in a comment at
-`run.go:1692-1696` and enforced by nothing.
+`stdinReader` is the single buffered reader over `os.Stdin`, shared by every
+interactive y/N prompt. A fresh `bufio.Reader` per prompt would silently
+discard any bytes a previous reader buffered past its line, so all prompts
+read through this one reader. `promptLine`, `promptYesNo` and `plural` live in
+`prompt.go` as cross-command primitives.
 
-`rg 'bufio.NewReader\(os.Stdin\)'` returns exactly two hits: `run.go:1696` (the
-sanctioned one) and `remote_discover.go:110` (`interactiveAdd`, which opens its
-own). That is latent rather than live only because no `promptLine` prompt
-currently precedes `remote discover` in a single invocation.
-
-`init.go` has a third, structurally different reader: `initPrompts`
-(`init.go:149`) wraps an injectable `io.Reader` for the setup interview. Its
-constructor `newInitPromptsFrom` (`:160`) additionally force-cooks the
-**process-global** terminal (`term.MakeRaw` + `Restore` on `os.Stdin.Fd()`) even
-when built over an arbitrary reader, so the "injectable reader" seam does not
+`init.go`'s setup interview has a structurally different reader: `initPrompts`
+wraps an injectable `io.Reader`. Its constructor `newInitPromptsFrom`
+additionally puts the **process-global** terminal into raw mode even when
+built over an arbitrary reader, so the "injectable reader" seam does not
 fully isolate from a real tty.
 
 ## Terminal predicates
 
-Defined in `init.go`, consumed almost entirely from elsewhere.
-
-| Predicate | file:line | Production call sites |
-|---|---|---|
-| `isInteractiveTerminal` | `init.go:122` | 10 — `run.go`, `review.go`, `mcp.go`, `signer.go`, `bundle_list.go`, `item_helpers.go` |
-| `stdinIsPiped` | `init.go:129` | 1 — `run.go:631` (not in `init.go`) |
-| `stderrIsTerminal` | `init.go:136` | 1 — `run.go:816` |
-| `stdoutIsTerminal` | `init.go:144` | 1 — `pager.go:66` |
+`terminal.go` defines `isInteractiveTerminal` (stdin *and* stdout are
+terminals — the gate every `-i` surface checks), `stdinIsPiped`,
+`stderrIsTerminal` and `stdoutIsTerminal`. `isInteractiveTerminal` is a
+package variable so tests can substitute it.
 
 ## Invariants
 
-- **One reader over stdin (I3).** See above.
-- **Restore is idempotent and always registered.** `interactiveTerminal` returns
-  a restore closure the caller defers; the SIGINT goroutine in `init.go:573`
-  restores and re-raises rather than exiting, so a Ctrl-C during the setup
-  interview does not leave the terminal in raw mode.
-- **The prefix key is validated before anything spawns.** `validateTerminalUIConfig`
-  runs at `run.go:598`, ahead of the first strictness gate at `:606`, so a
-  malformed `ui.prefix_key` aborts the launch rather than silently disabling the
-  viewer mid-session.
+- **One reader over stdin.** See above.
+- **Restore is idempotent and always registered.** `interactiveTerminal`
+  returns a restore closure the caller defers.
+- **The prefix key is validated before anything spawns.**
+  `validateTerminalUIConfig` runs inside `runState.gateStartup`, ahead of the
+  startup gate closing, so a malformed `ui.prefix_key` aborts the launch rather
+  than silently disabling the viewer mid-session.
 - **Pointer identity, not file descriptor, decides paging.** `shouldPage`
-  (`pager.go:65`) compares `out == os.Stdout`; a redirected writer is never paged
-  even if stdout happens to still be a tty.
+  (`pager.go`) requires `out == os.Stdout` *and* `stdoutIsTerminal()`; a
+  redirected writer is never paged even if stdout happens to still be a tty.
 - **Diagnostics redirection is interactive-only.** `clidiag` warnings go to a
-  per-harp log only under `mode == INTERACTIVE && !runPlainTerminal`
-  (`run.go:1224`). `--plain-terminal` and bare `ctxloom mcp` are
-  unprotected — a warning raised by a session-owning process on those paths lands
-  on the terminal the engine may be drawing on.
-
-## Documented vs real
-
-- `interactiveTerminal` discards `term.MakeRaw`'s error (`run_terminal.go:29-32`)
-  and returns a nil stdin with no diagnostic; the caller then skips the TUI
-  (`run.go:1220`) and reaches `launcher.Start` with a nil `Stdin`, which goplugin
-  accepts as "no tty" — an interactive session the user cannot type into.
-- `watchResize` (unix) silently skips the initial emit if `term.GetSize` fails;
-  the windows variant closes the channel having sent nothing, so the pty keeps
-  its default size forever.
-- `redirectDiagnosticsForTUI` returns the same silent no-op for four distinct
-  failures (`paths.HarpDir`, `MkdirAll`, `OpenFile`, empty harp) — the user is
-  never told the diagnostics log could not be created.
-- `terminalUISources`' `ExportDir` closure returns a non-empty path alongside a
-  non-nil error (`run_terminal_ui.go:121`), unlike its sibling three lines above.
-- `initPrompts.oldState` (`init.go:151`) is written once and never read; the type
-  presents a terminal-restore responsibility it never discharges (no
-  `Close`/`Restore` method).
-- `readCleanLine` (`init.go:183`) strips every non-ASCII byte, so a UTF-8 repo
-  name or path typed at an init prompt is silently mangled rather than rejected.
-- The prompt trio (`stdinReader`, `promptLine`, `promptYesNo`) and `plural`
-  (`run.go:1771`) are cross-command primitives that live in `run.go`;
-  `trust_interactive.go:27` documents the dependency explicitly.
+  per-harp log only when the run owns a terminal and `--plain-terminal` is
+  not set.

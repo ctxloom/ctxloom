@@ -13,45 +13,44 @@ config-write` is a hidden, guarded merge-writer for foreign config files.
 
 ```mermaid
 flowchart TD
-    subgraph init["init.go — 1,160 lines"]
-        RI["runInit :604"] --> RAD["resolveAppDir :636"]
-        RI --> CDE["ctxloomDirExists :652"]
-        CDE -->|exists| EFEC["engineFromExistingConfig :659"]
-        CDE -->|new| SNCD["setupNewCtxloomDir :797"]
-        SNCD --> RSE["resolveSetupEngine :845"] --> PFER["promptForEngineAndRepos :886"]
-        PFER --> IP["initPrompts :149 → readCleanLine :183"]
-        IP --> PES["promptEngineSelection :267"] & PPR["promptPersonalRepos :385"] & PDTH["promptDirtyTreeHandler :465"]
-        SNCD --> WIC["writeInitialConfig :928"]
-        SNCD --> CSD["checkSystemDeps :712"] --> W1["warnIfNoSignKey :746 / warnIfGitIdentityMissing :764"]
-        SNCD --> POST["addPersonalRemotes :966 · cloneConfiguredRemotes :987<br/>pullSeededDependencies :1008 · applyInitHooks :1029"]
-        RI --> LD["launchDiscovery :1118"] --> PEA["pingEngineAuth :1090"] --> LEWP["launchEngineWithPrompt :525 (pty)"]
+    subgraph init["init.go · init_prompts.go · init_engine_select.go · init_systemdeps.go"]
+        RI["runInit"] --> RAD["resolveAppDir"]
+        RI --> CDE["ctxloomDirExists"]
+        CDE -->|exists| EFED["engineForExistingDir"]
+        CDE -->|new| SNCD["setupNewCtxloomDir"]
+        SNCD --> RSE["resolveSetupEngine"] --> PFER["promptForEngineAndRepos"]
+        PFER --> IP["initPrompts → readCleanLine"]
+        IP --> PES["promptEngineSelection"] & PPR["promptPersonalRepos"] & PDTH["promptDirtyTreeHandler"]
+        SNCD --> WIC["writeInitialConfig"]
+        SNCD --> CSD["checkSystemDeps"] --> W1["warnIfNoSignKey / warnIfGitIdentityMissing"]
+        SNCD --> POST["addPersonalRemotes · cloneConfiguredRemotes<br/>pullSeededDependencies · operations.ApplyHooks"]
+        RI --> LD["launchDiscovery"] --> PEA["pingEngineAuth"] --> LEWP["launchEngineWithPrompt (pty)"]
     end
 
     subgraph config["config.go"]
-        CS["config show :35"] --> RCY["renderConfigYAML :77"]
-        CG["config get &lt;section&gt; :59"] --> RCS["resolveConfigSection :90 → renderConfigSection :107"]
-        CE["config edit :121"] --> OIE["openInEditor :188 (env-only editor resolution)"]
-        CI["config create :145"] --> IPJ[["operations.InitializeProject"]]
+        CS["config show"] --> RCY["renderConfigYAML"]
+        CG["config get &lt;section&gt;"] --> RCS["resolveConfigSection → renderConfigSection"]
+        CE["config edit"] --> OIE["openInEditor (env-only editor resolution)"]
+        CI["config create"] --> IPJ[["operations.InitializeProject"]]
     end
 
-    subgraph manage["manage.go"]
-        MI["manage install :52"] --> EHG["ensureHarnessGitignore :137"]
-        MI --> PIP["printInstallPlan :124 (--print)"]
-        MU["manage uninstall :62"]
-        MS["manage check :72"] --> PHS["printHarnessStatus :177"] --> PCS["printCompanionStatus :222"] --> HFC["hintForCompanion :210 → companionHint :194"]
-        MH["manage hooks install/uninstall/check :248,274,295"]
-        MMCP["manage mcp * (DEPRECATED) :309"] --> SMAR["setMcpAutoRegister :331"]
-        MSL["manage statusline install/uninstall :366,373"] --> SSL["setStatusline :380"]
-        MC["manage config * (DEPRECATED) :406"] --> config
-        MG["manage gitignore install :462"] --> EHG
+    subgraph manage["manage.go · manage_companions.go"]
+        MI["manage install"] --> EHG["ensureHarnessGitignore"]
+        MI --> PIP["printInstallPlan (--print)"]
+        MU["manage uninstall"]
+        MS["manage check"] --> PHS["printHarnessStatus"] --> PCS["printCompanionStatus"] --> HFC["hintForCompanion → companionHint"]
+        MH["manage hooks install/uninstall/check"]
+        MSL["manage statusline install/uninstall"] --> SSL["setStatusline"]
+        MC["manage config * (deprecated alias)"] --> config
+        MG["manage gitignore install"] --> EHG
     end
 
     subgraph container["container_cmd.go"]
-        CB["container build &lt;backend&gt; :39"] --> BAI[["isolation.BuildAgentImage"]]
-        CP["container provenance :149 (hidden)"]
-        CT["container tooling list :188 / tooling (DEPRECATED) :215"] --> RTC["runToolingListCmd :202 → renderTooling :231"]
-        CSF["container scaffold :255"] --> SCB[["operations.ScaffoldContainerBase"]]
-        CC["container check &lt;backend&gt; :287"] --> CD["containerDiagnose → renderContainerCheck :324"]
+        CB["container build &lt;backend&gt;"] --> BAI[["isolation.BuildAgentImage"]]
+        CP["container provenance (hidden)"] --> HPD[["isolation.HostProvenanceDigest"]]
+        CT["container tooling list"] --> RTC["runToolingListCmd → renderTooling"]
+        CSF["container scaffold"] --> SCB[["operations.ScaffoldContainerBase"]]
+        CC["container check &lt;backend&gt;"] --> CD["renderContainerCheck"]
     end
 
     subgraph doctor["doctor_cmd.go"]
@@ -61,67 +60,58 @@ flowchart TD
     end
 
     subgraph util["util_config_write.go (hidden)"]
-        UCW["util config-write :49"] --> RCW["runConfigWrite :111 (CCN 18)"]
-        RCW --> VRP["validateRealFilePath :198"] --> RCF["resolveConfigFiletype :213"]
-        RCW --> DCP["decodeConfigPatch :236 — refuses empty stdin AND empty object"]
-        RCW --> BBE["backupBeforeEdit :298"]
-        RCW --> DMC["deepMergeConfigMaps :310"]
-        RCW --> CCP["containsConfigPatch :335 — re-reads and VERIFIES the payload"]
-        RCW --> CWR["configWriteResult :99 → renderConfigWriteResult :384"]
+        UCW["util config-write"] --> RCW["runConfigWrite"]
+        RCW --> VRP["validateRealFilePath"] --> RCF["resolveConfigFiletype"]
+        RCW --> DCP["decodeConfigPatch — refuses empty stdin AND empty object"]
+        RCW --> RE["readExisting → decodeConfigFile"]
+        RCW --> REC["recordConfigPatch → buildAndWriteApplicationRecord"]
+        RCW --> VCW["verifyConfigWrite → containsConfigPatch — re-reads and VERIFIES the payload"]
+        RCW --> CWR["configWriteResult → renderConfigWriteResult"]
     end
 
     W1 -.->|shares| SKRD
 ```
 
-## `ctxloom init` (`init.go:32`)
+## `ctxloom init`
 
-Six flags (`bindInitFlags:112`) including `--engine`, `--remote`, `--forge`,
-`--home`. Two paths:
+Two paths:
 
-- **`.ctxloom` does not exist** → `setupNewCtxloomDir:797`: resolve the engine
+- **`.ctxloom` does not exist** → `setupNewCtxloomDir`: resolve the engine
   (prompting if needed), write the initial config, check system deps, add
   personal remotes, clone configured remotes, pull seeded dependencies, apply
   hooks — then hand off to the engine's raw TUI for the setup interview
-  (`launchDiscovery:1118`).
+  (`launchDiscovery`).
 - **`.ctxloom` exists** → `engineForExistingDir` (an explicit `--engine` wins
   over the recorded one), the `--remote`/`--forge` flags, and straight to
   `launchDiscovery`.
 
-`checkSystemDeps:712` hard-blocks on missing git (with a per-OS install message —
-the most actionable error in the file) and warns informationally on the rest.
-`pingEngineAuth:1090` runs the smallest possible oneshot to detect an
-unauthenticated engine before the interview starts, and wraps the failure with a
-per-engine fix (`engineAuthFixHint:1067`).
+`checkSystemDeps` hard-blocks on missing git (with a per-OS install message)
+and warns informationally on the rest. `pingEngineAuth` runs the smallest
+possible oneshot to detect an unauthenticated engine before the interview
+starts, and wraps the failure with a per-engine fix (`engineAuthFixHint`).
 
-`ctxloom init prompt` (`init.go:85`) prints the five-phase setup body without
-launching anything; `ctxloom agent setup` is its deprecated alias.
+`ctxloom init prompt` prints the setup body without launching anything.
 
-## `ctxloom config` (`config.go:23`)
+## `ctxloom config`
 
-`show`, `get <section>`, `edit`, `init`. `resolveConfigSection:90` is the whole
-`config get` surface — a four-arm switch whose default names every valid section.
-`openInEditor:188` resolves the editor from the **environment only**, deliberately:
+`show`, `get <section>`, `edit`, `create`. `resolveConfigSection` is the whole
+`config get` surface — a switch whose default names every valid section.
+`openInEditor` resolves the editor from the **environment only**, deliberately:
 it must not depend on a config load, since it is how you fix a broken config.
-`projectConfigPath:174` names the appdir-or-default fallback.
+`projectConfigPath` names the appdir-or-default fallback.
 
-All four also exist as `manage config *` deprecated aliases (`manage.go:406-452`).
+The same verbs exist as `manage config *` deprecated aliases.
 
-## `ctxloom manage` (`manage.go:24`)
+## `ctxloom manage`
 
-| Command | file:line |
-|---|---|
-| `install` / `uninstall` / `status` | `:52`, `:62`, `:72` |
-| `hooks install` / `uninstall` / `status` | `:248`, `:274`, `:295` |
-| `mcp install` / `uninstall` / `servers *` (deprecated) | `:314`, `:322`, `:349` |
-| `statusline install` / `uninstall` | `:366`, `:373` |
-| `config show` / `get` / `edit` / `init` (deprecated) | `:422`–`:446` |
-| `gitignore install` | `:462` |
+`install`/`uninstall`/`check`, `hooks *`, `statusline *`, `gitignore install`,
+and the deprecated `mcp *` and `config *` alias trees.
 
 `companionHint` is the "what breaks / how to install" text for a missing
-companion binary; its map keys are companion binary names, and a name with no
-entry degrades to a generic fallback. `printCompanionStatus` reads
-`config.AdmitCompanions(..., prompt=false)` and nothing else: a status command
-executes no companion — approved or not — and can never raise the
+companion binary; `hintForCompanion` keys on companion binary names, and a
+name with no entry degrades to a generic fallback. `printCompanionStatus` reads
+`companions.AdmitCompanions(..., prompt=false)` and nothing else: a status
+command executes no companion — approved or not — and can never raise the
 trust-on-first-use question, because the answer to "what is the state of
 things" must not itself change that state. The resolved `bundles.Catalog` is
 deliberately NOT consulted here; its companion reader is the exec. `ctxloom
@@ -129,17 +119,16 @@ doctor` reads the catalog instead (`Catalog.Candidates()` for the companions
 that produced nothing), which is where a diagnosis is allowed to cost a
 resolution.
 
-## `ctxloom container` (`container_cmd.go:22`)
+## `ctxloom container`
 
-| Command | file:line | Notes |
-|---|---|---|
-| `build [backend]` | `:39` | Nine flags including `--base-image`, `--base-containerfile`. Flag-over-config merge, then `isolation.BuildAgentImage` |
-| `provenance` | `:149` | Hidden; prints `HostProvenanceDigest("")` for the `just` recipes |
-| `tooling` | `:188` (+ deprecated top-level `tooling` at `:215`) | Emits `toolingJSON{Instructions, Declarations}`; `renderTooling:231` explains the trust gate explicitly when there are zero declarations |
-| `scaffold` | `:255` | Writes a base Containerfile |
-| `check [backend]` | `:287` | Diagnoses container capability |
+- `build [backend]` — flag-over-config merge, then `isolation.BuildAgentImage`.
+- `provenance` — hidden; prints `isolation.HostProvenanceDigest` for the `just` recipes.
+- `tooling list` — emits `toolingJSON{Instructions, Declarations}`; `renderTooling`
+  explains the trust gate explicitly when there are zero declarations.
+- `scaffold` — `operations.ScaffoldContainerBase` writes a base Containerfile.
+- `check [backend]` — diagnoses container capability through `renderContainerCheck`.
 
-## `ctxloom doctor` (`doctor_cmd.go`)
+## `ctxloom doctor`
 
 The checks are `operations.Doctor`'s: `--deps` selects the machine-capability
 subset (`DoctorRequest.DepsOnly`), the CLI hands in the home it stands in for
@@ -151,117 +140,39 @@ Status, Detail}` where `Marker` carries the `DOCTOR-CHECK-*` vocabulary
 startup findings (`run_startup_findings.go`) are `operations.StartupFindings`
 rendered through the same renderer.
 
-Checks: deps (`:206`), sign key (`:269`), git identity (`:377`)
-(`:452`), agents (`:508`), version (`:539`), hooks/trust (`:551`), setup marker
-(`:637`), lockfile + a real `AssembleContext` (`:658`), companions (`:694`), auth
-ping (`:729`).
+`operations.SignKeyResolutionDetail` and `operations.GitIdentityDetail` are
+shared with `init_systemdeps.go`'s `warnIf*` probes, so a diagnosis is worded
+identically in both places. `SignKeyResolutionDetail` in particular is an
+`errors.As` ladder where every failure gets a named cause and a concrete fix.
 
-Three of the detail helpers — `signKeyResolutionDetail:307`,
-`gitIdentityDetail:390` — are shared with `init.go`'s
-three `warnIf*` probes, so a diagnosis is worded identically in both places.
-`signKeyResolutionDetail` in particular is a four-shape `errors.As` ladder where
-every failure gets a named cause and a concrete fix.
-
-## `ctxloom util config-write` (`util_config_write.go:49`, hidden)
+## `ctxloom util config-write` (hidden)
 
 The guarded merge-writer an agent uses to patch a foreign config file
-(`settings.json`, `config.toml`) without clobbering it. Seven ordered steps:
-validate the path → parse the patch from stdin → back up → decode the existing
-file → deep-merge → write → **re-read and verify the payload survived**. It emits
-`configWriteResult{File, Filetype, Created, Backup, Merged, Verified}` so a caller
-inspects the report rather than trusting exit 0.
+(`settings.json`, `config.toml`) without clobbering it: validate the path →
+parse the patch from stdin → decode the existing file → deep-merge → write →
+**re-read and verify the payload survived** → write the application record. It
+emits `configWriteResult` so a caller inspects the report rather than trusting
+exit 0. No backup is taken; the `hew` application record
+(`buildAndWriteApplicationRecord`, reported as `configWriteResult.Record`) is
+the durable evidence of what changed in a file ctxloom does not own.
 
-`decodeConfigPatch:236` is the reference anti-silent-no-op guard in this package:
-it refuses an empty body *and* an empty JSON object. `containsConfigPatch:335` is
-the verification; `normalizeConfigValue:357` coerces int→float64 recursively so a
+`decodeConfigPatch` is the reference anti-silent-no-op guard in this package:
+it refuses an empty body *and* an empty JSON object. `containsConfigPatch` is
+the verification; `normalizeConfigValue` coerces int→float64 recursively so a
 TOML integer round-trip does not fail verification.
 
 ## Invariants
 
-- **`config edit` must not depend on a config load.** `openInEditor:188` reads the
+- **`config edit` must not depend on a config load.** `openInEditor` reads the
   editor from `$VISUAL`/`$EDITOR` only.
 - **`config create` refuses to overwrite.** It stats the path first and errors when
   something is there.
 - **`config-write` verifies its own payload.** Nothing else in the package
   re-reads what it wrote to confirm the write landed.
-- **Backups precede every foreign-file edit.** `backupBeforeEdit:298` writes
-  `<path>.bak.<UTC timestamp>` at 0600 before any modification.
 - **`doctor` is diagnostic-only.** It never mutates; a `warn` status is its
   fail-loud signal (stated in its own `Long` text).
 - **`container tooling` explains an empty result.** Zero declarations produces a
   two-line explanation naming the trust gate, not silence.
 - **`init` is warn-and-continue after the config write.** Only the config write
   and the git check are fatal; remotes, clones, seeded deps and hooks each warn
-  and proceed (`setupNewCtxloomDir:797`).
-- **`writeInitialConfig:928` invalidates the config memo** (`config.Invalidate()`)
-  so the rest of `init` sees what it just wrote.
-
-## Documented vs real
-
-- **`ctxloom init --home` inside a project still applies HOOKS to the project.**
-  init's post-scaffold steps read the config `config.WithAppDir(appDir)`-scoped,
-  so remotes, seeded deps and the engine choice all follow the `.ctxloom` init
-  targets — but `operations.ApplyHooks` resolves its own `workDir` from the cwd
-  when the request leaves it empty, and pinning it to the `--home` dir would
-  collide with `checkHookTargetScope`'s refusal to write a backend's user-global
-  settings.
-- `config show`/`get`/`edit`/`init` accept `--format` and always emit YAML (see
-  [output-and-format.md](output-and-format.md)). The `manage`/`mcp` installer
-  commands and the `fragment`/`command` create/delete/edit/distill set now honour
-  it; `fragment show`/`command show` still print their item body regardless of
-  format (tracked in `format_coverage_test.go`'s debt ledger).
-- `manage gitignore install` prints "Updated `<path>`" and exits 0 even when the
-  write failed — `ensureHarnessGitignore:137` has no return value and swallows
-  `gitignore.Ensure`'s error into a warning.
-- `manage install --engine <x>` on a project that already has a `.ctxloom` is a
-  hard error: the engine is recorded only while scaffolding, so the flag could
-  never have applied. Change the engine with `ctxloom llm default <name>`.
-- `container build --base-image X` hard-fails on any project that sets
-  `isolation_base_containerfile`: the config value is copied into
-  `opts.BaseContainerfile` without checking whether `--base-image` was given
-  (`container_cmd.go:110-113`), and `BuildAgentImage` rejects the pair.
-- `container build` silently ignores `isolation_images`: `img.Image` is never
-  read, so on a project with a user-provided image the command builds the default
-  image name and reports success for an artifact no run will ever launch
-  (`container_cmd.go:102-133`). `container check` and the runtime both honour the
-  override.
-- `container check` with no backend argument and an unloadable config diagnoses
-  the **empty** backend: both `GetConfig()` errors are discarded and `backend`
-  stays `""` (`:302-318`). It also loads config twice on the happy path.
-- `doctorCheckHooksTrust` appends `operations.ListSigners`' error to the detail
-  string but never sets `status = "warn"` (`doctor_cmd.go:590-601`), so a broken
-  trust store reports `[ok]` — defeating doctor's own documented fail-loud signal.
-  Its sibling `HarnessStatus` failure three lines above does set it.
-- `doctorCheckDeps` classifies a container runtime as **required**
-  (`:228-233`), but a container runtime is required only for `runtime: container-rootless`
-  or `runtime: container-rootful` agents — `isolation.Resolve` degrades to host
-  when none is reachable.
-- Both `container check` and `doctor` document "always exits 0", but both
-  `return emit(...)`, which errors (→ exit 1) on an unparseable `--format`;
-  `container check` also exits 1 on an unknown backend argument.
-- `config edit` and `config create` treat `os.Stat` as a boolean
-  (`config.go:129,158`): a permission error or broken symlink falls through to
-  launching the editor / initializing over the path. `config create` also passes
-  `context.Background()` instead of `cmd.Context()`, so it cannot be cancelled.
-- `config.go:167`, `container_cmd.go:132` and `edit_helpers.go:31,38,45-47` print
-  success messages to `os.Stdout` via bare `fmt.Print*`.
-- `util config-write`'s backup filename has 1-second resolution
-  (`util_config_write.go:299`), so two calls within the same second overwrite the
-  earlier backup — contradicting the doc's promise at `:292-297` that every prior
-  generation stays recoverable. Its verify-failure messages also interpolate an
-  empty `result.Backup` when the file was newly created (`:179,183,186`).
-- `util config-write` leaves a *second*, ctxloom-branded backup in the user's
-  config directory: `agent.AtomicWriteFile` writes `<path>.ctxloom.bak` and
-  ignores the result (`internal/core/agent/settings_io.go:140-143`).
-- `containerDiagnose` (`container_cmd.go:137-139`) exists "so the CLI rendering is
-  testable with an injected report", but no test ever assigns it — the tests
-  inject a `Diagnosis` into `renderContainerCheck` directly.
-- `completionCmd`'s switch (`completion.go:58-70`) has no `default`; an unmatched
-  arg falls through to `return nil` — exit 0, zero bytes. Unreachable today only
-  because `ValidArgs` + `OnlyValidArgs` guard it.
-- `bindInitFlags` (`init.go:112`) documents itself as shared with `manage init`,
-  which `manage_test.go:43` asserts was deleted. `init.go:497` carries an orphaned
-  doc comment for a `generateConfig` function that no longer exists.
-- `initPrompts.oldState` (`init.go:151`) is written once and never read.
-- `DoctorCheck` and `DoctorReport` are exported from an `internal/` package with
-  zero references outside `internal/adapters/cli`.
+  and proceed (`setupNewCtxloomDir`).

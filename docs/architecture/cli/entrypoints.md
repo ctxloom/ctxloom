@@ -1,149 +1,131 @@
 # Entrypoints — `cmd/*` and `internal/adapters/cli/root.go`
 
-Every ctxloom binary is a `main` that does almost nothing: `cmd/ctxloom/main.go`
-is 48 lines of environment pre-flight plus `cli.Execute()`, and the entire
-command tree lives in `internal/adapters/cli`. `root.go` owns the root cobra command, the
-three persistent flags, the process-wide `PersistentPreRun` side effects, config
-loading for the whole package, and top-level error rendering + exit-code
-mapping. `startup_helpers.go` owns the shared startup reporting and the strict
-gate that process-owning commands must pass before they spawn anything.
+Every ctxloom binary is a `main` that does almost nothing. `cmd/ctxloom` is
+the **composition root**: it hardens the process, builds a `cli.Composition`
+(`compose.go`) and hands it to `cli.Run`; the entire command tree lives in
+`internal/adapters/cli`. `root.go` owns the root cobra command, the
+persistent flags, the process-wide `PersistentPreRun` side effects, the one
+`operations.App` every command reaches configuration through, and top-level
+error rendering + exit-code mapping. `startup_helpers.go` owns the phase
+gates that process-owning commands must close before they spawn anything.
 
 ## Binaries under `cmd/`
 
-| Binary | Lines (prod) | Role |
-|---|---|---|
-| `cmd/ctxloom` | 48 | The product. Env pre-flight → `cli.Execute()`. |
-| `cmd/harp` | 116 + 31 + 33 | Standalone harp-name generator; defines its own `resolveFormat` (`cmd/harp/root.go:113`), a name collision with `internal/adapters/cli/format.go:51`. |
-| `cmd/taskloom` | ~2,900 | The task-tracking companion — separate cobra root, its own MCP server. Not part of `internal/adapters/cli`. |
-| `cmd/ltk` | ~1,100 | The tool-rule hook companion. Separate root. |
-| `cmd/gen-schemas` | 43 | Reflects over `cli.SchemaTargets()` (`schematargets.go:16`) to emit JSON schemas. Build-tagged. |
-| `cmd/mockengine` | 122 | Test double engine used by the conformance suites. |
-| `cmd/validate` | 48 | Schema validation utility. |
+`cmd/ctxloom` is the product. Its siblings under `cmd/` are separate roots —
+the companions (`taskloom`, `ltk`, `harp`), build-time tools (`gen-schemas`
+reflects over `cli.SchemaTargets()`; `archlint` is the architectural gate;
+`validate`), and test doubles (`mockengine`, `probe-mcp-server`). None of the
+siblings share `internal/adapters/cli`'s cobra tree; the ones that import the
+package at all do so for a seam it exports (`cli.SchemaTargets`,
+`cli.GetRootCmd` for `scripts/gendocs` and the acceptance coverage gate).
 
-Only two things import `internal/adapters/cli`: `cmd/ctxloom` (via `cli.Execute`) and
-`scripts/gendocs` (via `cli.GetRootCmd()`, `root.go:155`). `tests/acceptance`
-also walks `GetRootCmd()`.
-
-## `cmd/ctxloom/main.go` — what happens before cobra
+## `cmd/ctxloom` — what happens before cobra
 
 ```mermaid
 flowchart TD
-    M["main() — cmd/ctxloom/main.go:13"]
-    M --> D{"CTXLOOM_DEGRADED=1?"}
-    D -->|yes| SD["strictness.SetDegraded(true)"]
-    M --> NC{"CTXLOOM_NO_COMPANIONS=1?"}
-    NC -->|yes| SC["config.SetCompanionsDisabled(true)"]
-    M --> LOG["zap logger — Development if CTXLOOM_VERBOSE=1, else Warn-level Production"]
-    M --> EX["cli.Execute() — root.go:159"]
-    EX --> PPR["rootCmd.PersistentPreRun — root.go:87"]
-    PPR --> F1["--degraded (Changed) wins over env"]
-    PPR --> F2["--no-companions (Changed) wins over env"]
-    PPR --> F3["config.InstallOverridesFromFlags(cmd.Flags())"]
-    PPR --> F4["clidiag.SetStructured(format.Structured())"]
+    M["main()"]
+    M --> PS["procsec.HardenAtStartup — process hardening, coordinator credential key"]
+    M --> MN["mountns.RunChildIfRequested — the mount-namespace re-exec, if this process is one"]
+    M --> CO["compose(sink) → cli.Composition<br/>Reporter · OpenConfig · Loadout · NewCoordinator"]
+    M --> LOG["zap logger — development if CTXLOOM_VERBOSE, else warn-level production"]
+    CO --> RUN["cli.Run(comp)"]
+    RUN --> CE["composeEngines — the engine registry, once"]
+    RUN --> RC["rootCommand — assembled once (rootAssembly)"]
+    RC --> PPR["rootPersistentPreRunE"]
+    PPR --> IA["installApp(flags, environ, noCompanions, strictnessMode)<br/>→ operations.ComposeSources → operations.NewApp"]
+    PPR --> FG["clidiag.SetStructured(format.Structured())"]
+    PPR --> RUB["refuseUnstampedBuild"]
+    PPR --> RUF["refuseUnsupportedFormat"]
     PPR --> RUNE["subcommand RunE"]
-    RUNE --> ERR{"error?"}
-    ERR -->|"*ExitError"| CODE["os.Exit(e.Code)"]
-    ERR -->|other| REP["reportExecuteError → clifmt.RenderError → os.Exit(1)"]
-    ERR -->|nil| OK["return, exit 0"]
+    RUNE --> POST["rootPersistentPostRunE → closeInternalCoordinator · checkFormatWasHonored"]
+    POST --> ERR{"error?"}
+    ERR -->|"*ExitError"| CODE["exitCodeFor → that code"]
+    ERR -->|other| REP["cliemit.EmitError → exit 1"]
+    ERR -->|nil| OK["exit 0"]
 ```
 
-The env vars are read **before** dispatch on purpose: the pre-cobra window
-(config discovery, `projectroot`) already runs, and companion probing *executes*
-binaries found on PATH. There is deliberately no config key for `--degraded` — a
-broken config cannot excuse itself (`cmd/ctxloom/main.go:19-20`).
+`Composition` is what the composition root decides once per process: the
+`report.Sink` every component reports through, the one way to open the config
+owner (`operations.ConfigOpener`) and the one way to construct the runtime
+coordinator. `config.Open` and `coord.New` are called only inside the root's
+closures — the one-mint-one-owner rule — so the CLI parses flags and renders,
+and the application services compose from what they were handed.
 
-## `root.go` inventory
+`--degraded` comes from `CTXLOOM_DEGRADED` with an explicitly set flag winning
+in either direction (`strictnessMode`). There is deliberately **no config key**
+for it: a broken config cannot excuse itself.
 
-| Symbol | file:line | Notes |
-|---|---|---|
-| `rootCmd` | `root.go:76` | `SilenceUsage`/`SilenceErrors` both true — `Execute` owns error printing, otherwise cobra prints every error twice and dumps usage even for a wrapped LLM's ordinary nonzero exit. |
-| `PersistentPreRun` closure | `root.go:87` | Four process-wide effects; see diagram. |
-| `ExitError` | `root.go:38` | `{Code int}`. 44 references package-wide. The mechanism by which a wrapped engine's exit code survives deferred cleanup. |
-| `GetConfig()` | `root.go:50` | Shared memoized config + warning echo. ~93 references. |
-| `GetConfigForUpdate()` | `root.go:66` | `config.LoadFresh` + warning echo. 5 production call sites (`mcp.go`, `agent.go`, `llm_default.go`). Body is otherwise identical to `GetConfig`. |
-| `GetRootCmd()` | `root.go:155` | The only export seam; `rootCmd` itself is unexported. |
-| `Execute()` | `root.go:159` | Runs the tree; `errors.As` for `ExitError`, else render + exit 1. |
-| `reportExecuteError` | `root.go:184` | Renders a top-level error in the selected format. Explicit test seam. |
-| `init()` | `root.go:190` | Version string, three persistent flags, `isolation.SetBinaryVersion`. |
+## `root.go`
+
+- `rootCmd` sets `SilenceUsage`/`SilenceErrors` — `run` owns error printing,
+  otherwise cobra prints every error twice and dumps usage even for a wrapped
+  LLM's ordinary nonzero exit.
+- `App()` returns the process's `operations.App`. A command reached without
+  the root's `PersistentPreRun` (a test driving `RunE` directly) composes from
+  the process environment on first use; `SetAppForTesting` installs a fixture.
+- `GetConfig()` returns the published generation's configuration and echoes
+  the warnings the reader downgraded from hard errors, so every
+  `GetConfig`-based command surfaces them instead of silently operating on a
+  partial config.
+- `ExitError{Code}` is the mechanism by which a wrapped engine's exit code
+  survives deferred cleanup: `run` unwraps it with `errors.As` (`exitCodeFor`)
+  rather than calling `os.Exit` mid-stack.
+- `GetRootCmd()` is the only export of the tree; `rootCmd` itself is
+  unexported. `RunWithArgs` is the in-process driver tests use.
 
 ### Persistent flags (available on every command)
 
-| Flag | Registered | Effect |
-|---|---|---|
-| `--format` | `format.go:63` | `json`, `yaml`, `toml`, `text` (default), `markdown`. See [output-and-format.md](output-and-format.md). |
-| `--degraded` | `root.go:190` block | Downgrades strictness findings from fatal to advisory. Env fallback `CTXLOOM_DEGRADED=1`. |
-| `--no-companions` | `root.go:190` block | Disables companion (taskloom/ltk) discovery. Env fallback `CTXLOOM_NO_COMPANIONS=1`. *Real behaviour:* the loadout path honours it (`config.go:1780`), the **version probe** does not — `reportCompanions` (`startup_helpers.go:166`) still execs companions from `run.go:475` and `mcp_server.go:184`. |
-| `--config-set` / `CTXLOOM_CONFIG_*` | via `config.InstallOverridesFromFlags`, `root.go:110` | Captured exactly once per process in `PersistentPreRun`; every later `config.Load` resolves through the funnel. |
+- `--format` — see [output-and-format.md](output-and-format.md).
+  `refuseUnsupportedFormat` rejects an unknown value before `RunE`;
+  `checkFormatWasHonored` after it is how the format contract is enforced
+  rather than merely documented.
+- `--degraded` — downgrades strictness findings from fatal to advisory (env
+  fallback `CTXLOOM_DEGRADED`).
+- `--no-companions` — disables companion discovery (env fallback
+  `CTXLOOM_NO_COMPANIONS`).
+- Config overrides (`CTXLOOM_CONFIG_*`, the flag funnel) are captured exactly
+  once per process by `installApp`; every later generation resolves through
+  `operations.ComposeSources`.
 
-## `startup_helpers.go` — the shared startup layer
+## `startup_helpers.go` — the phase gates
 
-```mermaid
-flowchart LR
-    subgraph gate["the strict gate"]
-        FOF["failOnFindings(mark)<br/>startup_helpers.go:96"] --> FF["formatFindings<br/>:108"]
-        FOF --> EE["ExitError{Code: 3}"]
-    end
-    subgraph report["reporters (also RECORD findings)"]
-        PCW["printConfigWarnings :55"] --> REC["strictness.Record"]
-        WSS["writeSyncSummary :196"] --> REC
-        RC["reportCompanions :162"]
-        SOW["sweepOrphanedWorktrees :140"]
-    end
-    subgraph load["config fallback"]
-        LCF["loadConfigOrFallback :30"]
-    end
-    GC["GetConfig / GetConfigForUpdate<br/>root.go:50,66"] --> PCW
-    RUN["run.go:392,463,475,485,606,1020,1071"] --> PCW & WSS & RC & SOW & FOF
-    MCP["mcp_server.go:144,184,190,225,260"] --> PCW & WSS & RC & SOW & FOF
-    PM["profile_materialize.go:59"] --> FOF
-    RU["remote_update.go:56 / remote_upgrade.go:35"] --> LCF
-```
+`phaseGates` tiles a process's fatality windows: `newPhaseGates` opens the
+first, and `close(Phase)` reports the phase's findings, returns the abort
+(`ExitError` carrying `exitCodeFatalFindings`) if any survived the mode, and
+**opens the next window in the same call** — so a finding recorded anywhere
+between two gates is caught, and no caller can forget to re-open. That last
+property is the whole reason the type exists: `run` previously achieved the
+tiling by convention, with comments explaining that the windows must abut and
+nothing enforcing it. Single-window entry points (`profile materialize`) use
+the same type and call `close` once, so there is one gate mechanism rather
+than a tiling one and a single-shot one that must be kept agreeing.
 
-| Function | file:line | Contract |
-|---|---|---|
-| `loadConfigOrFallback` | `:30` | On load failure, warns and returns a minimal `.ctxloom`-rooted fixture rather than aborting. Used only by `deps check`/`upgrade`. |
-| `printConfigWarnings` | `:55` | Echoes each `config.Warning` to the writer **and** records it as a strictness finding. Called unconditionally from both `GetConfig` variants. *Real behaviour:* it uses the non-deduping `Record`/`Fwarn`, and `config.Load` memoizes, so a long-lived `ctxloom mcp` re-fires the same finding on every tool call. |
-| `configWarningClass` / `configWarningFixIt` | `:66`, `:75` | Map `config.WarningKind` → strictness class / human fix-it text. |
-| `failOnFindings` | `:96` | The strict gate. Prints every recorded finding since `mark` and returns `ExitError{3}`. No-op when degraded. |
-| `formatFindings` | `:108` | Builds the abort block; testable seam. Empty when degraded or when there are none. |
-| `sweepOrphanedWorktrees` | `:140` | Reaps crashed runs' worktrees at startup. Silent unless something was reaped. Only `result.Reaped` is consulted — the reaper's own failure surface is discarded. |
-| `reportCompanions` | `:162` | Probes `taskloom`/`ltk` on PATH; logs version or warns. Never gates. |
-| `writeSyncSummary` | `:196` | Prints dependency-sync status **and** records fatal sync findings. |
+`formatFindings` renders the abort block and names the *phase* in its header,
+so a reader is told which window refused rather than being sent to startup
+for a fault that happened long after it. When every listed finding is
+non-degradable the header does not offer `--degraded` as an escape hatch,
+because it would not work.
 
-Naming note worth knowing: two functions named `print*`/`write*`
-(`printConfigWarnings`, `writeSyncSummary`) also mutate process-wide strictness
-state — a side effect their names disclaim.
+`loadConfigOrFallback` is the fault-tolerant loader for the startup paths
+that must proceed regardless (`deps check`, `search`): it warns and returns a
+minimal `.ctxloom`-rooted fixture instead of aborting.
 
 ## Invariants owned here
 
-- **I1/I2 (config loading).** `internal/adapters/cli` is the only layer that loads config
-  for a command. `operations` takes a `*config.Config` it is handed.
-- **I5 (`PersistentPreRun` runs for everything).** Cobra runs only the closest
-  `PersistentPreRun` unless `cobra.EnableTraverseRunHooks` is set. It is not set
-  anywhere in the repo (`rg EnableTraverseRunHooks` → 0 hits). The invariant
-  holds today because no `internal/adapters/cli` subcommand defines one — asserted only in
-  a comment at `root.go:86`. The day one does, `--degraded`, `--no-companions`,
-  `--config-set` and structured `clidiag` silently stop working for that whole
-  subtree, with no build or test failure.
-- **I6 (strict gate before spawning).** The contract is stated verbatim at
-  `startup_helpers.go:44-54`: *every startup path that consumes a loaded config
-  must surface its warnings, otherwise a corrupted `config.yaml` silently
-  launches an empty-context session.* Honoured by `run`, `mcp serve`,
-  `profile materialize`. Not honoured by
-  `llm serve`/`host`/`turn` (`llm_runner_common.go:62`).
-- **I9 (exit codes).** Exit 3 = strictness abort. Exit 1 = any other error, via
-  `reportExecuteError`. A wrapped engine's own exit code arrives as
-  `ExitError{Code: status.Code}` (`run.go:1296`).
-
-## Documented vs real
-
-- `root.go:86` asserts "No subcommand defines its own `PersistentPreRun`, so this
-  runs for all" — true today, unenforced by anything.
-- `resolveFormat` exists twice under the same name: `internal/adapters/cli/format.go:51`
-  and `cmd/harp/root.go:113`.
-- `childExitCode` (`exitcode_unix.go:15`, `exitcode_windows.go:10`) has zero
-  production call sites on either platform; its sole caller was deleted in
-  `ec87713c`. The shell-conventional `128+signal` propagation it names is
-  therefore not delivered anywhere — the three live exit-code paths use
-  `&ExitError{Code: 1}` (`run_owned.go:275`), `status.Code` (`run.go:1296`) and
-  `result.ExitCode` (`llm_turn.go:91`).
+- **The composition root mints; the CLI composes.** `config.Open` and
+  `coord.New` are reached only through `Composition`'s closures, and every
+  command reaches configuration through `App()` — one owner, one generation
+  per operation.
+- **`PersistentPreRun` runs for everything.** Cobra runs only the closest
+  persistent hook walking up from the invoked command, never all of them; a
+  subcommand declaring its own would silently switch off `--degraded`,
+  `--no-companions`, the override funnel and structured `clidiag` for its whole
+  subtree. `TestNoSubcommandDefinesPersistentHooks` (`root_test.go`) fails if
+  one ever starts to.
+- **Process-owning entry points close a phase gate before spawning.** Every
+  startup path that consumes a loaded config must surface its findings,
+  otherwise a corrupted `config.yaml` silently launches an empty-context
+  session.
+- **Exit codes travel as `ExitError`.** `strictness.ExitCodeFatalFindings` is
+  reserved for a phase-gate abort; any other error renders through
+  `cliemit.EmitError` and exits 1.

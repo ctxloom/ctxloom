@@ -73,6 +73,9 @@ func TestDeliverContext_WritesTheFramedPromptUnderTheSessionHome(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), "project rules")
 	require.Equal(t, flagAppendSystemFile, d.Presented.Args[0], "announced on the system-prompt flag")
+	require.Len(t, d.Presented.Args, 2, "the flag needs a value: the written file")
+	require.Equal(t, d.Wrote[0], d.Presented.Args[1], "the flag must name the file Deliver actually wrote")
+	require.NotEqual(t, home, d.Presented.Args[1], "the flag must never name the bare private-root directory")
 	_, err = def.Context.DeliverContext(start, present.RootWorkDir, engine.ContextInputs{}, nil)
 	require.Error(t, err, "a root the approach does not offer is refused")
 }

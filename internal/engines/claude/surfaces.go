@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"path/filepath"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -139,14 +141,28 @@ type systemPromptContext struct {
 // LaunchOnly marks the approach as refused at rest.
 func (*systemPromptContext) LaunchOnly() {}
 
-// Present declares the out-of-cwd form's flag. It roots at the private root
-// ITSELF rather than at a filename, and that is a statement about what is
-// knowable: appendFlagDelivery names the file <hash>.sysprompt.md where <hash>
-// is a sha256 prefix over the FRAMED BYTES, so the leaf is paired from Path()
-// after the write. What this presentation contributes is the FLAG, which
-// the runner's exec reads off the delivered presentation.
+// Present declares the out-of-cwd form's flag, naming the basename Deliver
+// already wrote at Path() — appendFlagDelivery names the file
+// <hash>.sysprompt.md where <hash> is a sha256 prefix over the FRAMED BYTES,
+// so the leaf is unknowable until Deliver has run, and Present reads it back
+// from Path() rather than recomputing it. filepath.Base(s.path) rather than
+// s.path itself, because Path() is a HOST path and underPrivateRoot performs
+// the same host/engine root mapping every other surface's Present goes
+// through (container-rootless/rootful differ there); only the leaf is
+// specific to this file, the root is not.
+//
+// s.path == "" is Path()'s own no-file contract — before delivery, for empty
+// context, and after a FAILED delivery — and every one of those is a case
+// with no written file behind it. Announcing the bare private root as the
+// flag's value would violate Deliver's invariant that no flag may name a
+// file that was not written, so this presents nothing at all: an unrooted
+// Presentation{} for the caller to skip, the same shape hookCarriedContext
+// uses for "nothing to present" (approaches_generic.go).
 func (s *systemPromptContext) Present(start present.Start) present.Presentation {
-	return underPrivateRoot(start, "").AnnounceFlag(flagAppendSystemFile).Build()
+	if s.path == "" {
+		return present.Presentation{}
+	}
+	return underPrivateRoot(start, filepath.Base(s.path)).AnnounceFlag(flagAppendSystemFile).Build()
 }
 
 // Deliver writes the framed context file through the reused appendFlagDelivery

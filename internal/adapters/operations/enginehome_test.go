@@ -47,7 +47,7 @@ func fakeHostHome(t *testing.T, creds string) string {
 // these assertions cannot drift from the resolution the production path uses.
 func mustClaudeInstance(t *testing.T, workDir, harp string) string {
 	t.Helper()
-	root, err := paths.HarpSessionHome(harp)
+	root, err := paths.HarpSessionEngineHomes(harp)
 	require.NoError(t, err)
 	return filepath.Join(root, claude.HomeLeaf)
 }

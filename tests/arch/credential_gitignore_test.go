@@ -23,7 +23,7 @@ import (
 //
 // EVERY location a credential has ever landed in the PROJECT tree is listed —
 // all of them historical now that the per-session instance lives under the
-// home-rooted sessions store (paths.HarpSessionHome), outside any checkout.
+// home-rooted sessions store (paths.HarpSessionEngineHomes), outside any checkout.
 // The blanket ".ctxloom/state/" rule covers the retired in-tree instances,
 // but this table asserts SPECIFIC paths on purpose: a blanket rule is one
 // careless edit from narrowed, and the historical paths survive forever in

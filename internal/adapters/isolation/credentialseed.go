@@ -89,7 +89,7 @@ func resolveSeedFiles(seed engine.CredentialSeed, hostHome string) []seedFile {
 // them, under the engine's leaf at the declared destination names — in
 // copy order, each projected and read-only: the AGENT's shape.
 func orchestratorSeedFiles(seed engine.CredentialSeed, orchestrator string) ([]seedFile, error) {
-	home, err := paths.HarpSessionHome(orchestrator)
+	home, err := paths.HarpSessionEngineHomes(orchestrator)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func hostCredentialSeed(name string, seed engine.CredentialSeed, configHome, orc
 		}
 		orchestratorDir := ""
 		if orchestrator != "" {
-			home, err := paths.HarpSessionHome(orchestrator)
+			home, err := paths.HarpSessionEngineHomes(orchestrator)
 			if err != nil {
 				return seedNoSource, Result{}, fmt.Errorf("%s credential seed: resolve the orchestrator %s's session home: %w", name, orchestrator, err)
 			}

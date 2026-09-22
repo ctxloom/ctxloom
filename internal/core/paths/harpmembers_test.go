@@ -36,7 +36,7 @@ func TestHarpMembers_RelIsTheLocationDirJoinedWithTheName(t *testing.T) {
 		InPersist:   PersistDirName,
 		InSegments:  SegmentsDirName,
 		InEphemeral: EphemeralDirName,
-		InHome:      SessionHomeDirName,
+		InHome:      SessionEngineHomesDirName,
 	}
 	for _, m := range HarpMembers {
 		dir, ok := dirs[m.Location]

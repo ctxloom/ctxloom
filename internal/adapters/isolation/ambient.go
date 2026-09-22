@@ -95,9 +95,9 @@ func AmbientEngineNames() []string { return CredentialSeedEngineNames() }
 type AmbientRequest struct {
 	// Engine is the REGISTERED backend name ("claude-code", ...).
 	Engine string
-	// InstanceHome is the config-home ROOT to copy into — a per-session
-	// instance (paths.HarpSessionHome) or a per-agent worktree config home.
-	// Each engine's own leaf is appended under it.
+	// InstanceHome is the config-home ROOT to copy into — the session's
+	// engine-homes container (paths.HarpSessionEngineHomes) or a per-agent
+	// worktree config home. Each engine's own leaf is appended under it.
 	InstanceHome string
 	// WorkDir is the absolute project directory the run works in, passed
 	// through to the engine's generated config so a workspace-trust answer can
@@ -353,7 +353,7 @@ const (
 )
 
 // lockInstanceHome takes the lock for instanceHome and returns the release.
-// The instance is a member of the home-rooted session dir (paths.HarpSessionHome),
+// The instance is a member of the home-rooted session dir (paths.HarpSessionEngineHomes),
 // so its sidecar goes to the home locks store (paths.HomePathFor) — the
 // session dir itself holds only paths.HarpMembers. A home that cannot be
 // keyed to a lock location, or an acquisition failure, returns a no-op

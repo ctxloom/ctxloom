@@ -56,7 +56,7 @@ type InTreeAgentHomeSpec struct {
 	// EnvVar is the engine's home-relocation variable (CLAUDE_CONFIG_DIR,
 	// CODEX_HOME).
 	EnvVar string
-	// Dir is THIS SESSION's instance home: paths.HarpSessionHome with the
+	// Dir is THIS SESSION's instance home: paths.HarpSessionEngineHomes with the
 	// engine's own leaf appended — the engine owns its leaf, so no two
 	// engines can collide under one session root.
 	Dir string
@@ -116,10 +116,10 @@ func inTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
 	if !home.Relocates() || harp == "" {
 		return InTreeAgentHomeSpec{}, false
 	}
-	// The error is harp validation (paths.HarpSessionHome): an instance
+	// The error is harp validation (paths.HarpSessionEngineHomes): an instance
 	// cannot be named without a valid session, which is what keeps a durable
 	// project-wide home from regrowing.
-	root, err := paths.HarpSessionHome(harp)
+	root, err := paths.HarpSessionEngineHomes(harp)
 	if err != nil {
 		clidiag.Warn("ctxloom", "cannot resolve a per-session config home for %s in session %q (%v); this run uses the engine's own host config home instead", name, harp, err)
 		return InTreeAgentHomeSpec{}, false

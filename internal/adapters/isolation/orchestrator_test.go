@@ -27,7 +27,7 @@ const orchestratorHarp = "ugly-icy-squid"
 // session home (under the fake HOME) and returns its credential path.
 func seededOrchestrator(t *testing.T, bytes string) string {
 	t.Helper()
-	home, err := paths.HarpSessionHome(orchestratorHarp)
+	home, err := paths.HarpSessionEngineHomes(orchestratorHarp)
 	require.NoError(t, err)
 	dir := filepath.Join(home, "claude")
 	require.NoError(t, os.MkdirAll(dir, 0o700))

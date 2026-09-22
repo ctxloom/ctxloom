@@ -112,7 +112,7 @@ func TestRun_ClaudeDefaultBindingRunsInTheSessionHome(t *testing.T) {
 	sessionsRoot := filepath.Join(env.HomeDir, paths.AppDirName, paths.SessionsDir)
 	require.True(t, strings.HasPrefix(configDir, sessionsRoot+string(os.PathSeparator)),
 		"CLAUDE_CONFIG_DIR %q must be the session home under %s", configDir, sessionsRoot)
-	assert.Contains(t, configDir, string(os.PathSeparator)+paths.SessionHomeDirName+string(os.PathSeparator))
+	assert.Contains(t, configDir, string(os.PathSeparator)+paths.SessionEngineHomesDirName+string(os.PathSeparator))
 
 	seeded, err := os.ReadFile(filepath.Join(configDir, ".credentials.json"))
 	require.NoError(t, err, "the session home is seeded with the credential")

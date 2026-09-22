@@ -132,7 +132,7 @@ type Agent struct {
 	// workspace (which isolates the FILES). It decides WHICH HOME the engine
 	// runs against — the directory holding its credentials, memory, plugins,
 	// personal MCP registrations, global agents and steering: a
-	// ctxloom-CONTROLLED, PER-SESSION home (paths.HarpSessionHome, under
+	// ctxloom-CONTROLLED, PER-SESSION home (paths.HarpSessionEngineHomes, under
 	// the ctxloom home's sessions/<harp>/home/<leaf>) (HomeModeSession), or
 	// the home its runtime gives it
 	// (HomeModeHost — the engine's REAL host home, which ctxloom never

@@ -40,8 +40,8 @@ var reapFixture = map[string]string{
 	paths.SessionSidecarFileName:                                                "project_dir: /tmp/demo\n",
 	paths.EssenceFileName:                                                       "# essence\n",
 	paths.NextStepFileName:                                                      "finish the reaper\n",
-	paths.SessionHomeDirName + "/settings.json":                                 "{}\n",
-	paths.SessionHomeDirName + "/.credentials.json":                             "{\"token\":\"copied\"}\n",
+	paths.SessionEngineHomesDirName + "/settings.json":                          "{}\n",
+	paths.SessionEngineHomesDirName + "/.credentials.json":                      "{\"token\":\"copied\"}\n",
 	paths.EphemeralDirName + "/scratch.txt":                                     "disposable scratch\n",
 	paths.EphemeralDirName + "/overlay/settings.json":                           "{}\n",
 	paths.PersistDirName + "/" + paths.CanonicalTranscriptFileName:              "{\"bulk\":true}\n",
@@ -383,7 +383,7 @@ func TestReap_RefusesASymlinkedMember(t *testing.T) {
 	assert.FileExists(t, filepath.Join(target, "precious.txt"), "the link's target is never entered")
 	_, lerr := os.Lstat(filepath.Join(dir, paths.EphemeralDirName))
 	assert.NoError(t, lerr, "the link itself stays")
-	assert.DirExists(t, filepath.Join(dir, paths.SessionHomeDirName), "a refused session loses nothing, not even its other members")
+	assert.DirExists(t, filepath.Join(dir, paths.SessionEngineHomesDirName), "a refused session loses nothing, not even its other members")
 }
 
 // TestReap_DoesNotFollowASymlinkInsideAMember: a link deeper inside a taken

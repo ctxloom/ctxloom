@@ -30,7 +30,7 @@ type InTreeAgentHome struct {
 	// workspace-trust answer names, because trusting WorkDir would answer for
 	// a directory a worktree run never enters.
 	Cwd string
-	// Harp is THIS SESSION's name, the instance key (paths.HarpSessionHome:
+	// Harp is THIS SESSION's name, the instance key (paths.HarpSessionEngineHomes:
 	// ~/.ctxloom/sessions/<Harp>/home). Empty resolves ABSENT — no
 	// env var, no directory, a warn — because there is no session-less
 	// instance, and falling back to a project-wide path would recreate the
@@ -117,7 +117,7 @@ const inTreeAgentHomeFixIt = "give the session home credentials to seed (authent
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
-// INSTANCE under paths.HarpSessionHome — and returns it present or absent, with
+// INSTANCE under paths.HarpSessionEngineHomes — and returns it present or absent, with
 // the reason when absent. It creates the instance and prepares it as a side
 // effect, so a present result always names a directory that exists and (for
 // an engine with copyable credentials) can authenticate.

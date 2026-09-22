@@ -207,7 +207,7 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	// The real instance shape: the session's home member under the ctxloom
 	// home, which is what the lock is keyed on.
 	project := t.TempDir()
-	instance, err := paths.HarpSessionHome("ugly-icy-squid")
+	instance, err := paths.HarpSessionEngineHomes("ugly-icy-squid")
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup

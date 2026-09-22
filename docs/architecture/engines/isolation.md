@@ -374,7 +374,7 @@ An engine whose only relocation lever is a shared var (`XDG_CONFIG_HOME` /
 git's, fish's and every other XDG-aware tool's config for the child too, so its
 in-tree home stays uncontrolled.
 
-The instance root resolves through one helper, `paths.HarpSessionHome` — the
+The instance root resolves through one helper, `paths.HarpSessionEngineHomes` — the
 session's own `home/` member under `~/.ctxloom/sessions/<harp>/` — and each
 engine appends its OWN leaf (its `HomeVar.Subdir`). The leaves are distinct by
 construction, so one session root hosts every engine that session runs. The

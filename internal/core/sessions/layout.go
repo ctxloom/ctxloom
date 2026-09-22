@@ -7,8 +7,8 @@ import (
 )
 
 // Layout is the harp-keyed tree under the ctxloom home (Root). The project
-// tree holds NO session state: the session home, the spool, the transcripts
-// and every other member of a session are paths.HarpMembers rows under
+// tree holds NO session state: the session engine homes, the spool, the
+// transcripts and every other member of a session are paths.HarpMembers rows under
 // Dir(harp), and Member is the one join that places them.
 //
 // Layout does not validate the harp: it composes paths for a harp the caller
@@ -47,10 +47,14 @@ func (l Layout) member(harp, name string) string {
 	panic("paths.HarpMembers has no row named " + name)
 }
 
-// SessionHome is the engine's config-home INSTANCE for the session: settings,
+// SessionEngineHomes is the session's engine config-home CONTAINER: the
+// home/ member under which each engine's own config-home instance (settings,
 // the MCP registration, commands, skills, the context file, the credential
-// copy — under the ctxloom home, never the project tree.
-func (l Layout) SessionHome(harp string) string { return l.member(harp, paths.SessionHomeDirName) }
+// copy) lands at its own leaf — under the ctxloom home, never the project
+// tree.
+func (l Layout) SessionEngineHomes(harp string) string {
+	return l.member(harp, paths.SessionEngineHomesDirName)
+}
 
 // Persist is what survives workspace teardown.
 func (l Layout) Persist(harp string) string { return l.member(harp, paths.PersistDirName) }

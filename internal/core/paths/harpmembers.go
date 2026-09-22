@@ -41,7 +41,7 @@ func (l MemberLocation) Dir() string {
 	case InEphemeral:
 		return EphemeralDirName
 	case InHome:
-		return SessionHomeDirName
+		return SessionEngineHomesDirName
 	default:
 		return ""
 	}
@@ -85,10 +85,11 @@ var HarpMembers = []HarpMember{
 	{Name: SessionKeepMarkerFileName, Tier: MemberIdentity, Location: AtTop, Lifetime: Persist},
 	{Name: EssenceFileName, Tier: MemberDerived, Location: AtTop, Lifetime: Persist},
 	{Name: NextStepFileName, Tier: MemberAuthored, Location: AtTop, Lifetime: Persist},
-	// The session home is the engine's config-home INSTANCE: created at
-	// instance time from managed writers, engine scaffolding and a one-way
-	// copy of host material, so it is rebuilt rather than kept.
-	{Name: SessionHomeDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Ephemeral},
+	// The session engine homes dir holds each engine's config-home INSTANCE:
+	// created at session-creation time from managed writers, engine
+	// scaffolding and a one-way copy of host material, so it is rebuilt
+	// rather than kept.
+	{Name: SessionEngineHomesDirName, Tier: MemberMachine, Location: AtTop, Lifetime: Ephemeral},
 	{Name: PersistDirName, Tier: MemberAuthored, Location: AtTop, Lifetime: Persist},
 	{Name: EphemeralDirName, Tier: MemberDisposable, Location: AtTop, Lifetime: Ephemeral},
 	{Name: SegmentsDirName, Tier: MemberDerived, Location: AtTop, Lifetime: Persist},

@@ -14,7 +14,7 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
 ## Responsibilities
 
 - The layout constants: directory and file names for sessions, config, remotes, lockfile,
-  profiles, agents, content, cache, local state, per-session engine-home instances, trust
+  profiles, agents, content, cache, local state, per-session engine homes, trust
   and signing artifacts.
 - Path composition functions over those constants.
 - The tier classification (`Tier`, `Entry`, `Layout`) that doctor walks.
@@ -26,7 +26,7 @@ what it costs — is [docs/layout.md](../../layout.md). This page is about the p
 - Creating, reading or writing anything at these paths — every caller.
 - Validating that an `appPath` is real: this package accepts and blesses empty input
   (see invariant 6). A **harp** is the deliberate exception — `HarpDir` and every
-  helper riding it (`HarpSessionHome` among them) validate it, because it becomes a
+  helper riding it (`HarpSessionEngineHomes` among them) validate it, because it becomes a
   single path component and is user-renameable.
 
 ## The two roots
@@ -44,7 +44,7 @@ flowchart TD
     HSD --> SIP["SessionIndexPath<br/>index.yaml"]
     HSD --> HD["HarpDir(harp)"]
     HD --> HEP["HarpEssencePath<br/>essence.md"]
-    HD --> HSH["HarpSessionHome<br/>home/ (the engine config-home instance)"]
+    HD --> HSH["HarpSessionEngineHomes<br/>home/ (the per-engine config-home container)"]
     HD --> HED["HarpEphemeralDir<br/>ephemeral/"]
     HD --> HPD["HarpPersistDir<br/>persist/"]
     HPD --> HTSD["HarpTranscriptStoreDir<br/>persist/transcripts/"]
@@ -118,7 +118,7 @@ Three vocabularies share one file; `AppDirName` and `CacheDir` cross groups.
 |---|---|
 | Home / session layout | `SessionsDir`, `IndexFileName`, `EssenceFileName`, `PlanFileExt`, `EphemeralDirName`, `PersistDirName`, `TranscriptStoreDirName`, `CanonicalTranscriptFileName`, `legacyCanonicalTranscriptFileName`, `LogsDir`, `LogFileName`, `TriggersDir`, `CompanionConsentFileName`, `CoordDirName`, `CoordEndpointFileName` |
 | Project app-dir layout | `AppDirName`, `ConfigFileName`, `RemotesFileName`, `LockFileName`, `ProfilesDir`, `AgentsDir`, `ContentDir`, `CacheDir`, `RepoContentPrefix`, `BundlesDir`, `ReposCacheDir`, `ContextCacheDir`, `RefusedAdvancesFileName`, `ProjectIDFileName` |
-| Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionHomeDirName` |
+| Local state tier | `StateDir`, `LocksDir`, `HomeLocksDirName`, `DirtyTreeCommitAckFileName`, `SessionEngineHomesDirName` |
 | Trust / signing | `TrustFileName`, `TrustObjectsDir`, `AllowedSignersFileName`, `DistrustedSignersFileName`, `ApprovalsDirName` |
 
 ## Key functions
@@ -137,7 +137,7 @@ this package.
 | `SessionIndexPath` | `+ index.yaml` | 1 |
 | `HarpDir` | `+ <harp>` — **validates the harp** | 9 |
 | `HarpEssencePath` | `<harp>/essence.md` | 4 |
-| `HarpSessionHome` | `<harp>/home` — the per-session engine config-home instance; **validates the harp**, returns an error | 2 |
+| `HarpSessionEngineHomes` | `<harp>/home` — the per-session container each engine's own config-home instance lands under; **validates the harp**, returns an error | 2 |
 | `HarpEphemeralDir` | `<harp>/ephemeral` — regenerable state, incl. per-agent worktree scratch | 4 |
 | `HarpPersistDir` | `<harp>/persist` — must survive teardown | 2 |
 | `HarpTranscriptStoreDir` | `persist/transcripts` — container bind target | 2 |

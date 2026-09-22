@@ -151,7 +151,7 @@ assertion could only say where ctxloom *meant* to write.
 An agent whose binding declares `engine_home: session` does not run against your
 real home. It gets a throwaway **per-session instance** at
 `~/.ctxloom/sessions/<harp>/home/<engine-leaf>` — the session's own `home`
-member (`paths.HarpSessionHome`; each engine appends its own leaf, distinct by
+member (`paths.HarpSessionEngineHomes`; each engine appends its own leaf, distinct by
 construction so one instance root hosts every engine a session runs) — on
 every isolation cell: a host cell tells the engine that path, a container cell
 mounts it and tells the engine the mount target. No

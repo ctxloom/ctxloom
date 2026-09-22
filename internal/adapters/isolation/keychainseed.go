@@ -353,7 +353,7 @@ func keychainStores() map[string]engine.CredentialSeed {
 // engine — the same derivation the seed used, so the reaper and doctor
 // name the items the seed wrote.
 func keychainServicesFor(harp string) (map[string]string, error) {
-	home, err := paths.HarpSessionHome(harp)
+	home, err := paths.HarpSessionEngineHomes(harp)
 	if err != nil {
 		return nil, err
 	}

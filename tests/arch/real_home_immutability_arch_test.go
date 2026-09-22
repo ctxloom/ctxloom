@@ -300,7 +300,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 
 // TestArch_InstanceHomesLiveInsideTheSessionsStore is the other side of the
 // same coin: wherever ctxloom DOES write an engine home, it is the session's
-// own member under the home-rooted sessions store (paths.HarpSessionHome) —
+// own member under the home-rooted sessions store (paths.HarpSessionEngineHomes) —
 // never the user's real engine home, never the project tree, and never the
 // cache tier a `deps pull` could clobber.
 func TestArch_InstanceHomesLiveInsideTheSessionsStore(t *testing.T) {
@@ -309,9 +309,9 @@ func TestArch_InstanceHomesLiveInsideTheSessionsStore(t *testing.T) {
 	const harp = "ugly-icy-squid"
 	store := filepath.Join(home, paths.AppDirName, paths.SessionsDir, harp) + string(filepath.Separator)
 
-	root, err := paths.HarpSessionHome(harp)
+	root, err := paths.HarpSessionEngineHomes(harp)
 	if err != nil {
-		t.Fatalf("paths.HarpSessionHome: %v", err)
+		t.Fatalf("paths.HarpSessionEngineHomes: %v", err)
 	}
 	for name, dir := range map[string]string{
 		"claude-code": filepath.Join(root, claude.HomeLeaf),

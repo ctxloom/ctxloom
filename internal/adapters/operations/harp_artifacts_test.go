@@ -37,7 +37,7 @@ func TestHarpTopLevelArtifacts_NamesUnclassifiedFilesOnly(t *testing.T) {
 			continue
 		}
 		switch m.Name {
-		case paths.SessionHomeDirName, paths.PersistDirName, paths.EphemeralDirName, paths.SegmentsDirName:
+		case paths.SessionEngineHomesDirName, paths.PersistDirName, paths.EphemeralDirName, paths.SegmentsDirName:
 			require.NoError(t, os.MkdirAll(filepath.Join(root, harp, m.Name), 0o755))
 		default:
 			writeHarpFile(t, root, harp, m.Name, "ctxloom's own")

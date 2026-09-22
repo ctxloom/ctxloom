@@ -48,7 +48,7 @@ func TestArch_LayoutHasNoHarpKeyedRows(t *testing.T) {
 	statePrefix := filepath.Join(paths.AppDirName, paths.StateDir) + sep
 
 	for _, e := range paths.Layout() {
-		if strings.Contains(e.Rel, sep+paths.SessionHomeDirName) {
+		if strings.Contains(e.Rel, sep+paths.SessionEngineHomesDirName) {
 			t.Errorf("Layout row %q names an engine config-home instance; instances are per-session and disposable, so they get no row", e.Rel)
 		}
 		if e.Rel == filepath.Join(paths.AppDirName, paths.StateDir, "engines") {
@@ -86,7 +86,7 @@ func TestArch_SessionHomeResolversRequireHarp(t *testing.T) {
 		fn   func(harp string) (string, error)
 	}{
 		{"paths.HarpDir", paths.HarpDir},
-		{"paths.HarpSessionHome", paths.HarpSessionHome},
+		{"paths.HarpSessionEngineHomes", paths.HarpSessionEngineHomes},
 	}
 
 	for _, r := range resolvers {

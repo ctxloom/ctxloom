@@ -24,8 +24,8 @@ func crSeedSession(t *testing.T, harp string, age time.Duration) string {
 	t.Helper()
 	dir := cotSeedSession(t, harp, age)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.PersistDirName, paths.CanonicalTranscriptFileName), []byte(crTranscript), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.SessionHomeDirName), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionHomeDirName, ".credentials.json"), []byte(crCredential), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, paths.SessionEngineHomesDirName), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, paths.SessionEngineHomesDirName, ".credentials.json"), []byte(crCredential), 0o600))
 	cotBackdate(t, dir, age)
 	return dir
 }
@@ -64,8 +64,8 @@ func TestClean_ReapsTheSessionHomeWithTheEphemeralMembers(t *testing.T) {
 
 	rep := cotRun(t, "--yes", "--format", "json")
 
-	assert.Contains(t, rep.Sessions.Members, paths.SessionHomeDirName)
-	assert.NoDirExists(t, filepath.Join(aged, paths.SessionHomeDirName), "the aged session's home is reaped")
+	assert.Contains(t, rep.Sessions.Members, paths.SessionEngineHomesDirName)
+	assert.NoDirExists(t, filepath.Join(aged, paths.SessionEngineHomesDirName), "the aged session's home is reaped")
 	cotAssertScratch(t, aged, false)
-	assert.FileExists(t, filepath.Join(young, paths.SessionHomeDirName, ".credentials.json"), "a session inside the bound keeps its home")
+	assert.FileExists(t, filepath.Join(young, paths.SessionEngineHomesDirName, ".credentials.json"), "a session inside the bound keeps its home")
 }

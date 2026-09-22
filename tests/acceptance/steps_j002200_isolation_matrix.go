@@ -369,7 +369,7 @@ func isoIsPerAgentScratch(w *World, val string) bool {
 		return false
 	}
 	// Since slice 14a the session's config-home INSTANCE also lives under the
-	// sessions root (~/.ctxloom/sessions/<harp>/home/<leaf>, paths.HarpSessionHome),
+	// sessions root (~/.ctxloom/sessions/<harp>/home/<leaf>, paths.HarpSessionEngineHomes),
 	// so "under sessions/" no longer means scratch. The per-agent worktree
 	// scratch is the harp's EPHEMERAL member (paths.HarpEphemeralDir,
 	// Worktree.scratchBase); the instance is its HOME member. Discriminate on
@@ -836,7 +836,7 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 	// (the durable per-project home the per-session model retired).
 	//
 	// The expectation is built component by component here rather than derived
-	// from the production resolution (paths.HarpSessionHome plus
+	// from the production resolution (paths.HarpSessionEngineHomes plus
 	// claude.HomeLeaf): an assertion that computes its expectation with the
 	// same function the production code used cannot fail when that function
 	// is wrong.

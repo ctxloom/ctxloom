@@ -45,7 +45,7 @@ func TestLayout_NamedPathsAreTableRows(t *testing.T) {
 		t.Fatalf("no table row named %q", name)
 		return paths.HarpMember{}
 	}
-	assert.Equal(t, l.Member(h, row(paths.SessionHomeDirName)), l.SessionHome(h))
+	assert.Equal(t, l.Member(h, row(paths.SessionEngineHomesDirName)), l.SessionEngineHomes(h))
 	assert.Equal(t, l.Member(h, row(paths.PersistDirName)), l.Persist(h))
 	assert.Equal(t, l.Member(h, row(paths.EphemeralDirName)), l.Ephemeral(h))
 	assert.Equal(t, l.Member(h, row(paths.SegmentsDirName)), l.Segments(h))
@@ -54,8 +54,8 @@ func TestLayout_NamedPathsAreTableRows(t *testing.T) {
 
 	assert.Equal(t, filepath.Join(l.Persist(h), paths.SpoolDirName), l.Spool(h),
 		"the spool stays under persist/: that directory is what the container's session-state mount carries")
-	assert.Equal(t, filepath.Join(l.Dir(h), paths.SessionHomeDirName), l.SessionHome(h),
-		"the session home is a member of the session dir, under the ctxloom home")
+	assert.Equal(t, filepath.Join(l.Dir(h), paths.SessionEngineHomesDirName), l.SessionEngineHomes(h),
+		"the session engine homes dir is a member of the session dir, under the ctxloom home")
 }
 
 // TestHomeLayout_AgreesWithTheHarpHelpers: the home-resolving helpers in

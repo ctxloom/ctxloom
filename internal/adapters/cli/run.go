@@ -933,7 +933,7 @@ func (dryCells) Prepare(_ context.Context, req launch.CellRequest) (launch.Cell,
 	// without it would show every kind on the project root — the opposite of
 	// the run it previews.
 	if home := req.Engine.Home(); home.Relocates() && req.HomeMode == launch.HomeModeSession {
-		roots.EngineHome = present.Root{Host: filepath.Join(req.SessionDir, paths.SessionHomeDirName, home.Vars[0].Subdir)}
+		roots.EngineHome = present.Root{Host: filepath.Join(req.SessionDir, paths.SessionEngineHomesDirName, home.Vars[0].Subdir)}
 	}
 	return launch.Cell{
 		Paths:     present.OnHost(roots),

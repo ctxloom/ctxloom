@@ -31,7 +31,6 @@ version: 6
 llm:
   configs:
     big: { type: claude-code, model: opus }
-    c:   { type: codex }
   defaults:
     primary: big
     fast: big
@@ -53,6 +52,16 @@ config:
 		err := v.ValidateBytes([]byte(yaml))
 		assert.NoError(t, err)
 	})
+
+	// A backend type with no $defs/llmConfig branch is refused, not accepted
+	// as free-form: config must not be able to name an engine no build of
+	// ctxloom can run.
+	for _, removed := range []string{"codex", "opencode"} {
+		t.Run("unregistered backend type "+removed+" is refused", func(t *testing.T) {
+			err := v.ValidateBytes([]byte("version: 6\nllm:\n  configs:\n    big: { type: " + removed + " }\n"))
+			assert.Error(t, err)
+		})
+	}
 
 	t.Run("invalid YAML", func(t *testing.T) {
 		yaml := `invalid: yaml: [[`

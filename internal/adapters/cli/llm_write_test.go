@@ -16,7 +16,7 @@ import (
 )
 
 func TestCheckLLMExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
-	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: codex }\n")
+	agentProject(t, "version: 6\nllm:\n  configs:\n    big: { type: claude-code, model: opus }\n")
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 

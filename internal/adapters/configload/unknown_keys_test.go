@@ -129,12 +129,12 @@ func TestLoad_UnknownKeyInsideArrayElement_StillSuggests(t *testing.T) {
 // did-you-mean and its "known keys at" listing entirely, with no error, just
 // a plainer message. Proves the compiled-schema KnownKeys union now reaches
 // through anyOf and offers the MATCHED branch's own field names (the "big"
-// label's type: codex pins which branch it validates against).
+// label's type: claude-code pins which branch it validates against).
 func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      binary_pth: /usr/bin/codex\n")
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
 
 	// The per-branch fan-out this used to produce (one leaf failure per anyOf
-	// alternative, seven identical warnings for one typo) is deduplicated now;
+	// alternative, one identical warning per branch for one typo) is deduplicated now;
 	// see TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise. What
 	// THIS test pins is orthogonal: whatever warnings come out carry a real
 	// suggestion drawn from the matched branch, instead of none at all.
@@ -255,15 +255,15 @@ func TestLoad_AgentDriving_NoUnknownKeyWarning(t *testing.T) {
 //
 // An llm.configs.<label> entry is validated against an anyOf with one
 // alternative per backend, so a single unknown key inside it fails
-// additionalProperties in EVERY alternative — seven identical "unknown key
-// `llm.configs.big.effrot`" lines for one mistake. Worse, the six alternatives
-// whose `type` discriminator did not match each contributed a const failure,
+// additionalProperties in EVERY alternative — one identical "unknown key
+// `llm.configs.big.effrot`" line per branch for one mistake. Worse, the
+// alternatives whose `type` discriminator did not match each contributed a const failure,
 // which raised the "the document is also broken some other way" flag and
 // appended a raw jsonschema dump naming /llm/configs/big/type — the one key in
-// that block the user got RIGHT. A diagnostic that repeats itself seven times
+// that block the user got RIGHT. A diagnostic that repeats itself once per branch
 // and then blames a correct line is worse than the raw error it replaced.
 func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      binary_pth: /usr/bin/codex\n")
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      binary_pth: /usr/bin/claude\n")
 
 	warns := unknownKeyWarnings(cfg)
 	require.Len(t, warns, 1,
@@ -282,7 +282,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.
 // ONLY fault sits inside a branch — a valid backend with a bad value — has no
 // unknown keys at all, so it still reports the raw validation error.
 func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: codex\n      args: 12\n")
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: claude-code\n      args: 12\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
 	require.NotEmpty(t, cfg.GetWarnings(), "a fault inside a branch must still be reported")

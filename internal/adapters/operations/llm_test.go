@@ -64,7 +64,7 @@ func TestAvailableLLMNames_Sorted(t *testing.T) {
 // "claude-code" look already-current and turn this into an unchanged-status
 // test instead of the set-status one it's named for.
 func TestSetDefaultLLM_SetsAndPersists(t *testing.T) {
-	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: codex\n")
+	_, appDir := loadConfigDir(t, "version: 5\nllm:\n  defaults:\n    primary: mock\n")
 	mgr := managerFor(t, appDir)
 
 	res, err := SetDefaultLLM(context.Background(), mgr, SetDefaultLLMRequest{Name: "claude-code"})

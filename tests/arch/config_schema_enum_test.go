@@ -155,17 +155,19 @@ var schemaEnumBindings = []schemaEnumBinding{
 }
 
 func init() {
-	// $defs/llmConfig/anyOf has four backend branches. `permissions` mirrors
-	// the same ctxloom-owned vocabulary as everywhere else; `role` is registry-only display metadata the
-	// schema's own description says is "stripped from persisted user configs
-	// and ignored otherwise" — no Go vocabulary backs it, by design, so it is
-	// excluded rather than bound.
+	// $defs/llmConfig/anyOf has one branch per backend. `permissions` mirrors
+	// the same ctxloom-owned vocabulary as everywhere else; `role` is
+	// registry-only display metadata the schema's own description says is
+	// "stripped from persisted user configs and ignored otherwise" — no Go
+	// vocabulary backs it, by design, so it is excluded rather than bound.
 	//
-	// Built in init() rather than spelled out four times in the literal above:
-	// the branches are homogeneous in which fields they share, and a
+	// Built in init() rather than spelled out per branch in the literal
+	// above: the branches are homogeneous in which fields they share, and a
 	// loop keeps that homogeneity from silently drifting between branches as
-	// a hand-copied literal could.
-	for i := 0; i < 4; i++ {
+	// a hand-copied literal could. The branch COUNT is read off the schema,
+	// not written here, so removing or adding a backend branch cannot leave
+	// the table naming paths that no longer exist.
+	for i := 0; i < llmConfigBranchCount(); i++ {
 		prefix := fmt.Sprintf("$defs/llmConfig/anyOf/%d/properties", i)
 		schemaEnumBindings = append(schemaEnumBindings,
 			schemaEnumBinding{
@@ -175,6 +177,30 @@ func init() {
 			schemaEnumBinding{path: prefix + "/permissions", goNames: agentaxis.PermissionModeNames},
 		)
 	}
+}
+
+// llmConfigBranchCount is the number of $defs/llmConfig anyOf branches in the
+// live schema. It runs from init(), where there is no *testing.T to fail, so
+// an unreadable schema panics — the loudest failure available there.
+func llmConfigBranchCount() int {
+	raw, err := resources.GetConfigSchema()
+	if err != nil {
+		panic("read config schema: " + err.Error())
+	}
+	var doc struct {
+		Defs struct {
+			LLMConfig struct {
+				AnyOf []json.RawMessage `json:"anyOf"`
+			} `json:"llmConfig"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		panic("parse config schema: " + err.Error())
+	}
+	if len(doc.Defs.LLMConfig.AnyOf) == 0 {
+		panic("config schema declares no $defs/llmConfig anyOf branches")
+	}
+	return len(doc.Defs.LLMConfig.AnyOf)
 }
 
 // TestArch_ConfigSchemaEnums_TableIsWellFormed is a fixture-sanity check on

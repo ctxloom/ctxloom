@@ -10,8 +10,8 @@ import (
 )
 
 // LLMConfig is the backend-agnostic envelope for one labeled LLM config entry.
-// Type is the discriminator naming the backend implementation (claude-code /
-// codex / kiro); Body carries that backend's own type-specific fields,
+// Type is the discriminator naming the backend implementation (a registered
+// engine name); Body carries that backend's own type-specific fields,
 // decoded and validated by the backend registry — the config package never
 // imports backend structs. The map label that keys this entry is an arbitrary
 // user string with zero semantics; the backend is determined ONLY by Type.

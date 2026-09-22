@@ -62,7 +62,7 @@ ctxloom run [flags] [prompt...]
       --distill               With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
   -n, --dry-run               Show command that would be executed
   -f, --fragment strings      Context fragment(s) to include (can be repeated)
-  -l, --llm string            config label to use (e.g. claude-code, claude-fast, codex); overrides the configured default
+  -l, --llm string            config label to use (e.g. claude-code, claude-fast); overrides the configured default
       --no-startup-findings   Do not deliver this launch's startup findings (what doctor reports about this run's config, companions and local state, and anything a --degraded launch proceeded past) into the agent's context
       --one-shot              Run one turn non-interactively, print the response, and exit
       --permissions string    Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)

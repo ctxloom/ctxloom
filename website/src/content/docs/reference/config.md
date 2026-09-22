@@ -34,7 +34,7 @@ Schema for ctxloom config.yaml files
 | `isolation_base_containerfile` | string | USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of an auto-detected devcontainer or the embedded default base. Relative paths resolve against the project root. Beats devcontainer auto-detection. |
 | `isolation_devcontainer_base` | boolean | Toggles auto-detecting the project's .devcontainer/devcontainer.json (or .devcontainer.json) as the locally-built agent image's BASE — "an isolated agent should run in the environment the human develops in". Default true; set false to opt out and use the embedded default base (or an explicit isolation_base_containerfile) instead. A devcontainer.json declaring "features" is NOT honored (a loud warning names what is skipped); one declaring dockerComposeFile needs isolation_devcontainer_service (or its own "service" key) to resolve one service as the base. |
 | `isolation_devcontainer_service` | string | Docker-compose service to adopt as the agent image's base when the auto-detected devcontainer.json declares dockerComposeFile — a multi-service compose project does not map to one agent container, so this (or the devcontainer.json's own "service" key) is required to resolve one; its absence is a fail-loud finding, never a silent fallback to the default base. |
-| `isolation_engines` | string[] | Selects which engine fragments compose into the shared multi-engine agent image (claude-code, codex, kiro, opencode today — each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, "one instance runs any engine"); an unrecognized name is dropped with a warning. |
+| `isolation_engines` | string[] | Selects which engine fragments compose into the shared multi-engine agent image: each registered engine installs via its OWN official installer, in one independently-cacheable Containerfile layer. Empty/unset = every known engine (the biggest image, "one instance runs any engine"); an unrecognized name is dropped with a warning. |
 | `isolation_images` | map → string | Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity. |
 | `llm` | object | Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map |
 | `permissions` | string | Project default for the launch-time permission posture of engines started in THIS project directory — the per-project consent knob: 'in this directory, an agent starts here unless something narrower says otherwise'. 'default' (prompt on each gated call), 'acceptEdits' (auto-accept file edits, prompt for the rest), 'plan' (read-only), 'bypass' (skip all in-engine prompting). Resolution: `run --permissions` > the agent binding's own `permissions` > the engine label's `permissions` > THIS > the engine's built-in default (bypass for the claude-code host stopgap, prompt elsewhere) — so a narrower posture declared anywhere above always wins, and a declared project default beats a silent engine fallback. ONLY HONORED FROM THIS PROJECT'S .ctxloom/config.yaml: a value in your ~/.ctxloom/config.yaml, or in CTXLOOM_CONFIG_PERMISSIONS, is DROPPED with a warning and never applied. That is deliberate — the grant is consent for one project directory, and a home-wide or environment-wide permissive default would silently re-grant every project on the machine what you granted exactly one of them. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
@@ -189,30 +189,6 @@ One labeled backend config. `type` is the discriminator and may be omitted (it d
 | `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
 | `type` | string | Must be `claude-code`. |
-
-#### codex
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `args` | string[] |  |
-| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `model` | string |  |
-| `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `type` | string | Must be `codex`. |
-
-#### opencode
-
-opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd — `opencode acp` has no --model flag.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `args` | string[] |  |
-| `binary_path` | string | Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode. |
-| `model` | string | opencode model string (provider/model); written into the run's opencode.json. Examples: `openrouter/meta-llama/llama-3.3-70b-instruct:free`. |
-| `permissions` | string | Launch-time permission posture: default (prompt) \| acceptEdits \| plan (read-only) \| bypass (skip all prompts). Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
-| `role` | string | Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise. Allowed values: `primary`, `fast`. |
-| `type` | string | Must be `opencode`. |
 
 #### mock
 

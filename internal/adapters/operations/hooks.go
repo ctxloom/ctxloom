@@ -21,7 +21,7 @@ import (
 
 // ApplyHooksRequest contains parameters for applying hooks.
 type ApplyHooksRequest struct {
-	Backend           string         `json:"backend"`            // claude-code, codex, or all
+	Backend           string         `json:"backend"`            // an engine name, or all
 	RegenerateContext bool           `json:"regenerate_context"` // Also regenerate context file
 	FS                afero.Fs       `json:"-"`                  // Optional filesystem for testing
 	Cfg               *config.Config `json:"-"`                  // The generation to apply from; required

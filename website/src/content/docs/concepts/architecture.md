@@ -186,7 +186,7 @@ Model Context Protocol.
 
 **Delegation tools** (agent-to-agent, on the same server):
 - `agent_run` — launch a configured ctxloom agent as a child session
-- `agent_send` / `agent_recv` — the message bus between coordinator and children
+- `agent_send` / `agent_recv` — the message bus between orchestrator and children
 - `agent_stop` — stop a child session
 - `roster` — list live agents
 - `agent_report` — file a structured report

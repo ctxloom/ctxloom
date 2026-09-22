@@ -228,7 +228,7 @@ func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 		"Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5",
 		// Phase 4 (agents), carried over from the old agent-setup.md prompt.
 		"SCAN → DISCUSS → SET",
-		"coordinator",
+		"orchestrator",
 		"developer",
 		"finder",
 		// The runtime axis is asked per agent and recorded explicitly —

@@ -55,7 +55,7 @@ func TestGitIdentityEnv_AllFourVars(t *testing.T) {
 }
 
 // TestContainerGitIdentity_ReachesSpawnEnv is the WIRING proof: the exact env the
-// container spawn consumes (ExecSpec's RunSpec.Env, and launchSpec.ExtraEnv)
+// container spawn consumes (ExecSpec's RunSpec.Env)
 // carries the per-agent GIT_AUTHOR_EMAIL, and two workspaces built for different
 // agentIDs land different emails there.
 //

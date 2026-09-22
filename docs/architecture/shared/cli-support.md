@@ -195,7 +195,7 @@ Parses a YAML file once, runs an ordered chain of in-place `yaml.Node` mutators 
 - Sort order is `(Session, Name)`, stable across calls; `Session` is always derived from an `os.ReadDir` entry name, never from user input, so no traversal is reachable through `List`.
 - `Show` is the only user-input path. Containment is **lexical only** — `filepath.Abs` + prefix check, with no `EvalSymlinks` and no regular-file check — so a symlink named `*.plan.md` inside the sessions tree reads its target.
 - Path vocabulary is duplicated: `sessionsDirName`, `planExt`, and `HomeSessionsDir` all re-declare symbols `internal/core/paths` already owns, and this file imports the *other* `paths` package (`internal/shared/tasks/paths`) for `AppDirName`. Both `paths` packages are verified leaves, so consolidating cannot create an import cycle.
-- Three independent enumerators of the same `*.plan.md` files now exist with three different recursion depths and three different error postures: `plans.List`, `internal/lm/grpc.ReadPlanFiles` (`internal/lm/grpc/plans.go:49`), and `plan_watch`'s filter.
+- Two independent enumerators of the same `*.plan.md` files exist with different recursion depths and error postures: `plans.List` and `plan_watch`'s filter.
 
 ### upgrade
 

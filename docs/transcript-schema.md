@@ -125,8 +125,7 @@ permission request is not a stream update, so nothing could produce one as
 The transcript is written at ctxloom's own seams, never by reading an
 engine's private files after the fact.
 
-- **Structured chat.** The tee at `GRPCClient.Chat`
-  (`internal/lm/grpc/chat.go`) and at the delegated-child engine host
+- **Structured chat.** The tee at the engine host
   (`internal/adapters/runner/enginehost.go`) records every `ChatEvent`
   through `transcript.TeeAndClose`. Full fidelity within §4's drops.
 - **Oneshot `Execute`.** No event stream exists, so
@@ -158,8 +157,8 @@ version is `transcript.SchemaVersion`.
 
 ## 7. Reading it back
 
-`transcript.CanonicalHistory` is the harp-keyed read view, implementing both
-`agent.SessionHistory` and `internal/lm/grpc`'s `SessionSource`. It is the live read path behind
+`transcript.CanonicalHistory` is the harp-keyed read view, implementing
+`agent.SessionHistory`. It is the live read path behind
 compaction, the MCP memory tools and `ctxloom session`.
 
 No reader validates a line against `docs/transcript.schema.json` at runtime;

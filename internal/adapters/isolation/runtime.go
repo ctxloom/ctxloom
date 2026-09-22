@@ -95,9 +95,8 @@ type ContainerInfo struct {
 // bugs plan §4/§5):
 //   - Windows: a drive-letter host path (C:\Users\foo\proj) needs a POSIX
 //     in-container target (e.g. /workspace); a real implementation must also
-//     handle the Docker-Desktop `/host_mnt/c/...` SOURCE form and rewrite the
-//     socket-dir prefix swap (containerAddrTranslator) through the same
-//     mapping — see swapPrefix's doc. The linked-worktree case additionally
+//     handle the Docker-Desktop `/host_mnt/c/...` SOURCE form. The
+//     linked-worktree case additionally
 //     needs the worktree's `gitdir:` FILE content rewritten (a Windows
 //     absolute path is unresolvable as a mounted POSIX path unchanged) — a
 //     known hard edge, explicitly deferred to sudsy-sip Tier C.

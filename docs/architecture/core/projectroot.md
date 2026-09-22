@@ -8,7 +8,7 @@ a root that every downstream writer then writes to, which is why a wrong answer 
 fail — it silently writes the right data to the wrong project.
 
 Seven functions, three files, 15 production call sites across `internal/adapters/cli`,
-`internal/core/config`, `internal/adapters/operations`, `internal/lm/grpc` and `internal/taskloom/workdir`.
+`internal/core/config`, `internal/adapters/operations` and `internal/taskloom/workdir`.
 
 ## Responsibilities
 
@@ -95,7 +95,7 @@ flowchart TD
 - **Imports:** `gitutil` (go-git `PlainOpen`), `afero`.
 - **Imported by:** `internal/core/config` (`findAppDir`, `worktreeSignpost` — called per ancestor on every
   `config.Load`), `internal/adapters/cli`, `internal/adapters/operations` (`manage.go`, `hooks.go`),
-  `internal/lm/grpc`, `internal/taskloom/workdir`.
+  `internal/taskloom/workdir`.
 
 ## Where documented and real behavior diverge
 

@@ -743,8 +743,8 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 }
 
 // hostTerminalEnv forwards the host's terminal description into the container
-// (a docker/podman -e overrides the image ENV): the curated handshake env
-// (containerHandshakeEnv) deliberately drops the host environment, which would
+// (a docker/podman -e overrides the image ENV): the curated run env
+// deliberately drops the host environment, which would
 // leave the engine's TERM at the image default — or `dumb` — and strip
 // color/cursor control from every CLI it spawns. TERM/COLORTERM carry no
 // secrets and describe the terminal the user is actually watching, so they

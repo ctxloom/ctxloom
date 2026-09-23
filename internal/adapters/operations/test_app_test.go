@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
@@ -26,7 +27,7 @@ func testApp(t *testing.T, opts ...configload.Option) *App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	return OpenedApp(owner, Handed{Engines: engines.Registry()})
+	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // fixtureSources is a config.Sources whose every Read is the same fixture
@@ -83,7 +84,7 @@ func fixtureAppWith(t *testing.T, cfg *config.Config, loadouts []bundles.Compani
 	if carried.Authorizer() != nil {
 		owner.Current().Config.BindTrustForTesting(carried)
 	}
-	return OpenedApp(owner, Handed{Engines: engines.Registry()})
+	return OpenedApp(owner, Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // realGated binds the gate built over cfg's PRODUCTION adapters — the
@@ -181,4 +182,15 @@ func withOnDiskRoot(t *testing.T, cfg *config.Config, appDir string) *config.Con
 	require.NoError(t, err)
 	cfg.BindTrustForTesting(tr)
 	return cfg
+}
+
+// testLaunchFacts is the launch facts a composition root would hand: the
+// process registry (so an enginefixture.Install stands in) and the session
+// dir's claim store, under the strict default.
+func testLaunchFacts() LaunchFacts {
+	f, err := NewLaunchFacts(engines.Registry()).Claims(fsstore.SessionClaims).Build()
+	if err != nil {
+		panic(err)
+	}
+	return f
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
@@ -44,13 +45,14 @@ func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) la
 	t.Helper()
 	stubPrepareIsolation(t, nil)
 	return launch.Deps{
-		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   engines.Registry(),
-		Assembler: &assembler{pipe: pipe, engines: engines.Registry()},
-		Cells:     Cells{engines: engines.Registry(), cfg: cfg},
-		Endpoints: endpointMinter{},
-		Sessions:  sessions.NewMemStore(),
-		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+		SessionClaims: fsstore.SessionClaims,
+		Snapshot:      &config.Snapshot{Config: cfg},
+		Engines:       engines.Registry(),
+		Assembler:     &assembler{pipe: pipe, engines: engines.Registry()},
+		Cells:         Cells{engines: engines.Registry(), cfg: cfg},
+		Endpoints:     endpointMinter{},
+		Sessions:      sessions.NewMemStore(),
+		Host:          launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 	}
 }
 

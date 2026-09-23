@@ -46,7 +46,9 @@ type Deps struct {
 	Sessions  sessions.Store
 	// ClaimCheck is rooted at THIS launch's session dir (the store is per
 	// session by construction), so it is set after the identity is minted —
-	// ForSession, over SessionClaims; Inline and InlineMax are process-wide.
+	// ForSession, over the composed SessionClaims — unless the caller already
+	// chose one (a preview keeps its claims in memory); Inline and InlineMax
+	// are process-wide.
 	Inline        composite.Transport
 	ClaimCheck    composite.Transport
 	SessionClaims SessionClaims

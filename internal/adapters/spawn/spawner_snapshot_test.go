@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -47,7 +48,7 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 	require.NoError(t, err)
 	src.reads.Store(0)
 
-	s := newSpawner(termRep(), operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()}), filepath.Dir(appDir), nil)
+	s := newSpawner(termRep(), operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims}), filepath.Dir(appDir), nil)
 
 	_, err = s.Resolve(context.Background(), "dev")
 	require.NoError(t, err)
@@ -78,7 +79,7 @@ func spawnerApp(t *testing.T, appDir string) *operations.App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()})
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // packageDirAtStart is the test binary's working directory before any

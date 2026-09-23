@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -56,7 +55,7 @@ func TestHandleListSessions_AllProjectsSortedByActivity(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(essence), 0o755))
 	require.NoError(t, os.WriteFile(essence, []byte("---\nsummary: worked on A\n---\nbody\n"), 0o644))
 
-	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true})
 	require.NoError(t, err)
 	require.Len(t, out.Sessions, 2)
@@ -88,7 +87,7 @@ func TestHandleListSessions_DefaultScopeIsTheCallersProject(t *testing.T) {
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
 	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now)
 
-	s := &ctxServer{engines: engines.Registry(), self: coord.Identity{ProjectDir: projA}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{ProjectDir: projA}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{})
 	require.NoError(t, err)
 

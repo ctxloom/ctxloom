@@ -85,7 +85,7 @@ func (h *fakeRunHost) Turn(ctx context.Context, _ string, t engine.Turn) (engine
 	}
 	switch {
 	case e.emitContext:
-		opened, err := OpenLaunch(ctx, ForSession(h.deps, l.Identity.Harp), *l)
+		opened, err := OpenLaunch(ctx, h.deps.ForSession(l.Identity.Harp), *l)
 		if err != nil {
 			return engine.TurnResult{}, err
 		}

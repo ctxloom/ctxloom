@@ -8,7 +8,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/engines"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // A Config that reaches a delivery entry point without a bound Trust is a
@@ -33,6 +32,6 @@ func TestDeliveryEntryPoints_RefuseAnUnboundConfig(t *testing.T) {
 	_, err = AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: []string{"p"}})
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "AssembleContext")
 
-	_, err = StartInternalOneShot(ctx, engines.Registry(), nil, cfg, strictness.Mode{}, "primary", "", t.TempDir(), "", 0)
+	_, err = StartInternalOneShot(ctx, testLaunchFacts(), nil, cfg, "primary", "", t.TempDir(), "", 0)
 	require.ErrorIs(t, err, config.ErrTrustUnbound, "StartInternalOneShot")
 }

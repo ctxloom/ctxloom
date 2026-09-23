@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -40,7 +41,7 @@ func fixtureApp(t *testing.T, cfg *config.Config) *operations.App {
 	t.Helper()
 	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg})
 	require.NoError(t, err)
-	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()})
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
 }
 
 // testConfig is an empty fixture config for the coordinators these tests

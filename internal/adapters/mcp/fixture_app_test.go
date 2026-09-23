@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
@@ -40,5 +41,16 @@ func fixtureApp(t *testing.T, cfg *config.Config) *operations.App {
 	t.Helper()
 	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg})
 	require.NoError(t, err)
-	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()})
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry(), SessionClaims: fsstore.SessionClaims})
+}
+
+// testLaunchFacts is the facts a hosting App hands the relay: the process
+// registry (so an enginefixture.Install stands in) and the session dir's
+// claim store, under the strict default.
+func testLaunchFacts() operations.LaunchFacts {
+	f, err := operations.NewLaunchFacts(engines.Registry()).Claims(fsstore.SessionClaims).Build()
+	if err != nil {
+		panic(err)
+	}
+	return f
 }

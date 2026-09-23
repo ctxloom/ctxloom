@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/fsstore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -159,13 +160,14 @@ func TestSetAgent_ContainerAuthGateRefusesATypodRuntimeRatherThanPassingItClean(
 func testOneShotOn(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (string, error) {
 	t.Helper()
 	deps := launch.Deps{
-		Snapshot:  &config.Snapshot{Config: cfg},
-		Engines:   engines.Registry(),
-		Assembler: &assembler{pipe: pipe, engines: engines.Registry()},
-		Cells:     Cells{engines: engines.Registry(), cfg: cfg},
-		Endpoints: endpointMinter{},
-		Sessions:  sessions.NewMemStore(),
-		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
+		SessionClaims: fsstore.SessionClaims,
+		Snapshot:      &config.Snapshot{Config: cfg},
+		Engines:       engines.Registry(),
+		Assembler:     &assembler{pipe: pipe, engines: engines.Registry()},
+		Cells:         Cells{engines: engines.Registry(), cfg: cfg},
+		Endpoints:     endpointMinter{},
+		Sessions:      sessions.NewMemStore(),
+		Host:          launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},
 	}
 	src.WorkDir = t.TempDir()
 	_, hosts := hostsFor(deps, stub)

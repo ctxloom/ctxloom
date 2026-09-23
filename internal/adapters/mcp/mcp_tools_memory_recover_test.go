@@ -14,7 +14,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/testsupport/sourcedir"
 )
@@ -61,7 +60,7 @@ func TestLoadOrDistillSession_ConvertsVendorTranscriptOnDemand(t *testing.T) {
 
 	appDir := filepath.Join(projectDir, ".ctxloom")
 	s := &ctxServer{
-		engines:          engines.Registry(),
+		facts:            testLaunchFacts(),
 		self:             coord.Identity{ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: appDir}),
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: recovered without a manual backfill."),
@@ -115,7 +114,7 @@ func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testi
 	require.NoError(t, mgr.RecordEngineVersion(harp, "2.1.225"))
 
 	s := &ctxServer{
-		engines:          engines.Registry(),
+		facts:            testLaunchFacts(),
 		self:             coord.Identity{ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: first look."),
@@ -183,7 +182,7 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 	require.NoError(t, mgr.RecordEngineVersion(harp, "2.1.225"))
 
 	s := &ctxServer{
-		engines:          engines.Registry(),
+		facts:            testLaunchFacts(),
 		self:             coord.Identity{ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
 		compactorFactory: fixedCompactor(harp, "Distilled: first look."),
@@ -244,7 +243,7 @@ func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T
 	require.NoError(t, mgr.RecordEngineVersion(harp, "2.1.225"))
 
 	s := &ctxServer{
-		engines:          engines.Registry(),
+		facts:            testLaunchFacts(),
 		self:             coord.Identity{ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: first look."),
@@ -365,7 +364,7 @@ func TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand(t *testing.T) {
 	require.NoError(t, mgr.RecordEngineVersion(harp, "2.1.225"))
 
 	s := &ctxServer{
-		engines:          engines.Registry(),
+		facts:            testLaunchFacts(),
 		self:             coord.Identity{ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: a prior session opened without a manual backfill."),
@@ -405,7 +404,7 @@ func TestLoadOrDistillSession_ArchivedDoesNotRewriteAnExistingTranscript(t *test
 	require.NoError(t, err)
 
 	s := &ctxServer{
-		engines:          engines.Registry(),
+		facts:            testLaunchFacts(),
 		self:             coord.Identity{ProjectDir: projectDir},
 		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
 		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: archived."),
@@ -447,7 +446,7 @@ func TestLoadOrDistillSession_NoCaptureMessageDoesNotSendTheUserBackToBackfill(t
 	require.NoError(t, mgr.BindSession(harp, fakeSessionID, ""))
 
 	projectDir := t.TempDir()
-	s := &ctxServer{engines: engines.Registry(), self: coord.Identity{ProjectDir: projectDir}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
+	s := &ctxServer{facts: testLaunchFacts(), self: coord.Identity{ProjectDir: projectDir}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
 
 	_, out, err := s.loadOrDistillSession(context.Background(), fakeSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err, "recovery must never block the agent (CLAUDE.md) — this degrades to a usable message, not a tool error")

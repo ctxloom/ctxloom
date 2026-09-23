@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -77,4 +78,16 @@ func (l Layout) Sidecar(harp string) string { return l.Member(harp, paths.Identi
 // spares the session under every scope.
 func (l Layout) KeepMarker(harp string) string {
 	return l.member(harp, paths.SessionKeepMarkerFileName)
+}
+
+// Distilled reports whether the session dir holds an essence. Without one the
+// transcript is the session's ONLY record, which is what every destroyer of
+// transcripts asks before taking one.
+//
+// It asks the disk, never the index's Summary: the index carries a Summary
+// long before any essence has been written (a harp rename, a resume pass),
+// so a Summary test would pass the one session this exists to protect.
+func Distilled(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, paths.EssenceFileName))
+	return err == nil
 }

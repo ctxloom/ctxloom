@@ -13,33 +13,47 @@ ctxloom's configuration lives in YAML files under the `.ctxloom/` directory.
 ├── config.yaml              # Main configuration
 ├── remotes.yaml             # Remote registry (and custom forges)
 ├── lock.yaml                # Dependency lockfile
-├── trust.yaml               # Trust grants and blacklist
+├── approvals/               # Review decisions, one countersignature per approve/reject
+├── allowed_signers          # Publisher keys this project trusts
 ├── profiles/                # Profile YAML files
 │   └── developer.yaml
-├── agents/                  # Agent bindings (alternative to config.yaml agents:)
-│   └── dev.yaml
-├── local/                   # Committed local bundle overrides
-│   └── bundles/
+├── content/                 # Project-authored content, committed with the project
 ├── cache/                   # Fetched and generated state (gitignored)
 │   ├── bundles/             # Local + pulled bundle YAML files
 │   ├── repos/               # Remote git clones
 │   └── context/             # Assembled context files
-└── sessions/                # Distilled session summaries
+├── state/                   # Local-only state nothing can rebuild (gitignored)
+└── sessions/                # This machine's distilled session records
 ```
+
+Agent bindings live under the `agents:` key of `config.yaml` and nowhere else;
+ctxloom does not read a `.ctxloom/agents/` directory. Each session's own state
+(its engine home, transcript and artifacts) lives outside the project, under
+`~/.ctxloom/sessions/<harp>`.
 
 ## Config Hierarchy
 
-ctxloom uses a single source (no merging):
+`config.yaml` is layered. Lowest precedence first:
 
-1. **Project**: `.ctxloom/` at git repository root
-2. **Home**: `~/.ctxloom/` (fallback if no project .ctxloom)
+1. **Home**: `~/.ctxloom/config.yaml`
+2. **Project**: `.ctxloom/config.yaml` at the git repository root
+3. **Environment**: `CTXLOOM_CONFIG_<PATH>` variables
+4. **Flag**: `--config-set <dotted.path>=<value>`, for one invocation
+
+The two files are deep-merged (lists replace rather than append). Each key also
+has a scope that decides which layers may set it at all. A fact about this
+machine, such as `llm.configs.<label>.binary_path`, `editor`, the top-level
+`runtime`, or the `isolation_images`/`isolation_engines`/`isolation_devcontainer_*`
+keys, is dropped with a warning when it appears in the committed project file;
+put it in your home config. A per-project grant such as `permissions` goes the
+other way (see [Permissions](#permissions)).
 
 ## config.yaml Reference
 
 The current schema is version 6. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config create` scaffolds one.
 
 :::note[Unknown keys are rejected]
-`config.yaml` is validated against its schema on load. A key the current schema doesn't recognize — including a retired one, like the old top-level `profiles: defaults:` list below — fails startup with a diagnostic naming the key and, where one exists, its replacement. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade this to a warning and continue.
+`config.yaml` is validated against its schema on load. A key the current schema doesn't recognize, including a retired one such as the old top-level `profiles:` or `hooks:` block, fails startup with a diagnostic naming the key and, where one exists, its replacement. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade this to a warning and continue.
 :::
 
 ```yaml
@@ -63,11 +77,12 @@ llm:
 config:
   use_distilled: true         # prefer distilled fragment versions (default true)
   statusline: true            # let ctxloom manage the HUD statusline
-  sign:                       # publisher-signing defaults for `fragment push`/`command push`
+  essence_max_chars: 10000    # character budget for a distilled session essence
+  sign:                       # publisher-signing defaults for `bundle push`
     default: false             # sign every push unless --no-sign (default false)
-    key: ""                    # explicit key path or SHA256:... fingerprint (default: auto-discover)
+    key: ""                    # explicit key path or SHA256:... fingerprint (default: auto-discover; home config only)
 
-# Editor (fallback: VISUAL env → EDITOR env → nano)
+# Editor (fallback: VISUAL env → EDITOR env → nano). Home config only.
 editor:
   command: "vim"
   args: []
@@ -81,58 +96,37 @@ default_agent: dev
 # Agents: local engine↔profile bindings (see the Agents concept page)
 agents:
   dev:
-    engine: claude-code
+    llm: claude-code          # an llm.configs label (engine + model)
     profiles: [developer]
     runtime: container-rootless # optional; host|container-rootless|container-rootful
-    permissions: acceptEdits  # optional; default|acceptEdits|plan|bypass (config-only, no CLI flag equivalent)
+    permissions: acceptEdits  # optional; default|acceptEdits|plan|bypass
     escalation: []            # optional; ordered approval-request ladder, overrides the permissions-derived default
 
-# Profiles: inline definitions (alternative to .ctxloom/profiles/)
-profiles:
-  definitions:
-    my-profile:
-      description: "Inline profile"
-      parents: []
-      bundles: []
-      select_tags: []          # fragment tags to pull in (the profile's own `tags:` is descriptive-only)
-      commands: []               # curate command/slash-command exports; empty list keeps today's auto-export
-      variables:
-        VARIABLE: "value"
+# Profiles are files, one per profile, under .ctxloom/profiles/<name>.yaml.
+# config.yaml has no profiles: key.
 
 # The default permission posture for agents run IN THIS DIRECTORY.
 # Only ever read from this project file — see "Permissions" below.
 permissions: acceptEdits      # default|acceptEdits|plan|bypass
 
-# Project-wide isolation defaults
+# Isolation defaults
 workspace: none               # session workspace axis: none|worktree
-runtime: host                 # agent runtime axis: host|container-rootless|container-rootful
+runtime: host                 # agent runtime axis: host|container-rootless|container-rootful (home config only)
 
 # Container-image overrides for containerized agents
 isolation_base_containerfile: .ctxloom/base.Containerfile   # your base stage
-isolation_devcontainer_base: true      # auto-detect .devcontainer/devcontainer.json as the base (default true)
-isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile
-isolation_engines: [claude-code]      # trim the composed engine set (default: every known engine)
-isolation_images:             # fully user-provided images, run as-is
+isolation_devcontainer_base: true      # auto-detect .devcontainer/devcontainer.json as the base (default true; home config only)
+isolation_devcontainer_service: app    # compose service to use as the base, if devcontainer.json declares dockerComposeFile (home config only)
+isolation_engines: [claude-code]      # trim the composed engine set (default: every known engine; home config only)
+isolation_images:             # fully user-provided images, run as-is (home config only)
   claude-code: my-registry/claude-agent:latest
 
 # Sync configuration
 sync:
   auto_sync: true             # sync referenced remotes on startup (default true)
 
-# Hooks configuration
-hooks:
-  unified:                    # backend-agnostic hooks
-    pre_tool: []
-    post_tool: []
-    session_start: []
-    session_end: []
-    turn_end: []             # once per TURN, not once per session
-    turn_start: []           # once per turn, before the agent acts on the prompt
-    pre_shell: []
-    post_file_edit: []
-  ext:                        # engine-specific hooks, by native event name
-    claude-code:
-      EventName: []
+# Hooks are NOT configured here. A profile or bundle declares them under its
+# own hooks: key (see "Hooks" below).
 
 # MCP servers are NOT configured here. They ship in bundles: a bundle's
 # `mcp:` block declares a server, and composing that bundle registers it.
@@ -161,13 +155,15 @@ llm:
     claude-code:
       type: claude-code
       model: "claude-opus-4-8"
-      binary_path: "/path/to/bin"   # optional
+      binary_path: "/path/to/bin"   # optional; home config only
       args: []                      # extra CLI arguments
-      env:
-        CUSTOM_VAR: "value"
   defaults:
     primary: claude-code
 ```
+
+A config entry carries no credentials or environment. The engine reads those
+from the environment ctxloom runs in, so export them in that shell; an `env:`
+key on an entry is refused at load.
 
 `ctxloom llm list` shows the available backends; `ctxloom llm default <label>` sets the primary.
 
@@ -240,8 +236,8 @@ between read-only and unrestricted.
 `bypass` means the engine asks nothing before running commands or writing
 files. Its blast radius is whatever contains the process — a container, or
 nothing at all on the bare host. Pair a permissive project default with
-`runtime: container-rootless` (below) if the directory is not one you would hand a
-stranger a shell in.
+`runtime: container-rootless` on the agent binding (below) if the directory is
+not one you would hand a stranger a shell in.
 :::
 
 ## Agents and Isolation
@@ -251,7 +247,7 @@ The `agents:`, `workspace:`, `runtime:`, `isolation_images:`,
 `isolation_devcontainer_service:`, and `isolation_engines:` keys configure
 local agent bindings and where they execute. See
 [Agents & Isolation](/concepts/agents/) for the model, and prefer
-`ctxloom agent set` over hand-editing the `agents:` key.
+`ctxloom agent create` / `ctxloom agent edit` over hand-editing the `agents:` key.
 
 ## Hooks
 
@@ -268,9 +264,12 @@ Hook types available:
 | `pre_shell` | Before shell execution |
 | `post_file_edit` | After file edit |
 
-Hook structure:
+Hooks are declared in a profile (or a bundle), not in `config.yaml`. A profile's
+hooks fire in every session that composes it; `ctxloom manage hooks list` shows
+the merged order and where each hook came from.
 
 ```yaml
+# .ctxloom/profiles/developer.yaml
 hooks:
   unified:
     session_start:
@@ -279,17 +278,19 @@ hooks:
         type: "command"         # command, prompt, or agent
         timeout: 30             # Seconds
         async: false            # Run in background
+  ext:                          # engine-specific hooks, by native event name
+    claude-code:
+      EventName: []
 ```
 
 ## Claude Code Integration
 
-ctxloom injects context via **SessionStart hooks** rather than editing `CLAUDE.md`. This approach:
-
-- Keeps `CLAUDE.md` clean for your own project documentation
-- Injects fresh context at the start of each session
-
-Context is written to `.ctxloom/cache/context/[hash].md` and injected via hook. See
-[Hooks and Context Injection](/guides/hooks) for details.
+A `ctxloom run` session hands the assembled context to Claude Code as an appended
+system prompt file inside the session's own home, so neither `CLAUDE.md` nor
+`.claude/settings.json` in your project is touched. For a Claude Code you start
+directly, `ctxloom manage hooks install` writes a SessionStart hook that reads
+`.ctxloom/cache/context/[hash].md`. See
+[Hooks and Context Injection](/guides/hooks) for both paths.
 
 ## Sync Configuration
 
@@ -310,12 +311,15 @@ ctxloom deps pull        # Fetch referenced content and update lock.yaml
 ## Memory Configuration
 
 Session memory is always enabled. The compaction/distillation model is the
-**fast role** (`llm.defaults.fast`), and chunking is a behavioral setting:
+**fast role** (`llm.defaults.fast`), and the size of a distilled session
+essence is a behavioral setting:
 
 ```yaml
 llm:
   defaults:
     fast: quick              # config label used for distillation
+config:
+  essence_max_chars: 10000   # character budget for a distilled session essence
 ```
 
 See [Session Memory Guide](/getting-started/memory) for usage details.

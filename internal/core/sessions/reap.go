@@ -200,7 +200,7 @@ func Reap(ctx context.Context, l Layout, locks Locks, p ReapPolicy, triage Triag
 		if !isHarpDir(e) {
 			continue
 		}
-		c, ok := reapOne(ctx, l, locks, e.Name(), p, triage)
+		c, ok := ReapSession(ctx, l, locks, e.Name(), p, triage)
 		if !ok {
 			continue
 		}
@@ -242,7 +242,8 @@ func isHarpDir(e fs.DirEntry) bool {
 	return harp.Validate(e.Name()) == nil
 }
 
-// reapOne decides, and when p.Apply carries out, one session's fate.
+// ReapSession decides, and when p.Apply carries out, one session's fate —
+// Reap's per-session step, for a caller that selects the sessions itself.
 //
 // The second return is false when the session is not a candidate at all —
 // nothing the policy takes is there — and the candidate's Verdict is empty
@@ -250,7 +251,7 @@ func isHarpDir(e fs.DirEntry) bool {
 // than listed. The order of checks is deliberate: the CHEAP, non-destructive
 // ones run first, so a session that is too new, or kept by hand, is never
 // probed for liveness or triaged at all.
-func reapOne(ctx context.Context, l Layout, locks Locks, name string, p ReapPolicy, triage Triage) (ReapCandidate, bool) {
+func ReapSession(ctx context.Context, l Layout, locks Locks, name string, p ReapPolicy, triage Triage) (ReapCandidate, bool) {
 	c := ReapCandidate{Harp: name, Dir: l.Dir(name)}
 	members := p.Members()
 

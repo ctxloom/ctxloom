@@ -10,12 +10,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -24,7 +24,7 @@ import (
 // None. That degrade is a fatal finding (ClassIsolation) the choke owner aborts on
 // unless --degraded, since the image is only required for an EXPLICITLY-requested
 // container.
-// The binary/home/socket-dir are the in-container conventions the minimal image
+// The binary/home are the in-container conventions the minimal image
 // (and the future production image) must honour.
 const (
 	defaultContainerImage  = "ctxloom-agent:latest"
@@ -439,7 +439,7 @@ func (c Container) WithImage(image string) Container {
 // when one exists, applies here too without another call site to update),
 // the workspace's own auth/overlay/gitdir/state mounts
 // (cw.extraMounts) plus any caller-supplied extraMounts (e.g. ISO1's
-// reach-back socket-dir mount), and the fixed container base env
+// reach-back mount), and the fixed container base env
 // (containerBaseEnv) + the workspace's scoped auth env passthrough
 // (cw.extraEnv) plus any caller-supplied extraEnv.
 func (c Container) ExecSpec(ws Workspace, command []string, extraEnv []string, extraMounts []Mount) (RunSpec, error) {
@@ -661,25 +661,10 @@ func gitIdentityEnv(agentID string) []string {
 	}
 }
 
-// containerScratchBase returns the PARENT directory for a run's host-side scratch
-// tree (the empty default means os.TempDir). It exists to keep every path
-// carved out of the scratch short on darwin: the default $TMPDIR there is a
-// long per-user /var/folders/… path, which a bind-mounted unix socket under
-// it would push past darwin's ~104-byte AF_UNIX sun_path limit. /tmp (a
-// Docker Desktop default-shared path, under the shared /private tree) is
-// short. Linux and every other OS keep os.TempDir
-// unchanged — the limit is generous there (~108 bytes) and $TMPDIR is short.
-func containerScratchBase() string {
-	if runtime.GOOS == "darwin" {
-		return "/tmp"
-	}
-	return ""
-}
-
 // prepareContainerScratch runs the container degrade gate — a launchable runtime,
 // the required image present (or locally buildable, see ensureImage), and
 // resolvable engine auth (the spec's resolver) — then provisions the host
-// scratch (temp root + socket dir). Any gate failure returns an error so the
+// scratch (temp root). Any gate failure returns an error so the
 // caller degrades (the top-level run → None; a fan-out member → a bare worktree).
 // It is the shared front-half of BOTH the top-level Container workspace and the
 // worktree-in-container composition; each layers its own extra mounts (config
@@ -707,7 +692,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// mount set (see mountProbeRoots) instead.
 	//
 	// The host-side scratch root is the tree Cleanup removes.
-	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
+	root, err := os.MkdirTemp(platform.TempBase, "ctxloom-iso-")
 	if err != nil {
 		// root is normally "" here (MkdirTemp itself failed) — defensive
 		// against a mutant flipping this check and discarding a dir MkdirTemp
@@ -984,7 +969,7 @@ func (c Container) checkRunAsIsIdentity(ctx context.Context) {
 // containerWorkspace is the container policy's workspace, unified across both
 // bases: Dir() is the cwd the container mounts identical-path — the LIVE project
 // dir (host base) or the per-agent worktree checkout (worktree base) — and
-// Cleanup() removes the host-side scratch tree (socket dir + config overlays)
+// Cleanup() removes the host-side scratch tree (config overlays)
 // then runs the base's own teardown (a noop for the host base; the WIP-safe,
 // nested-aware worktree teardown for the worktree base). The container is killed
 // via the client BEFORE Cleanup. extraEnv/extraMounts carry the resolved auth env

@@ -417,8 +417,8 @@ const hookProbeContainerOverlayScratchPrefix = "ctxloom-iso-"
 // cell's managed-config overlay — where a containerized engine's settings are
 // actually delivered, as opposed to the project tree the host cells watch.
 //
-// WHY BOTH BASES. isolation.containerScratchBase returns "" on linux, so
-// os.MkdirTemp falls back to os.TempDir(); on darwin it returns "/tmp"
+// WHY BOTH BASES. platform.TempBase is "" on linux, so
+// os.MkdirTemp falls back to os.TempDir(); on darwin it is "/tmp"
 // explicitly, because there os.TempDir() is a per-user /var/folders path the
 // scratch never lands in. Emitting both costs one glob that matches nothing on
 // the platform it does not apply to; guessing wrong costs a silently blind

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
@@ -112,7 +111,7 @@ func (b *LaunchBackend) ExecuteCLI(ctx context.Context, req *ExecuteRequest, arg
 	// (claude's interactive arm) is covered without repeating the check. See
 	// argvlimit.go.
 	if err := checkArgvLimit(b.Name(), args, GetPromptContent(req.Prompt),
-		singleArgLimit(runtime.GOOS, os.Getpagesize())); err != nil {
+		singleArgLimit(perArgCapped, os.Getpagesize())); err != nil {
 		return nil, err
 	}
 	b.TraceArgs(req.Verbosity, args, stderr)

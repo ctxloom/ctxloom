@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/discover"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
 
 // MCPPath is retained in the advertised CTXLOOM_COORD_URL shape
@@ -221,7 +221,7 @@ func (s *coordServing) ReachURL(runtimeAxis launch.RuntimeAxis) (string, error) 
 // ensureWide resolves the container-reachable URL once and returns it, and it
 // is the ONE place the coordinator ever listens past loopback.
 //
-// On Docker Desktop / Podman Machine GOOS targets (darwin, windows) the
+// On Docker Desktop / Podman Machine hosts (platform.ContainersInVM) the
 // container runs inside a VM whose networking installs a magic hostname that
 // already routes to the host's loopback interface — the coordinator advertises
 // that hostname against the EXISTING loopback listener and binds nothing new
@@ -245,12 +245,12 @@ func (s *coordServing) ensureWide() (string, error) {
 	if s.wideURL != "" {
 		return s.wideURL, nil
 	}
-	if host := advertiseHostFor(runtime.GOOS, preferredContainerRuntime()); host != "" {
+	if host := advertiseHostFor(platform.ContainersInVM, preferredContainerRuntime()); host != "" {
 		port := s.loopback.Addr().(*net.TCPAddr).Port
 		s.wideURL = fmt.Sprintf("http://%s%s", net.JoinHostPort(host, fmt.Sprint(port)), MCPPath)
 		return s.wideURL, nil
 	}
-	// Linux (or any GOOS advertiseHostFor didn't special-case): bind
+	// Containers on this kernel: bind
 	// container-reachable listeners, most specific first — the container
 	// runtime's bridge gateway (rootful daemons — e.g. docker0's
 	// 172.17.0.1), then the host's primary outbound interface (rootless
@@ -348,11 +348,11 @@ func (s *coordServing) Close() {
 	}
 }
 
-// advertiseHostFor returns the magic hostname a containerized child on GOOS
-// goos resolves to reach the coordinator's host-loopback listener, for the
-// given container-runtime name ("docker" | "podman" | anything else,
-// treated as docker) — or "" when goos needs the Linux bridge-
-// gateway/primary-outbound-IP path instead (ensureWide's unchanged
+// advertiseHostFor returns the magic hostname a containerized child resolves
+// to reach the coordinator's host-loopback listener when containers run in a
+// VM, for the given container-runtime name ("docker" | "podman" | anything
+// else, treated as docker) — or "" when they share this kernel and need the
+// bridge-gateway/primary-outbound-IP path instead (ensureWide's unchanged
 // fallback).
 //
 // Docker Desktop (macOS/Windows) and Podman Machine both run containers
@@ -362,15 +362,14 @@ func (s *coordServing) Close() {
 // loopback. Linux containers share the host kernel directly (no VM hop), so
 // neither name resolves there; "" tells ensureWide to keep doing what
 // already works on Linux.
-func advertiseHostFor(goos, runtimeName string) string {
-	switch goos {
-	case "darwin", "windows":
-		if runtimeName == "podman" {
-			return "host.containers.internal"
-		}
-		return "host.docker.internal"
-	default:
+func advertiseHostFor(containersInVM bool, runtimeName string) string {
+	switch {
+	case !containersInVM:
 		return ""
+	case runtimeName == "podman":
+		return "host.containers.internal"
+	default:
+		return "host.docker.internal"
 	}
 }
 

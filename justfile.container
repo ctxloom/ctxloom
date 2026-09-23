@@ -271,6 +271,14 @@ build-darwin-arm64:
         -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/shared/version.Version={{version}}" \
         -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
+# Compile every non-test package for the non-Linux targets, discarding the
+# output. The per-platform build-* targets above compile only the main package
+# and nothing runs them routinely, which is how a Windows build break went
+# unnoticed.
+build-cross:
+    GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build {{buildvcs}} ./...
+    GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build {{buildvcs}} ./...
+
 # Build all platforms
 build-all: build-linux-amd64 build-linux-arm64 build-windows-amd64 build-darwin-amd64 build-darwin-arm64
 
@@ -340,7 +348,7 @@ test:
 # justfile `test-default` recipe instead of reporting a raw,
 # generated-file-diluted figure.
 #
-# Carries no `-tags arch`, so the 38 TestArch_ gates do NOT run here; `test-arch`
+# Carries no `-tags arch`, so the TestArch_ gates do NOT run here; `test-arch`
 # is their execution path and `test` runs both.
 test-default:
     #!/usr/bin/env bash

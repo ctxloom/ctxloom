@@ -17,9 +17,8 @@ import (
 //
 // The defect these pin: a skill entry with no authored `files:` manifest
 // produced the CONSTANT preimage {"preimage":"ctxloom-exec/1","manifest":[]}
-// (sha256 502727b7…) for every such skill in existence, and
-// loader_skills.go skipped VerifyExtractedManifest on the IDENTICAL
-// predicate. One condition disabled both the binding and the check.
+// (sha256 502727b7…) for every such skill in existence, so an approval bound
+// nothing. The preimage is now always derived from the package's tree.
 //
 // These tests use a REAL temp directory (afero.NewOsFs + t.TempDir) rather
 // than MemMapFs: the preimage is derived by walking a tree and reading POSIX
@@ -123,29 +122,6 @@ func TestSkillContentPayload_ManifestLessPreimageIsModeSensitive(t *testing.T) {
 		"a mode change on a scripts/ entry must change the preimage")
 }
 
-// TestSkillContentPayload_AuthoredManifestPreimageUnchanged is the
-// no-regression pin for the WORKING case: a skill that HAS an authored
-// manifest must keep producing the byte-exact payload it produces today, so
-// every already-synced, already-approved skill survives this fix without
-// re-review. The expected bytes are hardcoded, not recomputed, so a change
-// in the builder cannot silently move them.
-func TestSkillContentPayload_AuthoredManifestPreimageUnchanged(t *testing.T) {
-	entry := BundleSkill{Files: map[string]SkillFileMeta{
-		"scripts/run.sh": {SHA256: "bbb", Mode: "0755"},
-		"SKILL.md":       {SHA256: "aaa", Mode: "0644"},
-	}}
-	// The on-disk tree is irrelevant when an authored manifest exists: the
-	// authored manifest IS the preimage, exactly as before this fix.
-	fsys, bundleDir := realSkillTree(t, "humanize", "# humanize\n\nAnything at all.", "#!/bin/sh\nwhatever\n")
-
-	payload, err := entry.ContentPayload(fsys, bundleDir, "humanize")
-	require.NoError(t, err)
-
-	const want = `{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[{"path":"SKILL.md","sha256":"aaa","mode":"0644"},{"path":"scripts/run.sh","sha256":"bbb","mode":"0755"}]}`
-	assert.Equal(t, want, string(payload),
-		"a skill with an authored manifest must hash exactly as it did before the manifest-less fix")
-}
-
 // TestSkillContentPayload_UnreadableTreeFailsClosed proves the manifest-less
 // path fails CLOSED. A tree that cannot be parsed must produce an error the
 // caller withholds on — never a fallback to a constant, which is how the
@@ -174,13 +150,10 @@ func TestSkillContentPayload_EscapingPathFailsClosed(t *testing.T) {
 }
 
 // TestSkillsFromBundleRef_ManifestLessTamperIsWithheld is the second half of
-// the defect, at the layer that matters. A manifest-less skill is approved
-// once (the gate remembers the exact payload hash it blessed); the tree is
-// then replaced. The loader must WITHHOLD it.
-//
-// Under the defect this was doubly broken: the payload never moved, so the
-// gate blessed the replacement, AND VerifyExtractedManifest was skipped
-// because len(entry.Files) == 0.
+// the defect, at the layer that matters. A skill is approved once (the gate
+// remembers the exact payload hash it blessed); the tree is then replaced.
+// The loader must WITHHOLD it: the payload moved, so the approval no longer
+// matches.
 func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	fsys := afero.NewOsFs()
 	root := t.TempDir()
@@ -189,9 +162,8 @@ func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	skillDir := filepath.Join(bundleDir, "skills", "humanize")
 	require.NoError(t, fsys.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755))
 
-	// A bundle.yaml with NO files: manifest — the post-`skill create` shape.
-	bundleYAML := "version: \"1.0\"\nskills:\n  humanize: {}\n"
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(bundleDir, "bundle.yaml"), []byte(bundleYAML), 0o644))
+	// The tree's envelope declares nothing: the skill directory is the item.
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(bundleDir, "bundle.yaml"), []byte("version: \"1.0\"\n"), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(skillDir, "SKILL.md"),
 		[]byte("---\nname: humanize\ndescription: Does a thing well.\n---\n\n# humanize\n\nBenign.\n"), 0o644))
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(skillDir, "scripts", "run.sh"),

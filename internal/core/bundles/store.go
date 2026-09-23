@@ -108,14 +108,12 @@ func (s *fsStore) Save(b *Bundle) error {
 	return nil
 }
 
-// Delete removes a bundle: its whole tree. Removing only the envelope would
-// leave every item file behind in a directory nothing reads.
 func (s *fsStore) Delete(name string) error {
 	path, err := s.Find(name)
 	if err != nil {
 		return err
 	}
-	if err := s.fs.RemoveAll(filepath.Dir(path)); err != nil {
+	if err := s.fs.Remove(path); err != nil {
 		return err
 	}
 	s.republish()

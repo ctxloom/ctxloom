@@ -3,6 +3,7 @@ package bundles
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -51,5 +52,41 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 			Timeout: h.Timeout, Async: h.Async, PreToolFallback: h.PreToolFallback,
 		})
 	}
+	for _, name := range collections.SortedKeys(b.Skills) {
+		sk := b.Skills[name]
+		if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {
+			continue
+		}
+		exports, err := TreeExports(sk.Exports)
+		require.NoError(t, err)
+		put(trust.KindSkill, name, content.Skill{Name: name, Tags: sk.Tags, Notes: sk.Notes, Exports: exports,
+			Files: stagedSkillFiles(t, fsys, filepath.Join(dir, "skills", name))})
+	}
 	return envelope
+}
+
+// stagedSkillFiles reads the package a fixture already wrote at dir.
+func stagedSkillFiles(t testing.TB, fsys afero.Fs, dir string) []content.SkillFile {
+	t.Helper()
+	var out []content.SkillFile
+	require.NoError(t, afero.Walk(fsys, dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return err
+		}
+		data, err := afero.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		mode := content.ModeRegular
+		if info.Mode().Perm()&0o111 != 0 {
+			mode = content.ModeExecutable
+		}
+		out = append(out, content.SkillFile{Path: filepath.ToSlash(rel), Mode: mode, Bytes: data})
+		return nil
+	}), "a skill with metadata needs its files written first")
+	return out
 }

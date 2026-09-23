@@ -28,8 +28,7 @@ func TestLocalWalk_ManifestAtTheLayoutRootDoesNotHideRealBundles(t *testing.T) {
 	root := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
 	testsupport.WriteFileString(t, fsys,
 		filepath.Join(root, paths.BundleManifestName), "version: \"9.9.9\"\n", 0o644)
-	testsupport.WriteFileString(t, fsys,
-		filepath.Join(root, "kit.yaml"), "version: \"1.0\"\n", 0o644)
+	writeTree(t, fsys, root, "kit", "version: \"1.0\"\n")
 
 	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
 	require.NoError(t, err)

@@ -26,6 +26,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 )
 
 // TestTrustRefKindDirs_MatchTheTrustAuthority pins the ref segments the loader
@@ -42,13 +43,12 @@ import (
 func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
-	bundleDir := filepath.Join(paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2), "kit")
+	root := paths.BundlesLayoutRoot(bundlesDir, paths.LayoutV2)
+	bundleDir := filepath.Join(root, "kit")
 
-	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(
-		"version: \"1.0\"\n"+
-			"fragments:\n  frag:\n    content: f\n"+
-			"commands:\n  cmd:\n    content: c\n"+
-			"skills:\n  sk: {}\n"), 0644))
+	bundletree.Write(t, fsys, root, "kit", "version: \"1.0\"\n"+
+		"fragments:\n  frag:\n    content: f\n"+
+		"commands:\n  cmd:\n    content: c\n")
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/skills/sk/SKILL.md",
 		[]byte("---\nname: sk\ndescription: Does a thing well.\n---\n\nbody\n"), 0644))
 

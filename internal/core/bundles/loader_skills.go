@@ -48,12 +48,10 @@ type LoadedSkill struct {
 	// "ctxloom+<class>:...#skills/<name>") — the same honest typed-source
 	// keying LoadedContent uses. A read FACT, never a decision.
 	TrustRef string
-	// TrustPayload is the package's trust preimage: the encoded EffectiveManifest
-	// (authored when the skill has been through `ctxloom skill sync`, derived
-	// from the on-disk tree otherwise). A skill is a directory, so its preimage
-	// is a manifest rather than one body blob. The reader has already verified
-	// the on-disk tree against this same manifest, so what the process stage
-	// decides on is exactly what was verified.
+	// TrustPayload is the package's trust preimage: the encoded manifest of
+	// its on-disk tree. A skill is a directory, so its preimage is a manifest
+	// rather than one body blob. It comes from the same parse Files was read
+	// by, so what the process stage decides on is exactly what is delivered.
 	TrustPayload []byte
 	// Signer is the owning bundle's VERIFIED publisher identity, or "" — see
 	// LoadedContent.Signer.
@@ -78,7 +76,7 @@ type LoadedSkillFile struct {
 // fully-resolved LoadedSkill, in deterministic (name-sorted) order, or nil if
 // the bundle can't be loaded. Mirrors ReadBundleCommands: it lets skill exports
 // be scoped to a specific profile's bundles rather than a global sweep. A skill
-// whose source tree fails to resolve, verify, parse or read is skipped with a
+// whose source tree fails to resolve, parse or read is skipped with a
 // warning — the reader does not HAVE it — never aborting the rest of the
 // bundle's skills. Nothing is dropped on policy grounds; see
 // Pipeline.SkillsFromBundleRef.
@@ -130,19 +128,15 @@ func (c Catalog) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	return out
 }
 
-// skillContent resolves one bundle skill entry into a LoadedSkill: it derives
-// the package's trust preimage (BundleSkill.EffectiveManifest — the authored
-// manifest when the skill has been through `ctxloom skill sync`, otherwise one
-// derived from the on-disk tree), VERIFIES the on-disk tree against that same
-// manifest, then parses the tree fresh (ParseSkillPackage — the same parse
-// authoring/sync uses) and reads every file's bytes.
+// skillContent resolves one bundle skill entry into a LoadedSkill: it parses
+// the package's tree (ParseSkillPackage — the same parse authoring uses),
+// derives the trust preimage from that parse's manifest, and reads every
+// file's bytes. One parse, one manifest, one preimage: the bytes the process
+// stage decides on are the bytes the preimage names.
 //
-// Verification stays HERE, in the reader: establishing that these bytes are
-// what the manifest says is reading, and a mismatch (tampered script, drifted
-// content) means the reader does not have a coherent package to report at all.
-// It reports nothing, loudly, rather than a partial/tampered one. Deciding
-// whether the package may be DELIVERED is the process stage's call, over the
-// preimage carried out on TrustPayload.
+// Deciding whether the package may be DELIVERED is the process stage's call,
+// over the preimage carried out on TrustPayload. A tree that cannot be
+// resolved or parsed reports nothing, loudly.
 func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *LoadedSkill {
 	bundle := read.Bundle
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
@@ -159,37 +153,14 @@ func (c Catalog) skillContent(read BundleRead, name string, entry BundleSkill) *
 		c.rep.Warnf("skipping skill %q: %v", name, err)
 		return nil
 	}
-
-	// ONE manifest drives both the trust preimage and the integrity check.
-	// Authored when the skill has been synced; derived from the on-disk tree
-	// when it has not. There is deliberately NO `len(entry.Files) > 0`
-	// predicate here any more: that single condition used to both empty the
-	// preimage and skip the verification below, so a manifest-less skill got
-	// a constant hash AND no tamper check — two failures of one trust gate.
-	// A failure to resolve the manifest withholds.
-	manifest, err := entry.EffectiveManifest(c.FS(), bundleDir, name)
+	pkg, err := ParseSkillPackage(c.FS(), dir, 0)
 	if err != nil {
 		c.rep.Warnf("skill %q withheld: %v", name, err)
 		return nil
 	}
-	payload, err := skillPayloadFor(entry.Exports, manifest)
+	payload, err := skillPayloadFor(entry.Exports, pkg.Manifest)
 	if err != nil {
 		c.rep.Warnf("skill %q withheld: encoding trust preimage: %v", name, err)
-		return nil
-	}
-
-	// Runs on EVERY skill, not just synced ones. For an authored manifest
-	// this is the tamper check against what was signed; for a derived one it
-	// re-confirms the tree still matches the preimage carried out below, so the
-	// bytes the process stage decides on are the bytes just verified.
-	if verr := VerifyExtractedManifest(c.FS(), dir, manifest); verr != nil {
-		c.rep.Warnf("skill %q withheld: %v", name, verr)
-		return nil
-	}
-
-	pkg, err := ParseSkillPackage(c.FS(), dir, 0)
-	if err != nil {
-		c.rep.Warnf("skipping skill %q: %v", name, err)
 		return nil
 	}
 
@@ -242,7 +213,7 @@ type SkillInfo struct {
 
 // ReadAllSkills reports every Agent Skill package this reader can resolve
 // across every bundle, in deterministic (bundle, then name) order. A package
-// whose source tree fails to resolve, verify or parse is omitted (skillContent
+// whose source tree fails to resolve or parse is omitted (skillContent
 // already warns) — the reader does not have it. Nothing is dropped on policy
 // grounds; see Pipeline.ListAllSkills for the gated listing.
 func (c Catalog) ReadAllSkills() ([]*LoadedSkill, error) {

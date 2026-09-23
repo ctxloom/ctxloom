@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -190,14 +191,18 @@ func TestEverySkillFieldIsClassified(t *testing.T) {
 		Path:    "skills/custom",
 		Tags:    []string{"tag"},
 		Notes:   "notes",
-		Files:   map[string]SkillFileMeta{"SKILL.md": {SHA256: "sha256:a", Mode: "0644"}},
 		Exports: EngineBlocks{"claude-code": []byte(`{"enabled":true}`)},
 	}
+	// The same package sits wherever Path can point, so Path moving the
+	// preimage would mean the location is presented — not merely that the
+	// bytes differ.
+	fsys := afero.NewMemMapFs()
+	pkg := map[string]skillFileSpec{"SKILL.md": {stagedSkillMD, 0o644}}
+	stageSkill(t, fsys, "/b", base.Path, pkg)
+	stageSkill(t, fsys, "/b", base.Path+"\x00perturbed", pkg)
 	assertEveryFieldClassified(t, base, func(v reflect.Value) [][]byte {
 		s := v.Interface().(BundleSkill)
-		// An authored manifest never touches the filesystem, so nil is the
-		// honest fs here: the preimage is a function of the entry alone.
-		payload, err := s.ContentPayload(nil, "", "")
+		payload, err := s.ContentPayload(fsys, "/b", "s")
 		require.NoError(t, err)
 		return [][]byte{payload}
 	})
@@ -225,31 +230,32 @@ func TestEveryHookFieldIsClassified(t *testing.T) {
 }
 
 func TestBundleSkill_ContentPayload_OpensWithTheSkillContractAndCarriesExports(t *testing.T) {
-	skill := BundleSkill{Files: map[string]SkillFileMeta{
-		"SKILL.md":       {SHA256: "sha256:skillmd1", Mode: "0644"},
-		"scripts/run.sh": {SHA256: "sha256:script1", Mode: "0755"},
-	}}
+	fsys := afero.NewMemMapFs()
+	stageSkill(t, fsys, "/b", "skills/s", twoFileSkill)
+	skill := BundleSkill{}
 
-	payload, err := skill.ContentPayload(nil, "", "")
+	payload, err := skill.ContentPayload(fsys, "/b", "s")
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(string(payload), `{"preimage":"`+signing.SkillPreimageContract+`"`),
 		"the contract must be the FIRST field: position is part of the contract; got %s", payload)
 	assert.Equal(t,
 		`{"preimage":"ctxloom-skill/1","exports":{"claude-code":{"enabled":true}},"manifest":[`+
-			`{"path":"SKILL.md","sha256":"sha256:skillmd1","mode":"0644"},`+
-			`{"path":"scripts/run.sh","sha256":"sha256:script1","mode":"0755"}]}`,
+			`{"path":"SKILL.md","sha256":"`+hashContent([]byte(stagedSkillMD))+`","mode":"0644"},`+
+			`{"path":"scripts/run.sh","sha256":"`+hashContent([]byte("script1"))+`","mode":"0755"}]}`,
 		string(payload))
-	assert.Equal(t, hashContent(payload), skill.ComputeContentHash(nil, "", ""))
+	assert.Equal(t, hashContent(payload), skill.ComputeContentHash(fsys, "/b", "s"))
 }
 
 // Disabling a skill for an engine after approval is a change to what that
 // engine's agent is offered; the approval must stop matching.
 func TestBundleSkill_DisablingAnEngineInvalidatesTheApprovalHash(t *testing.T) {
-	skill := BundleSkill{Files: map[string]SkillFileMeta{"SKILL.md": {SHA256: "sha256:a", Mode: "0644"}}}
-	approved := skill.ComputeContentHash(nil, "", "")
+	fsys := afero.NewMemMapFs()
+	stageSkill(t, fsys, "/b", "skills/s", map[string]skillFileSpec{"SKILL.md": {stagedSkillMD, 0o644}})
+	skill := BundleSkill{}
+	approved := skill.ComputeContentHash(fsys, "/b", "s")
 
 	skill.Exports = EngineBlocks{"claude-code": []byte(`{"enabled":false}`)}
-	assert.NotEqual(t, approved, skill.ComputeContentHash(nil, "", ""))
+	assert.NotEqual(t, approved, skill.ComputeContentHash(fsys, "/b", "s"))
 }
 
 // Every kind's ContentPayload opens with that kind's own contract, so a text
@@ -260,7 +266,9 @@ func TestEveryKindsPreimageOpensWithItsOwnContract(t *testing.T) {
 	cmd, _ := (&BundleCommand{ItemBody: ItemBody{Content: "x"}}).ContentPayload(false)
 	mcp, err := (&BundleMCP{Command: "x"}).ContentPayload()
 	require.NoError(t, err)
-	skill, err := (&BundleSkill{Files: map[string]SkillFileMeta{"SKILL.md": {SHA256: "a", Mode: "0644"}}}).ContentPayload(nil, "", "")
+	skillFS := afero.NewMemMapFs()
+	stageSkill(t, skillFS, "/b", "skills/s", map[string]skillFileSpec{"SKILL.md": {stagedSkillMD, 0o644}})
+	skill, err := (&BundleSkill{}).ContentPayload(skillFS, "/b", "s")
 	require.NoError(t, err)
 
 	assert.True(t, strings.HasPrefix(string(frag), signing.FragmentPreimageContract+"\n"))

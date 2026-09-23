@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -146,16 +145,16 @@ func TestLoader_WithholdsAnUnclaimedRead(t *testing.T) {
 // Each constructor hard-codes its own provenance and trust context.
 // ---------------------------------------------------------------------------
 
-// readerV1 is where a single-file document must be written for the reader to
-// find it: the v1 FORMAT ROOT of the /bundles root these tests hand the reader,
+// readerRoot is where a tree must be written for the reader to
+// find it: the FORMAT ROOT of the /bundles root these tests hand the reader,
 // never the root itself.
-func readerV1(leaf string) string {
-	return filepath.Join(paths.BundlesLayoutRoot("/bundles", paths.LayoutV2), leaf)
+func readerRoot() string {
+	return paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
 }
 
 func TestNewProjectReader_ReportsProjectProvenanceAndLocalContext(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, readerV1("kit.yaml"), readerBundleYAML, 0o644))
+	writeTree(t, fsys, readerRoot(), "kit", string(readerBundleYAML))
 
 	reads, err := NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
 

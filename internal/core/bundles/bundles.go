@@ -689,32 +689,19 @@ type BundleCommand struct {
 // tell a real skill entry apart from a legacy command entry still sitting
 // under the reserved `skills:` key.
 //
-// Files is the GENERATED per-file manifest (populated by `ctxloom skill sync`/
-// `sign`, not hand-authored): relative path -> {sha256, mode}. It is what B2's
-// signing covers and B1b's archive codec packs; ParseSkillPackage computes the
-// authoritative version of it fresh from the source tree.
+// The package's files are not declared here: the skill directory IS the
+// package, and ParseSkillPackage reads its manifest from the tree.
 //
-// Files and Exports are PRESENTED and inside the trust preimage
-// (ContentPayload): the manifest names every file the agent is handed,
-// SKILL.md included, and an engine's block decides whether the package is
+// Exports is PRESENTED and inside the trust preimage (ContentPayload), beside
+// the package manifest: an engine's block decides whether the package is
 // offered to it at all. Every other field carries a `surface:`
 // classification; the reflective classification test walks this struct like
 // the text kinds.
 type BundleSkill struct {
-	Path    string                   `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
-	Tags    []string                 `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
-	Notes   string                   `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
-	Files   map[string]SkillFileMeta `yaml:"files,omitempty"`                    // GENERATED per-file manifest
-	Exports EngineBlocks             `yaml:"exports,omitempty"`                  // per engine name, opaque; that engine decodes its block (name/description live in SKILL.md)
-}
-
-// SkillFileMeta is one manifest entry as recorded in bundle.yaml: a file's
-// content hash and POSIX permission mode. The exec bit in Mode is
-// load-bearing for scripts/ entries — it must survive tree -> archive ->
-// extract -> materialize (see the skill/command split plan §3.1).
-type SkillFileMeta struct {
-	SHA256 string `yaml:"sha256"`
-	Mode   string `yaml:"mode"` // e.g. "0644", "0755" (octal POSIX perm bits, no "0o" prefix)
+	Path    string       `yaml:"path,omitempty" surface:"selection"` // dir relative to bundle dir; default "skills/<name>" — where the host finds the tree, never shown
+	Tags    []string     `yaml:"tags,omitempty" surface:"selection"` // Additional tags (merged with bundle tags); host-evaluated routing, never shown
+	Notes   string       `yaml:"notes,omitempty" surface:"human"`    // Human-readable notes, not sent to AI
+	Exports EngineBlocks `yaml:"exports,omitempty"`                  // per engine name, opaque; that engine decodes its block (name/description live in SKILL.md)
 }
 
 // BundleProfile is the shape of a profile shipped inside a bundle. It is the
@@ -1078,20 +1065,6 @@ func (p *BundleCommand) EffectiveContentHash(preferDistilled bool) (string, Cont
 	return hashContent(payload), form
 }
 
-// ToManifest converts a BundleSkill's authored `files:` map (bundle.yaml's
-// GENERATED per-file manifest — see BundleSkill.Files) into the canonical
-// SkillManifest shape (a sorted slice) that ParseSkillPackage computes fresh
-// from a skill's source tree. Both representations hold the same entries,
-// keyed the same way; this is the one conversion between the two so nothing
-// else in the codebase re-derives it.
-func (s *BundleSkill) ToManifest() SkillManifest {
-	m := make(SkillManifest, 0, len(s.Files))
-	for path, meta := range s.Files {
-		m = append(m, SkillManifestEntry{Path: path, SHA256: meta.SHA256, Mode: meta.Mode})
-	}
-	return m.sorted()
-}
-
 // skillContentPayload is the canonical encoding BundleSkill.ContentPayload
 // shares — see mcpContentPayload below for the field-order/versioning
 // contract this mirrors exactly, under its own version
@@ -1104,11 +1077,10 @@ func (s *BundleSkill) ToManifest() SkillManifest {
 // scripts/ script, or disabling an engine, changes this payload and
 // re-triggers review/sign.
 //
-// The Manifest here is always the EFFECTIVE manifest (see
-// BundleSkill.EffectiveManifest) — authored if the skill has been synced,
-// derived from the source tree if not. It is never empty: an empty manifest
-// would make every unsynced skill share one preimage, which is exactly the
-// trust hole this design closes.
+// The Manifest here is the package's own, derived from its tree (see
+// BundleSkill.PackageManifest). It is never empty: an empty manifest would
+// make every skill share one preimage, which is exactly the trust hole this
+// design closes.
 type skillContentPayload struct {
 	Preimage string              `json:"preimage"`
 	Exports  skillExportsPayload `json:"exports"`
@@ -1127,38 +1099,23 @@ type skillEngineExportPayload struct {
 	Enabled bool `json:"enabled"`
 }
 
-// EffectiveManifest returns the manifest that BOTH this skill's trust
-// preimage covers AND the loader verifies the on-disk tree against. It is the
+// PackageManifest returns the manifest this skill's trust preimage covers: the
+// per-file identity of the package directory as it is on disk. It is the
 // single answer to "which files, with which bytes and modes, is this skill?"
 //
-// Two sources, one meaning:
-//
-//   - An entry with an authored `files:` manifest (a skill that has been
-//     through `ctxloom skill sync`/`sign`) uses that manifest verbatim. This
-//     path never touches the filesystem, so a synced skill's preimage is
-//     byte-identical to what it has always been and no already-recorded trust
-//     decision is disturbed.
-//   - An entry with NO authored manifest — the shape `ctxloom skill create`
-//     leaves behind, before a sync has run — derives the manifest by parsing
-//     the skill's real source tree. It is NOT a constant.
-//
-// The manifest-less case previously returned an empty manifest, which made
-// every unsynced skill in existence share one preimage
-// ({"preimage":"ctxloom-exec/1","manifest":[]}) and therefore one trust hash:
-// an approval bound nothing, and arbitrary content could be swapped in at an
-// approved ref without re-review. Deriving from the tree is what makes the
-// approval mean "I approved THESE bytes".
+// It is derived from the tree every time. A skill's files ARE the skill, so
+// there is no recorded copy to consult and none to drift from it; a signed
+// bundle's SHA256SUMS already covers skills/<name>/, and local content is
+// trusted by placement.
 //
 // It fails CLOSED. A tree that cannot be resolved or parsed returns an error
-// rather than degrading to an empty manifest — degrading is precisely how the
-// original defect behaved, and a caller that cannot compute a preimage must
-// withhold the skill, never expose it under a placeholder hash.
-func (s *BundleSkill) EffectiveManifest(fsys afero.Fs, bundleDir, skillName string) (SkillManifest, error) {
-	if len(s.Files) > 0 {
-		return s.ToManifest(), nil
-	}
+// rather than degrading to an empty manifest — an empty manifest made every
+// skill share one preimage and therefore one trust hash, so an approval bound
+// nothing. A caller that cannot compute a preimage must withhold the skill,
+// never expose it under a placeholder hash.
+func (s *BundleSkill) PackageManifest(fsys afero.Fs, bundleDir, skillName string) (SkillManifest, error) {
 	if fsys == nil {
-		return nil, fmt.Errorf("skill %q: no authored manifest and no filesystem to derive one from", skillName)
+		return nil, fmt.Errorf("skill %q: no filesystem to read its package from", skillName)
 	}
 	dir, err := ResolveSkillDir(bundleDir, skillName, *s)
 	if err != nil {
@@ -1169,40 +1126,6 @@ func (s *BundleSkill) EffectiveManifest(fsys afero.Fs, bundleDir, skillName stri
 		return nil, fmt.Errorf("skill %q: deriving content manifest from %s: %w", skillName, dir, err)
 	}
 	return pkg.Manifest, nil
-}
-
-// unresolvableSkillDir stands in for "this bundle has no directory, and this
-// caller provably does not need one". It is deliberately NOT "" and not ".":
-// both of those resolve through ResolveSkillDir onto the PROCESS WORKING
-// DIRECTORY, which is exactly the hazard this guards against. A caller that uses
-// this value anyway gets a not-found error naming an obviously synthetic path,
-// never somebody's cwd.
-const unresolvableSkillDir = "<no-bundle-directory>"
-
-// SkillPreimageDir returns the directory a skill's PREIMAGE computation must
-// resolve its tree against, for callers that only need EffectiveManifest /
-// ContentPayload (review, trust, review snapshots).
-//
-// The rule is not "always require a directory", because that is not true:
-//   - A skill with an AUTHORED manifest (len(Files) > 0) is hashed from that
-//     manifest and EffectiveManifest never touches the filesystem. A bundle
-//     with no directory — a companion or remote seed — is perfectly able to
-//     carry such a skill, and refusing it would break a legitimate case.
-//   - A manifest-LESS skill derives its preimage by parsing the real tree, and
-//     for that the directory is load-bearing. A bundle without one must fail
-//     loudly rather than derive from whatever sits in the process working
-//     directory — which, for these callers, means hashing cwd files
-//     into a TRUST GRANT.
-//
-// Callers that genuinely always need the tree (the loader's skillContent,
-// which parses and tamper-verifies it; skill create/sync/export/import) must
-// use FSDir directly instead — for them a missing directory is always fatal.
-func (b *Bundle) SkillPreimageDir(entry BundleSkill) (string, error) {
-	dir, err := b.FSDir()
-	if err != nil && len(entry.Files) > 0 {
-		return unresolvableSkillDir, nil
-	}
-	return dir, err
 }
 
 // skillPayloadFor encodes a skill's export config and a resolved manifest into
@@ -1228,7 +1151,7 @@ func skillPayloadFor(exports EngineBlocks, m SkillManifest) ([]byte, error) {
 // signing.SkillPreimageContract, turning a silent mass re-review of every
 // skill approval into an announced one.
 func (s *BundleSkill) ContentPayload(fsys afero.Fs, bundleDir, skillName string) ([]byte, error) {
-	manifest, err := s.EffectiveManifest(fsys, bundleDir, skillName)
+	manifest, err := s.PackageManifest(fsys, bundleDir, skillName)
 	if err != nil {
 		return nil, err
 	}
@@ -1241,8 +1164,8 @@ func (s *BundleSkill) ContentPayload(fsys afero.Fs, bundleDir, skillName string)
 func (s *BundleSkill) ComputeContentHash(fsys afero.Fs, bundleDir, skillName string) string {
 	data, err := s.ContentPayload(fsys, bundleDir, skillName)
 	if err != nil {
-		// REACHABLE since the manifest-less preimage is derived from the tree
-		// (EffectiveManifest): an unreadable/unparseable package lands here.
+		// REACHABLE: the preimage is derived from the tree (PackageManifest),
+		// so an unreadable/unparseable package lands here.
 		// The digest must therefore be DISTINCT per skill and per failure — a
 		// single shared error digest would be the very defect this fix closes
 		// (one constant standing in for many different skills). It can never

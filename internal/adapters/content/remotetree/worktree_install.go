@@ -26,11 +26,11 @@ const (
 //
 // WHY THE MODES NEED RECONCILING AT ALL. ctxloom publishes every file at 0644
 // (remote.GitPublisher writes them that way), so the commit records 100644 even
-// for a skill's scripts, and a checkout faithfully reproduces that. Meanwhile
-// bundles.VerifyExtractedManifest compares each file's on-disk exec bit against
-// the DECLARED one and refuses the package when they disagree. Left alone, then,
-// a checked-out skill-bearing bundle is rejected as a mode disagreement — so the
-// declaration has to be stamped onto the checkout before anything reads it.
+// for a skill's scripts, and a checkout faithfully reproduces that. A skill's
+// package manifest — its trust preimage and the mode it is materialized at —
+// is read from the files on disk, so left alone every checked-out script would
+// be delivered non-executable. The declaration has to be stamped onto the
+// checkout before anything reads it.
 //
 // The declaration is read from the CHECKOUT rather than from a fetched tree,
 // which is what lets a pin move without a fetch: the sidecars are files in the

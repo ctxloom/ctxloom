@@ -210,9 +210,9 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 }
 
 // admitSkill is admit for a resolved skill package. A skill's preimage is its
-// manifest (BundleSkill.EffectiveManifest), not a single body blob, and the
-// reader has already verified the on-disk tree against that same manifest — so
-// what the gate decides on is exactly what was verified.
+// package manifest, not a single body blob, taken from the same parse its
+// files were read by — so what the gate decides on is exactly what is
+// delivered.
 func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 	if ls == nil {
 		return false

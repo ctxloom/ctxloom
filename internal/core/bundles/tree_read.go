@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
@@ -203,9 +202,9 @@ func (r *reader) addMCP(v content.MCP) {
 }
 
 func (r *reader) addSkill(v content.Skill) error {
-	files, err := skillManifest(v)
-	if err != nil {
-		return fmt.Errorf("bundles: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
+	if len(v.Files) == 0 {
+		return fmt.Errorf("bundles: skill %q in tree bundle %q: the package has NO files; refusing to read it as an empty skill "+
+			"(an empty skill materializes without complaint and delivers nothing)", v.Name, r.bundle)
 	}
 	exports, err := engineBlocks(v.Exports)
 	if err != nil {
@@ -217,7 +216,6 @@ func (r *reader) addSkill(v content.Skill) error {
 		// surface type already owns, and the two could then disagree.
 		Tags:    v.Tags,
 		Notes:   v.Notes,
-		Files:   files,
 		Exports: exports,
 	})
 	return nil
@@ -285,43 +283,6 @@ func (r *reader) appendHook(event string, h BundleHook) {
 	case HookEventTurnStart:
 		r.out.Hooks.TurnStart = append(r.out.Hooks.TurnStart, h)
 	}
-}
-
-// skillManifest renders a skill package's files as the generated per-file
-// manifest bundle.yaml records — the shape VerifyExtractedManifest
-// later checks the extracted tree against, field by field.
-//
-// It goes through SkillManifestEntryFor rather than hashing here: the
-// verifier builds its side with the same function, so the two cannot disagree
-// about the hash's "sha256:" prefix or the mode's octal width. Spelling either
-// from memory produces a package that extracts, fails verification, and is
-// withheld with an integrity error indistinguishable from real tampering —
-// which is exactly what happened before this went through one definition.
-//
-// The mode comes from the DECLARED ComponentMode, never from a filesystem: that
-// declaration is inside the signed bytes, and the filesystem's bit is not
-// portable.
-func skillManifest(s content.Skill) (map[string]SkillFileMeta, error) {
-	if len(s.Files) == 0 {
-		return nil, fmt.Errorf("the package has NO files; refusing to read it as an empty skill " +
-			"(an empty skill materializes without complaint and delivers nothing)")
-	}
-	out := make(map[string]SkillFileMeta, len(s.Files))
-	for _, f := range s.Files {
-		e := SkillManifestEntryFor(f.Path, f.Bytes, skillFilePerm(f.Mode))
-		out[e.Path] = SkillFileMeta{SHA256: e.SHA256, Mode: e.Mode}
-	}
-	return out, nil
-}
-
-// skillFilePerm turns a declared ComponentMode into the POSIX permission the
-// package's file carries on disk. Anything not declared executable is a plain
-// file — the same default the surface type applies on the way out.
-func skillFilePerm(m content.ComponentMode) os.FileMode {
-	if m == content.ModeExecutable {
-		return 0o755
-	}
-	return 0o644
 }
 
 // engineBlocks maps the tree form's per-engine blocks onto this package's,

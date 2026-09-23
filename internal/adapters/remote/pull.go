@@ -117,6 +117,10 @@ type Puller struct {
 	// TreeVerifyFunc). Nil means this Puller cannot establish what it would be
 	// pinning, and it refuses to install rather than pin unverified content.
 	treeVerify TreeVerifyFunc
+	// manifestVerify verifies the default branch's tip manifest for the
+	// retraction check (see CheckRetracted). Nil means no retraction verdict
+	// can be established, so every check is Unknown and fails stale.
+	manifestVerify ManifestVerifyFunc
 }
 
 // PullerOption is a functional option for configuring a Puller.
@@ -146,6 +150,14 @@ func WithTreeInstaller(ti TreeInstallFunc) PullerOption {
 func WithTreeVerifier(tv TreeVerifyFunc) PullerOption {
 	return func(p *Puller) {
 		p.treeVerify = tv
+	}
+}
+
+// WithManifestVerifier supplies the verifier the retraction check runs over the
+// default branch's tip manifest (see CheckRetracted).
+func WithManifestVerifier(mv ManifestVerifyFunc) PullerOption {
+	return func(p *Puller) {
+		p.manifestVerify = mv
 	}
 }
 
@@ -203,6 +215,11 @@ type fetchedItem struct {
 	retracted           bool                // this fetch's own confirmRetraction verdict (fresh or fail-stale fallback)
 	retractedReason     string              // the publisher's stated reason, when retracted
 	retractionCheckedAt time.Time           // when THIS verdict was established (see LockEntry.RetractionCheckedAt)
+	// checkRetraction runs confirmRetraction against the entry about to be
+	// pinned. It is deferred to install because a retraction names a signed
+	// VERSION, and which version is being pinned is known only once the tree
+	// has been verified. Nil leaves the three fields above as they are.
+	checkRetraction func(pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error)
 }
 
 // Pull downloads an item from a remote and records its pin. It is the
@@ -232,8 +249,9 @@ func (p *Puller) Pull(ctx context.Context, refStr string, opts PullOptions) (*Pu
 	return p.installPulledItem(ctx, ref, opts, item)
 }
 
-// CheckRetraction reports whether refStr is CURRENTLY retracted in its
-// remote's manifest, without pulling content or writing any pin. It is the
+// CheckRetraction reports whether refStr is CURRENTLY retracted by its
+// publisher's newest signed release, without pulling content or writing any
+// pin. The version it asks about is the one the lockfile pinned. It is the
 // lightweight counterpart to the retraction check a full Pull already runs
 // (confirmRetraction) — for a ref operations.syncItem finds ALREADY installed,
 // where a full Pull would be needless (re-fetch content that hasn't changed,
@@ -257,7 +275,11 @@ func (p *Puller) CheckRetraction(ctx context.Context, refStr string, itemType It
 	if err != nil {
 		return false, "", time.Time{}, fmt.Errorf("invalid remote URL: %w", err)
 	}
-	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, ref.LockKey())
+	var pinned LockEntry
+	if lock, lerr := p.lockfileManager.Load(); lerr == nil {
+		pinned, _ = lock.GetEntry(itemType, ref.LockKey())
+	}
+	return p.resolveRetraction(ctx, fetcher, owner, repo, ref, itemType, ref.LockKey(), pinned)
 }
 
 // RecordRetraction persists retracted/reason onto refStr's EXISTING lockfile
@@ -298,8 +320,9 @@ func (p *Puller) RecordRetraction(itemType ItemType, refStr string, retracted bo
 	return p.lockfileManager.Save(lockfile)
 }
 
-// fetchForPull resolves the remote, checks retraction, resolves the SHA, and
-// fetches the content — everything needed before writing the pin.
+// fetchForPull resolves the remote and the SHA and fetches the content —
+// everything needed before verifying and writing the pin. The retraction check
+// is armed here and run at install (see fetchedItem.checkRetraction).
 func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOptions) (*fetchedItem, error) {
 	repoURL, rem, localName, err := p.resolveRemoteTarget(ref)
 	if err != nil {
@@ -314,11 +337,6 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	owner, repo, err := ParseOwnerRepo(repoURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
-	}
-
-	retracted, retractedReason, retractionCheckedAt, err := p.confirmRetraction(ctx, fetcher, owner, repo, ref, localName, opts)
-	if err != nil {
-		return nil, err
 	}
 
 	sha, requestedVersion, resolvedVersion, kind, err := resolveContentSHA(ctx, fetcher, owner, repo, ref)
@@ -336,7 +354,9 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 		rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion,
 		resolvedVersion: resolvedVersion, kind: kind, content: content,
 		tree: tree, treeRoot: treeRoot,
-		retracted: retracted, retractedReason: retractedReason, retractionCheckedAt: retractionCheckedAt,
+		checkRetraction: func(pinned LockEntry) (bool, string, time.Time, error) {
+			return p.confirmRetraction(ctx, fetcher, owner, repo, ref, localName, opts, pinned)
+		},
 	}, nil
 }
 
@@ -429,7 +449,10 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 // Force=true / non-interactive path, where the warning prints but nothing was
 // previously recorded anywhere — the gap that left a forced/sync re-pull of
 // retracted content just as exposed as before.
-func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName string, opts PullOptions) (retracted bool, reason string, checkedAt time.Time, err error) {
+//
+// pinned is the entry about to be recorded: its SignedVersion is the version
+// the publisher's retractions are matched against.
+func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName string, opts PullOptions, pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error) {
 	// The determination failure is NOT discarded. CheckRetracted's
 	// error slot is useless if the caller drops it: an "I could not determine
 	// this" would otherwise carry on indistinguishably from "clean", which is
@@ -441,7 +464,7 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 	// it falls back to the last verdict this project itself recorded for
 	// localName rather than treating an unreachable remote as "clean" —
 	// only a genuinely unparseable manifest still reaches err here.
-	retracted, reason, checkedAt, err = p.resolveRetraction(ctx, fetcher, owner, repo, ref, opts.ItemType, localName)
+	retracted, reason, checkedAt, err = p.resolveRetraction(ctx, fetcher, owner, repo, ref, opts.ItemType, localName, pinned)
 	if err != nil {
 		return false, "", time.Time{}, err
 	}
@@ -488,27 +511,49 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // "this remote publishes no manifest" case (see CheckRetracted's doc), not
 // evidence of an outage, and there is no verdict whose age could even be
 // reported.
-func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType, localName string) (retracted bool, reason string, checkedAt time.Time, err error) {
-	verdict, reason, err := CheckRetracted(ctx, fetcher, owner, repo, ref, itemType)
+//
+// Two more rules keep a signed retraction from being undone by whoever controls
+// the repository:
+//
+//   - STICKY: a Clean tip never lifts a retraction already recorded for the
+//     same pinned version. A retraction names an exact signed version and is
+//     permanent; a tip that no longer lists it — a rewind to the release that
+//     preceded it, which is still genuinely signed — is not the publisher
+//     changing their mind. Only moving the pin (a new entry) resets it.
+//   - ROLLBACK: a signed tip below the pinned version is reported and treated
+//     like Unknown: the recorded verdict stands.
+func (p *Puller) resolveRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, itemType ItemType, localName string, pinned LockEntry) (retracted bool, reason string, checkedAt time.Time, err error) {
+	verdict, reason, err := CheckRetracted(ctx, fetcher, owner, repo, ref, pinned, p.manifestVerify)
 	if err != nil {
 		return false, "", time.Time{}, err
 	}
-	if verdict != RetractionUnknown {
-		return verdict == RetractionRetracted, reason, p.now(), nil
+	var recorded LockEntry
+	var hasRecorded bool
+	lockfile, lerr := p.lockfileManager.Load()
+	if lerr == nil {
+		recorded, hasRecorded = lockfile.GetEntry(itemType, localName)
+	}
+	samePin := hasRecorded && recorded.SignedVersion == pinned.SignedVersion
+	switch verdict {
+	case RetractionRetracted:
+		return true, reason, p.now(), nil
+	case RetractionClean:
+		if samePin && recorded.Retracted {
+			return true, recorded.RetractedReason, p.now(), nil
+		}
+		return false, "", p.now(), nil
+	case RetractionRollback:
+		clidiag.Warn("ctxloom", "%s: %s — the repository may have been rolled back; keeping the retraction verdict last recorded for it", localName, reason)
 	}
 
-	lockfile, lerr := p.lockfileManager.Load()
-	if lerr != nil {
-		// Can't even read the local fallback source — nothing to go on.
+	if !hasRecorded {
+		// Never previously checked at all (or the lockfile is unreadable):
+		// there is no verdict to fall back to, and this is far more often
+		// "this remote publishes no signed release" than a first-pull outage.
+		// See the doc above.
 		return false, "", time.Time{}, nil
 	}
-	entry, ok := lockfile.GetEntry(itemType, localName)
-	if !ok {
-		// Never previously checked at all: there is no verdict to fall back
-		// to, and this is far more often "this remote has no manifest" than a
-		// first-pull outage. See the doc above.
-		return false, "", time.Time{}, nil
-	}
+	entry := recorded
 
 	unknownAge := entry.RetractionCheckedAt.IsZero()
 	age := p.now().Sub(entry.RetractionCheckedAt)
@@ -588,17 +633,28 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	}
 	installSHA := item.sha
 	var signed Verified
+	pinned := LockEntry{}
 	if frozen, ok := p.heldPin(opts.ItemType, item.localName, requestedVersion); ok {
 		// A held pin installs its OWN commit, which was admitted when it was
 		// pinned; the freshly fetched tree is not what lands, so it is not what
 		// is judged.
 		installSHA = frozen.SHA
+		pinned = frozen
 	} else {
 		v, err := p.admitTree(ctx, opts, item)
 		if err != nil {
 			return nil, err
 		}
 		signed = v
+		pinned.SignedVersion, pinned.Publisher = v.LockFields()
+	}
+	pinned.SHA = installSHA
+	if item.checkRetraction != nil {
+		r, why, at, err := item.checkRetraction(pinned)
+		if err != nil {
+			return nil, err
+		}
+		item.retracted, item.retractedReason, item.retractionCheckedAt = r, why, at
 	}
 
 	localPath, werr := p.installTree(ctx, ref, opts, item, installSHA)

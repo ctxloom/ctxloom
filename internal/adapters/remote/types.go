@@ -242,21 +242,14 @@ type ManifestEntry struct {
 	Version     string   `yaml:"version,omitempty" json:"version,omitempty"`
 }
 
-// Manifest represents the optional ctxloom/manifest.yaml index file.
+// Manifest represents the optional ctxloom/manifest.yaml index file. It is a
+// SEARCH INDEX and nothing more: it is unsigned, so no security decision reads
+// it. Retractions are carried by the signed bundle manifest (CheckRetracted).
 type Manifest struct {
 	Version     int             `yaml:"version" json:"version"`
 	GeneratedAt time.Time       `yaml:"generated_at" json:"generated_at"`
 	Bundles     []ManifestEntry `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 	Profiles    []ManifestEntry `yaml:"profiles,omitempty" json:"profiles,omitempty"`
-	Retracted   []RetractEntry  `yaml:"retracted,omitempty" json:"retracted,omitempty"`
-}
-
-// RetractEntry marks a bad version that should not be used.
-type RetractEntry struct {
-	Type    ItemType `yaml:"type" json:"type"`
-	Name    string   `yaml:"name" json:"name"`
-	Version string   `yaml:"version" json:"version"`
-	Reason  string   `yaml:"reason" json:"reason"`
 }
 
 // SearchQuery represents a parsed search query with filters.

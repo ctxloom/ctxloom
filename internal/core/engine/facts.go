@@ -35,6 +35,9 @@ type HomeSpec struct {
 	// with the reason naming where). Undecided is legal ONLY on the zero
 	// spec; Validate refuses it once a var is declared.
 	Credentials Declared[CredentialSeed]
+	// Auth declares how the engine authenticates from a long-lived token in
+	// its env (TokenAuth), or that it keeps no such token (Absent).
+	Auth Declared[TokenAuth]
 	// InstanceConfig is the engine's own generator of its top-level config
 	// file inside a session home the cells adapter provisioned; nil when the
 	// engine has no config file of its own.
@@ -52,6 +55,32 @@ type HomeVar struct {
 
 // Relocates reports whether the spec moves anything: the zero spec does not.
 func (h HomeSpec) Relocates() bool { return len(h.Vars) > 0 }
+
+// TokenAuth is how an engine authenticates from its env alone: the var it
+// reads a long-lived token from, and the other vars any one of which
+// authenticates it instead.
+type TokenAuth struct {
+	// TokenVar is the env var the engine reads a long-lived token from.
+	// ctxloom fills it from the engine's stored token when the process env
+	// leaves it unset.
+	TokenVar string
+	// EnvTriggers are the other env vars, any one of which authenticates the
+	// engine without the token, in the order a refusal names them.
+	EnvTriggers []string
+	// MintHint is the command that mints the token.
+	MintHint string
+}
+
+// Validate refuses a declaration a refusal could not name a fix from.
+func (a TokenAuth) Validate() error {
+	if a.TokenVar == "" {
+		return errors.New("TokenAuth: TokenVar is empty; name the env var the engine reads its token from")
+	}
+	if a.MintHint == "" {
+		return errors.New("TokenAuth: MintHint is empty; name the command that mints the token")
+	}
+	return nil
+}
 
 // Seed is the credential seed a relocated home is seeded from; false when
 // nothing seeds it — the seed is declared absent, or the home relocates
@@ -139,6 +168,11 @@ type SeedFile struct {
 // Validate refuses a non-zero spec the cells adapter could not act on
 // correctly. The zero spec is valid: it declares nothing.
 func (h HomeSpec) Validate() error {
+	if a, ok := h.Auth.Get(); ok {
+		if err := a.Validate(); err != nil {
+			return fmt.Errorf("HomeSpec: %w", err)
+		}
+	}
 	if !h.Relocates() {
 		if _, ok := h.Credentials.Get(); ok {
 			return errors.New("HomeSpec: a credential seed with no home var to land under")

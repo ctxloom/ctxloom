@@ -37,6 +37,7 @@ func TestHomeAccessorErrorsNameTheStoreAndTheExactPath(t *testing.T) {
 		{"companion consent", HomeCompanionConsentPath, whatCompanionConsent, []string{CompanionConsentFileName + ".yaml"}},
 		{"allowed signers", HomeAllowedSignersPath, whatAllowedSigners, []string{AllowedSignersFileName}},
 		{"distrusted signers", HomeDistrustedSignersPath, whatDistrustedSigners, []string{DistrustedSignersFileName}},
+		{"engine token", func() (string, error) { return HomeEngineTokenPath("claude-code") }, whatEngineToken, []string{HomeAuthDirName, "claude-code" + EngineTokenExt}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := tc.call()
@@ -77,6 +78,7 @@ func TestHomeStoreDescriptionsAreTheWordsWeThinkTheyAre(t *testing.T) {
 		"the user trust root":             whatAllowedSigners,
 		"the user distrust record":        whatDistrustedSigners,
 		"the home records directory":      whatHomeRecords,
+		"the stored engine token":         whatEngineToken,
 	} {
 		require.Equal(t, name, got, "a store's description changed; update the message deliberately, not by accident")
 	}
@@ -87,7 +89,7 @@ func TestHomeStoreDescriptionsAreTheWordsWeThinkTheyAre(t *testing.T) {
 	seen := map[string]bool{}
 	for _, d := range []string{
 		whatHomeSessions, whatHomeLogs, whatTriggerCache, whatHomeCoord, whatHomeLocks,
-		whatHomeApprovals, whatCompanionConsent, whatAllowedSigners, whatDistrustedSigners, whatHomeRecords,
+		whatHomeApprovals, whatCompanionConsent, whatAllowedSigners, whatDistrustedSigners, whatHomeRecords, whatEngineToken,
 	} {
 		require.False(t, seen[d], "two stores share the description %q", d)
 		seen[d] = true

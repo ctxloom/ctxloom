@@ -38,6 +38,18 @@ func TestHome_IsBuiltFromClaudesOwnConstants(t *testing.T) {
 	assert.NotNil(t, home.InstanceConfig, "claude generates its own instance config into a provisioned home")
 }
 
+// claude authenticates from the one long-lived token `claude setup-token`
+// mints, or from an API key, a gateway token or a cloud provider instead.
+func TestHome_DeclaresTokenAuth(t *testing.T) {
+	a, ok := claudeKind(t).Home().Auth.Get()
+	require.True(t, ok)
+	assert.Equal(t, engine.TokenAuth{
+		TokenVar:    "CLAUDE_CODE_OAUTH_TOKEN",
+		EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"},
+		MintHint:    "claude setup-token",
+	}, a)
+}
+
 // The seed is a PROJECTION (the refresh half withheld), and a projection can
 // only be delivered by a mechanism that copies: replication re-projects the
 // host file on every change; a mount shares by identity and would hand the

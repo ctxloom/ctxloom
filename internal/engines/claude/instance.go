@@ -73,6 +73,11 @@ func (c Claude) Home() engine.HomeSpec {
 			// there is the session's own item, projected the same way.
 			Keychain: &engine.KeychainStore{Service: KeychainService, Project: projectCredential},
 		}),
+		Auth: engine.Provide(engine.TokenAuth{
+			TokenVar:    OAuthTokenEnv,
+			EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"},
+			MintHint:    "claude setup-token",
+		}),
 		InstanceConfig: claudeInstanceConfig{},
 	}
 }

@@ -103,6 +103,20 @@ func TestHomeSpec_Validate_RefusesSeedWithoutLoginHint(t *testing.T) {
 	assert.ErrorContains(t, h.Validate(), "LoginHint")
 }
 
+// A token-auth declaration must name the var the engine reads its token from
+// and the command that mints one: the refusal of an unauthenticated run
+// names both.
+func TestHomeSpec_Validate_TokenAuthNamesItsVarAndItsMintCommand(t *testing.T) {
+	h := validHome()
+	h.Auth = Provide(TokenAuth{TokenVar: "X_TOKEN", EnvTriggers: []string{"X_API_KEY"}, MintHint: "x setup-token"})
+	require.NoError(t, h.Validate())
+
+	h.Auth = Provide(TokenAuth{MintHint: "x setup-token"})
+	assert.ErrorContains(t, h.Validate(), "TokenVar")
+	h.Auth = Provide(TokenAuth{TokenVar: "X_TOKEN"})
+	assert.ErrorContains(t, h.Validate(), "MintHint")
+}
+
 func validContainer() ContainerSpec {
 	return ContainerSpec{
 		Install:         []byte("RUN true\n"),

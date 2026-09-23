@@ -332,7 +332,7 @@ fragments:
 	// The fixture is only meaningful if the run really did have a target and
 	// really did fail it — otherwise this would pass for the wrong reason.
 	require.Len(t, res.Items, 1)
-	require.Equal(t, "distill_failed", res.Items[0].Reason,
+	require.Equal(t, DistillReasonFailed, res.Items[0].Reason,
 		"fixture is not hostile: the distill was expected to fail")
 
 	assert.False(t, res.Saved, "nothing was distilled, so nothing may be written")

@@ -64,10 +64,13 @@ func TestItemCommands_HonourFormatJSON(t *testing.T) {
 			assert.Equal(t, "x", created["name"])
 
 			cmd, out = itemFormatCmd(t, string(clifmt.FormatJSON))
-			require.NoError(t, distillItem(cmd, ref, tc.kind, false))
+			// A label resolves here but no engine is reachable from the test
+			// sandbox, so the distillation fails: the payload still reaches a
+			// machine reader, and the command does not exit as a success.
+			require.ErrorIs(t, distillItem(cmd, ref, tc.kind, false), errDistillFailed)
 			distilled := decodeItemJSON(t, out())
-			assert.Equal(t, "skipped", distilled["status"], "no LLM plugin is configured here")
-			assert.NotEmpty(t, distilled["reason"], "the skip reason must reach a machine reader")
+			assert.Equal(t, "skipped", distilled["status"])
+			assert.Equal(t, operations.DistillReasonFailed, distilled["reason"], "the skip reason must reach a machine reader")
 
 			cmd, out = itemFormatCmd(t, string(clifmt.FormatJSON))
 			require.NoError(t, removeItem(cmd, ref, tc.kind, false))

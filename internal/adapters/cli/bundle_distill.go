@@ -164,7 +164,26 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	if len(result.Errors) > 0 {
 		return fmt.Errorf("bundle distill: %d of %d file(s) failed", len(result.Errors), len(files))
 	}
+	// A failed item is saved raw and tallied among the skips; the command that
+	// was asked to distill it has not done its job, whatever else it did.
+	if n := countFailedDistillItems(result.Files); n > 0 {
+		return fmt.Errorf("bundle distill: %d item(s) could not be distilled: %w", n, errDistillFailed)
+	}
 	return nil
+}
+
+// countFailedDistillItems counts the items whose distillation was attempted
+// and failed, across every processed file.
+func countFailedDistillItems(files []bundleDistillFileOutcome) int {
+	n := 0
+	for _, f := range files {
+		for _, it := range f.Items {
+			if it.Reason == operations.DistillReasonFailed {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // printDistillInvalidatedApprovals is the re-distill LOUD PATH (spec §10.4):

@@ -27,7 +27,7 @@ func TestDistillOutcome_FailureReportedSkipped(t *testing.T) {
 	if failed.Status != DistillStatusSkipped {
 		t.Fatalf("empty DistilledBy must be Skipped, got %q", failed.Status)
 	}
-	if failed.Reason != "distill_failed" {
+	if failed.Reason != DistillReasonFailed {
 		t.Fatalf("expected reason distill_failed, got %q", failed.Reason)
 	}
 	if failed.ModelID != "" {
@@ -45,7 +45,7 @@ func TestDistillOutcome_FailureReportedSkipped(t *testing.T) {
 	// The RE-distill failure case: the old DistilledBy survives the failed
 	// attempt, so the failed flag — not post-state — must drive the outcome.
 	redistillFailed := distillOutcome(ItemKindFragment, "frag", "body", "stale-model", true)
-	if redistillFailed.Status != DistillStatusSkipped || redistillFailed.Reason != "distill_failed" {
+	if redistillFailed.Status != DistillStatusSkipped || redistillFailed.Reason != DistillReasonFailed {
 		t.Fatalf("failed re-distill must be reported distill_failed, got %+v", redistillFailed)
 	}
 	if redistillFailed.ModelID != "" {
@@ -91,7 +91,7 @@ fragments:
 	assert.Equal(t, "rules", item.Name)
 	assert.Equal(t, DistillStatusSkipped, item.Status,
 		"a failed re-distill must not be reported as distilled")
-	assert.Equal(t, "distill_failed", item.Reason)
+	assert.Equal(t, DistillReasonFailed, item.Reason)
 	assert.Empty(t, item.ModelID, "the stale model id must not be reported as a fresh success")
 }
 

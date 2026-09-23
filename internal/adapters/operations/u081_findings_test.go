@@ -132,7 +132,7 @@ fragments:
 	require.Len(t, res.Items, 1)
 	item := res.Items[0]
 	assert.Equal(t, DistillStatusSkipped, item.Status, "zero bytes distilled is not a success")
-	assert.Equal(t, "distill_failed", item.Reason)
+	assert.Equal(t, DistillReasonFailed, item.Reason)
 	assert.Empty(t, item.ModelID, "a failed distillation must not report a model id")
 
 	b, err := os.ReadFile(path)
@@ -148,7 +148,7 @@ fragments:
 func TestDistillOutcome_CannotReportSuccessForZeroBytes(t *testing.T) {
 	got := distillOutcome(ItemKindFragment, "frag", "", "some-model", false)
 	assert.Equal(t, DistillStatusSkipped, got.Status)
-	assert.Equal(t, "distill_failed", got.Reason)
+	assert.Equal(t, DistillReasonFailed, got.Reason)
 	assert.Empty(t, got.ModelID)
 }
 

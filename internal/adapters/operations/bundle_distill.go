@@ -40,12 +40,18 @@ const (
 	DistillStatusPlanned   DistillBundleItemStatus = "planned" // dry-run
 )
 
+// DistillReasonFailed is the skip Reason of an item whose distillation was
+// attempted and did not produce a usable result: the content stays raw. A
+// frontend fails its command on it, so it is named once here rather than
+// matched as a literal.
+const DistillReasonFailed = "distill_failed"
+
 // DistillBundleItem reports one item's outcome.
 type DistillBundleItem struct {
 	Kind    ItemKind                `json:"kind"`
 	Name    string                  `json:"name"`
 	Status  DistillBundleItemStatus `json:"status"`
-	Reason  string                  `json:"reason,omitempty"` // skipped: no_distill | unchanged | no_distiller
+	Reason  string                  `json:"reason,omitempty"` // why a skipped item was skipped
 	ModelID string                  `json:"model_id,omitempty"`
 }
 
@@ -240,7 +246,7 @@ func planBundleItemDistill(kind ItemKind, name string, noDistill, needsDistill, 
 // produced is a classifier that can be lied to.
 func distillOutcome(kind ItemKind, name, distilled, distilledBy string, failed bool) DistillBundleItem {
 	if failed || distilledBy == "" || distilled == "" {
-		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: "distill_failed"}
+		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: DistillReasonFailed}
 	}
 	return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusDistilled, ModelID: distilledBy}
 }

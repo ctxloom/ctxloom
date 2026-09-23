@@ -220,7 +220,7 @@ func TestDistillItem_DistillFailureReportsSkipped(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "skipped", res.Status)
-	assert.Equal(t, "distill_failed", res.Reason)
+	assert.Equal(t, DistillReasonFailed, res.Reason)
 	assert.Empty(t, res.ModelID)
 }
 
@@ -238,7 +238,7 @@ func TestDistillItem_RedistillFailureDoesNotReportStaleModel(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "skipped", res.Status)
-	assert.Equal(t, "distill_failed", res.Reason)
+	assert.Equal(t, DistillReasonFailed, res.Reason)
 }
 
 func TestDistillItem_SkipsWhenUnchanged(t *testing.T) {

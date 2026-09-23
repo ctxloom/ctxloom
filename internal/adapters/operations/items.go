@@ -373,8 +373,7 @@ type DistillItemRequest struct {
 }
 
 // DistillItemResult reports the outcome. Status is "distilled" or "skipped";
-// when skipped, Reason is one of "no_distill", "unchanged", "no_distiller",
-// "distill_failed".
+// when skipped, Reason says why (DistillReasonFailed for a failed attempt).
 type DistillItemResult struct {
 	Status  string `json:"status"`
 	Reason  string `json:"reason,omitempty"`
@@ -433,7 +432,7 @@ func DistillItem(ctx context.Context, cfg *config.Config, req DistillItemRequest
 	// "distilled" success is a silent lie (mirrors distillOutcome on the bundle
 	// path), so surface the failure as a skip instead.
 	if failed.Has(req.Name) || modelID == "" {
-		return skip("distill_failed"), nil
+		return skip(DistillReasonFailed), nil
 	}
 	return &DistillItemResult{
 		Status:  "distilled",

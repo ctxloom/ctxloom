@@ -232,7 +232,7 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 		return err
 	}
 
-	return emit(cmd, res, func() error {
+	if err := emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
 		fmt.Fprintf(out, "Updated %s %q in bundle %q", itemType, itemName, bundleName)
 		if res.Distilled {
@@ -242,7 +242,15 @@ func editItem(cmd *cobra.Command, ref string, itemType ItemType, noDistill bool)
 		fmt.Fprint(out, editNoDistillWarning(itemType, ref, noDistill, cur.NoDistill))
 		printPushReminder(out, bundleName)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// A distiller was handed a changed, distillable item and no distilled form
+	// came back: the edit is saved raw, with its previous distillation cleared.
+	if distiller != nil && !cur.NoDistill && !res.Distilled {
+		return fmt.Errorf("%s %q: %w; run `ctxloom %s distill %s` once an engine is reachable", itemType, itemName, errDistillFailed, itemType, ref)
+	}
+	return nil
 }
 
 // distillerForEdit resolves which Distiller SetItemContent should use for an
@@ -312,7 +320,7 @@ func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) 
 		return err
 	}
 
-	return emit(cmd, res, func() error {
+	if err := emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
 		if res.Status == "skipped" {
 			switch res.Reason {
@@ -327,7 +335,13 @@ func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) 
 		}
 		fmt.Fprintf(out, "Distilled %s (%s)\n", itemName, res.ModelID)
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if res.Reason == operations.DistillReasonFailed {
+		return fmt.Errorf("%s %q: %w", itemType, itemName, errDistillFailed)
+	}
+	return nil
 }
 
 // checkEditedContent rejects an editor buffer that came back empty.

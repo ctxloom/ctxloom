@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
@@ -9,6 +10,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
+
+// errDistillFailed fails a command whose requested distillation did not run
+// or was rejected. The content is still saved — raw — so the command's other
+// work stands; what must not stand is an exit status of success over content
+// nobody distilled.
+var errDistillFailed = errors.New("distillation failed: content saved RAW (undistilled)")
 
 // newLLMDistiller builds the distiller for one config label and the distill
 // prompt. It is the single construction point shared by every CLI frontend

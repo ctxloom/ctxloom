@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -279,8 +281,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	root := t.TempDir()
 	bundlesDir := filepath.Join(root, "bundles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "b.yaml"),
-		[]byte("version: 1.0.0\nfragments:\n  hidden:\n    content: hi\n"), 0o644))
+	bundletree.WriteOS(t, bundlesDir, "b", "version: 1.0.0\nfragments:\n  hidden:\n    content: hi\n")
 	require.NoError(t, os.Chmod(bundlesDir, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(bundlesDir, 0o755) })
 

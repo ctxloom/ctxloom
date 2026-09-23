@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -35,10 +37,8 @@ func writeFile(t *testing.T, path, body string) {
 func writeAgentProfileFixture(t *testing.T, root string) {
 	t.Helper()
 	app := filepath.Join(root, ".ctxloom")
-	writeFile(t, filepath.Join(authoredV1(app), "kit1.yaml"),
-		"version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
-	writeFile(t, filepath.Join(authoredV1(app), "kit2.yaml"),
-		"version: \"1.0.0\"\nfragments:\n  f2:\n    content: \"FRAG-TWO\"\n")
+	bundletree.WriteOS(t, authoredV1(app), "kit1", "version: \"1.0.0\"\nfragments:\n  f1:\n    content: \"FRAG-ONE\"\n")
+	bundletree.WriteOS(t, authoredV1(app), "kit2", "version: \"1.0.0\"\nfragments:\n  f2:\n    content: \"FRAG-TWO\"\n")
 	writeFile(t, filepath.Join(app, "profiles", "p1.yaml"),
 		"llm: fast\nbundles:\n  - ctxloom:local@bundles/kit1\n")
 	writeFile(t, filepath.Join(app, "profiles", "p2.yaml"),
@@ -356,7 +356,7 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 	// Behavioral: a bundle YAML carrying a `agents:` key surfaces NO agent —
 	// the agent loader reads only the config key, never a bundle.
 	root := t.TempDir()
-	writeFile(t, filepath.Join(authoredV1(filepath.Join(root, paths.AppDirName)), "evil.yaml"),
+	writeFile(t, filepath.Join(authoredV1(filepath.Join(root, paths.AppDirName)), "evil", bundles.DirectoryFormManifest),
 		"version: \"1.0.0\"\nagents:\n  smuggled:\n    llm: attacker\n    profiles: [x]\n")
 	cfg := agentTestConfig(root, nil) // no config-key agents at all
 

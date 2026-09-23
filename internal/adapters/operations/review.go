@@ -166,7 +166,7 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	// has no file — a companion loadout, a pinned document — has no path to
 	// resolve back through, and asking for one dropped exactly that content
 	// from review with a "bundle not found" nobody could act on.
-	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS,
+	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS, bundleFS: loader.FS(),
 		authorizer: trustOverRecords(cfg, records, req.FS).Authorizer()}
 	result := &PendingReviewResult{}
 	for _, read := range loader.Reads() {
@@ -234,6 +234,10 @@ type reviewEnumerator struct {
 	cfg     *config.Config
 	records countersign.Records
 	fs      afero.Fs
+	// bundleFS is the filesystem the loader read bundles from, where a
+	// skill's package directory lives. It is not fs, which holds the trust
+	// stores and is nil in production.
+	bundleFS afero.Fs
 	// authorizer is the SAME decision the exposure path uses, built once over
 	// the shared records store. Review asks it what would be delivered rather
 	// than re-deriving an opinion of its own.
@@ -317,12 +321,12 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, read bundles.BundleRea
 		}
 		// The package manifest is resolved once and used for BOTH the preimage
 		// the user is asked to approve and the file listing they are shown.
-		manifest, merr := skill.PackageManifest(e.fs, skillDir, name)
+		manifest, merr := skill.PackageManifest(e.bundleFS, skillDir, name)
 		if merr != nil {
 			clidiag.Warn("ctxloom", "review: skipping skill %q in bundle %q: %v", name, bundleRef, merr)
 			continue
 		}
-		payload, perr := skill.ContentPayload(e.fs, skillDir, name)
+		payload, perr := skill.ContentPayload(e.bundleFS, skillDir, name)
 		if perr != nil {
 			clidiag.Warn("ctxloom", "review: skipping skill %q in bundle %q: %v", name, bundleRef, perr)
 			continue

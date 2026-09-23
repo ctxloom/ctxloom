@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,8 +48,7 @@ func isolationCompanion(t *testing.T) bundles.CompanionLoadout {
 func writeIngestBundle(t *testing.T, fs afero.Fs, name, body string) {
 	t.Helper()
 	require.NoError(t, fs.MkdirAll(authoredV1(testBaseDir), 0o755))
-	require.NoError(t, afero.WriteFile(fs,
-		authoredV1(testBaseDir)+"/"+name+".yaml", []byte(body), 0o644))
+	bundletree.Write(t, fs, authoredV1(testBaseDir), name, body)
 }
 
 // ingestLoader rebuilds a loader over fs after extra bundles have been

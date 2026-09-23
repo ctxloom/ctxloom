@@ -196,25 +196,3 @@ func TestImportBundleTree_ExistingTreeRefusedThenReplacedWholesale(t *testing.T)
 	require.NoError(t, err)
 	assertTreesIdentical(t, want, readTree(t, fs, forced.Dest))
 }
-
-// TestExportBundle_SingleFileFormUnchanged pins the common path against the
-// tree work: a single-file bundle still lands as one file named for the bundle.
-func TestExportBundle_SingleFileFormUnchanged(t *testing.T) {
-	fs, cfg := memBundleFS(t)
-	want, err := afero.ReadFile(fs, filepath.Join(authoredV1(filepath.Join("/proj", ".ctxloom")), "seed.yaml"))
-	require.NoError(t, err)
-	require.NotZero(t, len(want), "fixture bundle is empty; the byte comparison below would prove nothing")
-
-	res, err := ExportBundle(context.Background(), cfg, ExportBundleRequest{Name: "seed", DestDir: "/out", FS: fs})
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/out", "seed.yaml"), res.Dest)
-
-	isDir, err := afero.IsDir(fs, res.Dest)
-	require.NoError(t, err)
-	assert.False(t, isDir, "a single-file bundle must not become a directory")
-
-	got, err := afero.ReadFile(fs, res.Dest)
-	require.NoError(t, err)
-	assert.Equal(t, want, got)
-	assertTreesIdentical(t, map[string][]byte{"seed.yaml": want}, readTree(t, fs, "/out"))
-}

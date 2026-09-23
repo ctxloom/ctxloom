@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -47,7 +49,7 @@ profiles:
     bundles:
       - ctxloom:local@bundles/kit
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "kit.yaml"), []byte(kitYAML), 0644))
+	bundletree.WriteOS(t, bundleDir, "kit", kitYAML)
 }
 
 func bundleProfileConfig(root string) *config.Config {

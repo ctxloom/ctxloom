@@ -3,9 +3,9 @@ package operations
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -67,7 +67,7 @@ func (errDistiller) Distill(context.Context, DistillRequest) (DistillResult, err
 // outcome must still be distill_failed — not "distilled" with the stale id.
 func TestDistillBundleFile_FailedRedistillReported(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bundle.yaml")
+	const treeName = "bundle-dir"
 	// content_hash deliberately does NOT match the content, so NeedsDistill
 	// is true (a re-distill) while distilled/distilled_by carry stale values.
 	bundleYAML := `version: 1.0.0
@@ -78,7 +78,7 @@ fragments:
     distilled_by: "stale-model"
     content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
 `
-	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+	path := bundletree.WriteOS(t, dir, treeName, bundleYAML)
 
 	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
 		Path:      path,
@@ -110,7 +110,7 @@ func (d okDistiller) Distill(context.Context, DistillRequest) (DistillResult, er
 func TestDistillBundleFile_InvalidatesPriorApproval(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mybundle.yaml")
+	const treeName = "mybundle"
 	bundleYAML := `version: 1.0.0
 fragments:
   rules:
@@ -119,7 +119,7 @@ fragments:
     distilled_by: "stale-model"
     content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
 `
-	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+	path := bundletree.WriteOS(t, dir, treeName, bundleYAML)
 
 	// Seed a prior UNSIGNED approve countersignature over the OLD distilled
 	// bytes (spec §9.5's degraded path; unsigned is sufficient here — the
@@ -153,7 +153,7 @@ fragments:
 func TestDistillBundleFile_NoInvalidationWhenNeverApproved(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mybundle.yaml")
+	const treeName = "mybundle"
 	bundleYAML := `version: 1.0.0
 fragments:
   rules:
@@ -162,7 +162,7 @@ fragments:
     distilled_by: "stale-model"
     content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
 `
-	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+	path := bundletree.WriteOS(t, dir, treeName, bundleYAML)
 
 	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
 		Path:      path,

@@ -28,7 +28,7 @@ func vaultTree(t *testing.T) (afero.Fs, *config.Config, string, func() bundles.B
 	t.Helper()
 	fsys, cfg, appPath := treeAuthoringFixture(t)
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
-		Name: "vault", Tree: true, FS: fsys,
+		Name: "vault", FS: fsys,
 		Fragments: map[string]BundleFragmentInput{
 			"house-style": {Content: "HOUSE-BODY-MARKER\n", Notes: "old notes", Tags: []string{"keep"}, NoDistill: true},
 			"other":       {Content: "OTHER-BODY-MARKER\n", Premise: "You are about to do the other thing.", NoDistill: true},
@@ -93,9 +93,7 @@ func TestSetFragmentPremise_TreeBundle_WritesOnlyThatFragmentsFrontmatter(t *tes
 	assert.Contains(t, changed, "notes: new notes")
 	assert.True(t, strings.HasSuffix(changed, "HOUSE-BODY-MARKER\n"), "the body is untouched:\n%s", changed)
 
-	isTree, err := bundles.IsTreeFormBundle(context.Background(), fsys, filepath.Join(dir, bundles.DirectoryFormManifest))
-	require.NoError(t, err)
-	assert.True(t, isTree, "an item edit must not turn a tree into a document")
+	assertEnvelopeDeclaresNoItems(t, fsys, filepath.Join(dir, bundles.DirectoryFormManifest))
 
 	got := read().Bundle.Fragments
 	assert.Equal(t, "You are about to write prose.", got["house-style"].Premise)
@@ -125,7 +123,7 @@ func TestSetItemContent_TreeBundle_WritesOnlyThatFragmentsFile(t *testing.T) {
 func TestSetItemContent_TreeBundle_ClearsTheStaleDistilledFile(t *testing.T) {
 	fsys, cfg, appPath := treeAuthoringFixture(t)
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
-		Name: "vault", Tree: true, FS: fsys,
+		Name: "vault", FS: fsys,
 		Fragments: map[string]BundleFragmentInput{"f": {Content: "v1\n"}},
 		Distiller: &recordingDistiller{returnValue: "DISTILLED-V1", returnModel: "mock"},
 	})

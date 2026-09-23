@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,12 +39,11 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	profilesDir := filepath.Join(appDir, "profiles")
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.MkdirAll(profilesDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"), []byte(
-		"version: 1.0.0\n"+
-			"fragments:\n  rules:\n    content: \"ONESHOT-RULE-BODY\"\n"+
-			"mcp:\n"+
-			"  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"+
-			"  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
+	bundletree.WriteOS(t, bundlesDir, "mcp-bundle", "version: 1.0.0\n"+
+		"fragments:\n  rules:\n    content: \"ONESHOT-RULE-BODY\"\n"+
+		"mcp:\n"+
+		"  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n"+
+		"  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n")
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte(
 		"name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(

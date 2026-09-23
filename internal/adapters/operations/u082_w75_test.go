@@ -9,10 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -53,8 +54,7 @@ commands:
       #urgent
       body of the hashtag command
 `
-	require.NoError(t, afero.WriteFile(fs,
-		authoredV1(testBaseDir)+"/headings.yaml", []byte(bundleContent), 0644))
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "headings", bundleContent)
 
 	return bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 }
@@ -172,10 +172,7 @@ func TestUpdateBundle_FailedRedistillDropsStaleDistillation(t *testing.T) {
 // what was persisted rather than the in-memory value.
 func readBundleFile(t *testing.T, path string) bundles.Bundle {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var b bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &b))
+	b := readBackBundle(t, path)
 	return b
 }
 
@@ -249,6 +246,7 @@ type plantingDistiller struct {
 
 func (d *plantingDistiller) Distill(context.Context, DistillRequest) (DistillResult, error) {
 	if !d.planted {
+		require.NoError(d.t, os.MkdirAll(filepath.Dir(d.path), 0o755))
 		require.NoError(d.t, os.WriteFile(d.path, d.content, 0o644))
 		d.planted = true
 	}
@@ -262,7 +260,7 @@ func (d *plantingDistiller) Distill(context.Context, DistillRequest) (DistillRes
 // trip per item — and what it destroys is another author's bundle.
 func TestCreateBundle_ConcurrentCreateIsNotClobbered(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
-	path := filepath.Join(authoredV1(appDir), "contested.yaml")
+	path := filepath.Join(authoredV1(appDir), "contested", bundles.DirectoryFormManifest)
 
 	rival := []byte("version: 1.0.0\ndescription: authored by the other writer\n")
 	d := &plantingDistiller{t: t, path: path, content: rival}

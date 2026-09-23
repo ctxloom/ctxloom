@@ -60,3 +60,20 @@ func TestWrite_AnEmptyBundleIsAnEnvelopeOnlyTree(t *testing.T) {
 	require.Len(t, reads, 1)
 	assert.Equal(t, "personal/empty", reads[0].DisplayName())
 }
+
+func TestWriteBundle_WithSkillWritesThePackageAndItsExecBit(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	root := paths.BundlesLayoutRoot("/bundles", paths.LayoutV2)
+	Write(t, fsys, root, "kit", "version: \"1.0\"\n", WithSkill("greet", map[string]File{
+		"SKILL.md":       {Body: "---\nname: greet\ndescription: d\n---\nhi\n"},
+		"scripts/run.sh": {Body: "#!/bin/sh\n", Executable: true},
+	}))
+
+	reads, err := bundles.NewProjectReader(fsys, []string{"/bundles"}).Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	require.Contains(t, reads[0].Bundle.Skills, "greet")
+	info, err := fsys.Stat(root + "/kit/skills/greet/scripts/run.sh")
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode().Perm()&0o111, "a declared executable lands executable")
+}

@@ -8,10 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -27,12 +30,12 @@ func memMoveFS(t *testing.T, _ bool) (afero.Fs, *config.Config) {
 	appDir := filepath.Join("/proj", ".ctxloom")
 	bdir := authoredV1(appDir)
 	require.NoError(t, fs.MkdirAll(bdir, 0755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(bdir, "seed.yaml"), []byte(moveBundleBody), 0644))
+	bundletree.Write(t, fs, bdir, "seed", moveBundleBody)
 	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 func srcBundlePath(cfg *config.Config) string {
-	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "seed.yaml")
+	return filepath.Join(authoredV1(cfg.GetAppPaths()[0]), "seed", bundles.DirectoryFormManifest)
 }
 
 // failWriteFs fails every create/write whose path matches a predicate — a fake
@@ -93,11 +96,11 @@ func TestMoveBundle_ToProjectCheckout_LandsInContentBundles(t *testing.T) {
 	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/other", FS: fs})
 	require.NoError(t, err)
 
-	want := filepath.Join(authoredV1("/other/.ctxloom"), "seed.yaml")
+	want := filepath.Join(authoredV1("/other/.ctxloom"), "seed")
 	assert.Equal(t, want, res.Dest)
-	exists, _ := afero.Exists(fs, want)
+	exists, _ := afero.Exists(fs, filepath.Join(want, bundles.DirectoryFormManifest))
 	assert.True(t, exists)
-	inCache, _ := afero.Exists(fs, filepath.Join(paths.CacheBundlesPath("/other/.ctxloom"), "seed.yaml"))
+	inCache, _ := afero.Exists(fs, filepath.Join(paths.CacheBundlesPath("/other/.ctxloom"), "seed"))
 	assert.False(t, inCache, "a moved bundle must not land in the destination's gitignored cache")
 }
 
@@ -159,7 +162,7 @@ func TestResolveMoveDest_RemoteNameWinsOverSamePath(t *testing.T) {
 		"default: personal\nremotes:\n  personal:\n    url: https://github.com/example/personal\n    version: v1\n"), 0644))
 	require.NoError(t, fs.MkdirAll("personal", 0755)) // a directory of the same spelling
 
-	dest, err := resolveMoveDest(cfg, fs, "personal", paths.LayoutV2)
+	dest, err := resolveMoveDest(cfg, fs, "personal")
 	require.NoError(t, err)
 	assert.Equal(t, moveDestRemote, dest.Kind)
 	assert.Equal(t, "personal", dest.Remote)
@@ -169,7 +172,7 @@ func TestResolveMoveDest_PlainDirectory(t *testing.T) {
 	fs, cfg := memMoveFS(t, false)
 	require.NoError(t, fs.MkdirAll("/somewhere/bundles", 0755))
 
-	dest, err := resolveMoveDest(cfg, fs, "/somewhere/bundles", paths.LayoutV2)
+	dest, err := resolveMoveDest(cfg, fs, "/somewhere/bundles")
 	require.NoError(t, err)
 	assert.Equal(t, moveDestPath, dest.Kind)
 	assert.Equal(t, "/somewhere/bundles", dest.Dir)
@@ -225,7 +228,7 @@ func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
 	dir := filepath.Join(authoredV1(appDir), "seed")
 	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "skills", "reviewer"), 0755))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"),
-		[]byte("version: 1.0.0\nskills:\n  reviewer: {}\n"), 0644))
+		[]byte("version: 1.0.0\n"), 0644))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
 		[]byte("---\nname: reviewer\ndescription: d\n---\n\nbody\n"), 0644))
 	return fs, gatedFixture(config.Fixture{AppPaths: []string{appDir}})
@@ -275,7 +278,7 @@ func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *te
 	appDir := filepath.Join("/proj", ".ctxloom")
 	dir := filepath.Join(authoredV1(appDir), "seed")
 	require.NoError(t, fs.MkdirAll(dir, 0755))
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"), []byte(moveBundleBody), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"), []byte("version: 1.0.0\n"), 0644))
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, fs.MkdirAll("/out", 0755))
 
@@ -295,7 +298,7 @@ func TestMoveBundle_TreeEnvelope_LandsUnderTheDestinationsV2Root(t *testing.T) {
 	appDir := filepath.Join("/proj", ".ctxloom")
 	// No inline item keys: a tree envelope, manifest-only.
 	testsupport.WriteFileString(t, fs,
-		filepath.Join(authoredV1(appDir), "seed", "bundle.yaml"),
+		filepath.Join(authoredV1(appDir), "seed", bundles.DirectoryFormManifest),
 		"version: 1.0.0\ndescription: a tree envelope\n", 0644)
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	require.NoError(t, fs.MkdirAll("/other/.ctxloom", 0755))

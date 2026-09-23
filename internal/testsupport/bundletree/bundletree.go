@@ -31,37 +31,79 @@ import (
 
 // Write lays out the bundle doc spells as the tree <root>/<name>/ on fsys and
 // returns the path of its envelope. name may be nested ("personal/foo").
-func Write(t testing.TB, fsys afero.Fs, root, name, doc string) string {
+func Write(t testing.TB, fsys afero.Fs, root, name, doc string, opts ...Option) string {
 	t.Helper()
 	b, err := bundles.ParseBundle([]byte(doc))
 	require.NoError(t, err, "bundletree: parsing the fixture document for %q", name)
-	return WriteBundle(t, fsys, root, name, b)
+	return WriteBundle(t, fsys, root, name, b, opts...)
 }
 
 // WriteOS is Write on the OS filesystem.
-func WriteOS(t testing.TB, root, name, doc string) string {
+func WriteOS(t testing.TB, root, name, doc string, opts ...Option) string {
 	t.Helper()
-	return Write(t, afero.NewOsFs(), root, name, doc)
+	return Write(t, afero.NewOsFs(), root, name, doc, opts...)
+}
+
+// Option adds to what WriteBundle writes.
+type Option func(*options)
+
+type options struct {
+	skills map[string][]content.SkillFile
+}
+
+// File is one file of a skill package a fixture states.
+type File struct {
+	Body       string
+	Executable bool
+}
+
+// WithSkill writes the skill package name — its files by package-relative
+// path — with the metadata the bundle declares for it, if any.
+func WithSkill(name string, files map[string]File) Option {
+	return func(o *options) {
+		if o.skills == nil {
+			o.skills = map[string][]content.SkillFile{}
+		}
+		out := make([]content.SkillFile, 0, len(files))
+		for _, p := range collections.SortedKeys(files) {
+			mode := content.ModeRegular
+			if files[p].Executable {
+				mode = content.ModeExecutable
+			}
+			out = append(out, content.SkillFile{Path: p, Mode: mode, Bytes: []byte(files[p].Body)})
+		}
+		o.skills[name] = out
+	}
 }
 
 // WriteBundle lays out b as the tree <root>/<name>/ on fsys and returns the
 // path of its envelope. b is not modified.
 //
-// A skill b declares is a directory the fixture writes itself
-// (skills/<skill>/SKILL.md and siblings), before or after this call. Only a
-// skill that carries metadata — tags, notes or exports — needs this call to
-// write it, and then its files must already be in place.
-func WriteBundle(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bundle) string {
+// A skill's package is stated with WithSkill, or is a directory the fixture
+// writes itself (skills/<skill>/SKILL.md and siblings). A skill b declares
+// with metadata — tags, notes or exports — and no WithSkill is read from the
+// files already in place.
+func WriteBundle(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bundle, opts ...Option) string {
 	t.Helper()
-	require.NoError(t, write(fsys, root, name, b), "bundletree: writing %q", name)
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	require.NoError(t, write(fsys, root, name, b, o), "bundletree: writing %q", name)
 	return filepath.Join(root, filepath.FromSlash(name), bundles.DirectoryFormManifest)
 }
 
-func write(fsys afero.Fs, root, name string, b *bundles.Bundle) error {
+func write(fsys afero.Fs, root, name string, b *bundles.Bundle, o options) error {
 	ctx := context.Background()
 	envelope := filepath.Join(root, filepath.FromSlash(name), bundles.DirectoryFormManifest)
 	core := *b
 	core.Path = envelope
+	// A tree's envelope carries no items, so a fixture document that declared
+	// only items would leave an envelope declaring nothing, which ParseBundle
+	// refuses. A fixture that states its own version keeps it.
+	if core.Version == "" {
+		core.Version = "1.0.0"
+	}
 	core.Profiles, core.Hooks, core.Skills = nil, bundles.BundleHooks{}, nil
 	if err := bundles.NewFSStore(fsys, nil).Save(&core); err != nil {
 		return err
@@ -96,14 +138,23 @@ func write(fsys afero.Fs, root, name string, b *bundles.Bundle) error {
 			return fmt.Errorf("hook %s[%d]: %w", e.Event, e.Index, err)
 		}
 	}
-	for _, s := range collections.SortedKeys(b.Skills) {
-		sk := b.Skills[s]
-		if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {
-			continue
+	skillNames := collections.SortedKeys(b.Skills)
+	for _, s := range collections.SortedKeys(o.skills) {
+		if _, declared := b.Skills[s]; !declared {
+			skillNames = append(skillNames, s)
 		}
-		files, err := skillFiles(fsys, filepath.Join(dir, "skills", s))
-		if err != nil {
-			return fmt.Errorf("skill %q: %w", s, err)
+	}
+	for _, s := range skillNames {
+		sk := b.Skills[s]
+		files, stated := o.skills[s]
+		if !stated {
+			if len(sk.Tags) == 0 && sk.Notes == "" && len(sk.Exports) == 0 {
+				continue
+			}
+			var err error
+			if files, err = skillFiles(fsys, filepath.Join(dir, "skills", s)); err != nil {
+				return fmt.Errorf("skill %q: %w", s, err)
+			}
 		}
 		exports, err := bundles.TreeExports(sk.Exports)
 		if err != nil {

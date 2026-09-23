@@ -27,6 +27,9 @@ func writeTree(t testing.TB, fsys afero.Fs, root, name, doc string) string {
 	envelope := filepath.Join(root, filepath.FromSlash(name), DirectoryFormManifest)
 	core := *b
 	core.Path = envelope
+	if core.Version == "" {
+		core.Version = "1.0.0"
+	}
 	core.Profiles, core.Hooks, core.Skills = nil, BundleHooks{}, nil
 	require.NoError(t, NewFSStore(fsys, nil).Save(&core))
 

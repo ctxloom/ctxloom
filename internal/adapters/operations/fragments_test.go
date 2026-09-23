@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,7 +227,7 @@ commands:
       # Refactoring
       Refactor this code for clarity
 `
-	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/test-bundle.yaml", []byte(bundleContent), 0644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "test-bundle", bundleContent)
 
 	// Create another bundle
 	anotherBundle := `version: "1.0"
@@ -234,7 +236,7 @@ fragments:
     tags: ["python", "scripting"]
     content: Python development tips
 `
-	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/another.yaml", []byte(anotherBundle), 0644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "another", anotherBundle)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader

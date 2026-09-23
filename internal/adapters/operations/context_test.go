@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -238,7 +240,7 @@ fragments:
       Project: {{project_name}}
       Version: {{version}}
 `
-	_ = afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "dev", bundleContent)
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
@@ -521,7 +523,7 @@ fragments:
     content: |
       {{/unopened}}
 `
-	require.NoError(t, afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "dev", bundleContent)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -567,7 +569,7 @@ fragments:
     content: |
       Repeat check: {{dedup_check_variable}}
 `
-	require.NoError(t, afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "dev", bundleContent)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{
@@ -614,7 +616,7 @@ fragments:
     content: |
       Leaky: {{attribution_check_variable}}
 `
-	require.NoError(t, afero.WriteFile(fs, authoredV1(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
+	bundletree.Write(t, fs, authoredV1(testBaseDir), "dev", bundleContent)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := cfgWithDirProfiles(t, fs, testBaseDir, map[string]config.Profile{

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,7 +48,7 @@ profiles:
     bundles:
       - ctxloom:local@bundles/sel
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "sel.yaml"), []byte(selYAML), 0o644))
+	bundletree.WriteOS(t, bundleDir, "sel", selYAML)
 }
 
 func selectionConfig(root string) *config.Config {
@@ -212,7 +214,7 @@ func spikeFixtureRoot(t *testing.T) string {
 	// the same way.
 	src, err := os.ReadFile(filepath.Join(thisDir(), "testdata", "premise_spike.yaml"))
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "premise_spike.yaml"), src, 0o644))
+	bundletree.WriteOS(t, bundleDir, "premise_spike", string(src))
 	return root
 }
 

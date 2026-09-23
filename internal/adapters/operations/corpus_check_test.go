@@ -36,15 +36,17 @@ hoooks:
   pre: echo typo
 `
 
-// corpusFixture builds a mock remote publishing bundles at
-// .ctxloom/content/bundles/<name>.yaml, plus the FetcherOpener that serves it.
+// corpusFixture builds a mock remote publishing bundle trees at
+// .ctxloom/content/bundles/<name>/bundle.yaml, plus the FetcherOpener that
+// serves it.
 func corpusFixture(t *testing.T, bundles map[string]string) (*remote.MockFetcher, FetcherOpener) {
 	t.Helper()
 	fetcher := remote.NewMockFetcher()
 	entries := make([]remote.DirEntry, 0, len(bundles))
 	for name, body := range bundles {
-		entries = append(entries, remote.DirEntry{Name: name + ".yaml"})
-		fetcher.WithFile(corpusBundlesDir+"/"+name+".yaml", []byte(body))
+		entries = append(entries, remote.DirEntry{Name: name, IsDir: true})
+		fetcher.WithDir(corpusBundlesDir+"/"+name, []remote.DirEntry{{Name: "bundle.yaml"}})
+		fetcher.WithFile(corpusBundlesDir+"/"+name+"/bundle.yaml", []byte(body))
 	}
 	fetcher.WithDir(corpusBundlesDir, entries)
 	return fetcher, func(string) (remote.Fetcher, error) { return fetcher, nil }
@@ -69,7 +71,7 @@ func TestCorpusViolatingBundleFailsAndIsNamed(t *testing.T) {
 	assert.Equal(t, CorpusViolated, report.Verdict(), "a corpus with an unparseable bundle must not pass")
 	require.Len(t, report.Violations, 1)
 	v := report.Violations[0]
-	assert.Equal(t, corpusBundlesDir+"/bad.yaml", v.Bundle.Path, "the offending bundle must be named by its repo path")
+	assert.Equal(t, corpusBundlesDir+"/bad/bundle.yaml", v.Bundle.Path, "the offending bundle must be named by its repo path")
 	assert.Equal(t, "origin", v.Bundle.Remote)
 	require.Error(t, v.Err)
 	// A count is not actionable; the offending KEY has to reach the reader.
@@ -215,7 +217,8 @@ func TestCorpusOpenFailureIsAGap(t *testing.T) {
 func TestCorpusUnreadableBundleIsAGapNotAViolation(t *testing.T) {
 	fetcher := remote.NewMockFetcher()
 	// Listed, but no corresponding file: FetchFile reports not-found.
-	fetcher.WithDir(corpusBundlesDir, []remote.DirEntry{{Name: "ghost.yaml"}})
+	fetcher.WithDir(corpusBundlesDir, []remote.DirEntry{{Name: "ghost", IsDir: true}})
+	fetcher.WithDir(corpusBundlesDir+"/ghost", []remote.DirEntry{{Name: "bundle.yaml"}})
 	open := func(string) (remote.Fetcher, error) { return fetcher, nil }
 
 	report := CheckCorpus(context.Background(), oneRemote(), open, parseBundleBytes)
@@ -223,7 +226,7 @@ func TestCorpusUnreadableBundleIsAGapNotAViolation(t *testing.T) {
 	assert.Equal(t, CorpusUndetermined, report.Verdict())
 	assert.Empty(t, report.Violations)
 	require.Len(t, report.Gaps, 1)
-	assert.Equal(t, corpusBundlesDir+"/ghost.yaml", report.Gaps[0].Path)
+	assert.Equal(t, corpusBundlesDir+"/ghost/bundle.yaml", report.Gaps[0].Path)
 }
 
 // TestCorpusWalksDirectoryFormBundles proves the sweep recurses, so a

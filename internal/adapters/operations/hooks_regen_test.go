@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,8 +33,7 @@ func regenTestApp(t *testing.T) (appDir, workDir string) {
 
 func writeRegenBundle(t *testing.T, appDir, name, content string) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(
-		filepath.Join(authoredV1(appDir), name+".yaml"), []byte(content), 0o644))
+	bundletree.WriteOS(t, authoredV1(appDir), name, content)
 }
 
 // TestRegenerateContext_AppliesExcludeFragments pins regenerateContext to the

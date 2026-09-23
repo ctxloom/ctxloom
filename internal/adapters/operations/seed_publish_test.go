@@ -2,12 +2,12 @@ package operations
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -15,7 +15,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // seedReader presents authored bundle VALUES as what they are — project
@@ -34,9 +33,7 @@ func seedReader(t *testing.T, seed map[string]*bundles.Bundle) bundles.Reader {
 	const seedRoot = "/seed"
 	bundlesRoot := paths.BundlesLayoutRoot(seedRoot, paths.LayoutV2)
 	for name, b := range seed {
-		data, err := yaml.Marshal(b)
-		require.NoError(t, err)
-		testsupport.WriteFile(t, fsys, filepath.Join(bundlesRoot, name+".yaml"), data, 0o644)
+		bundletree.WriteBundle(t, fsys, bundlesRoot, name, b, seedSkillOptions(b)...)
 	}
 	return bundles.NewProjectReader(fsys, []string{seedRoot})
 }

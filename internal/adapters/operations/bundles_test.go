@@ -8,9 +8,9 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	gogitConfig "github.com/go-git/go-git/v5/config"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -64,14 +64,10 @@ func TestCreateBundle_SkeletonOnly(t *testing.T) {
 	assert.Equal(t, "created", result.Status)
 	assert.Equal(t, "test-bundle", result.Name)
 
-	expectedPath := filepath.Join(authoredV1(appDir), "test-bundle.yaml")
+	expectedPath := filepath.Join(authoredV1(appDir), "test-bundle", bundles.DirectoryFormManifest)
 	assert.Equal(t, expectedPath, result.Path)
 
-	data, err := os.ReadFile(expectedPath)
-	require.NoError(t, err, "bundle file should be written")
-
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, expectedPath)
 	assert.Equal(t, "1.0.0", got.Version, "default version")
 	assert.Empty(t, got.Fragments)
 	assert.Empty(t, got.Commands)
@@ -115,10 +111,7 @@ func TestCreateBundle_WithFragments_NoDistill(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	frag, ok := got.Fragments["intro"]
 	require.True(t, ok, "fragment should be present")
@@ -145,10 +138,7 @@ func TestCreateBundle_WithPrompts(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	prompt, ok := got.Commands["review"]
 	require.True(t, ok)
@@ -172,10 +162,7 @@ func TestCreateBundle_WithMCPServers(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	mcp, ok := got.MCP["tree-sitter"]
 	require.True(t, ok)
@@ -226,10 +213,7 @@ func TestCreateBundle_DistillsFragmentByDefault(t *testing.T) {
 	require.Len(t, d.calls, 1, "distiller should be called once for the fragment")
 	assert.Equal(t, "intro", d.calls[0].Name)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	frag := got.Fragments["intro"]
 	assert.Equal(t, "DISTILLED", frag.Distilled)
@@ -253,10 +237,7 @@ func TestCreateBundle_DistillFailureWarnsAndContinues(t *testing.T) {
 	})
 	require.NoError(t, err, "distill failure must not fail the create")
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	frag := got.Fragments["intro"]
 	assert.Equal(t, "raw", frag.Content)
@@ -325,10 +306,7 @@ func TestUpdateBundle_SetDescription(t *testing.T) {
 	assert.Equal(t, "updated", result.Status)
 	assert.Contains(t, result.Changes, "updated description")
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 	assert.Equal(t, "updated description", got.Description)
 }
 
@@ -345,10 +323,7 @@ func TestUpdateBundle_AddRemoveTags(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	assert.ElementsMatch(t, []string{"alpha", "beta"}, got.Tags)
 }
@@ -372,10 +347,7 @@ func TestUpdateBundle_SetFragmentNew_Distills(t *testing.T) {
 	require.Len(t, d.calls, 1)
 	assert.Equal(t, "new-frag", d.calls[0].Name)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 	assert.Equal(t, "DISTILLED-NEW", got.Fragments["new-frag"].Distilled)
 }
 
@@ -409,10 +381,7 @@ func TestUpdateBundle_RemoveFragment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 	assert.NotContains(t, got.Fragments, "intro")
 }
 
@@ -432,10 +401,7 @@ func TestUpdateBundle_AddFragmentsAddOnly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 	assert.Equal(t, "new", got.Fragments["fresh"].Content)
 	assert.Equal(t, "intro content", got.Fragments["intro"].Content, "add-only must not clobber an existing fragment")
 }
@@ -499,10 +465,7 @@ func TestUpdateBundle_PromptAndMCPMutations(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	assert.NotContains(t, got.Commands, "p1")
 	assert.NotContains(t, got.MCP, "server1")
@@ -549,7 +512,7 @@ func TestResolveBundleRemote_FromCachedPath(t *testing.T) {
 `)
 
 	// A bundle under content/bundles/<remote>/<name>.yaml resolves to <remote>.
-	bundlePath := filepath.Join(authoredV1(appDir), "personal", "rust-tdd.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "personal", "rust-tdd", bundles.DirectoryFormManifest)
 	require.NoError(t, os.MkdirAll(filepath.Dir(bundlePath), 0755))
 	require.NoError(t, os.WriteFile(bundlePath, []byte("version: \"1.0.0\"\n"), 0644))
 
@@ -572,7 +535,7 @@ remotes:
 
 	createSeedBundle(t, cfg, "local-only") // lands at content/bundles/local-only.yaml
 
-	bundlePath := filepath.Join(authoredV1(appDir), "local-only.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "local-only", bundles.DirectoryFormManifest)
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
 	assert.Equal(t, "personal", remoteName, "default remote used when path lacks remote prefix")
@@ -587,7 +550,7 @@ func TestResolveBundleRemote_SingleRemoteFallback(t *testing.T) {
 `)
 	createSeedBundle(t, cfg, "x")
 
-	bundlePath := filepath.Join(authoredV1(appDir), "x.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "x", bundles.DirectoryFormManifest)
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.NoError(t, err)
 	assert.Equal(t, "only", remoteName,
@@ -606,7 +569,7 @@ func TestResolveBundleRemote_AmbiguousRemote_Errors(t *testing.T) {
 `)
 	createSeedBundle(t, cfg, "x")
 
-	bundlePath := filepath.Join(authoredV1(appDir), "x.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "x", bundles.DirectoryFormManifest)
 	_, err := ResolveBundleRemote(cfg, bundlePath, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ambiguous", "error must surface that we can't pick")
@@ -626,7 +589,7 @@ remotes:
     version: v1
 `)
 	createSeedBundle(t, cfg, "x")
-	bundlePath := filepath.Join(authoredV1(appDir), "x.yaml")
+	bundlePath := filepath.Join(authoredV1(appDir), "x", bundles.DirectoryFormManifest)
 
 	remoteName, err := ResolveBundleRemote(cfg, bundlePath, "other")
 	require.NoError(t, err)
@@ -657,7 +620,8 @@ remotes:
     version: v1
 `)
 
-	bogus := filepath.Join(authoredV1(appDir), "bogus.yaml")
+	bogus := filepath.Join(authoredV1(appDir), "bogus", bundles.DirectoryFormManifest)
+	require.NoError(t, os.MkdirAll(filepath.Dir(bogus), 0o755))
 	require.NoError(t, os.WriteFile(bogus, []byte(":\n  -not yaml:\n"), 0644))
 
 	_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
@@ -698,7 +662,8 @@ remotes:
 		"comment only": {"# nothing here\n", "bundle is empty"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(authoredV1(appDir), "empty.yaml")
+			path := filepath.Join(authoredV1(appDir), "empty", bundles.DirectoryFormManifest)
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 			require.NoError(t, os.WriteFile(path, []byte(tc.content), 0644))
 
 			_, err := PushBundle(context.Background(), cfg, PushBundleRequest{
@@ -760,7 +725,6 @@ remotes:
 `)
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
 		Name: "shape-test",
-		Tree: true,
 		Fragments: map[string]BundleFragmentInput{
 			"intro": {Content: "intro content", NoDistill: true},
 		},
@@ -858,12 +822,7 @@ remotes:
     url: https://github.com/example/personal-bundles
     version: v1
 `)
-	// Hand-written rather than createSeedBundle (which authors a v1 document):
-	// bundle_move_test.go moves this bundle, and CreateBundle's own tree path
-	// refuses to author a zero-item tree (convert.Convert is a no-op for
-	// one), even though a version-only envelope is a perfectly valid bundle
-	// to READ (Bundle.declaresNothing requires no version AND no items), so
-	// this writes the manifest directly.
+	// A version-only envelope: an item-less tree.
 	treeDir := filepath.Join(authoredV1(appDir), "for-push")
 	require.NoError(t, os.MkdirAll(treeDir, 0o755))
 	bundlePath = filepath.Join(treeDir, bundles.DirectoryFormManifest)
@@ -972,11 +931,7 @@ func TestCreateBundle_WithDescriptionTagsAuthor(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 	assert.Equal(t, "2.5.0", got.Version, "explicit version overrides default")
 	assert.Equal(t, "Pinned for review", got.Description)
 	assert.Equal(t, []string{"rust", "test"}, got.Tags)
@@ -1027,11 +982,12 @@ func TestUpdateBundle_RejectsSymlinkedBundleFile(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	bundlesRoot := authoredV1(appDir)
 
-	// Plant a victim YAML elsewhere, then symlink a "bundle" at it.
+	// Plant a victim YAML elsewhere, then symlink a bundle's envelope at it.
 	victimDir := t.TempDir()
 	victimPath := filepath.Join(victimDir, "victim.yaml")
 	require.NoError(t, os.WriteFile(victimPath, []byte("version: \"9.9.9\"\n"), 0644))
-	require.NoError(t, os.Symlink(victimPath, filepath.Join(bundlesRoot, "trojan.yaml")))
+	require.NoError(t, os.MkdirAll(filepath.Join(bundlesRoot, "trojan"), 0o755))
+	require.NoError(t, os.Symlink(victimPath, filepath.Join(bundlesRoot, "trojan", bundles.DirectoryFormManifest)))
 
 	_, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
 		Name:           "trojan",
@@ -1054,7 +1010,7 @@ func TestCreateBundle_NestedName_CreatesParentDir(t *testing.T) {
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "personal/foo"})
 	require.NoError(t, err)
 
-	_, err = os.Stat(filepath.Join(authoredV1(appDir), "personal", "foo.yaml"))
+	_, err = os.Stat(filepath.Join(authoredV1(appDir), "personal", "foo", bundles.DirectoryFormManifest))
 	require.NoError(t, err, "nested bundle file should exist on disk")
 }
 
@@ -1089,10 +1045,7 @@ func TestUpdateBundle_TagOnlyEdit_PreservesDistilledState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, updateDistiller.calls, "unchanged content must not re-distill")
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	frag := got.Fragments["intro"]
 	assert.Equal(t, "DISTILLED", frag.Distilled, "distilled content preserved")
@@ -1118,10 +1071,7 @@ func TestCreateBundle_DistillsPromptsToo(t *testing.T) {
 	require.Len(t, d.calls, 1)
 	assert.Equal(t, DistillKindCommand, d.calls[0].Kind)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 	assert.Equal(t, "P-DISTILLED", got.Commands["review"].Distilled)
 	assert.Equal(t, "m", got.Commands["review"].DistilledBy)
 	assert.NotEmpty(t, got.Commands["review"].ContentHash)
@@ -1146,10 +1096,7 @@ func TestCreateBundle_NotesAndInstallationRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	data, err := os.ReadFile(result.Path)
-	require.NoError(t, err)
-	var got bundles.Bundle
-	require.NoError(t, yaml.Unmarshal(data, &got))
+	got := readBackBundle(t, result.Path)
 
 	assert.Equal(t, "internal", got.Fragments["f"].Notes)
 	assert.Equal(t, "run X", got.Fragments["f"].Installation)
@@ -1171,4 +1118,13 @@ func TestPushBundle_NoSigner_NeverPublishesSig(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Signed)
 	require.Len(t, mock.createOrUpdateCalls, 1, "no signer means no .sig call at all")
+}
+
+// readBackBundle reads the tree whose envelope is at path, as the local reader
+// does: a tree's items are files, so its envelope alone holds none of them.
+func readBackBundle(t *testing.T, path string) bundles.Bundle {
+	t.Helper()
+	b, err := bundles.ReadTreeAt(context.Background(), afero.NewOsFs(), path)
+	require.NoError(t, err)
+	return *b
 }

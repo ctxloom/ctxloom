@@ -754,8 +754,9 @@ func TestBrowseRemote_Bundles(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().WithDir(repoV1(), []remote.DirEntry{
-		{Name: "security.yaml", IsDir: false},
-		{Name: "testing.yaml", IsDir: false},
+		{Name: "security", IsDir: true},
+		{Name: "testing", IsDir: true},
+		{Name: "stray.yaml", IsDir: false},
 	})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
@@ -769,7 +770,7 @@ func TestBrowseRemote_Bundles(t *testing.T) {
 	assert.Equal(t, "alice", result.Remote)
 	assert.Len(t, result.Items, 2)
 
-	// Names should have .yaml stripped
+	// Each tree lists by its directory name; the stray file does not list.
 	names := []string{result.Items[0].Name, result.Items[1].Name}
 	assert.Contains(t, names, "security")
 	assert.Contains(t, names, "testing")
@@ -782,7 +783,7 @@ func TestBrowseRemote_EmptyTypeListsBundlesOnly(t *testing.T) {
 	// A profiles dir is present but ignored — top-level profile distribution was
 	// retired, so only bundles are browsable.
 	fetcher := remote.NewMockFetcher().
-		WithDir(repoV1(), []remote.DirEntry{{Name: "bundle1.yaml", IsDir: false}}).
+		WithDir(repoV1(), []remote.DirEntry{{Name: "bundle1", IsDir: true}}).
 		WithDir(".ctxloom/content/profiles", []remote.DirEntry{{Name: "profile1.yaml", IsDir: false}})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
@@ -814,7 +815,7 @@ func TestBrowseRemote_PullRef(t *testing.T) {
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
 	fetcher := remote.NewMockFetcher().WithDir(repoV1(), []remote.DirEntry{
-		{Name: "security.yaml", IsDir: false},
+		{Name: "security", IsDir: true},
 	})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
@@ -833,16 +834,20 @@ func TestBrowseRemote_Recursive(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
 	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
 
-	// Setup directory structure with subdirectory
+	// A top-level tree, and a namespace directory holding two trees.
+	manifest := []remote.DirEntry{{Name: "bundle.yaml"}}
 	fetcher := remote.NewMockFetcher().
 		WithDir(repoV1(), []remote.DirEntry{
-			{Name: "top-level.yaml", IsDir: false},
-			{Name: "golang", IsDir: true}, // Subdirectory
+			{Name: "top-level", IsDir: true},
+			{Name: "golang", IsDir: true}, // a namespace, not a bundle
 		}).
+		WithDir(repoV1("top-level"), manifest).
 		WithDir(repoV1("golang"), []remote.DirEntry{
-			{Name: "testing.yaml", IsDir: false},
-			{Name: "best-practices.yaml", IsDir: false},
-		})
+			{Name: "testing", IsDir: true},
+			{Name: "best-practices", IsDir: true},
+		}).
+		WithDir(repoV1("golang", "testing"), manifest).
+		WithDir(repoV1("golang", "best-practices"), manifest)
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
 		Remote:    "alice",
@@ -853,9 +858,12 @@ func TestBrowseRemote_Recursive(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// Should find items from subdirectory (recursive includes only files)
-	// The function skips non-.yaml files and directories in recursive mode
-	assert.GreaterOrEqual(t, len(result.Items), 2) // At least the files from subdirectory
+	names := make([]string, 0, len(result.Items))
+	for _, it := range result.Items {
+		names = append(names, it.Name)
+	}
+	assert.ElementsMatch(t, []string{"top-level", "golang/testing", "golang/best-practices"}, names,
+		"a recursive listing names each tree, and a namespace directory is not one")
 }
 
 func TestBrowseRemote_WithPath(t *testing.T) {
@@ -864,7 +872,7 @@ func TestBrowseRemote_WithPath(t *testing.T) {
 
 	fetcher := remote.NewMockFetcher().
 		WithDir(repoV1("subdir"), []remote.DirEntry{
-			{Name: "nested.yaml", IsDir: false},
+			{Name: "nested", IsDir: true},
 		})
 
 	result, err := BrowseRemote(context.Background(), nil, BrowseRemoteRequest{
@@ -963,9 +971,9 @@ func TestBrowseRemote_RecursiveSubdirErrorIsWarned(t *testing.T) {
 
 	fetcher := &pathErrFetcher{
 		MockFetcher: remote.NewMockFetcher().WithDir(repoV1(), []remote.DirEntry{
-			{Name: "good.yaml", IsDir: false},
+			{Name: "good", IsDir: true},
 			{Name: "broken", IsDir: true},
-		}),
+		}).WithDir(repoV1("good"), []remote.DirEntry{{Name: "bundle.yaml"}}),
 		errPaths: map[string]error{
 			".ctxloom/content/bundles/broken": fmt.Errorf("connection reset"),
 		},
@@ -980,7 +988,7 @@ func TestBrowseRemote_RecursiveSubdirErrorIsWarned(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	// The good top-level file still lists...
+	// The good top-level tree still lists...
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "good", result.Items[0].Name)
 	// ...but the subtree failure must not vanish silently.
@@ -1034,7 +1042,7 @@ func TestSearchRemotes_WithValidRegistry(t *testing.T) {
 	require.NoError(t, os.MkdirAll(baseDir, 0755))
 
 	src := filepath.Join(tmpDir, "source")
-	initLocalRepoWithFile(t, src, repoV1("widget.yaml"),
+	initLocalRepoWithFile(t, src, repoV2("widget")+"/bundle.yaml",
 		"version: 1.0.0\ndescription: a handy widget bundle\n")
 
 	url := "file://" + src
@@ -1106,13 +1114,13 @@ bundles:
 	assert.Len(t, results, 0)
 }
 
-func TestSearchDirectoryContent_FindsYAMLFiles(t *testing.T) {
+func TestSearchDirectoryContent_FindsTrees(t *testing.T) {
 	fetcher := remote.NewMockFetcher().
 		WithDir(repoV1(), []remote.DirEntry{
-			{Name: "golang-tools.yaml", IsDir: false},
-			{Name: "rust-tooling.yaml", IsDir: false},
-			{Name: "README.md", IsDir: false}, // Should skip non-yaml
-			{Name: "subdir", IsDir: true},     // Should skip directories
+			{Name: "golang-tools", IsDir: true},
+			{Name: "rust-tooling", IsDir: true},
+			{Name: "README.md", IsDir: false},         // a file is not a bundle
+			{Name: "golang-stray.yaml", IsDir: false}, // nor is a stray .yaml
 		})
 
 	rem := &remote.Remote{
@@ -1192,9 +1200,9 @@ func TestSearchSingleRemote_FallbackToDirectory(t *testing.T) {
 	// that it calls rather than the full integration
 	mockFetcher := remote.NewMockFetcher().
 		WithDir(repoV1(), []remote.DirEntry{
-			{Name: "test-bundle.yaml", IsDir: false},
+			{Name: "test-bundle", IsDir: true},
 		}).
-		WithFile(repoV1("test-bundle.yaml"), []byte("name: test-bundle\ndescription: Test bundle"))
+		WithFile(repoV2("test-bundle")+"/bundle.yaml", []byte("name: test-bundle\ndescription: Test bundle"))
 
 	rem := &remote.Remote{
 		Name: "test-remote",

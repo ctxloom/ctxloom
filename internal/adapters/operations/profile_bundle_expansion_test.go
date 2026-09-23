@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -63,8 +65,8 @@ fragments:
   two:
     content: "BETA-TWO"
 `
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "alpha.yaml"), []byte(alphaYAML), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "beta.yaml"), []byte(betaYAML), 0644))
+	bundletree.WriteOS(t, bundleDir, "alpha", alphaYAML)
+	bundletree.WriteOS(t, bundleDir, "beta", betaYAML)
 }
 
 // fixtureConfig builds a *config.Config rooted at the given tempdir with the

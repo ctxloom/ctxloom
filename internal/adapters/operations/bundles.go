@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -171,8 +172,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		return nil, err
 	}
 	// Fail fast on a bundle that already exists, before distillation spends an
-	// LLM round trip per item on a create that cannot land.
-	if exists, err := afero.Exists(getFS(req.FS), path); err != nil {
+	// LLM round trip per item on a create that cannot land. This check is an
+	// economy, NOT the decision: it is racy by construction, and the window it
+	// opens is as long as distillation takes. claimNewBundleDir decides.
+	fsys := getFS(req.FS)
+	if exists, err := afero.Exists(fsys, path); err != nil {
 		return nil, fmt.Errorf("failed to check for an existing bundle: %w", err)
 	} else if exists {
 		return nil, fmt.Errorf("bundle already exists: %s", path)
@@ -197,11 +201,17 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
 
+	if err := claimNewBundleDir(fsys, filepath.Dir(path)); err != nil {
+		return nil, err
+	}
 	store := req.Store
 	if store == nil && req.FS != nil {
 		store = bundles.NewFSStore(req.FS, nil)
 	}
 	if err := bundleStore(cfg, store).Save(bundle); err != nil {
+		// The claim is an empty directory nobody can use. Drop it so it
+		// neither reads as a bundle nor blocks the retry.
+		_ = fsys.RemoveAll(filepath.Dir(path))
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 
@@ -210,6 +220,27 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Name:   req.Name,
 		Path:   path,
 	}, nil
+}
+
+// claimNewBundleDir claims dir — a brand-new bundle's own tree directory —
+// atomically. Creation is "write only if absent", and a check-then-save cannot
+// express that: anything appearing at the path in between — a concurrent
+// `bundle create`, a pull, another author on a shared checkout — would be
+// merged into, and what is overwritten is authored content nobody has a copy
+// of. A single Mkdir makes the existence test and the claim one operation, so
+// the loser of a race gets the same "already exists" refusal as a serial
+// caller.
+func claimNewBundleDir(fsys afero.Fs, dir string) error {
+	if err := fsys.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return fmt.Errorf("failed to create bundles directory: %w", err)
+	}
+	if err := fsys.Mkdir(dir, 0o755); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("bundle already exists: %s", dir)
+		}
+		return fmt.Errorf("failed to create bundle directory: %w", err)
+	}
+	return nil
 }
 
 // UpdateBundleRequest is the input for UpdateBundle. Pointer fields

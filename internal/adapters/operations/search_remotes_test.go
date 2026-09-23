@@ -31,7 +31,7 @@ func TestSearchRemotes_ManifestFallsThroughOnNoMatches(t *testing.T) {
 	initLocalRepoWithFile(t, src, ".ctxloom/content/manifest.yaml",
 		"bundles:\n  - name: unrelated\n    description: something else\n")
 	// ...but the directory itself has "widget" on disk too.
-	addFileToLocalRepo(t, src, repoV1("widget.yaml"),
+	addFileToLocalRepo(t, src, repoV2("widget")+"/bundle.yaml",
 		"version: 1.0.0\ndescription: a handy widget bundle\n")
 
 	url := "file://" + src
@@ -68,7 +68,7 @@ func TestSearchRemotes_TagAwareDirectorySearch(t *testing.T) {
 		"tags:\n  - golang\n  - testing\n" +
 		"description: Go development guidance\n" +
 		"fragments:\n  intro:\n    content: hi\n"
-	initLocalRepoWithFile(t, src, repoV1("go-development.yaml"), bundleYAML)
+	initLocalRepoWithFile(t, src, repoV2("go-development")+"/bundle.yaml", bundleYAML)
 
 	// Add a profile to the same repo in a second commit.
 	profileYAML := "version: \"1.0.0\"\n" +

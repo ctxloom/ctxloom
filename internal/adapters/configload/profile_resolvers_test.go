@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // A read binds the remotes registry's two profile lookups onto the Config it
@@ -16,8 +17,8 @@ import (
 func TestRead_BindsProfileResolversFromTheRemotesRegistry(t *testing.T) {
 	const appDir = "/proj/.ctxloom"
 	fs := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fs, paths.RemotesPath(appDir), []byte(
-		"remotes:\n  personal:\n    name: personal\n    url: https://github.com/owner/repo\n"), 0o644))
+	testsupport.WriteFileString(t, fs, paths.RemotesPath(appDir),
+		"remotes:\n  personal:\n    name: personal\n    url: https://github.com/owner/repo\n", 0o644)
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)

@@ -56,7 +56,7 @@ flowchart TD
   OPS["internal/adapters/operations"]
   ISO["internal/adapters/isolation"]
   TRANS["internal/adapters/transcript"]
-  AGENTS["internal/adapters/agents"]
+  AGENTS["internal/core/agents"]
   LIVE["internal/shared/liveness"]
   PATHS["internal/core/paths"]
   FS[("$HOME/.ctxloom/… spool dirs<br/>(spool.HomeMapper)")]

@@ -523,7 +523,7 @@ func applyReapWorktrees(ctx context.Context, g git.Git, f SessionFacts, r *Sweep
 
 // applyReclaim is sessions.ReapSession with this adapter's triage.
 func applyReclaim(ctx context.Context, g git.Git, l sessions.Layout, req SweepRequest, r *SweepRow) *sessions.ReapCandidate {
-	c, ok := sessions.ReapSession(ctx, l, sessionLocks{}, r.Harp, req.reapPolicy(true), sessionTriage(g, isolation.ReapKeychainItems))
+	c, ok := sessions.ReapSession(ctx, l, sessionLocks{}, r.Harp, req.reapPolicy(true), worktreeTriage(g))
 	if !ok {
 		r.Verdict, r.Reason = SweepLeft, "nothing is left to reclaim"
 		return nil

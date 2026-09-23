@@ -295,8 +295,12 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 	clidiag.SetStructured(ferr == nil && format.Structured())
 }
 
-// GetRootCmd returns the root command for documentation generation.
-func GetRootCmd() *cobra.Command {
+// GetRootCmd returns the root command assembled over comp, for a path that
+// documents or inspects the CLI without dispatching it (scripts/gendocs).
+// The help that names engines is computed from comp.Engines, so comp must
+// carry the registry the binary's own composition root hands Run.
+func GetRootCmd(comp Composition) *cobra.Command {
+	theComposition = comp
 	return rootCommand()
 }
 
@@ -313,19 +317,21 @@ func rootCommand() *cobra.Command {
 		installHelpFlag(rootCmd)
 		disableHelpCommand(rootCmd)
 
-		// Compose the registry HERE as well as in Run(). Compose is idempotent,
-		// and Run() still reports its error — but a path that only
-		// DOCUMENTS the CLI (scripts/gendocs via GetRootCmd) never reaches Run(),
-		// so without this the generated reference renders every engine list
-		// empty while the shipped binary renders it correctly. This function's
-		// own contract is that every path which dispatches OR documents the CLI
-		// comes through here, which makes it the one place that cannot diverge.
+		// Compose the process registry HERE as well as in Run(): the cli's own
+		// engine readers and the cells adapter's facts still read it, and a
+		// path that only DOCUMENTS the CLI (scripts/gendocs via GetRootCmd)
+		// never reaches Run(). Compose is idempotent.
 		_ = composeEngines()
 
-		// The help that NAMES the registered engines is filled in after that,
-		// for the same reason version.Version is read here: registration is
-		// explicit, and it happens after every package init() has fired.
-		applyEngineNamedHelp()
+		// The help that NAMES the registered engines is computed from the
+		// registry the Composition handed in — installed by Run or GetRootCmd
+		// before this runs, after every package init() has fired. A tree
+		// assembled with none would ship help and flag defaults naming no
+		// engine, so it is refused rather than rendered.
+		if len(theComposition.Engines.Names(nil)) == 0 {
+			panic("cli: the command tree was assembled without a composed engine registry; hand it through the Composition (Run or GetRootCmd)")
+		}
+		applyEngineNamedHelp(theComposition.Engines)
 
 		// version.Version is read HERE and not in init() because a TEST binary
 		// receives its stamp from TestMain (testsupport.StampTestBinary), which

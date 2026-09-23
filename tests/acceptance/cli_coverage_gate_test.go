@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // The completeness gate, answered from what the CLI's own code DID rather than
@@ -104,7 +105,7 @@ func TestCLICoverage_EveryLeafActuallyRan(t *testing.T) {
 	}
 
 	var uncovered, unexpectedlyCovered []string
-	for _, leaf := range coverableLeaves(cli.GetRootCmd()) {
+	for _, leaf := range coverableLeaves(cli.GetRootCmd(cli.Composition{Engines: engines.Registry()})) {
 		ran, ok := leafRan(leaf.cmd, blocks)
 		if !ok {
 			t.Errorf("%s: could not locate its RunE in the coverage profile. A leaf whose "+

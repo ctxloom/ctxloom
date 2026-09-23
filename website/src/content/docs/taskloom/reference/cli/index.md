@@ -53,7 +53,10 @@ taskloom list --all               # every status, including Done and Archived
 
 The project id is resolved as `--project`, then `CTXLOOM_PROJECT_ID` (exported by
 `ctxloom run`), then the working directory's identity marker and the registry. `--project`
-wins over the session pin; the session pin wins over the working directory.
+wins over the session pin; the session pin wins over the working directory. A repo-homed
+project (`homing: repo`) has no project id: its store is `.taskloom/tasks.jsonl` in the
+repository you are standing in, and both `--project` and the session pin are ignored with a
+warning.
 
 That middle rule is why a task can land somewhere unexpected. Inside a `ctxloom run` session
 the project is pinned, so `cd`-ing into another repo and adding a task still writes to the

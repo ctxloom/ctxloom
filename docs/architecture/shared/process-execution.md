@@ -111,7 +111,7 @@ A bounded, mutex-guarded tail of a child's stderr, filled by the child's own std
 
 | Consumer | Site | Shape |
 |---|---|---|
-| `internal/adapters/isolation` | `attach.go:85-86` (tee), `direct_runner.go:129-130` (`New`) | tail read via `AttachedContainer.StderrTail()` (`attach.go:36`) |
+| `internal/adapters/isolation` | `startDirectRunner` (`stderrtail.New`) | tail read via `RunnerHandle.StderrTail` |
 
 A related but distinct implementation of the bounded-byte-tail concept lives at `internal/adapters/termui/ring.go:6-54` (`Ring` — a true fixed-capacity circular buffer with a `dropped` counter and `Drain()`-and-reset, deliberately not goroutine-safe).
 

@@ -4,9 +4,7 @@
 // human — see statemounts.go's sessionStateMounts doc, the ~/.ctxloom/locks
 // paragraph). A statemounts_test.go unit test already pins the pure path
 // arithmetic without a docker daemon; this file is the actual cross-boundary
-// proof alongside this package's other docker-gated tests (one of which
-// covers the same shape one level down — same-path project mount instead of
-// the locks-dir mount). Build-tagged so
+// proof alongside this package's other docker-gated tests. Build-tagged so
 // `just test` never compiles it; run with:
 //
 //	GOWORK=off just test-pkg ./internal/adapters/isolation/... -tags docker_integration -run TestContainerLockMount_
@@ -15,6 +13,7 @@ package isolation
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,12 +93,8 @@ func TestContainerLockMount_HostAndContainerReadSameLockFile(t *testing.T) {
 		Mounts:  []Mount{lockMount},
 	}
 
-	ac, err := RunAttached(ctx, rt, spec, nil)
-	require.NoError(t, err, "RunAttached must start the container")
-	t.Cleanup(func() { _ = ac.Close() })
-
-	out, err := readAllWithDeadline(ac.Stdout, 10*time.Second)
-	require.NoError(t, err, "read the container's stdout")
+	out, err := exec.CommandContext(ctx, rt.Binary(), rt.RunArgs(spec)...).Output()
+	require.NoError(t, err, "run the container")
 	assert.Equal(t, proof, strings.TrimSpace(string(out)),
 		"the container, reading at the path its OWN paths.HomePathFor resolves to, must see the exact bytes the host wrote under ITS OWN HomePathFor — same protected path, same lock file, both sides of the boundary")
 }

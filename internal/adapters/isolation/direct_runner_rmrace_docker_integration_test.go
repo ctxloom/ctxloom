@@ -3,10 +3,8 @@
 package isolation
 
 import (
-	"context"
 	"os/exec"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -69,25 +67,5 @@ func TestStartDirectRunner_KillBeforeCreateLeavesNoContainer(t *testing.T) {
 
 		require.Empty(t, dockergate.ContainersNamed(t, rt.Binary(), name),
 			"Kill must not orphan a container whose create landed after its remove said \"No such container\"")
-	})
-}
-
-// TestRunAttached_CloseBeforeCreateLeavesNoContainer: the attached-stdio
-// teardown has the same exposure as RunnerHandle.Kill — RunAttached returns
-// once the `run` CLI is spawned, so a Close can reach its remove before the
-// daemon has created anything. The remove answers "No such container"; if
-// Close trusts it and kills the CLI, the create lands behind it and the
-// container is orphaned.
-func TestRunAttached_CloseBeforeCreateLeavesNoContainer(t *testing.T) {
-	forEachRmRaceRuntime(t, "the close-before-create race test", "rmrace-attached", func(t *testing.T, rt Runtime, name string) {
-		ac, err := RunAttached(context.Background(), rt, RunSpec{Image: rmRaceImage, Name: name, Command: []string{"sleep", "300"}}, nil)
-		require.NoError(t, err)
-		// The grace only waits for an exit the held launch cannot produce; keep
-		// it short so the remove is what reaches the daemon first.
-		ac.ShutdownGrace = time.Millisecond
-		_ = ac.Close()
-
-		require.Empty(t, dockergate.ContainersNamed(t, rt.Binary(), name),
-			"Close must not orphan a container whose create landed after its remove said \"No such container\"")
 	})
 }

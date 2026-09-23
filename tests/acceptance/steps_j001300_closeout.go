@@ -68,7 +68,7 @@ type j001300Harp struct {
 	dir       string // absolute
 	essence   bool
 	authored  bool
-	origin    string // the sidecar's origin; "" is a human's session
+	origin    string   // the sidecar's origin; "" is a human's session
 	worktrees []string // absolute scratch-worktree dirs under this harp
 }
 

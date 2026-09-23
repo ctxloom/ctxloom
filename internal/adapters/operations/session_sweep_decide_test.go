@@ -61,20 +61,29 @@ func TestDecideSweep(t *testing.T) {
 	cases := []struct {
 		name  string
 		facts func() SessionFacts
-		req   func() SweepRequest
 		want  []SweepAction
 		check func(t *testing.T, rows []SweepRow)
 	}{
 		{
-			name:  "1 a running session is skipped whole",
-			facts: func() SessionFacts { f := sdDead(); f.Lock = sessionlock.Alive; f.LockReason = "held by pid 42"; return f },
+			name: "1 a running session is skipped whole",
+			facts: func() SessionFacts {
+				f := sdDead()
+				f.Lock = sessionlock.Alive
+				f.LockReason = "held by pid 42"
+				return f
+			},
 			want:  []SweepAction{SweepSkip},
 			check: func(t *testing.T, rows []SweepRow) { assert.Contains(t, rows[0].Reason, "running") },
 		},
 		{
-			name:  "2 an unprovable lock is skipped and names the manual route",
-			facts: func() SessionFacts { f := sdDead(); f.Lock = sessionlock.Indeterminate; f.LockReason = "no lock file"; return f },
-			want:  []SweepAction{SweepSkip},
+			name: "2 an unprovable lock is skipped and names the manual route",
+			facts: func() SessionFacts {
+				f := sdDead()
+				f.Lock = sessionlock.Indeterminate
+				f.LockReason = "no lock file"
+				return f
+			},
+			want: []SweepAction{SweepSkip},
 			check: func(t *testing.T, rows []SweepRow) {
 				assert.Equal(t, "ctxloom session purge aged-quiet-heron --even-if-live", rows[0].Command)
 			},
@@ -140,11 +149,7 @@ func TestDecideSweep(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := sdReq()
-			if tc.req != nil {
-				req = tc.req()
-			}
-			rows := DecideSweep(tc.facts(), req)
+			rows := DecideSweep(tc.facts(), sdReq())
 			assert.Equal(t, tc.want, sdActions(rows))
 			for _, r := range rows {
 				assert.Equal(t, "aged-quiet-heron", r.Harp)

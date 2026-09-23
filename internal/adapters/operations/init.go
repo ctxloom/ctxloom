@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -79,7 +78,7 @@ const SeedProfileName = "default"
 // accepts a user-typed --engine (manage install, config create and its
 // deprecated aliases, root init) funnels through here, so this is the single
 // choke point — no per-call-site duplicate check needed.
-func InitializeProject(_ context.Context, reg engine.Registry, req InitializeProjectRequest) (*InitializeProjectResult, error) {
+func InitializeProject(_ context.Context, reg enginepkg.Registry, req InitializeProjectRequest) (*InitializeProjectResult, error) {
 	if req.AppDir == "" {
 		return nil, fmt.Errorf("app dir is required")
 	}

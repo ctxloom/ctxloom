@@ -38,6 +38,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -191,7 +192,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 
 	instances := map[string]string{}
 	for _, backend := range []string{"claude-code"} {
-		res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
+		res := operations.ResolveInTreeAgentHome(engines.Registry(), operations.InTreeAgentHome{
 			Backend:  backend,
 			Cwd:      workDir,
 			Harp:     harp,

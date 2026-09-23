@@ -44,6 +44,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -121,14 +122,14 @@ func TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath(t *testing.T) 
 		DefaultAgent:    "x",
 		IsolationImages: map[string]string{claude.EngineName: image},
 	})
-	deps, err := operations.LaunchDepsFor(&config.Snapshot{Config: cfg}, strictness.Mode{Prog: "ctxloom"})
+	deps, err := operations.LaunchDepsFor(engines.Registry(), &config.Snapshot{Config: cfg}, strictness.Mode{Prog: "ctxloom"})
 	require.NoError(t, err)
 	deps.Assembler = engineHomeAssembler{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	entry, err := operations.AssignSession(ctx, projectDir, claude.EngineName)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry()}).AssignSession(ctx, projectDir, claude.EngineName)
 	require.NoError(t, err)
 	id := coord.OwnerIdentity()
 	id.Harp = entry.HarpName

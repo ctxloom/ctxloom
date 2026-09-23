@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
@@ -79,7 +80,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	// the builtins are admitted by locality; nothing here travelled.
 	cfg.BindTrustForTesting(compositetest.Trust())
 
-	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		// Empty, not "all": that selector was removed. An omitted backend now
 		// means the project's CONFIGURED engines, and a named one must resolve.
 		Backend: "",

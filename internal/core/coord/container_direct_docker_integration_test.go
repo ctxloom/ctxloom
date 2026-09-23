@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +82,7 @@ type unknownAgentError struct{ name string }
 func (e *unknownAgentError) Error() string { return "directBusSpawner: unknown agent " + e.name }
 
 func (s *directBusSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.AssignSession(context.Background(), projectDir, backend)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry()}).AssignSession(context.Background(), projectDir, backend)
 	if err != nil {
 		return "", err
 	}
@@ -221,7 +222,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 	// Subscribe to the live tap before the container has even been run.
 	var feed *operations.SessionFeed
 	require.Eventually(t, func() bool {
-		f, ferr := operations.WatchSessionFeed(ctx, operations.SessionFeedRequest{Harp: childHarp})
+		f, ferr := operations.WatchSessionFeed(ctx, engines.Registry(), operations.SessionFeedRequest{Harp: childHarp})
 		if ferr != nil || f.Source != "live" {
 			return false
 		}

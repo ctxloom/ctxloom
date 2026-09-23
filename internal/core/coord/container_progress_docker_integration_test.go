@@ -70,6 +70,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/engines"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -139,7 +140,7 @@ func (s *progressSpawner) Resolve(_ context.Context, agentName string) (*coord.S
 }
 
 func (s *progressSpawner) AssignSession(projectDir, backend string) (string, error) {
-	entry, err := operations.AssignSession(context.Background(), projectDir, backend)
+	entry, err := operations.OpenedApp(nil, operations.Handed{Engines: engines.Registry()}).AssignSession(context.Background(), projectDir, backend)
 	if err != nil {
 		return "", err
 	}

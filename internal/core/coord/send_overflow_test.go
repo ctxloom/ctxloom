@@ -194,3 +194,14 @@ func TestSendOverflow_AskReplyIsBounded(t *testing.T) {
 		t.Error("the ask was not answered")
 	}
 }
+
+// A FINAL report is queued to the parent as mail (notifyParentOfFinalReport),
+// so the fold the agent_report description promises holds there too.
+func TestSendOverflow_FinalReportNotice(t *testing.T) {
+	c, child := childAndOwnerInbox(t)
+	full := overLong()
+	if err := c.Report(context.Background(), child, ReportRequest{Scope: "final", Body: full}); !assert.NoError(t, err) {
+		return
+	}
+	ownerReceivesOverflow(t, c, full)
+}

@@ -7,8 +7,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/spf13/afero"
-
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
@@ -62,7 +60,6 @@ import (
 // shape and is not readable; the publisher republishes it as a tree.
 var ErrDocumentFormUnreadable = errors.New("bundles: the document form is not readable")
 
-//
 // It also returns what verification established — the release the publisher
 // signed and who they are — so a caller about to move a pin has the version its
 // floor is measured in, and the publisher it records, without a second read.
@@ -222,25 +219,26 @@ func ManifestVerifier(root trust.TrustRoot) remote.ManifestVerifyFunc {
 	}
 }
 
-// manifestSigSet files the fetched signature entries into a scratch store so
+// manifestSigSet files the fetched signature entries into an in-memory tree so
 // the content layer — the one owner of the .sigs/ naming — decides which of
 // them are signatures over the manifest.
 func manifestSigSet(sigFiles map[string][]byte) (content.SigSet, error) {
-	const root, id = "/tip", "manifest"
-	fsys := afero.NewMemMapFs()
-	dir := path.Join(root, id, content.SigDirName)
-	if err := fsys.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
+	const id = "manifest"
+	files := make(map[string][]byte, len(sigFiles))
 	for name, data := range sigFiles {
 		if name != path.Base(name) {
 			continue
 		}
-		if err := afero.WriteFile(fsys, path.Join(dir, name), data, 0o644); err != nil {
-			return nil, err
-		}
+		files[path.Join(id, content.SigDirName, name)] = data
 	}
-	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
+	if len(files) == 0 {
+		return nil, nil
+	}
+	tfs, err := content.NewMapTreeFS(files)
+	if err != nil {
+		return nil, err
+	}
+	st, err := content.NewFSStore(tfs, content.Provenance{IsLocal: true})
 	if err != nil {
 		return nil, err
 	}

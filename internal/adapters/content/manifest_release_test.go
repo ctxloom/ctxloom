@@ -97,18 +97,18 @@ func TestNewManifest_RefusesAnUnrenderableRelease(t *testing.T) {
 func TestParseManifest_HeaderGrammarIsStrict(t *testing.T) {
 	line := strings.Repeat("a", 64) + "  fragments/a.md\n"
 	cases := map[string]string{
-		"old digest marker":       DigestVersionMarker + "\n" + line,
-		"no name":                 "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n" + line,
-		"no version":              "# ctxloom-bundle-manifest/1\n# name: b\n" + line,
-		"version before name":     "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n# name: b\n" + line,
-		"loose version":           "# ctxloom-bundle-manifest/1\n# name: b\n# version: v1.0.0\n" + line,
-		"two-part version":        "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0\n" + line,
-		"unsorted retracts":       "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# retracts: 1.2.0 x\n# retracts: 1.1.0 y\n" + line,
+		"old digest marker":        DigestVersionMarker + "\n" + line,
+		"no name":                  "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n" + line,
+		"no version":               "# ctxloom-bundle-manifest/1\n# name: b\n" + line,
+		"version before name":      "# ctxloom-bundle-manifest/1\n# version: 1.0.0\n# name: b\n" + line,
+		"loose version":            "# ctxloom-bundle-manifest/1\n# name: b\n# version: v1.0.0\n" + line,
+		"two-part version":         "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0\n" + line,
+		"unsorted retracts":        "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# retracts: 1.2.0 x\n# retracts: 1.1.0 y\n" + line,
 		"withdrawn before retract": "# ctxloom-bundle-manifest/1\n# name: b\n# version: 2.0.0\n# withdrawn: w\n# retracts: 1.1.0 y\n" + line,
-		"unknown header":          "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n# signer: me\n" + line,
-		"trailing space":          "# ctxloom-bundle-manifest/1\n# name: b \n# version: 1.0.0\n" + line,
-		"header after entries":    "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n" + line + "# withdrawn: w\n",
-		"no entries":              "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n",
+		"unknown header":           "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n# signer: me\n" + line,
+		"trailing space":           "# ctxloom-bundle-manifest/1\n# name: b \n# version: 1.0.0\n" + line,
+		"header after entries":     "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n" + line + "# withdrawn: w\n",
+		"no entries":               "# ctxloom-bundle-manifest/1\n# name: b\n# version: 1.0.0\n",
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {

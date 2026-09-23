@@ -50,11 +50,11 @@ func TestRetracted_NilVersionIsNeverNamed(t *testing.T) {
 
 func TestCheckAdvance(t *testing.T) {
 	cases := []struct {
-		name     string
-		floor    string
-		next     string
-		allow    bool
-		wantErr  error
+		name    string
+		floor   string
+		next    string
+		allow   bool
+		wantErr error
 	}{
 		{name: "no floor, first signed pin", floor: "", next: "1.0.0"},
 		{name: "no floor, unattested", floor: "", next: ""},

@@ -18,7 +18,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 const storeRoot = "/store"
@@ -26,8 +25,6 @@ const storeRoot = "/store"
 var (
 	ctx     = context.Background()
 	now     = time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
-	solid   = trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid", IsLocal: true}
-	tricky  = trust.Ref{Bundle: "code-quality", Kind: trust.KindFragment, Name: "tricky", IsLocal: true}
 	solidFS = "fragments/solid.md"
 )
 
@@ -304,4 +301,3 @@ func TestSignBundle_IsIdempotentForOneKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusManifestSigned, v.Status)
 }
-

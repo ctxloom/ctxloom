@@ -179,7 +179,6 @@ func TestListLocalBundleNames_EmptyWhenNoLocalDir(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-
 // SignBundleFile read the bundle file and handed the bytes to
 // signing.Sign with no length check, so a truncated or zero-byte bundle got a
 // .sig and a "Signed ..." line at exit 0 — a valid publish signature covering

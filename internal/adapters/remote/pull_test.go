@@ -402,7 +402,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
+			WithTreeVerifier(stubTreeVerifier()),
 			WithLockfileManager(lm),
 		)
 
@@ -434,7 +434,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(&Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()),
+			WithTreeVerifier(stubTreeVerifier()),
 			WithLockfileManager(lm),
 		)
 
@@ -472,7 +472,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(seeded))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
+			WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		// Force pull resolves default-branch HEAD ("newhead") with no requested version.
@@ -503,7 +503,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		require.NoError(t, lm.Save(seeded))
 
 		puller := NewPuller(registry, AuthConfig{}, WithTreeInstaller(stubTreeInstaller()),
-		WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
+			WithTreeVerifier(stubTreeVerifier()), WithLockfileManager(lm))
 		rem := &Remote{Name: "alice", URL: "https://github.com/alice/ctxloom"}
 
 		requireUpdateLockfile(t, puller, ref, "v2sha", "v2.0.0", rem)

@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -656,12 +657,48 @@ func doctorTrustStoreDetail(signers []SignerListing, err error) (detail string, 
 			active++
 		}
 	}
+	grants := doctorProjectPowerGrants(signers)
 	if len(unreadable) > 0 {
 		sort.Strings(unreadable)
 		return fmt.Sprintf("trust store: %d active signer(s), and %d entr(y/ies) that could not be read and grant NO trust: %s",
-			active, len(unreadable), strings.Join(unreadable, "; ")), false
+			active, len(unreadable), strings.Join(unreadable, "; ")) + grants, false
 	}
-	return fmt.Sprintf("trust store: %d active signer(s)", active), true
+	return fmt.Sprintf("trust store: %d active signer(s)", active) + grants, true
+}
+
+// doctorProjectPowerGrants names every principal the PROJECT store trusts to
+// execute companions or to approve content, or "" when it trusts none.
+//
+// The project store is committed with the repository, so whoever can land a
+// commit can add a line to it; these two namespaces are the ones that turn such
+// a line into running code or into skipping review. Listing them is
+// information, not a fault: a project that ships its own companions
+// legitimately grants companion execution here.
+func doctorProjectPowerGrants(signers []SignerListing) string {
+	powers := []struct{ ns, label string }{
+		{signing.NamespaceCompanion, signing.NamespaceCompanion + " (execute companions)"},
+		{signing.NamespaceApprove, signing.NamespaceApprove},
+	}
+	var parts []string
+	path := ""
+	for _, p := range powers {
+		var principals []string
+		for _, s := range signers {
+			if s.Source != signerSourceProject || s.Unreadable != "" || s.Suppressed || !s.Entry.MatchesNamespace(p.ns) {
+				continue
+			}
+			path = s.Path
+			principals = append(principals, strings.Join(s.Entry.Principals, ","))
+		}
+		if len(principals) > 0 {
+			sort.Strings(principals)
+			parts = append(parts, p.label+" to "+strings.Join(principals, ", "))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; the committed project store %s grants %s", path, strings.Join(parts, "; and "))
 }
 
 // ===== init-as-skill Phase 6 postcondition checks (plan.md §8.2) =====

@@ -301,11 +301,14 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 }
 
 // The user-visible half of the same fact, through the review enumeration a human
-// actually reads: the item comes back, and it comes back labelled UPDATE.
-func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
+// actually reads: the item comes back, and because its bytes are the ones the
+// human already approved it is labelled RE-REVIEW, never NEW and never UPDATE.
+// UPDATE claims the content changed; saying so about identical bytes teaches a
+// reviewer to click through the diff.
+func TestPendingReview_SupersededApprovalReadsAsReReview(t *testing.T) {
 	fx := newTrustFixture(t)
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindFragment, Name: "solid"}
-	payload := []byte("solid raw body")
+	payload := fragmentBytes("solid raw body")
 
 	writeSupersededApprove(t, fx, userApprovalsDir, ref, "fragments", payload)
 	idxRef, err := countersign.CountersignRef(ref)
@@ -323,9 +326,37 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 	require.NoError(t, err)
 
 	refs := pendingRefs(res)
-	assert.Equal(t, ReviewStatusUpdate, refs[seedItemRef(t, reviewSeedKey, "fragments/solid")],
-		"an approval superseded by the contract bump must read as an UPDATE, not as a NEW item")
-	assert.Positive(t, res.Updates)
+	assert.Equal(t, ReviewStatusReReview, refs[seedItemRef(t, reviewSeedKey, "fragments/solid")],
+		"identical bytes whose approval was superseded must read as RE-REVIEW, not as NEW or UPDATE")
+	assert.Zero(t, res.Updates, "a re-review is not a change and must not be counted as one")
+	assert.Equal(t, 1, res.ReReviews)
 	assert.Equal(t, ReviewStatusNew, refs[seedItemRef(t, reviewSeedKey, "commands/greet")],
 		"an item nobody ever approved must still read as NEW (the label has to distinguish something)")
+}
+
+// The discriminator for the test above: the same superseded prior approval,
+// but recorded against DIFFERENT bytes, is a genuine UPDATE.
+func TestPendingReview_SupersededApprovalOfOtherBytesReadsAsUpdate(t *testing.T) {
+	fx := newTrustFixture(t)
+	ref := trust.Ref{RepoURL: trustRepo, Bundle: "toolkit", Kind: trust.KindFragment, Name: "solid"}
+	payload := fragmentBytes("solid raw body, an earlier version")
+
+	writeSupersededApprove(t, fx, userApprovalsDir, ref, "fragments", payload)
+	idxRef, err := countersign.CountersignRef(ref)
+	require.NoError(t, err)
+	require.NoError(t, fx.user.AppendIndex(countersign.IndexEntry{
+		Ref: idxRef, Kind: "fragments", Form: "raw",
+		Assertion: string(signing.AssertionApprove), Principal: "fixture@example.com",
+		PayloadHash: bundles.HashPayload(payload), ReviewedAt: "2026-01-01T00:00:00Z",
+	}))
+
+	res, err := PendingReview(nil, PendingReviewRequest{
+		UserStore: fx.user, Root: fx.root, Registry: newRegistry(t),
+		Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs(),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, ReviewStatusUpdate, pendingRefs(res)[seedItemRef(t, reviewSeedKey, "fragments/solid")])
+	assert.Equal(t, 1, res.Updates)
+	assert.Zero(t, res.ReReviews)
 }

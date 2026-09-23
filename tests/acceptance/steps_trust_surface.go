@@ -37,6 +37,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
@@ -1065,7 +1066,7 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		return tsSupersedeStore(worldFrom(c))
 	})
 
-	ctx.Step(`^review lists the fragment as an update awaiting re-review, not as a new item, asking for "([^"]*)"$`, func(c context.Context, flags string) error {
+	ctx.Step(`^review lists the fragment as awaiting re-review, not as a new item or an update, asking for "([^"]*)"$`, func(c context.Context, flags string) error {
 		w := worldFrom(c)
 		flagArgs, err := shellSplit(flags)
 		if err != nil {
@@ -1078,8 +1079,8 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		out := w.env.LastStdout()
 		w.docStepMaterialized = strings.TrimSpace(out)
 		if !formatAskedFor(w).Structured() {
-			if !strings.Contains(out, "update") {
-				return fmt.Errorf("`review --list` does not label the superseded item an update — a stale approval must not read as a first-time item; output:\n%s", out)
+			if !strings.Contains(out, operations.ReviewStatusReReview) {
+				return fmt.Errorf("`review --list` does not label the superseded item a re-review — a stale approval of unchanged bytes must read as neither a first-time item nor a change; output:\n%s", out)
 			}
 			if !strings.Contains(out, "fragments/context") {
 				return fmt.Errorf("`review --list` does not list the superseded fragment at all; output:\n%s", out)
@@ -1088,8 +1089,8 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 				if !strings.Contains(line, "fragments/context") {
 					continue
 				}
-				if !strings.Contains(line, "update") {
-					return fmt.Errorf("the superseded fragment is listed as %q, want it labelled an update; output:\n%s", strings.TrimSpace(line), out)
+				if !strings.Contains(line, operations.ReviewStatusReReview) {
+					return fmt.Errorf("the superseded fragment is listed as %q, want it labelled %s; output:\n%s", strings.TrimSpace(line), operations.ReviewStatusReReview, out)
 				}
 				return nil
 			}
@@ -1097,13 +1098,14 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		}
 		// The JSON row reads the SAME fact off operations.PendingReviewResult's
 		// own shape: exactly one bundle here, and its one fragment item (named
-		// "context") must carry ReviewStatusUpdate, not ReviewStatusNew.
+		// "context") must carry ReviewStatusReReview: its bytes are the ones
+		// approved, so it is neither new nor an update.
 		status, err := lastOutputJSONAt(w, "bundles.0.items[name=context].status")
 		if err != nil {
 			return fmt.Errorf("%v; stdout:\n%s", err, w.env.LastStdout())
 		}
-		if got, _ := jsonScalar(status); got != "update" {
-			return fmt.Errorf("the superseded fragment's JSON status = %q, want %q; stdout:\n%s", got, "update", w.env.LastStdout())
+		if got, _ := jsonScalar(status); got != operations.ReviewStatusReReview {
+			return fmt.Errorf("the superseded fragment's JSON status = %q, want %q; stdout:\n%s", got, operations.ReviewStatusReReview, w.env.LastStdout())
 		}
 		return nil
 	})

@@ -11,8 +11,9 @@
 # root-owned files straight into the bind-mounted project. If the requested
 # identity cannot be assumed (no usable gosu/setpriv), the entrypoint REFUSES
 # to start the engine — a loud launch failure the host gate catches — unless
-# CTXLOOM_ALLOW_ROOT=1 explicitly accepts root (the isolation runtime sets it
-# in --degraded mode, the one warn-and-continue home).
+# CTXLOOM_ALLOW_ROOT=1 explicitly accepts root. ctxloom never sets it, in any
+# mode (--degraded included); it exists only for a container a person starts
+# by hand.
 set -u
 
 if [ "$(id -u)" = "0" ] && [ -n "${PUID:-}" ]; then
@@ -36,7 +37,7 @@ if [ "$(id -u)" = "0" ] && [ -n "${PUID:-}" ]; then
         exec setpriv --reuid "$PUID" --regid "$PGID" --init-groups "$@"
     fi
     if [ "${CTXLOOM_ALLOW_ROOT:-}" != "1" ]; then
-        echo "ctxloom-entrypoint: error: cannot run as ${PUID}:${PGID} (no usable gosu/setpriv in this image); refusing to run the engine as root — it would root-own files in the mounted project. Rebuild the image with the remap tools (ctxloom container build), or set CTXLOOM_ALLOW_ROOT=1 (ctxloom --degraded) to accept root" >&2
+        echo "ctxloom-entrypoint: error: cannot run as ${PUID}:${PGID} (no usable gosu/setpriv in this image); refusing to run the engine as root — it would root-own files in the mounted project. Rebuild the image with the remap tools (ctxloom container build). ctxloom never overrides this refusal, --degraded included; only a container you start yourself with CTXLOOM_ALLOW_ROOT=1 runs as root" >&2
         exit 3
     fi
     echo "ctxloom-entrypoint: warning: cannot run as ${PUID}:${PGID} (no usable gosu/setpriv); CTXLOOM_ALLOW_ROOT=1 — running as root" >&2

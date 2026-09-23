@@ -377,24 +377,24 @@ func TestResolveReviewSigner_HonoursSignKeyConfig(t *testing.T) {
 // TestPrintReviewItem_UnchangedUpdateSaysSo pins the reachable half of a fix:
 // an UPDATE whose diff comes out EMPTY silently fell through to the
 // full-content display with no explanation at all. That is not a corner case —
-// operations.buildReviewItem labels an item UPDATE whenever a PRIOR approve
-// entry exists, including when the bytes are identical and the item is pending
-// only because its approval record was superseded (a countersign-contract
-// bump). The reviewer is then shown the entire body of something they already
-// approved, with nothing saying why. Every other fall-through to full content
-// in this function names its reason; this one must too.
-func TestPrintReviewItem_UnchangedUpdateSaysSo(t *testing.T) {
+// A RE-REVIEW item has the bytes a human already approved; it is pending only
+// because that approval no longer applies (e.g. a countersign-contract bump).
+// The header and the body must say the same thing: neither may claim the
+// content changed, and the full body must carry the reason it is shown.
+func TestPrintReviewItem_ReReviewHeaderAndBodyAgree(t *testing.T) {
 	const body = "line one\nline two\n"
 	var out bytes.Buffer
 	printReviewItem(&out, 1, 1, operations.ReviewItem{
 		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
-		Status:          operations.ReviewStatusUpdate,
+		Status:          operations.ReviewStatusReReview,
 		PreviousContent: body,
 		CurrentContent:  body,
 	})
 	got := out.String()
+	assert.Contains(t, got, "(RE-REVIEW — approval no longer applies)")
+	assert.NotContains(t, got, "changed since acceptance", "identical bytes must never be labelled as changed")
 	assert.Contains(t, got, "unchanged since it was approved",
-		"an update with no delta must say why the full content is being shown")
+		"a re-review must say why the full content is being shown")
 	assert.Contains(t, got, "line one", "the content itself is still shown")
 }
 
@@ -495,6 +495,12 @@ func TestPrintReviewItem_AllArms(t *testing.T) {
 			item:    operations.ReviewItem{Kind: "mcp", Name: "srv", Status: operations.ReviewStatusUpdate, Executable: true, CurrentContent: "npx thing"},
 			want:    []string{"npx thing"},
 			notWant: []string{"no snapshot of the previously accepted content", "--- accepted"},
+		},
+		{
+			name:    "re-review shows full content and says why",
+			item:    operations.ReviewItem{Kind: "mcp", Name: "srv", Status: operations.ReviewStatusReReview, Executable: true, CurrentContent: "npx thing"},
+			want:    []string{"RE-REVIEW", "unchanged since it was approved", "npx thing"},
+			notWant: []string{"UPDATE", "--- accepted", "no snapshot of the previously accepted content"},
 		},
 		{
 			name:    "empty content renders the empty marker",

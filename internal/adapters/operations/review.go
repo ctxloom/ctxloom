@@ -30,12 +30,15 @@ import (
 // acceptance). First-party items (local, trusted source) and already-decided
 // items (accepted at the current hash, rejected) never appear.
 
-// Review item statuses. An item whose ref has an accepted state but whose
-// current hash no longer matches is an UPDATE (a human saw an earlier version);
-// everything else pending is NEW.
+// Review item statuses, derived from the prior approve record for the item's
+// ref and form. UPDATE: a human approved DIFFERENT bytes, so the content moved.
+// RE-REVIEW: a human approved THESE bytes, but that approval no longer applies
+// (e.g. it was superseded by a countersign-contract bump). NEW: no prior
+// approval exists.
 const (
-	ReviewStatusNew    = "new"
-	ReviewStatusUpdate = "update"
+	ReviewStatusNew      = "new"
+	ReviewStatusUpdate   = "update"
+	ReviewStatusReReview = "re-review"
 )
 
 // ReviewItem is one pending item awaiting human review.
@@ -44,7 +47,7 @@ type ReviewItem struct {
 	Ref    string `json:"ref"`    // full item ref, directly usable by trust/blacklist
 	Kind   string `json:"kind"`   // display selector dir: fragments|commands|mcp|hooks|skills
 	Name   string `json:"name"`   // item name (hooks: "<event>/<index>")
-	Status string `json:"status"` // ReviewStatusNew | ReviewStatusUpdate
+	Status string `json:"status"` // ReviewStatusNew | ReviewStatusUpdate | ReviewStatusReReview
 
 	// Executable marks the render-what-it-runs kinds (mcp, hooks).
 	Executable bool `json:"-"`
@@ -123,9 +126,10 @@ type PendingReviewRequest struct {
 // PendingReviewResult is the pending-review enumeration, grouped by bundle in
 // deterministic order.
 type PendingReviewResult struct {
-	Bundles []ReviewBundle `json:"bundles"`
-	Total   int            `json:"total"`
-	Updates int            `json:"updates"`
+	Bundles   []ReviewBundle `json:"bundles"`
+	Total     int            `json:"total"`
+	Updates   int            `json:"updates"`
+	ReReviews int            `json:"re_reviews"`
 }
 
 // PendingReview enumerates every item awaiting review. It builds the
@@ -182,8 +186,11 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 		})
 		result.Total += len(items)
 		for _, it := range items {
-			if it.Status == ReviewStatusUpdate {
+			switch it.Status {
+			case ReviewStatusUpdate:
 				result.Updates++
+			case ReviewStatusReReview:
+				result.ReReviews++
 			}
 		}
 	}
@@ -456,17 +463,20 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 		Status:     ReviewStatusNew,
 		Executable: executable,
 	}
-	// UPDATE detection + diff base: consult the (display-only, untrusted)
-	// sidecar index for a PRIOR approve attempt at this ref+form — a human saw
-	// an earlier version if one exists, even though it no longer verifies (that
+	// UPDATE / RE-REVIEW detection + diff base: consult the (display-only,
+	// untrusted) sidecar index for a PRIOR approve attempt at this ref+form — a
+	// human saw a version if one exists, even though it no longer verifies (that
 	// is exactly why the item is pending again). This is never a trust decision,
-	// only a label + a diff base; EffectiveTrust above has already,
+	// only a label + a diff base; the authorizer above has already,
 	// independently, decided this item is pending.
 	//
 	// It is keyed on the LAYOUT form, which is what makes an approval superseded
-	// by a countersign-contract bump read as an UPDATE rather than as a NEW item:
-	// the record can no longer verify, but a human's earlier look at this ref is
-	// still a fact, and telling them "new" would hide it.
+	// by a countersign-contract bump read as a prior look rather than as a NEW
+	// item: the record can no longer verify, but a human's earlier look at this
+	// ref is still a fact, and telling them "new" would hide it. Whether that
+	// look was at THESE bytes is a content comparison against the recorded
+	// payload hash: telling a reviewer content changed when it did not trains
+	// them to click through the diff.
 	refStr, refErr := countersign.CountersignRef(tRef)
 	if refErr != nil {
 		// An item nothing can address cannot be approved either — the
@@ -489,6 +499,9 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	}
 	if found {
 		item.Status = ReviewStatusUpdate
+		if entry.PayloadHash == bundles.HashPayload(payload) {
+			item.Status = ReviewStatusReReview
+		}
 		if !executable {
 			if snap, ok := readTrustSnapshot(getFS(e.fs), ProjectAppDir(e.cfg), entry.PayloadHash); ok {
 				item.PreviousContent = snap

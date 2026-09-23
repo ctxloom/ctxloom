@@ -13,14 +13,20 @@ Sign a local bundle for publication
 
 ### Synopsis
 
-Sign a local bundle file, writing a detached <bundle>.yaml.sig sibling that
-lets anyone who trusts your key verify the bundle came from you (signature-
-envelope spec §3.1, §4.2).
+Sign a local directory-form bundle as a tree, so anyone who trusts your key
+can verify the bundle came from you.
 
-ref is a bundle ref or an item ref — the same grammar 'ctxloom bundle trust'
+Signing writes a SHA256SUMS manifest at the bundle root covering every file in
+the tree, headed by the bundle's name and version, and files your signature
+over that manifest in the bundle's .sigs/ directory. Consumers without ctxloom
+can check the files with 'sha256sum -c SHA256SUMS'. A single-file bundle cannot
+be signed; move it to the directory form first. Re-signing removes a retired
+<bundle>.yaml.sig sibling, which every reader now refuses.
+
+ref is a bundle ref or an item ref, in the grammar 'ctxloom bundle trust'
 uses: a plain local bundle name, or the canonical 'ctxloom+local:<name>' URI.
-A publisher signature covers the whole bundle FILE, so an item ref
-("<bundle>#fragments/<name>") resolves to its CONTAINING bundle and signs
+The signature covers the whole bundle, so an item ref
+("<bundle>#fragments/<name>") resolves to its containing bundle and signs
 that; ctxloom bundle sign says so.
 
 Only bundles you author LOCALLY can be signed. A remote bundle's tree is not
@@ -34,11 +40,12 @@ bundles it ships, whether or not they are installed anywhere.
 Key discovery is zero-config: it tries 'git config user.signingkey' first
 (anyone who already signs commits with SSH needs no ctxloom setup at all),
 then the sole identity in ssh-agent when there is exactly one. --key (or
-'ctxloom config get sign.key') overrides both, and accepts a
-SHA256:... fingerprint, a path to a public key, or a ssh-agent key's
-comment/name (matched case-insensitively, substring OK — e.g. "ben@abbitt"
-for "ben@abbitt.me"). ctxloom never reads, generates, or stores private key
-material — every signature is produced by your existing ssh-agent.
+'ctxloom config get sign.key') overrides both. --key and user.signingkey
+accept the same forms: a SHA256:... fingerprint, a public key or a path to
+one, or a ssh-agent key's comment/name (matched case-insensitively, substring
+OK, e.g. "ben@abbitt" for "ben@abbitt.me"). ctxloom never reads, generates,
+or stores private key material; every signature is produced by your existing
+ssh-agent.
 
 Examples:
   ctxloom bundle sign my-tools                          # bare = local bundle (the common case)

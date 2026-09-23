@@ -72,13 +72,10 @@ type DistillOptions struct {
 // session_id is recorded forward by the `ctxloom hook session-bind`
 // SessionStart hook (see sessionBindCmd). A container-runtime harp's bind hook
 // runs INSIDE the container, though, and the host session index is not mounted
-// in — so its session_id never gets bound host-side even though its transcript
-// IS reachable (GetSession resolved entry.TranscriptPath via
-// fillTranscriptByLocation). Load by that path instead of failing; a canonical
-// transcript (a oneshot Execute run's own transcript.jsonl, resolved by
-// HarpName inside pb.NewCanonicalFallbackSource) needs no preload. Only
-// hard-error when there is neither a bound id, a transcript path, nor a
-// captured transcript — genuinely nothing to distill.
+// in — so its session_id never gets bound host-side. The unbound case is
+// distillPreload's to settle: ctxloom's canonical capture first, the engine's
+// recorded transcript path only without one, and a hard error when there is
+// neither — genuinely nothing to distill.
 // opts carries the per-invocation knobs; its zero value is the ordinary
 // config-driven distill.
 //
@@ -93,24 +90,9 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	}
 
 	sessionID := entry.SessionID
-	var preloaded *agent.Session
-	if sessionID == "" {
-		switch {
-		case entry.TranscriptPath != "":
-			hist, herr := HistoryForBackend(backendName)
-			if herr != nil {
-				return nil, fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
-			}
-			preloaded, herr = hist.GetSessionByPath(entry.TranscriptPath)
-			if herr != nil {
-				return nil, fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, herr)
-			}
-		case entry.CanonicalTranscriptPath != "":
-			// Canonical fallback resolves the harp's own transcript by HarpName
-			// inside the compactor; nothing to preload here.
-		default:
-			return nil, fmt.Errorf("harp %q has no session_id bound, no transcript path recorded, and no captured transcript; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", entry.HarpName)
-		}
+	preloaded, err := distillPreload(entry, backendName)
+	if err != nil {
+		return nil, err
 	}
 
 	// What this session said it was about to do next, captured by the TurnEnd
@@ -157,6 +139,36 @@ func CompactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 		return nil, fmt.Errorf("distillation failed: %w", err)
 	}
 	return result, nil
+}
+
+// distillPreload picks what a distill reads when no session_id is bound: nil
+// when the compactor resolves the transcript itself (a bound id, or ctxloom's
+// canonical capture by HarpName), a session loaded from the engine's recorded
+// transcript path otherwise, and an error when there is nothing to read.
+func distillPreload(entry *sessions.Entry, backendName string) (*agent.Session, error) {
+	if entry.SessionID != "" {
+		return nil, nil
+	}
+	switch {
+	case entry.CanonicalTranscriptPath != "":
+		// Canonical first: the compactor resolves the harp's own capture by
+		// HarpName, and it is readable for every engine. The vendor path below
+		// needs a legacy reader the default engine does not have, so preferring
+		// it refused sessions whose canonical capture was sitting on disk.
+		return nil, nil
+	case entry.TranscriptPath != "":
+		hist, herr := HistoryForBackend(backendName)
+		if herr != nil {
+			return nil, fmt.Errorf("resolve history reader for backend %q: %w", backendName, herr)
+		}
+		preloaded, herr := hist.GetSessionByPath(entry.TranscriptPath)
+		if herr != nil {
+			return nil, fmt.Errorf("load session from transcript %q: %w", entry.TranscriptPath, herr)
+		}
+		return preloaded, nil
+	default:
+		return nil, fmt.Errorf("harp %q has no session_id bound, no transcript path recorded, and no captured transcript; nothing to distill (the SessionStart bind hook records the ID for sessions launched via ctxloom run)", entry.HarpName)
+	}
 }
 
 // distillSource builds the transcript source the compactor reads for a

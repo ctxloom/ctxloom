@@ -117,9 +117,9 @@ func TestAttachArgv_ContainerWithoutANameIsRefused(t *testing.T) {
 //
 // This test asserts that the command REFUSES, which is unusual and is the
 // point: the alternative to refusing is guessing a window name, and a wrong
-// guess silently shows the operator a different agent's pane. The refusal must
-// also carry its remedy, so whoever hits it learns what is missing rather than
-// just that it did not work.
+// guess silently shows the operator a different agent's pane. The refusal is
+// addressed to a user, so it says the command is not available yet and why,
+// rather than naming the internal fact that would complete it.
 //
 // Delete this test when the window becomes resolvable — it is the marker for
 // unfinished work, not a permanent contract.
@@ -129,8 +129,15 @@ func TestRunAttach_RefusesUntilTheWindowIsJournaled(t *testing.T) {
 	require.Error(t, err, "attach must not report success while doing nothing")
 	assert.ErrorIs(t, err, ErrPaneTargetUnknown)
 	assert.Contains(t, err.Error(), "sharp-close-treat", "the refusal must name the run")
-	assert.Contains(t, err.Error(), "not journaled", "the refusal must say what is missing")
-	assert.Contains(t, err.Error(), "run.pane", "the refusal must name the remedy")
+	assert.Contains(t, err.Error(), "not available yet", "the refusal must say the command does not work yet")
+}
+
+// TestAttachCmd_HiddenUntilItWorks: a command with no success path must not be
+// advertised in --help or the generated reference. Unhide it together with
+// deleting the test above.
+func TestAttachCmd_HiddenUntilItWorks(t *testing.T) {
+	assert.True(t, attachCmd.Hidden, "attach has no success path, so help and the generated docs must not list it")
+	assert.False(t, attachCmd.IsAvailableCommand(), "cobra's doc generator skips exactly the unavailable commands")
 }
 
 // TestAttachSocket_IsTheHostedPaneSocket keeps the wrapper pointed at the

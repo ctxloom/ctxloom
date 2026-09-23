@@ -597,7 +597,7 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 		return "", err
 	}
 
-	inverse, err := inverseOps(binding, format, target, after, before)
+	inverse, err := confpatch.InverseOps(binding, format, target, after, before)
 	if err != nil {
 		return "", err
 	}
@@ -638,34 +638,6 @@ func buildAndWriteApplicationRecord(fs afero.Fs, target string, format hew.Forma
 		return "", fmt.Errorf("write %s: %w", recordPath, err)
 	}
 	return recordPath, nil
-}
-
-// inverseOps is the op list that turns after back into before — what a caller
-// applies to undo this application.
-//
-// hew.Invert owns the derivation, including the direction. This used to
-// assemble it here by calling hew's differ with the arguments swapped, which
-// worked but put a silently-reversible decision in a consumer: Diff(before,
-// after) and Diff(after, before) are both well-formed and only one undoes
-// anything. hew decides it once now.
-//
-// Resolved against the AFTER image because that is the document an undo would
-// be applied to: the pointers have to name positions in the file as it stands
-// now, not as it stood before the write. That obligation is the caller's —
-// Invert returns the abstract list, as DiffTrees does.
-func inverseOps(b hew.Binding, format hew.FormatID, target string, after, before []byte) ([]hew.ResolvedOp, error) {
-	if b.Document == nil {
-		return nil, fmt.Errorf("hew cannot read %q, so this application records no way to undo itself", format)
-	}
-	tl, err := hew.Invert(format, before, after, hew.DiffOptions{Target: target})
-	if err != nil {
-		return nil, fmt.Errorf("derive the inverse of the application to %s: %w", target, err)
-	}
-	doc, err := b.Document(target, after)
-	if err != nil {
-		return nil, fmt.Errorf("parse %s's post-image to resolve the inverse: %w", target, err)
-	}
-	return hew.Resolve(tl, doc)
 }
 
 // containsConfigPatch implements rule 5's payload verification: it confirms

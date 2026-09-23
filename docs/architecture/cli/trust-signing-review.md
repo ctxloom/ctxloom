@@ -102,8 +102,10 @@ asymmetry — rest-of-bundle vs one item — is load-bearing and explicitly
 tested). The walk applies decisions through `SetItemTrust`/`SetBlacklist` over
 the session's `project` and `signer`, and reports back what it recorded.
 
-`printReviewItem` shows a unified diff for an UPDATE and the full content
-otherwise; `printReviewAlternateForm` additionally shows the item's other
+`printReviewItem` shows a unified diff for an UPDATE (the approved bytes
+differ from the current ones) and the full content otherwise, naming why for a
+RE-REVIEW (the approved bytes are the current ones, but that approval no longer
+applies); `printReviewAlternateForm` additionally shows the item's other
 countersigned form, because both forms get signed.
 
 ## Interactive trust surfaces

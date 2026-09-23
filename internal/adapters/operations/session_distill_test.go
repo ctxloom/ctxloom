@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -54,4 +55,35 @@ func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 		"the failure that actually happened must be the one reported")
 	assert.NotContains(t, err.Error(), "does not support session history",
 		"reporting an unsupported backend sends the user after the wrong remedy")
+}
+
+// TestDistillPreload_CanonicalCaptureBeatsAVendorPathWithNoReader pins
+// harmful-sprout: a container-runtime harp records the engine's transcript path
+// but never gets a session_id bound host-side. The default engine keeps no
+// legacy reader, so trying that path first refused the distill with "has no
+// session history" even though ctxloom's own canonical capture was on disk.
+func TestDistillPreload_CanonicalCaptureBeatsAVendorPathWithNoReader(t *testing.T) {
+	testsupport.Isolate(t)
+	backend := "claude-code"
+	_, herr := HistoryForBackend(backend)
+	require.ErrorIs(t, herr, errNoSessionHistory, "fixture assumes a backend with no legacy reader")
+
+	preloaded, err := distillPreload(&sessions.Entry{
+		HarpName:                "vexed-scary-gab",
+		TranscriptPath:          "/nonexistent/vendor/transcript.jsonl",
+		CanonicalTranscriptPath: "/nonexistent/canonical/transcript.jsonl",
+	}, backend)
+	require.NoError(t, err, "a canonical capture must be read rather than refused over a vendor path nothing can parse")
+	assert.Nil(t, preloaded, "the canonical capture is resolved inside the compactor, by HarpName")
+}
+
+// Without a canonical capture the vendor path is all there is, and a backend
+// with no reader for it is still an honest refusal.
+func TestDistillPreload_VendorPathOnlyWithNoReaderRefuses(t *testing.T) {
+	testsupport.Isolate(t)
+	_, err := distillPreload(&sessions.Entry{
+		HarpName:       "vexed-scary-gab",
+		TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
+	}, "claude-code")
+	require.ErrorIs(t, err, errNoSessionHistory)
 }

@@ -362,7 +362,7 @@ func TestDiscover_ExplicitKeyName_NoMatch_ClearError(t *testing.T) {
 // fallback, on an agent whose Signers() listing itself fails (not merely
 // "no comment matched"), must surface that real cause — resolveByComment's
 // "listing ssh-agent identities: <rpc err>" was silently dropped by
-// resolveExplicit unless it was an *AmbiguousKeyNameError, replaced by the
+// resolveKeyValue unless it was an *AmbiguousKeyNameError, replaced by the
 // generic "not a recognized fingerprint, public key, or ssh-agent key name".
 func TestDiscover_ExplicitKeyName_AgentListingFailure_SurfacesRealCause(t *testing.T) {
 	ag := &fakeAgent{signersErr: errAgentLockedSentinel}
@@ -391,7 +391,7 @@ func TestDiscover_ExplicitKeyName_EmptyCommentNeverMatched(t *testing.T) {
 // TestDiscover_ExplicitFingerprint_StillWinsOverNameFallback is a regression
 // test for the fallback ordering: a SHA256: fingerprint must resolve via
 // findByFingerprint, never fall through to comment matching, even though
-// nothing here changed that path — it pins step (a) of the resolveExplicit
+// nothing here changed that path — it pins step (a) of the resolveKeyValue
 // chain against being reordered behind the new step (c).
 func TestDiscover_ExplicitFingerprint_StillWinsOverNameFallback(t *testing.T) {
 	signer, _ := newTestIdentity(t, "SHA256-lookalike-comment")
@@ -470,4 +470,28 @@ func TestNewDiscoverer_DialsTheHandedSocket(t *testing.T) {
 	assert.Contains(t, err.Error(), sock)
 	_, err = NewDiscoverer(Env{}).dialAgent()
 	require.Error(t, err, "no socket handed in means no ssh-agent to sign with")
+}
+
+// `git config user.signingkey` accepts the same forms as --key. A SHA256
+// fingerprint there used to fail with "no signing key found", because the git
+// step only parsed a public key literal or path.
+func TestDiscover_GitSigningKeyAcceptsTheFormsKeyAccepts(t *testing.T) {
+	signer, pubLine := newTestIdentity(t, "ben@abbitt.me")
+	other, _ := newTestIdentity(t, "other@example.com")
+	ag := &fakeAgent{signers: []ssh.Signer{other, signer}, comments: []string{"other@example.com", "ben@abbitt.me"}}
+	fp := ssh.FingerprintSHA256(signer.PublicKey())
+
+	for name, value := range map[string]string{
+		"fingerprint":         fp,
+		"public key literal":  pubLine,
+		"agent comment":       "ben@abbitt.me",
+		"agent comment piece": "abbitt",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := discovererWithAgent(ag, value, nil).Discover(context.Background(), "")
+			require.NoError(t, err)
+			assert.Equal(t, fp, got.Fingerprint)
+			assert.Equal(t, "git config user.signingkey", got.Source)
+		})
+	}
 }

@@ -246,6 +246,34 @@ whole derivation here removed the need for that copy entirely.
    every member constant the reap, purge and clean code names a row of the table.
 8. **No writes.** Nothing in this package creates a directory or a file.
 
+## Layout slices L4, L5 and L6
+
+The layout model landed as `content/` + `cache/` + `state/`. Three slices from
+that plan were not built, and each is ruled still wanted. None of them left a
+design in the tree, so what follows is what their names, the retired ignore
+entries and the current code support, and no more.
+
+- **L4, the partial-clone pieces fetcher: wanted.** A pinned remote bundle is
+  already checked out narrowly, as a sparse worktree of its own subpath
+  (`remote.RepoCache.EnsureSparseWorktree`), but the clone behind it is still
+  full-depth, with every object (`remote.RepoCache.clone`). L4 is for fetching
+  only what pinned bundles need instead of the whole repository. Nothing writes
+  a `pieces/` directory today, and `gitignore.PrivateStatePatterns` no longer
+  lists one.
+- **L5, the container-crossing manifest: satisfied.** What crosses into a
+  container now crosses under other names: the launch package is carried
+  inline or, above `composite.DefaultInlineMax`, by claim check in the content-addressed
+  `fsstore.PackageStore` under the session's persist directory, and a
+  container runner reaches that directory through the session-state bind
+  mounts (`Container.sessionStateMounts`) that also carry its transcript store
+  and task log. Credentials and config overlays are prepared by the container
+  workspace. Nothing is left for a separate manifest to describe.
+- **L6, the cache split: wanted, purpose not recorded.** The split between
+  rebuildable and non-rebuildable local state already exists as `cache/`
+  versus `state/` (`paths.Tier`), and every `cache/` entry names its rebuild
+  command (`paths.Layout`). No surviving design says what a further split of
+  `cache/` would buy, so this entry records the ruling, not a purpose.
+
 ## Boundaries
 
 - **Imports:** one shared leaf only — `internal/shared/harp` (harp validation). Nothing here

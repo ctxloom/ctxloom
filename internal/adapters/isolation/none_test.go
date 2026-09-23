@@ -51,3 +51,24 @@ func TestNoneStartRunner_CarriesTheCallersEnvAndNoCell(t *testing.T) {
 
 	assert.Equal(t, map[string]string{"CTXLOOM_COORD_URL": "http://host:9000"}, got, "the runner's env is the caller's per-spawn env and nothing more: its cell rides the Launch")
 }
+
+// TestNoneStartRunner_CancelledBeforeStartNeverSpawns pins the pre-attach half
+// of spawn.StartRunner's contract against the real host runtime: a launch
+// whose context is already cancelled returns ctx.Err() and starts nothing.
+// Cancellation AFTER the process starts is deliberately not honoured here
+// (the ctx is never the teardown handle).
+func TestNoneStartRunner_CancelledBeforeStartNeverSpawns(t *testing.T) {
+	spawned := false
+	withStartHostRunner(t, func([]string, map[string]string) (*HostRunner, error) {
+		spawned = true
+		return nil, assert.AnError
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	h, err := None{}.StartRunner(ctx, "mock", "", 0, hostWorkspace{dir: "/proj"}, nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, h)
+	assert.False(t, spawned, "a cancelled launch must not start the runner process")
+}

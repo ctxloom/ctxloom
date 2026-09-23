@@ -28,6 +28,9 @@ Attaching from inside your own tmux nests one session in another, so the inner
 session takes the doubled prefix (Ctrl-b Ctrl-b by default).`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAttach,
+	// Hidden while runAttach has no success path: help and the generated
+	// reference must not advertise a command that always refuses.
+	Hidden: true,
 }
 
 func init() {
@@ -113,8 +116,12 @@ func attachArgv(t attachTarget, readOnly bool) ([]string, error) {
 // worst form: `tmux attach -t` against a wrong-but-existing target succeeds and
 // shows the operator a DIFFERENT run's pane, with no error anywhere. Refusing
 // is the only honest answer available until the fact exists.
+//
+// What completes it: record the minted target when the pane is created (a
+// run.pane fact beside run.container, carrying the socket and the
+// "<session>:<window>" target), resolve it here, and unhide attachCmd.
 func runAttach(cmd *cobra.Command, args []string) error {
-	return fmt.Errorf("attach %s: %w: a run's tmux window name is random per process and is not journaled, so it cannot be resolved from a harp; record it when the pane is created (a run.pane fact beside run.container, carrying the socket and the \"<session>:<window>\" target) and resolve it here",
+	return fmt.Errorf("attach %s: ctxloom attach is not available yet: %w, so the run's pane cannot be found",
 		args[0], ErrPaneTargetUnknown)
 }
 

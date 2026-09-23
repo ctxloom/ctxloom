@@ -23,7 +23,15 @@ import (
 // The per-spawn runner env crosses as bare `-e NAME` with values on the run
 // PROCESS env (never the world-readable argv). Readiness is the
 // coordinator's awaitRunner, not observed here.
-func (c Container) StartRunner(_ context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+//
+// ctx is checked once, before the CLI starts: an already-cancelled launch
+// returns ctx.Err() with nothing created. It is NOT bound to the process
+// (see TestStartDirectRunner_ContextIsNotTheTeardownHandle): killing an
+// attached `docker run` orphans its container, so teardown is Kill.
+func (c Container) StartRunner(ctx context.Context, backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cw, ok := ws.(*containerWorkspace)
 	if !ok {
 		return nil, fmt.Errorf("container start-runner: unexpected workspace %T (expected a container workspace)", ws)

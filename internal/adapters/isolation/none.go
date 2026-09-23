@@ -47,8 +47,13 @@ func (n None) PrepareWorkspace(ctx context.Context, projectDir, agentID string) 
 // carries, so the per-spawn env is the reach-back trio the caller built and
 // nothing more. verbosity is
 // ambient (the runner reads CTXLOOM_VERBOSE), so it does not ride the argv.
-// Readiness is the coordinator's awaitRunner, not observed here.
-func (None) StartRunner(_ context.Context, backendName, label string, _ int, _ Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+// Readiness is the coordinator's awaitRunner, not observed here. ctx is
+// checked once, before the spawn: an already-cancelled launch returns
+// ctx.Err() and starts nothing; after that, teardown is Kill, never ctx.
+func (None) StartRunner(ctx context.Context, backendName, label string, _ int, _ Workspace, spawnEnv map[string]string) (*RunnerHandle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	env := make(map[string]string, len(spawnEnv))
 	for k, v := range spawnEnv {
 		env[k] = v

@@ -350,12 +350,12 @@ func seedCompanionTrust(project bool) string {
 // resolved engine. Per CLAUDE.md fault tolerance, post-scaffold steps warn
 // and continue; only directory/config creation failures are fatal.
 func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, interactive bool) (string, error) {
-	engine, personalRepos, dirtyTreeHandler, dirtyTreeCommitAck, err := resolveSetupEngine(selectedEngine, interactive)
+	engine, personalRepos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, err := resolveSetupEngine(selectedEngine, interactive)
 	if err != nil {
 		return "", err
 	}
 
-	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, "", dirtyTreeCommitAck); err != nil {
+	if err := writeInitialConfig(appDir, engine, dirtyTreeHandler, headlessPermissions, dirtyTreeCommitAck); err != nil {
 		return "", err
 	}
 	fmt.Printf("Initialized ctxloom directory: %s\n", appDir)
@@ -404,24 +404,24 @@ func setupNewCtxloomDir(cmd *cobra.Command, appDir, selectedEngine string, inter
 // dirty-tree-handler prompts when applicable, and finally falls back to the
 // first available primary engine. Returns errNoEngines only when the
 // interactive selection reports none installed. dirtyTreeHandler/
-// dirtyTreeCommitAck stay at their zero values ("", false) whenever the
-// prompts don't run (an --engine flag given, or a non-interactive init) — the
-// same as if the question had never been asked.
-func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
+// dirtyTreeCommitAck/headlessPermissions stay at their zero values whenever
+// the prompts don't run (an --engine flag given, or a non-interactive init) —
+// the same as if the question had never been asked.
+func resolveSetupEngine(selected string, interactive bool) (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, headlessPermissions string, err error) {
 	if selected == "" && noEnginesInstalled() {
 		warnNoEnginesDetected()
 		selected = operations.DefaultEngineName()
 	}
 
 	if interactive && selected == "" {
-		selected, repos, dirtyTreeHandler, dirtyTreeCommitAck, err = promptForEngineAndRepos()
+		selected, repos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, err = promptForEngineAndRepos()
 		if err != nil {
-			return "", nil, "", false, err
+			return "", nil, "", false, "", err
 		}
 	}
 
 	primary, _ := getAvailableEngines()
-	return pickDefaultEngine(selected, primary), repos, dirtyTreeHandler, dirtyTreeCommitAck, nil
+	return pickDefaultEngine(selected, primary), repos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, nil
 }
 
 // writeInitialConfig delegates project bootstrap (the .ctxloom skeleton +

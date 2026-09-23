@@ -19,6 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // =============================================================================
@@ -159,7 +160,7 @@ func TestIsKnownLLM_AgreesWithTheAdvertisedSet(t *testing.T) {
 		"claude-code", "mock", config.BackendMock,
 		"my-claude", "stale", "nonexistent-plugin", "",
 	} {
-		advertised := slices.Contains(operations.AvailableLLMNames(cfg), name)
+		advertised := slices.Contains(operations.AvailableLLMNames(engines.Registry(), cfg), name)
 		assert.Equalf(t, advertised, isKnownLLM(cfg, name),
 			"%q: the set `llm default` accepts must be the set it advertises", name)
 	}

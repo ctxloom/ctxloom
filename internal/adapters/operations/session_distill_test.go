@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -46,10 +47,10 @@ func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
 
 	backend := "claude-code"
-	_, herr := HistoryForBackend(backend)
+	_, herr := HistoryForBackend(engines.Registry(), backend)
 	require.ErrorIs(t, herr, errNoSessionHistory, "fixture assumes a backend with no legacy scraper leg")
 
-	_, err := distillSource(backend, home)
+	_, err := distillSource(engines.Registry(), backend, home)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session index",
 		"the failure that actually happened must be the one reported")
@@ -65,10 +66,10 @@ func TestDistillSource_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T)
 func TestDistillPreload_CanonicalCaptureBeatsAVendorPathWithNoReader(t *testing.T) {
 	testsupport.Isolate(t)
 	backend := "claude-code"
-	_, herr := HistoryForBackend(backend)
+	_, herr := HistoryForBackend(engines.Registry(), backend)
 	require.ErrorIs(t, herr, errNoSessionHistory, "fixture assumes a backend with no legacy reader")
 
-	preloaded, err := distillPreload(&sessions.Entry{
+	preloaded, err := distillPreload(engines.Registry(), &sessions.Entry{
 		HarpName:                "vexed-scary-gab",
 		TranscriptPath:          "/nonexistent/vendor/transcript.jsonl",
 		CanonicalTranscriptPath: "/nonexistent/canonical/transcript.jsonl",
@@ -81,7 +82,7 @@ func TestDistillPreload_CanonicalCaptureBeatsAVendorPathWithNoReader(t *testing.
 // with no reader for it is still an honest refusal.
 func TestDistillPreload_VendorPathOnlyWithNoReaderRefuses(t *testing.T) {
 	testsupport.Isolate(t)
-	_, err := distillPreload(&sessions.Entry{
+	_, err := distillPreload(engines.Registry(), &sessions.Entry{
 		HarpName:       "vexed-scary-gab",
 		TranscriptPath: "/nonexistent/vendor/transcript.jsonl",
 	}, "claude-code")

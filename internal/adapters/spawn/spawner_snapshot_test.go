@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // countingSources wraps the real reader and counts its Reads: the gate is
@@ -46,7 +47,7 @@ func TestProdSpawner_Resolve_OneSnapshotPerSpawn(t *testing.T) {
 	require.NoError(t, err)
 	src.reads.Store(0)
 
-	s := newSpawner(termRep(), operations.OpenedApp(owner), filepath.Dir(appDir), nil)
+	s := newSpawner(termRep(), operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()}), filepath.Dir(appDir), nil)
 
 	_, err = s.Resolve(context.Background(), "dev")
 	require.NoError(t, err)
@@ -77,7 +78,7 @@ func spawnerApp(t *testing.T, appDir string) *operations.App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	return operations.OpenedApp(owner)
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()})
 }
 
 // packageDirAtStart is the test binary's working directory before any

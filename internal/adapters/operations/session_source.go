@@ -1,9 +1,10 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/core/config"

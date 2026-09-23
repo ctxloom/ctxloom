@@ -1,13 +1,14 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"

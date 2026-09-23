@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -51,12 +52,12 @@ func TestCompose_OneOwnerOneCoordinatorOneReporter(t *testing.T) {
 
 	t.Setenv(coord.EnvLaunchMaxAttempts, "nope")
 	before := len(found.All())
-	c, err := comp.NewCoordinator(operations.OpenedApp(owner), coord.Options{ProjectDir: t.TempDir(), StateDir: t.TempDir(), OwnerHarp: "owner-harp"})
+	c, err := comp.NewCoordinator(operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()}), coord.Options{ProjectDir: t.TempDir(), StateDir: t.TempDir(), OwnerHarp: "owner-harp"})
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 	require.Greater(t, len(found.All()), before, "the Coordinator reports through the root's Reporter")
 	assert.Contains(t, found.All()[len(found.All())-1].Text, coord.EnvLaunchMaxAttempts)
 
-	_, err = comp.NewCoordinator(operations.OpenedApp(owner), coord.Options{ProjectDir: t.TempDir(), StateDir: t.TempDir(), OwnerHarp: "owner-harp"})
+	_, err = comp.NewCoordinator(operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()}), coord.Options{ProjectDir: t.TempDir(), StateDir: t.TempDir(), OwnerHarp: "owner-harp"})
 	assert.ErrorIs(t, err, errSecondCoordinator, "one Coordinator per process")
 }

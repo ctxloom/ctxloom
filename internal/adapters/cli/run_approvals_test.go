@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
@@ -68,7 +69,7 @@ func TestWarnPosture_PlanOneshotCancels(t *testing.T) {
 // which default decided it; without -v, or once a flag named the posture, it
 // stays silent.
 func TestWarnPosture_VerboseNamesTheEngineHostDefault(t *testing.T) {
-	reason := operations.EnginePermissionFacts("claude-code").HostDefaultReason
+	reason := operations.EnginePermissionFacts(engines.Registry(), "claude-code").HostDefaultReason
 	for _, tc := range []struct {
 		name      string
 		verbosity int

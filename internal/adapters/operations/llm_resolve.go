@@ -1,8 +1,9 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"fmt"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/config"

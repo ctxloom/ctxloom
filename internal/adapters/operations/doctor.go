@@ -1,7 +1,6 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/spf13/afero"
 

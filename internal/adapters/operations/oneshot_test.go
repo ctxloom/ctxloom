@@ -165,19 +165,19 @@ func TestResolveBackend(t *testing.T) {
 	require.NoError(t, cfg.Validate(engines.Registry()))
 
 	t.Run("configured label resolves to its type and model", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "agy-code")
+		backend, model := ResolveBackend(engines.Registry(), cfg, "agy-code")
 		assert.Equal(t, "mock", backend)
 		assert.Equal(t, "gemini-3-pro", model)
 	})
 
 	t.Run("unknown non-backend label degrades to the default", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "no-such-label")
+		backend, model := ResolveBackend(engines.Registry(), cfg, "no-such-label")
 		assert.Equal(t, "claude-code", backend)
 		assert.Empty(t, model)
 	})
 
 	t.Run("the ad-hoc arm admits only a registered backend name", func(t *testing.T) {
-		backend, model := ResolveBackend(cfg, "claude-code")
+		backend, model := ResolveBackend(engines.Registry(), cfg, "claude-code")
 		assert.Equal(t, "claude-code", backend)
 		assert.Empty(t, model)
 	})
@@ -188,7 +188,7 @@ func TestResolveBackend(t *testing.T) {
 	// the engine it used to abbreviate.
 	t.Run("a retired short spelling is an unknown label, not a backend", func(t *testing.T) {
 		for _, spelling := range []string{"claude", "CLAUDE", "claudecode", "Claude-Code"} {
-			backend, model := ResolveBackend(cfg, spelling)
+			backend, model := ResolveBackend(engines.Registry(), cfg, spelling)
 			assert.Equal(t, "claude-code", backend, "ResolveBackend(%q) degrades like any unknown label", spelling)
 			assert.Empty(t, model)
 		}
@@ -202,7 +202,7 @@ func TestResolveBackend(t *testing.T) {
 		handWritten := gatedFixture(config.Fixture{LM: config.LMConfig{Configs: map[string]config.LLMConfig{
 			"hand-edited": {Type: "claude", Body: map[string]any{"model": "opus"}},
 		}}})
-		backend, model := ResolveBackend(handWritten, "hand-edited")
+		backend, model := ResolveBackend(engines.Registry(), handWritten, "hand-edited")
 		assert.Equal(t, "claude", backend)
 		assert.Equal(t, "opus", model)
 	})

@@ -1,10 +1,11 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/agent"

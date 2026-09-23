@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // testApp opens the process composition over the real reader with opts
@@ -25,7 +26,7 @@ func testApp(t *testing.T, opts ...configload.Option) *App {
 	require.NoError(t, err)
 	owner, err := config.Open(context.Background(), src)
 	require.NoError(t, err)
-	return OpenedApp(owner)
+	return OpenedApp(owner, Handed{Engines: engines.Registry()})
 }
 
 // fixtureSources is a config.Sources whose every Read is the same fixture
@@ -82,7 +83,7 @@ func fixtureAppWith(t *testing.T, cfg *config.Config, loadouts []bundles.Compani
 	if carried.Authorizer() != nil {
 		owner.Current().Config.BindTrustForTesting(carried)
 	}
-	return OpenedApp(owner)
+	return OpenedApp(owner, Handed{Engines: engines.Registry()})
 }
 
 // realGated binds the gate built over cfg's PRODUCTION adapters — the

@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/transcript"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -25,7 +26,7 @@ func TestResolveSessionSource_IsFiltered(t *testing.T) {
 	testsupport.Isolate(t)
 
 	cfg := &config.Config{}
-	src, _, err := ResolveSessionSource(cfg, "claude-code", t.TempDir())
+	src, _, err := ResolveSessionSource(engines.Registry(), cfg, "claude-code", t.TempDir())
 	require.NoError(t, err)
 	require.NotNil(t, src)
 

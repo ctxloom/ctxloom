@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
@@ -24,7 +25,7 @@ func TestApplyHooks_ReportsThroughTheGenerationsReporter(t *testing.T) {
 	var got report.Findings
 	cfg.SetReporter(&got)
 
-	_, err := applyHooksToBackend(context.Background(), "claude-code", hookApplyParams{
+	_, err := applyHooksToBackend(context.Background(), engines.Registry(), "claude-code", hookApplyParams{
 		freshCfg:    cfg,
 		workDir:     t.TempDir(),
 		contextHash: "0000000000000000",

@@ -160,7 +160,9 @@ func availableLLMsWithDefault() ([]string, string, func(string) bool, func(strin
 	// built-ins unioned with configured labels, and the primary *label*
 	// (not the backend type) marked as default, so the two commands agree.
 	return operations.AvailableLLMNames(App().Engines(), cfg), cfg.PrimaryLabel(), cfg.IsLLMUserAuthored,
-		func(label string) operations.RuntimeOffer { return operations.AgentRuntimeOffer(App().Engines(), cfg, label) }
+		func(label string) operations.RuntimeOffer {
+			return operations.AgentRuntimeOffer(App().Engines(), cfg, label)
+		}
 }
 
 func init() {

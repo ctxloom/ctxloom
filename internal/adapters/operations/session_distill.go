@@ -1,11 +1,12 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 

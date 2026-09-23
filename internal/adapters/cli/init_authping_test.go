@@ -273,7 +273,7 @@ func TestPrintDiscoveryPostureHint(t *testing.T) {
 // text is read from production via engineAuthFixHint rather than re-typed
 // here. A newly registered backend is covered without editing this file.
 func TestPingEngineAuth_FailsLoud_NamesTheFix(t *testing.T) {
-	engines := operations.EngineNames()
+	engines := operations.EngineNames(engines.Registry())
 	require.NotEmpty(t, engines,
 		"the backend registry is empty — every subtest below would be skipped and this suite would pass having checked nothing")
 

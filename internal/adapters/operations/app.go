@@ -43,11 +43,11 @@ type App struct {
 
 	proberOnce sync.Once
 	prober     *engineversion.Prober
-	once   sync.Once
-	mu     sync.Mutex
-	opened bool
-	owner  *config.Owner
-	err    error
+	once       sync.Once
+	mu         sync.Mutex
+	opened     bool
+	owner      *config.Owner
+	err        error
 }
 
 // Compose describes one invocation to ComposeSources: the parsed flag set

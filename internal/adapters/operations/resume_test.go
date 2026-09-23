@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -39,7 +40,7 @@ func TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking(t *testing.
 	var entries []agent.SessionEntry
 	var err error
 	require.NotPanics(t, func() {
-		entries, err = RecordedSessionEntries(context.Background(), "no-such-harp-anywhere")
+		entries, err = RecordedSessionEntries(context.Background(), engines.Registry(), "no-such-harp-anywhere")
 	}, "a harp absent from the session index must not nil-deref")
 
 	require.Error(t, err, "an unknown harp is an error, not a silent empty resume")
@@ -66,7 +67,7 @@ func TestRecordedSessionEntries_PrefersCanonicalTranscriptOverBackend(t *testing
 	testsupport.Isolate(t)
 	entry := seedCanonicalFeedHarp(t, "J001200-RESUME-REGRESSION-CANONICAL-PAYLOAD")
 
-	entries, err := RecordedSessionEntries(context.Background(), entry.HarpName)
+	entries, err := RecordedSessionEntries(context.Background(), engines.Registry(), entry.HarpName)
 	require.NoError(t, err, "a canonical-backed harp must resolve without ever touching the (unbound) backend reader")
 	require.Len(t, entries, 1)
 	assert.Equal(t, "J001200-RESUME-REGRESSION-CANONICAL-PAYLOAD", entries[0].Content)

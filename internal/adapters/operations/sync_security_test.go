@@ -20,7 +20,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // captureStderr runs fn with os.Stderr redirected to a pipe and returns what
@@ -349,14 +351,14 @@ func TestRunSyncPostSteps_FailuresWarnOnStderr(t *testing.T) {
 	syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {
 		return nil, fmt.Errorf("lock boom")
 	}
-	syncHooksStep = func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, engine.Registry, ApplyHooksRequest) (*ApplyHooksResult, error) {
 		return nil, fmt.Errorf("hooks boom")
 	}
 
 	stderr := captureStderr(t, func() {
 		result := &SyncDependenciesResult{Installed: 1, Total: 1}
 		req := SyncDependenciesRequest{Lock: true, ApplyHooks: true}
-		runSyncPostSteps(context.Background(), &config.Config{}, req, result, afero.NewMemMapFs())
+		runSyncPostSteps(context.Background(), engines.Registry(), &config.Config{}, req, result, afero.NewMemMapFs())
 	})
 
 	assert.Contains(t, stderr, "ctxloom: warning: failed to generate lockfile after sync: lock boom")

@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // fixtureSources is a config.Sources whose every Read is the same fixture
@@ -39,7 +40,7 @@ func fixtureApp(t *testing.T, cfg *config.Config) *operations.App {
 	t.Helper()
 	owner, err := config.Open(context.Background(), fixtureSources{cfg: cfg})
 	require.NoError(t, err)
-	return operations.OpenedApp(owner)
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()})
 }
 
 // testConfig is an empty fixture config for the coordinators these tests

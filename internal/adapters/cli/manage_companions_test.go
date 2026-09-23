@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -130,7 +131,7 @@ func TestPrintCompanionStatus_DisabledSaysSoAndStillRunsNothing(t *testing.T) {
 	// The switch is a property of the process composition, not a global.
 	src, err := operations.ComposeSources(operations.Compose{NoCompanions: true})
 	require.NoError(t, err)
-	t.Cleanup(SetAppForTesting(operations.NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, config.Open, strictness.Sink("ctxloom"))))
+	t.Cleanup(SetAppForTesting(operations.NewApp(src, true, nil, strictness.Mode{Prog: "ctxloom"}, operations.Handed{Open: config.Open, Reporter: strictness.Sink("ctxloom"), Engines: engines.Registry()})))
 
 	var out bytes.Buffer
 	printCompanionStatus(&out)

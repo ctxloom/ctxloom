@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ import (
 // roster entry that has drifted out of registration trips it.
 func TestPrimaryEngines_AreAllRegisteredBackends(t *testing.T) {
 	require.NotEmpty(t, primaryEngines(), "an empty curated menu offers the user nothing")
-	registered := operations.EngineNames()
+	registered := operations.EngineNames(engines.Registry())
 	require.NotEmpty(t, registered, "no backend is registered; this comparison would be vacuous")
 
 	for _, name := range primaryEngines() {
@@ -32,8 +33,8 @@ func TestPrimaryEngines_AreAllRegisteredBackends(t *testing.T) {
 // relationship to the registry rather than a literal that would rot with it.
 func TestUserEngineNames_ListsRegisteredNonTestBackendsOnly(t *testing.T) {
 	got := userEngineNames()
-	for _, name := range operations.EngineNames() {
-		if operations.IsTestOnlyEngine(name) {
+	for _, name := range operations.EngineNames(engines.Registry()) {
+		if operations.IsTestOnlyEngine(engines.Registry(), name) {
 			assert.NotContains(t, got, name, "test-only backend must not be advertised")
 		} else {
 			assert.Contains(t, got, name, "registered backend missing from help")

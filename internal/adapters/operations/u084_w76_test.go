@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -200,7 +201,7 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 		}}, config.Fixture{}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      readOnly,
 		Cfg:     loaded(t, loader),
@@ -236,7 +237,7 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 		}}, config.Fixture{}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, loader),

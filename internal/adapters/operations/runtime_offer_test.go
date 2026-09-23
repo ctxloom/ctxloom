@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // =============================================================================
@@ -39,7 +40,7 @@ const noContainerAuthConfig = "version: 6\nllm:\n  configs:\n    editor: { type:
 func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRuntime(t *testing.T) {
 	cfg, _ := loadConfigDir(t, noContainerAuthConfig)
 
-	offer := AgentRuntimeOffer(cfg, "editor")
+	offer := AgentRuntimeOffer(engines.Registry(), cfg, "editor")
 
 	require.False(t, isolation.HasContainerAuth(offer.Backend),
 		"fixture precondition: %q must be a backend with no container auth", offer.Backend)
@@ -56,7 +57,7 @@ func TestAgentRuntimeOffer_EngineWithoutContainerAuthIsNotOfferedAContainerRunti
 func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
 	cfg, _ := loadConfigDir(t, noContainerAuthConfig)
 
-	offer := AgentRuntimeOffer(cfg, "editor")
+	offer := AgentRuntimeOffer(engines.Registry(), cfg, "editor")
 
 	require.NotEmpty(t, offer.ContainerWithheld,
 		"a withheld container axis must carry its reason, not just be missing")
@@ -78,7 +79,7 @@ func TestAgentRuntimeOffer_WithheldContainerSaysWhy(t *testing.T) {
 func TestAgentRuntimeOffer_EngineWithContainerAuthGetsBothAxes(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 6\n")
 
-	offer := AgentRuntimeOffer(cfg, "claude-code")
+	offer := AgentRuntimeOffer(engines.Registry(), cfg, "claude-code")
 
 	require.True(t, isolation.HasContainerAuth(offer.Backend),
 		"fixture precondition: %q must have container auth", offer.Backend)
@@ -102,7 +103,7 @@ func TestAgentRuntimeOffer_EngineWithContainerAuthGetsBothAxes(t *testing.T) {
 func TestAgentRuntimeOffer_NoDefaultIsMarked(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 6\n")
 
-	offer := AgentRuntimeOffer(cfg, "claude-code")
+	offer := AgentRuntimeOffer(engines.Registry(), cfg, "claude-code")
 
 	assert.Len(t, offer.Runtimes, 3,
 		"all three axes are offered on equal footing — none is marked, promoted or pre-picked")
@@ -117,7 +118,7 @@ func TestAgentRuntimeOffer_NoDefaultIsMarked(t *testing.T) {
 // question they cannot re-derive; withholding one that would have been allowed
 // costs a re-run of an interview that is re-runnable by design.
 func TestAgentRuntimeOffer_NilConfigWithholdsContainer(t *testing.T) {
-	offer := AgentRuntimeOffer(nil, "claude-code")
+	offer := AgentRuntimeOffer(engines.Registry(), nil, "claude-code")
 
 	assert.Equal(t, []isolation.RuntimeAxis{isolation.RuntimeHost}, offer.Runtimes)
 	assert.False(t, offer.OffersContainer(),
@@ -135,13 +136,13 @@ func TestAgentRuntimeOffer_NilConfigWithholdsContainer(t *testing.T) {
 // This is the test a second roster would fail the moment a container spec was
 // added to one list and not the other.
 func TestAgentRuntimeOffer_AgreesWithWhatTheWriterAccepts(t *testing.T) {
-	names := EngineNames()
+	names := EngineNames(engines.Registry())
 	require.NotEmpty(t, names)
 
 	for _, backend := range names {
 		t.Run(backend, func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, "version: 6\n")
-			offer := AgentRuntimeOffer(cfg, backend)
+			offer := AgentRuntimeOffer(engines.Registry(), cfg, backend)
 
 			_, err := SetAgent(context.Background(), managerFor(t, appDir), cfg, SetAgentRequest{
 				Name:    "probe",
@@ -185,7 +186,7 @@ func TestMockBoundToContainer_PassesEveryValidationShortOfADaemon(t *testing.T) 
 		t.Run(string(axis), func(t *testing.T) {
 			cfg, appDir := loadConfigDir(t, mockContainerConfig)
 
-			offer := AgentRuntimeOffer(cfg, "fast")
+			offer := AgentRuntimeOffer(engines.Registry(), cfg, "fast")
 			assert.Equal(t, "mock", offer.Backend, "the label resolves to the double")
 			assert.Contains(t, offer.Runtimes, axis, "the interview offers the container axis for mock")
 			assert.Empty(t, offer.ContainerWithheld)
@@ -203,7 +204,7 @@ func TestMockBoundToContainer_PassesEveryValidationShortOfADaemon(t *testing.T) 
 			// binding on disk, not the fixture's in-memory copy.
 			written, err := configload.Load(configload.WithAppDir(appDir))
 			require.NoError(t, err)
-			rs, err := ResolveAgent(context.Background(), written, "mock-container", "")
+			rs, err := ResolveAgent(context.Background(), engines.Registry(), written, "mock-container", "")
 			require.NoError(t, err, "the launch resolves the binding")
 			assert.Equal(t, "mock", rs.Backend)
 			assert.Equal(t, axis, rs.Runtime, "the container axis reaches the resolved agent, where the run reads it")

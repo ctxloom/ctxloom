@@ -1,13 +1,14 @@
 package operations
 
 import (
-	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

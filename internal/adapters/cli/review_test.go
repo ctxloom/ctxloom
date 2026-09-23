@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestParseReviewChoice covers the menu parse.
@@ -292,7 +293,7 @@ func appOver(t *testing.T, cfg *config.Config) *operations.App {
 		return bundles.CompanionProbe{}, nil
 	}})
 	require.NoError(t, err)
-	return operations.OpenedApp(owner)
+	return operations.OpenedApp(owner, operations.Handed{Engines: engines.Registry()})
 }
 
 // TestPrintReviewItem_ShowsBothCountersignedForms closes a gap: an

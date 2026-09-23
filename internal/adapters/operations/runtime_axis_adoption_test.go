@@ -252,12 +252,12 @@ func TestOneShot_RuntimeAxisIsParsedNotAsserted(t *testing.T) {
 // decision collected and then thrown away.
 func TestAgentRuntimeOffer_MenuCanOnlyHoldDeclaredMembers(t *testing.T) {
 	cfg, _ := loadConfigDir(t, "version: 6\n")
-	names := EngineNames()
+	names := EngineNames(engines.Registry())
 	require.NotEmpty(t, names)
 
 	sawContainer := false
 	for _, backend := range names {
-		offer := AgentRuntimeOffer(cfg, backend)
+		offer := AgentRuntimeOffer(engines.Registry(), cfg, backend)
 		require.NotEmpty(t, offer.Runtimes, "%s: host is always offered", backend)
 		for _, r := range offer.Runtimes {
 			parsed, err := launch.ParseRuntimeAxis(string(r))

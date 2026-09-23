@@ -9,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 	"github.com/ctxloom/ctxloom/internal/testsupport/enginefixture"
 )
@@ -36,7 +37,7 @@ func TestEngineAuthFixHint_NamesTheEngineDeclaredMintCommandAndEnvVar(t *testing
 // An engine with no token auth has no mint command to name; it gets the
 // generic fix and no declared one can leak in.
 func TestEngineAuthFixHint_EngineWithNoTokenAuthGetsTheGenericFix(t *testing.T) {
-	for _, engine := range operations.EngineNames() {
+	for _, engine := range operations.EngineNames(engines.Registry()) {
 		if _, ok := isolation.TokenAuthFor(engine); ok {
 			continue
 		}
@@ -50,7 +51,7 @@ func TestEngineAuthFixHint_EngineWithNoTokenAuthGetsTheGenericFix(t *testing.T) 
 // uses.
 func TestEngineAuthFixHint_EveryDeclaredTokenAuthIsNamed(t *testing.T) {
 	checked := 0
-	for _, engine := range operations.EngineNames() {
+	for _, engine := range operations.EngineNames(engines.Registry()) {
 		a, ok := isolation.TokenAuthFor(engine)
 		if !ok {
 			continue

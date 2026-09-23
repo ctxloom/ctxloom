@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -329,7 +330,7 @@ fragments:
 		})), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockConfigLoader),

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // silencedFrom returns the same config with capability-loss reporting silenced,
@@ -23,12 +24,12 @@ func silencedFrom(t *testing.T, cfg *config.Config) *config.Config {
 func TestCapabilityLoss_SilenceOptOut(t *testing.T) {
 	loud, _ := materializeHookFixture(t)
 
-	lossy := CapabilityLoss(loud, config.BackendMockLossy, []string{"reviewer"})
+	lossy := CapabilityLoss(engines.Registry(), loud, config.BackendMockLossy, []string{"reviewer"})
 	if len(lossy) == 0 {
 		t.Fatal("precondition: the fixture must produce a real declared loss on mock")
 	}
 
-	if got := CapabilityLoss(silencedFrom(t, loud), config.BackendMockLossy, []string{"reviewer"}); got != nil {
+	if got := CapabilityLoss(engines.Registry(), silencedFrom(t, loud), config.BackendMockLossy, []string{"reviewer"}); got != nil {
 		t.Fatalf("silenced config still reported loss: %v", got)
 	}
 }
@@ -38,7 +39,7 @@ func TestCapabilityLoss_SilenceOptOut(t *testing.T) {
 func TestMaterializeProfile_SilenceOptOut(t *testing.T) {
 	loud, target := materializeHookFixture(t)
 
-	res, err := MaterializeProfile(context.Background(), loud, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), loud, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target, Backend: config.BackendMockLossy,
 	})
 	if err != nil {
@@ -49,7 +50,7 @@ func TestMaterializeProfile_SilenceOptOut(t *testing.T) {
 	}
 
 	quiet, qtarget := materializeHookFixture(t)
-	res2, err := MaterializeProfile(context.Background(), silencedFrom(t, quiet), MaterializeProfileRequest{
+	res2, err := MaterializeProfile(context.Background(), engines.Registry(), silencedFrom(t, quiet), MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: qtarget, Backend: config.BackendMockLossy,
 	})
 	if err != nil {

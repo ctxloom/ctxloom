@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
 	"github.com/spf13/afero"
@@ -20,7 +21,7 @@ func TestInitializeProject(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 
-	res, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
+	res, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
 	require.NoError(t, err)
 	assert.Equal(t, "initialized", res.Status)
 
@@ -56,7 +57,7 @@ func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 
-	res, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "bogus", FS: fs})
+	res, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{AppDir: appDir, Engine: "bogus", FS: fs})
 	require.Error(t, err, "an unknown engine must be refused, not silently scaffolded")
 	assert.Nil(t, res)
 	assert.Contains(t, err.Error(), `"bogus"`, "the refusal must name the offending value")
@@ -128,7 +129,7 @@ func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
 			fs := afero.NewMemMapFs()
 			appDir := "/proj/.ctxloom"
 
-			res, err := InitializeProject(context.Background(), InitializeProjectRequest{
+			res, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{
 				AppDir:             appDir,
 				Engine:             "claude-code",
 				DirtyTreeHandler:   tt.dirtyTreeHandler,
@@ -166,7 +167,7 @@ func TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys(t *testing.T) {
 }
 
 func TestInitializeProject_RequiresAppDir(t *testing.T) {
-	_, err := InitializeProject(context.Background(), InitializeProjectRequest{Engine: "claude-code", FS: afero.NewMemMapFs()})
+	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{Engine: "claude-code", FS: afero.NewMemMapFs()})
 	require.Error(t, err)
 }
 
@@ -178,7 +179,7 @@ func TestInitializeProject_RequiresAppDir(t *testing.T) {
 func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
-	_, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
+	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
 	require.NoError(t, err)
 
 	// The local default coding profile file is written.
@@ -221,7 +222,7 @@ func TestScaffoldSeedProfile_WriteIfAbsent(t *testing.T) {
 	require.NoError(t, fs.MkdirAll(paths.ProfilesPath(appDir), 0755))
 	require.NoError(t, afero.WriteFile(fs, profilePath, []byte("# my edits\n"), 0644))
 
-	_, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
+	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{AppDir: appDir, Engine: "claude-code", FS: fs})
 	require.NoError(t, err)
 
 	data, err := afero.ReadFile(fs, profilePath)

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -82,7 +83,7 @@ func TestResolveAgent_ComposesAndOverridesEngine(t *testing.T) {
 		"dev": {LLM: "slow", Profiles: []string{"p1", "p2"}},
 	})
 
-	res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
 	require.NoError(t, err)
 
 	// Compose: both profiles' fragments reach the one assembled context.
@@ -114,7 +115,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 
 	// A bare run resolves cfg.GetDefaultAgent() — profiles compose, engine/runtime/
 	// permissions ride along.
-	res, err := ResolveAgent(context.Background(), cfg, cfg.GetDefaultAgent(), "")
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, cfg.GetDefaultAgent(), "")
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Contains(t, res.Context, "FRAG-TWO")
@@ -134,14 +135,14 @@ func TestResolveAgent_MissingDefaultAgentDegrades(t *testing.T) {
 	t.Run("empty default_agent", func(t *testing.T) {
 		cfg := agentTestConfig(root, nil) // no DefaultAgent set
 		assert.Nil(t, cfg.DefaultAgentProfiles())
-		_, err := ResolveAgent(context.Background(), cfg, cfg.GetDefaultAgent(), "")
+		_, err := ResolveAgent(context.Background(), engines.Registry(), cfg, cfg.GetDefaultAgent(), "")
 		require.Error(t, err, "an empty default_agent is the run path's degrade signal")
 	})
 
 	t.Run("default_agent names an undefined agent", func(t *testing.T) {
 		cfg := agentTestConfigWithDefault(root, nil, "ghost")
 		assert.Nil(t, cfg.DefaultAgentProfiles())
-		_, err := ResolveAgent(context.Background(), cfg, cfg.GetDefaultAgent(), "")
+		_, err := ResolveAgent(context.Background(), engines.Registry(), cfg, cfg.GetDefaultAgent(), "")
 		require.Error(t, err, "an unresolvable default_agent is the run path's degrade signal")
 	})
 }
@@ -164,7 +165,7 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
-			res, err := ResolveAgent(context.Background(), cfg, name, "")
+			res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, name, "")
 			require.NoError(t, err)
 			assert.Equal(t, want, res.EffectivePermissions)
 		})
@@ -196,7 +197,7 @@ func TestResolveAgent_HomeMode(t *testing.T) {
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
-			res, err := ResolveAgent(context.Background(), cfg, name, "")
+			res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, name, "")
 			require.NoError(t, err, "an unresolvable engine_home must warn, not fail the resolve")
 			assert.Equal(t, want, res.HomeMode)
 		})
@@ -213,7 +214,7 @@ func TestResolveAgent_ExplicitEngineOverrideWins(t *testing.T) {
 		"dev": {LLM: "slow", Profiles: []string{"p1"}},
 	})
 
-	res, err := ResolveAgent(context.Background(), cfg, "dev", "fast")
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "fast")
 	require.NoError(t, err)
 	assert.Equal(t, "fast", res.Label, "explicit override beats the declared engine")
 	assert.Equal(t, "m-fast", res.Model)
@@ -229,7 +230,7 @@ func TestResolveAgent_EngineUnsetFallsBackToProfileLLM(t *testing.T) {
 		"dev": {Profiles: []string{"p1", "p2"}}, // no engine
 	})
 
-	res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
 	require.NoError(t, err)
 	assert.Equal(t, "fast", res.Label, "no engine → the composed profiles' llm (p1's 'fast')")
 }
@@ -244,7 +245,7 @@ func TestResolveAgent_EngineUnsetNoProfileLLMUsesProjectDefault(t *testing.T) {
 		"plain": {Profiles: []string{"p3"}}, // p3 declares no llm
 	})
 
-	res, err := ResolveAgent(context.Background(), cfg, "plain", "")
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "plain", "")
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "FRAG-ONE")
 	assert.Equal(t, "primary", res.Label, "no engine, no profile llm → project primary")
@@ -270,7 +271,7 @@ func TestListAgents_MultipleNamed(t *testing.T) {
 
 	// Both resolve.
 	for _, name := range []string{"dev", "finder"} {
-		_, err := ResolveAgent(context.Background(), cfg, name, "")
+		_, err := ResolveAgent(context.Background(), engines.Registry(), cfg, name, "")
 		require.NoErrorf(t, err, "agent %q must resolve", name)
 	}
 }
@@ -292,7 +293,7 @@ func TestResolveAgent_BundleProfileMember(t *testing.T) {
 		},
 	})
 
-	res, err := ResolveAgent(context.Background(), cfg, "reviewer", "")
+	res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "reviewer", "")
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "FRAG-ONE", "bundle profile's composed fragment reaches context")
 	assert.Equal(t, "fast", res.Label, "bundle profile's llm flows through when engine is unset")
@@ -310,7 +311,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
 			"dev": {LLM: "slow", Profiles: []string{"p1"}},
 		})
-		res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
 		require.NoError(t, err)
 		assert.Equal(t, agents.DrivingMode(""), res.Driving)
 	})
@@ -319,7 +320,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
 			"dev": {LLM: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingOneshot},
 		})
-		res, err := ResolveAgent(context.Background(), cfg, "dev", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
 		require.NoError(t, err)
 		assert.Equal(t, agents.DrivingOneshot, res.Driving)
 	})
@@ -328,7 +329,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
 			"dev": {LLM: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingMode("bogus")},
 		})
-		_, err := ResolveAgent(context.Background(), cfg, "dev", "")
+		_, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "dev", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bogus")
 	})
@@ -338,7 +339,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 func TestResolveAgent_NotFound(t *testing.T) {
 	root := t.TempDir()
 	cfg := agentTestConfig(root, nil)
-	_, err := ResolveAgent(context.Background(), cfg, "nope", "")
+	_, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "nope", "")
 	assert.Error(t, err)
 }
 
@@ -382,6 +383,6 @@ func TestAgent_Ungated(t *testing.T) {
 	})
 
 	// Ungated: resolves with no trust setup whatsoever.
-	_, err := ResolveAgent(context.Background(), cfg, "reviewer", "")
+	_, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "reviewer", "")
 	require.NoError(t, err)
 }

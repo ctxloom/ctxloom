@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // TestApplyHooksDryRunWritesNothing pins the dry-run posture against a real
@@ -44,7 +45,7 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 	t.Run("control: a real apply writes the settings file", func(t *testing.T) {
 		fs, loader := newFixture(t)
 
-		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
 			FS:      fs,
 			Cfg:     loaded(t, loader),
@@ -61,7 +62,7 @@ func TestApplyHooksDryRunWritesNothing(t *testing.T) {
 	t.Run("dry run writes nothing", func(t *testing.T) {
 		fs, loader := newFixture(t)
 
-		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+		_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 			Backend: "claude-code",
 			FS:      fs,
 			Cfg:     loaded(t, loader),
@@ -99,7 +100,7 @@ func TestApplyHooksDryRunLeavesExistingSettingsByteIdentical(t *testing.T) {
 		}, config.Fixture{}), nil
 	}
 
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend: "claude-code",
 		FS:      fs,
 		Cfg:     loaded(t, loader),

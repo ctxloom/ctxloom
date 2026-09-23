@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/spf13/afero"
@@ -46,7 +47,7 @@ fragments:
 func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 	cfg, target := materializeFixture(t, "MATERIALIZED-CONTENT")
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"},
 		Target:   target,
 	})
@@ -80,7 +81,7 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	// share.
 	pkg, err := AssemblePackage(context.Background(), cfg, PackageRequest{Profiles: []string{"reviewer"}})
 	require.NoError(t, err)
-	engineExports, err := ExportsFor(pkg, "claude-code")
+	engineExports, err := ExportsFor(engines.Registry(), pkg, "claude-code")
 	require.NoError(t, err)
 	exports := CommandExportsOf(engineExports)
 	var seeded bool
@@ -97,7 +98,7 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 	}
 	require.True(t, seeded, "precondition: the discover builtin command must be among the exports")
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -112,7 +113,7 @@ func TestMaterializeProfile_KeepsHomeShadowedCommand(t *testing.T) {
 // than materialized under a backend the caller did not name.
 func TestMaterializeProfile_RefusesARetiredShortSpelling(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
-	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target, Backend: "claude",
 	})
 	require.Error(t, err)
@@ -126,12 +127,12 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 	cfg, target := materializeFixture(t, "ONCE")
 
 	req := MaterializeProfileRequest{Profiles: []string{"reviewer"}, Target: target}
-	_, err := MaterializeProfile(context.Background(), cfg, req)
+	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, req)
 	require.NoError(t, err)
 	first, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
 	require.NoError(t, err)
 
-	_, err = MaterializeProfile(context.Background(), cfg, req)
+	_, err = MaterializeProfile(context.Background(), engines.Registry(), cfg, req)
 	require.NoError(t, err)
 	second, err := os.ReadFile(filepath.Join(target, "CLAUDE.md"))
 	require.NoError(t, err)
@@ -149,7 +150,7 @@ func TestMaterializeProfile_ExportsCtxloomsOwnMCPServer(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 	cfg = withCtxloomLoadout(t, cfg)
 
-	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	_, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -200,7 +201,7 @@ func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
 func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target, Backend: config.BackendMockLossy,
 	})
 	require.NoError(t, err, "the loss is REPORTED, not fatal: the rest of the tree is still worth having")
@@ -224,7 +225,7 @@ func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
 func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.T) {
 	cfg, target := materializeHookFixture(t)
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target, Backend: "claude-code",
 	})
 	require.NoError(t, err)
@@ -244,7 +245,7 @@ func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.
 func TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
 	cfg, target := materializeFixture(t, "NO-HOOKS")
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"}, Target: target, Backend: "mock",
 	})
 	require.NoError(t, err)
@@ -285,7 +286,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"skilled"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -331,7 +332,7 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	cfg := withCtxloomLoadout(t, gatedFixture(config.Fixture{AppPaths: []string{appDir}}))
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"skilled"}, Target: target, Backend: "mock",
 	})
 	require.NoError(t, err)
@@ -363,18 +364,18 @@ func TestMaterializeProfile_Validation(t *testing.T) {
 	ctx := context.Background()
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
-	_, err := MaterializeProfile(ctx, cfg, MaterializeProfileRequest{Profiles: []string{"p"}})
+	_, err := MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{Profiles: []string{"p"}})
 	assert.Error(t, err, "missing target is rejected")
 
-	_, err = MaterializeProfile(ctx, cfg, MaterializeProfileRequest{Target: t.TempDir()})
+	_, err = MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{Target: t.TempDir()})
 	assert.Error(t, err, "missing profiles is rejected")
 
-	_, err = MaterializeProfile(ctx, cfg, MaterializeProfileRequest{
+	_, err = MaterializeProfile(ctx, engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"p"}, Target: t.TempDir(), Backend: "bogus",
 	})
 	assert.Error(t, err, "unknown backend is rejected")
 
-	_, err = MaterializeProfile(ctx, nil, MaterializeProfileRequest{
+	_, err = MaterializeProfile(ctx, engines.Registry(), nil, MaterializeProfileRequest{
 		Profiles: []string{"p"}, Target: t.TempDir(),
 	})
 	assert.Error(t, err, "nil config is rejected")
@@ -390,7 +391,7 @@ func TestMaterializeProfile_Validation(t *testing.T) {
 func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
 
-	got, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+	got, err := resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
 		Target: t.TempDir(), Profiles: []string{"p"}, Backend: "claude-code",
 	})
 	require.NoError(t, err)
@@ -398,7 +399,7 @@ func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 
 	for _, spelling := range []string{"claude", "claudecode", "CLAUDE", "Claude-Code"} {
 		t.Run(spelling, func(t *testing.T) {
-			_, err := resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+			_, err := resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
 				Target: t.TempDir(), Profiles: []string{"p"}, Backend: spelling,
 			})
 			require.Error(t, err, "%q is not a registered backend name and must be refused", spelling)
@@ -409,12 +410,12 @@ func TestResolveMaterializeTarget_AcceptsOnlyTheRegisteredName(t *testing.T) {
 	// The empty request still means the default, which must itself be a
 	// registered name — an unregistered default would make every unqualified
 	// materialize report a name no registry key matches.
-	got, err = resolveMaterializeTarget(cfg, MaterializeProfileRequest{
+	got, err = resolveMaterializeTarget(engines.Registry(), cfg, MaterializeProfileRequest{
 		Target: t.TempDir(), Profiles: []string{"p"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, DefaultMaterializeBackend, got, "an unspecified backend means the default")
-	assert.True(t, EngineExists(DefaultMaterializeBackend), "the default backend constant must itself be a registered name")
+	assert.True(t, EngineExists(engines.Registry(), DefaultMaterializeBackend), "the default backend constant must itself be a registered name")
 }
 
 // A premise-withheld fragment must be REPORTED, not silently dropped.
@@ -455,7 +456,7 @@ func TestMaterializeProfile_ReportsAFragmentWithheldByItsPremise(t *testing.T) {
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"premised"}, Target: target,
 	})
 	require.NoError(t, err)
@@ -511,7 +512,7 @@ func TestMaterializeProfile_NoSkillsEngineDumpsAPremisedFragmentIntoContext(t *t
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	target := t.TempDir()
 
-	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+	res, err := MaterializeProfile(context.Background(), engines.Registry(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"premised2"}, Target: target, Backend: "mock-noskills",
 	})
 	require.NoError(t, err)

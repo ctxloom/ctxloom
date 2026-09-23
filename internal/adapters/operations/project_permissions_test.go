@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/engines"
 )
 
 // The project-default posture (config.yaml's top-level `permissions:`) is a rung
@@ -57,7 +58,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"blank": {LLM: "fast", Profiles: []string{"p1"}},
 		}, nil)
 
-		res, err := ResolveAgent(context.Background(), cfg, "blank", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "blank", "")
 		require.NoError(t, err)
 		assert.Equal(t, "plan", res.EffectivePermissions,
 			"an agent declaring no posture, on an engine whose label declares none either, must take the project default")
@@ -68,7 +69,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"careful": {LLM: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
 		}, nil)
 
-		res, err := ResolveAgent(context.Background(), cfg, "careful", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "careful", "")
 		require.NoError(t, err)
 		assert.Equal(t, "plan", res.EffectivePermissions,
 			"a binding that declared plan must not be widened to the project's bypass")
@@ -81,7 +82,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"careful": {Type: "mock", Permissions: "plan"},
 		})
 
-		res, err := ResolveAgent(context.Background(), cfg, "blank", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "blank", "")
 		require.NoError(t, err)
 		assert.Equal(t, "plan", res.EffectivePermissions,
 			"the engine label's declared plan is nearer than the project default")
@@ -92,7 +93,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"blank": {LLM: "primary", Profiles: []string{"p1"}},
 		}, nil)
 
-		res, err := ResolveAgent(context.Background(), cfg, "blank", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "blank", "")
 		require.NoError(t, err)
 		assert.Equal(t, "plan", res.EffectivePermissions,
 			"the host default stands in for a posture NOBODY stated; a project that stated one has answered it")
@@ -103,7 +104,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"blank": {LLM: "primary", Profiles: []string{"p1"}},
 		}, nil)
 
-		res, err := ResolveAgent(context.Background(), cfg, "blank", "")
+		res, err := ResolveAgent(context.Background(), engines.Registry(), cfg, "blank", "")
 		require.NoError(t, err)
 		assert.Equal(t, "acceptEdits", res.EffectivePermissions,
 			"a project that declared nothing falls through to the engine's declared host default")

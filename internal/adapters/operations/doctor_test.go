@@ -29,6 +29,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -55,7 +56,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 	testsupport.Isolate(t)
 	root = t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
-	_, err := InitializeProject(context.Background(), InitializeProjectRequest{
+	_, err := InitializeProject(context.Background(), engines.Registry(), InitializeProjectRequest{
 		AppDir: appDir, Engine: engine,
 	})
 	require.NoError(t, err)
@@ -80,7 +81,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Cfg: cfg, Backend: backend, WorkDir: root, RegenerateContext: true,
 	})
 	require.NoError(t, err)
@@ -115,7 +116,7 @@ func TestDoctorCheckDeps_RightState_GitPresentIsEnumeratedInOK(t *testing.T) {
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir)
-	check := doctorCheckDeps(&config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{})
 	// docker/podman availability (isolation.Docker{}.Available()) does more
 	// than a PATH lookup, so this may still warn about the container runtime
 	// on some hosts; what this test pins down is that git is bucketed with
@@ -133,7 +134,7 @@ func TestDoctorCheckDeps_WrongState_GitMissing(t *testing.T) {
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir) // deliberately no git on this PATH
-	check := doctorCheckDeps(&config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{})
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "git", "a missing git must be named, not silently absorbed into a generic failure")
 	assert.Contains(t, check.Detail, "required", "a missing git must be reported in the REQUIRED bucket, not lumped with recommended")
@@ -156,7 +157,7 @@ func TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired(t 
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir) // deliberately no ssh-keygen
-	check := doctorCheckDeps(&config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{})
 	if check.Status == DoctorOK {
 		// A host without a real docker/podman daemon can still warn on the
 		// container runtime alone; skip only if ssh-keygen genuinely wasn't
@@ -178,7 +179,7 @@ func TestDoctorCheckDeps_RightState_AllPresent_DoesNotClaimSigningNeedsThem(t *t
 		writeFakeExecutable(t, dir, bin)
 	}
 	t.Setenv("PATH", dir)
-	check := doctorCheckDeps(&config.Config{})
+	check := doctorCheckDeps(engines.Registry(), &config.Config{})
 	if check.Status != DoctorOK {
 		t.Skip("container runtime unexpectedly unavailable on this host; the all-present ok Detail wording is exercised only on the ok path")
 	}
@@ -322,7 +323,7 @@ func TestDoctorCheckGitIdentity_WrongState_BlankValueTreatedAsUnset(t *testing.T
 
 func TestDoctorCheckAgents_RightState(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
-	check := doctorCheckAgents(context.Background(), cfg, nil)
+	check := doctorCheckAgents(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "default")
 }
@@ -333,7 +334,7 @@ func TestDoctorCheckAgents_WrongState_EmptyRoster(t *testing.T) {
 	f.Agents = map[string]agents.Agent{}
 	cfg = config.NewFixture(f)
 
-	check := doctorCheckAgents(context.Background(), cfg, nil)
+	check := doctorCheckAgents(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status, "an empty roster is an incomplete setup postcondition, not a neutral fact")
 	assert.Contains(t, check.Detail, "no agents configured")
 }
@@ -345,7 +346,7 @@ func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
 		"broken": {Name: "broken", LLM: "claude-code", Profiles: []string{"does-not-exist"}},
 	}
 	cfg = config.NewFixture(f)
-	check := doctorCheckAgents(context.Background(), cfg, nil)
+	check := doctorCheckAgents(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorWarn, check.Status)
 	assert.Contains(t, check.Detail, "broken")
 }
@@ -436,7 +437,7 @@ func TestDoctorCheckHooksTrust_RightState(t *testing.T) {
 	applyHooksHermetically(t, cfg, root, "claude-code")
 	t.Chdir(root) // HarnessStatus's default WorkDir path resolves off cwd
 
-	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
+	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "also registered in the project (the explicit `manage hooks install` door) for: claude-code")
 }
@@ -449,7 +450,7 @@ func TestDoctorCheckHooksTrust_SessionDelivery_IsTheHealthyDefault(t *testing.T)
 	root, cfg := setupProject(t, "claude-code")
 	t.Chdir(root) // no ApplyHooks call: nothing project-side
 
-	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
+	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status)
 	assert.Contains(t, check.Detail, "delivered per session")
 	assert.Contains(t, check.Detail, "claude-code")
@@ -461,7 +462,7 @@ func TestDoctorCheckHooksTrust_NoEnginesConfigured(t *testing.T) {
 	f := cfg.ToFixture()
 	f.Agents = map[string]agents.Agent{}
 	cfg = config.NewFixture(f)
-	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
+	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
 	assert.Equal(t, DoctorOK, check.Status, "nothing configured to check hooks for is not itself a failure")
 	assert.Contains(t, check.Detail, "no engine is configured to check")
 }
@@ -774,7 +775,7 @@ func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing
 	// No configured agents: the hooks half short-circuits, isolating the trust half.
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 
-	check := doctorCheckHooksTrust(context.Background(), cfg, nil)
+	check := doctorCheckHooksTrust(context.Background(), engines.Registry(), cfg, nil)
 
 	assert.Equal(t, DoctorWarn, check.Status,
 		"a trust store the loader could not fully read must not report ok")
@@ -839,7 +840,7 @@ func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *te
 	}
 	t.Setenv("PATH", dir) // no docker, no podman
 
-	check := doctorCheckDeps(config.NewFixture(config.Fixture{
+	check := doctorCheckDeps(engines.Registry(), config.NewFixture(config.Fixture{
 		Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: "host"}},
 	}))
 
@@ -863,7 +864,7 @@ func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
 			}
 			t.Setenv("PATH", dir) // no docker, no podman
 
-			check := doctorCheckDeps(config.NewFixture(config.Fixture{
+			check := doctorCheckDeps(engines.Registry(), config.NewFixture(config.Fixture{
 				Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: mode}},
 			}))
 

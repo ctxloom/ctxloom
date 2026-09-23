@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -62,7 +63,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 	testsupport.Isolate(t)
 	root = t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")
-	_, err := operations.InitializeProject(context.Background(), operations.InitializeProjectRequest{
+	_, err := operations.InitializeProject(context.Background(), engines.Registry(), operations.InitializeProjectRequest{
 		AppDir: appDir, Engine: engine,
 	})
 	require.NoError(t, err)
@@ -87,7 +88,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		Cfg: cfg, Backend: backend, WorkDir: root, RegenerateContext: true,
 	})
 	require.NoError(t, err)
@@ -473,7 +474,7 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyAndGitIdentity(t *testing.T) {
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		Cfg: cfg, Backend: "claude-code", WorkDir: root,
 	})
 	require.NoError(t, err)
@@ -513,7 +514,7 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 // write hidden behind either branch would still be caught).
 func TestDoctorCmd_ReadOnly(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
+	_, err := operations.ApplyHooks(context.Background(), engines.Registry(), operations.ApplyHooksRequest{
 		Cfg: cfg, Backend: "claude-code", WorkDir: root,
 	})
 	require.NoError(t, err)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport/bundletree"
 
 	"github.com/stretchr/testify/assert"
@@ -93,7 +94,7 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	cfg := fixtureConfig(tmpDir)
 	mockLoader := func() (*config.Config, error) { return cfg, nil }
 
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), engines.Registry(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		Cfg:               loaded(t, mockLoader),

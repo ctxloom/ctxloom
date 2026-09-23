@@ -30,6 +30,9 @@ type fakeSpawner struct {
 	agents   map[string]fakeAgent // agent name → resolved plan bits
 	resolved []string
 	assigned []string
+	// identities records each ResolveLaunch's start.Identity, in call order:
+	// what the child's engine env is stamped from.
+	identities []Identity
 	// sessionsEnded records each MarkSessionEnded call's harp, in call order.
 	sessionsEnded []string
 	// launchErr, when set, fails every legacy Launch with it — a child that
@@ -224,6 +227,7 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 		env[sessions.EnvProjectID] = start.Identity.Project
 	}
 	s.mu.Lock()
+	s.identities = append(s.identities, start.Identity)
 	s.perms = append(s.perms, perm)
 	s.workspaces = append(s.workspaces, plan.Workspace)
 	s.dirtyTreeHandlers = append(s.dirtyTreeHandlers, plan.DirtyTreeHandler)

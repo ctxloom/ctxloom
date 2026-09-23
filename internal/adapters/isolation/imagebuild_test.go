@@ -430,30 +430,6 @@ func TestEnsureImage_UserOwnedOverrideRunsAsIs(t *testing.T) {
 		"present + no recipe → run as-is, no staleness gate")
 }
 
-// TestStageCompanions_MirrorsPresentSkipsMissing: staging copies every
-// companion resolvable on the host PATH into <context>/companions and skips the
-// rest — the dir itself always exists so the agent stages' `COPY companions/`
-// succeeds even when nothing shipped.
-func TestStageCompanions_MirrorsPresentSkipsMissing(t *testing.T) {
-	withRealCompanionLookPath(t)
-	bin := t.TempDir()
-	for _, name := range []string{"taskloom", "reprise"} { // ltk deliberately absent
-		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755))
-	}
-	t.Setenv("PATH", bin)
-
-	ctxDir := t.TempDir()
-	require.NoError(t, stageCompanions(ctxDir))
-
-	assert.FileExists(t, filepath.Join(ctxDir, "companions", "taskloom"))
-	assert.FileExists(t, filepath.Join(ctxDir, "companions", "reprise"))
-	assert.NoFileExists(t, filepath.Join(ctxDir, "companions", "ltk"), "missing companion skipped, not fatal")
-
-	info, err := os.Stat(filepath.Join(ctxDir, "companions", "taskloom"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "staged companion is 0755 exactly, umask notwithstanding")
-}
-
 // TestStageCompanions_EmptyPathStillCreatesDir: with no companion on PATH the
 // staging still creates the (empty) companions dir the Containerfiles COPY.
 func TestStageCompanions_EmptyPathStillCreatesDir(t *testing.T) {

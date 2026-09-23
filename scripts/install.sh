@@ -179,24 +179,25 @@ fetch_file() {
 }
 
 # verify_checksum <archive-path> <archive-name> <checksums-file>
-# Verifies the archive against the release's checksums.txt. Returns non-zero
-# (with a logged error) on mismatch; missing tooling degrades to a warning —
-# integrity check, not a substitute for reading this script.
+# Verifies the archive against the release's checksums.txt. FAILS CLOSED:
+# returns non-zero (with a logged error) on a mismatch, on a missing entry,
+# and when no sha256 tool exists — an archive nobody verified is not installed.
 verify_checksum() {
     local archive_path="$1" archive_name="$2" checksums="$3"
     local expected actual
-    expected=$(grep "  ${archive_name}\$" "${checksums}" | awk '{print $1}' | head -1)
+    expected=$(awk -v name="${archive_name}" '$2 == name { print $1; exit }' "${checksums}")
     if [[ -z "${expected}" ]]; then
-        log_warn "No checksum entry for ${archive_name}; skipping verification"
-        return 0
+        log_error "checksums.txt has no entry for ${archive_name}; refusing to install an unverified archive"
+        return 1
     fi
     if command_exists sha256sum; then
         actual=$(sha256sum "${archive_path}" | awk '{print $1}')
     elif command_exists shasum; then
         actual=$(shasum -a 256 "${archive_path}" | awk '{print $1}')
     else
-        log_warn "sha256sum/shasum not found; skipping checksum verification"
-        return 0
+        log_error "Neither sha256sum nor shasum is installed; cannot verify ${archive_name}"
+        log_error "  install one (coreutils or perl) and rerun"
+        return 1
     fi
     if [[ "${expected}" != "${actual}" ]]; then
         log_error "Checksum mismatch for ${archive_name}"
@@ -274,12 +275,12 @@ download_and_install() {
     log_success "Downloaded"
 
     # Verify against the release's checksums.txt (trust, but verify)
-    if fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
-        verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt" || exit 1
-        log_success "Checksum verified"
-    else
-        log_warn "Could not fetch checksums.txt; skipping verification"
+    if ! fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+        log_error "Could not fetch checksums.txt for v${version}; refusing to install an unverified archive"
+        exit 1
     fi
+    verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt" || exit 1
+    log_success "Checksum verified"
 
     log_info "Extracting..."
 
@@ -356,13 +357,13 @@ install_companion() {
         rm_temp; return 0
     fi
 
-    if fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
-        if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
-            log_warn "${binary}: checksum mismatch; NOT installing"
-            rm_temp; return 0
-        fi
-    else
-        log_warn "${binary}: could not fetch checksums.txt; skipping verification"
+    if ! fetch_file "${DOWNLOAD_BASE}/v${version}/checksums.txt" "${temp_dir}/checksums.txt"; then
+        log_warn "${binary}: could not fetch checksums.txt; NOT installing an unverified archive"
+        rm_temp; return 0
+    fi
+    if ! verify_checksum "${temp_dir}/${archive_name}" "${archive_name}" "${temp_dir}/checksums.txt"; then
+        log_warn "${binary}: checksum verification failed; NOT installing"
+        rm_temp; return 0
     fi
 
     if ! tar -xzf "${temp_dir}/${archive_name}" -C "${temp_dir}"; then

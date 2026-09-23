@@ -94,13 +94,13 @@ the executable bit, which the install script sets.
 ## Verifying what you run
 
 Every release publishes `checksums.txt`. What the install scripts do with it
-differs by platform, and neither one fails closed:
+differs by platform:
 
-- **`install.sh`** fetches `checksums.txt` and verifies each archive against it.
-  A genuine **mismatch aborts the install**. But verification *degrades* rather
-  than failing: if `checksums.txt` can't be fetched, if it has no entry for the
-  archive, or if neither `sha256sum` nor `shasum` is on the box, the script logs
-  a warning and installs anyway. Watch for that warning.
+- **`install.sh`** fetches `checksums.txt` and verifies each archive against it,
+  and **fails closed**: a mismatch, a `checksums.txt` that can't be fetched, one
+  with no entry for the archive, or a box with neither `sha256sum` nor `shasum`
+  all stop the `ctxloom` install. A companion that fails verification is not
+  installed; `ctxloom` itself still is.
 - **`install.ps1`** does **not verify the `ctxloom` archive at all** — it
   downloads, extracts, and installs it with no hash check. Checksum verification
   on Windows exists only for the companions (`taskloom`, `ltk`), and a mismatch

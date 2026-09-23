@@ -177,6 +177,7 @@ func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, e
 	}
 	appDir, source := s.target(fs)
 	b := config.NewBuilder(fs, injectedFS, appDir, source)
+	b.BindProfileResolvers(profileResolvers(fs, appDir))
 	if s.validatorErr != nil {
 		// A schema-compile failure means every config in this process loads
 		// with ZERO validation and every override is reclassified from
@@ -195,6 +196,30 @@ func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, e
 	}
 	cfg := b.Build()
 	return cfg, cfg.GetWarnings(), nil
+}
+
+// profileResolvers opens the remotes registry under appDir once for the read
+// and returns its two profile lookups: local profile name → short remote, and
+// remote alias → repository URL. Both are nil when the registry cannot be
+// read, which the profile loader treats as "no registry" (names and refs are
+// read verbatim).
+func profileResolvers(fs afero.Fs, appDir string) (remoteOf, urlOf func(string) string) {
+	registry, err := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	if err != nil {
+		return nil, nil
+	}
+	remoteOf = func(name string) string {
+		short, _ := registry.ResolveItemRemote(name)
+		return short
+	}
+	urlOf = func(alias string) string {
+		rem, err := registry.Get(alias)
+		if err != nil || rem == nil {
+			return ""
+		}
+		return rem.URL
+	}
+	return remoteOf, urlOf
 }
 
 // target is the bootstrap stage: WHICH .ctxloom directory this read layers

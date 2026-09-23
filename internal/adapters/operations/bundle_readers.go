@@ -20,15 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// registryFSOptions threads the config's injected filesystem into a remote
-// registry constructor; empty for the OS default.
-func registryFSOptions(cfg *config.Config) []remote.RegistryOption {
-	if fs := cfg.FS(); fs != nil {
-		return []remote.RegistryOption{remote.WithRegistryFS(fs)}
-	}
-	return nil
-}
-
 // lockfileFSOptions threads the config's injected filesystem into a remote
 // lockfile manager so lockfile reads honor it alongside the registry reads.
 func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
@@ -213,7 +204,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	}
 	baseDir := cfg.GetAppPaths()[0]
 
-	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), registryFSOptions(cfg)...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(cfg.FS()))
 	if err != nil {
 		// A real error here (corrupt remotes.yaml, unreadable dir) is not "no
 		// remotes registered" — the doc comment's nil-return case above — so it

@@ -284,6 +284,13 @@ type Config struct {
 	catalog         func() bundles.Catalog
 	versionResolver bundles.BundleVersionResolver
 
+	// profileRemote and profileRemoteURL are the generation's remotes
+	// registry lookups, attached by the reader (Builder.BindProfileResolvers)
+	// because the registry is an adapter's file. Nil for a Config no reader
+	// built: no registry, so profile names and refs are read verbatim.
+	profileRemote    func(string) string
+	profileRemoteURL func(string) string
+
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
 	// still match it: the overlay is a runtime fallback, and persisting it
@@ -1082,53 +1089,23 @@ func (c *Config) FS() afero.Fs {
 	return c.fs
 }
 
-// registryFSOptions threads the injected filesystem into a remote registry
-// constructor (matching the resolvers below). Empty for the OS default.
-func (c *Config) registryFSOptions() []remote.RegistryOption {
-	if c.fs != nil {
-		return []remote.RegistryOption{remote.WithRegistryFS(c.fs)}
-	}
-	return nil
-}
-
-// ProfileRemoteResolver returns a function mapping a profile's local name to the
-// short remote it was installed from, backed by the remotes registry. Nil when no
-// registry is available (the loader then reads profiles verbatim). Exposed so
-// other profile-loader factories (e.g. operations) wire the same qualification.
+// ProfileRemoteResolver maps a profile's local name to the short remote it was
+// installed from. The reader binds it once per generation from the remotes
+// registry (Builder.BindProfileResolvers); nil when no registry was bound — a
+// fixture, or an unreadable registry — and the loader then reads profiles
+// verbatim. Exposed so other profile-loader factories (e.g. operations) wire
+// the same qualification.
 func (c *Config) ProfileRemoteResolver() func(string) string {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.appPaths[0]), c.registryFSOptions()...)
-	if err != nil {
-		return nil
-	}
-	return func(name string) string {
-		short, _ := registry.ResolveItemRemote(name)
-		return short
-	}
+	return c.profileRemote
 }
 
-// ProfileRemoteURLResolver returns a function mapping a remote alias to its
-// canonical repo URL, backed by the remotes registry. Paired with
-// ProfileRemoteResolver, it lets the profile loader rewrite a legacy profile's
-// bare/alias bundle refs to their canonical URL form on load. Nil when no
-// registry is available (the loader then reads bundle refs verbatim).
+// ProfileRemoteURLResolver maps a remote alias to its canonical repo URL, bound
+// beside ProfileRemoteResolver from the same registry. It lets the profile
+// loader rewrite a legacy profile's bare/alias bundle refs to their canonical
+// URL form on load; nil when no registry was bound (bundle refs are then read
+// verbatim).
 func (c *Config) ProfileRemoteURLResolver() func(string) string {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.appPaths[0]), c.registryFSOptions()...)
-	if err != nil {
-		return nil
-	}
-	return func(alias string) string {
-		rem, err := registry.Get(alias)
-		if err != nil || rem == nil {
-			return ""
-		}
-		return rem.URL
-	}
+	return c.profileRemoteURL
 }
 
 // ParseConfig unmarshals raw YAML into a Config WITHOUT overlaying the embedded

@@ -270,6 +270,20 @@ func (m *MemStore) MarkPurged(harpName string, at time.Time) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
+// RecordOrigin stamps Origin on the named entry, matching
+// *Manager.RecordOrigin.
+func (m *MemStore) RecordOrigin(harpName string, o Origin) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName == harpName {
+			m.sessions[i].Origin = o
+			return nil
+		}
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
+}
+
 // RecordEngineVersion stamps EngineVersion on the named entry, matching
 // *Manager.RecordEngineVersion — including its empty-version no-op, which is
 // the behaviour that keeps "probe failed" distinguishable from "recorded as

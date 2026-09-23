@@ -112,34 +112,38 @@ git commit -m "Update ctxloom configuration"
 
 ```bash
 mkdir team-ctxloom && cd team-ctxloom
-mkdir -p ctxloom/bundles
+mkdir -p .ctxloom/content/bundles/v2/team-standards/fragments
+mkdir -p .ctxloom/content/bundles/v2/team-standards/profiles
 ```
+
+A published bundle is a directory tree with one file per item (see
+[Sharing Bundles](/guides/sharing/) for the full layout).
 
 2. **Add team standards**:
 
 ```yaml
-# ctxloom/bundles/team-standards.yaml
-version: "1.0"
+# .ctxloom/content/bundles/v2/team-standards/bundle.yaml
+version: 1.0.0
 description: Team coding standards
-fragments:
-  code-style:
-    content: |
-      # Team Code Style
-      - Use gofmt for all Go code
-      - 100 character line limit
-      - Descriptive variable names
 ```
 
-3. **Create team profile** (profiles ship inside a bundle's `profiles:` map):
+`.ctxloom/content/bundles/v2/team-standards/fragments/code-style.md`:
+
+```markdown
+# Team Code Style
+- Use gofmt for all Go code
+- 100 character line limit
+- Descriptive variable names
+```
+
+3. **Create team profile** (profiles ship inside a bundle's `profiles/` directory):
 
 ```yaml
-# ctxloom/bundles/team-standards.yaml (continued)
-profiles:
-  team-developer:
-    description: Standard team development environment
-    bundles:
-      - team-standards
-      - security-basics
+# .ctxloom/content/bundles/v2/team-standards/profiles/team-developer.yaml
+description: Standard team development environment
+bundles:
+  - team-standards
+  - security-basics
 ```
 
 4. **Publish**:
@@ -170,8 +174,9 @@ ctxloom review
 ctxloom run -p my-dev "help with code"
 ```
 
-If your team signs its bundles and everyone trusts the team's signing key
-(`ctxloom signer trust context@myorg.example --key team-publish.pub`), the review
+If your team signs its bundles and everyone trusts the team's SSH signing key
+(`ctxloom signer trust context@myorg.example --key team-publish.pub`; ctxloom
+signatures are SSH signatures verified against `allowed_signers`, never GPG), the review
 step is unnecessary: content from a trusted signer is exempt from the gate. Trust
 is anchored to the key, not to the remote's URL.
 
@@ -204,7 +209,7 @@ contributes nothing.
 Create a bundle specific to your project:
 
 ```yaml
-# .ctxloom/content/bundles/project-specific.yaml
+# .ctxloom/content/bundles/v2/project-specific.yaml
 version: "1.0"
 description: Project-specific context
 

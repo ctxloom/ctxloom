@@ -22,7 +22,7 @@ A bundle is one YAML document. These are all the keys it may carry:
 | `installation` | Setup instructions, shown to a human on install | Nothing on its own |
 | `fragments` | Prose injected into agent context | **Tier 3** — instructions to an LLM holding your shell |
 | `commands` | Prose invoked on demand; exportable as slash commands | **Tier 3** |
-| `mcp` | MCP server declarations | **Tier 2** — a binary is launched |
+| `mcp` | MCP server declarations | **Tier 2** — a binary is launched, or a network endpoint is dialed |
 | `hooks` | Lifecycle hooks | **Tier 1** — a shell command line the harness runs |
 | `skills` | Agent Skill packages (a directory of files, not inline text) | **Tier 3, with real files on disk** — see below |
 | `profiles` | Composition units (which items load together) | Not gated as a definition — see below |
@@ -78,12 +78,15 @@ fails safe (more review, never more exposure), but it is a known coarseness; see
 | `command` | **The binary that is launched** |
 | `args` | Arguments, in order |
 | `env` | Environment handed to it |
+| `url` | **The endpoint of a network-hosted server**; its scheme names the transport |
+| `headers` | HTTP headers sent when dialing `url`, such as `Authorization` |
 | `installation` | Setup instructions |
+| `tags`, `served_by` | Routing, evaluated by ctxloom; never executed |
 | `notes` | Human-only |
 | `content_hash` | Author-supplied. See below |
 
-Your approval covers `command`, `args`, `env`, and `installation`. `notes` is excluded — it
-is never executed and never sent to the agent. Argument order is significant (reordering
+Your approval covers `command`, `args`, `env`, `url`, `headers` and `installation`. `notes`
+is excluded — it is never executed and never sent to the agent. Argument order is significant (reordering
 `args` is a different server); environment key order is not (the encoding sorts keys).
 
 ## `fragments` and `commands` — the prose
@@ -97,7 +100,7 @@ is never executed and never sent to the agent. Argument order is significant (re
 | `content_hash` | Author-supplied. See below |
 | `tags`, `notes`, `installation` | Metadata; `notes` is human-only |
 | `description` (commands) | One-line summary |
-| `llm` (commands) | Per-harness export settings — how the command becomes a slash command |
+| `exports` (commands) | Per-engine blocks, opaque to ctxloom — each engine decodes its own to decide how the command becomes a slash command |
 
 A command that is exported as a slash command passes the same trust gate as a hook or an MCP
 server, at its own choke: a pending or rejected command is not written out as a command at all.
@@ -121,7 +124,7 @@ mistake the former for the latter.
 |---|---|
 | `path` | Directory relative to the bundle, default `skills/<name>` |
 | `files` | **Generated manifest**: every sibling file's path, sha256, and POSIX mode |
-| `llm` | Per-engine enablement only |
+| `exports` | Per-engine blocks, opaque to ctxloom; the name and description live in `SKILL.md` |
 | `tags`, `notes` | Metadata; `notes` is human-only |
 
 A skill is not inline text like a fragment or command — it is a directory: a required

@@ -79,7 +79,8 @@ type TrustCtx int
 const (
 	TrustCtxUnset TrustCtx = iota
 	// TrustCtxLocal is content that reached this machine without an
-	// intermediary. Signature facts on it are DIAGNOSTICS, not gates.
+	// intermediary. Signature facts on it are DIAGNOSTICS, not gates: a
+	// human with write access placed it, and that placement is the approval.
 	TrustCtxLocal
 	// TrustCtxRemote is content that crossed a network and a forge. Signature
 	// facts on it are the gate's inputs.

@@ -60,9 +60,8 @@ withheld skill's `scripts/` files, executable bit and all, are never delivered t
 until it is reviewed.
 
 **A trusted publisher shipping something bad.** Rejection is evaluated *first*, ahead of
-every allow — including the trusted-publisher exemption and including bundles that shipped
-inside the ctxloom binary itself. Alice can always reject unilaterally, and no signature
-un-rejects anything.
+every allow — including the trusted-publisher exemption and ctxloom's own companion
+loadout. Alice can always reject unilaterally, and no signature un-rejects anything.
 
 **Typosquats and URL variants.** Trust is keyed to the signing **identity**, not to the
 location the bytes arrived from. A fork, a look-alike host, a compromised forge, or a
@@ -72,7 +71,7 @@ is deliberately signed with the ref omitted — so a renamed or moved identical 
 rejected wherever it reappears.
 
 **A corrupted approvals store.** If a store exists but cannot be read, ctxloom does not read
-it as "nothing rejected". It **denies every item** — including local and builtin content —
+it as "nothing rejected". It **denies every item**, local and companion content included,
 and raises a fatal trust-store finding. An unreadable store might be hiding a rejection, and
 silently reopening a gate a human closed is the one failure mode that is not allowed to be
 quiet. (A store that has never been created is fine; that is just a fresh project.)
@@ -103,12 +102,15 @@ updates, unreviewed. Trust a publisher only when you would run anything it publi
 broadly by design. Scope keys with `namespaces=`, keep reviewer keys hardware-backed, and
 remember that a developer can always reject unilaterally.
 
-**ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root is
-unconditionally unioned into every lookup, and `ctxloom signer untrust` only rewrites the
-user or project *file*. There is no negative-entry mechanism. Removing
-`ben+ctxloom@abbitt.me` does **not** stop ctxloom-published bundles from being auto-trusted.
-If you want to review ctxloom's own content by hand, there is currently no supported way to
-ask for that. This is a known gap, not a subtlety.
+**Untrusting ctxloom's own key is a local suppression, not a deletion.** The compiled-in key
+ships in the binary and no command removes it. `ctxloom signer untrust ben+ctxloom@abbitt.me`
+instead writes that principal into a `distrusted_signers` file (the project's by default,
+yours with `--user`), and every trust decision after that is made against a trust root with
+the key subtracted. Bundles whose only credential was that key's signature then go to review
+like any other unsigned content. The suppression does not reach ctxloom's companion loadout,
+which is admitted as companion content and never on its signature. If a `distrusted_signers`
+file exists but cannot be read, ctxloom trusts no embedded key at all rather than guess which
+ones you removed.
 
 **A writable trust root is game over.** An attacker who can append to your `allowed_signers`
 file names their own key as trusted. Nothing downstream can help you.
@@ -150,18 +152,22 @@ rejection still catches identical content.
 distilled forms present *at rejection time*. A moved copy later exposed in a different form,
 under a different ref, can escape the content component in that form.
 
-**Signed bundles only verify over git.** Publisher verification is wired into the remote-git
-seed and the companion loadout, and nowhere else. A signed bundle dropped into a directory
-ctxloom reads is **not verified** — it is either first-party local content or carries no
-signer. An organization cannot yet ship signed context through an MDM-style drop-in. This
-fails safe (unverified content is reviewed), so it is a missing feature rather than a hole,
-but it does not work today.
+**A publisher signature gates only content that travelled.** It decides exposure only for a
+bundle fetched from a remote. A bundle in a local content directory is trusted because of where
+it is: someone with write access to your project or home put it there, and ctxloom treats that
+act as the approval. Its signature is still checked, and one that no longer covers the bytes
+earns the author a warning, but neither result changes whether the content reaches the agent.
+Two things follow. Signing a bundle adds nothing when you distribute it by copying it into
+place (an MDM-style drop-in), because the copy is what gets trusted. And anyone who can write
+to a local content directory decides what your agents read, so protect those directories the
+way you protect the trust root.
 
-**One key signs every ctxloom surface, and the release binaries are not signed at all.** A
-single embedded publish key signs the default bundles and the companion loadouts, so its
-compromise radius is every signed surface at once. The released *binaries* carry no signature
-whatsoever — see [Trusting the Binaries](/getting-started/binary-trust/), which is honest
-about what that costs you.
+**One key signs every ctxloom surface.** A single release key signs the default bundles, the
+companion loadouts and the released binaries, so its compromise radius is every signed surface
+at once. Each release binary ships with a detached `<binary>.sig` in the
+`companion.v1.ctxloom.dev` namespace, and ctxloom refuses to execute a companion whose
+signature does not verify. The binaries carry no Apple or Windows code-signing signature; see
+[Trusting the Binaries](/getting-started/binary-trust/) for what that costs you.
 
 **`$PAGER` runs during review.** Review shells out to your pager, which is user-controlled
 code execution at review time. Acknowledged and accepted, as it is in every tool that pages.
@@ -220,7 +226,14 @@ without that token. The link is cleartext (h2c) in this release, so the bearer c
 unencrypted. For a container child the coordinator binds a container-reachable listener, which
 can fall back to the host's primary outbound interface — visible on the LAN — so on a shared
 network treat that bearer as observable in flight. The container itself opens no listener and
-publishes no port.
+publishes no port. Mutual TLS on the container-reachable listener is planned and not built.
+
+**The host runtime is not a boundary between agents.** Every agent on `runtime: host` runs as
+you. A runner carries its coordinator credential in its process environment
+(`CTXLOOM_COORD_CRED`), and that credential is the agent's identity to the coordinator. Any
+process running as the same user can read another process's environment, so one host-runtime
+agent can read another's credential and speak as that agent. If agents need to be kept apart
+from each other, run them in containers.
 
 **We own the MCP servers we seed. We do not own the ones we did not write.** An MCP
 declaration is not text — a server entry names an executable, and the engine spawns it. So a
@@ -232,30 +245,31 @@ every other bundle item, and if one is malicious that is our failure to have sho
 Entries we did not write are a different matter, and the separation is structural rather than a
 promise:
 
-- For **Claude Code**, ctxloom never writes your project `.mcp.json` at all. It passes its own
-  servers via `--mcp-config`, pointing at an out-of-cwd file, and deliberately omits
-  `--strict-mcp-config` so the engine *layers* ctxloom's set on top of yours instead of
-  replacing it. Your file is untouched because ctxloom never opens it.
+- For **Claude Code**, ctxloom by default does not write your project `.mcp.json`. It writes
+  its own servers to a private file under the session's directory, passes that file with
+  `--mcp-config`, and deliberately omits `--strict-mcp-config` so the engine *layers* ctxloom's
+  set on top of yours instead of replacing it. The exception is the `unsafe-file` MCP approach,
+  which writes the project `.mcp.json` directly; it runs only when selected by name.
 
 Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not
-to us** — and an agent you configured with `permissions: bypass` is launched with that engine's
-skip-permissions flag, which disables it. A bundle-delivered server then starts without a
-prompt. That takes both a publisher you trusted and an agent you deliberately marked bypass, but
-it means `bypass` is broader than "stop asking me about file edits": it also means "run what my
-trusted bundles declare." **And a name ctxloom already claimed stays claimed.** In the ledger
-path, a bundle declaring a name you have *not* used is written and recorded; a bundle declaring a
-name you hand-authored is now skipped with a warning, leaving your entry alone. But that guard is
-forward-looking only. If a name entered the ledger before it existed, ctxloom still treats that
-name as its own on every reconcile — your original definition was overwritten at the time, and a
-ledger records a name, never the content it replaced, so there is nothing left to give back.
-Check the ledger, not the registry, when you want to know what ctxloom believes it owns.
+to us.** An agent running with `permissions: bypass` is launched with Claude Code's
+skip-permissions flag, which disables that gate, and a bundle-delivered server then starts
+without a prompt. Bypass is also what Claude Code gets on the host when nothing declares a
+posture: the engine's declared host default is `bypass` until approval prompts can be routed
+to a human. So all this takes is a publisher you trusted and an agent whose `permissions:` you
+never set. `bypass` covers more than file edits; it also means "run what my trusted bundles
+declare." **And a server name you already use can be displaced.** When ctxloom writes the
+project `.mcp.json`, a bundle server whose name matches an entry you wrote replaces that entry
+for as long as ctxloom declares it. ctxloom records the bytes it replaced and restores them
+when it stops declaring that server or is uninstalled. If you edit an entry ctxloom manages,
+its next write refuses rather than overwrite your edit.
 
 ## The one line we hold
 
 Everything above reduces to a single invariant: **a human sees third-party content —
 including every update to it — before the LLM does.** First-party content is exempt: what you
-authored in this project, what shipped inside the binary, and what a publisher you trust
-signed. Everything else is born pending and withheld.
+authored in this project, what an installed companion binary reports about itself, and what a
+publisher you trust signed. Everything else is born pending and withheld.
 
 We do not claim to know whether a prompt is safe. We claim to know **who wrote it** and
 **that it has not changed** — and to put it in front of you before it reaches the machine

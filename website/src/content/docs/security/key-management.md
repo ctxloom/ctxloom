@@ -58,10 +58,13 @@ it is read verbatim either way.
 
 ```bash
 ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
-ctxloom trust signer list
-ctxloom trust signer show context@acme.com
+ctxloom signer list
+ctxloom signer show context@acme.com
 ctxloom signer untrust context@acme.com
 ```
+
+`signer trust` and `signer untrust` write the project store by default; `--user` writes yours
+instead.
 
 The principal (`context@acme.com`) is just a label. **The key is the trust.**
 
@@ -114,7 +117,7 @@ decision in a shared store would be a forgery primitive with a friendly name.
 
 ## What revocation does and does not reach
 
-Read this section before you rely on `signer remove`.
+Read this section before you rely on `signer untrust`.
 
 **What it reaches.** Removing a key from `~/.ctxloom/allowed_signers` or
 `.ctxloom/allowed_signers` stops that key's signatures counting as trusted on the next load.
@@ -125,12 +128,16 @@ Rejections likewise survive; nothing un-rejects.
 
 **What it does not reach.**
 
-:::danger[The embedded ctxloom key cannot be untrusted]
-ctxloom's compiled-in trust root is **unconditionally unioned into every lookup**, and
-`ctxloom signer untrust` only rewrites the user or project *file*. There is no negative-entry
-mechanism. Running `ctxloom signer untrust ben+ctxloom@abbitt.me` does **not** stop
-ctxloom-published bundles from being auto-trusted. If you want to review ctxloom's own content
-by hand, there is currently no supported way to ask for that.
+:::caution[Untrusting the embedded ctxloom key suppresses it; it cannot delete it]
+The compiled-in key ships in the binary, and no command removes it. Running
+`ctxloom signer untrust ben+ctxloom@abbitt.me` records the principal in a `distrusted_signers`
+file instead (`.ctxloom/distrusted_signers` by default, `~/.ctxloom/distrusted_signers` with
+`--user`), and the trust root is rebuilt without that key on every decision after it. Bundles
+whose only credential was that key's signature go to review. The suppression does not reach
+ctxloom's companion loadout, which is admitted as companion content and never on its
+signature. A `distrusted_signers` file that exists but cannot be read suppresses every
+embedded key, so an I/O error cannot quietly re-trust a key you removed. To trust the key
+again, delete its line from the file.
 :::
 
 **Revocation is local, and it is pull-based.** There is no revocation list, no OCSP, no
@@ -138,10 +145,13 @@ expiry, and no phone-home. Removing a key is an edit to *your* files. It reaches
 developers only if they pull a project `allowed_signers` you changed — and only when they next
 sync. A key compromise is not announced to anyone by this system; you have to tell them.
 
-**One key currently signs every ctxloom surface.** The same embedded publish key signs the
-default bundles and the companion loadouts, so its compromise radius is every signed surface
-at once. And the released binaries are not signed at all — see [Trusting the
-Binaries](/getting-started/binary-trust/).
+**One key currently signs every ctxloom surface.** The same release key signs the default
+bundles, the companion loadouts and the released binaries (a detached `<binary>.sig` in the
+`companion.v1.ctxloom.dev` namespace), so its compromise radius is every signed surface at
+once. The embedded trust root grants that key `publish` only. The `companion` grant that lets
+a signed binary execute is written into the project's `.ctxloom/allowed_signers` by
+`ctxloom init`, where deleting the line withdraws it. The binaries carry no Apple or Windows
+code-signing signature; see [Trusting the Binaries](/getting-started/binary-trust/).
 
 ## Signing is never exposed to the agent
 

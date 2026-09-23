@@ -39,7 +39,10 @@ because stopping it would mean refusing your own "yes." [Agent permissions and t
 ladder](/concepts/agents/#what-an-agent-is) cover the actual knobs — `default`, `acceptEdits`,
 `plan`, `bypass`, and a per-request-kind ladder that can auto-accept, auto-decline, or relay
 upward. Read `bypass` for what it says: skip every prompt. An agent launched that way was never
-going to be stopped by which directory it started in.
+going to be stopped by which directory it started in. It is also what Claude Code runs with on
+the host when no posture is declared anywhere, on the agent or in the project: the engine's
+declared host default is `bypass` until approval prompts can be routed to a human. If you want
+to be asked, set `permissions:` on the agent.
 
 **2. Privilege doesn't care about directories.** An agent running under elevated privilege, or
 one that calls out to a tool that itself runs privileged, isn't contained by a worktree at all.
@@ -84,9 +87,10 @@ expensive in time and complexity" means in practice.
   seconds or thirty minutes.
 - **A credential story you have to solve on purpose.** An isolated engine still has to
   authenticate somehow, and "isolated from the host" and "has the host's credentials" pull in
-  opposite directions. Get this wrong and the failure isn't a security hole — it's an agent
-  that reports "not logged in" and can't do anything at all, which is *correct* behavior for
-  the boundary you built and still something you have to plan for, not discover mid-run.
+  opposite directions. ctxloom hands the container either the engine's API-key environment or
+  its credential files, mounted into the container's fresh home. When it can resolve neither,
+  it refuses to launch rather than start an engine that cannot log in. Plan for that before
+  the run, not during it.
 - **Debugging across a boundary.** When something goes wrong inside a container, "what does
   the filesystem actually look like right now" is no longer a question your host shell answers
   for free.
@@ -104,7 +108,7 @@ choosing one says nothing about the other:
 | Axis | Values | Set where |
 |---|---|---|
 | **Workspace** | `none` \| `worktree` | Per invocation (`run --workspace`, or an `agent_run` spawn's workspace field), or the project's `workspace:` default |
-| **Runtime** | `host` \| `container-rootless` \| `container-rootful` | On the agent (`agent set --runtime`), or the project's `runtime:` default |
+| **Runtime** | `host` \| `container-rootless` \| `container-rootful` | On the agent (`agent create --runtime` or `agent edit --runtime`), or the project's `runtime:` default |
 
 `workspace: worktree` on `runtime: host` gets you an isolated checkout and a shared, negotiated
 engine state. `workspace: none` on `runtime: container-rootless` gets you a contained engine process
@@ -119,6 +123,29 @@ at spawn. It says nothing about the runtime axis, and nothing about the engine's
 or session state, which is exactly the boundary the three vectors above describe. A worktree
 default for delegated children is not a claim that delegated children are sandboxed from your
 engine's global state. It never was, on any path.
+
+## When the container can't be had
+
+A container request is never quietly swapped for something weaker. `container-rootful` is
+served only by a rootful runtime and `container-rootless` only by a rootless one, because the
+two map user IDs differently and a workload can depend on either. If no runtime with the
+requested ownership is reachable, the launch aborts with an isolation finding. `--degraded`
+does not override that finding, and the other ownership mode is never substituted.
+
+A second kind of failure is softer. The runtime is there, but the container cannot start: no
+agent image and none it can build, no engine credentials to hand it, or session state it
+cannot prepare. That is fatal by default too. Under `--degraded` the run falls back to the
+host with its configured permission posture, and ctxloom prints a warning saying so. Read
+`--degraded` on a container agent as "run it unsandboxed if you have to".
+
+## The host runtime is not a boundary between agents
+
+Every agent on `runtime: host` runs as you. A runner carries its coordinator credential in its
+process environment, and that credential is the agent's identity to the coordinator. Any
+process running as the same user can read another process's environment, so one host-runtime
+agent can read another's credential and act as that agent. A worktree does nothing about this;
+it separates checkouts, not processes. Containers do, because the runtime enforces the
+separation rather than asking each engine to respect it.
 
 ## Delegating into a dirty tree
 
@@ -138,8 +165,7 @@ Four options:
 - **`copy`**. The worktree is carved at HEAD as usual, then your uncommitted changes — tracked
   and untracked both — are reproduced *inside it* as uncommitted WIP. The child sees the same
   content `commit` would have shown it; your branch is never touched, and nothing durable is
-  created beyond that one worktree. Not available when the agent has no structured-chat backend
-  and runs the per-turn oneshot fallback, which tears its worktree down every turn anyway.
+  created beyond that one worktree.
 - **`stale`**. The child spawns against committed state only. ctxloom warns you which files it
   won't see. Cheap and honest, but the child works from whatever you last committed, not what's
   actually on disk right now.
@@ -148,20 +174,22 @@ Four options:
 
 `commit` being the default is why it's the one gated behind more than a config value. A commit
 landing on your branch that you didn't ask for in the moment is the one outcome here worth a
-deliberate yes, so it doesn't fire the first time you hit it: it requires a separate, one-time
-project acknowledgement — `dirty_tree_commit_ack: true` in `.ctxloom/config.yaml` — and until
-that's set, the spawn is refused, naming the exact key to add. That acknowledgement is
-deliberately config-only. It can't be supplied as an `agent_run` call parameter, and it's never
-inferred from anything an agent does — a coordinator agent calling `agent_run` typically has no
-TTY and is often running while you're away, so an agent consenting on your behalf wouldn't be
-your consent. Only a human, editing the file, grants it. Once granted, every individual
-auto-commit still prints a warning naming the branch and the files being touched — the
-acknowledgement authorizes the behavior once, not any single commit silently.
+deliberate yes, so it doesn't fire the first time you hit it. It requires a separate, one-time
+acknowledgement for this checkout, which a human grants with `ctxloom manage commit trust` (or
+by answering yes to the dirty-tree question in `ctxloom init`) and withdraws with
+`ctxloom manage commit untrust`. Until it's granted, the spawn is refused and the refusal names
+that command. The acknowledgement is not a config key. It can't be set from
+`.ctxloom/config.yaml`, an environment variable or an `agent_run` parameter, since an agent can
+reach every one of those. A coordinator agent calling `agent_run` typically has no TTY and is
+often running while you're away, so an agent consenting on your behalf wouldn't be your
+consent. Once granted, every individual auto-commit still prints a warning naming the branch
+and the files being touched: the acknowledgement authorizes the behavior once, not any single
+commit silently.
 
 The handler choice itself is lighter-weight than that acknowledgement: a project default you
 can set in `.ctxloom/config.yaml`, and any `agent_run` call can override it for itself. It's
-only the *permission to commit on your behalf* that's locked to a human editing config —
-picking among the three alternatives that never touch your branch is not.
+only the *permission to commit on your behalf* that's locked to a human running that
+command; picking among the three alternatives that never touch your branch is not.
 
 See the [config reference](/reference/config/#top-level-fields) and [`agent_run`'s
 parameters](/reference/mcp-tools/#agent_run) for the exact keys, values, and precedence.
@@ -173,7 +201,8 @@ changes the trade is what's actually true of the run in front of you:
 
 - **You're at the keyboard, approving as you go.** Every approval prompt worktree isolation
   can't stop is a prompt *you* are answering, in real time. The gap in vector 1 above is
-  smaller when a human is the one being asked.
+  smaller when a human is the one being asked, provided the agent's posture asks at all (see
+  the host default under vector 1).
 - **The run is unattended, or the permission posture is `bypass` or a wide `auto_accept`
   ladder.** Now nobody is at the prompt to catch a request that shouldn't have been granted.
   That's exactly when a directory-only boundary is doing the least work relative to what people

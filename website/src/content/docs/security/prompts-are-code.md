@@ -30,8 +30,8 @@ detail.
 ### Tier 1 — direct and immediate: `hooks`
 
 A bundle hook is a shell command string, a matcher, and a lifecycle event. ctxloom resolves
-it and writes it into your harness's own settings file (`.claude/settings.json` and the
-equivalents), where the harness runs it on every matching tool call:
+it and writes it into your harness's own settings file (`.claude/settings.json` for Claude
+Code), where the harness runs it on every matching tool call:
 
 ```yaml
 hooks:
@@ -110,7 +110,7 @@ It does not hide it.
 **A signature authenticates; it never authorizes.** A trusted publisher can sign something
 harmful, and the signature will verify perfectly. Signed does not mean safe. That is why
 review is a separate axis from signing, and why **rejection beats trust** — you can reject
-an item from a publisher you trust, and even one that shipped inside the binary.
+an item from a publisher you trust, and even ctxloom's own content.
 
 **A key you do not trust is not a credential.** Content signed by a stranger is treated
 exactly like unsigned content: it takes the review path. A signature is not a badge.

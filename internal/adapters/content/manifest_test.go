@@ -53,7 +53,7 @@ func TestBuildManifest_CoversEveryFileExceptItselfAndSigs(t *testing.T) {
 	store, b := openFixtureBundle(t)
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/.sigs/deadbeef.publish.v1.ctxloom.dev.aa.sig", "sig")
 
-	m, err := BuildManifest(context.Background(), b)
+	m, err := BuildManifest(context.Background(), b, fixtureRelease(t))
 	require.NoError(t, err)
 
 	files, err := b.Files(context.Background())
@@ -78,7 +78,7 @@ func TestBuildManifest_CoversEveryFileExceptItselfAndSigs(t *testing.T) {
 
 func TestManifest_RoundTripsThroughBytes(t *testing.T) {
 	_, b := openFixtureBundle(t)
-	m, err := BuildManifest(context.Background(), b)
+	m, err := BuildManifest(context.Background(), b, fixtureRelease(t))
 	require.NoError(t, err)
 
 	back, err := ParseManifest(m.Bytes())
@@ -88,23 +88,23 @@ func TestManifest_RoundTripsThroughBytes(t *testing.T) {
 }
 
 func TestParseManifest_RejectsNonCanonicalAndMalformed(t *testing.T) {
-	good := "# ctxloom-content-digest/1\n" +
+	good := testHeader +
 		strings.Repeat("a", 64) + "  fragments/a.md\n" +
 		strings.Repeat("b", 64) + "  fragments/b.md\n"
 
 	cases := map[string]string{
 		"no version marker": strings.Repeat("a", 64) + "  fragments/a.md\n",
-		"unknown version":   "# ctxloom-content-digest/99\n" + strings.Repeat("a", 64) + "  x.md\n",
-		"out of order": "# ctxloom-content-digest/1\n" +
+		"unknown version":   "# ctxloom-bundle-manifest/99\n# name: b\n# version: 1.0.0\n" + strings.Repeat("a", 64) + "  x.md\n",
+		"out of order": testHeader +
 			strings.Repeat("b", 64) + "  fragments/b.md\n" +
 			strings.Repeat("a", 64) + "  fragments/a.md\n",
-		"single space separator": "# ctxloom-content-digest/1\n" + strings.Repeat("a", 64) + " fragments/a.md\n",
-		"short hash":             "# ctxloom-content-digest/1\n" + strings.Repeat("a", 63) + "  fragments/a.md\n",
-		"uppercase hash":         "# ctxloom-content-digest/1\n" + strings.Repeat("A", 64) + "  fragments/a.md\n",
-		"duplicate path": "# ctxloom-content-digest/1\n" +
+		"single space separator": testHeader + strings.Repeat("a", 64) + " fragments/a.md\n",
+		"short hash":             testHeader + strings.Repeat("a", 63) + "  fragments/a.md\n",
+		"uppercase hash":         testHeader + strings.Repeat("A", 64) + "  fragments/a.md\n",
+		"duplicate path": testHeader +
 			strings.Repeat("a", 64) + "  fragments/a.md\n" +
 			strings.Repeat("b", 64) + "  fragments/a.md\n",
-		"escaping path": "# ctxloom-content-digest/1\n" + strings.Repeat("a", 64) + "  ../escape.md\n",
+		"escaping path": testHeader + strings.Repeat("a", 64) + "  ../escape.md\n",
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestBundleManifest_MissingIsItsOwnError(t *testing.T) {
 
 func TestVerifyContents_GreenOnAFreshlyBuiltManifest(t *testing.T) {
 	store, b := openFixtureBundle(t)
-	m, err := BuildManifest(context.Background(), b)
+	m, err := BuildManifest(context.Background(), b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(context.Background(), b.ID(), m))
 
@@ -141,7 +141,7 @@ func TestVerifyContents_GreenOnAFreshlyBuiltManifest(t *testing.T) {
 // it.
 func TestVerifyContents_FailsOnAnExtraDirectoryNoKindOwns(t *testing.T) {
 	store, b := openFixtureBundle(t)
-	m, err := BuildManifest(context.Background(), b)
+	m, err := BuildManifest(context.Background(), b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(context.Background(), b.ID(), m))
 
@@ -159,7 +159,7 @@ func TestVerifyContents_FailsOnAnExtraDirectoryNoKindOwns(t *testing.T) {
 
 func TestVerifyContents_FailsOnEditedBytes(t *testing.T) {
 	store, b := openFixtureBundle(t)
-	m, err := BuildManifest(context.Background(), b)
+	m, err := BuildManifest(context.Background(), b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(context.Background(), b.ID(), m))
 
@@ -174,7 +174,7 @@ func TestVerifyContents_FailsOnEditedBytes(t *testing.T) {
 
 func TestVerifyContents_FailsOnADeletedFile(t *testing.T) {
 	store, b := openFixtureBundle(t)
-	m, err := BuildManifest(context.Background(), b)
+	m, err := BuildManifest(context.Background(), b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(context.Background(), b.ID(), m))
 
@@ -192,7 +192,7 @@ func TestVerifyContents_FailsOnADeletedFile(t *testing.T) {
 func TestVerifyContents_AddingASignatureDoesNotBreakTheTree(t *testing.T) {
 	store, b := openFixtureBundle(t)
 	ctx := context.Background()
-	m, err := BuildManifest(ctx, b)
+	m, err := BuildManifest(ctx, b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
 	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", testKey(t), []byte("armored-sig")))
@@ -203,7 +203,7 @@ func TestVerifyContents_AddingASignatureDoesNotBreakTheTree(t *testing.T) {
 func TestPutBundleSignature_RoundTrips(t *testing.T) {
 	store, b := openFixtureBundle(t)
 	ctx := context.Background()
-	m, err := BuildManifest(ctx, b)
+	m, err := BuildManifest(ctx, b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
 	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", testKey(t), []byte("armored-sig")))
@@ -221,13 +221,13 @@ func TestPutBundleSignature_RoundTrips(t *testing.T) {
 func TestBundleSignature_SurvivesAManifestRewrite(t *testing.T) {
 	store, b := openFixtureBundle(t)
 	ctx := context.Background()
-	m, err := BuildManifest(ctx, b)
+	m, err := BuildManifest(ctx, b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m))
 	require.NoError(t, store.PutBundleSignature(ctx, b.ID(), "publish.v1.ctxloom.dev", testKey(t), []byte("armored-sig")))
 
 	writeFile(t, store.fsys, fixtureRoot+"/code-quality/evil/payload.sh", "rm -rf /")
-	m2, err := BuildManifest(ctx, b)
+	m2, err := BuildManifest(ctx, b, fixtureRelease(t))
 	require.NoError(t, err)
 	require.NoError(t, store.PutManifest(ctx, b.ID(), m2))
 
@@ -286,7 +286,7 @@ func TestBuildManifest_RefusesABundleWithNoCoveredFiles(t *testing.T) {
 	b, err := store.Open(context.Background(), "empty")
 	require.NoError(t, err)
 
-	_, err = BuildManifest(context.Background(), b)
+	_, err = BuildManifest(context.Background(), b, testRelease(t, "empty", "1.0.0"))
 	require.Error(t, err)
 }
 

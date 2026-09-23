@@ -190,7 +190,8 @@ Grouped by what you would have to change.
 - The pending-lockfile review ceremony and blind mode are gone.
 
 **Backends**
-- The `gemini` backend is replaced by `antigravity`.
+- The `gemini` backend is removed, with no replacement. A config entry still
+  typed `gemini` is warned about as an unknown backend type and ignored.
 - `taskloom` and `ltk` ship as bundled companions.
 
 **ACP**

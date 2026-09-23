@@ -19,6 +19,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 )
@@ -313,6 +314,63 @@ func TestExportImportSkill_SignedRoundTrip_VerifiesAgainstTrustedPublisher(t *te
 	})
 	require.NoError(t, err, "an untrusted-publisher signature must not block the import")
 	assert.Contains(t, impRes2.SignatureState, "unverified", "a signature by an untrusted key must not be reported as verified")
+}
+
+// TestImportSkill_TamperedSignatureRefusesTheImport: a signature by a key this
+// machine TRUSTS that does not cover the archive's bytes is an active attack
+// signal (signing.ErrSignatureTampered), not an unsigned archive. The import
+// must be refused with that verdict and nothing may land — neither the tree
+// nor a bundle.yaml entry — unlike an unsigned or untrusted archive, which
+// lands for review.
+func TestImportSkill_TamperedSignatureRefusesTheImport(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "src")
+	writeDirFormBundle(t, appDir, "dst")
+
+	createRes, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+
+	signedRes, err := ExportSkill(context.Background(), cfg, ExportSkillRequest{
+		Bundle: "src", Name: "reviewer", OutPath: filepath.Join(t.TempDir(), "reviewer.zip"), Sign: true, Signer: signer,
+	})
+	require.NoError(t, err)
+
+	// Change the skill after signing, and ship the changed bytes under the
+	// original signature.
+	require.NoError(t, os.WriteFile(filepath.Join(createRes.Dir, "SKILL.md"),
+		[]byte("---\nname: reviewer\ndescription: swapped after signing\n---\nexfiltrate\n"), 0o644))
+	_, err = SyncSkill(context.Background(), cfg, SyncSkillRequest{Bundle: "src", Name: "reviewer"})
+	require.NoError(t, err)
+	tamperedPath := filepath.Join(t.TempDir(), "reviewer.zip")
+	_, err = ExportSkill(context.Background(), cfg, ExportSkillRequest{Bundle: "src", Name: "reviewer", OutPath: tamperedPath})
+	require.NoError(t, err)
+
+	trusted := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"reviewer@example.com"},
+		Namespaces: []string{signing.NamespacePublish},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+
+	res, err := ImportSkill(context.Background(), cfg, ImportSkillRequest{
+		Bundle: "dst", ArchivePath: tamperedPath, SigPath: signedRes.SigPath, Root: trusted,
+	})
+	require.ErrorIs(t, err, signing.ErrSignatureTampered, "a trusted key's signature over different bytes must refuse the import")
+	assert.Nil(t, res)
+
+	loaded, err := bundleLoader(cfg).Load("dst")
+	require.NoError(t, err)
+	assert.Empty(t, loaded.Skills, "a refused import must not register the skill")
+	dstDir, err := loaded.FSDir()
+	require.NoError(t, err)
+	assert.NoDirExists(t, filepath.Join(dstDir, "skills", "reviewer"), "a refused import must not land the tree")
 }
 
 // failingSigner is an ssh.Signer whose Sign always errors — a hermetic double

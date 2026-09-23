@@ -130,7 +130,7 @@ type Bundle struct {
 	//
 	// Every call site that sets sourceRef does so through a class minter —
 	// localFSReader (builtin and project), newRead's local fallback,
-	// companionReader, repoFSReader (single-file and tree form), and
+	// companionReader, repoFSReader, and
 	// loader_version.go's bundleAtVersion for a version-pinned read. The zero
 	// BundleRef is therefore a REACHABLE, meaningful value — a mint that
 	// failed (an unfoldable repo-URL spelling — see Ref.AsBundleRef's doc) —
@@ -164,14 +164,6 @@ type Bundle struct {
 	// signature against the trust root. Anyone can write a string into a file;
 	// nobody can forge a signature. This is implementer trap #3.
 	signer string `yaml:"-"`
-
-	// readAsTree records that the reader assembled this value from a TREE
-	// (ReadTree), which is the form fsStore.Save must write it back in. It is
-	// taken at READ time on purpose: the bytes on disk cannot answer it at
-	// save time, because a verb may already have changed them (a skill
-	// scaffolded beside a metadata-only envelope makes that directory look
-	// like a tree it was never read as).
-	readAsTree bool `yaml:"-"`
 
 	// untrustedSignerFingerprint is the SHA256 fingerprint of the key that made
 	// a publish signature over this bundle's bytes WHEN THIS MACHINE DOES NOT
@@ -1691,14 +1683,8 @@ func ValidateBundleName(name string) error {
 	return nil
 }
 
-// DirectoryFormManifest is the file a DIRECTORY-form bundle's manifest lives in:
-// "<name>/bundle.yaml", as opposed to the single-file "<name>.yaml".
-//
-// The name is what distinguishes the two shapes everywhere — the loader's search
-// order, ExtractBundleName's parent-directory rule, the skills-require-a-
-// directory refusal, and the move guard that refuses to strand a directory's
-// other files. It was a literal at each of those, which is one spelling per site
-// of a fact that has to agree at all of them.
+// DirectoryFormManifest is the file a bundle's envelope lives in:
+// "<name>/bundle.yaml".
 //
 // The name itself belongs to internal/core/paths, the declarative source of truth
 // for on-disk layout, and remote.BundleManifestName names the same constant.
@@ -1706,20 +1692,11 @@ func ValidateBundleName(name string) error {
 // BELOW both is the only place one spelling can serve both sides.
 const DirectoryFormManifest = paths.BundleManifestName
 
-// ExtractBundleName derives a bundle's name from its file path: the parent
-// directory name for a "bundle.yaml" leaf, else the filename without
-// extension. Exported so other packages addressing a bundle FILE as a
+// ExtractBundleName derives a bundle's name from the path of its envelope: the
+// name of the directory holding it. Exported so other packages addressing a bundle FILE as a
 // trust.Ref{IsLocal:true} item (e.g. operations.DistillBundleFile's
 // re-distill invalidation check) key it identically to how the loader itself
 // names a bundle — one definition, not two that can drift apart.
 func ExtractBundleName(path string) string {
-	base := filepath.Base(path)
-
-	// If it's bundle.yaml, use parent directory name
-	if base == DirectoryFormManifest {
-		return filepath.Base(filepath.Dir(path))
-	}
-
-	// Otherwise use filename without extension
-	return strings.TrimSuffix(base, filepath.Ext(base))
+	return filepath.Base(filepath.Dir(path))
 }

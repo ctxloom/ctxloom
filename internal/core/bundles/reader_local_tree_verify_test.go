@@ -17,7 +17,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
-	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -199,28 +198,3 @@ func TestLocalTree_AddedFileIsCaughtToo(t *testing.T) {
 }
 
 // --- one signature per bundle --------------------------------------------
-
-// TestLocalTree_WithOnlyASiblingSignature_IsRefusedUntilReSigned: the sibling
-// bundle.yaml.sig is retired — no reader parses two signature shapes. A tree
-// still carrying one is not silently read as unsigned (the author believes it
-// signed): it is REFUSED, and the refusal names the remedy, re-signing, which
-// writes the manifest entry and removes the sibling.
-func TestLocalTree_WithOnlyASiblingSignature_IsRefusedUntilReSigned(t *testing.T) {
-	fsys, dir := stageUnsignedTree(t, "/bundles", "FRAG-BODY-MARKER")
-	signer, _ := testSkillSigner(t)
-	envelope, err := afero.ReadFile(fsys, filepath.Join(dir, DirectoryFormManifest))
-	require.NoError(t, err)
-	armored, err := signing.Sign(envelope, signer, signing.NamespacePublish)
-	require.NoError(t, err)
-	testsupport.WriteFileString(t, fsys, filepath.Join(dir, DirectoryFormManifest)+".sig", string(armored), 0o644)
-
-	mark := strictness.Checkpoint()
-	reads, err := NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger())).Read(context.Background())
-
-	require.NoError(t, err, "one refused bundle does not fail the read of the set")
-	require.Empty(t, reads, "the tree is refused, not read as unsigned")
-	found := strictness.Since(mark)
-	require.NotEmpty(t, found, "the refusal is a bundle finding, never a silent skip")
-	assert.Contains(t, found[0].Message, ErrSiblingSignatureRetired.Error(), "the refusal is reported by its sentinel")
-	assert.Contains(t, found[0].Message, "re-sign", "and it names the remedy")
-}

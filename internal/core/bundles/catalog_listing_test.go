@@ -23,7 +23,7 @@ import (
 // defect as listing a builtin nobody can remove, in a different place. The test
 // asserts BOTH facts so the two names cannot quietly become one.
 func TestCatalogInfos_ListsTheResolvableRefNotTheLeafName(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "lang/go.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "lang/go", "version: 1.0.0\n"))
 
 	infos, err := loader.List()
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestCatalogInfos_ListsTheResolvableRefNotTheLeafName(t *testing.T) {
 // (LocalRef("kit"), the identity a real project bundle's SourceRef carries)
 // resolves the same read Lookup("kit") does.
 func TestCatalogLookupRef_ResolvesByTypedSourceIdentity(t *testing.T) {
-	loader := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n"))
+	loader := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n"))
 	cat := loader.Catalog()
 
 	byName, err := cat.Lookup("kit")
@@ -140,7 +140,7 @@ func TestListingNames_ShowsTheURIWhenTwoRowsShareAName(t *testing.T) {
 // a URI in front of every reader for an ambiguity that is not there, and drains
 // the parenthetical of the meaning "these two differ".
 func TestListingNames_LeavesAnUncontestedNameBare(t *testing.T) {
-	cat := NewLoader(projectReaderOver(t, "kit.yaml", "version: 1.0.0\n")).Catalog()
+	cat := NewLoader(projectReaderOver(t, "kit", "version: 1.0.0\n")).Catalog()
 	infos := cat.Infos()
 	require.Len(t, infos, 1, "guard: one row, or the assertion below is vacuous")
 	require.NotEmpty(t, infos[0].Ref, "guard: the row must HAVE a URI it could have been disambiguated with")

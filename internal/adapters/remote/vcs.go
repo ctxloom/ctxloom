@@ -37,8 +37,8 @@ type VCS interface {
 
 	// ListItems returns the repo-relative item paths under
 	// .ctxloom/content/<kind>/ at the source's CURRENT state, with the
-	// .ctxloom/content/<kind>/ prefix and the .yaml suffix stripped (so
-	// "lang/go/testing", not ".ctxloom/content/bundles/lang/go/testing.yaml").
+	// .ctxloom/content/<kind>/ prefix stripped (so "lang/go/testing", not
+	// ".ctxloom/content/bundles/lang/go/testing").
 	// A source with no such directory returns an empty list, not an error. Listing
 	// past revisions — and surfacing items DELETED since — is the optional
 	// Versioned capability (ListDeletedItems), not part of the minimal surface.
@@ -62,7 +62,7 @@ type Versioned interface {
 	ReadFileAt(ctx context.Context, path, rev string) ([]byte, error)
 	// ListDeletedItems returns item paths under ctxloom/<kind>/ that existed at
 	// some past revision but are gone at the current state — content removed
-	// upstream. Same path shape as VCS.ListItems (relative, suffix stripped). A
+	// upstream. Same path shape as VCS.ListItems (relative). A
 	// backend with no history of the kind returns an empty list. This is the
 	// history counterpart to ListItems: ListItems sees what IS, ListDeletedItems
 	// sees what WAS-but-isn't.
@@ -134,9 +134,8 @@ func (v *gitForgeVCS) ReadFileAt(ctx context.Context, path, rev string) ([]byte,
 }
 
 // ListItems walks .ctxloom/content/<kind>/ in the repo tree at the default
-// branch, recursing into subdirectories, and returns each .yaml item's path
-// relative to that base (suffix stripped). A repo with no such directory
-// lists empty.
+// branch, recursing into subdirectories, and returns each tree bundle's path
+// relative to that base. A repo with no such directory lists empty.
 func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, error) {
 	base := RepoItemRoot(kind)
 	var items []string
@@ -174,15 +173,11 @@ func (v *gitForgeVCS) ListItems(ctx context.Context, kind ItemType) ([]string, e
 			return nil
 		}
 		for _, e := range entries {
-			full := dir + "/" + e.Name
-			if e.IsDir {
-				if err := walk(full); err != nil {
-					return err
-				}
+			if !e.IsDir {
 				continue
 			}
-			if step := paths.ClassifyBundleWalkEntry(relTo(full), false, false); step.IsBundle {
-				items = append(items, RepoItemName(kind, step.Name))
+			if err := walk(dir + "/" + e.Name); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -238,8 +233,8 @@ func (v *fsVCS) ReadFile(_ context.Context, path string) ([]byte, error) {
 	return data, nil
 }
 
-// ListItems walks <root>/<kind>/ on the filesystem and returns each .yaml
-// item's path relative to that base (suffix stripped). A root without the
+// ListItems walks <root>/<kind>/ on the filesystem and returns each tree
+// bundle's path relative to that base. A root without the
 // directory lists empty. Current working set only — fsVCS has no history.
 //
 // "Cannot tell if the directory exists" (a stat failure — the
@@ -277,8 +272,7 @@ func (v *fsVCS) ListItems(_ context.Context, kind ItemType) ([]string, error) {
 		}
 		// paths.ClassifyBundleWalkEntry is the shared bundles-root boundary: it
 		// names the entry AND stops the walk at a tree bundle, whose item
-		// documents are .yaml like any single-file bundle and would otherwise be
-		// offered as installable names of their own.
+		// directories would otherwise be walked as candidates of their own.
 		step := paths.ClassifyBundleWalkEntry(rel, info.IsDir(), hasManifest)
 		if step.IsBundle {
 			items = append(items, RepoItemName(kind, step.Name))

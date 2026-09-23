@@ -11,75 +11,51 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
-	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
-// readLocalTreeForm returns the bundle a LOCALLY AUTHORED tree-form directory
-// holds, or (nil, nil) when the directory is not tree form and the caller
-// should keep reading bundle.yaml as the whole document.
+// readLocalTree opens the LOCALLY AUTHORED tree whose envelope is at
+// manifestPath and returns it together with the bundle it holds.
 //
-// # Why a form decision exists here at all
+// # Why an item-less tree reads as its envelope rather than failing
 //
-// Three shapes reach localFSReader, and exactly one of them is new:
+// `ctxloom bundle create` scaffolds a tree before anything is in it, so a
+// bundle.yaml with no item files beside it is an author's bundle mid-creation,
+// not a truncated one. ReadTree refuses that shape because a PUBLISHED tree
+// with no items delivers nothing to anyone; here the author is the consumer,
+// and refusing would make every freshly created bundle unloadable. The
+// envelope is still read through readEnvelope, so one that declares items
+// inline is refused exactly as it is for a tree with files.
 //
-//	<name>.yaml                     single-file document        (unchanged)
-//	<name>/bundle.yaml + inline     retired inline directory    (unchanged)
-//	<name>/bundle.yaml + item files TREE form                   (this function)
-//
-// The first two are decided WITHOUT opening a content store, and the order of
-// the guards below is what guarantees it: a single-file document fails the
-// manifest check, and an envelope that still declares items inline fails the
-// inlineKeys check. Neither can reach the tree path, so neither can change
-// behaviour because of anything here — the retired inline shape keeps loading
-// exactly as it did, which is what lets the migration proceed one bundle at a
-// time instead of as a flag day.
-//
-// This is NOT the refusal in readEnvelope being relaxed. That refusal is about
-// a tree that holds item files AND inline keys — genuinely ambiguous, two
-// answers for one item. Here an envelope with inline keys is not a tree at all;
-// it is the old document form, and it is read as one.
-//
-// # Why an empty tree falls through rather than failing
-//
-// A directory bundle whose envelope declares nothing and whose tree holds no
-// item files is today a metadata-only bundle that reads as an empty document.
-// ReadTree refuses that shape outright ("declares no items"), so routing it here
-// would turn a bundle that loads today into a hard failure. It is not tree form
-// — nothing was migrated — so it keeps its current meaning.
-//
-// # Errors are never swallowed
-//
-// Once the shape IS tree form, every failure propagates. Falling back to the
-// document read on error would parse an envelope that deliberately carries no
-// items and hand back an empty bundle: the exit-0/zero-bytes shape this
-// function exists to remove.
-func (r *localFSReader) readLocalTreeForm(ctx context.Context, manifestPath string, env *Bundle) (content.Bundle, *Bundle, error) {
-	if !treeFormEnvelope(manifestPath, env) {
-		return nil, nil, nil
-	}
+// Errors are never swallowed: every failure propagates.
+func (r *localFSReader) readLocalTree(ctx context.Context, manifestPath string) (content.Bundle, *Bundle, error) {
 	tree, err := r.openLocalTree(ctx, manifestPath)
 	if err != nil {
 		return nil, nil, err
 	}
-	refs, err := tree.Refs(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("bundles: enumerating the tree at %s: %w", filepath.Dir(manifestPath), err)
-	}
-	if len(refs) == 0 {
-		return nil, nil, nil
-	}
-	b, err := ReadTree(ctx, tree)
+	b, err := readTreeOrEnvelope(ctx, tree)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bundles: reading the tree at %s: %w", filepath.Dir(manifestPath), err)
 	}
 	return tree, b, nil
 }
 
-// treeSignatureFacts establishes a locally authored TREE's signature axes from
+// readTreeOrEnvelope is ReadTree, except that a tree holding no items yet is
+// its envelope — see readLocalTree for why an authored tree may be empty.
+func readTreeOrEnvelope(ctx context.Context, tree content.Bundle) (*Bundle, error) {
+	refs, err := tree.Refs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("enumerating: %w", err)
+	}
+	if len(refs) == 0 {
+		return readEnvelope(ctx, tree)
+	}
+	return ReadTree(ctx, tree)
+}
+
+// treeSignatureFacts establishes a locally authored tree's signature axes from
 // its ONE signature: the SHA256SUMS manifest and its .sigs/ entry, verified
 // by attest.VerifyBundle — the same verifier the pull walk uses, so the two
-// readers refuse the same things. There is no second shape: the sibling
-// bundle.yaml.sig is retired (refuseSiblingSignature) and nothing reads it.
+// readers refuse the same things. A tree with no manifest is unsigned.
 //
 // A manifest that does not honestly cover the tree — a mutated or smuggled
 // item file, a signature over other bytes — is INVALID, not absent, because a
@@ -89,6 +65,9 @@ func (r *localFSReader) readLocalTreeForm(ctx context.Context, manifestPath stri
 // as unsigned, with the stale-signature reason); it is the diagnostic that
 // tells the author their bytes and their manifest have parted company.
 func (r *localFSReader) treeSignatureFacts(ctx context.Context, tree content.Bundle) SignatureFacts {
+	if _, err := tree.ReadFile(ctx, content.ManifestPath); err != nil {
+		return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
+	}
 	verdict, err := attest.VerifyBundle(ctx, tree, r.trustRoot(), time.Now())
 	switch {
 	case err != nil:
@@ -107,50 +86,6 @@ func (r *localFSReader) treeSignatureFacts(ctx context.Context, tree content.Bun
 	return SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
 }
 
-// directorySignatureFacts establishes the signature axes of any bundle read
-// from a bundle.yaml: its directory's manifest, when one exists, verified
-// through treeSignatureFacts. `ctxloom bundle sign` signs every directory-form
-// bundle that way — a tree-form envelope and an envelope declaring its items
-// inline with files beside it alike — so the reader verifies both the same
-// way. A single-file bundle, and a directory with no manifest, is unsigned.
-// tree is the already-opened tree for a tree-form envelope, nil otherwise.
-func (r *localFSReader) directorySignatureFacts(ctx context.Context, manifestPath string, tree content.Bundle) SignatureFacts {
-	unsigned := SignatureFacts{Signature: SignatureNone, Signer: SignerNone}
-	if filepath.Base(manifestPath) != DirectoryFormManifest {
-		return unsigned
-	}
-	if _, err := r.fsys.Stat(filepath.Join(filepath.Dir(manifestPath), content.ManifestPath)); err != nil {
-		return unsigned
-	}
-	if tree == nil {
-		opened, err := r.openLocalTree(ctx, manifestPath)
-		if err != nil {
-			return invalidTreeFacts("its tree could not be opened to check against its manifest: %v", err)
-		}
-		tree = opened
-	}
-	return r.treeSignatureFacts(ctx, tree)
-}
-
-// ErrSiblingSignatureRetired is the reader's refusal of a bundle still
-// carrying the retired detached sibling signature (<file>.yaml.sig). It is a
-// refusal rather than a silent "unsigned": the author believes the bundle
-// signed, and reading past the sibling would let that belief stand while
-// nothing verified it. Re-signing writes the manifest entry and removes the
-// sibling.
-var ErrSiblingSignatureRetired = errors.New("bundles: the detached sibling signature is retired — the .sigs/ manifest entry is the one signature")
-
-// refuseSiblingSignature refuses to read a bundle whose document has a
-// sibling signature beside it, naming the remedy.
-func refuseSiblingSignature(fsys afero.Fs, path, name string) error {
-	sibling := path + ".sig"
-	if _, err := fsys.Stat(sibling); err != nil {
-		return nil
-	}
-	return fmt.Errorf("%w: %s carries %s — re-sign it (`ctxloom bundle sign %s`) so its %s entry is the signature, which also removes the sibling",
-		ErrSiblingSignatureRetired, name, filepath.Base(sibling), name, content.SigDirName)
-}
-
 // invalidTreeFacts is the one shape a failed tree check reports: the signature
 // axis is INVALID rather than absent, because a manifest that exists and does
 // not describe the tree is a different fact from no manifest at all, and
@@ -161,39 +96,6 @@ func invalidTreeFacts(format string, args ...any) SignatureFacts {
 		Signer:    SignerUntrusted,
 		Detail:    fmt.Sprintf(format, args...),
 	}
-}
-
-// treeFormEnvelope is the ONE rule for "is this bundle tree form": a
-// directory-form envelope that declares NO items inline, so its payload is in
-// files beside it.
-//
-// It is shared by the read path above and by IsTreeFormBundle below because a
-// second copy of this rule is how a writer comes to disagree with the reader
-// about what it is writing — which is the defect that made ctxloom's only
-// directory-form authoring verb produce the shape its own reader refuses.
-func treeFormEnvelope(manifestPath string, env *Bundle) bool {
-	return filepath.Base(manifestPath) == DirectoryFormManifest && len(inlineKeys(env)) == 0
-}
-
-// BundleLayoutFor reports which FORMAT root a bundle document belongs in, given
-// the path of that document and its PARSED-BUT-NOT-READ envelope.
-//
-// Placement follows FORMAT, not file shape. A directory is not by itself v2: a
-// directory whose bundle.yaml still declares inline item keys is a format-v1
-// bundle in a directory wrapper, and filing it under v2 says a migration
-// happened that did not. So this defers to treeFormEnvelope — the same
-// predicate the READ path uses to decide whether to open a tree — rather than
-// asking whether the entry is a directory.
-//
-// It takes the envelope rather than a loaded *Bundle for the reason
-// IsTreeFormBundle spells out: a tree that has already been read carries its
-// items in the same maps an inline bundle does, so a loaded value cannot answer
-// this. Only the document's own bytes can.
-func BundleLayoutFor(docPath string, env *Bundle) paths.BundleLayout {
-	if treeFormEnvelope(docPath, env) {
-		return paths.LayoutV2
-	}
-	return paths.LayoutV2
 }
 
 // ErrEnvelopeRead and ErrEnvelopeParse classify the two ways EnvelopeAt fails.
@@ -215,9 +117,8 @@ var (
 // This is the one place a bundle document is turned into a *Bundle from a PATH.
 // Every caller needs the same two things together and for the same reason: the
 // envelope to judge the bundle by, and the bytes it was judged from. A
-// publisher signature covers those exact bytes (spec §3.1) and BundleLayoutFor
-// answers only from an envelope that has not been read, so a caller handed just
-// one of the two goes back to the filesystem for the other — and then the file
+// publisher signature covers those exact bytes (spec §3.1), so a caller handed
+// just one of the two goes back to the filesystem for the other — and then the file
 // on disk has been read twice, with nothing making the two reads agree.
 //
 // It is deliberately NOT a Reader. A Reader enumerates everything one SOURCE
@@ -240,38 +141,6 @@ func EnvelopeAt(fsys afero.Fs, path string) ([]byte, *Bundle, error) {
 		return data, nil, fmt.Errorf("%w at %s: %w", ErrEnvelopeParse, path, err)
 	}
 	return data, env, nil
-}
-
-// IsTreeFormBundle reports whether the bundle whose envelope sits at
-// manifestPath is TREE form, reading the envelope and the tree from fsys.
-//
-// It re-reads rather than inspecting a loaded *Bundle on purpose: a tree bundle
-// that has already been READ carries its items in the same maps an inline
-// bundle does — that is the whole point of the read — so a loaded value cannot
-// answer this question. Only the bytes on disk can.
-//
-// It applies BOTH halves of the rule, exactly as the read path does. The second
-// half is the one that is easy to drop: a directory bundle whose envelope
-// declares nothing AND whose tree holds no item files is a METADATA-ONLY
-// bundle, not a tree — nothing was migrated — and calling it a tree would make
-// every brand-new directory bundle claim a form it has no content in.
-func IsTreeFormBundle(ctx context.Context, fsys afero.Fs, manifestPath string) (bool, error) {
-	_, env, err := EnvelopeAt(fsys, manifestPath)
-	if err != nil {
-		return false, err
-	}
-	if !treeFormEnvelope(manifestPath, env) {
-		return false, nil
-	}
-	tree, err := openTreeAt(ctx, fsys, manifestPath, content.Provenance{IsLocal: true})
-	if err != nil {
-		return false, err
-	}
-	refs, err := tree.Refs(ctx)
-	if err != nil {
-		return false, fmt.Errorf("bundles: enumerating the tree at %s: %w", filepath.Dir(manifestPath), err)
-	}
-	return len(refs) > 0, nil
 }
 
 // openLocalTree opens the directory holding manifestPath as a content.Bundle.

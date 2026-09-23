@@ -109,8 +109,7 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 // ListDeletedItems walks the repo's commit history and returns the item paths
 // under .ctxloom/content/<kind>/ that existed at some past revision but are
 // ABSENT at HEAD — items removed upstream. Paths are relative to
-// .ctxloom/content/<kind>/ with the .yaml suffix stripped, matching
-// ListDir-derived current listings. This is the history capability behind VCS
+// .ctxloom/content/<kind>/, matching ListDir-derived current listings. This is the history capability behind VCS
 // Versioned.ListDeletedItems; it reads the local clone only (zero network).
 // Repos with no history of the kind list nothing.
 func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) ([]string, error) {
@@ -155,8 +154,9 @@ func (f *GitCloneFetcher) ListDeletedItems(ctx context.Context, kind ItemType) (
 	return deleted, nil
 }
 
-// collectItemPaths adds every .yaml item path under base in tree to out, keyed
-// by the item's BARE name — relative to base, suffix stripped, and reduced by
+// collectItemPaths adds every tree bundle under base in tree to out — each
+// directory holding a paths.BundleManifestName — keyed by the item's BARE
+// name: relative to base, and reduced by
 // RepoItemName so a layout segment never becomes part of the key (e.g.
 // "lang/go/testing", never "v1/lang/go/testing"). A tree without base
 // contributes nothing.
@@ -174,7 +174,7 @@ func collectItemPaths(kind ItemType, tree *object.Tree, base string, out map[str
 	files := sub.Files()
 	defer files.Close()
 	_ = files.ForEach(func(file *object.File) error {
-		if name, ok := strings.CutSuffix(file.Name, ".yaml"); ok {
+		if name, ok := strings.CutSuffix(file.Name, "/"+paths.BundleManifestName); ok {
 			out[RepoItemName(kind, name)] = struct{}{}
 		}
 		return nil

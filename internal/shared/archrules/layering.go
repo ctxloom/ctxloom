@@ -253,7 +253,7 @@ var LayeringRules = []LayeringRule{
 			// cli reaching past operations
 			"internal/adapters/cli -> internal/engines/claude":            "slice 11b: engine packages are reached through engine.Registry, composed under cmd/*",
 			"internal/adapters/cli -> internal/engines":                   "slice 11b: engines.Build() is called by the composition root, cmd/*",
-			"internal/adapters/operations -> internal/engines":            "slice 15: the composition root hands gen-schemas the shipped registry; until then the schemagen-tagged provider composes engines.Build() itself, because the generator is its own process",
+			"internal/adapters/operations -> internal/engines":            "slice 15 remainder: the application services read the process's composed registry (engines.Registry and its by-name helpers) instead of one the composition root hands them; leaves when operations.App carries the registry",
 			"internal/adapters/cli -> internal/adapters/isolation":        "slice 7: the CLI hands launch.Resolve the axes; it stops reaching isolation",
 			"internal/adapters/cli -> internal/adapters/mcp":              "the session host composes the coordinator's hosting helper and the host relay (mcp.HostCoordinatorForSession); the session endpoint lives in runner/mcp",
 			"internal/adapters/cli -> internal/adapters/memory":           "slice 14a: memory.NewCompactor(entry, source, llm) is called by operations.Compact",

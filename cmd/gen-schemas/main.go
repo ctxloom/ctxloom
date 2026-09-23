@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/mcp"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/schemagen"
 )
 
@@ -30,8 +31,13 @@ import (
 const schemaDir = "resources/schema/gen"
 
 func main() {
+	reg, err := engines.Build()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gen-schemas: %v\n", err)
+		os.Exit(1)
+	}
 	var targets []schemagen.Target
-	targets = append(targets, operations.SchemaTargets()...)
+	targets = append(targets, operations.SchemaTargets(reg)...)
 	targets = append(targets, cli.SchemaTargets()...)
 	targets = append(targets, mcp.SchemaTargets()...)
 

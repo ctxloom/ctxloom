@@ -10,7 +10,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/tmuxhost"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/shellenv"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -28,22 +27,17 @@ import (
 // This is a BREAKING UPGRADE for a user on a host without tmux: their next
 // interactive run stops, loudly, naming the fix. That is the stated cost.
 //
-// tmuxhost itself must not grow a fallback either -- its ExecRunner doc says
+// tmuxhost itself must not grow a fallback either -- its ErrTmuxUnavailable doc says
 // so, and that prohibition is load-bearing rather than aspirational now: the
 // only alternatives available to that layer are a silent decline and a
 // fabricated success.
 const tmuxInstallRemedy = "install tmux and re-run: `apt install tmux` (Debian/Ubuntu), `dnf install tmux` (Fedora/RHEL), `brew install tmux` (macOS), `pacman -S tmux` (Arch)"
 
-// resolveTmux reports whether the tmux binary can be found, resolving through
-// the user's login-shell PATH for the same GUI-launch reason resolveBinaryPath
-// documents. Overridable so both arms of the refusal are testable: tmux is not
-// installed in this project's test environment, so the present arm would
-// otherwise be unreachable and would rot silently.
-var resolveTmux = func() (string, error) { return shellenv.Resolve("tmux") }
-
-// newPaneRunner builds the tmux runner a pane-hosted launch drives. Overridable
-// for the same reason as resolveTmux.
-var newPaneRunner = func() tmuxhost.Runner { return tmuxhost.ExecRunner{} }
+// newPaneRunner builds the tmux runner a pane-hosted launch drives; building it
+// is the tmux probe, and a tmux-less host fails it with
+// tmuxhost.ErrTmuxUnavailable. Overridable so both arms of the refusal are
+// testable without depending on whether this host has tmux installed.
+var newPaneRunner = func() (tmuxhost.Runner, error) { return tmuxhost.NewExecRunner() }
 
 // paneViewer is the launcher's own attached viewer: it relays the pane's bytes
 // to the caller's stdout and unblocks the launch when the hosted command exits.
@@ -79,7 +73,8 @@ func (v *paneViewer) exitCode() int32 {
 // runInteractiveInPane hosts spec's process in a tmux pane and wires the
 // caller's terminal to it, returning the hosted command's exit code.
 func runInteractiveInPane(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, stdout io.Writer, resize <-chan agent.WindowSize) (int32, error) {
-	if _, err := resolveTmux(); err != nil {
+	paneRunner, err := newPaneRunner()
+	if err != nil {
 		// Report the finding and let strictness decide fatality -- this site
 		// does not branch on degraded state, per the project's posture. The
 		// error return is what guarantees NOTHING LAUNCHES either way: under
@@ -109,7 +104,7 @@ func runInteractiveInPane(ctx context.Context, spec agent.LaunchSpec, stdin io.R
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	host := tmuxhost.NewPaneHost(newPaneRunner(), tmpDir)
+	host := tmuxhost.NewPaneHost(paneRunner, tmpDir)
 
 	// The full merged environment is passed explicitly rather than inherited.
 	// A tmux window inherits the SERVER's environment, and that server is

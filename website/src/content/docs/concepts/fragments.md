@@ -80,6 +80,28 @@ fragments:
     content: ...
 ```
 
+## Conditional fragments
+
+A fragment can carry a `premise`: a sentence describing the situation it applies
+to. A premised fragment is not loaded at launch. An agent asks for the list when
+it is about to act and loads the ones whose premise matches:
+
+```bash
+ctxloom fragment premises                    # every premised fragment and its condition
+ctxloom fragment show my-bundle#fragments/x  # load one you chose
+```
+
+Over MCP the same list is the `ctxloom://fragments` resource. Fragments with no
+premise are always loaded.
+
+```yaml
+fragments:
+  release-steps:
+    premise: "You are about to cut or prepare a release."
+    content: |
+      ...
+```
+
 ## Templating
 
 Fragments support [Mustache](https://mustache.github.io/) templating for dynamic content.
@@ -135,7 +157,10 @@ Deploy directly without containerization.
 ```
 
 There are no built-in variables: the template data is exactly the profile's
-`variables:` map. An undefined variable renders empty and produces a warning.
+`variables:` map. An undefined plain variable renders verbatim (`{{ PROJECT_NAME }}`
+stays in the output as written, so the mistake is visible) and produces a
+warning. A section tag (`{{#VAR}}`, `{{^VAR}}`) still keys on whether the
+variable is set, so the show/hide idiom above works with undefined variables.
 
 See the [Templating Guide](/guides/templating) for complete syntax and advanced features.
 

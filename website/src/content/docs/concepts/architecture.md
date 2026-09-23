@@ -17,36 +17,43 @@ This page uses the project's canonical launch-architecture terms (defined in
 | **agent** | A ctxloom actor: a profile in action. The primary you launch with `run --agent`, and each delegated worker it spawns. |
 | **engine agent** | The engine's *own* internal subagent (claude's `--agent`). Always qualified — bare "agent" never means this. |
 | **session** | One launched ctxloom run, harp-named. Hosts the primary agent and its delegated agents. |
-| **surface** | One managed deliverable: **context**, **MCP**, **hooks**, **commands**, or **settings**. |
-| **loadout** | The composed set of all five surfaces for a session — what gets handed to the runner. |
+| **surface** | One managed deliverable: **context**, **MCP**, **hooks**, **commands**, **skills**, or **settings**. |
+| **loadout** | The composed set of every surface for a session, which is what gets handed to the runner. |
 | **control-plane** / **wire** / **runner** | Everything before the handoff / the transport / everything after it. See below. |
+| **coordinator** | The process that owns a session's runners: it starts each one, hands it its launch, and carries messages between the primary agent and its delegated children. |
 
 ## The launch pipeline
 
 A run travels a fixed path. The **control-plane** turns your configuration into a
-loadout; the **wire** carries it; the **runner** materializes each surface into
-the session's own isolated workspace and drives the **engine**.
+loadout. The **coordinator** starts a **runner** (`ctxloom runner <engine>`, on the
+host or as a container's foreground process) and sends it the launch over the
+**wire**. The runner materializes each surface into the session's own home and
+drives the **engine**.
 
 ```mermaid
 flowchart LR
-    CP["control-plane<br/>(config, profiles,<br/>context assembly,<br/>isolation policy)"] -->|"wire<br/>(loadout)"| R["runner<br/>(materializes surfaces,<br/>launches)"]
+    CP["control-plane<br/>(config, profiles,<br/>context assembly,<br/>isolation policy)"] --> C["coordinator"]
+    C -->|"wire<br/>(the launch)"| R["runner<br/>(materializes surfaces,<br/>serves the session's MCP,<br/>drives each turn)"]
     R -->|drives| E["engine<br/>(e.g. claude-code)"]
 ```
 
+There is one runner per live session, and it lives exactly as long as the
+session does. The engine process it drives is started per turn.
+
 The wire is network-agnostic: it carries **data**, not file handles, so nothing
 on one side reaches across to touch the other side's filesystem. That is what
-lets a runner live in a container — or, later, on another machine — without the
-control-plane knowing or caring.
+lets a runner live in a container without the control-plane knowing or caring.
 
-The loadout it carries is always the same five surfaces:
+The loadout it carries holds these surfaces:
 
-- **context** — the model-facing instructions (assembled fragments)
-- **MCP** — the MCP servers the engine should connect to
-- **hooks** — the lifecycle hooks to register
-- **commands** — slash-command exports
-- **settings** — engine-native settings
+- **context**: the model-facing instructions (assembled fragments)
+- **MCP**: the MCP servers the engine should connect to
+- **hooks**: the lifecycle hooks to register
+- **commands**: slash-command exports
+- **skills**: Agent Skill directories
+- **settings**: engine-native settings
 
-Each engine materializes those five into whatever native files it actually reads.
+Each engine materializes them into whatever native files it actually reads.
 See [Delivery per engine](#delivery-per-engine).
 
 ## Core Components
@@ -68,6 +75,8 @@ commands:
 mcp:
   server-name:
     command: "..."
+skills:
+  name: {}
 profiles:
   name:
     bundles: [...]
@@ -98,12 +107,13 @@ fragments:                        # direct fragment refs
   - name: some-fragment
 select_tags: [go, testing]        # fragment tags that SELECT content
 tags: [team, backend]             # descriptive only — for listing/discovery
-prompts: ["bundle#prompts/name"]  # curated slash-command exports
+commands: ["bundle#commands/name"] # curated slash-command exports
+skills: ["bundle#skills/name"]     # curated Agent Skill exports
 variables:
   key: value
-mcp: {}                           # MCP servers (inherited)
 hooks: {}                         # hooks (inherited)
 exclude_fragments: []             # filters applied after inheritance
+exclude_mcp: []
 ```
 
 The distinction that trips people up: **`tags` selects nothing.** It is
@@ -179,23 +189,17 @@ file (chunked injection), and a later session with the same content reuses it.
 **Purpose:** Expose ctxloom's retrieval and delegation surfaces to engines via
 Model Context Protocol.
 
-**Retrieval tools:**
-- `assemble_context` — assemble context from profiles, fragments, or tags
-- `search_content` / `search_library` — search installed and remote content
-- Session memory: `compact_session`, `load_session`, `recover_session`, `get_previous_session`
+ctxloom's MCP server exists only while a session runs. Each session's runner
+serves it as the session's own endpoint, and the session's registry names it
+(URL plus bearer credential). Nothing is registered in the project at rest.
+ctxloom declares the server in its own companion loadout, so it reaches the
+engine through the same bundle path as any other MCP server.
 
-**Delegation tools** (agent-to-agent, on the same server):
-- `agent_run` — launch a configured ctxloom agent as a child session
-- `agent_send` / `agent_recv` — the message bus between orchestrator and children
-- `agent_stop` — stop a child session
-- `roster` — list live agents
-- `agent_report` — file a structured report
-- `agent_fetch_artifact` — retrieve a child's artifact
-
-**Resources:** listings are exposed as MCP resources rather than tools —
-`ctxloom://fragments`, `ctxloom://profiles`, `ctxloom://commands`,
-`ctxloom://remotes`, `ctxloom://mcp-servers`, `ctxloom://sessions`, and
-`ctxloom://help`.
+The endpoint serves retrieval tools (context assembly, content search, session
+memory) and the delegation tools (`agent_run`, `agent_send`, `agent_recv` and
+the rest of the coordination set). Catalog listings are MCP resources
+(`ctxloom://...`), not tools. The [MCP Tools Reference](/reference/mcp-tools/)
+is generated from the live registrations and lists every tool and resource.
 
 There are no management tools: creating or editing bundles, profiles, and
 remotes is done with the ctxloom CLI.
@@ -235,36 +239,38 @@ flowchart TD
 
 ```
 .ctxloom/                     # committed:
-├── config.yaml          # Project configuration
+├── config.yaml          # Project configuration (agents live under its agents: key)
 ├── remotes.yaml         # Remote registry
 ├── lock.yaml            # Dependency lockfile
+├── .gitignore           # Generated; ignores the private state below
 ├── allowed_signers      # Trusted signing keys (OpenSSH allowed-signers format)
+├── distrusted_signers   # Embedded keys this project distrusts
 ├── content/             # The project's own authored, published content
-│   └── bundles/         # Authored bundles (ctxloom:local refs resolve here;
-│       └── local-bundle.yaml  # what `bundle create` writes and `sign --all` signs)
+│   └── bundles/v2/      # Authored bundles (ctxloom:local refs resolve here;
+│       └── <name>.yaml  # what `bundle create` writes and `sign --all` signs;
+│                        # a bundle may also be a <name>/ directory)
 ├── profiles/            # Profile definitions
 │   └── default.yaml
-├── agents/              # Local agent definitions (engine + profiles + runtime)
-│   └── <name>.yaml
 ├── approvals/           # Committable countersignatures (review decisions)
 │
 │                              # gitignored:
 ├── project-id           # Stable project identity (keys the task log)
-├── sessions/            # Distilled project sessions
+├── sessions/            # This machine's distilled session records
+├── state/               # Local-only checkout state
+│   └── trust/objects/   # Approved-content snapshots that review diffs against
 └── cache/               # Regeneratable, safe to delete
     ├── bundles/         # Remote-pulled bundle artifacts only, NOT authored content
     ├── context/         # Generated context files
     │   └── <hash>.md
-    ├── repos/           # Clone cache for remote repositories
-    ├── trust/           # Approved-content snapshot objects
-    └── vendor/          # Vendored assets
+    └── repos/           # Clone cache for remote repositories
 ```
 
-Everything above the blank line is committed — it's the project's own
-content, config, and trust state. Everything below is gitignored: fetched
-remote clones, assembled context, trust snapshots, vendor, plus session and
-identity state — all regenerable or purely local, never hand-authored, safe
-to delete.
+Everything above the blank line is committed: it's the project's own
+content, config, and trust state. Everything below is gitignored. The cache is
+regenerable and safe to delete. `project-id`, `sessions/` and `state/` are
+purely local; deleting them costs what they record (the task log's key, the
+distilled sessions, the snapshots review diffs against). `ctxloom doctor` walks
+the same classification.
 
 Trust is not a file of grants you edit — it is a store of **signatures**.
 Approving a bundle writes a countersignature into `approvals/`; a key you trust
@@ -280,11 +286,13 @@ write can forge one.
 │   └── bundles/         # User-wide authored bundles
 ├── cache/
 │   └── bundles/         # Remote-pulled bundle artifacts only
-├── sessions/            # Session index and per-harp session state
-│   ├── index.yaml
-│   └── <harp>/essence.md
-├── projects/            # project-id → project path registry
-│   └── index.yaml
+├── sessions/            # One directory per session, named by its harp
+│   └── <harp>/
+│       ├── session.yaml # The session's record; a directory with one IS a session
+│       ├── essence.md   # Distilled essence, once distilled
+│       ├── persist/     # Transcript, *.plan.md, the delegation message spool
+│       └── ephemeral/
+├── coord/               # Coordinator state (owner locks, journals)
 ├── tasks/               # Per-project task logs (<project-id>.jsonl)
 ├── approvals/           # Personal countersignatures ("my approvals follow me")
 ├── allowed_signers      # Personal trust root
@@ -293,65 +301,63 @@ write can forge one.
 
 ## Configuration Resolution
 
-There is **no merge chain**. ctxloom resolves exactly one config file and loads
-it:
+ctxloom first picks the project directory:
 
 1. `$CTXLOOM_ROOT/.ctxloom`, if set
 2. Otherwise, the nearest project `.ctxloom` found by walking up from the working directory
 3. Otherwise, `~/.ctxloom` as a fallback
 
-**First found wins.** A project config *replaces* the user config; it does not
-layer on top of it. There is no environment-variable layer.
+It then layers config values, lowest precedence first:
 
-The one overlay is a narrow one: the shipped default config fills **LLM-role
-gaps only**, so an empty config still resolves a primary and a fast model. Your
-keys always win — a default is added only where you set nothing.
+1. `~/.ctxloom/config.yaml` (the home layer), when a project was found
+2. The project's `config.yaml`
+3. `CTXLOOM_CONFIG_*` environment variables
+4. `--config-set <dotted.path>=<value>` flags
+
+The two files are deep-merged key by key. Lists replace rather than
+concatenate, and a value the project sets explicitly, including a zero value,
+beats one inherited from home. Each file is upgraded and schema-checked on its
+own, so a bad key is reported against the file that holds it. Some keys may
+only be set in particular layers; which agent a bare `ctxloom run` binds
+(`default_agent`), for example, is project policy.
+
+When no layer configures any LLM, the shipped default LLM registry fills in so
+an empty config still resolves a primary and a fast model.
 
 ## Delivery per engine
 
 Each engine reads different native files. The runner materializes the loadout's
-five surfaces into whatever the target actually looks at.
+surfaces into whatever the target actually looks at.
+
+By default every surface lands under the **session's own home**, so a session
+never writes into the tree other sessions read. An agent binding can instead
+select the **project root** for a surface kind (`roots:` on the agent, or
+`ctxloom agent create --root <kind>=project-root`). That is an explicit, unsafe
+choice, never a fallback, and the launch names it.
 
 ### Claude Code
 
-| surface | delivered as |
-|---|---|
-| context | `CLAUDE.md` (or `--append-system-prompt-file`) |
-| MCP | `.mcp.json` at the project root (or `--mcp-config`) |
-| hooks + settings | `.claude/settings.json` (hooks live inside settings) |
-| commands | `.claude/commands/` |
+| surface | session home (default) | project root (when selected) |
+|---|---|---|
+| context | a system-prompt file named on `--append-system-prompt-file` | appended to `CLAUDE.md` |
+| MCP | a `.mcp.json` named on `--mcp-config` | the project's `.mcp.json` |
+| hooks + settings | the session's `settings.json` (hooks live inside settings) | `.claude/settings.json` |
+| commands | the session's `commands/` | `.claude/commands/` |
+| skills | the session's `skills/<name>/` | `.claude/skills/<name>/` |
 
-Note that MCP registration goes to **`.mcp.json`**, not to `.claude/settings.json`.
+Note that MCP registration goes to a **`.mcp.json`**, not to `settings.json`.
 Only hooks and settings live there.
 
 ## Extension Points
 
 ### Custom Engines
 
-An engine is driven through the `Backend` contract
-(`internal/core/agent/backend.go`):
-
-```go
-type Backend interface {
-    // Identity
-    Name() string
-    Version() string
-    SupportedModes() []ExecutionMode
-
-    // History exposes conversation history (transcripts) and /clear recovery.
-    History() SessionHistory
-
-    // Execution lifecycle
-    Setup(ctx context.Context, req *SetupRequest) error
-    Execute(ctx context.Context, req *ExecuteRequest, stdout, stderr io.Writer) (*ExecuteResult, error)
-    Cleanup(ctx context.Context) error
-}
-```
-
-It deliberately carries no hook/command/context/MCP accessors: those are an
-engine's internal setup wiring, not something the runner calls. Surfaces are
-delivered through a separate per-engine surface set, registered alongside the
-backend in the engine registry.
+An engine is a declarative value, `engine.Definition` in `internal/core/engine`,
+with one typed approach field per surface kind: how that engine takes context,
+MCP, settings, hooks, commands and skills. The core reads those declarations and
+never branches on an engine's name. An engine that cannot carry a surface the
+operation needs refuses loudly rather than falling back to another approach.
+Each engine is its own package under `internal/engines/`.
 
 ### Custom Fetchers
 
@@ -404,6 +410,7 @@ Context files use content-based hashing:
 - **Agents:** Profiles bound to an engine and a runtime
 - **Remotes:** Distribution
 - **Loadout surfaces:** Delivery
+- **Coordinator and runner:** Session lifetime and delegation
 - **MCP:** Retrieval and delegation interface
 
 Each layer has a single responsibility.
@@ -426,8 +433,6 @@ flowchart TB
         claude["Claude Code"]
     end
 
-    Engines -->|"MCP / hooks / native config"| Core
-
     subgraph Core["ctxloom control-plane"]
         direction LR
         bundles["Bundles"]
@@ -435,11 +440,12 @@ flowchart TB
         agents["Agents"]
         assembly["Context Assembly"]
         remotes["Remotes"]
-        mcp["MCP Server"]
     end
 
-    Core -->|"wire (loadout)"| Runner["Runner<br/>(materializes surfaces,<br/>drives the engine)"]
+    Core --> Coord["Coordinator"]
+    Coord -->|"wire (the launch)"| Runner["Runner<br/>(materializes surfaces,<br/>serves the session's MCP,<br/>drives the engine)"]
     Runner --> Engines
+    Engines -->|"MCP / hooks"| Runner
 
     Core -->|"File System"| Storage
 

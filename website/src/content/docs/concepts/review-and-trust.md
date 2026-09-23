@@ -14,7 +14,10 @@ First-party content reaches the agent without review:
 - **Local** — fragments, commands, MCP servers, hooks, and skills you authored in this
   project. A *copy* of a remote item is not local: items are keyed by their true
   source, so cloning a bundle into the cache doesn't manufacture local trust.
-- **Builtin** — bundles shipped inside the binary. Trusting ctxloom trusts them.
+- **Companion** — content a companion binary (ctxloom itself, ltk, taskloom, ...)
+  contributes through its loadout. ctxloom only runs a companion whose detached
+  signature verifies against a key you trust, so trusting the binary trusts what
+  it contributes.
 - **Trusted publisher** — a bundle whose bytes were signed by a key you trust for
   the `publish` namespace (see [Trusting a publisher](#trusting-a-publisher)).
   Trust is keyed to the **signing key**, not to the repository the bytes came
@@ -48,7 +51,7 @@ state:
   stays rejected wherever it turns up.
 
 Rejection wins over everything, including the first-party exemption — you can
-reject an item even from a trusted publisher or a builtin.
+reject an item even from a trusted publisher or a companion.
 
 A signature says *who*, never *whether it is good for you*. A validly signed
 malicious fragment is still malicious, which is why rejection outranks every
@@ -93,8 +96,7 @@ developer who trusts that key inherits the decision — it **requires** a real
 signing key, with no unsigned fallback.
 
 Off a terminal (piped, or with `--list`), review prints the pending table and
-exits, so scripts and agents can see what a human still owes a look. `ctxloom
-init` ends with a review session when anything is pending.
+exits, so scripts and agents can see what a human still owes a look.
 
 :::note[The lockfile grants nothing]
 The lockfile only pins **which commit** of a bundle is installed — it never
@@ -118,8 +120,8 @@ To freeze a dependency so `upgrade` never advances it, [hold](/concepts/remotes/
 it — this is dependency management, not trust:
 
 ```bash
-ctxloom deps hold <name>     # freeze at the locked SHA (alias: pin)
-ctxloom deps unhold <name>   # release the hold (alias: unpin)
+ctxloom deps hold <name>     # freeze at the locked SHA
+ctxloom deps unhold <name>   # release the hold
 ```
 
 ## Trusting a publisher
@@ -129,14 +131,14 @@ future updates — skips review:
 
 ```bash
 ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
-ctxloom trust signer list
+ctxloom signer list
 ctxloom signer untrust context@acme.com
 ```
 
 The principal (`context@acme.com`) is just a label; the key is the trust. Keys
-land in your `allowed_signers` store — `~/.ctxloom/allowed_signers` for you,
-`.ctxloom/allowed_signers` (with `--project`) for everyone who clones the repo,
-plus the defaults embedded in the binary. All three are unioned. The
+land in an `allowed_signers` store: `.ctxloom/allowed_signers` (the default) for
+everyone who clones the repo, `~/.ctxloom/allowed_signers` (with `--user`) for you
+alone, plus the defaults embedded in the binary. All three are unioned. The
 `--namespace` flag is the role system: `publish` (the default) lets a key exempt
 the content it signs from review, while `approve` lets a key's countersignatures
 approve items for you — so a lead can review on the team's behalf.
@@ -191,24 +193,24 @@ match wins, and the default is withhold:
 0. **the approvals stores must be readable.** A store that has never been created
    is fine — that's a fresh project. A store that exists but can't be read is a
    fault, not an empty set: it might be hiding a *rejection*. Every item is
-   denied, including local and builtin ones, and a fatal trust-store finding is
+   denied, including local and companion ones, and a fatal trust-store finding is
    raised. Fix or remove the store, then re-review.
 1. **rejected** — a rejection covers this ref, or covers exactly these bytes →
    withhold
 2. **retracted** — the *publisher* withdrew this bundle via their remote manifest
    (recorded locally the last time you synced) → withhold, even if you trust the
    key that signed it
-3. **local** — authored in this project, every kind → allow
-4. **builtin** — shipped inside the binary → allow
-5. **trusted signer** — a key you trust to publish signed exactly these bytes →
+3. **local or companion** — authored in this project, or contributed by a
+   companion binary that ran because its signature verified, every kind → allow
+4. **trusted signer** — a key you trust to publish signed exactly these bytes →
    allow
-6. **approved** — a countersignature from a key you trust to approve verifies
+5. **approved** — a countersignature from a key you trust to approve verifies
    over exactly these bytes, at this ref, in this form → allow
-7. otherwise → **pending**, withhold
+6. otherwise → **pending**, withhold
 
-Builtins get their own step *below* rejection precisely so you can reject one;
-they are routed through the same resolver as everything else rather than skipping
-it. A content hash still exists, but only as an index — the filename under which a
+Companion content sits *below* rejection precisely so you can reject one of its
+items; it is routed through the same resolver as everything else rather than
+skipping it. A content hash still exists, but only as an index — the filename under which a
 candidate countersignature is looked up. Finding a candidate proves nothing:
 only a successful cryptographic verify allows, so a hand-crafted file at the
 right index resolves pending.

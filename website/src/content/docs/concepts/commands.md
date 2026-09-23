@@ -4,7 +4,7 @@ title: "Commands"
 
 You've got a five-paragraph code-review request you paste into every PR, the one that reminds the AI to check error handling and watch for N+1 queries. Or you don't, because retyping it every time is tedious enough that you skip it on the small changes — the ones that turn out to matter anyway.
 
-A **command** saves that request once in a bundle and, once trusted, exposes it as a slash command in your engine (Claude Code), so invoking it costs one line instead of five paragraphs. (Earlier ctxloom versions called this item kind "prompts", then "skills"; bundles using the old `prompts:`/`skills:` key are migrated on load.)
+A **command** saves that request once in a bundle and, once trusted, exposes it as a slash command in your engine (Claude Code), so invoking it costs one line instead of five paragraphs. (A bundle that still uses the older `prompts:` key is read as `commands:`. `skills:` is a separate item kind: Agent Skill directories.)
 
 ## Command Structure
 
@@ -36,7 +36,7 @@ commands:
 
 ## Slash Command Integration
 
-**A trusted command is exposed as a slash command.** Command export is a trust choke: a command from a bundle that's still pending review isn't written out at all — only local, builtin, trusted-signer, or already-approved content reaches your AI CLI. See [Review & Trust](/concepts/review-and-trust/).
+**A trusted command is exposed as a slash command.** Command export is a trust choke: a command from a bundle that's still pending review isn't written out at all — only local, companion, trusted-signer, or already-approved content reaches your AI CLI. See [Review & Trust](/concepts/review-and-trust/).
 
 The slash command name isn't the bare command name — it's `<bundle>-<command>`, taken from the owning bundle's last path segment. A `code-review` command defined in a bundle called `my-bundle` becomes:
 
@@ -45,14 +45,14 @@ The slash command name isn't the bare command name — it's `<bundle>-<command>`
 /my-bundle-code-review
 ```
 
-Only a builtin command (one with no bundle metadata) falls back to its bare name.
+A command with no owning bundle keeps its own name. When two commands would export under the same short name, each is exported under its full identity instead, so neither overwrites the other's file.
 
 ctxloom writes command files to the appropriate location:
-- **Claude Code**: `.claude/commands/*.md` (nested names flatten: `/` becomes `-` in the filename)
+- **Claude Code**: the session's own `commands/` directory, or `.claude/commands/` when the agent binding selects the project root (nested names flatten: `/` becomes `-` in the filename)
 
 ### Command Configuration
 
-Control how commands appear as slash commands per backend:
+Control how commands appear as slash commands per engine:
 
 ```yaml
 commands:
@@ -60,7 +60,7 @@ commands:
     description: "Review code for best practices"
     content: |
       Review code...
-    llm:
+    exports:
       claude-code:
         enabled: true              # Default: true (opt-out model)
         description: "Review code" # Shown in /help
@@ -71,7 +71,7 @@ commands:
         model: "sonnet"            # Override model
 ```
 
-The `llm:` map has one key per backend.
+The `exports:` map has one key per engine name.
 
 ### Configuration Fields
 
@@ -93,7 +93,7 @@ commands:
     description: "Internal use only"
     content: |
       This command is used programmatically, not as a slash command.
-    llm:
+    exports:
       claude-code:
         enabled: false
 ```
@@ -177,7 +177,7 @@ commands:
       5. **Testing**: Coverage gaps, test quality
 
       Provide specific line references and suggested fixes.
-    llm:
+    exports:
       claude-code:
         description: "Comprehensive code review"
         argument_hint: "<file or directory>"
@@ -197,7 +197,7 @@ commands:
       - Cover happy path and error cases
       - Mock external dependencies
       - Include edge cases
-    llm:
+    exports:
       claude-code:
         description: "Generate unit tests"
         argument_hint: "<function or file>"
@@ -221,7 +221,7 @@ commands:
       - Return value descriptions
       - Usage examples
       - Error conditions
-    llm:
+    exports:
       claude-code:
         description: "Generate docs"
         model: "haiku"  # Use faster model for docs

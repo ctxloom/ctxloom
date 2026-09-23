@@ -6,8 +6,8 @@
 // Everything else in the model is a consequence of it. The durable truth of a
 // user's engine configuration — claude's
 // credentials and per-project keys — lives in the engine's own dotdir under
-// the user's home, and those are the user's. ctxloom reads
-// them (one-way copy-in at instance time) and points engines at throwaway
+// the user's home, and those are the user's. ctxloom reads only what an
+// engine's instance config carries across and points engines at throwaway
 // per-session instances instead. A single write-back would make an instance's
 // disposability a lie and could destroy configuration no clone and no rebuild
 // can restore.
@@ -62,11 +62,8 @@ func realHomeFixture(t *testing.T) string {
 		}
 	}
 
-	// claude: the credential the copy-in reads, plus the personal top-level
-	// config that must never be copied OR modified. The credential carries the
-	// full live shape (accessToken + the single-use rotating refreshToken half)
-	// so the copy-in's refresh-token STRIP is exercised and the real home's
-	// refresh token can be shown untouched below.
+	// claude: the user's native login, which must never be copied, plus the
+	// personal top-level config that must never be copied OR modified.
 	write(filepath.Join(".claude", ".credentials.json"),
 		`{"claudeAiOauth":{"accessToken":"host-token","refreshToken":"host-refresh","expiresAt":1,"refreshTokenExpiresAt":2,"subscriptionType":"max"}}`, 0o600)
 	write(".claude.json", `{"mcpServers":{"personal":{"command":"secret"}}}`, 0o600)
@@ -186,6 +183,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	home := realHomeFixture(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-arch-fixture")
 	workDir := t.TempDir()
 	const harp = "ugly-icy-squid"
 
@@ -199,7 +197,6 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 			Harp:     harp,
 			HomeMode: agents.HomeModeSession,
 		})
-		t.Cleanup(func() { _ = res.Release() })
 		if res.Absent != "" {
 			t.Fatalf("%s: a engine_home: session run must be handed a home, got absent: %s", backend, res.Absent)
 		}
@@ -216,42 +213,13 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 	if got := hashTree(t, instances["claude-code"]); got == "<absent>" {
 		t.Fatal("claude's instance was never created; the invariant below would be vacuous")
 	}
-	credential, err := os.ReadFile(filepath.Join(instances["claude-code"], ".credentials.json"))
-	if err != nil || len(credential) == 0 {
-		t.Fatalf("claude's credential never reached the instance (%v); the provisioning must have happened for this gate to mean anything", err)
+	if _, err := os.Stat(filepath.Join(instances["claude-code"], ".claude.json")); err != nil {
+		t.Fatalf("claude's instance config was never generated (%v); the preparation must have happened for this gate to mean anything", err)
 	}
-
-	// THE ROOT'S COPY IS WHOLE (ruled 2026-09-21): this resolution names no
-	// orchestrator, so it is the orchestrator's own — the single ctxloom-side
-	// refresher, two-way with the host file through the replicator. The
-	// refresh half must be PRESENT here.
-	//
-	// The byte-identity gate below is what holds the other half honest:
-	// ctxloom itself writes nothing into the real home.
-	if s := string(credential); !strings.Contains(s, "host-refresh") {
-		t.Errorf("the orchestrator's instance credential lost its refresh token; the root is the one refresher and must hold the whole credential.\nplaced: %s", s)
-	}
-	if !strings.Contains(string(credential), "host-token") {
-		t.Errorf("claude's instance credential lost its access token; it must still authenticate.\nplaced: %s", string(credential))
-	}
-
-	// AN AGENT'S COPY IS A PROJECTION of the orchestrator's: read from the
-	// root's session home just resolved, never from the real home, with the
-	// single-use refresh token withheld — so no agent can consume the host's
-	// grant and revoke the human's login.
-	child := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
-		Backend: "claude-code", Cwd: workDir, Harp: "brave-warm-otter", HomeMode: agents.HomeModeSession, Orchestrator: harp,
-	})
-	if child.Absent != "" {
-		t.Fatalf("an agent under the root must be handed a home, got absent: %s", child.Absent)
-	}
-	t.Cleanup(func() { _ = child.Release() })
-	projected, err := os.ReadFile(filepath.Join(child.Root.Host, ".credentials.json"))
-	if err != nil {
-		t.Fatalf("the agent's credential never reached its instance: %v", err)
-	}
-	if s := string(projected); strings.Contains(s, "host-refresh") || !strings.Contains(s, "host-token") {
-		t.Errorf("the agent's credential must be the orchestrator's access half only.\nplaced: %s", s)
+	// Nothing is copied: the run authenticates from its env, so the real
+	// home's credential must not appear in the instance.
+	if _, err := os.Lstat(filepath.Join(instances["claude-code"], ".credentials.json")); !os.IsNotExist(err) {
+		t.Errorf("a credential file appeared in claude's session home (%v); no credential is ever copied out of the real home", err)
 	}
 
 	// Drive the real delivery against the instance the contribution just

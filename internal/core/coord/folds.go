@@ -69,18 +69,6 @@ type RunRecord struct {
 	// enqueue. Only meaningful while the run is live: the container is
 	// force-removed on teardown (isolation.AttachedContainer.Close).
 	ContainerName string
-	// WorkDir, Engine and HomeMode are the run's resolved cell (factRunCell):
-	// the workspace the engine runs in, the engine, and the binding's
-	// engine-home policy — what a restarted coordinator re-binds the run's
-	// engine home from when it re-adopts the run.
-	WorkDir  string
-	Engine   string
-	HomeMode string
-	// Orchestrator is the root session the run's credential is projected
-	// from — the coordinator's own — stamped by the coordinator on the
-	// record it hands Adopt; never journaled, since every run this
-	// coordinator re-adopts has the same one.
-	Orchestrator string
 }
 
 // TopLevel reports whether the run is a session's OWN run rather than a
@@ -127,8 +115,6 @@ func (f *runsFold) apply(fact Fact) {
 		applyDecoded(fact, f.applyHarness)
 	case factRunContainer:
 		applyDecoded(fact, f.applyContainer)
-	case factRunCell:
-		applyDecoded(fact, f.applyCell)
 	case factRunResumable:
 		applyDecoded(fact, f.applyResumable)
 	case factRunReaped:
@@ -206,12 +192,6 @@ func (f *runsFold) applyHarness(p runHarness, _ time.Time) {
 func (f *runsFold) applyContainer(p runContainer, _ time.Time) {
 	if r := f.runs[p.RunID]; r != nil {
 		r.ContainerName = p.ContainerName
-	}
-}
-
-func (f *runsFold) applyCell(p runCell, _ time.Time) {
-	if r := f.runs[p.RunID]; r != nil {
-		r.WorkDir, r.Engine, r.HomeMode = p.WorkDir, p.Engine, p.HomeMode
 	}
 }
 

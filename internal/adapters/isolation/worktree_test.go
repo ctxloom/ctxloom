@@ -217,14 +217,6 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 	assert.Equal(t, before, len(f.Calls), "second cleanup makes no further git calls")
 }
 
-// --- Host+worktree credential seeding integration ---------------------------
-//
-// These exercise the FULL PrepareWorkspace path (not just hostCredentialSeed in
-// auth_test.go), proving the backend threaded through NewWorktree actually
-// reaches provisionConfigHome and that the seeded bytes land where Env() points
-// CLAUDE_CONFIG_DIR — the assertion that would have caught the original bug
-// (provisioning returned no error while shipping an EMPTY config-home).
-
 // TestResolveWorktree wires the workspace axis through chainFor's lead policy.
 func TestResolveWorktree(t *testing.T) {
 	p := chainFor(Axes{Workspace: WorkspaceWorktree}, "claude-code", ImageConfig{})[0]

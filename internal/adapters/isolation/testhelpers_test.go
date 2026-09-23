@@ -138,15 +138,6 @@ func claudeAuth(t *testing.T) engine.ContainerAuth {
 	return a
 }
 
-// claudeSeed returns the seed claude declares, as TestMain pushed it — what
-// every seed test here hands hostCredentialSeed.
-func claudeSeed(t *testing.T) engine.CredentialSeed {
-	t.Helper()
-	seed, ok := credentialSeedFor(claude.EngineName)
-	require.True(t, ok, "fixture: claude's credential seed must be registered by TestMain")
-	return seed
-}
-
 // noCompanionsOnPath is the TestMain default: no companion resolves.
 func noCompanionsOnPath(string) (string, error) { return "", exec.ErrNotFound }
 
@@ -212,15 +203,13 @@ func claudeOverlayDirs(t *testing.T) []string {
 	return engineContainerSpecFor(claude.EngineName).overlayDirs
 }
 
-// copyAmbient is CopyAmbient with the report's Close bound to the test's end,
-// the way the cell binds it to the run's (operations.prepareInTreeAmbient
-// hands it back as the home's release). A seeded report leaves a credential
-// replicator running; dropped, its watch goroutines outlive the test and warn
-// through clidiag while a later test has swapped the sink out from under
-// them — a data race the detector reports against whichever test is running.
-func copyAmbient(t *testing.T, req AmbientRequest) (AmbientCopyReport, error) {
+// withFakeHome points hostHomeDir at a temp dir for hermetic tests of what an
+// engine's instance-config writer reads from the host home.
+func withFakeHome(t *testing.T) string {
 	t.Helper()
-	report, err := CopyAmbient(req)
-	t.Cleanup(func() { _ = report.Close() })
-	return report, err
+	home := t.TempDir()
+	orig := hostHomeDir
+	hostHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { hostHomeDir = orig })
+	return home
 }

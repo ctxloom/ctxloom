@@ -119,9 +119,6 @@ type fakeSpawner struct {
 	// refuseBinds is how many launches the runner tail refuses with
 	// delivery.ErrEndpointUnavailable before binding normally.
 	refuseBinds int
-	// adoptedHarps / adoptReleasedHarps record Adopt and its release.
-	adoptedHarps       []string
-	adoptReleasedHarps []string
 }
 
 type fakeAgent struct {
@@ -371,20 +368,6 @@ func (s *fakeSpawner) refuseBind() bool {
 	return false
 }
 
-// Adopt records the re-adopted harp and hands back a release that records
-// itself — the seam a restart test reads to prove the run got its owner.
-func (s *fakeSpawner) Adopt(_ context.Context, rec RunRecord) (func() error, error) {
-	s.mu.Lock()
-	s.adoptedHarps = append(s.adoptedHarps, rec.Harp)
-	s.mu.Unlock()
-	return func() error {
-		s.mu.Lock()
-		s.adoptReleasedHarps = append(s.adoptReleasedHarps, rec.Harp)
-		s.mu.Unlock()
-		return nil
-	}, nil
-}
-
 // resolvedLaunches returns every launch ResolveLaunch produced, in order.
 func (s *fakeSpawner) resolvedLaunches() []launch.Launch {
 	s.mu.Lock()
@@ -397,20 +380,6 @@ func (s *fakeSpawner) rebinds() []bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]bool(nil), s.rebindFlags...)
-}
-
-// adopted returns the harps Adopt was asked to re-own, in order.
-func (s *fakeSpawner) adopted() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.adoptedHarps...)
-}
-
-// adoptReleased returns the harps whose adoption release has fired.
-func (s *fakeSpawner) adoptReleased() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.adoptReleasedHarps...)
 }
 
 // engineHome returns the i-th spawned runner-side Home, nil if unspawned.

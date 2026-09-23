@@ -3,13 +3,12 @@ package operations
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
@@ -28,18 +27,25 @@ func resetEngineHomeStrictness(t *testing.T) {
 	})
 }
 
-// fakeHostHome points $HOME at a scratch directory and, when creds is
-// non-empty, writes it as the host's ~/.claude/.credentials.json. Returns the
-// home path. Every case that touches claude uses this so no test can read (or
-// write) the developer's real credentials.
-func fakeHostHome(t *testing.T, creds string) string {
+// fakeHostHome points $HOME at a scratch directory and clears every var that
+// can authenticate claude. When token is non-empty it is exported as the
+// setup-token AND the host gets a native ~/.claude login, so a case can show
+// that login is never copied. Returns the home path. Every case that touches
+// claude uses this so no test can read (or write) the developer's real
+// credentials.
+func fakeHostHome(t *testing.T, token string) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	if creds != "" {
+	a, ok := isolation.TokenAuthFor("claude-code")
+	require.True(t, ok)
+	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
+		t.Setenv(v, "")
+	}
+	if token != "" {
+		t.Setenv(a.TokenVar, token)
 		require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(creds), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(hostLoginFixture), 0o600))
 	}
 	return home
 }
@@ -60,11 +66,12 @@ const (
 	harpB = "brave-warm-otter"
 )
 
-// hostCredentialFixture is a non-empty stand-in for a real
-// ~/.claude/.credentials.json. Non-empty on purpose: a byte-for-byte comparison
-// between two empty files proves nothing, and "exit 0 having written zero
-// bytes" is this project's signature failure mode.
-const hostCredentialFixture = `{"claudeAiOauth":{"accessToken":"seed-fixture-token","refreshToken":"seed-fixture-refresh"}}`
+// tokenFixture stands in for the token `claude setup-token` mints.
+const tokenFixture = "sk-ant-oat01-fixture"
+
+// hostLoginFixture is the user's own native ~/.claude login, which no case
+// may find copied anywhere.
+const hostLoginFixture = `{"claudeAiOauth":{"accessToken":"native-access","refreshToken":"native-refresh"}}`
 
 // containerInstanceRoot stands in for the fixed in-container instance root
 // (isolation.ContainerInstanceHome). The engine's home lands under it at the
@@ -74,15 +81,9 @@ const containerInstanceRoot = "/ctxloom-test/home"
 
 // projectHome is the input every case starts from: an agent binding that
 // declared engine_home: session, on the host (no runtime advice).
-// resolveHome is ResolveInTreeAgentHome with the resolution's Release bound
-// to the test's end, the way Cells.Prepare binds it to the run's: a home that
-// seeded a credential left its replicator running, and a test that dropped
-// it would leak that watcher into the test process.
 func resolveHome(t *testing.T, in InTreeAgentHome) AgentHomeResolution {
 	t.Helper()
-	res := ResolveInTreeAgentHome(in)
-	t.Cleanup(func() { _ = res.Release() })
-	return res
+	return ResolveInTreeAgentHome(in)
 }
 
 func projectHome(workDir, harp string) InTreeAgentHome {
@@ -122,7 +123,7 @@ func requireResolutionInvariant(t *testing.T, res AgentHomeResolution) {
 // the engine is told the in-container path, and one mount makes that true.
 func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	in := projectHome(workDir, harpA)
@@ -141,7 +142,7 @@ func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) 
 	assert.Equal(t, present.Mount{HostDir: host, TargetDir: target}, *res.Mount,
 		"the RIGHT host directory — this session's instance leaf — lands at the fixed root")
 	assert.DirExists(t, host, "the mount source must exist before the runtime is asked to bind it")
-	assert.FileExists(t, filepath.Join(host, ".credentials.json"), "the mapped home is seeded exactly like the host cell's")
+	assert.NoFileExists(t, filepath.Join(host, ".credentials.json"), "no credential is copied into a mapped home either")
 	assert.Empty(t, strictness.All())
 }
 
@@ -149,7 +150,7 @@ func TestResolveInTreeAgentHome_ContainerGetsTheSessionHomeMapped(t *testing.T) 
 // mounts nothing.
 func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 	want := mustClaudeInstance(t, workDir, harpA)
 
@@ -160,42 +161,14 @@ func TestResolveInTreeAgentHome_HostCellEngineSeesTheHostPath(t *testing.T) {
 	assert.Nil(t, res.Mount)
 }
 
-// An AGENT's home holds a read-only PROJECTION of the orchestrator's
-// credential — read from the orchestrator's session home, never the host
-// file — with the single-use refresh token withheld, so no agent can
-// consume the host's grant and revoke the human's login.
-func TestResolveInTreeAgentHome_AnAgentGetsAProjectionOfTheOrchestrators(t *testing.T) {
+// The session home authenticates from the token in the env alone: the
+// engine var points at the session instance, and the user's native login is
+// NOT copied there. A child and its root are prepared identically, so a
+// claude child whose owner runs another engine needs nothing from the
+// owner's session home.
+func TestResolveInTreeAgentHome_ClaudeHomeCopiesNoCredential(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	workDir := t.TempDir()
-	orchestrator := mustClaudeInstance(t, workDir, harpB)
-	require.NoError(t, os.MkdirAll(orchestrator, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(orchestrator, ".credentials.json"),
-		[]byte(`{"claudeAiOauth":{"accessToken":"orchestrator-token","refreshToken":"orchestrator-refresh"}}`), 0o600))
-
-	in := projectHome(workDir, harpA)
-	in.Orchestrator = harpB
-	res := resolveHome(t, in)
-	requireResolutionInvariant(t, res)
-
-	seeded, err := os.ReadFile(filepath.Join(mustClaudeInstance(t, workDir, harpA), ".credentials.json"))
-	require.NoError(t, err)
-	assert.Contains(t, string(seeded), "orchestrator-token", "the agent projects the ORCHESTRATOR's credential")
-	assert.NotContains(t, string(seeded), "seed-fixture-token", "…never the host's")
-	assert.NotContains(t, string(seeded), "refreshToken", "…with the refresh token withheld")
-}
-
-// t1 — the ROOT session's run for claude-code is handed CLAUDE_CONFIG_DIR at
-// the session home, and the host credential is really there, owner-only and
-// WHOLE: the root is the orchestrator, the one ctxloom-side refresher, and
-// its copy is two-way with the host file (ruled 2026-09-21). An AGENT's
-// home (the sibling test below) holds a projection of THIS credential.
-//
-// The env var alone would be a half-truth: a controlled home claude cannot
-// authenticate against is worse than no relocation at all.
-func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	res := resolveHome(t, projectHome(workDir, harpA))
@@ -203,60 +176,9 @@ func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 
 	want := mustClaudeInstance(t, workDir, harpA)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: want}, res.Env)
-
-	seeded, err := os.ReadFile(filepath.Join(want, ".credentials.json"))
-	require.NoError(t, err, "the controlled home must actually carry the seeded credential")
-	require.NotEmpty(t, seeded, "empty-source guard: the fixture must carry bytes")
-	assert.Contains(t, string(seeded), "seed-fixture-token", "the access token is seeded so the home authenticates")
-	assert.Contains(t, string(seeded), "seed-fixture-refresh",
-		"the ROOT's copy is whole: it is the orchestrator, the single refresher, two-way with the host")
-
-	info, err := os.Stat(filepath.Join(want, ".credentials.json"))
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a seeded credential is owner-only")
-
-	assert.Empty(t, strictness.All(), "a fully seeded home records no finding")
-}
-
-// replicatorOrigin is the "created by" line every credential-replication
-// watch goroutine carries in a stack dump — exactly one per goroutine, so
-// counting it counts goroutines rather than frames.
-const replicatorOrigin = "created by github.com/ctxloom/ctxloom/internal/adapters/isolation.(*replicator).start"
-
-// liveReplicatorGoroutines counts the credential replicator's watch
-// goroutines alive in this process right now.
-func liveReplicatorGoroutines() int {
-	buf := make([]byte, 1<<20)
-	for {
-		n := runtime.Stack(buf, true)
-		if n < len(buf) {
-			return strings.Count(string(buf[:n]), replicatorOrigin)
-		}
-		buf = make([]byte, 2*len(buf))
-	}
-}
-
-// The session home's OWNER ends its replicator: Release — what the cell's
-// Cleanup and a re-adopted run's close both call at the run's end — returns
-// only once the watch goroutines have exited. Asserted on the goroutines
-// themselves rather than on a write that stops arriving, because "nothing
-// propagated within N ms" cannot tell a stopped replicator from a slow one,
-// and a replicator that outlives its run accumulates, one pair per launch,
-// in a long-lived coordinator.
-func TestResolveInTreeAgentHome_ReleaseStopsTheSessionReplicator(t *testing.T) {
-	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
-	before := liveReplicatorGoroutines()
-
-	res := ResolveInTreeAgentHome(projectHome(t.TempDir(), harpA))
-	t.Cleanup(func() { _ = res.Release() })
-	requireResolutionInvariant(t, res)
-	require.Greater(t, liveReplicatorGoroutines(), before,
-		"a seeded session home must leave its credential replicator running; without one, the release below proves nothing")
-
-	require.NoError(t, res.Release())
-	assert.Equal(t, before, liveReplicatorGoroutines(),
-		"Release returned with the session's replicator goroutines still alive: the run's end does not end its replication")
+	assert.NoFileExists(t, filepath.Join(want, ".credentials.json"), "the native login is never copied into a session home")
+	assert.FileExists(t, filepath.Join(want, ".claude.json"), "the engine's own instance config is still written")
+	assert.Empty(t, strictness.All())
 }
 
 // t1b — the host's own ~/.claude is READ and never written. There is no
@@ -264,7 +186,7 @@ func TestResolveInTreeAgentHome_ReleaseStopsTheSessionReplicator(t *testing.T) {
 // home is somebody else's property.
 func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	home := fakeHostHome(t, hostCredentialFixture)
+	home := fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	before, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
@@ -278,7 +200,7 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 
 	entries, err := os.ReadDir(filepath.Join(home, ".claude"))
 	require.NoError(t, err)
-	assert.Len(t, entries, 1, "seeding added files to the human's own ~/.claude")
+	assert.Len(t, entries, 1, "preparing the session home added files to the human's own ~/.claude")
 }
 
 // THE SCOPING RULE. Only a binding that EXPLICITLY selects host keeps the
@@ -289,7 +211,7 @@ func TestResolveInTreeAgentHome_NeverWritesTheRealHostHome(t *testing.T) {
 // red); m2 ignores a declared host value (the declared case goes red).
 func TestResolveInTreeAgentHome_OnlyTheHostSelectionKeepsTheRuntimeHomeAndSaysSo(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	in := projectHome(workDir, harpA)
@@ -307,7 +229,6 @@ func TestResolveInTreeAgentHome_OnlyTheHostSelectionKeepsTheRuntimeHomeAndSaysSo
 		in := projectHome(workDir, harpA)
 		in.HomeMode = ch
 		res := resolveHome(t, in)
-		t.Cleanup(func() { _ = res.Release() })
 		requireResolutionInvariant(t, res)
 		assert.NotEmpty(t, res.Env, "%s: gets the session home", name)
 		assert.Empty(t, res.Absent, name)
@@ -320,7 +241,7 @@ func TestResolveInTreeAgentHome_OnlyTheHostSelectionKeepsTheRuntimeHomeAndSaysSo
 // got nothing deserves to learn why.
 func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 
 	in := projectHome(t.TempDir(), harpA)
 	in.Backend = "mock"
@@ -329,31 +250,35 @@ func TestResolveInTreeAgentHome_EngineWithoutAHomeSaysWhy(t *testing.T) {
 	assert.Contains(t, res.Absent, "mock", "the reason names the engine")
 }
 
-// Nothing to seed is FAIL-LOUD, never a silent relocation: with neither
-// ANTHROPIC_API_KEY nor a host credential file, pointing claude at an empty
-// controlled home would strand the agent logged out. Record the ClassIsolation
+// Nothing to authenticate with is FAIL-LOUD, never a silent relocation: with
+// no token and no API var, pointing claude at the controlled home would
+// strand the agent logged out. Record the ClassIsolation
 // finding the choke owner aborts on, and resolve ABSENT with the reason — so a
 // --degraded run falls back to the home its runtime gives it, instead of
 // launching against a home that cannot authenticate.
-func TestResolveInTreeAgentHome_NothingToSeedFailsLoudAndIsAbsent(t *testing.T) {
+func TestResolveInTreeAgentHome_NoTokenFailsLoudAndIsAbsent(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, "") // no ~/.claude at all, no API key
+	home := fakeHostHome(t, "") // no token, no API key
+	// A native login on the host does not count: it is never copied.
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".claude"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(hostLoginFixture), 0o600))
 	workDir := t.TempDir()
 
 	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
-	assert.Contains(t, res.Absent, "ANTHROPIC_API_KEY")
+	assert.Contains(t, res.Absent, "ctxloom auth set-token")
 
 	found := strictness.All()
 	require.Len(t, found, 1, "an unauthenticatable controlled home must fail loud")
 	assert.Equal(t, strictness.ClassIsolation, found[0].Class)
-	assert.Contains(t, found[0].Message, "ANTHROPIC_API_KEY")
-	assert.NotEmpty(t, found[0].FixIt, "a finding without a fix-it leaves the user stuck")
+	for _, want := range []string{"claude setup-token", "ctxloom auth set-token", "ANTHROPIC_API_KEY", "engine_home: host"} {
+		assert.Contains(t, found[0].Message, want)
+	}
+	assert.Contains(t, found[0].FixIt, "ctxloom auth set-token", "a finding without a fix-it leaves the user stuck")
 }
 
-// The API-key path: auth rides the environment, so there is nothing to seed and
-// nothing to fail about — the controlled home is still handed over, and it
-// exists.
+// The API-key path: auth rides the environment, so there is nothing to fail
+// about — the controlled home is still handed over, and it exists.
 func TestResolveInTreeAgentHome_ApiKeyAuthenticatesAFreshControlledHome(t *testing.T) {
 	resetEngineHomeStrictness(t)
 	fakeHostHome(t, "")
@@ -363,20 +288,20 @@ func TestResolveInTreeAgentHome_ApiKeyAuthenticatesAFreshControlledHome(t *testi
 	res := resolveHome(t, projectHome(workDir, harpA))
 	requireResolutionInvariant(t, res)
 	assert.Equal(t, map[string]string{claude.ConfigDirEnv: mustClaudeInstance(t, workDir, harpA)}, res.Env)
-	assert.DirExists(t, mustClaudeInstance(t, workDir, harpA), "the home must exist even when nothing was copied into it")
+	assert.DirExists(t, mustClaudeInstance(t, workDir, harpA), "the home must exist")
 	assert.Empty(t, strictness.All())
 }
 
 // The instance's SHAPE, spelled out once so a change to the layout cannot pass
 // by agreeing with itself: the session's own directory under the ctxloom home
-// (not the project tree, not cache — it holds copied credentials nothing
+// (not the project tree, not cache — it holds engine state nothing
 // rebuilds), keyed by harp, one `home` root, one leaf per engine.
 //
 // MUTATION TARGET m2: drop the harp from the env contribution (key the instance
 // by project again) and this goes red on the missing harp component.
 func TestResolveInTreeAgentHome_ContributesTheSessionInstanceShape(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	hostHome := fakeHostHome(t, hostCredentialFixture)
+	hostHome := fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	res := resolveHome(t, projectHome(workDir, harpA))
@@ -401,7 +326,7 @@ func TestResolveInTreeAgentHome_ContributesTheSessionInstanceShape(t *testing.T)
 // goes red, because session B would find session A's file.
 func TestResolveInTreeAgentHome_TwoSessionsGetTwoInstances(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	a := resolveHome(t, projectHome(workDir, harpA))
@@ -421,7 +346,7 @@ func TestResolveInTreeAgentHome_TwoSessionsGetTwoInstances(t *testing.T) {
 // the model retired. Nothing is contributed and nothing is created.
 func TestResolveInTreeAgentHome_EmptyHarpIsAbsentAndCreatesNothing(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 
 	res := resolveHome(t, projectHome(workDir, ""))
@@ -436,7 +361,7 @@ func TestResolveInTreeAgentHome_EmptyHarpIsAbsentAndCreatesNothing(t *testing.T)
 // trusting the project root would answer for a directory the run never enters.
 func TestResolveInTreeAgentHome_TrustNamesTheRunCwdNotTheProjectRoot(t *testing.T) {
 	resetEngineHomeStrictness(t)
-	fakeHostHome(t, hostCredentialFixture)
+	fakeHostHome(t, tokenFixture)
 	workDir := t.TempDir()
 	checkout := t.TempDir()
 

@@ -32,11 +32,6 @@ const (
 	// name cannot be known at enqueue, only after spawn. Never posted for a
 	// host-runtime run.
 	factRunContainer = "run.container"
-	// factRunCell binds a run to the cell its launch resolved — the workspace
-	// the engine runs in and the engine it was resolved for — once the launch
-	// exists. A coordinator that restarts and re-adopts the run re-binds the
-	// run's engine home from this; the cell is not known at enqueue.
-	factRunCell = "run.cell"
 	// factRunResumable records the run engine's LIVE resume capability (ACP's
 	// initialize-time loadSession bit, surfaced via ChatSessionInfo.Resumable)
 	// — the one-shot resume gate's live half (one-shot-resume plan, Slice 4 /
@@ -171,14 +166,6 @@ type runHarness struct {
 type runContainer struct {
 	RunID         string `json:"run_id"`
 	ContainerName string `json:"container_name"`
-}
-
-// runCell is factRunCell's payload.
-type runCell struct {
-	RunID    string `json:"run_id"`
-	WorkDir  string `json:"work_dir"`
-	Engine   string `json:"engine"`
-	HomeMode string `json:"home_mode,omitempty"`
 }
 
 // runResumable is factRunResumable's payload.

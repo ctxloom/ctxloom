@@ -64,7 +64,7 @@ const (
 // A SYMLINKED DESTINATION IS REFUSED. Writing in place means opening a
 // destination BY PATH, which is exactly the shape a symlink subverts: a
 // repo-tracked `.claude/.credentials.json` pointing at the user's real
-// `~/.claude/.credentials.json` turns a seeding write into an arbitrary-file
+// `~/.claude/.credentials.json` turns a routine write into an arbitrary-file
 // overwrite. The refusal is made BY THE OPEN SYSCALL (O_NOFOLLOW, plus
 // O_EXCL on the create leg, which POSIX already defines as refusing a
 // symlink) rather than by an Lstat-then-open check, which is racy: between

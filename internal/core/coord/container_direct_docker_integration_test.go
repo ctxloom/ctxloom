@@ -144,10 +144,6 @@ func (s *directBusSpawner) Start(ctx context.Context, l launch.Launch, reach ses
 	return &coord.EngineSpawn{Kill: kill}, nil
 }
 
-func (s *directBusSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {
-	return nil, nil
-}
-
 // preparedContainerCell is what ResolveLaunch prepared for one harp and
 // Start launches into.
 type preparedContainerCell struct {

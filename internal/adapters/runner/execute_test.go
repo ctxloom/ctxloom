@@ -48,9 +48,8 @@ func TestExecute_HostAndDelegatedLaunches_DeliverAnIdenticalFileSet(t *testing.T
 	})
 	require.NoError(t, err)
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-1"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
+		Identity: env.mint(t, 1, "run-1"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
 	})
 	require.NoError(t, err)
 	require.NotEqual(t, host.Cell.Workspace, child.Cell.Workspace, "the child runs in its own worktree cell")
@@ -106,8 +105,8 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 	env := newDeliveryEnv(t)
 	id := env.mint(t, 1, "run-2")
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: id, Orchestrator: "root-harp",
-		Agent: "x", Mode: engine.Structured, Prompt: "again", WorkDir: env.project,
+		Identity: id,
+		Agent:    "x", Mode: engine.Structured, Prompt: "again", WorkDir: env.project,
 		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: id.Harp, NativeKey: "native-9"}},
 	})
 	require.NoError(t, err)
@@ -127,9 +126,8 @@ func TestExecute_ANativeKeyResumeDoesNotRePrimeTheContext(t *testing.T) {
 func TestExecute_RefusesALaunchForAnotherEngine(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-3"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity: env.mint(t, 1, "run-3"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}
@@ -150,9 +148,8 @@ func TestExecute_RefusesALaunchForAnotherEngine(t *testing.T) {
 func TestExecute_BindsTheInstanceBeforeDelivery(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-5"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity: env.mint(t, 1, "run-5"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}
@@ -174,9 +171,8 @@ func TestExecute_BindsTheInstanceBeforeDelivery(t *testing.T) {
 func TestExecute_RefusesAStructuredLaunchTheInstanceCannotDrive(t *testing.T) {
 	env := newDeliveryEnv(t)
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-6"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity: env.mint(t, 1, "run-6"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}
@@ -211,9 +207,8 @@ func TestExecute_ATamperedClaimIsRefusedBeforeDelivery(t *testing.T) {
 	env := newDeliveryEnv(t)
 	env.deps.InlineMax = -1
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-4"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity: env.mint(t, 1, "run-4"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, l.Package.Claim)
@@ -424,9 +419,8 @@ func TestExecute_ABindingsRootSelection_LandsTheKindAtTheSharedRoot(t *testing.T
 		DefaultAgent: "shared",
 	})
 	l, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-shared"),
-		Orchestrator: "root-harp",
-		Agent:        "shared", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
+		Identity: env.mint(t, 1, "run-shared"),
+		Agent:    "shared", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Workspace: launch.WorkspaceWorktree,
 	})
 	require.NoError(t, err)
 	var mcpRoot present.RootKind
@@ -457,8 +451,8 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 	env := newDeliveryEnv(t)
 	id := env.mint(t, 1, "run-env")
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity: id, Orchestrator: "root-harp",
-		Agent: "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Env: map[string]string{"CTXLOOM_MOCK_RESPONSE": "MOCK-REPLY"},
+		Identity: id,
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project, Env: map[string]string{"CTXLOOM_MOCK_RESPONSE": "MOCK-REPLY"},
 	})
 	require.NoError(t, err)
 	drive := &recordingDriver{}
@@ -487,9 +481,8 @@ func TestExecute_TheLaunchsEngineEnvRidesTheExec(t *testing.T) {
 func TestExecute_AContainerCellIsDeliveredAtTheEngineSideOfEveryRoot(t *testing.T) {
 	env := newDeliveryEnv(t)
 	child, err := launch.Resolve(context.Background(), env.deps, launch.Source{
-		Identity:     env.mint(t, 1, "run-ctr"),
-		Orchestrator: "root-harp",
-		Agent:        "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
+		Identity: env.mint(t, 1, "run-ctr"),
+		Agent:    "x", Mode: engine.Structured, Prompt: "go", WorkDir: env.project,
 	})
 	require.NoError(t, err)
 

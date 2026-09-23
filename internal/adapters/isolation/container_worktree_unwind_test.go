@@ -124,7 +124,7 @@ func TestContainerWorktree_FailedMappingDoesNotLeakTheCheckout(t *testing.T) {
 		image:   "ctxloom-agent-unwind-test:latest",
 		engineSpec: engineContainerSpec{
 			engineInstall: []byte("RUN echo fake-install\n"),
-			resolveAuth: func(string, string) (containerAuth, bool) {
+			resolveAuth: func() (containerAuth, bool) {
 				return containerAuth{mode: authEnv, envPassthrough: []string{"X"}}, true
 			},
 		},

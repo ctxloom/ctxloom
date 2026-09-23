@@ -168,20 +168,6 @@ func (c *Coordinator) readopt(runID string) {
 	c.mu.Unlock()
 	close(rt.attached)
 
-	rec.Orchestrator = c.ownerHarp
-	release, err := c.spawner.Adopt(c.baseCtx, rec)
-	if err != nil {
-		c.rep.Warnf("re-adopt run %s (%s): the run's cell ownership could not be re-acquired: %v", runID, rec.Harp, err)
-	}
-	c.mu.Lock()
-	if release != nil {
-		rt.close = func() {
-			if rerr := release(); rerr != nil {
-				c.rep.Warnf("run %s (%s): release re-adopted cell: %v", runID, rec.Harp, rerr)
-			}
-		}
-	}
-	c.mu.Unlock()
 	c.audit("run_readopted", rec.Harp, map[string]string{"run_id": runID})
 }
 

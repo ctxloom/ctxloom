@@ -8,8 +8,9 @@ import (
 )
 
 // This file is the vocabulary an engine's Home() and Container() speak: how
-// its global config/credential home relocates into a session home and what
-// seeds it, and how a containerized run of it is built and authenticated.
+// its global config home relocates into a session home and how the engine
+// authenticates there, and how a containerized run of it is built and
+// authenticated.
 // The engine package authors VALUES of these types; the cells adapter reads
 // them off the Engine it was handed and never imports the engine. The types
 // live on the port, not in the adapter, because an engine package must be
@@ -18,23 +19,22 @@ import (
 // Every optional part is a Declared slot, so "this engine has no X" is a
 // stated value with a reason, never a nil that reads as either.
 
-// HomeSpec says how the engine's config/credential home relocates into the
-// session home. The zero value is the NULL OBJECT: no var relocates
-// anything, nothing is seeded, no instance config is generated — an engine
-// that keeps no engine-global state returns it and the cells adapter has
-// nothing to do.
+// HomeSpec says how the engine's config home relocates into the session
+// home. The zero value is the NULL OBJECT: no var relocates anything, no
+// instance config is generated — an engine that keeps no engine-global state
+// returns it and the cells adapter has nothing to do.
 type HomeSpec struct {
 	// Vars are the env vars that relocate the home, each pointed at Subdir
 	// under the session home. An engine whose whole home moves with one var
 	// has one entry; an engine that splits config and data across separate
 	// XDG vars contributes one entry per var.
 	Vars []HomeVar
-	// Credentials declares whether the relocated home carries the engine's
-	// CREDENTIALS too (Provide: seed them from the host, per CredentialSeed)
-	// or the credential store lives somewhere no home var moves (Absent,
-	// with the reason naming where). Undecided is legal ONLY on the zero
-	// spec; Validate refuses it once a var is declared.
-	Credentials Declared[CredentialSeed]
+	// Auth declares how the engine authenticates from a long-lived token in
+	// its env (TokenAuth), or that it needs none (Absent, with the reason).
+	// Nothing is ever copied into a session home to authenticate it.
+	// Undecided is legal ONLY on the zero spec; Validate refuses it once a
+	// var is declared.
+	Auth Declared[TokenAuth]
 	// InstanceConfig is the engine's own generator of its top-level config
 	// file inside a session home the cells adapter provisioned; nil when the
 	// engine has no config file of its own.
@@ -53,99 +53,41 @@ type HomeVar struct {
 // Relocates reports whether the spec moves anything: the zero spec does not.
 func (h HomeSpec) Relocates() bool { return len(h.Vars) > 0 }
 
-// Seed is the credential seed a relocated home is seeded from; false when
-// nothing seeds it — the seed is declared absent, or the home relocates
-// nothing and so has nowhere to seed.
-func (h HomeSpec) Seed() (CredentialSeed, bool) {
-	if !h.Relocates() {
-		return CredentialSeed{}, false
-	}
-	return h.Credentials.Get()
-}
-
-// CredentialSeed is the host credential material copied into a session
-// home, the deliveries the engine ACCEPTS for it, and the two facts a
-// fail-loud "nothing to seed" message needs: the env vars that carry usable
-// auth instead (EnvTriggers — seeding is skipped when any is set), and the
-// command that makes the credential file exist (LoginHint).
-type CredentialSeed struct {
-	// Subdir is the home subdirectory the seed lands in. It must be a Subdir
-	// one of the spec's Vars names, or the seed lands where the engine never
-	// looks.
-	Subdir string
-	// EnvTriggers are the env vars any one of which, set in the process
-	// env, means auth rides the env and nothing is seeded — in the order the
-	// engine consults them, which is the order a refusal names them. Empty
-	// when the engine has no such bypass.
+// TokenAuth is how an engine authenticates from its env alone: the var it
+// reads a long-lived token from, and the other vars any one of which
+// authenticates it instead.
+type TokenAuth struct {
+	// TokenVar is the env var the engine reads a long-lived token from.
+	// ctxloom fills it from the engine's stored token when the process env
+	// leaves it unset.
+	TokenVar string
+	// EnvTriggers are the other env vars, any one of which authenticates the
+	// engine without the token, in the order a refusal names them.
 	EnvTriggers []string
-	// LoginHint is the command that creates the credential file
-	// (e.g. "claude login") — the fix a "nothing seedable" refusal names.
-	LoginHint string
-	// Files are copied in order. At least one must be Required: its absence
-	// is the fail-loud case; an optional file is copied when present.
-	Files []SeedFile
-	// Accept is the material deliveries the engine takes, best first. A seed
-	// with nothing it accepts is refused by Validate: the material's
-	// existence and the way it may reach the instance are ONE declaration,
-	// so "material to place but no delivery it accepts" cannot be authored.
-	Accept []MaterialDelivery
-	// Keychain, when set, is the engine's macOS credential store: on darwin
-	// the seed is a Keychain item rather than a file, read from the store's
-	// default item and written as the session's own. nil for an engine
-	// whose macOS store is the same file as everywhere else.
-	Keychain *KeychainStore
+	// MintHint is the command that mints the token.
+	MintHint string
 }
 
-// KeychainStore describes an engine whose macOS credential lives in the
-// login Keychain as a generic password, keyed the way claude keys it: the
-// account is the user's name, the service is a fixed name for the default
-// config dir and that name suffixed with a hash of the config dir when the
-// engine's home var relocates it.
-type KeychainStore struct {
-	// Service is the default item's service name (e.g. "Claude
-	// Code-credentials"). The session item's service is this name, a dash,
-	// and the first eight hex digits of the sha256 of the NFC-normalised
-	// config dir — the engine's own derivation, which is what makes the
-	// item findable by the engine and recomputable by the reaper.
-	Service string
-	// Project transforms the default item's bytes into the session item's,
-	// on every placement; nil copies them as they are.
-	Project func(host []byte) ([]byte, error)
-}
-
-// SeedFile is one host file a CredentialSeed copies.
-type SeedFile struct {
-	// HostRelHome is the source path relative to the host user's home, in
-	// slash form (e.g. ".claude/.credentials.json").
-	HostRelHome string
-	// DestName is the file name under the seed's Subdir.
-	DestName string
-	// Required marks the file whose absence means nothing is seedable.
-	Required bool
-	// Project, when set, is the ENGINE's transform of the host bytes into
-	// the instance's: what the instance may hold is a projection of the
-	// host file, applied on every placement, never only the first. nil
-	// means the instance holds the host's bytes as they are.
-	//
-	// A projected file is delivered ONE WAY, and the machinery enforces
-	// it: the instance cannot write back through a lossy projection
-	// without destroying what the projection withheld. It is the engine's
-	// own knowledge of its format — which field is the single-use refresh
-	// token — so it is declared here, by the engine, and the isolation
-	// machinery applies it without reading a byte of the format itself.
-	Project func(host []byte) ([]byte, error)
+// Validate refuses a declaration a refusal could not name a fix from.
+func (a TokenAuth) Validate() error {
+	if a.TokenVar == "" {
+		return errors.New("TokenAuth: TokenVar is empty; name the env var the engine reads its token from")
+	}
+	if a.MintHint == "" {
+		return errors.New("TokenAuth: MintHint is empty; name the command that mints the token")
+	}
+	return nil
 }
 
 // Validate refuses a non-zero spec the cells adapter could not act on
 // correctly. The zero spec is valid: it declares nothing.
 func (h HomeSpec) Validate() error {
 	if !h.Relocates() {
-		if _, ok := h.Credentials.Get(); ok {
-			return errors.New("HomeSpec: a credential seed with no home var to land under")
+		if _, ok := h.Auth.Get(); ok {
+			return errors.New("HomeSpec: token auth with no home var; an engine that relocates nothing declares no auth here")
 		}
 		return nil
 	}
-	subdirs := map[string]bool{}
 	for i, v := range h.Vars {
 		if v.Name == "" {
 			return fmt.Errorf("HomeSpec: Vars[%d].Name is empty", i)
@@ -153,32 +95,16 @@ func (h HomeSpec) Validate() error {
 		if v.Subdir == "" {
 			return fmt.Errorf("HomeSpec: Vars[%d].Subdir is empty", i)
 		}
-		subdirs[v.Subdir] = true
 	}
-	if !h.Credentials.Decided() {
-		return errors.New("HomeSpec: Credentials is undeclared; provide a seed or declare it absent with the reason")
+	if !h.Auth.Decided() {
+		return errors.New("HomeSpec: Auth is undeclared; provide token auth or declare it absent with the reason")
 	}
-	seed, ok := h.Credentials.Get()
-	if !ok {
-		return nil
-	}
-	if !subdirs[seed.Subdir] {
-		return fmt.Errorf("HomeSpec: CredentialSeed.Subdir %q is not a Subdir any home var points at", seed.Subdir)
-	}
-	if seed.LoginHint == "" {
-		return errors.New("HomeSpec: CredentialSeed.LoginHint is empty; a seed that can fail must name the command that fixes it")
-	}
-	required := false
-	for i, f := range seed.Files {
-		if f.HostRelHome == "" || f.DestName == "" {
-			return fmt.Errorf("HomeSpec: CredentialSeed.Files[%d] has an empty path", i)
+	if a, ok := h.Auth.Get(); ok {
+		if err := a.Validate(); err != nil {
+			return fmt.Errorf("HomeSpec: %w", err)
 		}
-		required = required || f.Required
 	}
-	if !required {
-		return errors.New("HomeSpec: CredentialSeed has no Required file; without one there is no fail-loud case")
-	}
-	return validateAccept(seed.Accept)
+	return nil
 }
 
 // InstanceConfigWriter generates the engine's own top-level config file
@@ -248,8 +174,8 @@ func (c ContainerSpec) Validate() error {
 }
 
 // ContainerAuth is one engine's in-container authentication plan as DATA:
-// prefer env passthrough when any trigger is set in the host env, else bind
-// the credential files into the fresh home, else degrade with Hint.
+// env passthrough when any trigger is set in the host env, else refuse with
+// Hint. No credential file is ever mounted into a container.
 type ContainerAuth struct {
 	// Vendorless, when set, declares the engine authenticates against no
 	// vendor at all: resolution always succeeds with no env and no mounts.
@@ -261,39 +187,24 @@ type ContainerAuth struct {
 	// EnvPassthrough is the scoped set of var NAMES forwarded name-only; a
 	// value is never stored here. Only the present ones cross.
 	EnvPassthrough []string
-	// CredentialFiles are bind-mounted from the host home into the container
-	// home when no trigger is set. Empty = no mount fallback.
-	CredentialFiles []CredentialFile
 	// Hint is the degrade diagnostic when nothing resolves — names the
 	// trigger var / credential source without leaking values.
 	Hint string
 }
 
-// CredentialFile is one host credential bind-mounted into a container home.
-type CredentialFile struct {
-	HostRelHome      string
-	ContainerRelHome string
-	ReadOnly         bool
-}
-
 // Validate refuses an auth plan with no single reading or nothing to resolve.
 func (a ContainerAuth) Validate() error {
 	if a.Vendorless != "" {
-		if len(a.EnvTriggers) > 0 || len(a.EnvPassthrough) > 0 || len(a.CredentialFiles) > 0 || a.Hint != "" {
-			return errors.New("ContainerAuth: Vendorless excludes triggers, passthrough, credential files and a hint")
+		if len(a.EnvTriggers) > 0 || len(a.EnvPassthrough) > 0 || a.Hint != "" {
+			return errors.New("ContainerAuth: Vendorless excludes triggers, passthrough and a hint")
 		}
 		return nil
 	}
-	if len(a.EnvTriggers) == 0 && len(a.CredentialFiles) == 0 {
-		return errors.New("ContainerAuth: nothing to resolve (no EnvTriggers and no CredentialFiles); declare Auth absent instead")
+	if len(a.EnvTriggers) == 0 {
+		return errors.New("ContainerAuth: nothing to resolve (no EnvTriggers); declare Auth absent instead")
 	}
 	if a.Hint == "" {
 		return errors.New("ContainerAuth: Hint is empty; a plan that can fail must say what was missing")
-	}
-	for i, f := range a.CredentialFiles {
-		if f.HostRelHome == "" || f.ContainerRelHome == "" {
-			return fmt.Errorf("ContainerAuth: CredentialFiles[%d] has an empty path", i)
-		}
 	}
 	return nil
 }

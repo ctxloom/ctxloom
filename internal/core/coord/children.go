@@ -773,7 +773,6 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url string, start SpawnStart) {
 	start.Identity = c.inProject(Identity{Harp: rt.harp, RunID: rt.runID, Depth: rt.depth, OneShot: rt.plan.ResumeMode == ResumeModeOneShot})
 	start.Identity.Leaf = start.Identity.IsLeaf(c.depthCap)
-	start.Orchestrator = c.ownerHarp
 	start.Prompt = prompt
 	if start.Resumed && start.ResumeKey == "" {
 		start.Prompt = textblocks.Join(c.spawner.ResumeHistory(ctx, rt.harp), prompt)
@@ -789,7 +788,6 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 		return
 	}
 	l := resolved.Launch
-	c.recordCell(rt.runID, l)
 	c.mu.Lock()
 	// A terminal that landed while Start was in flight found no close to
 	// call (terminateRun takes rt out of c.attach and nils rt.close). The
@@ -998,24 +996,6 @@ func runnerExitReason(exited <-chan error) (string, bool) {
 		return "runner process exited cleanly (status 0) without ever dialing home", true
 	default:
 		return "", false
-	}
-}
-
-// recordCell journals the run's resolved cell — the workspace, the engine and
-// the binding's engine-home policy — so a coordinator that re-adopts the run
-// after a restart can re-bind its engine home without the Launch.
-func (c *Coordinator) recordCell(runID string, l launch.Launch) {
-	homeMode := ""
-	if len(l.Home) > 0 {
-		homeMode = "session"
-	}
-	if err := c.runs.Exec(func() ([]Fact, error) {
-		if c.runsF.run(runID) == nil {
-			return nil, nil
-		}
-		return []Fact{factAt(factRunCell, c.now(), runCell{RunID: runID, WorkDir: l.Cell.Workspace, Engine: string(l.Engine), HomeMode: homeMode})}, nil
-	}); err != nil {
-		c.rep.Warnf("coordinator: record run cell: %v", err)
 	}
 }
 

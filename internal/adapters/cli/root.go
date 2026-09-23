@@ -367,6 +367,11 @@ func run(comp Composition, args []string, stdout io.Writer) int {
 		fmt.Fprintf(os.Stderr, "ctxloom: %v\n", err)
 		return 1
 	}
+	// Before any command can launch an engine: every launch path inherits
+	// this process's env, so exporting here reaches all of them.
+	if err := isolation.ExportStoredTokens(); err != nil {
+		clidiag.Warn("ctxloom", "stored engine token: %v", err)
+	}
 	root := rootCommand()
 	if args != nil {
 		root.SetArgs(args)
@@ -435,7 +440,7 @@ func init() {
 
 // composeEngines composes the shipped engines once per process and installs
 // the same registry as the cells adapter's facts accessor: isolation
-// resolves engines by NAME (CopyAmbient is handed an engine name) and
+// resolves engines by NAME (PrepareInstanceHome is handed an engine name) and
 // cannot import the engine packages, so the root that built the registry
 // hands it over here. Idempotent, like Compose.
 func composeEngines() error {

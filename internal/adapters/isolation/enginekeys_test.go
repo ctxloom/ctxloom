@@ -21,21 +21,15 @@ func nonRegisteredSpellings() []string {
 	return []string{"claude", "claudecode", "Claude-Code", "CLAUDE-CODE", "claude-cod"}
 }
 
-// TestCredentialSeedSpecFor_OnlyTheRegisteredNameResolves: the seed table
-// gates credential seeding, and a miss is silent (nothing is seeded). So the
+// TestTokenAuthFor_OnlyTheRegisteredNameResolves: the token-auth table gates
+// both the stored-token export and the unauthenticated-home refusal, so the
 // registered name must hit, and every other spelling — unknown, alias-shaped
 // or case-variant — must miss rather than be rounded to a real engine.
-func TestCredentialSeedSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	require.Contains(t, CredentialSeedEngineNames(), claude.EngineName, "fixture: claude must be registered at this seam")
-
-	_, ok := credentialSeedDeclared(claude.EngineName)
+func TestTokenAuthFor_OnlyTheRegisteredNameResolves(t *testing.T) {
+	_, ok := TokenAuthFor(claude.EngineName)
 	assert.True(t, ok, "the registered name resolves")
-
-	_, ok = credentialSeedDeclared(unknownEngineName)
-	assert.False(t, ok, "an unregistered engine must not resolve to any declaration")
-	assert.Nil(t, AmbientSet(unknownEngineName), "an unregistered engine has no ambient allow-list")
-	for _, spelling := range nonRegisteredSpellings() {
-		_, ok := credentialSeedDeclared(spelling)
+	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
+		_, ok := TokenAuthFor(spelling)
 		assert.False(t, ok, "%q is not the registered name and must miss", spelling)
 	}
 }
@@ -58,17 +52,4 @@ func TestEngineContainerSpecFor_OnlyTheRegisteredNameResolves(t *testing.T) {
 	spec := engineContainerSpecFor(unknownEngineName)
 	assert.Equal(t, noContainerAuthHint, spec.authHint, "the default arm's marker hint identifies it")
 	assert.Equal(t, []string{ctxloomCacheOverlayDir}, spec.overlayDirs, "an unmapped engine shadows only ctxloom's own cache dir")
-}
-
-// TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves covers the
-// accessor's name lookup: a writer or a credential seed declared under a
-// name is reachable under exactly that name.
-func TestInstanceConfigWriterFor_OnlyTheRegisteredNameResolves(t *testing.T) {
-	_, ok := credentialSeedDeclared(claude.EngineName)
-	assert.True(t, ok, "fixture: claude's facts are installed by TestMain")
-	for _, spelling := range append(nonRegisteredSpellings(), unknownEngineName) {
-		assert.Nil(t, instanceConfigWriterFor(spelling), "instanceConfigWriterFor(%q)", spelling)
-		_, ok := credentialSeedDeclared(spelling)
-		assert.False(t, ok, "credentialSeedDeclared(%q)", spelling)
-	}
 }

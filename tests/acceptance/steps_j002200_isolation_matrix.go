@@ -29,7 +29,8 @@
 // allowlist closes) out of what a real engine process would receive, per
 // internal/core/agent/base.go's BuildEnv (os.Environ() of the plugin
 // subprocess + the backend's own env + the request env) — plus a `cat` of
-// whatever credential file its own env vars point it at. This is captured
+// whatever credential file its own env vars point it at (there must be none:
+// nothing is copied into a session home). This is captured
 // from INSIDE the spawned process because the
 // per-agent scratch config-home does NOT survive past the run: Cleanup
 // removes it unconditionally once the run exits (confirmed by hand — a
@@ -80,7 +81,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/engines"
+	"github.com/ctxloom/ctxloom/internal/engines/claude"
 )
 
 // isoSpyEnvAllowlist is the CLOSED set of environment variables the spy is
@@ -152,6 +155,10 @@ out="$CTXLOOM_ISOSPY_OUT"
   printf '%s\n' "$@"
   echo "===STDIN==="
   cat
+  echo "===SETUP_TOKEN==="
+  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN-}" ]; then echo unset
+  elif [ "$CLAUDE_CODE_OAUTH_TOKEN" = "` + isoFixtureSetupToken + `" ]; then echo fixture
+  else echo other; fi
   echo "===CLAUDE_CONFIG_DIR_CREDS==="
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
   echo "===CODEX_HOME_CREDS==="
@@ -172,26 +179,26 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1},"modelUsag
 exit 0
 `
 
+// isoFixtureSetupToken is the obviously fake token a scenario stores with
+// the setup-token file. The spy reports only whether the var it was handed
+// EQUALS it — never the value — so a developer's own exported token (which
+// wins over the store) can never land in a spy dump.
+const isoFixtureSetupToken = "sk-ant-oat01-ISO-MATRIX-FIXTURE-NOT-A-REAL-SECRET"
+
 // The two halves of claude's OAuth credential, each obviously fake. The
-// access-token-only copy (easiest-stomp) KEEPS the access marker and STRIPS the
-// refresh marker; the fixture carries both so the strip has something real to
-// prove and the host-untouched check something real to preserve.
+// fixture stands for Alice's own native login: something real for "never
+// copied" and "never modified" to fail on.
 const (
 	isoFixtureAccessMarker  = "ISO-MATRIX-FIXTURE-ACCESS-TOKEN-NOT-A-REAL-SECRET"
 	isoFixtureRefreshMarker = "ISO-MATRIX-FIXTURE-REFRESH-TOKEN-NOT-A-REAL-SECRET"
 )
 
 // isoFixtureClaudeCred is the host ~/.claude/.credentials.json fixture: valid
-// JSON in claude's live claudeAiOauth shape (probe-verified). It is
-// JSON, not a bare marker, because claude's credential projector PARSES it to
-// strip the refresh token — a bare marker would fail that parse loud, which is
-// the projector's correct posture (an unparseable credential cannot be proven
-// refresh-token-free) but not what this fixture is here to test.
+// JSON in claude's live claudeAiOauth shape (probe-verified).
 const isoFixtureClaudeCred = `{"claudeAiOauth":{"accessToken":"` + isoFixtureAccessMarker + `","refreshToken":"` + isoFixtureRefreshMarker + `","expiresAt":1,"refreshTokenExpiresAt":2,"subscriptionType":"max"}}`
 
-// isoCredFixtureContent is the host credential-file body to seed for engine.
-// claude-code needs realistic JSON (its projector parses it); codex copies
-// verbatim and keeps the opaque marker.
+// isoCredFixtureContent is the host credential-file body for engine's native
+// login.
 func isoCredFixtureContent(engine string) (string, error) {
 	switch engine {
 	case "claude-code":
@@ -225,41 +232,36 @@ func isoBinaryNames(engine string) ([]string, error) {
 	}
 }
 
-// isoAPIKeyEnvVars are the env vars whose presence bypasses credential
-// seeding for engine — read off the engine's own declaration
-// (engine.CredentialSeed.EnvTriggers), not re-typed here.
-func isoAPIKeyEnvVars(engine string) ([]string, error) {
-	seed, ok := isoCredentialSeed(engine)
-	if !ok || len(seed.EnvTriggers) == 0 {
-		return nil, fmt.Errorf("iso matrix: engine %q has no API-key bypass", engine)
-	}
-	return seed.EnvTriggers, nil
-}
-
-// isoAPIKeyEnvVar is the API key among them: the LAST the engine declares
-// (claude names its env access token first, its API key second).
-func isoAPIKeyEnvVar(engine string) (string, error) {
-	vars, err := isoAPIKeyEnvVars(engine)
-	if err != nil {
-		return "", err
-	}
-	return vars[len(vars)-1], nil
-}
-
-// isoCredHostPath is engine's REQUIRED host credential file's path, relative
-// to HOME — the file whose absence is the seed's fail-loud case — read off
-// the engine's own declaration (engine.CredentialSeed.Files).
-func isoCredHostPath(engine string) (string, error) {
-	seed, ok := isoCredentialSeed(engine)
+// isoAuthEnvVars are every env var that authenticates engine — its token
+// var first, then the others — read off the engine's own declaration
+// (engine.TokenAuth), not re-typed here.
+func isoAuthEnvVars(engine string) ([]string, error) {
+	a, ok := isoTokenAuth(engine)
 	if !ok {
-		return "", fmt.Errorf("iso matrix: no known host credential path for engine %q", engine)
+		return nil, fmt.Errorf("iso matrix: engine %q declares no token auth", engine)
 	}
-	for _, f := range seed.Files {
-		if f.Required {
-			return filepath.FromSlash(f.HostRelHome), nil
-		}
+	return append([]string{a.TokenVar}, a.EnvTriggers...), nil
+}
+
+// isoAPIKeyEnvVar is the first var the engine declares as authenticating it
+// without the token (claude: its API key).
+func isoAPIKeyEnvVar(engine string) (string, error) {
+	a, ok := isoTokenAuth(engine)
+	if !ok || len(a.EnvTriggers) == 0 {
+		return "", fmt.Errorf("iso matrix: engine %q has no API-key alternative", engine)
 	}
-	return "", fmt.Errorf("iso matrix: engine %q declares no required credential file", engine)
+	return a.EnvTriggers[0], nil
+}
+
+// isoCredHostPath is where engine keeps its NATIVE login, relative to HOME:
+// the file a scenario seeds to prove ctxloom never copies or modifies it.
+func isoCredHostPath(engine string) (string, error) {
+	switch engine {
+	case "claude-code":
+		return filepath.Join(claude.ConfigDirName, ".credentials.json"), nil
+	default:
+		return "", fmt.Errorf("iso matrix: no known native login path for engine %q", engine)
+	}
 }
 
 // isoHostHomeDirRel maps an engine to the directory it uses as its config home
@@ -323,19 +325,6 @@ func isoInstanceHomeShape(homeDir, engine, val string) (harp string, err error) 
 		return "", fmt.Errorf("%q carries no single harp component between %q and %q — the instance must be keyed by SESSION", val, prefix, suffix)
 	}
 	return harp, nil
-}
-
-// mustIsoCredHostPath is isoCredHostPath for the two callers whose scenario
-// already restricts the engine to one that has a host credential path. An
-// engine without one returns "", which the caller's own os.ReadFile then
-// reports as a missing file naming the directory — a legible failure, not a
-// panic in a test helper.
-func mustIsoCredHostPath(engine string) string {
-	rel, err := isoCredHostPath(engine)
-	if err != nil {
-		return ""
-	}
-	return rel
 }
 
 // isoCredsSectionMarker maps an engine to the spy script's own marker line
@@ -711,33 +700,23 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteHomeFile(rel, body+"\n")
 	})
 
-	// The per-engine form of the credential-fixture step, for an outline whose
-	// rows genuinely differ in what "authenticated" means. Spelled as a switch
-	// rather than "isoCredHostPath, ignore the error" so an engine that needs
-	// NO host credential must say so explicitly, and a future engine with a
-	// real credential cannot be silently seeded with nothing by falling into
-	// such an arm.
-	ctx.Step(`^Alice has whatever host credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
+	// The per-engine form of "Alice can authenticate": she has stored a
+	// setup-token the way the docs tell her to (`ctxloom auth set-token`
+	// writes this file). Her own shell's token var is emptied so the stored
+	// one is what the run gets: an exported token wins over the store.
+	ctx.Step(`^Alice has whatever credentials "([^"]*)" needs to authenticate$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		switch engine {
-		case "claude-code":
-			rel, err := isoCredHostPath(engine)
-			if err != nil {
-				return err
-			}
-			body, err := isoCredFixtureContent(engine)
-			if err != nil {
-				return err
-			}
-			return w.env.WriteHomeFile(rel, body+"\n")
-		default:
-			return fmt.Errorf("iso matrix: no declared host-credential requirement for engine %q", engine)
-		}
+		return isoStoreSetupToken(w, engine)
+	})
+
+	ctx.Step(`^Alice has stored a "([^"]*)" setup-token$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		return isoStoreSetupToken(w, engine)
 	})
 
 	ctx.Step(`^Alice has no "([^"]*)" credentials or API key on the host$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		keys, err := isoAPIKeyEnvVars(engine)
+		keys, err := isoAuthEnvVars(engine)
 		if err != nil {
 			return err
 		}
@@ -934,46 +913,6 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("the run wrote into Alice's own ~/%s: expected %d entr(ies), found %d %v", rel, expected, len(entries), names)
 		}
 		w.docStepMaterialized = fmt.Sprintf("Alice's own ~/%s: %d entr(ies), unchanged by the run (info: %s)", rel, len(entries), info.Mode())
-		return nil
-	})
-
-	// The PERMISSIONS half of the seeding claim, read — like the bytes — from
-	// inside the running process. A credential copy must be owner-only: the
-	// instance sits inside the project tree, and a group- or world-readable
-	// token there is a leak that no .gitignore rule addresses.
-	//
-	// This used to be a post-run os.Stat of the instance path, alongside a
-	// "the home outlives the run" claim. That claim is now FALSE BY DESIGN —
-	// S8 reaps the instance at session end precisely because it holds copied
-	// credential bytes — so the assertion moved inside the run, where the file
-	// it describes actually exists. The disposal itself is pinned by the
-	// sibling "is gone once the session ends" step.
-	ctx.Step(`^the copied "([^"]*)" credential was owner-only inside the run$`, func(c context.Context, engine string) error {
-		w := worldFrom(c)
-		j := isoMatrixOf(w)
-		body, err := isoReadSpyOut(j)
-		if err != nil {
-			return fmt.Errorf("engine %q: %w", engine, err)
-		}
-		credName := filepath.Base(mustIsoCredHostPath(engine))
-		listing := isoParseSpySection(body, "===CONFIG_HOME_LISTING===")
-		var line string
-		for _, l := range strings.Split(listing, "\n") {
-			if strings.HasPrefix(l, "MODE ") && strings.HasSuffix(l, string(filepath.Separator)+credName) {
-				line = l
-				break
-			}
-		}
-		if line == "" {
-			return fmt.Errorf("the spy saw no %s inside its config home while it ran — the copy never reached the engine; listing:\n%s", credName, listing)
-		}
-		// `ls -l`'s first field, e.g. "-rw-------": owner rw, and nothing for
-		// group or other.
-		fields := strings.Fields(line)
-		if len(fields) < 3 || !strings.HasPrefix(fields[1], "-rw-") || strings.TrimRight(fields[1][4:], "-") != "" {
-			return fmt.Errorf("the copied %s credential was mode %q inside the run, want owner-only (-rw-------); a credential copy must never be group- or world-readable", engine, fields[1])
-		}
-		w.docStepMaterialized = fmt.Sprintf("%s, read from inside the spy process:\n%s", engine, line)
 		return nil
 	})
 
@@ -1261,7 +1200,9 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the isolated "([^"]*)" credential is whole and can renew$`, func(c context.Context, engine string) error {
+	// Nothing is copied into a session home: the engine authenticates from
+	// its env. Read from inside the running engine, where the home exists.
+	ctx.Step(`^the isolated "([^"]*)" home holds no credential file$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
 		j := isoMatrixOf(w)
 		body, err := isoReadSpyOut(j)
@@ -1272,20 +1213,29 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		got := isoParseSpySection(body, marker)
-		// A `ctxloom run` is the ROOT — the orchestrator, the single
-		// ctxloom-side refresher (ruled 2026-09-21) — so its copy is WHOLE,
-		// refresh token included, two-way with the host file through the
-		// replicator. Its agents' projections (refresh token withheld) are
-		// pinned in the isolation package; no scenario here spawns a claude
-		// child against a real engine.
-		if !strings.Contains(got, isoFixtureAccessMarker) {
-			return fmt.Errorf("isolated %s credential lost its access token; it must still authenticate. spy read:\n%s", engine, got)
+		if got := isoParseSpySection(body, marker); got != "" {
+			return fmt.Errorf("a credential file was copied into the isolated %s home; the run must authenticate from its env. spy read:\n%s", engine, got)
 		}
-		if !strings.Contains(got, isoFixtureRefreshMarker) {
-			return fmt.Errorf("isolated %s credential is MISSING its refresh token; the root is the orchestrator and holds the whole credential. spy read:\n%s", engine, got)
+		for _, l := range strings.Split(isoParseSpySection(body, "===CONFIG_HOME_LISTING==="), "\n") {
+			if strings.HasPrefix(l, "MODE ") {
+				return fmt.Errorf("a credential file exists in the isolated %s home: %s", engine, l)
+			}
 		}
-		w.docStepMaterialized = fmt.Sprintf("isolated %s credential (read from inside the spy process, via %s) — whole, refresh token intact:\n%s", engine, marker, got)
+		w.docStepMaterialized = fmt.Sprintf("isolated %s home, read from inside the spy process: no credential file", engine)
+		return nil
+	})
+
+	ctx.Step(`^the spy "([^"]*)" process was handed the stored setup-token$`, func(c context.Context, engine string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q: %w", engine, err)
+		}
+		if got := isoParseSpySection(body, "===SETUP_TOKEN==="); got != "fixture" {
+			return fmt.Errorf("the %s process was not handed the stored setup-token (spy saw %q)", engine, got)
+		}
+		w.docStepMaterialized = fmt.Sprintf("the %s process's token var equals the stored fixture token (read from inside the spy; the value is never recorded)", engine)
 		return nil
 	})
 
@@ -1368,18 +1318,38 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if strings.TrimSpace(got) != strings.TrimSpace(want) {
-			return fmt.Errorf("host %s credential file content changed by the run — the seed path must be a COPY, never a mutation of the host original; got:\n%s", engine, got)
+			return fmt.Errorf("host %s credential file content changed by the run — ctxloom never writes the user's own login; got:\n%s", engine, got)
 		}
 		w.docStepMaterialized = fmt.Sprintf("host %s credential file (%s), unchanged after the run:\n%s", engine, rel, strings.TrimSpace(got))
 		return nil
 	})
 }
 
-// isoCredentialSeed is the engine's credential seed off its own Home.
-func isoCredentialSeed(name string) (engine.CredentialSeed, bool) {
+// isoTokenAuth is the engine's token-auth declaration off its own Home.
+func isoTokenAuth(name string) (engine.TokenAuth, bool) {
 	kind, ok := engines.Registry().Lookup(engine.Name(name))
 	if !ok {
-		return engine.CredentialSeed{}, false
+		return engine.TokenAuth{}, false
 	}
-	return kind.Home().Seed()
+	return kind.Home().Auth.Get()
+}
+
+// isoStoreSetupToken stores the fixture setup-token for engine where
+// `ctxloom auth set-token` would (paths.HomeEngineTokenPath), owner-only,
+// and empties engine's token var so the stored token is the one the run
+// gets.
+func isoStoreSetupToken(w *World, engine string) error {
+	a, ok := isoTokenAuth(engine)
+	if !ok {
+		return fmt.Errorf("iso matrix: engine %q declares no token auth", engine)
+	}
+	rel := filepath.Join(paths.AppDirName, paths.HomeAuthDirName, engine+paths.EngineTokenExt)
+	if err := w.env.WriteHomeFile(rel, isoFixtureSetupToken); err != nil {
+		return err
+	}
+	if err := os.Chmod(filepath.Join(w.env.HomeDir, rel), 0o600); err != nil {
+		return err
+	}
+	w.env.SetEnv(a.TokenVar, "")
+	return nil
 }

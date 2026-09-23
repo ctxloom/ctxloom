@@ -116,8 +116,9 @@ func TestStartDirectRunner_StderrTailSurfacesOnExit(t *testing.T) {
 // bound to the process — but the consequence is not, and the proposed remedy
 // is actively harmful:
 //
-//   - `docker run` here is ATTACHED and carries no --rm, so killing the run
-//     CLI (all CommandContext does) leaves the CONTAINER running. It orphans
+//   - `docker run` here is ATTACHED, and its --rm fires only when the
+//     container exits, so killing the run CLI (all CommandContext does) leaves
+//     the CONTAINER running. It orphans
 //     exactly the resource the row wants reclaimed.
 //   - Teardown is Kill, which force-REMOVES the container by name first and
 //     only then signals our own CLI. Every production caller registers it up
@@ -133,7 +134,7 @@ func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
 	orig := probeExec
 	probeExec = func(_ context.Context, _ string, args []string) (string, error) {
 		removed = append(removed, strings.Join(args, " "))
-		return "", nil
+		return "removed", nil // a real remove echoes what it removed; empty means gone
 	}
 	t.Cleanup(func() { probeExec = orig })
 
@@ -152,7 +153,7 @@ func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
 
 	// The run process must OUTLIVE the cancelled context. Binding it to ctx
 	// (exec.CommandContext) kills this CLI here — and killing an attached
-	// `docker run` that carries no --rm leaves the CONTAINER behind, orphaning
+	// `docker run` leaves the CONTAINER behind (--rm waits for its exit), orphaning
 	// the very resource the row wanted reclaimed. A clean exit proves the
 	// context is not the lifetime.
 	assert.NoError(t, h.Wait(), "the runner is not torn down by a cancelled context")

@@ -98,13 +98,14 @@ func (r reapRuntime) RemoveArgs(string) []string { return r.rm }
 // path, so the override was pure duplication (Reductive Development).
 
 // newReapRuntime builds a shell-backed runtime whose `run` sleeps (a
-// long-lived "container" that must be killed) and whose `rm` exits at once.
+// long-lived "container" that must be killed) and whose `rm` reports a
+// removal at once (echoes, as docker/podman do — empty stdout means "gone").
 func newReapRuntime() reapRuntime {
 	return reapRuntime{
 		name: "docker",
 		bin:  "/bin/sh",
 		run:  func(RunSpec) []string { return []string{"-c", "sleep 30"} },
-		rm:   []string{"-c", "exit 0"},
+		rm:   []string{"-c", "echo removed"},
 	}
 }
 

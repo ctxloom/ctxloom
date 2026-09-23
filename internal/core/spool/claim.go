@@ -66,8 +66,27 @@ func Claim(m PathMapper, harp string) (SweepResult, error) {
 		return res, fmt.Errorf("spool: claiming from %s: %w", inPath, err)
 	}
 	res.Problems = append(res.Problems, unclaimed.Problems...)
+	var seen map[string]bool
+	if len(unclaimed.Entries) > 0 {
+		if seen, err = identitiesIn(m, harp, DirInConsumed, ClaimedDirName); err != nil {
+			return res, err
+		}
+	}
+	consumedPath, err := DirPath(m, harp, DirInConsumed)
+	if err != nil {
+		return res, err
+	}
 	for _, e := range unclaimed.Entries {
-		if err := renameInto(filepath.Join(inPath, e.Ref.Name), filepath.Join(claimedPath, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
+		// A copy of something already delivered, or already in flight, is
+		// acknowledged unseen: the reader is a new process every turn, so
+		// the directories are its only memory of what it has handed out.
+		to := claimedPath
+		if id := e.Identity(); seen[id] {
+			to = consumedPath
+		} else {
+			seen[id] = true
+		}
+		if err := renameInto(filepath.Join(inPath, e.Ref.Name), filepath.Join(to, e.Ref.Name)); err != nil && !errors.Is(err, ErrAlreadyGone) {
 			return res, fmt.Errorf("spool: claiming %s: %w", e.Ref, err)
 		}
 	}
@@ -127,4 +146,26 @@ func Pending(m PathMapper, harp string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// identitiesIn collects the Identity of every message in harp's dirs. A file
+// there that does not parse is skipped rather than reported: Claim parses
+// before it moves, so nothing unparseable got there by claiming, and the
+// operator tooling that reports malformed files already looks at in/.
+func identitiesIn(m PathMapper, harp string, dirs ...Dir) (map[string]bool, error) {
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		path, err := DirPath(m, harp, d)
+		if err != nil {
+			return nil, err
+		}
+		res, err := sweepDir(harp, d, path)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("spool: reading %s: %w", path, err)
+		}
+		for _, e := range res.Entries {
+			seen[e.Identity()] = true
+		}
+	}
+	return seen, nil
 }

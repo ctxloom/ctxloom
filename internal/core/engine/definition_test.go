@@ -56,6 +56,9 @@ func (s stub) Container() (engine.ContainerSpec, error) {
 }
 func (stub) Transcripts() []engine.TranscriptReader { return nil }
 func (stub) Hooks() engine.HookCodec                { return nil }
+func (stub) Wake() engine.Declared[engine.WakeSpec] {
+	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
+}
 
 func stubEngine(name engine.Name, dist engine.Distribution) engine.Engine {
 	return stub{engine.Base{Definition: engine.Definition{Name: name, Distribution: dist}}}

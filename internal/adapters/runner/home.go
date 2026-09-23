@@ -16,6 +16,7 @@ import (
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/adapters/coordgrpc/pb"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/spool"
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
@@ -99,6 +100,13 @@ type Home struct {
 	// threads its Wrap through as a func; deliverNotice fires it, unlocked,
 	// whenever it buffers with nothing else to tell.
 	terminalNudge func()
+
+	// wake is the SESSION-OWNER's engine wake (SetWake): when set it takes
+	// deliverNotice's third case instead of terminalNudge. wakeMu serialises
+	// fireWake, so two notices cannot each see no wake outstanding and arm
+	// two.
+	wake   engine.Wake
+	wakeMu sync.Mutex
 
 	// spoolHandler is THE consumer for validated inbound spool doorbells
 	// (SetSpoolDoorbellHandler), registered by startSpoolReactor. spoolDoorbell
@@ -627,6 +635,7 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 		h.buffer = nil
 	}
 	nudge := h.terminalNudge
+	wake := h.wake
 	h.mu.Unlock()
 	if msgs != nil {
 		p.ch <- msgs
@@ -635,9 +644,64 @@ func (h *Home) deliverNotice(pm *agentcoordpb.PeerMessage) {
 	// Nothing claimed it: no parked recv (checked above) and no turn sink
 	// (the branch above this block already ruled that out). A terminal-driven
 	// engine has no structural way to be handed a new turn, so this is its
-	// only notification.
-	if nudge != nil {
+	// only notification. A registered wake supersedes the nudge: the two
+	// would each start a turn for the same mail.
+	if wake != nil {
+		go h.fireWake(wake)
+	} else if nudge != nil {
 		nudge()
+	}
+}
+
+// SetWake registers the session owner's engine wake (engine.WakeSpec, bound
+// once for this session). One per Home, as SetTerminalNudge: a second
+// registration is refused and reported, and the first stays bound.
+func (h *Home) SetWake(w engine.Wake) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.wake != nil {
+		h.rep.FailOncef(report.KindConfig,
+			"bind the engine's wake ONCE per session and register it once",
+			"runner: a wake is already registered for this run; the second registration is refused")
+		return
+	}
+	h.wake = w
+}
+
+// fireWake owns what a wake needs that is not the engine's: it fires only
+// while the owner's in/ holds unclaimed mail, only when no earlier wake is
+// still unanswered (that wake's hook drains everything), and only after the
+// nonce is armed on disk. A wake that fails never went out, so its nonce is
+// disarmed and the next notice may try again.
+func (h *Home) fireWake(w engine.Wake) {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	m, harp := h.cfg.Mapper, h.Harp()
+	if harp == "" {
+		return
+	}
+	if pending, err := spool.Pending(m, harp); err != nil || !pending {
+		if err != nil {
+			h.rep.Warnf("runner: cannot tell whether the session owner has mail, so it is not woken: %v", err)
+		}
+		return
+	}
+	if out, err := spool.OutstandingWake(m, harp); err != nil || len(out) > 0 {
+		if err != nil {
+			h.rep.Warnf("runner: cannot list the session owner's outstanding wakes, so it is not woken: %v", err)
+		}
+		return
+	}
+	nonce, err := spool.ArmWake(m, harp)
+	if err != nil {
+		h.rep.Warnf("runner: cannot arm a wake for the session owner: %v", err)
+		return
+	}
+	if err := w.Fire(h.ctx, nonce); err != nil {
+		if _, derr := spool.ConsumeWake(m, harp, nonce); derr != nil {
+			h.rep.Warnf("runner: a wake that did not fire could not be disarmed, and blocks later wakes: %v", derr)
+		}
+		h.rep.Warnf("runner: the session owner was not woken; its mail waits for the next prompt: %v", err)
 	}
 }
 

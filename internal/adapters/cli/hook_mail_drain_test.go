@@ -38,8 +38,8 @@ func seedOwnerMail(t *testing.T, from, kind, body string) string {
 	return ref.Name
 }
 
-// turnStartPayload is what the engine writes to the hook's stdin; the hook
-// takes nothing from it tonight, but a real hook always has one.
+// turnStartPayload is what the engine writes to the hook's stdin: a human's
+// prompt, which is never a wake.
 const turnStartPayload = `{"session_id":"s","hook_event_name":"UserPromptSubmit","prompt":"what did the child say?"}`
 
 // mailDrainCmd wires stdin to the payload and stdout to out.

@@ -305,6 +305,9 @@ func (e fixtureEngine) Container() (engine.ContainerSpec, error) {
 }
 func (fixtureEngine) Transcripts() []engine.TranscriptReader { return nil }
 func (fixtureEngine) Hooks() engine.HookCodec                { return nil }
+func (fixtureEngine) Wake() engine.Declared[engine.WakeSpec] {
+	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
+}
 
 func (fixtureEngine) Exports(items engine.Items) (engine.Exports, error) {
 	var out engine.Exports

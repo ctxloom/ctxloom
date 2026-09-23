@@ -74,6 +74,14 @@ func Run(t *testing.T, eng engine.Engine) {
 		require.NoError(t, spec.Validate(), "a provided ContainerSpec must validate")
 	}
 	require.NotNil(t, eng.Hooks(), "Hooks() is a codec on every engine; one that fires none refuses on Decode")
+	for _, m := range def.Modes {
+		if m == engine.Interactive {
+			require.True(t, eng.Wake().Decided(), "an interactive engine must declare its wake, or declare it absent with the reason")
+		}
+	}
+	if spec, ok := eng.Wake().Get(); ok {
+		require.NotNil(t, spec, "a provided wake is a spec")
+	}
 	structured := false
 	for _, m := range def.Modes {
 		structured = structured || m == engine.Structured

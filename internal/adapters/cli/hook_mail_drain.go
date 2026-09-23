@@ -37,7 +37,12 @@ hook delivers it again.
 
 With no mail waiting it writes nothing at all: a prompt is the ordinary
 reason for a turn to start, and an empty envelope would still be an event the
-model sees.`,
+model sees.
+
+A prompt that IS a ctxloom wake (spool.WakeText) redeems the wake's nonce —
+that is the wake's acknowledgement — and, when the wake finds no mail, blocks
+the prompt so a stale wake costs no model turn. A human's prompt is never
+blocked.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -67,42 +72,52 @@ func runHookMailDrain(cmd *cobra.Command, args []string) error {
 // the same binary reads the same spool through the same home-relative mapper
 // (spool.HomeMapper's mount contract), and nothing here changes.
 func drainMail(cmd *cobra.Command, harp string) error {
-	// The payload is drained, not decoded: the hook keys on the harp in its
-	// environment (sessions.HookEnv) and takes nothing from the event body.
-	// Closing stdin early would be reported by some engines as a failed hook.
-	_, _ = io.Copy(io.Discard, cmd.InOrStdin())
+	// Read to EOF before anything can return: closing stdin early would be
+	// reported by some engines as a failed hook.
+	raw, _ := io.ReadAll(cmd.InOrStdin())
 	if harp == "" {
 		// A plain engine session ctxloom did not launch: no harp, no spool,
 		// nothing truthful to say. Silence is the contract, not a shortcut.
 		return nil
 	}
 	mapper := spool.NewHomeMapper()
+	var problems []string
+	// An unreadable payload is a turn with no prompt we can read: never a
+	// wake, so never blocked.
+	var payload claude.UserPromptSubmitPayload
+	_ = json.Unmarshal(raw, &payload)
+	nonce, isWake := spool.WakeNonce(payload.Prompt)
+	if isWake {
+		if _, err := spool.ConsumeWake(mapper, harp, nonce); err != nil {
+			problems = append(problems, fmt.Sprintf("wake %s was not redeemed: %v", nonce, err))
+		}
+	}
 	res, err := spool.Claim(mapper, harp)
 	if err != nil {
 		return fmt.Errorf("no mail delivered: %w", err)
 	}
-	var problems []string
 	for _, p := range res.Problems {
 		problems = append(problems, p.Error())
 	}
 	if len(res.Entries) == 0 {
+		if isWake {
+			if err := writeHookOutput(cmd, claude.UserPromptSubmitOutput{
+				Decision: claude.DecisionBlock,
+				Reason:   "ctxloom: the mail this wake announced was already delivered",
+			}); err != nil {
+				problems = append(problems, fmt.Sprintf("a stale wake could not be blocked: %v", err))
+			}
+		}
 		return joinProblems(problems)
 	}
 	frames := make([]string, 0, len(res.Entries))
 	for _, e := range res.Entries {
 		frames = append(frames, runner.FrameCoordinatorDelivery(e.Message.FromHarp, e.Message.Kind, e.Message.Body))
 	}
-	out := claude.UserPromptSubmitOutput{HookSpecificOutput: &claude.AdditionalContextOutput{
+	if err := writeHookOutput(cmd, claude.UserPromptSubmitOutput{HookSpecificOutput: &claude.AdditionalContextOutput{
 		HookEventName:     claude.HookEventUserPromptSubmit,
 		AdditionalContext: strings.Join(frames, "\n\n"),
-	}}
-	// Encoded to bytes first so a failure cannot leave a partial envelope
-	// on the engine's input channel.
-	body, err := json.Marshal(out)
-	if err != nil {
-		return fmt.Errorf("%d message(s) left claimed, not delivered: %w", len(res.Entries), err)
-	}
-	if _, err := cmd.OutOrStdout().Write(append(body, '\n')); err != nil {
+	}}); err != nil {
 		// Delivery is the write. What was not written stays in in/claimed/,
 		// where the next turn's Claim hands it out again.
 		return fmt.Errorf("%d message(s) left claimed, not delivered: %w", len(res.Entries), err)
@@ -113,6 +128,17 @@ func drainMail(cmd *cobra.Command, harp string) error {
 		}
 	}
 	return joinProblems(problems)
+}
+
+// writeHookOutput writes out as one JSON line. It is encoded to bytes first so
+// a failure cannot leave a partial envelope on the engine's input channel.
+func writeHookOutput(cmd *cobra.Command, out claude.UserPromptSubmitOutput) error {
+	body, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+	_, err = cmd.OutOrStdout().Write(append(body, '\n'))
+	return err
 }
 
 // joinProblems renders every non-fatal problem as ONE failure, so the hook's

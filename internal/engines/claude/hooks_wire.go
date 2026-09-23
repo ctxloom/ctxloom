@@ -116,7 +116,20 @@ type AdditionalContextOutput struct {
 // nothing; a hook with nothing to say writes no envelope at all, because an
 // envelope with an empty additionalContext is still an event the model sees.
 type UserPromptSubmitOutput struct {
+	// Decision, when DecisionBlock, stops the prompt from being processed:
+	// no model turn runs, and Reason is shown to the user, not the model.
+	Decision           string                   `json:"decision,omitempty"`
+	Reason             string                   `json:"reason,omitempty"`
 	HookSpecificOutput *AdditionalContextOutput `json:"hookSpecificOutput,omitempty"`
+}
+
+// DecisionBlock is the UserPromptSubmit decision that erases the prompt.
+const DecisionBlock = "block"
+
+// UserPromptSubmitPayload is the part of a UserPromptSubmit hook's stdin a
+// hook reads: the prompt as submitted.
+type UserPromptSubmitPayload struct {
+	Prompt string `json:"prompt"`
 }
 
 // --- PostToolUse wire shapes -----------------------------------------------

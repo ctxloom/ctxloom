@@ -26,6 +26,9 @@ func (s stubKind) Container() (engine.ContainerSpec, error) {
 }
 func (stubKind) Transcripts() []engine.TranscriptReader { return nil }
 func (stubKind) Hooks() engine.HookCodec                { return nil }
+func (stubKind) Wake() engine.Declared[engine.WakeSpec] {
+	return engine.Absent[engine.WakeSpec]("a test double wakes nothing")
+}
 
 // registryOf composes stub kinds; the first named ships by default.
 func registryOf(names ...engine.Name) engine.Registry {

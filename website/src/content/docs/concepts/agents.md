@@ -12,10 +12,10 @@ An **agent** solves this by separating *what context* an AI receives (the profil
 # .ctxloom/config.yaml
 agents:
   finder:
-    engine: claude-fast
+    llm: claude-fast
     profiles: [finder]
   dev:
-    engine: claude-code
+    llm: claude-code
     profiles: [default, go-developer]
     runtime: container-rootless
     permissions: acceptEdits
@@ -33,30 +33,30 @@ agent definition, never a coordinator's or a sibling's.
 
 An agent names:
 
-- **`engine`** — the LLM config label or backend to run. It overrides the constituent profiles' own `llm:`; omit it to use the project default.
+- **`llm`** — the LLM config label or engine to run. It overrides the constituent profiles' own `llm:`; omit it to use the project default.
 - **`profiles`** — one or more profiles that compose into a single assembled context.
 - **`runtime`** (optional) — where the engine process executes: `host`, `container-rootless`, or `container-rootful` (the two container values name WHO OWNS the container runtime daemon and are not interchangeable — a rootful daemon maps the engine's writes to a different uid than a rootless one). Omit to inherit the project's `runtime:` default.
 - **`permissions`** (optional) — the launch-time permission posture the engine starts in: `default`, `acceptEdits`, `plan`, or `bypass`. Omit it and the agent inherits the engine label's configured posture, then **this project directory's [`permissions:` default](/guides/configuration/#permissions)**, then the engine's built-in default. `run --permissions` overrides it for one session. Declaring it here always beats the project default — a project-wide `bypass` never widens a `reviewer` that asked for `plan`.
 - **`escalation`** (optional, config-file only) — an ordered ladder of rungs deciding what happens when the agent raises an approval request. Each rung names the request `kinds` it matches (`COMMAND_EXECUTION`, `FILE_CHANGE`, `TOOL_USE`, `PERMISSION_ESCALATION`, `ARTIFACT_REVIEW`, `CUSTOM`; empty matches all), an `action` (`auto_accept`, `auto_decline`, `relay_to_role`, `surface_to_human`), a `role` for the relaying actions (only `parent` today), and a `timeout` after which a relayed request falls through to the next matching rung. The ladder bottoms out at *decline* when no rung resolves a request. Omit it and the ladder is derived from `permissions`.
 
-Whether an agent gets the coordinator-only MCP tools (`agent_run`, `roster`, `agent_stop`, `agent_fetch_artifact`) is **not** an agent-binding setting — it follows from where the agent sits in the delegation tree, not from anything you write on the binding. See the `delegation.depth` project setting on the [Configuration](/reference/config/) page: the session owner is depth 0 and always gets the tools; its subagents are depth 1 and, at the default cap, do not. A leaf still reports to its parent via `agent_send`/`agent_recv`/`agent_report`.
+Whether an agent gets the coordinator-only MCP tools (the ones that spawn, observe, control or stop other children, such as `agent_run`, `roster` and `agent_stop`) is **not** an agent-binding setting — it follows from where the agent sits in the delegation tree, not from anything you write on the binding. See the `delegation.depth` project setting on the [Configuration](/reference/config/) page: the session owner is depth 0 and always gets the tools; its subagents are depth 1 and, at the default cap, do not. A leaf still reports to its parent via `agent_send`/`agent_recv`/`agent_report`.
 
 Agents live solely in your `.ctxloom`, under the `agents:` key of `config.yaml`. They are **never shipped in bundles or remotes**: bundles distribute portable context, but the engine choice (which costs money and holds your credentials) always stays yours.
 
 ## Managing agents
 
 ```bash
-ctxloom agent create finder --engine claude-fast --profiles finder
-ctxloom agent create dev --engine claude-code --profiles default,go-developer --runtime container-rootless --permissions acceptEdits
+ctxloom agent create finder --llm claude-fast --profiles finder
+ctxloom agent create dev --llm claude-code --profiles default,go-developer --runtime container-rootless --permissions acceptEdits
 ctxloom agent create reviewer --profiles cr-correctness-go --permissions plan   # default engine
 ctxloom agent list
 ctxloom agent show dev
 ctxloom agent remove reviewer --yes
 ```
 
-Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into the binding's block in `config.yaml`.
+`ctxloom agent edit <name>` changes an existing binding with the same flags. The flags cover every field except `escalation`, which has no flag: write the ladder into the binding's block in `config.yaml`.
 
-`ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent set`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
+`ctxloom init prompt` prints an interview prompt for your AI: it scans the available engines (`ctxloom llm list`) and profiles, discusses which roles you want (a coordinator, a containerized developer, a cheap finder, review lenses), and writes the bindings with `ctxloom agent create`. `ctxloom init` runs this as part of its setup interview; `init prompt` re-enters it any time.
 
 ## Using agents
 
@@ -72,8 +72,16 @@ Isolation is split into two independent axes, chosen at different times:
 
 | Axis | Values | Set where | Governs |
 |------|--------|-----------|---------|
-| **Agent runtime** | `host` \| `container-rootless` \| `container-rootful` | On the agent (`agent set --runtime`) or the project `runtime:` default | *Where the engine process executes* |
+| **Agent runtime** | `host` \| `container-rootless` \| `container-rootful` | On the agent (`agent create`/`agent edit --runtime`) or the project `runtime:` default | *Where the engine process executes* |
 | **Session workspace** | `none` \| `worktree` | At invocation (`run --workspace`, or an `agent_run` spawn's `workspace` field) or the project `workspace:` default | *Which copy of the repo the session mutates* |
+
+A binding also declares which **engine home** its engine runs against (the
+directory holding the engine's credentials, memory, plugins and personal MCP
+registrations): `engine_home: session`, a per-session home ctxloom controls, or
+`engine_home: host`, the engine's real home. Leaving it unset means `session`.
+Selecting `host` is the unsafe choice, because it hands the engine your own
+credentials and registrations and lets it write them back, and the launch says
+so.
 
 The runtime axis is a property of the agent — a containerized developer stays containerized wherever it's used. The workspace axis is a property of the *session*: the same agent might work in the shared checkout for a quick question but in an isolated git worktree for a parallel fan-out where members would otherwise trample each other's edits.
 
@@ -121,7 +129,7 @@ An explicit base always beats auto-detection, and a devcontainer or user base th
 
 ### Tooling declarations
 
-Bundles can declare the tools their content needs inside the agent image (a `tooling` command). `ctxloom container tooling` collects the declarations from **trusted** bundles and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. Nothing is applied automatically on pull or sync.
+Companions (ltk, taskloom and the like) declare the tools their content needs inside the agent image, as a typed `tooling` entry in their loadout. `ctxloom container tooling` collects the declarations from **admitted** companions and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. A rejected companion's declaration is withheld, and nothing is applied automatically on pull or sync.
 
 ## Agents vs profiles
 
@@ -130,6 +138,6 @@ Bundles can declare the tools their content needs inside the agent image (a `too
 | Defines | Context (fragments, commands, MCP servers, variables) | Engine + profiles + runtime |
 | Shipped in bundles | Yes (`<bundle>#profiles/<name>`) | Never — local only |
 | Used by | `run -p`, agents | `run --agent`, `agent_run` |
-| Engine choice | Optional `llm:` preference | Explicit `engine:` binding (overrides the profiles') |
+| Engine choice | Optional `llm:` preference | Explicit `llm:` binding (overrides the profiles') |
 
 A bare `-p` profile with `ctxloom run` is fine for a quick, unnamed context — reach for a named agent when you want a specific engine per role, a containerized runtime, a reusable role name, or the ability to spawn it as a delegated child (`agent_run` launches a *configured agent*, never a bare profile).

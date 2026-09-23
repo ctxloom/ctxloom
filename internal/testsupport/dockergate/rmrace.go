@@ -2,11 +2,12 @@ package dockergate
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // RemoveBeforeCreateWrapper writes a wrapper around the runtime binary bin that
@@ -56,7 +57,7 @@ esac
 exec %[4]q "$@"
 `, began, firstRm, name, bin)
 	path := filepath.Join(dir, filepath.Base(bin)+"-rmrace")
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+	if err := iox.WriteFileAtomic(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("write the rm-race wrapper: %v", err)
 	}
 	return path

@@ -27,44 +27,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// remoteContentRepo creates a git repo that PUBLISHES bundles/v2/go-tools (no
-// extension: format v2 holds only trees, so its leaf is the bundle's own name)
-// the way a publisher does — under the repo-relative bundles prefix, in the
-// format root, which is the only place a canonical fetch looks. It commits a
-// v1 then a v2 and returns the repo directory plus both commit SHAs.
-//
-// The document declares its command under the LEGACY `prompts:` key on purpose:
-// nothing but bundles.ParseBundle's schema upgrade turns that into a command, so
-// a resolver that reached the bytes and unmarshalled them raw would serve a
-// bundle with no commands at all — silently, which is the failure this asserts
-// against.
-func remoteContentRepo(t *testing.T) (repoDir, rev1, rev2 string) {
-	t.Helper()
-	repoDir = filepath.Join(t.TempDir(), "publisher")
-	repo, err := git.PlainInit(repoDir, false)
-	require.NoError(t, err)
-	wt, err := repo.Worktree()
-	require.NoError(t, err)
-
-	rel := filepath.Join(filepath.FromSlash(paths.RepoBundlesPrefixFor(paths.LayoutV2)), "go-tools")
-	commit := func(body, msg string) string {
-		full := filepath.Join(repoDir, rel)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte(body), 0o644))
-		_, err := wt.Add(filepath.ToSlash(rel))
-		require.NoError(t, err)
-		h, err := wt.Commit(msg, &git.CommitOptions{
-			Author: &object.Signature{Name: "t", Email: "t@t", When: time.Now()},
-		})
-		require.NoError(t, err)
-		return h.String()
-	}
-
-	rev1 = commit("description: v1\nfragments:\n  fmt:\n    content: R1-BODY\nprompts:\n  review:\n    content: RP1-BODY\n", "v1")
-	rev2 = commit("description: v2\nfragments:\n  fmt:\n    content: R2-BODY\nprompts:\n  review:\n    content: RP2-BODY\n", "v2")
-	return repoDir, rev1, rev2
-}
-
 // remoteTreeContentRepo is remoteContentRepo's DIRECTORY-form twin: it publishes
 // bundles/v2/go-tools as a TREE whose bundle.yaml carries the manifest, which is
 // the only shape a publisher can produce since the v1 single-file format was

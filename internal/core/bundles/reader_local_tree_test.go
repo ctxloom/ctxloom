@@ -130,8 +130,8 @@ func TestLocalTreeForm_CommandsAndSkillsResolve(t *testing.T) {
 // reports it as a bundle that failed to read.
 func TestLocalTreeForm_AStrayDocumentIsNotABundle(t *testing.T) {
 	fsys := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(fsys, localV2("vault.yaml"), []byte(
-		"name: vault\nversion: 1.2.3\nfragments:\n  solo-frag:\n    content: SOLO-BODY-MARKER\n"), 0o644))
+	testsupport.WriteFileString(t, fsys, localV2("vault.yaml"),
+		"name: vault\nversion: 1.2.3\nfragments:\n  solo-frag:\n    content: SOLO-BODY-MARKER\n", 0o644)
 
 	r := NewProjectReader(fsys, []string{"/bundles"}, WithReaderReporter(ledger()))
 	reads, err := r.Read(context.Background())
@@ -149,7 +149,7 @@ func TestLocalTreeForm_AStrayDocumentIsNotABundle(t *testing.T) {
 func TestLocalTreeForm_AnEnvelopeDeclaringItemsIsRefused(t *testing.T) {
 	inline := "name: vault\nversion: 1.2.3\nfragments:\n  inline-frag:\n    content: INLINE-BODY-MARKER\n"
 	alone := afero.NewMemMapFs()
-	require.NoError(t, afero.WriteFile(alone, localV2("vault/bundle.yaml"), []byte(inline), 0o644))
+	testsupport.WriteFileString(t, alone, localV2("vault/bundle.yaml"), inline, 0o644)
 	for name, fsys := range map[string]afero.Fs{
 		"beside item files": stageLocalTree(t, inline, func(w content.Writer) { putFragment(w, "house-style", "FRAG-BODY-MARKER") }),
 		"alone":             alone,

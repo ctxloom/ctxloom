@@ -28,7 +28,6 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/content` | `internal/adapters/content` | adapters | JUDGMENT: imported by core only through edges unit A allowlists as leaving in slices 4 and 5 (readers become adapters); not domain-free → adapters |
 | `internal/content/archive` | `internal/adapters/content/archive` | adapters | subpackage keeps its relative path under adapters/content |
 | `internal/content/attest` | `internal/adapters/content/attest` | adapters | JUDGMENT: unit A adapters row; the package table names adapters/attest but the rename paragraph's subpackage rule (relative path kept) governs tonight — slice 5 may hoist it |
-| `internal/content/convert` | `internal/adapters/content/convert` | adapters | subpackage keeps its relative path under adapters/content |
 | `internal/content/remotetree` | `internal/adapters/content/remotetree` | adapters | subpackage keeps its relative path under adapters/content |
 | `internal/contextmetrics` | `internal/adapters/contextmetrics` | adapters | JUDGMENT: persists per-session samples on disk (a store); imported by cli and mcp → adapters |
 | `internal/docsgen` | `internal/shared/docsgen` | shared | JUDGMENT: domain-free leaf (doc generator; no in-repo imports) → toolbox |

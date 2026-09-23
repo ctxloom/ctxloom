@@ -2,8 +2,6 @@ package operations
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -358,13 +356,6 @@ func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(),
 		"scripts/run.sh is DECLARED 0755 in the bundle manifest; a delivered script without its exec bit cannot run")
-}
-
-// sha256Of renders a fixture file's content hash in the form a bundle.yaml
-// skill manifest records it.
-func sha256Of(b []byte) string {
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // TestMaterializeProfile_Validation covers the guard rails.

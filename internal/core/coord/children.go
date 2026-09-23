@@ -1487,7 +1487,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	if !rec.TopLevel() && cause != CauseIdleReaped {
 		kind, body := KindExited, fmt.Sprintf("agent %q (session %s) exited (%s)", rec.Agent, rec.Harp, cause)
 		if cause == CauseLaunchFailed {
-			kind, body = "error", fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
+			kind, body = KindError, fmt.Sprintf("agent %q (session %s) failed to launch: %s", rec.Agent, rec.Harp, detail)
 		} else if detail != "" {
 			body += ": " + detail
 		}

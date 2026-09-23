@@ -691,6 +691,13 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 	// never as a bare timeout. Each retry is a free local mailbox poll, never
 	// a second paid model call. Literally contains `calls tool "agent_recv"`
 	// so completeness_test.go's ranAsTool credits it as real coverage.
+	//
+	// An error-kind message from the child (coord.KindError — a launch
+	// failure among them) fails the step AT ONCE with that message's text:
+	// the child is dead, the marker can never come, and waiting out the
+	// budget only buries the cause under a timeout. The whole batch is
+	// scanned for the marker first, so the ordering race above cannot turn
+	// a marker that did arrive into a failure.
 	ctx.Step(`^the agent calls tool "agent_recv" repeatedly, waiting up to (\d+)s total, until "([^"]*)" reports a body containing "([^"]*)"$`,
 		func(c context.Context, budgetSec int, name, want string) error {
 			w := worldFrom(c)
@@ -701,6 +708,10 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 			}
 			if strings.TrimSpace(want) == "" {
 				return fmt.Errorf("j002300: waiting for an EMPTY body from %q would be satisfied by any message at all, including a runner-exit report", name)
+			}
+			errKind, err := pb.MessageKindForLegacyName(coord.KindError)
+			if err != nil {
+				return fmt.Errorf("j002300: %w", err)
 			}
 			deadline := time.Now().Add(time.Duration(budgetSec) * time.Second)
 			var seen []string
@@ -713,6 +724,7 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 					if merr != nil {
 						return merr
 					}
+					var failed []string
 					for _, m := range msgs {
 						if from, _ := m[recvFromAgentIDField].(string); from != harp {
 							continue
@@ -723,6 +735,13 @@ func registerJ002300Steps(ctx *godog.ScenarioContext) {
 							w.docStepMaterialized = fmt.Sprintf("agent_recv — message from %s (harp %s):\n  body: %s", name, harp, body)
 							return nil
 						}
+						if k, _ := m["kind"].(string); k == errKind.String() {
+							failed = append(failed, body)
+						}
+					}
+					if len(failed) > 0 {
+						return fmt.Errorf("j002300: %q reported a %s message instead of a body containing %q — harp %s:\n%s",
+							name, kindLabel(coord.KindError), want, harp, strings.Join(failed, "\n---\n"))
 					}
 				}
 				if time.Now().After(deadline) {

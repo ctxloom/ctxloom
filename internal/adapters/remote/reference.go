@@ -528,6 +528,13 @@ func (r *Reference) canonicalParts() (refuri.Parts, error) {
 		return refuri.Parts{}, fmt.Errorf("reference has no source URL")
 	}
 	u, err := url.Parse(r.URL)
+	if err != nil || u.Scheme == "" {
+		// The scp spelling ("git@host:path") is not a URL. The repo-URL
+		// grammar folds it onto the https spelling of the same repository
+		// (refuri.NormalizeURL), so both spellings mint one identity; a URL
+		// url.Parse already reads is left exactly as it was.
+		u, err = url.Parse(refuri.NormalizeURL(r.URL))
+	}
 	if err != nil {
 		return refuri.Parts{}, fmt.Errorf("source URL %q: %w", r.URL, err)
 	}

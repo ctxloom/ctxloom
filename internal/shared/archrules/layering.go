@@ -146,7 +146,6 @@ var LayeringRules = []LayeringRule{
 			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
 			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
 			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
 
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
@@ -173,7 +172,6 @@ var LayeringRules = []LayeringRule{
 			"internal/engines",
 		},
 		Allowed: map[string]string{
-			"internal/adapters/configload -> internal/adapters/configload/layerscope": "sanctioned: a package's own subpackage",
 			// sanctioned (Part 1.1): the trust adapters compose each other at the
 			// root — config.Sources.TrustPorts builds the generation's three ports
 			// from the config's trust root (already the port), the countersignature

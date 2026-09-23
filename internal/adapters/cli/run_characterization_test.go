@@ -62,7 +62,7 @@ func runCLIFixture(t *testing.T) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"),
 		[]byte(fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)), 0o644))
 	// editor.command lives in HOME, not the project fixture: it is
-	// ScopeMachine (internal/adapters/configload/layerscope) — a binary on THIS box — so
+	// ScopeMachine (internal/core/config/layerscope) — a binary on THIS box — so
 	// a committed PROJECT file may no longer carry it (a startup-gate fatal
 	// finding, aborting `ctxloom run` outright, unlike --config-set/env
 	// misuse elsewhere in this suite which merely warn).

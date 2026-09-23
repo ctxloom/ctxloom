@@ -47,7 +47,7 @@ func managerFor(t *testing.T, appDir string) *App {
 // readAgentFromDisk re-reads appDir's config.yaml through ParseConfig (a
 // single-document parse — no layering, no layerscope policy) and returns
 // name's binding. Several fields SetAgent writes (Runtime is ScopeMachine —
-// internal/adapters/configload/layerscope) are no longer honored by a full the config read
+// internal/core/config/layerscope) are no longer honored by a full the config read
 // against the committed PROJECT layer this test writes to (correctly: a
 // committed project file is read by every clone, and whether THIS box has a
 // container runtime is not a fact every clone shares). What THIS helper
@@ -195,7 +195,7 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 // `agent set --runtime` survives the SAVE round-trip (Marshal serializes it
 // faithfully) — read back via readAgentFromDisk (ParseConfig, no layering),
 // not a full the config read: agents.*.runtime is ScopeMachine
-// (internal/adapters/configload/layerscope), so a committed PROJECT file — every clone's
+// (internal/core/config/layerscope), so a committed PROJECT file — every clone's
 // copy — no longer has this value take effect on a real Load; that closure is
 // covered by internal/core/config's own layerscope tests. What this test still
 // pins is that SetAgent itself writes the byte, never silently discarding it.

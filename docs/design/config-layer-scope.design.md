@@ -353,7 +353,7 @@ state it does not have.
 // Package layerscope states which config LAYER may set which config KEY, and
 // why: a value is a fact about a machine, a user, a project, or one
 // invocation, and a layer that cannot carry that fact must not set it.
-package layerscope // internal/adapters/configload/layerscope
+package layerscope // internal/core/config/layerscope
 
 // Layer is one rung of the resolution chain, in ascending precedence.
 type Layer uint8

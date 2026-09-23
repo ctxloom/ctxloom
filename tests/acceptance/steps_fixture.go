@@ -41,7 +41,7 @@ import (
 // editor.command used to live HERE, pinned to a no-op so `edit` commands run
 // non-interactively. It moved to minimalHomeEditorConfig (written via
 // writeMinimalConfig): editor.command/args are ScopeMachine
-// (internal/adapters/configload/layerscope) — a binary on THIS box — so a committed
+// (internal/core/config/layerscope) — a binary on THIS box — so a committed
 // project-file value no longer survives a real Load.
 var minimalConfig = fmt.Sprintf("version: %d\n", config.CurrentConfigVersion)
 

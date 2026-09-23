@@ -23,7 +23,7 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/cli/tui` | `internal/adapters/cli/tui` | adapters | subpackage keeps its relative path under adapters/cli; package table cli/tui |
 | `internal/compression` | `internal/shared/compression` | shared | JUDGMENT: domain-free leaf (text/AST compression; imports only the toolbox) → toolbox |
 | `internal/config` | `internal/core/config` | core | unit A core row; package table core/config |
-| `internal/config/layerscope` | `internal/adapters/configload/layerscope` | adapters | rename paragraph: config/layerscope → adapters/configload/layerscope |
+| `internal/config/layerscope` | `internal/core/config/layerscope` | core | RULED 2026-09-22 (§3.3): pure policy over config keys that `config.Save`'s write-side scope filter consults, so it stays with the config it governs; the reader imports it from core |
 | `internal/confpatch` | `internal/adapters/confpatch` | adapters | unit A adapters row; package table adapters/confpatch |
 | `internal/content` | `internal/adapters/content` | adapters | JUDGMENT: imported by core only through edges unit A allowlists as leaving in slices 4 and 5 (readers become adapters); not domain-free → adapters |
 | `internal/content/archive` | `internal/adapters/content/archive` | adapters | subpackage keeps its relative path under adapters/content |

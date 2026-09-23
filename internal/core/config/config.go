@@ -123,7 +123,7 @@ type Config struct {
 	// config-layer-scope design doc's "Consent leaves the chain": a config
 	// key is reachable from THREE channels an agent can write (a home file,
 	// an environment variable, an argv), and prior human consent needs a
-	// home with none. ScopeNever in internal/adapters/configload/layerscope names the
+	// home with none. ScopeNever in internal/core/config/layerscope names the
 	// scope this key would have needed and why no layer may carry it.
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty

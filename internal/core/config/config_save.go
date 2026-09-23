@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/configload/layerscope"
+	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
@@ -108,7 +108,7 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	// project < env < flag), so applyConfigSections wrote every section it
 	// carries regardless of which layer contributed it — a Machine-scoped value
 	// set ONLY in home (editor.command, llm.configs.*.binary_path, ...) included. Writing
-	// that into configPath is exactly the leak internal/adapters/configload/layerscope closes:
+	// that into configPath is exactly the leak internal/core/config/layerscope closes:
 	// the file being written IS the project layer whenever a separate home layer
 	// also exists (c.source == SourceProject), and Scope.Allows(LayerProject)
 	// forbids a Machine-scoped value there. Drop each via the SAME

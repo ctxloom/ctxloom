@@ -60,6 +60,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/cucumber/godog"
 )
 
@@ -165,7 +166,7 @@ func registerEngineMatrixSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(bundleFilePath("bundle-"+matrixAgent), matrixBundleYAML(m.nonce)); err != nil {
+			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-"+matrixAgent, matrixBundleYAML(m.nonce)); err != nil {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/profiles/"+matrixAgent+"-profile.yaml",

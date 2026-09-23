@@ -58,6 +58,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 	"github.com/cucumber/godog"
 )
 
@@ -247,7 +248,7 @@ func registerCapabilityMCPSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(bundleFilePath("bundle-"+mcpProbeAgent), mcpProbeBundleYAML(relBinary, relDir)); err != nil {
+			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-"+mcpProbeAgent, mcpProbeBundleYAML(relBinary, relDir)); err != nil {
 				return err
 			}
 			if err := w.env.WriteFile(".ctxloom/profiles/"+mcpProbeAgent+"-profile.yaml",

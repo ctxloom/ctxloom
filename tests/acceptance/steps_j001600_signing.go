@@ -889,11 +889,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent edits the bundle "([^"]*)" after signing it$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		body, err := w.env.ReadFile(bundleFilePath(name))
-		if err != nil {
-			return err
-		}
-		return w.env.WriteFile(bundleFilePath(name), body+"  late-addition:\n    content: \"added after the signature\"\n")
+		return w.env.WriteFile(treeBundleItemPath(name, "fragments/late-addition.md"), j001600FragmentFileBody("added after the signature"))
 	})
 
 	// --- Signature payload assertions ---------------------------------------

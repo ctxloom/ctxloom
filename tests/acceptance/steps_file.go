@@ -13,7 +13,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -338,38 +340,41 @@ func readBundleCommand(w *World, bundle, command string) (content, distilled str
 	return readBundleItem(w, "commands", bundle, command)
 }
 
-// readBundleItem reads one named item out of a bundle manifest's section.
-// Section-agnostic on purpose: fragments and commands carry the same
-// content/distilled pair, and two near-identical readers would drift the first
-// time the manifest shape changed under one of them.
-func readBundleItem(w *World, section, bundle, name string) (content, distilled string, err error) {
-	rel := filepath.FromSlash(bundleFilePath(bundle))
-	body, err := os.ReadFile(filepath.Join(w.env.ProjectDir, rel))
+// readAuthoredBundle reads the authored bundle name back through the
+// production tree reader, so an assertion sees exactly what ctxloom sees.
+func readAuthoredBundle(w *World, name string) (*bundles.Bundle, error) {
+	manifest := filepath.Join(w.env.ProjectDir, filepath.FromSlash(bundleFilePath(name)))
+	b, err := bundles.ReadTreeAt(context.Background(), afero.NewOsFs(), manifest)
 	if err != nil {
-		return "", "", fmt.Errorf("read bundle %q: %w", bundle, err)
+		return nil, fmt.Errorf("read bundle %q: %w", name, err)
 	}
-	type item struct {
-		Content   string `yaml:"content"`
-		Distilled string `yaml:"distilled"`
+	return b, nil
+}
+
+// readBundleItem reads one named item out of an authored bundle's section.
+// Section-agnostic on purpose: fragments and commands carry the same
+// content/distilled pair (bundles.ItemBody).
+func readBundleItem(w *World, section, bundle, name string) (content, distilled string, err error) {
+	b, err := readAuthoredBundle(w, bundle)
+	if err != nil {
+		return "", "", err
 	}
-	// Not map[string]map[string]item over the whole document: a manifest's
-	// top-level also carries scalars (version, description), which that shape
-	// fails to unmarshal.
-	var doc struct {
-		Fragments map[string]item `yaml:"fragments"`
-		Commands  map[string]item `yaml:"commands"`
-	}
-	if err := yaml.Unmarshal(body, &doc); err != nil {
-		return "", "", fmt.Errorf("parse bundle %q: %w", bundle, err)
-	}
-	sections := map[string]map[string]item{"fragments": doc.Fragments, "commands": doc.Commands}
-	items, known := sections[section]
-	if !known {
+	var body bundles.ItemBody
+	var ok bool
+	switch section {
+	case "fragments":
+		var f bundles.BundleFragment
+		f, ok = b.Fragments[name]
+		body = f.ItemBody
+	case "commands":
+		var cmd bundles.BundleCommand
+		cmd, ok = b.Commands[name]
+		body = cmd.ItemBody
+	default:
 		return "", "", fmt.Errorf("bundle section %q is not one this reader knows (fragments, commands)", section)
 	}
-	it, ok := items[name]
 	if !ok {
 		return "", "", fmt.Errorf("%s %q not in bundle %q's %s", strings.TrimSuffix(section, "s"), name, bundle, section)
 	}
-	return it.Content, it.Distilled, nil
+	return body.Content, body.Distilled, nil
 }

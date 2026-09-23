@@ -18,7 +18,7 @@
 // bundle instead of first-party content), Bob (teammate, j000700State.bobDir — a
 // genuinely separate clone, NOT a new persona model per the task brief),
 // Trent (the company/trusted publisher, reusing J001500's signing primitives:
-// testenv.TestSigner/SeedSignedRemote/AdvanceRemote), Alice (developer,
+// testenv.TestSigner/SeedSignedTreeRemote/AdvanceRemote), Alice (developer,
 // scenario 2 only, whose project scaffold scenario 2 needs but whose
 // persona plays no other role in it).
 package acceptance
@@ -132,7 +132,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		}
 
 		// Trent's company publishes a SIGNED bundle — reuses J001500's signing
-		// primitives directly (TestSigner/SeedSignedRemote), not reinvented.
+		// primitives directly (TestSigner/SeedSignedTreeRemote), not reinvented.
 		signer, err := testenv.GenerateTestSigner()
 		if err != nil {
 			return fmt.Errorf("generate company signer: %w", err)

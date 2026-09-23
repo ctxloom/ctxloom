@@ -483,8 +483,10 @@ type hookProbeCarriage struct {
 	//     NotBefore is what excludes them, which is why a glob is safe here and
 	//     a bare "newest directory wins" would not be.
 	RootGlobs []string
-	// Authored are ABSOLUTE paths the fixture itself wrote. Their contents are
-	// the probe's own declaration, never evidence of delivery.
+	// Authored are ABSOLUTE paths the fixture itself wrote — files, or
+	// directories whose whole subtree it wrote (a bundle tree, whose hook
+	// sidecars carry the command). Their contents are the probe's own
+	// declaration, never evidence of delivery.
 	Authored []string
 	// NotBefore bounds the walk to this run: files and directories untouched
 	// since then belong to somebody else's session.
@@ -536,10 +538,10 @@ func hookProbeCarriageScan(q hookProbeCarriage) string {
 	if q.Needle == "" {
 		return "carriage scan skipped: no hook command to look for"
 	}
-	authored := make(map[string]bool, len(q.Authored))
+	authored := make([]string, 0, len(q.Authored))
 	for _, p := range q.Authored {
 		if abs, err := filepath.Abs(p); err == nil {
-			authored[abs] = true
+			authored = append(authored, abs)
 		}
 	}
 
@@ -570,7 +572,7 @@ func hookProbeCarriageScan(q hookProbeCarriage) string {
 			if !q.NotBefore.IsZero() && info.ModTime().Before(q.NotBefore) {
 				return nil
 			}
-			if authored[path] {
+			if authoredCovers(path, authored) {
 				return nil // the probe's own declaration, not a delivery
 			}
 			b, rerr := os.ReadFile(path)
@@ -761,14 +763,10 @@ func hookProbeContainerScan(run hookProbeContainerExec, container, needle string
 	if err != nil {
 		return ""
 	}
-	excluded := make(map[string]bool, len(authored))
-	for _, p := range authored {
-		excluded[p] = true
-	}
 	var hits []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || excluded[line] {
+		if line == "" || authoredCovers(line, authored) {
 			continue
 		}
 		hits = append(hits, line)
@@ -789,4 +787,14 @@ func hookProbeContainerScan(run hookProbeContainerExec, container, needle string
 // confident NOT SEEN while never looking where the bytes are.
 func hookProbeIsContainerAxis(runtime string) bool {
 	return strings.HasPrefix(runtime, "container")
+}
+
+// authoredCovers reports whether path is one of authored or lies beneath one.
+func authoredCovers(path string, authored []string) bool {
+	for _, a := range authored {
+		if path == a || strings.HasPrefix(path, a+"/") {
+			return true
+		}
+	}
+	return false
 }

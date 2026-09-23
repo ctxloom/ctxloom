@@ -17,7 +17,7 @@
 // seeds the fixture that makes ITS verb meaningful.
 //
 // Reuses steps_j000200_common.go's ensureProjectWithEngine/runOK, steps_j001500.go's
-// signed-remote pattern (testenv.GenerateTestSigner/SeedSignedRemote/
+// signed-remote pattern (testenv.GenerateTestSigner/SeedSignedTreeRemote/
 // TrustSigner), and steps_j000400.go's JSON/hook-command parsing helpers
 // (j000400ReadJSON, j000400HookCommandsFrom, j000400FormatArgs) rather than re-deriving
 // them — same package, same conventions. "Alice starts a session" is
@@ -74,7 +74,7 @@ const (
 // bundle name inside it, and (signed-fixture only) the trusted principal and
 // its signer — retained so a later step can RE-SIGN the bundle after
 // legitimately changing it (GAP A's rename-and-resign), the same way
-// steps_j001500.go's j001500State keeps its signer for AdvanceSignedRemote.
+// steps_j001500.go's j001500State keeps its signer for AdvanceSignedTreeRemote.
 type tsState struct {
 	url        string
 	bundleName string

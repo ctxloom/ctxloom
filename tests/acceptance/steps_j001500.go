@@ -6,7 +6,7 @@
 // wants to change what reaches Alice's assistant, not read it).
 //
 // Reuses J000200's signing test helpers (tests/integration/testenv/signing_acceptance.go:
-// TestSigner, SeedSignedRemote, TrustSigner, AdvanceSignedRemote) and J000200's
+// TestSigner, SeedSignedTreeRemote, TrustSigner, AdvanceSignedTreeRemote) and J000200's
 // scaffolding helpers (steps_j000200_common.go: ensureProjectWithEngine, runOK) rather
 // than rebuilding trust infrastructure that already exists. World carries exactly
 // one new field (j001500 *j001500State) to hold this journey's fixture state.
@@ -51,7 +51,7 @@ type j001500State struct {
 	signer     *testenv.TestSigner
 	principal  string
 	url        string // file://<bare> — the seeded remote's clone URL
-	bare       string // bare repo path (no file:// prefix), for AdvanceRemote/AdvanceSignedRemote
+	bare       string // bare repo path (no file:// prefix), for AdvanceRemote/AdvanceSignedTreeRemote
 	bundleName string
 	referenced bool // remote added + profile modified (addRemoteBundleBase wiring done)
 

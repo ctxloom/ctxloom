@@ -32,6 +32,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 const (
@@ -98,7 +99,7 @@ func j002000Setup(w *World) error {
 	if err := scaffoldProjectWithConfig(w, j002000Config()); err != nil {
 		return err
 	}
-	if err := w.env.WriteFile(bundleFilePath("house"),
+	if err := testenv.WriteBundleTree(w.env.ProjectDir, "house",
 		fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  house-guidance:\n    content: %q\nhooks:\n  session_end:\n    - command: %q\n      type: command\n",
 			j002000Marker, j002000HookCommand)); err != nil {
 		return err

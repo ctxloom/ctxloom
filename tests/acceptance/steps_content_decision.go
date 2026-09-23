@@ -57,7 +57,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
-	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
@@ -78,10 +77,9 @@ func tcLocalRef(bundle, fragment string) (string, error) {
 // lookup below is over the same bytes the CLI signed rather than over
 // something this test re-derived its own way.
 func tcFragmentPayload(w *World, bundle, fragment string) ([]byte, error) {
-	rel := treeBundleManifestPath(bundle)
-	parsed, err := bundles.ReadTreeAt(context.Background(), afero.NewOsFs(), filepath.Join(w.env.ProjectDir, filepath.FromSlash(rel)))
+	parsed, err := readAuthoredBundle(w, bundle)
 	if err != nil {
-		return nil, fmt.Errorf("read authored bundle %s: %w", rel, err)
+		return nil, err
 	}
 	frag, ok := parsed.Fragments[fragment]
 	if !ok {

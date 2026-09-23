@@ -3,13 +3,18 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,42 +47,23 @@ func setupTestEnv(t *testing.T) *testenv.TestEnvironment {
 // and the two must address one bundle, not two spellings of one.
 const localBundleName = "local"
 
-// writeFragment appends a fragment to the project's single-file authored
-// bundle, creating it if it doesn't exist. The single-file document is one of
-// the three shapes the local reader still accepts, and is what `ctxloom bundle
-// create` writes.
+// writeFragment adds a fragment to the project's authored bundle tree,
+// creating the tree if it doesn't exist, through the production reader and
+// store.
 func writeFragment(t *testing.T, env *testenv.TestEnvironment, name string, tags []string, content string) {
 	t.Helper()
-
-	// Read existing bundle if present
-	bundlePath := testenv.SingleFileBundlePath(localBundleName)
-	existing, _ := env.ReadFile(bundlePath)
-
-	// Build new bundle content
-	var bundle strings.Builder
-	if existing == "" {
-		bundle.WriteString("version: \"1.0\"\n")
-		bundle.WriteString("fragments:\n")
-	} else {
-		// Remove trailing newline and add to it
-		bundle.WriteString(strings.TrimSuffix(existing, "\n"))
-		bundle.WriteString("\n")
+	fsys := afero.NewOsFs()
+	manifest := filepath.Join(env.ProjectDir, filepath.FromSlash(testenv.TreeBundleManifestPath(localBundleName)))
+	b := &bundles.Bundle{Version: "1.0", Path: manifest}
+	if _, err := os.Stat(manifest); err == nil {
+		b, err = bundles.ReadTreeAt(context.Background(), fsys, manifest)
+		require.NoError(t, err, "read the authored bundle")
 	}
-
-	// Add the new fragment
-	fmt.Fprintf(&bundle, "  %s:\n", name)
-	if len(tags) > 0 {
-		bundle.WriteString("    tags:\n")
-		for _, tag := range tags {
-			fmt.Fprintf(&bundle, "      - %s\n", tag)
-		}
+	if b.Fragments == nil {
+		b.Fragments = map[string]bundles.BundleFragment{}
 	}
-	bundle.WriteString("    content: |\n")
-	for _, line := range strings.Split(content, "\n") {
-		fmt.Fprintf(&bundle, "      %s\n", line)
-	}
-
-	require.NoError(t, env.WriteFile(bundlePath, bundle.String()), "failed to write fragment")
+	b.Fragments[name] = bundles.BundleFragment{ItemBody: bundles.ItemBody{Tags: tags, Content: content}}
+	require.NoError(t, bundles.NewFSStore(fsys, nil).Save(b), "failed to write fragment")
 }
 
 func writeProfile(t *testing.T, env *testenv.TestEnvironment, name, content string) {
@@ -401,7 +387,7 @@ fragments:
     content: |
       Go coding guidelines from subdirectory.
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("lang"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "lang", bundleContent))
 
 	_ = env.Run("run", "-f", "lang#fragments/golang", "--one-shot", "test")
 
@@ -514,7 +500,7 @@ fragments:
     content: |
       Test content
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("test-bundle"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "test-bundle", bundleContent))
 
 	_ = env.Run("bundle", "list")
 
@@ -538,7 +524,7 @@ fragments:
     content: |
       Content 2
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("show-test"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "show-test", bundleContent))
 
 	_ = env.Run("bundle", "show", "show-test")
 
@@ -564,10 +550,11 @@ func TestBundle_Create(t *testing.T) {
 	assert.Equal(t, 0, env.LastExitCode())
 
 	// Verify bundle file was created
-	content, err := env.ReadFile(testenv.SingleFileBundlePath("my-bundle"))
+	content, err := env.ReadFile(testenv.TreeBundleManifestPath("my-bundle"))
 	require.NoError(t, err)
 	assert.Contains(t, content, "version:")
-	assert.Contains(t, content, "fragments:")
+	assert.True(t, env.FileExists(testenv.TreeBundleItemPath("my-bundle", "fragments/example.md")),
+		"create scaffolds the example fragment as its own file")
 }
 
 func TestBundle_Create_WithDescription(t *testing.T) {
@@ -577,7 +564,7 @@ func TestBundle_Create_WithDescription(t *testing.T) {
 
 	assert.Equal(t, 0, env.LastExitCode())
 
-	content, err := env.ReadFile(testenv.SingleFileBundlePath("desc-bundle"))
+	content, err := env.ReadFile(testenv.TreeBundleManifestPath("desc-bundle"))
 	require.NoError(t, err)
 	assert.Contains(t, content, "description: A test bundle")
 }
@@ -594,7 +581,7 @@ commands:
     content: |
       Prompt content 2
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("prompt-bundle"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "prompt-bundle", bundleContent))
 
 	// `bundle show` renders the bundle's Prompts section; the former
 	// `bundle prompt list` subtree was removed (see cmd/bundle.go).
@@ -615,7 +602,7 @@ fragments:
     content: |
       This is the content to display
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("view-test"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "view-test", bundleContent))
 
 	_ = env.Run("bundle", "view", "view-test#fragments/display-frag")
 
@@ -634,7 +621,7 @@ fragments:
     content: |
       Export content
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("export-test"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "export-test", bundleContent))
 
 	_ = env.Run("bundle", "export", "export-test", "-o", "exported.tar.gz")
 
@@ -760,7 +747,7 @@ commands:
     content: |
       Summarize the following:
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("prompts"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "prompts", bundleContent))
 
 	_ = env.Run("command", "list")
 
@@ -779,7 +766,7 @@ commands:
     content: |
       This is a test prompt with detailed instructions.
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("prompt-test"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "prompt-test", bundleContent))
 
 	_ = env.Run("command", "show", "prompt-test#commands/test-prompt")
 
@@ -817,7 +804,7 @@ commands:
     content: |
       Generate documentation for this code
 `
-	require.NoError(t, env.WriteFile(testenv.SingleFileBundlePath("search-prompts"), bundleContent))
+	require.NoError(t, testenv.WriteBundleTree(env.ProjectDir, "search-prompts", bundleContent))
 
 	_ = env.Run("search", "code")
 

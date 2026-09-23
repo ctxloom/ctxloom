@@ -142,7 +142,7 @@ func registerJ000700Steps(ctx *godog.ScenarioContext) {
 		if err := j000700SetupDistillProject(w); err != nil {
 			return err
 		}
-		return w.env.WriteFile(bundleFilePath(j000700Bundle), j000700FragmentBundleYAML(j000700FragVerboseMarker))
+		return testenv.WriteBundleTree(w.env.ProjectDir, j000700Bundle, j000700FragmentBundleYAML(j000700FragVerboseMarker))
 	})
 
 	ctx.Step(`^Carol distills the fragment$`, func(c context.Context) error {
@@ -342,7 +342,7 @@ func j000700SetupProject(w *World, configYAML string) error {
 func j000700AuthorCommand(w *World, name, content string) error {
 	w.j000700().commandName = name
 	body := fmt.Sprintf("version: \"1.0.0\"\ncommands:\n  %s:\n    content: %q\n", name, content)
-	return w.env.WriteFile(bundleFilePath(j000700Bundle), body)
+	return testenv.WriteBundleTree(w.env.ProjectDir, j000700Bundle, body)
 }
 
 // j000700FragmentBundleYAML is j000700AuthorCommand's fragment analogue for scenario 2 —

@@ -144,7 +144,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		// Team's own first-party fragment (LOCAL — authored straight into the
 		// project bundle, so it is allowed unconditionally, no signing/trust
 		// needed — see internal/adapters/operations/trust.go's EffectiveTrust step 3).
-		if err := w.env.WriteFile(bundleFilePath(j000700Bundle), j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
+		if err := testenv.WriteBundleTree(w.env.ProjectDir, j000700Bundle, j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
 			return err
 		}
 		// Later scenarios (2/5) have Carol run `deps pull`, which populates a

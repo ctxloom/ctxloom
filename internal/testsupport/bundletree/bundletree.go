@@ -33,9 +33,30 @@ import (
 // returns the path of its envelope. name may be nested ("personal/foo").
 func Write(t testing.TB, fsys afero.Fs, root, name, doc string, opts ...Option) string {
 	t.Helper()
+	envelope, err := WriteDoc(fsys, root, name, doc, opts...)
+	require.NoError(t, err)
+	return envelope
+}
+
+// WriteDoc is Write for a caller with no testing.TB (a godog step): it
+// returns the failure instead of failing the test.
+func WriteDoc(fsys afero.Fs, root, name, doc string, opts ...Option) (string, error) {
 	b, err := bundles.ParseBundle([]byte(doc))
-	require.NoError(t, err, "bundletree: parsing the fixture document for %q", name)
-	return WriteBundle(t, fsys, root, name, b, opts...)
+	if err != nil {
+		return "", fmt.Errorf("bundletree: parsing the fixture document for %q: %w", name, err)
+	}
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if err := write(fsys, root, name, b, o); err != nil {
+		return "", fmt.Errorf("bundletree: writing %q: %w", name, err)
+	}
+	return envelopePath(root, name), nil
+}
+
+func envelopePath(root, name string) string {
+	return filepath.Join(root, filepath.FromSlash(name), bundles.DirectoryFormManifest)
 }
 
 // WriteOS is Write on the OS filesystem.
@@ -90,12 +111,12 @@ func WriteBundle(t testing.TB, fsys afero.Fs, root, name string, b *bundles.Bund
 		opt(&o)
 	}
 	require.NoError(t, write(fsys, root, name, b, o), "bundletree: writing %q", name)
-	return filepath.Join(root, filepath.FromSlash(name), bundles.DirectoryFormManifest)
+	return envelopePath(root, name)
 }
 
 func write(fsys afero.Fs, root, name string, b *bundles.Bundle, o options) error {
 	ctx := context.Background()
-	envelope := filepath.Join(root, filepath.FromSlash(name), bundles.DirectoryFormManifest)
+	envelope := envelopePath(root, name)
 	core := *b
 	core.Path = envelope
 	// A tree's envelope carries no items, so a fixture document that declared

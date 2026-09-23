@@ -54,6 +54,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // hookProbeRunTimeout bounds one cell's live run.
@@ -171,7 +172,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			// actually take. A fixture that wrote .claude/settings.json itself
 			// would prove an engine execs files WE hand-made, which is not the
 			// claim.
-			if err := w.env.WriteFile(bundleFilePath("bundle-"+hookProbeAgent),
+			if err := testenv.WriteBundleTree(w.env.ProjectDir, "bundle-"+hookProbeAgent,
 				hookProbeBundleYAML(h.scriptPath, h.stampHarp)); err != nil {
 				return err
 			}
@@ -190,7 +191,7 @@ func registerCapabilityHookFiringSteps(ctx *godog.ScenarioContext) {
 			// text, so a scan that counted it would report "ctxloom delivered
 			// the hook" on a run where no writer ever executed.
 			for _, rel := range []string{
-				bundleFilePath("bundle-" + hookProbeAgent),
+				treeBundlePath("bundle-" + hookProbeAgent),
 				".ctxloom/profiles/" + hookProbeAgent + "-profile.yaml",
 				".ctxloom/config.yaml",
 			} {

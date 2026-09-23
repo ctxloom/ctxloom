@@ -23,7 +23,7 @@ import (
 // connection (agentkey's package doc: "every Discovered.Signer returned here
 // is backed by a live ssh-agent connection ... never a file on disk"). Without
 // an agent the acceptance suite can only ever sign IN GO, with
-// signing.Sign + TestSigner (SeedSignedRemote above), which bypasses key
+// signing.Sign + TestSigner (SeedSignedTreeRemote above), which bypasses key
 // discovery, the ssh-agent transport and the `.sig` writer entirely — so the
 // production publishing path had never executed in an acceptance run at all.
 // internal/adapters/signing/agent_signer_test.go already proves the same wiring over a

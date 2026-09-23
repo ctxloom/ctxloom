@@ -23,7 +23,7 @@ type GitRepo struct {
 
 // SeedGitRepo creates a bare git repo whose default branch (main) contains the
 // given files (path -> content), and returns it. Paths are repo-relative and may
-// contain slashes; SingleFileBundlePath composes one for an authored bundle.
+// contain slashes; BundleTreeFiles composes them for an authored bundle.
 // The repo is created under t.TempDir(), so it is cleaned up automatically.
 //
 // This is the *testing.T-fatal wrapper around SeedRemote (gitserve_acceptance.go)
@@ -75,12 +75,12 @@ func (r *GitRepo) CommitFile(t *testing.T, relPath, content string) string {
 	return r.SHA
 }
 
-// CtxloomContentLayout returns a minimal ctxloom repo layout (a single bundle)
-// suitable for seeding a GitRepo. The bundle ships an mcp server and a hook so
-// resolution/apply can be asserted. (Top-level profile distribution was retired.)
-func CtxloomContentLayout() map[string]string {
-	return map[string]string{
-		SingleFileBundlePath("demo"): strings.TrimSpace(`
+// CtxloomContentLayout returns a minimal ctxloom repo layout (a single bundle
+// tree) suitable for seeding a GitRepo. The bundle ships an mcp server and a
+// hook so resolution/apply can be asserted.
+func CtxloomContentLayout(t testing.TB) map[string]string {
+	t.Helper()
+	files, err := BundleTreeFiles("demo", strings.TrimSpace(`
 version: 1.0.0
 author: test
 description: Demo bundle with an MCP server and a hook
@@ -97,6 +97,9 @@ hooks:
   session_start:
     - command: echo demo-hook
       type: command
-`) + "\n",
+`)+"\n")
+	if err != nil {
+		t.Fatalf("CtxloomContentLayout: %v", err)
 	}
+	return files
 }

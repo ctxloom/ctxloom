@@ -180,11 +180,9 @@ func fixtureDemoTreeFiles(version, description, fragName, fragContent string, in
 // reader and store, so the item file lands exactly where `fragment create`
 // put it.
 func seedItemContent(w *World, bundle, section, name, content string) error {
-	manifest := filepath.Join(w.env.ProjectDir, filepath.FromSlash(treeBundleManifestPath(bundle)))
-	fsys := afero.NewOsFs()
-	b, err := bundles.ReadTreeAt(context.Background(), fsys, manifest)
+	b, err := readAuthoredBundle(w, bundle)
 	if err != nil {
-		return fmt.Errorf("seed %s %q: read bundle %q: %w", section, name, bundle, err)
+		return fmt.Errorf("seed %s %q: %w", section, name, err)
 	}
 	switch section {
 	case "fragments":
@@ -204,7 +202,7 @@ func seedItemContent(w *World, bundle, section, name, content string) error {
 	default:
 		return fmt.Errorf("seed %s %q: this fixture seeds only fragments and commands", section, name)
 	}
-	if err := bundles.NewFSStore(fsys, nil).Save(b); err != nil {
+	if err := bundles.NewFSStore(afero.NewOsFs(), nil).Save(b); err != nil {
 		return fmt.Errorf("seed %s %q: save bundle %q: %w", section, name, bundle, err)
 	}
 	return nil

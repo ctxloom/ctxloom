@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,6 +93,39 @@ func TestTurn_ToolsMarkerEmitsTheFullEntryVocabulary(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []agent.SessionEntryType{agent.EntryTypeThinking, agent.EntryTypeToolUse, agent.EntryTypeToolResult, agent.EntryTypeAssistant}, kinds)
+}
+
+// TestTurn_HangMarkerStallsSilentlyUntilCancelled: a prompt carrying HANG
+// takes the turn and relays NOTHING — no session event, no entry, no
+// completion — until its context ends, and then returns that context's error.
+func TestTurn_HangMarkerStallsSilentlyUntilCancelled(t *testing.T) {
+	inst, err := New().Instance(engine.Session{Mode: engine.Structured, WorkDir: t.TempDir()})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := make(chan engine.Event, 64)
+	done := make(chan error, 1)
+	go func() {
+		_, terr := inst.Drivers()[0].Turn(ctx, engine.Exec{}, engine.Turn{Prompt: "HANG here"}, out)
+		done <- terr
+	}()
+
+	select {
+	case ev := <-out:
+		t.Fatalf("a stalled turn relayed %s", ev.Kind)
+	case terr := <-done:
+		t.Fatalf("a stalled turn returned before its context ended: %v", terr)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case terr := <-done:
+		require.ErrorIs(t, terr, context.Canceled)
+	case <-time.After(10 * time.Second):
+		t.Fatal("a stalled turn did not end with its context")
+	}
+	assert.Empty(t, out, "nothing is relayed, not even on the way out")
 }
 
 // TestTurn_WritesTheRecordFromWhatWasDelivered: CTXLOOM_MOCK_RECORD_FILE

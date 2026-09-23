@@ -22,7 +22,7 @@ func newProjectCoordinator(t *testing.T, sp Spawner, projectID string) *Coordina
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
-		ProjectKey: projectID,
+		ProjectID:  projectID,
 		StateDir:   t.TempDir(),
 		Spawner:    sp,
 		OwnerHarp:  ownerIdentity().Harp,

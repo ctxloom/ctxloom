@@ -87,7 +87,7 @@ func TestHandleListSessions_DefaultScopeIsTheCallersProject(t *testing.T) {
 	harpA := bindProjectSession(t, mgr, projA, "claude-code", "sidA", now)
 	harpB := bindProjectSession(t, mgr, projB, "claude-code", "sidB", now)
 
-	s := &ctxServer{self: coord.Identity{Project: projA}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
+	s := &ctxServer{self: coord.Identity{ProjectDir: projA}, cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projA, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{})
 	require.NoError(t, err)
 

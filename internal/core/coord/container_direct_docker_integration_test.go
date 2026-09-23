@@ -194,7 +194,7 @@ func TestCoordContainerDirect_NoPluginNoPort(t *testing.T) {
 
 	sp := &directBusSpawner{image: image, projectDir: projectDir}
 	coord.TeeHome(t)
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "direct-itest", Spawner: sp, OwnerHarp: coord.OwnerIdentity().Harp})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "direct-itest", Spawner: sp, OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)

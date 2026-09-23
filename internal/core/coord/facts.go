@@ -197,7 +197,6 @@ type runReaped struct {
 // (CredHash only).
 type sessionCred struct {
 	Harp     string `json:"harp,omitempty"`
-	Project  string `json:"project,omitempty"`
 	CredHash string `json:"cred_hash"`
 }
 

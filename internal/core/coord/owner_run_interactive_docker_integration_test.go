@@ -117,7 +117,7 @@ func TestCoordOwnerRun_InteractiveContainerIsTheForegroundRunner(t *testing.T) {
 
 	starter := &dockerInteractiveStarter{image: image, projectDir: projectDir, harp: ownerHarp}
 	coord.TeeHome(t)
-	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectKey: "owner-interactive-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
+	c, err := coord.New(coord.Options{ProjectDir: projectDir, ProjectID: "owner-interactive-itest", Spawner: coord.NewFakeSpawner(nil, nil), OwnerHarp: coord.OwnerIdentity().Harp})
 	require.NoError(t, err)
 	require.NoError(t, coordgrpc.Serve(c))
 	t.Cleanup(c.Close)

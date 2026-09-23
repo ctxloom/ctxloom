@@ -22,12 +22,12 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 
 	f := newRunsFold()
 
-	// A session credential also stamps the fold's project, which every later
-	// run credential inherits.
-	f.apply(factAt(factSessionCred, at(0), sessionCred{Harp: "owner", Project: "proj-x", CredHash: "owner-hash"}))
+	// A session credential mints the owner's identity. No credential carries
+	// a project: the coordinator stamps its own (Coordinator.inProject).
+	f.apply(factAt(factSessionCred, at(0), sessionCred{Harp: "owner", CredHash: "owner-hash"}))
 	id, ok := f.identityFor("owner-hash")
 	require.True(t, ok)
-	assert.Equal(t, Identity{Harp: "owner", Depth: 0, Project: "proj-x"}, id)
+	assert.Equal(t, Identity{Harp: "owner", Depth: 0}, id)
 
 	// factRunEnqueued mints the record, the harp index, and the credential.
 	f.apply(factAt(factRunEnqueued, at(1), runEnqueued{
@@ -52,7 +52,7 @@ func TestRunsFold_Apply_EveryArm(t *testing.T) {
 	assert.Equal(t, r, f.currentRun("kid"))
 	credID, ok := f.identityFor("c1")
 	require.True(t, ok)
-	assert.Equal(t, Identity{Harp: "kid", RunID: "r1", Depth: 1, Project: "proj-x"}, credID)
+	assert.Equal(t, Identity{Harp: "kid", RunID: "r1", Depth: 1}, credID)
 
 	// factRunState advances state and touches activity.
 	f.apply(factAt(factRunState, at(2), runState{RunID: "r1", State: StateExecuting}))

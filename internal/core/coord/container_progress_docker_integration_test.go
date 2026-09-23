@@ -375,7 +375,7 @@ func startProgressChild(t *testing.T, mode progressSpawnMode, awaitBudget time.D
 	coord.TeeHome(t)
 	c, err := coord.New(coord.Options{
 		ProjectDir:         projectDir,
-		ProjectKey:         "progress-itest",
+		ProjectID:          "progress-itest",
 		Spawner:            sp,
 		RunnerAwaitTimeout: awaitBudget,
 		OwnerHarp:          coord.OwnerIdentity().Harp,

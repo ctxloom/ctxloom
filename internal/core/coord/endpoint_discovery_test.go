@@ -30,7 +30,7 @@ func TestEndpointFile_ServeWritesWhatDiscoverReads(t *testing.T) {
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
-		ProjectKey: "endpoint-discovery-test",
+		ProjectID:  "endpoint-discovery-test",
 		Spawner:    newFakeSpawner(nil, nil),
 		OwnerHarp:  ownerIdentity().Harp,
 	})
@@ -61,7 +61,7 @@ func TestEndpointFile_NotYetMintedIsSkippedSilently(t *testing.T) {
 	teeHome(t)
 	c, err := New(Options{
 		ProjectDir: t.TempDir(),
-		ProjectKey: "endpoint-unserved-test",
+		ProjectID:  "endpoint-unserved-test",
 		Spawner:    newFakeSpawner(nil, nil),
 		OwnerHarp:  ownerIdentity().Harp,
 	})

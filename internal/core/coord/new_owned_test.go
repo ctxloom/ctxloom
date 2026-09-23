@@ -36,7 +36,7 @@ func TestNew_RefusesAProjectAnotherLiveOwnerHolds(t *testing.T) {
 	require.NoError(t, os.WriteFile(lock, []byte(stamp), 0o600))
 
 	// A complete Options: the claim is the ONLY thing that can refuse here.
-	c, err := New(Options{ProjectDir: t.TempDir(), ProjectKey: key, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
+	c, err := New(Options{ProjectDir: t.TempDir(), ProjectID: key, Spawner: newFakeSpawner(nil, nil), OwnerHarp: ownerIdentity().Harp})
 	assert.Nil(t, c)
 	require.ErrorIs(t, err, ErrStateOwned)
 	assert.Contains(t, err.Error(), strconv.Itoa(os.Getppid()), "the refusal names the owner's pid so the operator can find the session")

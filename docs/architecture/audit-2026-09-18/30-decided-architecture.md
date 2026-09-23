@@ -2511,7 +2511,7 @@ The interactive turn: the originator allocates the pty and its `termui` wraps th
 
 ### 1.6 Identity
 
-`Identity{Harp, RunID, Depth, OneShot, Project}` is the ONE trustworthy identity: minted from the store by `sessions.Mint` (the one mint; `Store.Mint` beneath it, no second port), stamped with a run id once by the runtime coordinator, bound to the bearer credential the coordinator mints per run, and returned by `Identify(token)` as the same value. There is no generated-name fallback: a mint that fails refuses the run. Project identity is computed once by the originator and inherited by children from the coordinator's identity. Depth is an integer; `IsLeaf(cap)` is the one rule and the cap is `delegation.depth`. The engine's native session key lives in ONE record, `sessions.Entry.NativeSession`, bound by the hook verb and read by the resume arm through `Store.Find`; the coordinator's journal references the harp only.
+`Identity{Harp, RunID, Depth, OneShot, Project}` is the ONE trustworthy identity: minted from the store by `sessions.Mint` (the one mint; `Store.Mint` beneath it, no second port), stamped with a run id once by the runtime coordinator, bound to the bearer credential the coordinator mints per run, and returned by `Identify(token)` as the same value. There is no generated-name fallback: a mint that fails refuses the run. Project identity is computed once by the originator and inherited by children from the coordinator's identity. Depth is an integer; `IsLeaf(cap)` is the one rule and the cap is `delegation.depth`. The engine's native session key lives in ONE record, `sessions.Entry.NativeSession`, bound by the hook verb and by the runtime coordinator from the key it learns over the wire (`coord.Spawner.BindNativeSession`), and read by the resume arm through `Store.Find`; the coordinator's journal references the harp only.
 
 ```go
 // Package sessions is the session domain: identity as a VALUE, the endpoint
@@ -2593,7 +2593,7 @@ type Entry struct {
 	ProjectDir    string
 	ProjectID     string
 	Engine        string
-	NativeSession string   // the engine's native session key, bound on first hook; the ONE record of it (the coordinator's journal references the harp only)
+	NativeSession string   // the engine's native session key, bound by the hook verb and by the coordinator's wire bind; the ONE record of it (the coordinator's journal references the harp only)
 	MCP           Endpoint // the session's MCP endpoint, bound by Resolve; a resume reuses it
 	Lifetime      paths.Lifetime
 	Created       time.Time

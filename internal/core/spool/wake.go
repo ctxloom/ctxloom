@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // A WAKE IS A NONCE ON DISK.
@@ -95,15 +97,8 @@ func ArmWake(m PathMapper, harp string) (string, error) {
 	}
 	nonce := hex.EncodeToString(b)
 	path := filepath.Join(dir, nonce)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, filePerm)
-	if err != nil {
+	if err := iox.WriteFileAtomic(path, nil, filePerm, iox.Durable()); err != nil {
 		return "", fmt.Errorf("spool: arming wake %s: %w", path, err)
-	}
-	if err := f.Close(); err != nil {
-		return "", fmt.Errorf("spool: arming wake %s: %w", path, err)
-	}
-	if err := syncDir(dir); err != nil {
-		return "", err
 	}
 	return nonce, nil
 }

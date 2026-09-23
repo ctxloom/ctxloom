@@ -41,6 +41,17 @@ func TestRunnerServer_LeafWithholdsCoordinatorOnlyTools(t *testing.T) {
 	}
 }
 
+// TestRunnerServer_LeafCanOpenAnOverflowedMessage: a message body past the
+// coordinator's inline cap reaches a leaf as a head plus a marker naming an
+// artifact filed under the leaf's OWN harp. Without agent_fetch_artifact the
+// leaf is told to keep reading and handed no way to.
+func TestRunnerServer_LeafCanOpenAnOverflowedMessage(t *testing.T) {
+	server, err := newTestServer("leaf-harp", testHome(t), true, "")
+	require.NoError(t, err)
+	_, ok := listServerTools(t, server)[mcpschema.ToolAgentFetchArtifact]
+	assert.True(t, ok, "a leaf must be able to fetch the overflow of a message it received")
+}
+
 // TestRunnerServer_CoordinatorCapableRegistersEverything proves the gate is
 // session-conditional, not a surface-wide removal: leaf=false (a
 // coordinator-capable child, OR the top-level human session where RunID=="")

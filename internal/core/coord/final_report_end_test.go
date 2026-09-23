@@ -360,3 +360,38 @@ func TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
 		"a child whose boundary beat the exit mark must still be ended, not held idle for the drain bound")
 	assert.Equal(t, CauseFinalReported, runCause(c, out.RunID))
 }
+
+// midTurn reports whether harp's child is genuinely inside a turn — the
+// precondition every "files FINAL mid-turn" test stands on.
+func midTurn(c *Coordinator, sp *fakeSpawner, harp string) bool {
+	return rosterState(c, harp) == StateExecuting
+}
+
+// TestFinalReport_MidTurnIsNotMetByAChildStillLaunching forces the span a
+// loaded host stretches: the run is enqueued and its slot held, so the roster
+// already says EXECUTING, but the runner has not been spawned and has not
+// dialed home. A test that files FINAL on that signal then spends its whole
+// "ended at the boundary" budget waiting for a launch, which is how
+// TestFinalReport_EndsTheRunAtItsTurnBoundary went red under a concurrent
+// docker suite while the drain itself was sound.
+func TestFinalReport_MidTurnIsNotMetByAChildStillLaunching(t *testing.T) {
+	resetStrictness(t)
+	launchGate, turnGate := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(turnGate) })
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: turnGate} })
+	sp.startGate = launchGate
+	c := newTestCoordinator(t, sp, nil)
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, time.Millisecond,
+		"the roster says executing once the slot is held, before any runner exists")
+	require.Zero(t, sp.chatCount(), "the launch is held: no engine can exist yet")
+
+	assert.False(t, midTurn(c, sp, out.Harp),
+		"a child whose runner has not even been spawned is not mid-turn")
+
+	close(launchGate)
+	require.Eventually(t, func() bool { return midTurn(c, sp, out.Harp) }, conformanceWait, time.Millisecond,
+		"once launched, the held turn is mid-turn")
+}

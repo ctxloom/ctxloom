@@ -111,6 +111,12 @@ type fakeSpawner struct {
 	// see from outside it.
 	resolveEntered chan string
 	resolveGate    chan struct{}
+	// startGate, when non-nil, holds Start — the runner's spawn, and so its
+	// dial-home — until the test closes it. It is the POST-registration slow
+	// step: the run is enqueued, its slot held and the roster already says
+	// executing, but no runner exists yet. That is the span a loaded host
+	// stretches, and the one a test must be able to stand a child in.
+	startGate chan struct{}
 	// launches records every launch ResolveLaunch resolved, in order;
 	// rebindFlags records, per call, whether it asked for a rebind; endpoints
 	// is the per-harp MCP endpoint the fake "minted", reused across resumes
@@ -289,7 +295,17 @@ func (s *fakeSpawner) ResolveLaunch(ctx context.Context, plan *SpawnPlan, start 
 // it); only Kill ends it. Kill models SIGKILL (docker-stop): the shared
 // context dies — no RunExited, no clean teardown; the coordinator's loss
 // synthesis is what must notice.
-func (s *fakeSpawner) Start(_ context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+func (s *fakeSpawner) Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error) {
+	s.mu.Lock()
+	gate := s.startGate
+	s.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	runnerEnv := sessions.EncodeReach(reach, l.Identity.RunID)
 	s.mu.Lock()
 	var inst engine.Instance

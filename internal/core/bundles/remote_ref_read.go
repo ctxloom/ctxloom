@@ -11,7 +11,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
-	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -62,12 +61,13 @@ import (
 var ErrDocumentFormUnreadable = errors.New("bundles: the document form is not readable")
 
 //
-// It also returns the release the publisher signed, so a caller about to move a
-// pin has the version its floor is measured in without a second read.
-func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha string, treeFetch remote.TreeFetchFunc, root trust.TrustRoot) (*Bundle, release.Release, error) {
+// It also returns what verification established — the release the publisher
+// signed and who they are — so a caller about to move a pin has the version its
+// floor is measured in, and the publisher it records, without a second read.
+func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remote.AuthConfig, ref *remote.Reference, sha string, treeFetch remote.TreeFetchFunc, root trust.TrustRoot) (*Bundle, remote.Verified, error) {
 	c, err := remote.FetchRef(ctx, factory, auth, ref, sha, treeFetch)
 	if err != nil {
-		return nil, release.Release{}, err
+		return nil, remote.Verified{}, err
 	}
 	if !c.IsTree() {
 		// The document form is no longer readable, and refusing it here is what
@@ -80,7 +80,7 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 		// Nothing can produce this shape any more — PushBundle refuses to
 		// publish it — so a ref that still resolves to one is a repository left
 		// behind by the tree migration, and the remedy is to republish.
-		return nil, release.Release{}, fmt.Errorf("%w: %s at %s resolves to a single %d-byte document — republish it as a tree",
+		return nil, remote.Verified{}, fmt.Errorf("%w: %s at %s resolves to a single %d-byte document — republish it as a tree",
 			ErrDocumentFormUnreadable, ref.String(), sha, len(c.Data))
 	}
 
@@ -93,17 +93,38 @@ func ReadRemoteRef(ctx context.Context, factory remote.FetcherFactory, auth remo
 	id := path.Base(c.Root)
 	tree, err := remotetree.OpenFetchedBundle(ctx, id, c.Tree, ref.URL)
 	if err != nil {
-		return nil, release.Release{}, fmt.Errorf("bundles: opening remote tree bundle %s at %s: %w", c.Root, sha, err)
+		return nil, remote.Verified{}, fmt.Errorf("bundles: opening remote tree bundle %s at %s: %w", c.Root, sha, err)
 	}
 	v, err := verifyRemoteTree(ctx, tree, root, c.Root, sha)
 	if err != nil {
-		return nil, release.Release{}, err
+		return nil, remote.Verified{}, err
 	}
 	b, err := ReadTree(ctx, tree)
 	if err != nil {
-		return nil, release.Release{}, fmt.Errorf("bundles: reading remote tree bundle %s at %s: %w", c.Root, sha, err)
+		return nil, remote.Verified{}, fmt.Errorf("bundles: reading remote tree bundle %s at %s: %w", c.Root, sha, err)
 	}
-	return b, v.Release, nil
+	return b, v, nil
+}
+
+// TreeVerifier is the verifier a Puller runs over a fetched tree before it pins
+// it (remote.WithTreeVerifier): the same check ReadRemoteRef makes, so a pull
+// and a read refuse the same trees.
+//
+// The one difference is unattested content, which a read refuses and a pull
+// admits: a pin of content nobody this machine trusts is still a pin, and the
+// exposure gate withholds it for review. It is admitted with no floor.
+func TreeVerifier(root trust.TrustRoot) remote.TreeVerifyFunc {
+	return func(ctx context.Context, files map[string]remote.TreeFile, treeRoot, sha, repoURL string) (remote.Verified, error) {
+		tree, err := remotetree.OpenFetchedBundle(ctx, path.Base(treeRoot), files, repoURL)
+		if err != nil {
+			return remote.Verified{}, fmt.Errorf("bundles: opening remote tree bundle %s at %s: %w", treeRoot, sha, err)
+		}
+		v, err := verifyRemoteTree(ctx, tree, root, treeRoot, sha)
+		if errors.Is(err, ErrTreeUnattested) {
+			return remote.Verified{}, nil
+		}
+		return v, err
+	}
 }
 
 // verifyRemoteTree refuses a remote tree that its publisher did not attest, or

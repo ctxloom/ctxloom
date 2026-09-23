@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -163,6 +164,31 @@ func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
 	h.Kill()
 	require.Len(t, removed, 1, "Kill force-removes the container by name — this is the teardown")
 	assert.Equal(t, strings.Join(rt.RemoveArgs(h.Name), " "), removed[0])
+}
+
+// TestContainerStartRunner_CancelledBeforeStartNeverRunsTheCLI pins the
+// pre-attach half of spawn.StartRunner's contract against the real container
+// runtime: an already-cancelled launch returns ctx.Err() and never execs
+// `docker run`, so there is no container to orphan. The post-start half is
+// TestStartDirectRunner_ContextIsNotTheTeardownHandle's.
+func TestContainerStartRunner_CancelledBeforeStartNeverRunsTheCLI(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "ran")
+	rt := scriptRuntime{
+		fakeRuntime: fakeRuntime{name: "docker", binary: "sh", available: true},
+		args:        []string{"-c", "touch " + marker},
+	}
+	c := NewContainerFor(rt, "mock").WithImage("img")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	h, err := c.StartRunner(ctx, "mock", "", 0, newRunnerTestWorkspace(), nil)
+
+	if h != nil {
+		_ = h.Wait() // a started CLI has run its script by the time Wait returns
+	}
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, h)
+	assert.NoFileExists(t, marker, "a cancelled launch must never start the runtime CLI")
 }
 
 // TestRemoveContainer_SurvivingContainerWarnsWithAManualRemove REFUTES

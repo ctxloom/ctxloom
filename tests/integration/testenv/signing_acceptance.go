@@ -274,7 +274,11 @@ func signTreeFiles(workRoot, root, bundleID, envelope string, items map[string]s
 	if err != nil {
 		return nil, fmt.Errorf("open bundle %q for signing: %w", bundleID, err)
 	}
-	if err := attest.SignBundle(ctx, store, bundle, signer.Signer); err != nil {
+	rel, err := TreeRelease(ctx, bundle)
+	if err != nil {
+		return nil, err
+	}
+	if err := attest.SignBundle(ctx, store, bundle, rel, signer.Signer); err != nil {
 		return nil, fmt.Errorf("sign bundle %q: %w", bundleID, err)
 	}
 

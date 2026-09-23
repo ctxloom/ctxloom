@@ -33,7 +33,7 @@ func stageSignedTreeOn(t *testing.T, fs afero.Fs, bundlesDir, name string, signe
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest, []byte("version: \"1.0.0\"\n")))
 	tree, err := st.Open(context.Background(), content.BundleID(name))
 	require.NoError(t, err)
-	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+	require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
 	return filepath.Join(bundlesDir, name)
 }
 

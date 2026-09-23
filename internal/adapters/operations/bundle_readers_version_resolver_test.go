@@ -77,7 +77,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	// be written into the format root beneath it, or it is never found.
 	const searchRoot = "/bundles"
 	testsupport.WriteFileString(t, fsys, filepath.Join(paths.BundlesLayoutRoot(searchRoot, paths.LayoutV2), "go-tools.yaml"),
-		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n", 0o644)
+		"version: 1.0.0\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n", 0o644)
 	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{searchRoot})).WithVersionResolver(resolver)
 	// AdmitAll: this test resolves versions, not trust, and states so.
 	return bundles.NewPipeline(loader, composite.Ungated().Authorizer(), bundles.LinksUnchecked(), false)

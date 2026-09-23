@@ -40,7 +40,7 @@ func writeDirFormBundle(t *testing.T, appDir, name string) {
 	dir := filepath.Join(authoredV1(appDir), name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "bundle.yaml"),
-		[]byte("version: \"1.0\"\n"), 0o644))
+		[]byte("version: 1.0.0\n"), 0o644))
 }
 
 func TestCreateSkill_ScaffoldsValidPackage(t *testing.T) {

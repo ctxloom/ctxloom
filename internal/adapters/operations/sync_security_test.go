@@ -114,7 +114,7 @@ func setupRemoteParentSigned(t *testing.T, signed bool) (baseDir, src, parentBun
 	// items inline ("two answers for one item"), and a tree with no item files
 	// at all ("declares no items") — so demo needs a real item of its own even
 	// though the test only ever asks whether it was PINNED.
-	initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\n")
+	initLocalRepoWithFile(t, src, repoV2("demo")+"/bundle.yaml", "name: demo\nversion: 1.0.0\n")
 	addFileToLocalRepo(t, src, repoV2("demo")+"/fragments/note.md", "demo fragment body\n")
 	// The parent bundle ships a bundle profile `parent` that composes demo, as
 	// a TREE ITEM FILE — profiles/<name>.yaml, whose body is the profile def
@@ -158,7 +158,7 @@ func signTreeAndCommit(t *testing.T, repoDir, bundleName string, signer ssh.Sign
 	require.NoError(t, err)
 	tree, err := store.Open(ctx, content.BundleID(bundleName))
 	require.NoError(t, err)
-	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+	require.NoError(t, attest.SignBundle(ctx, store, tree, treeRelease(t, tree), signer))
 
 	repo, err := git.PlainOpen(repoDir)
 	require.NoError(t, err)

@@ -526,7 +526,7 @@ func TestSignBundleFile_TreeSignsThroughItsManifestAndClearsTheSibling(t *testin
 	_, cfg := setupBundleTestDir(t)
 	dir := filepath.Join(paths.BundlesLayoutRoot(cfg.GetBundleDirs()[0], paths.LayoutV2), "kit")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: \"1.0\"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "keeper.md"), []byte("KEEPER\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest+".sig"), []byte("retired sibling\n"), 0o644))
 	signer := testSigner(t)

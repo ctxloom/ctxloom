@@ -413,7 +413,11 @@ func j001400SignTree(work string, st *j001400State) error {
 	if err != nil {
 		return fmt.Errorf("open the %q tree for signing: %w", j001400Bundle, err)
 	}
-	if err := attest.SignBundle(ctx, store, bundle, st.signer.Signer); err != nil {
+	rel, err := testenv.TreeRelease(ctx, bundle)
+	if err != nil {
+		return fmt.Errorf("the %q tree carries no signable release: %w", j001400Bundle, err)
+	}
+	if err := attest.SignBundle(ctx, store, bundle, rel, st.signer.Signer); err != nil {
 		return fmt.Errorf("sign the %q tree with Trent's key: %w", j001400Bundle, err)
 	}
 	return nil

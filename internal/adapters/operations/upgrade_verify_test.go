@@ -51,7 +51,7 @@ func demoTreeFiles(t *testing.T, signer ssh.Signer, fragBody string) map[string]
 	require.NoError(t, st.PutRootFile(context.Background(), "demo", bundles.DirectoryFormManifest, []byte("version: \"1.0.0\"\n")))
 	tree, err := st.Open(context.Background(), "demo")
 	require.NoError(t, err)
-	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+	require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
 
 	files := map[string]string{}
 	dir := filepath.Join(root, "demo")

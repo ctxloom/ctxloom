@@ -42,7 +42,7 @@ func skillCurationFixture(t *testing.T, appDir string) {
 	}
 
 	require.NoError(t, os.WriteFile(filepath.Join(bundleDir, "bundle.yaml"), []byte(
-		"version: \"1.0\"\nskills:\n"+
+		"version: 1.0.0\nskills:\n"+
 			"  shown: {}\n"+
 			"  hidden:\n    llm:\n      claude-code:\n        enabled: false\n"), 0o644))
 }

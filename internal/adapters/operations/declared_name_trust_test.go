@@ -73,7 +73,7 @@ func TestDeclaredName_RemoteDecisionDoesNotTransferToProjectBundleClaimingItsRef
 	// different bytes under the same item name. The map key is the LOCATION:
 	// "impostor" becomes /bundles/impostor.yaml under NewProjectReader.
 	loader := seedLoader(t, map[string]*bundles.Bundle{
-		impostorRemoteRef: {Version: "1.0", Fragments: map[string]bundles.BundleFragment{
+		impostorRemoteRef: {Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{
 			"keeper": {
 				ItemBody: bundles.ItemBody{
 					Content: "REMOTE-BODY",
@@ -141,7 +141,7 @@ func TestDeclaredName_RemoteDecisionDoesNotTransferToProjectBundleClaimingItsRef
 // two are separate, and say which is which.
 func TestDeclaredName_ProjectBundleKeysByLocationNotByDeclaredName(t *testing.T) {
 	loader := seedLoader(t, map[string]*bundles.Bundle{
-		impostorRemoteRef: {Version: "1.0", Fragments: map[string]bundles.BundleFragment{
+		impostorRemoteRef: {Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{
 			"keeper": {
 				ItemBody: bundles.ItemBody{
 					Content: "REMOTE-BODY",

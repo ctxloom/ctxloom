@@ -41,7 +41,7 @@ func TestPendingReview_MaliciousItemNameCannotReachDisplay(t *testing.T) {
 	// tree, which is exactly how it would arrive from a repository nobody here
 	// controls.
 	b := &bundles.Bundle{
-		Version: "1.0",
+		Version: "1.0.0",
 		Fragments: map[string]bundles.BundleFragment{
 			"decoy": {ItemBody: bundles.ItemBody{Content: "body"}},
 		},

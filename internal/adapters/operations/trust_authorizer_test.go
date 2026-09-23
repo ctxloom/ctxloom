@@ -44,7 +44,7 @@ var authorizerItemRef = mustGitItemRef("example.test", "/repo", "kit", trust.Kin
 // authorizerBundle is the fixture content every test below decides about: one
 // fragment, so the exposure carries real bytes.
 func authorizerBundle() *bundles.Bundle {
-	return &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"keeper": {
+	return &bundles.Bundle{Version: "1.0.0", Fragments: map[string]bundles.BundleFragment{"keeper": {
 		ItemBody: bundles.ItemBody{
 			Content: "KEEPER-PAYLOAD",
 		},
@@ -309,11 +309,11 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 		signing.FormRaw,
 		content.Fragment{Name: "keeper", ItemMeta: content.ItemMeta{Body: "KEEPER-PAYLOAD"}}))
 	require.NoError(t, st.PutRootFile(context.Background(), content.BundleID(name), bundles.DirectoryFormManifest,
-		[]byte("version: \"1.0\"\n")))
+		[]byte("version: 1.0.0\n")))
 	signer, root, _ := seedSigner(t, "author@example.test")
 	tree, err := st.Open(context.Background(), content.BundleID(name))
 	require.NoError(t, err)
-	require.NoError(t, attest.SignBundle(context.Background(), st, tree, signer))
+	require.NoError(t, attest.SignBundle(context.Background(), st, tree, treeRelease(t, tree), signer))
 	// The author's edit after signing: the manifest no longer covers the file.
 	keeper := filepath.Join(v2, name, "fragments", "keeper.md")
 	testsupport.WriteFile(t, fsys, keeper, []byte("KEEPER-PAYLOAD\n# edited, never re-signed\n"), 0o644)

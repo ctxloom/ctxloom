@@ -155,7 +155,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - mcp-bundle\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "mcp-bundle.yaml"),
-		[]byte("version: \"1.0\"\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
+		[]byte("version: 1.0.0\nmcp:\n  quiet-server:\n    command: npx\n    args: [\"-y\", \"quiet\"]\n  noisy-server:\n    command: npx\n    args: [\"-y\", \"noisy\"]\n"), 0o644))
 
 	cfg := gatedFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
 
@@ -229,7 +229,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "dev.yaml"), []byte("name: dev\nbundles:\n  - hook-bundle\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hook-bundle.yaml"),
-		[]byte("version: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n  session_start:\n    - command: echo deny\n      type: command\n"), 0o644))
+		[]byte("version: 1.0.0\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n  session_start:\n    - command: echo deny\n      type: command\n"), 0o644))
 
 	cfg := gatedFixture(config.Fixture{DefaultAgent: "default", Agents: map[string]agents.Agent{"default": {Profiles: []string{"dev"}}}, AppPaths: []string{appDir}})
 
@@ -339,7 +339,7 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	bundlesDir := authoredV1(appDir)
 	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "hookb.yaml"),
-		[]byte("version: \"1.0\"\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))
+		[]byte("version: 1.0.0\nhooks:\n  pre_tool:\n    - matcher: Bash\n      command: echo keep\n      type: command\n"), 0o644))
 
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{appDir}})
 	// SetBlacklist (backing `ctxloom blacklist`/`bundle reject`) resolves a

@@ -458,7 +458,7 @@ func seededLoader(t *testing.T) (*bundles.Loader, string) {
 	const seedKey = seededBundleKey
 	b := &bundles.Bundle{
 		Name:    seedKey,
-		Version: "1.0",
+		Version: "1.0.0",
 		Fragments: map[string]bundles.BundleFragment{
 			"solid": {
 				ItemBody: bundles.ItemBody{

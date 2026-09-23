@@ -73,7 +73,7 @@ func init() {
 // separately: a critique sharing the drafter's session would be self-review.
 // A var so a test can supply canned runners without an engine.
 var newPremiseRunner = func(ctx context.Context, cfg *config.Config, label string) (memory.Runner, func(), error) {
-	s, err := operations.StartInternalOneShot(ctx, App().LaunchFacts(), internalRunHosts(), cfg, label, "", projectroot.WorkDir(), "", 0)
+	s, err := operations.OneShot(App().LaunchFacts(), internalRunHosts(), cfg).Label(label).WorkDir(projectroot.WorkDir()).Start(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no reachable engine for premise authoring (label %q): %w", label, err)
 	}

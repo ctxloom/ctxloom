@@ -58,7 +58,7 @@ func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) la
 
 // testOneShot resolves a one-shot session over cfg on a fake host whose
 // runs answer from stub.
-func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (*OneShot, error) {
+func testOneShot(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline, stub *stubEngine, src launch.Source) (*OneShotSession, error) {
 	t.Helper()
 	deps := testLaunchDeps(t, cfg, pipe)
 	if src.WorkDir == "" {

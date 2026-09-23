@@ -104,7 +104,7 @@ func CompactEntry(ctx context.Context, f LaunchFacts, entry *sessions.Entry, cfg
 	// The distiller is a real session on the FAST role's label: one harp for
 	// every turn this compaction makes, started on the first turn and ended
 	// when the compaction is done.
-	distiller := NewLazyOneShot(f, opts.Hosts, cfg, cfg.FastLabel(), model, entry.ProjectDir, "", 0)
+	distiller := OneShot(f, opts.Hosts, cfg).Label(cfg.FastLabel()).Model(model).WorkDir(entry.ProjectDir).Lazy()
 	defer distiller.End()
 	// The compactor no longer builds its own source: resolve it here (unless a
 	// transcript was preloaded by path, which short-circuits it) and inject.

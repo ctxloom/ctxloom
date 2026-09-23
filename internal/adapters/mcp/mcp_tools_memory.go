@@ -234,7 +234,7 @@ func (s *ctxServer) handleCompactSession(ctx context.Context, _ *mcp.CallToolReq
 		// The TurnEnd-captured next step; absent on a harp that has not
 		// finished a turn, and absent costs nothing (see distillPrompt).
 		taskHint, _ := memory.ReadNextStep(harp)
-		distiller := operations.NewLazyOneShot(s.facts, s.hostsFor(), s.cfg, s.cfg.FastLabel(), model, workDir, "", 0)
+		distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 		defer distiller.End()
 		source, serr := operations.DistillSource(s.facts.Engines, backend, workDir)
 		if serr != nil {
@@ -1078,7 +1078,7 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 	// The TurnEnd-captured next step; absent on a harp that has not finished
 	// a turn, and absent costs nothing (see distillPrompt).
 	taskHint, _ := memory.ReadNextStep(harp)
-	distiller := operations.NewLazyOneShot(s.facts, s.hostsFor(), s.cfg, s.cfg.FastLabel(), model, workDir, "", 0)
+	distiller := operations.OneShot(s.facts, s.hostsFor(), s.cfg).Label(s.cfg.FastLabel()).Model(model).WorkDir(workDir).Lazy()
 	defer distiller.End()
 	source, serr := operations.DistillSource(s.facts.Engines, backendName, workDir)
 	if serr != nil {

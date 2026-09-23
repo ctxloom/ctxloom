@@ -19,7 +19,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// OneShot is a resolved internal one-shot session: ONE minted harp, ONE
+// OneShotSession is a resolved internal one-shot session: ONE minted harp, ONE
 // resolved launch, ONE owner-owned run on the coordinator that hosts it,
 // driven a turn at a time. A distill, a triage batch and the setup probe are
 // real sessions — a session home, an endpoint, the managed surfaces, hooks
@@ -28,7 +28,7 @@ import (
 // transport (RunnerStarter) and parks on an empty briefing; every turn is a
 // Coordinator.Turn frame to that same runner, answered at its boundary. End
 // ends the run, releases the cell and ends the session.
-type OneShot struct {
+type OneShotSession struct {
 	Launch launch.Launch
 	host   RunHost
 	runID  string
@@ -73,7 +73,7 @@ var ErrNoRunHost = errors.New("internal one-shot: no coordinator hosts this run 
 // transport, parked with no briefing until the first Turn. src is the caller's Source — Internal with
 // a label for the engine, or an agent binding — and is forced Structured,
 // the only mode a turn is driven in.
-func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed sessions.Seed, src launch.Source, verbosity int) (*OneShot, error) {
+func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed sessions.Seed, src launch.Source, verbosity int) (*OneShotSession, error) {
 	if hosts == nil {
 		return nil, ErrNoRunHost
 	}
@@ -83,7 +83,7 @@ func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed se
 	if err != nil {
 		return nil, err
 	}
-	o := &OneShot{Launch: l, store: deps.Sessions}
+	o := &OneShotSession{Launch: l, store: deps.Sessions}
 	host, err := hosts.RunHost(ctx, seed.ProjectDir, l.Identity.Harp)
 	if err != nil {
 		o.End()
@@ -115,7 +115,7 @@ func StartOneShot(ctx context.Context, deps launch.Deps, hosts RunHosts, seed se
 // recording the runner's handle for End. A cell prepared elsewhere (a test
 // double) carries no transport, which is the starter's own refusal — the
 // coordinator asks for the runner only when it starts the run.
-func (o *OneShot) starter(verbosity int) coord.OwnedRunStarter {
+func (o *OneShotSession) starter(verbosity int) coord.OwnedRunStarter {
 	l := o.Launch
 	cell, ok := TransportOf(l.Cell)
 	if !ok {
@@ -130,7 +130,7 @@ func (o *OneShot) starter(verbosity int) coord.OwnedRunStarter {
 // by the key the runner learned — and returns its answer, recorded on the
 // session's transcript by the runner. An empty answer is a failed turn, never
 // an empty answer.
-func (o *OneShot) Turn(ctx context.Context, prompt string) (string, error) {
+func (o *OneShotSession) Turn(ctx context.Context, prompt string) (string, error) {
 	out, _, err := o.TurnWithModel(ctx, prompt)
 	return out, err
 }
@@ -138,7 +138,7 @@ func (o *OneShot) Turn(ctx context.Context, prompt string) (string, error) {
 // TurnWithModel is Turn reporting the model the turn ran on as the launch
 // names it — the label's model when it configures one, else the engine —
 // for a record that attributes the answer.
-func (o *OneShot) TurnWithModel(ctx context.Context, prompt string) (answer, model string, err error) {
+func (o *OneShotSession) TurnWithModel(ctx context.Context, prompt string) (answer, model string, err error) {
 	if o.ended {
 		return "", "", errors.New("one-shot: the session has ended")
 	}
@@ -160,7 +160,7 @@ func (o *OneShot) TurnWithModel(ctx context.Context, prompt string) (answer, mod
 
 // End ends the run's runner, releases the cell and ends the session.
 // Idempotent.
-func (o *OneShot) End() {
+func (o *OneShotSession) End() {
 	if o.ended {
 		return
 	}
@@ -181,16 +181,9 @@ func (o *OneShot) End() {
 // mints nothing. Turn is assignable to memory.Runner; End releases the
 // session if one started.
 type LazyOneShot struct {
-	start func(ctx context.Context) (*OneShot, error)
+	start func(ctx context.Context) (*OneShotSession, error)
 	mu    sync.Mutex
-	os    *OneShot
-}
-
-// NewLazyOneShot defers StartInternalOneShot to the first turn.
-func NewLazyOneShot(f LaunchFacts, hosts RunHosts, cfg *config.Config, label, model, workDir, projectID string, verbosity int) *LazyOneShot {
-	return &LazyOneShot{start: func(ctx context.Context) (*OneShot, error) {
-		return StartInternalOneShot(ctx, f, hosts, cfg, label, model, workDir, projectID, verbosity)
-	}}
+	os    *OneShotSession
 }
 
 // Turn drives one turn, starting the session first if none has.
@@ -231,22 +224,68 @@ func InternalSource(label, model, workDir string) launch.Source {
 	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Permission: engine.PermissionPlan}
 }
 
-// StartInternalOneShot mints and resolves an internal one-shot over the
-// generation cfg belongs to, run on the coordinator hosts yields: the compactor's distiller, the
-// trigger evaluator's triage, the setup probe. projectID is the identity the
-// session serves (empty when the caller resolved none).
-func StartInternalOneShot(ctx context.Context, f LaunchFacts, hosts RunHosts, cfg *config.Config, label, model, workDir, projectID string, verbosity int) (*OneShot, error) {
+// ErrOneShotNoWorkDir refuses an internal one-shot with no working
+// directory: it is the project the session is minted under and the cell the
+// run is hosted for, so a launch without one has nowhere correct to run.
+var ErrOneShotNoWorkDir = errors.New("internal one-shot: no working directory")
+
+// OneShotBuilder assembles an internal one-shot over the generation cfg
+// belongs to, run on the coordinator hosts yields: the compactor's
+// distiller, the trigger evaluator's triage, premise authoring. No field has
+// a default: an unset Label resolves the way any launch's does (the
+// project's primary), an unset Model is the label's own, and WorkDir is
+// required (Start refuses without it).
+type OneShotBuilder struct {
+	facts                 LaunchFacts
+	hosts                 RunHosts
+	cfg                   *config.Config
+	label, model, workDir string
+}
+
+// OneShot starts an internal one-shot under f, on the coordinator hosts
+// yields, over cfg's generation.
+func OneShot(f LaunchFacts, hosts RunHosts, cfg *config.Config) *OneShotBuilder {
+	return &OneShotBuilder{facts: f, hosts: hosts, cfg: cfg}
+}
+
+// Label names the LLM label the one-shot runs on.
+func (b *OneShotBuilder) Label(label string) *OneShotBuilder { b.label = label; return b }
+
+// Model overrides the label's model for this one-shot.
+func (b *OneShotBuilder) Model(model string) *OneShotBuilder { b.model = model; return b }
+
+// WorkDir is the project the session is minted under and runs in.
+func (b *OneShotBuilder) WorkDir(dir string) *OneShotBuilder { b.workDir = dir; return b }
+
+// Start mints and resolves the one-shot and starts its run now. It refuses
+// facts missing a composed port (Build's sentinels), an empty WorkDir
+// (ErrOneShotNoWorkDir) and a Config with no Trust.
+func (b *OneShotBuilder) Start(ctx context.Context) (*OneShotSession, error) {
+	if _, err := NewLaunchFacts(b.facts.Engines).Claims(b.facts.SessionClaims).Mode(b.facts.Mode).Build(); err != nil {
+		return nil, err
+	}
+	if b.workDir == "" {
+		return nil, ErrOneShotNoWorkDir
+	}
 	// A Config built outside the Owner carries no Trust: refuse here, at the
 	// entry point, rather than let the assembler withhold every executable
 	// with the "no authorizer" defect reason.
-	if _, err := cfg.RequireTrust(); err != nil {
+	if _, err := b.cfg.RequireTrust(); err != nil {
 		return nil, fmt.Errorf("internal one-shot: %w", err)
 	}
-	deps, err := LaunchDepsFor(f, &config.Snapshot{Config: cfg})
+	deps, err := LaunchDepsFor(b.facts, &config.Snapshot{Config: b.cfg})
 	if err != nil {
 		return nil, err
 	}
-	return StartOneShot(ctx, deps, hosts, sessions.Seed{ProjectDir: workDir, ProjectID: projectID}, InternalSource(label, model, workDir), verbosity)
+	return StartOneShot(ctx, deps, b.hosts, sessions.Seed{ProjectDir: b.workDir}, InternalSource(b.label, b.model, b.workDir), 0)
+}
+
+// Lazy defers Start to the one-shot's first turn: a caller that never turns
+// (a compaction served from its cache) mints nothing. Start's refusals
+// surface from that turn.
+func (b *OneShotBuilder) Lazy() *LazyOneShot {
+	built := *b
+	return &LazyOneShot{start: built.Start}
 }
 
 // runtimeCarrier is the narrow capability the container policy implements

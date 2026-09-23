@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/spf13/afero"
 )
@@ -532,7 +533,7 @@ func applyHooksToBackend(ctx context.Context, backendName string, p hookApplyPar
 	viaHook := contextRidesTheHook(kind.Root(), exports)
 	if viaHook && p.contextHash != "" {
 		pkg.Hooks.Unified.SessionStart = append(append([]wire.Hook(nil), pkg.Hooks.Unified.SessionStart...),
-			agent.NewContextInjectionHooks(terminalReporter(), p.contextHash, p.workDir)...)
+			agent.NewContextInjectionHooks(report.To(p.freshCfg.Reporter()), p.contextHash, p.workDir)...)
 	}
 	if viaHook {
 		// The context rides the hook — never a native file beside it, which

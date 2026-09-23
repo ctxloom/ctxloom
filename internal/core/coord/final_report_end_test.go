@@ -114,7 +114,12 @@ func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"filing FINAL must not terminate a child mid-turn: its own closing message is still being written")
 
-	// The boundary the child reaches on its own is where the request is taken.
+	// The boundary the child reaches on its own is where the request is taken
+	// — once the request exists. The drain runs on its own goroutine, so wait
+	// for its mark rather than for a window: a boundary released before the
+	// mark ends the run between turns, which is correct and not this claim.
+	require.Eventually(t, func() bool { return exitMarked(c, out.RunID) }, conformanceWait, time.Millisecond,
+		"the drain must have requested the exit before the turn is released")
 	close(gate)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a child that filed FINAL must have its RUN ended without anyone asking — this is the leak")

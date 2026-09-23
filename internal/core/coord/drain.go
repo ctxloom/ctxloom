@@ -227,7 +227,8 @@ func (c *Coordinator) drainWake() {
 // WAIT: the runner re-reads the folds whenever a child moves and settles as
 // soon as no child is still running. A child that parks mid-drain joins the
 // parked list (or is ended, per the policy); one that unparks rejoins the
-// wait, and its turn then ends at its boundary like any other.
+// wait, and its turn then ends at its boundary like any other. A child found
+// IDLE reached its boundary before its mark landed, so it ends between turns.
 //
 // FORCE: when the bound elapses, every child still running is terminated the
 // way agent_stop terminates one (KillRun semantics through terminateRun,
@@ -264,6 +265,13 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 			switch c.runState(ch.runID) {
 			case StateEnded:
 				exited = append(exited, ch.harp)
+			case StateIdle:
+				// Its boundary raced the REQUEST: it found no mark and parked
+				// idle, and no later boundary will take the mark now. Idle is
+				// between turns, so it ends here; the next pass finds it in
+				// exited.
+				c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))
+				running = append(running, ch)
 			case StateParked:
 				if p.parkIsWait {
 					parked = append(parked, ch.harp)

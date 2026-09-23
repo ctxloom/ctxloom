@@ -282,6 +282,17 @@ substitutes a different engine. `ctxloom doctor --deps` reports a missing client
 Install (and authenticate) the CLI for the backend you configured, or point `llm.defaults.primary`
 at one you already have. See [Configuration → LLMs](/guides/configuration/#llms) for the config shape.
 
+ctxloom runs claude in a per-session home that holds no login, so each run authenticates from
+one long-lived token. Mint it once and store it:
+
+```bash
+claude setup-token          # prints the token once
+ctxloom auth set-token      # paste it; stored owner-only under ~/.ctxloom/auth
+```
+
+An exported `ANTHROPIC_API_KEY` works instead. Without either, a run is refused with the same
+instructions. See [Environment Variables](/reference/environment/#engine-authentication).
+
 ### Signing and publishing (needs SSH)
 
 Verifying a signature (accepting a remote bundle, trusting a publisher) is pure Go and needs no

@@ -302,7 +302,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     # Alice's own home.
     Scenario: --engine-home session moves the engine off Alice's own home onto a per-session one
       Given Alice has a git-backed project
-      And Alice has whatever host credentials "claude-code" needs to authenticate
+      And Alice has whatever credentials "claude-code" needs to authenticate
       And Alice declares engine_home "session" on her agent with the ctxloom CLI
       When Alice runs the isolated "claude-code" agent under workspace "none"
       Then the file ".ctxloom/config.yaml" contains "engine_home: session"

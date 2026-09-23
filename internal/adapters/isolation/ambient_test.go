@@ -131,7 +131,7 @@ func TestCopyAmbient_ReachesTheEngineWithTheInstanceAndWorkDir(t *testing.T) {
 
 	instance := t.TempDir()
 	workDir := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: workDir})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: workDir})
 	require.NoError(t, err)
 
 	require.Len(t, rec.seen(), 1, "the engine must be asked exactly once")
@@ -156,7 +156,7 @@ func TestCopyAmbient_NoSourceSkipsGeneration(t *testing.T) {
 	rec := &recordingInstanceConfig{}
 	withInstanceConfigWriter(t, "claude-code", rec)
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	require.True(t, report.NoSource)
 	assert.Empty(t, rec.seen(), "no config is generated for an instance the caller will refuse")
@@ -173,7 +173,7 @@ func TestCopyAmbient_EnvTriggerStillGeneratesTheEngineConfig(t *testing.T) {
 	rec := &recordingInstanceConfig{}
 	withInstanceConfigWriter(t, "claude-code", rec)
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	assert.True(t, report.SkippedEnv)
 	assert.Len(t, rec.seen(), 1, "auth riding the env says nothing about onboarding or trust")
@@ -183,7 +183,7 @@ func TestCopyAmbient_EnvTriggerStillGeneratesTheEngineConfig(t *testing.T) {
 // ambient set cannot be copied for. Silently succeeding would report a prepared
 // instance that had nothing done to it.
 func TestCopyAmbient_UnregisteredEngineIsAnError(t *testing.T) {
-	_, err := CopyAmbient(AmbientRequest{Engine: "acp", InstanceHome: t.TempDir()})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "acp", InstanceHome: t.TempDir()})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no declared ambient set")
 }
@@ -211,25 +211,15 @@ func TestCopyAmbient_SerializesTwoRunsSharingOneInstance(t *testing.T) {
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var reports []AmbientCopyReport
 	for i := 0; i < 2; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rep, cerr := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: project})
+			_, cerr := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: project})
 			assert.NoError(t, cerr)
-			mu.Lock()
-			reports = append(reports, rep)
-			mu.Unlock()
 		}()
 	}
 	wg.Wait()
-	// Each run's replicator is closed with the test: left running, it
-	// outlives the temp dirs and warns into a later test's capture.
-	for _, rep := range reports {
-		t.Cleanup(func() { _ = rep.Close() })
-	}
 
 	require.Len(t, rec.seen(), 2, "both runs must have prepared the shared instance")
 	assert.Equal(t, int32(1), rec.maxInFlight.Load(),
@@ -278,9 +268,8 @@ func TestCopyAmbient_InstanceCredentialCarriesNoRefreshToken(t *testing.T) {
 	orch := seededOrchestrator(t, hostOAuthCredential)
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir(), Orchestrator: orchestratorHarp})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 
 	_, oauth := seededOAuth(t, instance)
 	assert.NotContains(t, oauth, "refreshToken", "a seeded copy must not be able to refresh: a refresh from the copy revokes the host's login")
@@ -318,9 +307,8 @@ func TestCopyAmbient_SeedsClaudesConfigBesideTheCredential(t *testing.T) {
 		[]byte(`{"hasCompletedOnboarding":true,"oauthAccount":{"emailAddress":"user@example.com"},"mcpServers":{"x":{"command":"secret"}}}`), 0o600))
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 
 	cfgPath := filepath.Join(instance, "claude", ".claude.json")
 	data, err := os.ReadFile(cfgPath)
@@ -344,9 +332,8 @@ func TestCopyAmbient_ReportsTheDeliveryItGot(t *testing.T) {
 	writeCreds(t, home, false)
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 
 	seed, ok := credentialSeedFor("claude-code")
 	require.True(t, ok)
@@ -386,7 +373,7 @@ func TestCopyAmbient_RefusesWhenNoDeclaredDeliveryCanBeHonoured(t *testing.T) {
 	t.Cleanup(func() { seedProvisionOptions = restore })
 
 	instance := t.TempDir()
-	_, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	_, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.Error(t, err, "a run that cannot get its declared delivery must refuse, not degrade")
 
 	msg := err.Error()

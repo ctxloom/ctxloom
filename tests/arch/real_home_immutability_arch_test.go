@@ -199,6 +199,7 @@ func TestArch_RealHostHomesAreByteIdenticalAfterAnInTreeAgentLaunch(t *testing.T
 			Harp:     harp,
 			HomeMode: agents.HomeModeSession,
 		})
+		t.Cleanup(func() { _ = res.Release() })
 		if res.Absent != "" {
 			t.Fatalf("%s: a engine_home: session run must be handed a home, got absent: %s", backend, res.Absent)
 		}

@@ -354,7 +354,7 @@ func TestCopyAmbient_Claude_CopiesCredentials(t *testing.T) {
 	require.NotEmpty(t, want, "fixture must carry bytes, or the comparison below proves nothing")
 
 	dest := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: dest, WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: dest, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	assert.False(t, report.SkippedEnv)
 	assert.False(t, report.NoSource)
@@ -384,7 +384,7 @@ func TestCopyAmbient_Claude_NeverWritesTheHostHome(t *testing.T) {
 	original, err := os.ReadFile(src)
 	require.NoError(t, err)
 
-	_, err = CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	_, err = copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
 	require.NoError(t, err)
 
 	after, err := os.Stat(src)
@@ -408,7 +408,7 @@ func TestCopyAmbient_Claude_EnvTriggerSkips(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 	dest := t.TempDir()
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: dest, WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: dest, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	assert.True(t, report.SkippedEnv)
 	assert.NoFileExists(t, filepath.Join(dest, "claude", ".credentials.json"))
@@ -422,7 +422,7 @@ func TestCopyAmbient_Claude_NoSourceFailsLoud(t *testing.T) {
 	withFakeHome(t) // empty fake home — no .claude at all
 	t.Setenv("ANTHROPIC_API_KEY", "")
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: t.TempDir(), WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	require.True(t, report.NoSource)
 	assert.Contains(t, report.NoSourceReason, "ANTHROPIC_API_KEY")

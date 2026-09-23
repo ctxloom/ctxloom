@@ -419,7 +419,7 @@ func TestCopyAmbient_OnDarwinSeedsFromTheKeychain(t *testing.T) {
 	withInstanceConfigWriter(t, "claude-code", &recordingInstanceConfig{})
 	instance := t.TempDir()
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
 	require.True(t, report.NoSource, "no default item: nothing seedable")
 	assert.Contains(t, report.NoSourceReason, `Keychain item "`+store.Service+`"`)
@@ -427,9 +427,8 @@ func TestCopyAmbient_OnDarwinSeedsFromTheKeychain(t *testing.T) {
 	assert.Contains(t, report.NoSourceReason, "engine_home: host")
 
 	fk.put(t, store.Service, hostKeychainCredential)
-	report, err = CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	report, err = copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	assert.False(t, report.NoSource)
 	assert.Equal(t, keychainMechanism, report.Mechanism)
 	placed, ok := fk.item(t, wantService(store.Service, filepath.Join(instance, "claude")))

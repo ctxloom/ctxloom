@@ -65,9 +65,8 @@ func TestCopyAmbient_ResumeReplacesAStaleInstanceCredential(t *testing.T) {
 	// wider mode must not keep that mode once live bytes are placed in it.
 	require.NoError(t, os.WriteFile(stale, []byte(`{"token":"revoked"}`), 0o644))
 
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 
 	got, err := os.ReadFile(stale)
 	require.NoError(t, err)
@@ -87,9 +86,8 @@ func TestCopyAmbient_InstanceFollowsTheHostCredentialUntilClosed(t *testing.T) {
 	hostFile := seededClaudeHome(t, []byte(`{"token":"one"}`))
 
 	instance := t.TempDir()
-	report, err := CopyAmbient(AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
+	report, err := copyAmbient(t, AmbientRequest{Engine: "claude-code", InstanceHome: instance, WorkDir: t.TempDir()})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = report.Close() })
 	instFile := filepath.Join(instance, "claude", ".credentials.json")
 	eventuallyReads(t, instFile, `{"token":"one"}`)
 

@@ -3,6 +3,8 @@ package operations
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -214,6 +216,47 @@ func TestResolveInTreeAgentHome_ClaudeGetsASeededControlledHome(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a seeded credential is owner-only")
 
 	assert.Empty(t, strictness.All(), "a fully seeded home records no finding")
+}
+
+// replicatorOrigin is the "created by" line every credential-replication
+// watch goroutine carries in a stack dump — exactly one per goroutine, so
+// counting it counts goroutines rather than frames.
+const replicatorOrigin = "created by github.com/ctxloom/ctxloom/internal/adapters/isolation.(*replicator).start"
+
+// liveReplicatorGoroutines counts the credential replicator's watch
+// goroutines alive in this process right now.
+func liveReplicatorGoroutines() int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return strings.Count(string(buf[:n]), replicatorOrigin)
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
+// The session home's OWNER ends its replicator: Release — what the cell's
+// Cleanup and a re-adopted run's close both call at the run's end — returns
+// only once the watch goroutines have exited. Asserted on the goroutines
+// themselves rather than on a write that stops arriving, because "nothing
+// propagated within N ms" cannot tell a stopped replicator from a slow one,
+// and a replicator that outlives its run accumulates, one pair per launch,
+// in a long-lived coordinator.
+func TestResolveInTreeAgentHome_ReleaseStopsTheSessionReplicator(t *testing.T) {
+	resetEngineHomeStrictness(t)
+	fakeHostHome(t, hostCredentialFixture)
+	before := liveReplicatorGoroutines()
+
+	res := ResolveInTreeAgentHome(projectHome(t.TempDir(), harpA))
+	t.Cleanup(func() { _ = res.Release() })
+	requireResolutionInvariant(t, res)
+	require.Greater(t, liveReplicatorGoroutines(), before,
+		"a seeded session home must leave its credential replicator running; without one, the release below proves nothing")
+
+	require.NoError(t, res.Release())
+	assert.Equal(t, before, liveReplicatorGoroutines(),
+		"Release returned with the session's replicator goroutines still alive: the run's end does not end its replication")
 }
 
 // t1b — the host's own ~/.claude is READ and never written. There is no

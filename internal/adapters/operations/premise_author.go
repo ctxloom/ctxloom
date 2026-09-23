@@ -63,6 +63,10 @@ type PremiseDraft struct {
 	// fragment doing two jobs — and names the moments that diverge and the
 	// split proposed. Empty means the body reads as one coherent idea.
 	SplitHint string
+	// Notes is the proposed rationale and origin for the fragment's human-only
+	// notes (bundles.ItemBody.Notes): why the fragment exists, not a
+	// changelog. Optional; empty when the model offered none.
+	Notes string
 }
 
 // DraftPremise proposes a premise for one fragment body, plus a split verdict,
@@ -123,6 +127,7 @@ type premiseDraftDoc struct {
 	Moments []string `yaml:"moments"`
 	NotFor  []string `yaml:"not_for"`
 	Split   string   `yaml:"split"`
+	Notes   string   `yaml:"notes"`
 }
 
 // parsePremiseDraft parses the model's output into a PremiseDraft for the
@@ -154,6 +159,7 @@ func parsePremiseDraft(name, out string) (*PremiseDraft, error) {
 		Moments:   trimNonEmpty(parsed.Moments),
 		NotFor:    trimNonEmpty(parsed.NotFor),
 		SplitHint: strings.TrimSpace(parsed.Split),
+		Notes:     strings.TrimSpace(parsed.Notes),
 	}, nil
 }
 

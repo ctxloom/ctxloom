@@ -47,6 +47,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
+	"github.com/ctxloom/ctxloom/internal/core/release"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
@@ -156,23 +157,23 @@ type BundleVerdict struct {
 // OK reports a bundle that is both attested and intact.
 func (v BundleVerdict) OK() bool { return v.Verdict.OK() && v.Contents == nil }
 
-// SignBundle builds the bundle's manifest, writes it, and signs it under
-// NamespacePublish. One action, covering every file in the tree — the default
-// path, and the reason most items never need a signature of their own.
+// SignBundle builds the bundle's manifest for release rel, writes it, and signs
+// it under NamespacePublish. One action, covering every file in the tree and
+// the release header naming which bundle and which version it is.
 //
 // It REFUSES a tree whose kind directories hold files no surface type
 // recognises. Publishing is the last moment a mis-extensioned hook is cheap to
 // fix: the manifest would happily cover `guard.yml` by path, producing a
 // perfectly signed bundle in which the guardrail silently does not exist. The
 // publisher's own machine is where that must be caught.
-func SignBundle(ctx context.Context, w content.Writer, b content.Bundle, signer ssh.Signer) error {
+func SignBundle(ctx context.Context, w content.Writer, b content.Bundle, rel release.Release, signer ssh.Signer) error {
 	if signer == nil {
 		return errors.New("attest: nil signer")
 	}
 	if _, err := b.Refs(ctx); err != nil {
 		return fmt.Errorf("attest: refusing to sign bundle %q: %w", b.ID(), err)
 	}
-	m, err := content.BuildManifest(ctx, b)
+	m, err := content.BuildManifest(ctx, b, rel)
 	if err != nil {
 		return err
 	}
@@ -295,21 +296,54 @@ func bundleAuthority(ctx context.Context, b content.Bundle, root trust.TrustRoot
 	if err != nil {
 		return content.Manifest{}, Verdict{}, err
 	}
+	v := manifestAuthority(m, sigs, root, now)
+	// The signed name is the bundle's identity. A tree whose signature is
+	// perfect but which is served under another bundle's path is a trusted
+	// publisher's release re-homed by whoever controls the repository, and
+	// every hash in it will match — only the name refuses it.
+	if name := m.Release().Name; name != string(b.ID()) {
+		return m, Verdict{Status: StatusTampered, Detail: fmt.Sprintf("manifest is signed as %q but the bundle is served as %q", name, b.ID())}, nil
+	}
+	return m, v, nil
+}
+
+// VerifyManifest resolves who, if anyone this trust root authorizes to
+// publish, signed raw — a SHA256SUMS fetched on its own, with its bundle
+// signatures, and no tree beside it. It is how a reader learns what the
+// newest signed release SAYS (its version, its retractions) without trusting
+// anything the repository serves unsigned.
+//
+// It says nothing about a tree: a caller that has one calls VerifyBundle,
+// which also checks the files and the served name. Bytes that do not parse as
+// a manifest are StatusTampered, never unattested — something is published at
+// the manifest's path and it is not one.
+func VerifyManifest(raw []byte, sigs content.SigSet, root trust.TrustRoot, now time.Time) (content.Manifest, Verdict) {
+	m, err := content.ParseManifest(raw)
+	if err != nil {
+		return content.Manifest{}, Verdict{Status: StatusTampered, Detail: err.Error()}
+	}
+	return m, manifestAuthority(m, sigs, root, now)
+}
+
+// manifestAuthority folds a parsed manifest's publish signatures into a
+// verdict. m.Bytes() is exactly the bytes that were parsed (ParseManifest is
+// byte-strict), so this is the signature over what was read.
+func manifestAuthority(m content.Manifest, sigs content.SigSet, root trust.TrustRoot, now time.Time) Verdict {
 	att := resolvePublisher(m.Bytes(), sigs, root, now)
 	switch {
 	case att.verified():
-		return m, Verdict{Status: StatusManifestSigned, Principal: att.principal, Authority: AuthorityManifest}, nil
+		return Verdict{Status: StatusManifestSigned, Principal: att.principal, Authority: AuthorityManifest}
 	case att.tampered():
-		return m, Verdict{Status: StatusTampered, Detail: att.detail}, nil
+		return Verdict{Status: StatusTampered, Detail: att.detail}
 	default:
-		return m, Verdict{
+		return Verdict{
 			Status: StatusUnattested,
 			Detail: att.detail,
 			// Display only, and only here: "no signature" and "a signature by
 			// a key you do not trust" are both unattested, and a surface that
 			// asks a human to admit content must be able to say which.
 			UntrustedSignerFingerprint: att.fingerprint,
-		}, nil
+		}
 	}
 }
 

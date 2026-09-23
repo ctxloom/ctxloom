@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
@@ -13,35 +14,30 @@ import (
 )
 
 // The auth-fix hint is READ OFF THE ENGINE'S OWN DECLARATION: an engine that
-// declares how its credential file comes to exist (CredentialSeed.LoginHint)
-// and which env vars bypass it (EnvTriggers) gets a hint naming exactly
+// declares the command minting its token (TokenAuth.MintHint) and which env
+// vars authenticate it instead (EnvTriggers) gets a hint naming exactly
 // those, without this package keeping a per-engine table that a new engine
 // would have to be remembered in.
-func TestEngineAuthFixHint_NamesTheEngineDeclaredLoginAndEnvVar(t *testing.T) {
+func TestEngineAuthFixHint_NamesTheEngineDeclaredMintCommandAndEnvVar(t *testing.T) {
 	const name = "fixture-authfix"
 	kind := enginefixture.Kind(name, mock.WithHome(engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: "FIXTURE_HOME", Subdir: "fixture"}},
-		Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir:      "fixture",
-			EnvTriggers: []string{"FIXTURE_KEY"},
-			LoginHint:   "fixture login",
-			Files:       []engine.SeedFile{{HostRelHome: ".fixture/creds", DestName: "creds", Required: true}},
-			Accept:      []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
-		}),
+		Auth: engine.Provide(engine.TokenAuth{TokenVar: "FIXTURE_TOKEN", EnvTriggers: []string{"FIXTURE_KEY"}, MintHint: "fixture setup-token"}),
 	}))
 	enginefixture.Install(t, kind)
 
 	hint := engineAuthFixHint(name)
-	assert.Contains(t, hint, "fixture login")
+	assert.Contains(t, hint, "fixture setup-token")
+	assert.Contains(t, hint, "ctxloom auth set-token")
 	assert.Contains(t, hint, "FIXTURE_KEY")
 	assert.NotContains(t, hint, "authenticate the engine", "a declared fix is never the generic one")
 }
 
-// An engine whose credential does not ride a seedable file has no login to
-// name; it gets the generic fix and no declared one can leak in.
-func TestEngineAuthFixHint_EngineWithNoSeedGetsTheGenericFix(t *testing.T) {
+// An engine with no token auth has no mint command to name; it gets the
+// generic fix and no declared one can leak in.
+func TestEngineAuthFixHint_EngineWithNoTokenAuthGetsTheGenericFix(t *testing.T) {
 	for _, engine := range operations.EngineNames() {
-		if _, seeded := engineCredentialSeed(engine); seeded {
+		if _, ok := isolation.TokenAuthFor(engine); ok {
 			continue
 		}
 		assert.Contains(t, engineAuthFixHint(engine), "authenticate the engine", engine)
@@ -49,21 +45,22 @@ func TestEngineAuthFixHint_EngineWithNoSeedGetsTheGenericFix(t *testing.T) {
 	assert.Contains(t, engineAuthFixHint("never-registered"), "authenticate the engine")
 }
 
-// Every registered engine that declares a seed has its hint derived from it —
-// the same conformance shape TestPingEngineAuth_FailsLoud_NamesTheFix uses.
-func TestEngineAuthFixHint_EveryDeclaredSeedIsNamed(t *testing.T) {
+// Every registered engine that declares token auth has its hint derived from
+// it — the same conformance shape TestPingEngineAuth_FailsLoud_NamesTheFix
+// uses.
+func TestEngineAuthFixHint_EveryDeclaredTokenAuthIsNamed(t *testing.T) {
 	checked := 0
 	for _, engine := range operations.EngineNames() {
-		seed, ok := engineCredentialSeed(engine)
+		a, ok := isolation.TokenAuthFor(engine)
 		if !ok {
 			continue
 		}
 		checked++
 		hint := engineAuthFixHint(engine)
-		assert.Contains(t, hint, seed.LoginHint, engine)
-		for _, v := range seed.EnvTriggers {
+		assert.Contains(t, hint, a.MintHint, engine)
+		for _, v := range a.EnvTriggers {
 			assert.Contains(t, hint, v, engine)
 		}
 	}
-	require.GreaterOrEqual(t, checked, 1, "at least one registered engine declares a credential seed")
+	require.GreaterOrEqual(t, checked, 1, "at least one registered engine declares token auth")
 }

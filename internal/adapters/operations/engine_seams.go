@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -63,23 +64,12 @@ type InTreeAgentHomeSpec struct {
 	// elsewhere (a container's fixed instance root) hangs it at the leaf the
 	// engine declared, never at a guess from the host path.
 	Subdir string
-	// Prepare populates Dir before the engine is launched at it: the ambient
-	// copy-in of credential material plus any engine-specific scaffolding,
-	// returning an actionable error when there is nothing to authenticate
-	// with. cwd is the directory the engine will actually run in — what a
-	// generated workspace-trust answer must name. orchestrator is the root
-	// session an AGENT projects its credential from; "" for the root
-	// itself, which seeds whole from the host. nil when the backend needs
-	// neither.
-	//
-	// The returned release stops what preparing left RUNNING: the credential
-	// replicator that keeps the instance in step with its source for as
-	// long as the run lives. It is the RUN's to call, at the run's end —
-	// the replicator must outlive Prepare, or a rotation revokes the
-	// instance's token behind a live engine; and it must not outlive the
-	// run, or every launch leaks a watcher into the process that started
-	// it. Never nil on success.
-	Prepare func(cwd, orchestrator string) (release func() error, err error)
+	// Prepare readies Dir before the engine is launched at it
+	// (isolation.PrepareInstanceHome), returning an actionable error when
+	// nothing in the env authenticates the engine. cwd is the directory the
+	// engine will actually run in — what a generated workspace-trust answer
+	// must name. nil when the backend needs neither.
+	Prepare func(cwd string) error
 }
 
 // inTreeAgentHomeFor resolves the named backend's controlled config-home
@@ -102,7 +92,7 @@ type InTreeAgentHomeSpec struct {
 // It is DERIVED from the engine's Home declaration (Engine.Home), not a slot
 // of its own: the home var and its leaf are the same facts on every axis, so
 // the in-tree instance is <session home>/<leaf> with the declared var
-// pointing at it, prepared by THE ambient copy-in (isolation.CopyAmbient).
+// pointing at it, prepared by isolation.PrepareInstanceHome.
 // An engine whose Home relocates nothing (mock: the zero HomeSpec) has no
 // in-tree home, and that absence is its own declaration.
 func inTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
@@ -132,8 +122,8 @@ func inTreeAgentHomeFor(name, harp string) (InTreeAgentHomeSpec, bool) {
 		EnvVar: v.Name,
 		Dir:    filepath.Join(root, v.Subdir),
 		Subdir: v.Subdir,
-		Prepare: func(cwd, orchestrator string) (func() error, error) {
-			return prepareInTreeAmbient(engine, root, cwd, orchestrator)
+		Prepare: func(cwd string) error {
+			return prepareInstanceHome(engine, root, cwd)
 		},
 	}, true
 }
@@ -149,32 +139,23 @@ func cleanAbsPath(p string) string {
 	return filepath.Clean(p)
 }
 
-// prepareInTreeAmbient is the Prepare every config-home instance shares: THE
-// ambient copy-in (isolation.CopyAmbient) into this session's instance root,
-// turning its "nothing seedable" DECISION into the actionable error
-// operations.ResolveInTreeAgentHome fails loud on — the relocation is refused
-// outright rather than point an engine at a home it cannot authenticate
-// against. cwd is the directory the engine runs in, which the generated
-// workspace-trust answer names.
-//
-// The report's Close is handed back as the release rather than called here:
-// it stops the credential replication, and the replication is what keeps a
-// live run's token current across a host refresh. A refused preparation has
-// nothing to keep running and is closed before the error is returned.
-func prepareInTreeAmbient(engine, instanceRoot, cwd, orchestrator string) (func() error, error) {
-	report, err := isolation.CopyAmbient(isolation.AmbientRequest{
+// prepareInstanceHome is the Prepare every config-home instance shares
+// (isolation.PrepareInstanceHome), turning its "nothing authenticates"
+// DECISION into the actionable error operations.ResolveInTreeAgentHome fails
+// loud on — the relocation is refused outright rather than point an engine
+// at a home it cannot authenticate in. cwd is the directory the engine runs
+// in, which the generated workspace-trust answer names.
+func prepareInstanceHome(engine, instanceRoot, cwd string) error {
+	report, err := isolation.PrepareInstanceHome(isolation.InstanceHomeRequest{
 		Engine:       engine,
 		InstanceHome: instanceRoot,
 		WorkDir:      cwd,
-		Orchestrator: orchestrator,
 	})
 	if err != nil {
-		_ = report.Close()
-		return nil, err
+		return err
 	}
-	if report.NoSource {
-		_ = report.Close()
-		return nil, fmt.Errorf("%s", report.NoSourceReason)
+	if report.Unauthenticated {
+		return errors.New(report.Reason)
 	}
-	return report.Close, nil
+	return nil
 }

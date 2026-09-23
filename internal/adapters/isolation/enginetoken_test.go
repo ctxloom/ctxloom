@@ -112,3 +112,29 @@ func resetTokenSources() {
 	defer tokenSourcesMu.Unlock()
 	storedExports = map[string]bool{}
 }
+
+// A token that exists only in the store reaches both launch paths once
+// exported: a host runner's env (os.Environ laid under the spawn env), and a
+// container's auth plan, by name. This is what lets a claude child launch
+// whatever engine its owner runs.
+func TestStoredToken_ReachesTheHostRunnerAndTheContainerPassthrough(t *testing.T) {
+	tokenHome(t)
+	for _, v := range claudeAuth(t).EnvTriggers {
+		t.Setenv(v, "")
+	}
+	require.NoError(t, os.Unsetenv(claude.OAuthTokenEnv))
+	_, err := StoreEngineToken(claude.EngineName, []byte(fixtureToken))
+	require.NoError(t, err)
+	require.NoError(t, ExportStoredTokens())
+
+	cmd, err := hostRunnerCmd([]string{"claude-code"}, map[string]string{"CTXLOOM_HARP": "brave-warm-otter"})
+	require.NoError(t, err)
+	assert.Contains(t, cmd.Env, claude.OAuthTokenEnv+"="+fixtureToken, "the host runner inherits the exported token")
+	for _, a := range cmd.Args {
+		assert.NotContains(t, a, fixtureToken, "the token never rides argv")
+	}
+
+	plan, ok := resolveDeclaredAuth(claudeAuth(t))
+	require.True(t, ok)
+	assert.Contains(t, plan.envPassthrough, claude.OAuthTokenEnv, "the container gets it by name")
+}

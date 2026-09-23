@@ -76,9 +76,6 @@ const (
 // the journal holds.
 type SpawnStart struct {
 	Identity sessions.Identity
-	// Orchestrator is the coordinator's own session harp: the root every
-	// child projects its credential from (launch.Source.Orchestrator).
-	Orchestrator string
 	// ResumeKey is the journaled native session id of the run being resumed;
 	// empty on a fresh spawn. A resume reuses the harp's endpoint.
 	ResumeKey string
@@ -149,14 +146,6 @@ type Spawner interface {
 	// own RunnerChannel (StartRun). The ctx scopes preparation and attach
 	// only — spawn.StartRunner's contract.
 	Start(ctx context.Context, l launch.Launch, reach sessions.Endpoint) (*EngineSpawn, error)
-	// Adopt gives a run this coordinator did not start — one it RE-ADOPTED
-	// from the journal after a restart, whose runner outlived the previous
-	// process — its cell ownership back: in production the harp's engine
-	// home is re-bound, so the credential replicator the dead process held
-	// runs again and the returned release ends it when the run ends. A run
-	// whose ownership was never re-acquired would leave a live engine on a
-	// token the host has since rotated, or a replicator nobody stops.
-	Adopt(ctx context.Context, rec RunRecord) (release func() error, err error)
 	// ResumeHistory renders the recorded history of a RESUMED harp for the
 	// first turn's lead, "" when none is loadable.
 	ResumeHistory(ctx context.Context, harp string) string

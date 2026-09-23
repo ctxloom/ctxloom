@@ -132,7 +132,6 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 	rosters := []rosterCheck{
 		{source: "internal/adapters/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
 		{source: "internal/adapters/isolation.ComposableEngines (pushed engine.Descriptor.Container)", members: isolation.ComposableEngines()},
-		{source: "internal/adapters/isolation.CredentialSeedEngineNames (pushed engine.Descriptor.Home.Credentials)", members: isolation.CredentialSeedEngineNames()},
 	}
 
 	for _, r := range rosters {
@@ -158,19 +157,6 @@ type derivedRoster struct {
 	source  string
 	members []string
 	absence func(name string) string
-}
-
-// credentialAbsence explains a registered engine outside the seeded roster:
-// its Home relocates nothing, or declares its seed absent with a reason.
-func credentialAbsence(name string) string {
-	kind, ok := engines.Registry().Lookup(engine.Name(name))
-	if !ok {
-		return ""
-	}
-	if !kind.Home().Relocates() {
-		return name + " relocates no engine home: there is nothing to seed"
-	}
-	return kind.Home().Credentials.AbsentReason()
 }
 
 // transcriptAbsence explains a registered backend outside the vendor-reader
@@ -201,11 +187,6 @@ func TestArch_DerivedEngineRosters_CoverEveryRegisteredBackend(t *testing.T) {
 			source:  "internal/adapters/operations.VendorReaderEngineNames (Engine.Transcripts)",
 			members: operations.VendorReaderEngineNames(),
 			absence: transcriptAbsence,
-		},
-		{
-			source:  "internal/adapters/isolation.AmbientSet (Engine.Home().Credentials)",
-			members: seededEngines(),
-			absence: credentialAbsence,
 		},
 		{
 			source:  "internal/adapters/isolation.ComposableEngines (Engine.Container + Distribution)",
@@ -267,18 +248,6 @@ func containerAbsence(why func(engine.ContainerSpec, engine.Distribution) string
 		}
 		return why(c, kind.Root().Distribution)
 	}
-}
-
-// seededEngines lists the backends isolation would seed credentials for —
-// those with a PROVIDED seed at the seam, read the way CopyAmbient reads it.
-func seededEngines() []string {
-	var names []string
-	for _, name := range isolation.AmbientEngineNames() {
-		if isolation.AmbientSet(name) != nil {
-			names = append(names, name)
-		}
-	}
-	return names
 }
 
 // transcriptSchemaRelPath is the published canonical-transcript schema whose

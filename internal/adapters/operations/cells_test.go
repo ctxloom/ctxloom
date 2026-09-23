@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // The cells adapter is the ONE place a launch's workspace is prepared and
@@ -151,44 +151,43 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 	})
 }
 
-// The credential replicator a controlled home starts belongs to the RUN. A
-// host token refresh reaches the instance while the cell lives — the seeded
-// copy would otherwise be revoked on its next request — and Cleanup ends it,
-// so a finished run leaves no watcher writing into a home nothing reads.
-func TestCellsPrepare_SessionHomeCredentialFollowsTheHostUntilCleanup(t *testing.T) {
+// A claude CHILD of a mock-engine owner. The owner's session keeps no claude
+// home at all, and the child's cell still prepares, from the stored
+// setup-token alone: ExportStoredTokens puts it in this process's env before
+// any launch, and that env is what every runner, host or container,
+// inherits. Nothing is read from the owner's session home, so the engine the
+// owner runs is irrelevant.
+func TestCellsPrepare_ClaudeChildOfAMockOwnerAuthenticatesFromTheStoredToken(t *testing.T) {
 	resetStrictness(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("ANTHROPIC_API_KEY", "")
-	hostFile := filepath.Join(home, ".claude", claude.CredentialsFileName)
-	require.NoError(t, os.MkdirAll(filepath.Dir(hostFile), 0o700))
-	require.NoError(t, os.WriteFile(hostFile, []byte(`{"token":"one"}`), 0o600))
-	workDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	a, ok := isolation.TokenAuthFor("claude-code")
+	require.True(t, ok)
+	for _, v := range append([]string{a.TokenVar}, a.EnvTriggers...) {
+		t.Setenv(v, "")
+	}
+	require.NoError(t, os.Unsetenv(a.TokenVar))
+	_, err := isolation.StoreEngineToken("claude-code", []byte(tokenFixture))
+	require.NoError(t, err)
+	require.NoError(t, isolation.ExportStoredTokens())
 
+	ownerHome, err := paths.HarpSessionEngineHomes(harpB)
+	require.NoError(t, err)
+
+	workDir := t.TempDir()
 	req := claudeKind(t)
 	req.ProjectRoot = workDir
 	req.HomeMode = launch.HomeModeSession
+	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
+	req.Env = map[string]string{sessions.EnvHarp: harpA}
 	cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cell.Cleanup() })
 
-	instFile := filepath.Join(claudeInstanceDir(t, workDir, "test-harp"), claude.CredentialsFileName)
-	reads := func(want string) func() bool {
-		return func() bool {
-			got, err := os.ReadFile(instFile)
-			return err == nil && string(got) == want
-		}
-	}
-	require.Eventually(t, reads(`{"token":"one"}`), 5*time.Second, 25*time.Millisecond)
-
-	require.NoError(t, os.WriteFile(hostFile, []byte(`{"token":"two"}`), 0o600))
-	require.Eventually(t, reads(`{"token":"two"}`), 5*time.Second, 25*time.Millisecond,
-		"a host refresh must reach the live run's instance")
-
-	require.NoError(t, cell.Cleanup())
-	require.NoError(t, os.WriteFile(hostFile, []byte(`{"token":"three"}`), 0o600))
-	assert.Never(t, reads(`{"token":"three"}`), time.Second, 50*time.Millisecond,
-		"after Cleanup nothing may go on writing into the instance: the replicator is the run's, not the process's")
+	assert.Empty(t, strictness.All(), "the child's home is not refused")
+	assert.Equal(t, claudeInstanceDir(t, workDir, harpA), cell.Env[claude.ConfigDirEnv])
+	assert.Equal(t, tokenFixture, os.Getenv(a.TokenVar), "the stored token is in the env every runner inherits")
+	assert.NoFileExists(t, filepath.Join(cell.Env[claude.ConfigDirEnv], ".credentials.json"))
+	assert.NoDirExists(t, ownerHome, "the owner's session home is never consulted")
 }
 
 func initIsolationTestRepo(t *testing.T) string {

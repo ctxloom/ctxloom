@@ -2,7 +2,6 @@ package operations
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -342,49 +341,4 @@ func srGit(t *testing.T, dir string, args ...string) {
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git %v: %s", args, out)
-}
-
-// TestReclaimAgedSessions_DeletesTheSessionsKeychainItemsOnApply: the macOS
-// credential items a session's home was seeded with are keyed by that home's
-// path, so the reap that removes the home is the one clock that deletes
-// them — on apply, for every reaped harp, and never on a plan or for a
-// session the triage spared.
-func TestReclaimAgedSessions_DeletesTheSessionsKeychainItemsOnApply(t *testing.T) {
-	testsupport.Isolate(t)
-	srSeedHarp(t, "aged-quiet-heron")
-	srSeedDeadSession(t, "aged-quiet-heron")
-	var cleaned []string
-	triage := sessionTriage(git.NewExec(), func(harp string) error {
-		cleaned = append(cleaned, harp)
-		return nil
-	})
-	l, err := sessions.HomeLayout()
-	require.NoError(t, err)
-
-	_, err = sessions.Reap(context.Background(), l, sessionLocks{}, sessions.ReapPolicy{Cutoff: srCutoff()}, triage)
-	require.NoError(t, err)
-	assert.Empty(t, cleaned, "a plan deletes nothing")
-
-	rep, err := sessions.Reap(context.Background(), l, sessionLocks{}, sessions.ReapPolicy{Cutoff: srCutoff(), Apply: true}, triage)
-	require.NoError(t, err)
-	assert.Equal(t, 1, rep.Reclaimed)
-	assert.Equal(t, []string{"aged-quiet-heron"}, cleaned, "the reaped harp's items are deleted")
-}
-
-// A keychain that cannot be cleaned does not spare the session — the disk
-// is still reclaimed — but the failure is reported, not swallowed.
-func TestReclaimAgedSessions_AKeychainFailureIsReportedNotSparing(t *testing.T) {
-	testsupport.Isolate(t)
-	dir := srSeedHarp(t, "aged-quiet-heron")
-	srSeedDeadSession(t, "aged-quiet-heron")
-	warnings := captureWarnings(t)
-	triage := sessionTriage(git.NewExec(), func(string) error { return errors.New("security: keychain locked") })
-	l, err := sessions.HomeLayout()
-	require.NoError(t, err)
-
-	rep, err := sessions.Reap(context.Background(), l, sessionLocks{}, sessions.ReapPolicy{Cutoff: srCutoff(), Apply: true}, triage)
-	require.NoError(t, err)
-	assert.Equal(t, 1, rep.Reclaimed)
-	srAssertGone(t, dir, paths.EphemeralDirName)
-	assert.Contains(t, warnings.String(), "keychain locked")
 }

@@ -118,9 +118,6 @@ type CellRequest struct {
 	Host        HostFacts
 	Degraded    bool
 	HomeMode    HomeMode
-	// Orchestrator is the root session an agent projects its credential
-	// from (Source.Orchestrator); empty for the root itself.
-	Orchestrator string
 	// Env is the run's own environment: the identity carriers the cell's
 	// session state is keyed from and the caller's passthrough.
 	Env map[string]string
@@ -194,7 +191,6 @@ var (
 	ErrContextEmpty         = errors.New("launch: the named profile set assembled to nothing")
 	ErrNoClaimCheck         = errors.New("launch: the package exceeds the inline ceiling and no claim check is composed")
 	ErrBindingRoots         = errors.New("launch: the binding's root selection does not parse")
-	ErrNoOrchestrator       = errors.New("launch: a delegated run names no orchestrator; an agent holds a projection of the root session's credential and has nothing to project from")
 )
 
 // Open is the in-process consumer of the carrier — the local launcher's

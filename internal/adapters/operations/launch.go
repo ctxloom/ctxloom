@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -297,21 +296,12 @@ func (c Cells) Prepare(ctx context.Context, req launch.CellRequest) (launch.Cell
 	policy, ws := prepareIsolation(ctx, req.Axes, backend, req.Image, req.ProjectRoot, harp, isolation.SessionStateFromEnv(req.Env))
 	env := isolation.WorkspaceEnv(ws)
 	home := BindAgentHome(ws, InTreeAgentHome{
-		Backend:      backend,
-		Cwd:          ws.Dir(),
-		Harp:         harp,
-		HomeMode:     homeMode,
-		Orchestrator: req.Orchestrator,
+		Backend:  backend,
+		Cwd:      ws.Dir(),
+		Harp:     harp,
+		HomeMode: homeMode,
 	})
-	// The cell's teardown, in the order the run's end needs: the home is
-	// released FIRST — its credential replicator stops writing into the
-	// instance — and only then is the workspace torn down. Stopping the
-	// replicator at any earlier point would leave a live engine on a token
-	// the host has since rotated; leaving it running past this point leaks
-	// a watcher into the coordinator for every launch.
-	cleanup := func() error {
-		return errors.Join(home.Release(), ws.Cleanup())
-	}
+	cleanup := ws.Cleanup
 	found := strictness.Since(mark)
 	strictness.Close(mark)
 	if gerr := isolationGateErr(c.mode, found); gerr != nil {

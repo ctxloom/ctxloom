@@ -45,11 +45,6 @@ type InTreeAgentHome struct {
 	// and is treated as the default by the parser every caller runs it
 	// through (agents.ParseHomeMode).
 	HomeMode agents.HomeMode
-	// Orchestrator is the root session this run projects its credential
-	// from (launch.CellRequest.Orchestrator): "" for the root itself, whose
-	// home is seeded WHOLE and two-way with the host; an agent's home holds
-	// a read-only projection of the orchestrator's credential instead.
-	Orchestrator string
 	// ContainerHome is the runtime axis's half: the FIXED in-container root a
 	// relocated home is mounted under when the engine runs in a container
 	// (isolation.ContainerInstanceHome), or "" when it runs on the host and
@@ -78,24 +73,6 @@ type AgentHomeResolution struct {
 	Mount *present.Mount
 	// Absent is "" when the home is present; otherwise WHY this run has none.
 	Absent string
-	// release stops what preparing the home left running (the seam's
-	// InTreeAgentHomeSpec.Prepare). Unexported: the only thing a caller may
-	// do with it is Release, at the run's end.
-	release func() error
-}
-
-// Release stops what preparing the home left RUNNING — the credential
-// replicator that keeps the instance in step with the host's rotating token
-// for as long as the run lives. It belongs at the run's end (Cells.Prepare
-// folds it into the cell's Cleanup): called earlier, the instance's token
-// goes stale behind a live engine; never called, every launch leaks a
-// watcher into the process that started it. Safe on an absent home and on a
-// home that left nothing running.
-func (r AgentHomeResolution) Release() error {
-	if r.release == nil {
-		return nil
-	}
-	return r.release()
 }
 
 // absent is the one constructor for the ABSENT shape, so a reason can never
@@ -105,22 +82,22 @@ func absent(format string, args ...any) AgentHomeResolution {
 }
 
 // inTreeAgentHomeFixIt is the fix-it on the one finding this file records.
-// The engine-specific remedies — its login command, its env tokens — ride
-// the error the seed produced (isolation.noAmbientSourceReason); this names
-// the shape: credentials the session home can be seeded from, or the
-// binding's explicit, unsafe selection of the real home. It names no
+// The engine-specific remedies — its mint command, its auth vars — ride the
+// error the preparation produced (isolation.PrepareInstanceHome); this names
+// the shape: a stored or exported token, or the binding's explicit, unsafe
+// selection of the real home. It names no
 // --degraded: the finding is non-degradable (see ResolveInTreeAgentHome),
 // because the only fallback would be the SHARED host home — the one thing
 // the session home exists to keep a run off, and a thing only the binding
 // may select.
-const inTreeAgentHomeFixIt = "give the session home credentials to seed (authenticate the engine on this host, or set one of its env tokens), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
+const inTreeAgentHomeFixIt = "store the engine's long-lived token with `ctxloom auth set-token` (or export one of its auth vars), or select the real engine home on the binding with `engine_home: host` — the unsafe selection, never a default"
 
 // ResolveInTreeAgentHome decides ONE run's controlled engine config home —
 // CLAUDE_CONFIG_DIR and its kin pointed at THIS SESSION's ctxloom-controlled
 // INSTANCE under paths.HarpSessionEngineHomes — and returns it present or absent, with
 // the reason when absent. It creates the instance and prepares it as a side
 // effect, so a present result always names a directory that exists and (for
-// an engine with copyable credentials) can authenticate.
+// an engine that authenticates from its env) whose run can authenticate.
 //
 // THE SCOPING RULE (ruled 2026-09-21):
 //
@@ -158,9 +135,9 @@ const inTreeAgentHomeFixIt = "give the session home credentials to seed (authent
 // "host" the reason is recorded and nothing else happens — that is the
 // binding's selection. When it is "session" and the run still gets no home
 // (no session name, an engine with no relocatable home, an instance that
-// cannot be created), the reason is said out loud, and an engine whose
-// credentials cannot be seeded (none of its env tokens and no host
-// credential) is FAIL-LOUD: a ClassIsolation finding, FailAlways, for the
+// cannot be created), the reason is said out loud, and an engine nothing in
+// the env authenticates (no stored or exported token, no API var) is
+// FAIL-LOUD: a ClassIsolation finding, FailAlways, for the
 // caller's choke gate, naming the remedies. Handing the engine an empty home
 // it cannot authenticate against would trade a working run for a mysterious
 // 401, and falling back to the real home would hand it what only the
@@ -180,11 +157,8 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	}
 
 	home := spec.Dir
-	var release func() error
 	if spec.Prepare != nil {
-		var err error
-		release, err = spec.Prepare(in.Cwd, in.Orchestrator)
-		if err != nil {
+		if err := spec.Prepare(in.Cwd); err != nil {
 			// NON-DEGRADABLE. The fallback is not "less isolation", it is the
 			// SHARED host config home — the agent would read and write the
 			// user's real engine credentials and state, which is the precise
@@ -197,14 +171,12 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 			return absent("refusing to point %s at an unauthenticated %s: %v", spec.EnvVar, home, err)
 		}
 	}
-	// Restated after preparation rather than assumed: the copy-in creates the
-	// instance only on the path where there WAS something to copy, and an
-	// engine with a DECLARED EMPTY ambient set is otherwise handed a variable
-	// naming a directory nobody created. 0700 because the tree holds engine
-	// config and live credential bytes.
+	// Restated after preparation rather than assumed: an engine with no
+	// instance-config writer is otherwise handed a variable naming a
+	// directory nobody created. 0700 because the tree holds engine config.
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		clidiag.Warn("ctxloom", "in-tree agent home for %s: cannot create %s (%v); using the runtime's own config home instead", in.Backend, home, err)
-		return AgentHomeResolution{release: release}.releasedAbsent("cannot create %s: %v", home, err)
+		return absent("cannot create %s: %v", home, err)
 	}
 
 	var advice present.PathsAdvice = present.Host{}
@@ -215,9 +187,8 @@ func ResolveInTreeAgentHome(in InTreeAgentHome) AgentHomeResolution {
 	}
 	paths, mounts := advice.ApplyPaths(present.Paths{EngineHome: present.Root{Host: home}})
 	res := AgentHomeResolution{
-		Root:    paths.EngineHome,
-		Env:     map[string]string{spec.EnvVar: paths.EngineHome.Engine},
-		release: release,
+		Root: paths.EngineHome,
+		Env:  map[string]string{spec.EnvVar: paths.EngineHome.Engine},
 	}
 	if len(mounts) > 0 {
 		m := mounts[0]
@@ -237,20 +208,10 @@ func BindAgentHome(ws isolation.Workspace, in InTreeAgentHome) AgentHomeResoluti
 	if res.Mount == nil {
 		return res
 	}
-	if err := isolation.MountEngineHome(ws, *res.Mount, in.Orchestrator != ""); err != nil {
+	if err := isolation.MountEngineHome(ws, *res.Mount); err != nil {
 		strictness.Fail(strictness.ClassIsolation, inTreeAgentHomeFixIt,
 			"in-tree agent home for %s: %v; this run uses the runtime's own config home instead", in.Backend, err)
-		return res.releasedAbsent("%v", err)
+		return absent("%v", err)
 	}
 	return res
-}
-
-// releasedAbsent is absent for a home that was PREPARED and then could not be
-// delivered: what preparing left running is stopped first, because no run is
-// going to own it. The reason is reported exactly as absent reports it.
-func (r AgentHomeResolution) releasedAbsent(format string, args ...any) AgentHomeResolution {
-	if err := r.Release(); err != nil {
-		clidiag.Warn("ctxloom", "in-tree agent home: stopping the credential replication of a home this run cannot use: %v", err)
-	}
-	return absent(format, args...)
 }

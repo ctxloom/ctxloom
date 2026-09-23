@@ -53,8 +53,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #      tree), not per-engine config-home variable isolation — that needs a
   #      real registered-engine fixture, out of hermetic scope here.
   #
-  # Credential SEEDING into an isolated config-home (grave-prize) is a
-  # further, separate claim this journey does not make either way — see (2).
+  # How a run in an isolated config-home authenticates is a further,
+  # separate claim this journey does not make either way — see (2).
   #
   # UPDATE (isolation-matrix task): (2)'s gap is now filled, below, WITHOUT
   # abandoning the mock's hermetic guarantee. A real registered backend name
@@ -64,13 +64,12 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # resolves ONLY to a
   # recording spy script this suite writes, NEVER to a real installed engine
   # — no live credential, no network call, ever, in any scenario in this
-  # file. The spy dumps its OWN os.Environ() (exactly what a real engine
-  # process receives — internal/core/agent/base.go's BuildEnv) plus a `cat`
-  # of whatever credential file its own env points it at, captured from
-  # INSIDE the spawned process — the per-agent scratch config-home does not
-  # survive past the run (Cleanup removes it unconditionally), so this is the
-  # only vantage point from which the seeded byte content is observable at
-  # all. See j002200_isolation.doc.md for the rendered matrix this proves and does
+  # file. The spy dumps an allow-listed part of its OWN environment (what a
+  # real engine process receives), whether its token var equals the stored
+  # fixture token, and any credential file its config home holds (there must
+  # be none), captured from INSIDE the spawned process — the per-agent
+  # config-home is reaped after the run, so this is the only vantage point
+  # from which its contents are observable at all. See j002200_isolation.doc.md for the rendered matrix this proves and does
   # not prove, and steps_j002200_isolation_matrix.go's own package doc for why
   # an engine driven over a stateful handshake rather than a plain oneshot
   # exec gets the fail-loud/warn CONTRACT below but not the exact spawned-env
@@ -86,11 +85,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # from the default run, gated by `just test-acceptance-container`, self-skips
   # where no runtime is reachable): "A containerized engine's write reaches the
   # host through the same read-write bind mount…", below. It demonstrates the
-  # SHARED-IDENTITY property of ctxloom's read-write host bind mount — the exact
-  # mechanism the container claude credential now relies on (unripe-juiciness:
-  # the credential is the REAL ~/.claude/.credentials.json mounted rw, not a
-  # copy). See that scenario's own note for what the @container lane can and
-  # cannot express about the credential specifically.
+  # SHARED-IDENTITY property of ctxloom's read-write host bind mount — the
+  # mechanism a container run's session engine home is mounted with. No
+  # credential file is mounted into a container: claude there authenticates
+  # from CLAUDE_CODE_OAUTH_TOKEN, forwarded by name.
 
   Background:
     Given Alice has a git-backed project with a mock agent
@@ -234,36 +232,17 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | --degraded |
 
   # ===========================================================================
-  # THE CONTAINER CREDENTIAL AXIS — real-home mount, not a copy (unripe-juiciness).
+  # THE CONTAINER HOME AXIS — one read-write bind mount, not a copy.
   #
-  # WHY THIS MATTERS. claude's OAuth refresh token is SINGLE-USE and ROTATING:
-  # whenever any holder refreshes, the provider mints a replacement and
-  # invalidates the spent one. A COPY of ~/.claude/.credentials.json that ever
-  # refreshes therefore rotates the live token out from under every other holder
-  # — INCLUDING the host login. So ctxloom mounts the container's claude
-  # credential as the REAL host file, read-write, with no copy: the container's
-  # refresh lands in the one file the host also holds, and nothing desyncs. (The
-  # two HOST axes — worktree, in-tree instance — do the opposite, copying an
-  # access-token-ONLY credential; see the matrix scenarios below and
-  # docs/architecture/engines/isolation.md.)
-  #
-  # WHAT THE @container LANE CAN AND CANNOT EXPRESS. The @container lane launches
-  # the built-in MOCK in a real container; the mock authenticates against NO
-  # vendor, so it carries no claude credential mount to observe, and there is no
-  # CLI surface that prints the resolved container mount plan. So this scenario
-  # does NOT read the credential file's bytes. What it DOES prove — live, against
-  # a real daemon — is the SHARED-IDENTITY property the credential mount depends
-  # on: a write made from INSIDE the container reaches the HOST at the same path,
-  # because ctxloom's read-write bind mount is one file on both sides, not a
-  # copy. The credential-SPECIFIC facts are pinned where they are observable: the
-  # mount SOURCE = real ~/.claude/.credentials.json, rw, refresh token PRESENT is
-  # a hermetic Go test (internal/adapters/isolation/auth_test.go's
-  # TestClaudeCredentialMounts_PresentAndAbsent), and a real claude refreshing in
-  # place is the @live isolation probe (@claude-code @container). This scenario
-  # is the runtime-lane half; those two are the credential half.
+  # A container run's session engine home is a read-write bind of the host
+  # directory, so what the engine writes there is on the host. Credentials do
+  # not ride it: claude authenticates from the setup-token forwarded by name.
+  # The @container lane launches the built-in MOCK in a real container and
+  # proves the shared-identity property live: a write made from INSIDE the
+  # container reaches the HOST at the same path.
   # ===========================================================================
   @container @reach-back @R5
-  Scenario: A containerized engine's write reaches the host through the same read-write bind mount claude's real-credential mount uses
+  Scenario: A containerized engine's write reaches the host through a read-write bind mount
     When Alice runs the container-bound agent in a real container
     Then the engine's in-container write is the same file the host holds
 
@@ -280,7 +259,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # workspace "none" for ALICE'S OWN SESSION is the baseline every other row in
   # the matrix is measured against: it shares the live project dir AND the
   # engine's shared global config — by design, not a bug — so NONE of the
-  # config-home machinery below (seeding, gating, curated HOME, findings) fires
+  # config-home machinery below (auth gating, curated HOME, findings) fires
   # at all. Asserting this explicitly is what lets a later "worktree" cell's
   # finding read as isolation actually engaging, rather than the isolation
   # machinery just always firing regardless of which axis was requested.
@@ -303,15 +282,15 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # project. An earlier version checked only that two phrases were missing from
   # the output, which an audit showed is equally satisfied by a run in which the
   # engine never launched at all.
-  # ADJUSTED, ruled 2026-09-21: engine_home session by default; the seed
-  # carries no refresh token. A run naming no agent gets the session home
+  # ADJUSTED, ruled 2026-09-21: engine_home session by default. A run naming
+  # no agent gets the session home
   # too — the real home is reached only by a binding's explicit, unsafe
   # `engine_home: host`. The engine still runs in the live project dir; what
   # moved is its config home. The "touches no isolation mechanism" reading
   # of this scenario is now pinned by the explicit-host scenario below.
   Scenario Outline: workspace "none" runs Alice's own bare session in its session home, in the live project dir
     Given Alice has a git-backed project
-    And Alice has whatever host credentials "<engine>" needs to authenticate
+    And Alice has whatever credentials "<engine>" needs to authenticate
     When Alice runs "<engine>" under workspace "none" as her own session, naming no agent
     Then the run reports no isolation finding
     And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
@@ -328,8 +307,8 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # not entitled to her memory, plugins, personal MCP registrations, global
   # agents or steering, and must not write its session state into them, so it is
   # given a PER-SESSION config-home INSTANCE under her ctxloom home
-  # (`~/.ctxloom/sessions/<harp>/home/<leaf>`) instead — created at session start,
-  # copied into one way from her real home, and disposable.
+  # (`~/.ctxloom/sessions/<harp>/home/<leaf>`) instead — created at session
+  # start, holding a generated config and no credential, and disposable.
   #
   # THE DECLARATION RESTATES THE DEFAULT (ruled 2026-09-21): the sibling
   # "undeclared engine_home" scenario below uses this exact fixture MINUS the
@@ -338,13 +317,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # This is asserted on PAYLOAD from INSIDE the spawned engine process, not on
   # ctxloom's own say-so: the spy dumps the config-home variable it was really
-  # handed, and `cat`s the credential file that variable points at. Both halves
-  # matter — a variable naming a home the engine cannot authenticate against is
-  # worse than no relocation at all, and asserting only the variable would pass
-  # in exactly that world.
+  # handed.
   Scenario Outline: An in-tree AGENT run gets a per-session config-home instance instead of Alice's own home
     Given Alice has a git-backed project
-    And Alice has whatever host credentials "<engine>" needs to authenticate
+    And Alice has whatever credentials "<engine>" needs to authenticate
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
@@ -356,14 +332,14 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | claude-code | CLAUDE_CONFIG_DIR |
 
   # UNDECLARED engine_home — ADJUSTED, ruled 2026-09-21: engine_home session
-  # by default; the seed carries no refresh token. This is the SAME fixture
+  # by default. This is the SAME fixture
   # as the scenario above with ONE difference: the "iso" binding never
   # declares engine_home at all — and gets the session home all the same.
   # Against a tree whose parser defaulted to host this scenario fails: the
   # spy would report no CLAUDE_CONFIG_DIR at all.
   Scenario Outline: An in-tree AGENT run with an undeclared engine_home gets the session home too
     Given Alice has a git-backed project
-    And Alice has whatever host credentials "<engine>" needs to authenticate
+    And Alice has whatever credentials "<engine>" needs to authenticate
     When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
     And the spy "<engine>" process's "<var>" env var points at this session's config-home instance
@@ -381,7 +357,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # exercises the declared-host branch.
   Scenario Outline: An in-tree AGENT run that declares engine_home: host keeps Alice's own real home
     Given Alice has a git-backed project
-    And Alice has whatever host credentials "<engine>" needs to authenticate
+    And Alice has whatever credentials "<engine>" needs to authenticate
     And Alice's agent declares engine_home "host"
     When Alice runs the isolated "<engine>" agent under workspace "none"
     Then the run reports no isolation finding
@@ -392,34 +368,27 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | claude-code |
 
   # The credential half of the "gets a ctxloom-controlled config home" scenario
-  # above, claude-code only. ADJUSTED, ruled 2026-09-21: the orchestrator is
-  # the single refresher; agents hold read-only projections of its
-  # credential. A `ctxloom run` is the ROOT session — the orchestrator — so
-  # its session home holds the WHOLE credential, refresh token included,
-  # kept two-way with Alice's own `~/.claude/.credentials.json` by the
-  # replicator: its refresh lands on the host, the host's lands on it,
-  # between exactly those two holders. Only its AGENTS (delegated children,
-  # which no scenario here spawns against a real engine) hold projections
-  # with the refresh token withheld — pinned in the isolation package
-  # (TestCopyAmbient_AnAgentsSeedIsAProjectionOfTheOrchestrators). Alice's
-  # own file is READ by the seed, never rewritten by ctxloom itself.
+  # above, claude-code only. Every ctxloom-launched claude authenticates from
+  # ONE long-lived `claude setup-token` token in CLAUDE_CODE_OAUTH_TOKEN,
+  # which ctxloom exports from the file `ctxloom auth set-token` stores.
+  # Nothing is copied into the session home: Alice's own native login is
+  # neither read into it nor rewritten.
   #
   # The instance-side assertions are read from INSIDE the running engine: the
-  # spy dumps what it was handed while it runs. The instance itself is an
-  # Ephemeral member of the session (paths.HarpMembers) and is taken by the
-  # ONE reaper (sessions.Reap) once the session ages out — there is no
-  # session-end remover beside it. The last line pins that disposal end to
-  # end: a reap bounded so the just-ended session counts as aged takes the
-  # instance, credential copy and all, and this is the only place outside Go
-  # tests that proves the reaper reaches it.
-  Scenario: An in-tree run's instance credential is whole — the root is the orchestrator — and the host's own copy is untouched
+  # spy dumps what it was handed while it runs (whether the token var equals
+  # the stored fixture, never its value). The instance itself is an Ephemeral
+  # member of the session (paths.HarpMembers) and is taken by the ONE reaper
+  # (sessions.Reap) once the session ages out. The last line pins that
+  # disposal end to end.
+  Scenario: An in-tree run authenticates from the stored setup-token and copies no credential
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
+    And Alice has stored a "claude-code" setup-token
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the isolated "claude-code" credential is whole and can renew
+    Then the spy "claude-code" process was handed the stored setup-token
+    And the isolated "claude-code" home holds no credential file
     And the host "claude-code" credential file was never modified
-    And the copied "claude-code" credential was owner-only inside the run
     And the "claude-code" config-home instance is reaped once the session has aged out
 
   # THE AMBIENT COPY-IN'S OTHER HALF (D4): claude's instance `.claude.json` is
@@ -427,9 +396,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # so an agent session does not re-onboard; the workspace-trust answer is
   # generated for the directory the run works in, so a headless run is not left
   # silently untrusted; her account identity (oauthAccount) crosses because
-  # claude's own session seeding copies it beside the credential (ADJUSTED,
-  # ruled 2026-09-21: engine_home session by default; the seed carries no
-  # refresh token); and NOTHING else crosses — not her own mcpServers
+  # claude reads it; and NOTHING else crosses — not her own mcpServers
   # registrations (and the secrets in their env blocks), not her per-project
   # prompt history, and not her standing "skip every permission prompt"
   # answer, which belongs to her own interactive session and not to an agent.
@@ -440,6 +407,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   Scenario: An in-tree AGENT run generates claude's instance config without carrying Alice's own registrations or history
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
+    And Alice has stored a "claude-code" setup-token
     And Alice has a personal claude config carrying her own MCP servers
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
@@ -447,19 +415,19 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     And the instance's claude config carries the generated trust answer and the account identity, and none of Alice's own registrations or history
     And the host "claude-code" credential file was never modified
 
-  # The fail-loud half. With no env token and no host credential to seed,
+  # The fail-loud half. With no stored or exported token and no API var,
   # ctxloom refuses rather than pointing claude at a controlled home it
-  # cannot authenticate against — the same ClassIsolation mechanism the
-  # worktree axis uses, never degradable to the real home. The failure names
-  # the three remedies (ADJUSTED, ruled 2026-09-21: engine_home session by
-  # default; the seed carries no refresh token), and it happens BEFORE any
-  # engine is spawned.
+  # cannot authenticate in — the same ClassIsolation mechanism the worktree
+  # axis uses, never degradable to the real home. The failure names the
+  # remedies (mint and store a setup-token, set an API var, or select the
+  # real home), and it happens BEFORE any engine is spawned.
   Scenario: An in-tree AGENT run refuses a controlled home it cannot authenticate
     Given Alice has a git-backed project
     And Alice has no "claude-code" credentials or API key on the host
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "none"
-    Then the run aborts with an isolation finding naming "no CLAUDE_CODE_OAUTH_TOKEN, no ANTHROPIC_API_KEY, no host ~/.claude/.credentials.json"
+    Then the run aborts with an isolation finding naming "none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY"
+    And the output contains "ctxloom auth set-token"
     And the output contains "engine_home: host"
 
   # LOCKED — the safety net grave-prize exists to guarantee: a run that
@@ -480,12 +448,11 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
     Examples:
       | engine      | needle                                                                                   |
-      | claude-code | no CLAUDE_CODE_OAUTH_TOKEN, no ANTHROPIC_API_KEY, no host ~/.claude/.credentials.json    |
+      | claude-code | none of CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY                                       |
 
-  # The bypass half of the SAME gate: an API key riding the environment is
-  # its own proof of intent to authenticate that way (auth.go's
-  # resolveEnvOrMountAuth precedence), so seeding is skipped and the run is
-  # never blocked on a missing host credential file.
+  # The bypass half of the SAME gate: an API key riding the environment
+  # authenticates the run as well as the setup-token does, so the run is
+  # never blocked on a missing token.
   #
   # "PROCEED" is the load-bearing word in this scenario's title, so it is what
   # gets asserted: the run exits 0, the engine really launches, and the
@@ -508,37 +475,21 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | engine      | var               |
       | claude-code | CLAUDE_CONFIG_DIR |
 
-  # LOCKED — the ISOLATED case, positively proven, but only ONE HALF of the
-  # claim its own name suggests. What this scenario actually proves: ctxloom's
-  # OWN bookkeeping — the env var it sets, the byte-for-byte copy it seeds,
-  # the host original it leaves untouched — is correct. The spy is
-  # cooperative BY CONSTRUCTION (see the file-level UPDATE note above): it
-  # dumps whatever env it was handed and cats whatever file that env points
-  # at, so this scenario is INCAPABLE of going red if a real vendor engine
-  # read CLAUDE_CONFIG_DIR and then wrote somewhere else anyway —
-  # that engine would never run here at all. A prior version of this comment
-  # claimed otherwise ("this is the exact claim that would go RED the moment
-  # a vendor engine... stopped honoring the var"); that claim was false and
-  # has been corrected. The vendor half of the claim — does a REAL engine
-  # binary actually honor the variable it was handed, credentials and all —
-  # is proven live, against real engine binaries and real credentials, by
-  # tests/acceptance/features/probes/isolation_probe.feature (`just isolation-probe
-  # <engine> worktree`). The two layers are complementary, not redundant:
-  # this one is fast, hermetic, and catches a ctxloom-side regression in CI on
-  # every commit; the probe is slow, costs a real paid call, and is the one
-  # that catches a vendor-side regression a spy can never see.
-  # ADJUSTED, ruled 2026-09-21: the orchestrator is the single refresher;
-  # agents hold read-only projections of its credential. This run is the
-  # root, so its copy is WHOLE: the SAME resolver and the SAME CopyAmbient
-  # seed as the in-tree cell — the home is orthogonal to the worktree — and
-  # the host's own file is never rewritten by ctxloom itself.
-  Scenario: A worktree claude run's isolated config-home credential is whole — the root is the orchestrator — and never touches the host's own copy
+  # The worktree cell gets the SAME session home and the SAME auth as the
+  # in-tree cell — the home is orthogonal to the worktree. The spy is
+  # cooperative BY CONSTRUCTION, so this proves ctxloom's own bookkeeping
+  # (the var it sets, the token it hands over, the login it leaves alone),
+  # not that a real engine honours them; the vendor half is the live
+  # isolation probe (tests/acceptance/features/probes/isolation_probe.feature).
+  Scenario: A worktree claude run authenticates from the stored setup-token and never touches the host's own login
     Given Alice has a git-backed project
     And Alice has a "claude-code" credential fixture on the host
+    And Alice has stored a "claude-code" setup-token
     And Alice's agent declares engine_home "session"
     When Alice runs the isolated "claude-code" agent under workspace "worktree"
     Then the spy "claude-code" process's "CLAUDE_CONFIG_DIR" env var points at this session's config-home instance
-    And the isolated "claude-code" credential is whole and can renew
+    And the spy "claude-code" process was handed the stored setup-token
+    And the isolated "claude-code" home holds no credential file
     And the host "claude-code" credential file was never modified
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own

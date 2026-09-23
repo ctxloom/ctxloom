@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
+	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
@@ -20,7 +21,6 @@ import (
 	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	taskops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
@@ -660,19 +660,19 @@ func printDiscoveryPostureHint(cfg *config.Config) {
 const authPingTask = "Reply with exactly: ok"
 
 // engineAuthFixHint names the fix for a failed auth probe, read off the
-// engine's OWN credential declaration (Engine.Home().Credentials): the
-// login command that makes its credential file exist, and the env var that
-// carries usable auth instead. An engine that declares no seedable
-// credential — or is not registered at all — gets a generic but actionable
-// fix rather than a blank, since the probe still failed.
+// engine's OWN token-auth declaration (Engine.Home().Auth): the command that
+// mints its token, the command that stores it, and the env vars that
+// authenticate it instead. An engine that declares no token auth — or is not
+// registered at all — gets a generic but actionable fix rather than a blank,
+// since the probe still failed.
 func engineAuthFixHint(engine string) string {
-	seed, ok := engineCredentialSeed(engine)
+	a, ok := isolation.TokenAuthFor(engine)
 	if !ok {
 		return "authenticate the engine (subscription login or its API-key env var) and try again"
 	}
-	fix := fmt.Sprintf("run `%s`", seed.LoginHint)
-	if len(seed.EnvTriggers) > 0 {
-		fix += fmt.Sprintf(" (or set %s)", strings.Join(seed.EnvTriggers, " or "))
+	fix := fmt.Sprintf("run `%s` and store what it prints with `ctxloom auth set-token`", a.MintHint)
+	if len(a.EnvTriggers) > 0 {
+		fix += fmt.Sprintf(" (or set %s)", strings.Join(a.EnvTriggers, " or "))
 	}
 	return fix
 }
@@ -887,15 +887,4 @@ func reportSetupLaunchFailure(err error) error {
 func printReentryHint() {
 	fmt.Println("\nSetup session ended. `ctxloom run` is the primary way to reach ctxloom from here.")
 	fmt.Println("Run `/ctxloom-init` from any session (or `ctxloom init prompt`) to reconfigure any time.")
-}
-
-// engineCredentialSeed is the named engine's credential seed off its Home:
-// what seeds a relocated home; false when nothing does — an engine that
-// relocates no home, or an unregistered name.
-func engineCredentialSeed(name string) (enginepkg.CredentialSeed, bool) {
-	kind, ok := engines.Registry().Lookup(enginepkg.Name(name))
-	if !ok {
-		return enginepkg.CredentialSeed{}, false
-	}
-	return kind.Home().Seed()
 }

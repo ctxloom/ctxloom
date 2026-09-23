@@ -10,15 +10,8 @@ import (
 // way a launch is asked for is a Source value through one Resolve.
 type Source struct {
 	Identity sessions.Identity // REQUIRED: minted by the caller (operations.StartRun, coord.AgentRun); Resolve refuses a zero value
-	// Orchestrator is the harp of the ROOT session this launch runs under —
-	// the coordinator's own engine, the single ctxloom-side refresher whose
-	// credential every agent holds a read-only projection of. Empty for the
-	// root itself (Identity.Depth == 0: it is its own orchestrator and seeds
-	// whole, two-way with the host); REQUIRED for an agent (Depth > 0),
-	// which has nothing to project from otherwise (ErrNoOrchestrator).
-	Orchestrator string
-	Agent        string
-	Profiles     []string
+	Agent    string
+	Profiles []string
 	// Fragments and Tags are the explicit-assembly arm's selection beyond
 	// the profile set (`run -f`, `run -t`): named fragments and tag matches
 	// composed with the profiles. Only the profile-set arm reads them.

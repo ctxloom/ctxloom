@@ -6,12 +6,6 @@
 // string literals in independently-maintained tables OUTSIDE the engine
 // packages, with nothing to catch drift:
 //
-//   - the credential seed (env var, dest subdir, host source-file paths).
-//     This one is no longer a literal outside the engine: each engine
-//     declares it on its own descriptor (engine.Descriptor.Home.Credentials)
-//     and the registry pushes it into internal/adapters/isolation. What this gate
-//     still checks is the DECLARATION itself against the engine's constants —
-//     a descriptor can hand-type a path as easily as a table could.
 //   - the container-axis overlay dirs and transcript-store root. Also no
 //     longer isolation literals: each engine declares them on its descriptor
 //     (engine.Descriptor.Container) and the registry pushes them into
@@ -38,11 +32,6 @@
 // gate does not pretend otherwise (a false-positive "drift" gate would be
 // worse than the one it replaced):
 //
-//   - the credential seed's Subdir chooses the LEAF NAME isolation seeds
-//     into inside a controlled home. It is the engine's own naming (claude
-//     declares claude.HomeLeaf, "claude", no dot) and need not match the
-//     engine's ConfigDirName; engine.HomeSpec.Validate already holds it
-//     equal to a home var's Subdir, so it is not re-gated here.
 //   - the shared ".ctxloom/cache" overlay entry isolation appends for every
 //     engine is ctxloom's own cache path, not a fact about any engine's file
 //     arrangement — never checked here.
@@ -55,8 +44,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/gitignore"
 	"github.com/ctxloom/ctxloom/internal/adapters/isolation"
-	"github.com/ctxloom/ctxloom/internal/core/engine"
-	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/engines/claude"
 	"github.com/ctxloom/ctxloom/internal/engines/mock"
 )
@@ -65,78 +52,9 @@ import (
 // this file's package doc. Each sub-test below covers one table x one axis;
 // a failure names the drifted row, the table it came from, and both values.
 func TestArch_EngineLayoutAgreement(t *testing.T) {
-	t.Run("credentialSeed_SourceFiles", testCredentialSeedSourceFiles)
 	t.Run("spec_OverlayDirs", testSpecOverlayDirs)
 	t.Run("spec_TranscriptStoreRel", testSpecTranscriptStoreRel)
 	t.Run("gitignore_LivePatterns", testGitignoreLivePatterns)
-}
-
-// sourceFileCheck names one engine's expected seed-file facts: the directory
-// component every declared file must live under (an engine-owned constant),
-// and the set of known destination file names mapped to whether each is
-// required.
-type sourceFileCheck struct {
-	seedKey  string
-	wantDir  string
-	wantDest map[string]bool // destName -> required
-}
-
-func testCredentialSeedSourceFiles(t *testing.T) {
-	checks := []sourceFileCheck{
-		{
-			seedKey:  "claude-code",
-			wantDir:  claude.ConfigDirName,
-			wantDest: map[string]bool{claude.CredentialsFileName: true},
-		},
-	}
-
-	for _, c := range checks {
-		t.Run(c.seedKey, func(t *testing.T) {
-			seed, ok := credentialSeedOf(c.seedKey)
-			if !ok {
-				t.Fatalf("engine %q declares no credential seed on its Home", c.seedKey)
-			}
-			if len(seed.Files) == 0 {
-				t.Fatalf("%s's credential seed declares no files", c.seedKey)
-			}
-			seen := map[string]bool{}
-			for _, f := range seed.Files {
-				seen[f.DestName] = true
-				dir := filepath.ToSlash(filepath.Dir(f.HostRelHome))
-				if dir != c.wantDir {
-					t.Errorf("%s's credential seed file %q lives under %q, want owning engine dir %q",
-						c.seedKey, f.DestName, dir, c.wantDir)
-				}
-				wantReq, known := c.wantDest[f.DestName]
-				if !known {
-					t.Errorf("%s's credential seed file name %q is not a known engine-owned file-name constant — add one, or if it's genuinely isolation-only, escalate it",
-						c.seedKey, f.DestName)
-					continue
-				}
-				if wantReq != f.Required {
-					t.Errorf("%s's credential seed file %q required=%v, want %v",
-						c.seedKey, f.DestName, f.Required, wantReq)
-				}
-			}
-			for destName := range c.wantDest {
-				if !seen[destName] {
-					t.Errorf("%s's credential seed is missing expected source file %q", c.seedKey, destName)
-				}
-			}
-			// The seam sees exactly the declaration: the push at registration
-			// delivered these files, not a re-typed copy.
-			ambient := isolation.AmbientSet(c.seedKey)
-			if len(ambient) != len(seed.Files) {
-				t.Fatalf("isolation.AmbientSet(%q) has %d files, the descriptor declares %d — the push-down is not delivering the declaration",
-					c.seedKey, len(ambient), len(seed.Files))
-			}
-			for i, f := range seed.Files {
-				if ambient[i].HostRel != f.HostRelHome || ambient[i].Required != f.Required {
-					t.Errorf("isolation.AmbientSet(%q)[%d] = %+v, want the declared %+v", c.seedKey, i, ambient[i], f)
-				}
-			}
-		})
-	}
 }
 
 // overlayCheck names one engineContainerSpecFor(backend) row's expected
@@ -204,13 +122,4 @@ func testGitignoreLivePatterns(t *testing.T) {
 				w.pattern, w.why)
 		}
 	}
-}
-
-// credentialSeedOf is the named engine's credential seed off its Home.
-func credentialSeedOf(name string) (engine.CredentialSeed, bool) {
-	kind, ok := engines.Registry().Lookup(engine.Name(name))
-	if !ok {
-		return engine.CredentialSeed{}, false
-	}
-	return kind.Home().Seed()
 }

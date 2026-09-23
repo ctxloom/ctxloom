@@ -71,33 +71,19 @@ func TestResolve_EngineHome_UnparseableSpellingIsRefused(t *testing.T) {
 	require.ErrorContains(t, err, "hostt")
 }
 
-// TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts: the root session
-// (depth 0) is its own orchestrator — the cell is asked for none — and a
-// delegated child (depth > 0) carries the orchestrator it was spawned
-// under; a child with none is refused, because an agent with no
-// orchestrator has no credential to project.
-func TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts(t *testing.T) {
+// TestResolve_ADelegatedChildNeedsNoOrchestrator: a child (depth > 0)
+// resolves exactly like the root. Its engine authenticates from the env, so
+// nothing about it depends on which session spawned it or what engine that
+// session runs.
+func TestResolve_ADelegatedChildNeedsNoOrchestrator(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("child", launchtest.Permissions("bypass")))
-	root, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = launch.Discard(context.Background(), root) })
-	require.Empty(t, env.LastCellRequest().Orchestrator, "the root is its own orchestrator: the cell seeds it whole from the host")
-
 	child := env.Identity
 	child.Depth = 1
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: child, Agent: "child", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project, Orchestrator: "root-harp",
+		Identity: child, Agent: "child", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
-	require.Equal(t, "root-harp", env.LastCellRequest().Orchestrator, "an agent's cell projects the orchestrator's credential")
-
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: child, Agent: "child", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
-	})
-	require.ErrorIs(t, err, launch.ErrNoOrchestrator)
 }
 
 // TestResolve_AHostHomeRunOfARelocatableEngineRoutesToTheProjectRoot: an

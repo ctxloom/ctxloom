@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/git"
+	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,9 +49,12 @@ func TestContainerPolicy_HostBaseOutOfRepoWorktree_GitResolves(t *testing.T) {
 	buildGitIntegrationImage(t) // shared helper, worktree_image_docker_integration_test.go (same package)
 
 	// No host credential is needed to clear PrepareWorkspace's auth gate: the
-	// policy is keyed on the mock engine, whose resolver authenticates against
-	// no vendor (a Vendorless declaration). This test never starts a runner,
-	// only PrepareWorkspace.
+	// policy is keyed on the mock engine, whose declaration authenticates
+	// against no vendor (Vendorless). This binary cannot link the mock kind
+	// (import cycle), so nothing registers "mock" unless the test does; an
+	// unregistered name reaches the fail-closed default and PrepareWorkspace
+	// refuses on auth. This test never starts a runner, only PrepareWorkspace.
+	registerVendorlessFixture(t, "mock", engine.DistributionTestOnly)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()

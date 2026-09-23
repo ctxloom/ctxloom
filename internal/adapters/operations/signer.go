@@ -274,6 +274,10 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 
 // SignerListing is one allowed_signers entry plus the store it came from,
 // for `signer list`/`signer show` display.
+// signerSourceProject is SignerListing.Source for the project store — the
+// committed one, which doctor audits for execute/approve grants.
+const signerSourceProject = "project"
+
 type SignerListing struct {
 	Entry allowedsigners.Entry `json:"entry"`
 	// Fingerprint is the SHA256 fingerprint of Entry.PublicKey, and the only
@@ -356,7 +360,7 @@ func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	}
 	if cfg != nil && len(cfg.GetAppPaths()) > 0 {
 		project := paths.AllowedSignersPath(cfg.GetAppPaths()[0])
-		out = append(out, listFromPath(fs, project, "project")...)
+		out = append(out, listFromPath(fs, project, signerSourceProject)...)
 	}
 	return out, nil
 }

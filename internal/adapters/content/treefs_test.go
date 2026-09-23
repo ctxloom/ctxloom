@@ -250,7 +250,6 @@ func TestTreeStore_ReadOnlyBackingRefusesWritesLoudly(t *testing.T) {
 	for name, call := range map[string]func() error{
 		"Put":                func() error { return store.Put(ctx, ref, "raw", nil) },
 		"Delete":             func() error { return store.Delete(ctx, ref) },
-		"PutSignature":       func() error { return store.PutSignature(ctx, ref, "raw", "publish", testKey(t), []byte("s")) },
 		"PutManifest":        func() error { return store.PutManifest(ctx, "b", Manifest{}) },
 		"PutBundleSignature": func() error { return store.PutBundleSignature(ctx, "b", "publish", testKey(t), []byte("s")) },
 	} {

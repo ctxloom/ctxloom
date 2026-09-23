@@ -691,14 +691,6 @@ func (f *treeForm) Content(ctx context.Context) ([]byte, error) {
 	return Digest(components)
 }
 
-func (f *treeForm) Signatures(ctx context.Context) (SigSet, error) {
-	digest, err := f.Content(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return readSignatures(f.item.bundle.store.tfs, f.item.bundle.dir, contentKey(digest))
-}
-
 // itemPath is the bundle-relative path a name resolves to inside a kind
 // directory, used by the writer.
 func itemPath(dir, name, ext string) string {

@@ -49,22 +49,15 @@ const (
 // BUNDLE-LEVEL signature is what a consumer needs.
 const ManifestPath = "SHA256SUMS"
 
-// BundleSigKey is the fixed signature-store key the BUNDLE-level signature is
-// filed under, in place of the content-derived key every per-form signature
-// uses.
+// BundleSigKey is the fixed signature-store key the bundle signature is filed
+// under.
 //
-// This is a deliberate divergence from content-keying, and it buys the one
-// property content-keying cannot give at bundle level: if an attacker rewrites
-// the manifest to cover the file they added, a content-keyed signature would
-// move out from under its own key, become unreachable, and the bundle would
-// present as UNSIGNED — attestation stripped by editing. Filed at a fixed key
-// the old signature stays reachable, fails to verify over the new manifest
-// bytes, and the bundle presents as TAMPERED. The rename-cannot-orphan argument
-// that motivates content-keying does not apply here: a bundle has exactly one
-// manifest, at exactly one path, forever.
-//
-// It cannot collide with a content key: content keys are 64 lowercase hex
-// characters and this is not.
+// It is FIXED, not derived from the manifest's content, and that buys one
+// property: if an attacker rewrites the manifest to cover the file they added,
+// a content-keyed signature would move out from under its own key, become
+// unreachable, and the bundle would present as UNSIGNED — attestation stripped
+// by editing. Filed at a fixed key the old signature stays reachable, fails to
+// verify over the new manifest bytes, and the bundle presents as TAMPERED.
 const BundleSigKey = ManifestPath
 
 // The manifest error vocabulary. Callers match with errors.Is.
@@ -381,17 +374,11 @@ func (m Manifest) IsZero() bool { return len(m.entries) == 0 }
 //     bytes the bundle signature covers.
 //
 // The obvious objection is that adding or removing a signature is then
-// undetectable. It is — and it is SAFE, for a reason worth stating rather than
-// assuming. Removing a per-item signature cannot downgrade anything: the item's
-// bytes must still match the signed manifest, so the item stays attested (by
-// the manifest's signer, who is named in the verdict) or, if the bytes do not
-// match, drops from "content-substituted" to "tampered" — strictly more
-// suspicious, never less. Adding one cannot upgrade anything either: a
-// signature from an untrusted key is inert, one from a trusted key over
-// manifest-matching bytes changes only which trusted principal is named, and
-// one from a trusted key over bytes the manifest contradicts produces the
-// content-substituted verdict rather than silent acceptance. What a
-// tree-writer cannot do is CHOOSE which attestation governs in their favour.
+// undetectable. It is — and it is SAFE: the only signatures are over the
+// manifest, so an added one from an untrusted key is inert, an added one from
+// a trusted key over these exact bytes attests what the manifest already says,
+// and removing one can at most leave the bundle unattested, never attested by
+// someone else.
 func ManifestCovers(p string) bool {
 	return p != ManifestPath && !strings.HasPrefix(p, SigDirName+"/")
 }

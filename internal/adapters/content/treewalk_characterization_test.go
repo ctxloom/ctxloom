@@ -113,7 +113,7 @@ func snapshotItem(t *testing.T, b *strings.Builder, item Item) {
 		if err != nil {
 			t.Fatalf("Content %s %s: %v", key, f, err)
 		}
-		fmt.Fprintf(b, "    form %s key=%s\n", f, contentKey(digest))
+		fmt.Fprintf(b, "    form %s key=%s\n", f, SHA256Hex(digest))
 		components, err := form.Components(ctx)
 		if err != nil {
 			t.Fatalf("Components %s %s: %v", key, f, err)

@@ -95,12 +95,7 @@ func TestSignBundle_ThenVerifyBundle_IsVerified(t *testing.T) {
 	assert.Equal(t, StatusManifestSigned, v.Status)
 	assert.Equal(t, "pub@example.test", v.Principal)
 	assert.NoError(t, v.Contents)
-	assert.NotEmpty(t, v.Items)
-	for _, iv := range v.Items {
-		assert.Equal(t, StatusManifestSigned, iv.Status, "%s/%s", iv.Ref.Key(), iv.Form)
-		assert.Equal(t, "pub@example.test", iv.Principal)
-		assert.Equal(t, AuthorityManifest, iv.Authority)
-	}
+	assert.Equal(t, AuthorityManifest, v.Authority)
 }
 
 func TestVerifyBundle_UnsignedIsQuietlyUnattested(t *testing.T) {
@@ -184,33 +179,6 @@ func TestVerifyBundle_ApproveOnlyKeyCannotSatisfyThePublishSlot(t *testing.T) {
 	assert.Equal(t, StatusUnattested, v.Status)
 }
 
-// F3(a), item half: a signature stored under the APPROVE namespace must never be
-// read as a publish attestation, even from a fully trusted key.
-func TestVerifyItem_ApproveNamespaceSignatureIsNotAPublishAttestation(t *testing.T) {
-	store, b, _ := fixture(t)
-	signer, pub := testSigner(t)
-
-	item, err := b.Item(ctx, solid)
-	require.NoError(t, err)
-	form, err := item.Form(ctx, signing.FormRaw)
-	require.NoError(t, err)
-	digest, err := form.Content(ctx)
-	require.NoError(t, err)
-	sig, err := signing.Sign(digest, signer, signing.NamespaceApprove)
-	require.NoError(t, err)
-	require.NoError(t, store.PutSignature(ctx, solid, signing.FormRaw, content.Namespace(signing.NamespaceApprove), signer.PublicKey(), sig))
-
-	root := rootTrusting(allowedsigners.Entry{
-		Principals: []string{"both"},
-		Namespaces: []string{signing.NamespacePublish, signing.NamespaceApprove},
-		PublicKey:  pub,
-	})
-	v, err := VerifyItem(ctx, b, solid, signing.FormRaw, root, now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusUnattested, v.Status)
-	assert.Equal(t, AuthorityNone, v.Authority)
-}
-
 // HOSTILE PUBLISHER, the headline F2 case: a directory added to a signed tree
 // that no SurfaceType enumerates. Only the manifest's reverse direction sees it.
 func TestVerifyBundle_ExtraDirectoryInASignedTreeIsCaught(t *testing.T) {
@@ -280,10 +248,7 @@ func TestVerifyBundle_EditedFileUnderASignedManifestIsTampered(t *testing.T) {
 	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
 	require.NoError(t, err)
 	require.Error(t, v.Contents)
-
-	iv := findItem(t, v, solid, signing.FormRaw)
-	assert.Equal(t, StatusTampered, iv.Status)
-	assert.Empty(t, iv.Principal, "a tampered item has no attesting principal")
+	assert.False(t, v.OK(), "a signature over a manifest the tree no longer matches attests nothing")
 }
 
 // F10 at bundle level: rewriting the manifest to cover the added file must NOT
@@ -304,111 +269,6 @@ func TestVerifyBundle_RewritingTheManifestIsTamperedNotUnsigned(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusTampered, v.Status)
 	assert.False(t, v.OK())
-}
-
-// Legitimate mixed provenance: a co-maintainer signs one item, the publisher's
-// manifest still covers that item's actual bytes. Both agree, so the item is
-// item-signed and names the co-maintainer.
-func TestVerifyItem_MixedProvenanceWhenTheManifestAgrees(t *testing.T) {
-	store, b, _ := fixture(t)
-	pubSigner, pubKey := testSigner(t)
-	coSigner, coKey := testSigner(t)
-
-	item, err := b.Item(ctx, solid)
-	require.NoError(t, err)
-	require.NoError(t, SignItem(ctx, store, item, signing.FormRaw, coSigner))
-	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), pubSigner))
-
-	root := rootTrusting(publisher("pub@example.test", pubKey), publisher("co@example.test", coKey))
-	v, err := VerifyItem(ctx, b, solid, signing.FormRaw, root, now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusItemSigned, v.Status)
-	assert.Equal(t, "co@example.test", v.Principal)
-	assert.Equal(t, AuthorityItem, v.Authority)
-
-	// An item with no signature of its own still reads as attested, by the
-	// manifest's signer — not as "unsigned".
-	other, err := VerifyItem(ctx, b, tricky, signing.FormRaw, root, now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusManifestSigned, other.Status)
-	assert.Equal(t, "pub@example.test", other.Principal)
-}
-
-// F3(b), THE headline case: a co-trusted key substitutes content inside another
-// publisher's signed bundle. Today this would verify silently. It must surface as
-// its own verdict, and it must not be OK.
-func TestVerifyItem_SubstitutedContentUnderACoTrustedKeyIsItsOwnVerdict(t *testing.T) {
-	store, b, fsys := fixture(t)
-	pubSigner, pubKey := testSigner(t)
-	attackerSigner, attackerKey := testSigner(t)
-
-	require.NoError(t, SignBundle(ctx, store, b, fixtureRel(t), pubSigner))
-
-	// The attacker rewrites one file and signs the NEW bytes with their own
-	// co-trusted key. The manifest is untouched and still verifies.
-	write(t, fsys, solidFS, "---\ntags: []\n---\nsmuggled instructions\n")
-	item, err := b.Item(ctx, solid)
-	require.NoError(t, err)
-	require.NoError(t, SignItem(ctx, store, item, signing.FormRaw, attackerSigner))
-
-	root := rootTrusting(publisher("pub@example.test", pubKey), publisher("attacker@example.test", attackerKey))
-	v, err := VerifyItem(ctx, b, solid, signing.FormRaw, root, now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusContentSubstituted, v.Status)
-	assert.False(t, v.OK(), "content-substituted must never read as trusted")
-	assert.Contains(t, v.Detail, "pub@example.test")
-	assert.Contains(t, v.Detail, "attacker@example.test")
-}
-
-func TestVerifyItem_ItemSignedWithNoBundleManifestAtAll(t *testing.T) {
-	store, b, _ := fixture(t)
-	signer, pub := testSigner(t)
-	item, err := b.Item(ctx, solid)
-	require.NoError(t, err)
-	require.NoError(t, SignItem(ctx, store, item, signing.FormRaw, signer))
-
-	v, err := VerifyItem(ctx, b, solid, signing.FormRaw, rootTrusting(publisher("solo@example.test", pub)), now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusItemSigned, v.Status)
-	assert.Equal(t, "solo@example.test", v.Principal)
-	assert.True(t, v.OK())
-}
-
-func TestVerifyItem_UnattestedWhenNothingIsSigned(t *testing.T) {
-	_, b, _ := fixture(t)
-	_, pub := testSigner(t)
-	v, err := VerifyItem(ctx, b, solid, signing.FormRaw, rootTrusting(publisher("nobody", pub)), now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusUnattested, v.Status)
-	assert.False(t, v.OK())
-}
-
-// A per-item signature over a form the item does not carry cannot be
-// manufactured by asking for the wrong form.
-func TestVerifyItem_UnknownFormIsAnError(t *testing.T) {
-	_, b, _ := fixture(t)
-	_, pub := testSigner(t)
-	_, err := VerifyItem(ctx, b, tricky, signing.FormDistilled, rootTrusting(publisher("nobody", pub)), now)
-	assert.ErrorIs(t, err, content.ErrNoSuchForm)
-}
-
-// The raw and distilled forms of one item are separate files with separate
-// digests, so a signature over one can never be found for the other.
-func TestVerifyItem_SigningRawDoesNotAttestDistilled(t *testing.T) {
-	store, b, _ := fixture(t)
-	signer, pub := testSigner(t)
-	item, err := b.Item(ctx, solid)
-	require.NoError(t, err)
-	require.NoError(t, SignItem(ctx, store, item, signing.FormRaw, signer))
-
-	root := rootTrusting(publisher("solo@example.test", pub))
-	raw, err := VerifyItem(ctx, b, solid, signing.FormRaw, root, now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusItemSigned, raw.Status)
-
-	distilled, err := VerifyItem(ctx, b, solid, signing.FormDistilled, root, now)
-	require.NoError(t, err)
-	assert.Equal(t, StatusUnattested, distilled.Status)
 }
 
 // A corrupted signature blob is a tamper signal, never a silent downgrade to
@@ -445,13 +305,3 @@ func TestSignBundle_IsIdempotentForOneKey(t *testing.T) {
 	assert.Equal(t, StatusManifestSigned, v.Status)
 }
 
-func findItem(t *testing.T, v BundleVerdict, ref trust.Ref, f signing.Form) ItemVerdict {
-	t.Helper()
-	for _, iv := range v.Items {
-		if iv.Ref.Key() == ref.Key() && iv.Form == f {
-			return iv
-		}
-	}
-	t.Fatalf("no verdict for %s form %q in %v", ref.Key(), f, v.Items)
-	return ItemVerdict{}
-}

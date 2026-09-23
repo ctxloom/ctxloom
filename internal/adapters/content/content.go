@@ -150,9 +150,6 @@ type Form interface {
 	// no partial-coverage tier, because a partial manifest would mean adding a
 	// file to a signed tree could not break verification.
 	Components(ctx context.Context) ([]Component, error)
-	// Signatures returns the signature BYTES stored against this form's
-	// content, and says nothing about whether any of them verify.
-	Signatures(ctx context.Context) (SigSet, error)
 	// Surface returns the decoded surface of the item this form belongs to.
 	//
 	// DIVERGENCE from the brief, which specifies both `As[T Surface](ctx, f
@@ -171,17 +168,8 @@ type Writer interface {
 	// distilled form never rewrites the raw file.
 	Put(ctx context.Context, ref trust.Ref, f signing.Form, s Surface) error
 	// Delete removes every component of the item, in every form — the content
-	// file AND its metadata sidecar. It deliberately does NOT delete stored
-	// signatures: signatures are keyed by content hash precisely so that they
-	// outlive the file, and a rejection that could be dropped by deleting a
-	// file would let you un-blacklist content by removing it.
+	// file AND its metadata sidecar.
 	Delete(ctx context.Context, ref trust.Ref) error
-	// PutSignature stores signature bytes against the given form's content
-	// under the given namespace, filed under the key that made them: a
-	// second signature by the same key in the same namespace REPLACES the
-	// first. It performs no verification — the key is a filing name, and
-	// whether it actually made sig is layer 2's question.
-	PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, by ssh.PublicKey, sig []byte) error
 
 	// PutManifest writes a bundle's manifest, replacing any existing one. It
 	// takes a BundleID rather than a ref because a manifest belongs to the

@@ -22,14 +22,8 @@ import (
 // It is exported because a caller that SIGNS a tree has to be able to say where
 // the signature landed (operations.SignBundleResult.SigPath).
 //
-// Signatures are keyed by CONTENT HASH, not attached to a path. That follows
-// through on the property the preimage already has — it binds content bytes,
-// not name or location — instead of contradicting it in storage. Concretely:
-// renaming or moving a file cannot orphan its signature, byte-identical content
-// in two places shares one signature, and, because the raw and distilled forms
-// of an item are separate files with separate digests, a signature over the raw
-// form can never be found for the distilled one. That last property falls out of
-// the storage model here rather than being enforced by a check somewhere.
+// It holds the publisher signatures over the bundle manifest, filed under
+// BundleSigKey.
 //
 // The directory is dot-prefixed and therefore skipped by TreeStore.Bundles, so it
 // can never be mistaken for a bundle.
@@ -50,14 +44,7 @@ func validateNamespace(ns Namespace) error {
 	return nil
 }
 
-// contentKey is the lookup key for a form's signatures: the hex sha256 of its
-// content digest.
-func contentKey(digest []byte) string {
-	sum := sha256.Sum256(digest)
-	return hex.EncodeToString(sum[:])
-}
-
-// sigFileName builds "<content-key>.<namespace>.<signer-tag>.sig".
+// sigFileName builds "<key>.<namespace>.<signer-tag>.sig".
 //
 // The trailing tag names the SIGNING KEY, so the store holds one entry per
 // (key, namespace) over a given content: a re-sign by the same key REPLACES
@@ -73,8 +60,8 @@ func contentKey(digest []byte) string {
 // from a filename; that is VerifyPublisher's job over the bytes and the trust
 // root. A caller that filed a signature under the wrong key has misfiled it,
 // not forged trust.
-func sigFileName(contentKey string, ns Namespace, by ssh.PublicKey) string {
-	return contentKey + "." + string(ns) + "." + signerTag(by) + ".sig"
+func sigFileName(key string, ns Namespace, by ssh.PublicKey) string {
+	return key + "." + string(ns) + "." + signerTag(by) + ".sig"
 }
 
 // signerTag is a key's filing name: the hex SHA-256 of its wire form — the
@@ -92,8 +79,8 @@ func signerTag(by ssh.PublicKey) string {
 // opaque here: an entry filed before entries were keyed by signing key (its
 // tag was derived from the signature's bytes) parses and is read exactly as a
 // current one is.
-func parseSigFileName(contentKey, name string) (Namespace, bool) {
-	rest, ok := strings.CutPrefix(name, contentKey+".")
+func parseSigFileName(key, name string) (Namespace, bool) {
+	rest, ok := strings.CutPrefix(name, key+".")
 	if !ok {
 		return "", false
 	}

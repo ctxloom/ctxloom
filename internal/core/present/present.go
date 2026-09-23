@@ -33,13 +33,15 @@ import (
 	"strings"
 )
 
-// Root is one directory named on two sides: Host is where its bytes live —
-// what a writer opens and what the runtime bind-mounts FROM. Engine is what
-// the engine is told — the path it opens, or a variable's value, or a mount
-// target. The two axes that rewrite a Root are independent and touch
-// different halves: a workspace advice (worktree materialization) rewrites
-// Host, and a runtime advice (containerization) rewrites Engine and records a
-// Mount. Uncontainerized, Engine equals Host.
+// Root is one directory named on two sides: Host is where its bytes live as
+// the WRITER sees them — what a writer opens and, on the originator, what the
+// runtime bind-mounts FROM. Engine is what the engine is told — the path it
+// opens, or a variable's value, or a mount target. The two axes that rewrite
+// a Root are independent and touch different halves: a workspace advice
+// (worktree materialization) rewrites Host, and a runtime advice
+// (containerization) rewrites Engine and records a Mount. Uncontainerized,
+// Engine equals Host; for a writer that shares the engine's filesystem, see
+// Mapped.EngineSide.
 type Root struct{ Host, Engine string }
 
 // Paths is every root a presentation may build from, resolved once per run,
@@ -198,10 +200,33 @@ func (m Mapped) Paths() Paths { return m.paths }
 // reads it once, when it launches, rather than once per surface.
 func (m Mapped) Mounts() []Mount { return m.mounts }
 
+// EngineSide is this Mapped as seen by a writer that shares the ENGINE's
+// filesystem — the runner that is a container's foreground process: every
+// root's Host becomes its Engine side, because the host side of a relocated
+// root is not mounted where that writer runs. Mounts are kept as the run's
+// record; nothing beside the engine binds them.
+func (m Mapped) EngineSide() Mapped {
+	side := func(r Root) Root { return Root{Host: r.Engine, Engine: r.Engine} }
+	p := m.paths
+	return Mapped{
+		paths: Paths{
+			ProjectRoot: side(p.ProjectRoot),
+			EngineHome:  side(p.EngineHome),
+			CtxloomHome: side(p.CtxloomHome),
+			Scratch:     side(p.Scratch),
+		},
+		mounts: m.mounts,
+	}
+}
+
 // Presentation is the RESULT, built up by the chain. Never selected from a
 // set.
 type Presentation struct {
-	// HostPath is where the fs layer wrote the bytes.
+	// HostPath is where the fs layer wrote the bytes, as the WRITING process
+	// opens it on its own filesystem. When that process shares the engine's
+	// filesystem (runner.Execute over a container cell, via
+	// Mapped.EngineSide) HostPath equals EnginePath; only a writer outside
+	// the engine's filesystem ever sees them differ.
 	HostPath string
 	// EnginePath is where the ENGINE sees them. Equal to HostPath wherever
 	// Engine equals Host on the root this composition is rooted under.

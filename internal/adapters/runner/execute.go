@@ -105,6 +105,13 @@ func Execute(ctx context.Context, deps Deps, l launch.Launch) (Outcome, error) {
 	if deps.Static == nil {
 		return Outcome{}, ErrNoStatic
 	}
+	// A container cell's runner is the container's foreground process: its
+	// filesystem is the engine's, so every root is opened at its Engine side.
+	// Rewritten once, here, before anything reads the cell — the engine
+	// session's roots, the static target, and the paths the drive is handed.
+	if l.Cell.Container != nil {
+		l.Cell.Paths = l.Cell.Paths.EngineSide()
+	}
 	hosted := deps.Kind.Root().Name
 	if l.Engine != hosted {
 		return Outcome{}, fmt.Errorf("%w: hosts %q, launch names %q", ErrWrongEngine, hosted, l.Engine)

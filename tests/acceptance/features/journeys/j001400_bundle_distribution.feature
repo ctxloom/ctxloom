@@ -440,34 +440,13 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # docker_integration test, which is where a per-runtime cell can be a
   # subtest rather than a whole journey re-run.
   #
-  # WHAT THESE ROWS DO NOT PROVE, AND WHERE THAT IS NOW PROVEN INSTEAD. They
-  # exercise a container that ctxloom's own isolation machinery did not build:
-  # the cell mounts and launches directly, so these rows say nothing about
-  # containerConfigOverlay either way. That half is closed in
-  # internal/adapters/isolation's docker_integration lane, by
-  # TestContainerRun_DeliversIntoTheMountedWorkspace and
-  # TestContainerRun_OverlaidConfigDirIsSwallowedByTheScratchOverlay: the same
-  # cell, wired to a container the PRODUCT builds (Container.PrepareWorkspace →
-  # SpawnClient → a real turn whose in-container Setup delivers), observed
-  # MID-TURN because grpc.RunTurn's Cleanup strips the delivery the instant
-  # Execute returns.
-  #
-  # WHAT THOSE TESTS FOUND. containerConfigOverlay is SOUND, not a hole. A
-  # surface whose target is NOT an overlaid directory lands in the bind-mounted
-  # host project with its bytes, POSIX mode and host ownership intact — that is
-  # the "points delivery at the mounted workspace" claim, live. A surface whose
-  # target IS one of profile.overlayDirs (claude's ".claude", where claude's own
-  # skills/settings writers aim) lands in the per-run scratch overlay and never
-  # in the host project — but the overlay is bind-mounted AT THAT SAME PATH, so
-  # the in-container engine reads exactly what was delivered while the run is
-  # live. It is discarded at teardown, which is what the overlay is FOR (the
-  # host project stays clean) and matches the host axis anyway, where the shared
-  # LIFO Cleanup reverses the same delivery. The container's session-state
-  # mounts are not a workaround for this and were never meant to be —
-  # sessionStateMounts binds exactly <harp>/persist and
-  # <harp>/persist/transcripts (statemounts.go, pinned by statemounts_test.go's
-  # "transcript store + persist only"), deliberately NOT <harp>/ephemeral/ and
-  # NOTHING at the harp-dir top level.
+  # WHAT THESE ROWS DO NOT PROVE. They exercise a container that ctxloom's own
+  # isolation machinery did not build: the cell mounts and launches directly,
+  # so they say nothing about the product's container cell — its runner as the
+  # container's foreground process, the engine-home mount, or
+  # containerConfigOverlay. The product-built cell's engine-home delivery is
+  # pinned in internal/core/coord's docker_integration lane by
+  # TestCoordContainerEngineHome_DeliveredAtTheContainerSidePath.
   # --------------------------------------------------------------------------
   # @container: every example below drives runtime=container, so this outline
   # builds the agent image when absent — minutes, inside a suite bounded by go

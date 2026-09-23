@@ -82,32 +82,16 @@ Feature: Capability probe P2 — an arbitrary MCP server's tool, actually called
       | engine      | runtime | workspace |
       | claude-code | host    | none      |
 
-    # @wip — RED, measured TWICE on 2026-08-26, and the finding is narrow: the
-    # server STARTS IN THE CONTAINER and is never called.
-    #
-    #   start request(initialize) request(notifications/initialized)
-    #   request(tools/list)
-    #
-    # So ctxloom's delivery is PROVEN on this axis — the bundle's mcp: block
-    # reached a containerized claude, which spawned the server in-container,
-    # completed the handshake and enumerated the tool. Then no tools/call. The
-    # identical fixture on host/none calls it reliably the same day, so this is
-    # neither the fixture nor the prompt: registration and discovery work,
-    # invocation does not.
-    #
-    # These two rows must be read as a PAIR: P6's host/worktree cell failed
-    # where both-off and both-on passed, because the two axes resolve a
-    # credential by different mechanisms.
-    #
-    # Untag when a containerized claude calls a registered MCP tool it listed.
-    @probe-p2-mcp-round-trip @claude-code @container-rootless @ws-none @wip
+    @probe-p2-mcp-round-trip @claude-code @container-rootless @ws-none
     Examples:
       | engine      | runtime            | workspace |
       | claude-code | container-rootless | none      |
 
-    # @wip — RED identically to the row above (measured 2026-08-26), so the
-    # mixed corner adds no separate defect. It DID prove the evidence path: the
-    # fixture reaches the per-agent checkout because it is COMMITTED, and
+    # @wip — RED on 2026-08-26 with the shape the row above then had (the
+    # server started in-container and was never called); the row above has
+    # since gone green and this one has not been re-run. Untag when it is.
+    # It DID prove the evidence path: the fixture reaches the per-agent
+    # checkout because it is COMMITTED, and
     # probeCellRunDir resolved that checkout and read the call log out of it —
     # which works here because the server's writes leave the tree dirty and the
     # WIP-safe teardown spares it. P3's worktree row shows the other side.

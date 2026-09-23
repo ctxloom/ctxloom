@@ -114,7 +114,12 @@ func TestFinalReport_EndsTheRunAtItsTurnBoundary(t *testing.T) {
 	assert.Never(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"filing FINAL must not terminate a child mid-turn: its own closing message is still being written")
 
-	// The boundary the child reaches on its own is where the request is taken.
+	// The boundary the child reaches on its own is where the request is taken
+	// — once the request exists. The drain runs on its own goroutine, so wait
+	// for its mark rather than for a window: a boundary released before the
+	// mark ends the run between turns, which is correct and not this claim.
+	require.Eventually(t, func() bool { return exitMarked(c, out.RunID) }, conformanceWait, time.Millisecond,
+		"the drain must have requested the exit before the turn is released")
 	close(gate)
 	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
 		"a child that filed FINAL must have its RUN ended without anyone asking — this is the leak")
@@ -312,4 +317,46 @@ func TestFinalReport_OwnerRunIsNeverEndedByItsOwnReport(t *testing.T) {
 
 	assert.Never(t, func() bool { return rosterState(c, ownerHarp) == StateEnded }, 300*time.Millisecond, 20*time.Millisecond,
 		"a top-level session must never be torn down by its own FINAL report")
+}
+
+// exitMarked reports whether a drain has marked runID for exit at its turn
+// boundary — the REQUEST taken, which is what a test must wait on before it
+// releases the turn, or the boundary may beat the request.
+func exitMarked(c *Coordinator, runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rt := c.attach[runID]
+	return rt != nil && rt.exitRequested != nil
+}
+
+// TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun forces the ordering
+// the drain's REQUEST cannot prevent: the drain reads the run as EXECUTING,
+// and the child's turn boundary lands before the exit mark does. The boundary
+// then finds no request, parks the child idle, and the mark arrives on a turn
+// that has already ended. Nothing will ever bring that child to another
+// boundary, so a WAIT loop that counts an idle child as still running holds
+// the run live for the whole drain bound — the FINAL leak, reopened by
+// timing alone.
+func TestFinalReport_BoundaryRacingTheRequestStillEndsTheRun(t *testing.T) {
+	resetStrictness(t)
+	gate := make(chan struct{})
+	sp := startRunSpawner(func() *scriptedChat { return &scriptedChat{Gate: gate} })
+	c := newTestCoordinator(t, sp, nil)
+	c.drainRequestHook = func(runID string) {
+		close(gate)
+		deadline := time.Now().Add(conformanceWait)
+		for c.runState(runID) != StateIdle && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "do the thing", "", "")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateExecuting }, conformanceWait, 10*time.Millisecond)
+
+	c.recordSummary(out.Harp, out.RunID, 1, finalSummary("FINAL: the deliverable"))
+
+	require.Eventually(t, func() bool { return rosterState(c, out.Harp) == StateEnded }, conformanceWait, 10*time.Millisecond,
+		"a child whose boundary beat the exit mark must still be ended, not held idle for the drain bound")
+	assert.Equal(t, CauseFinalReported, runCause(c, out.RunID))
 }

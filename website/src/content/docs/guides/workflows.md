@@ -52,9 +52,11 @@ ctxloom review
 Content from a third-party remote is withheld from the engine until a human has
 looked at it. Skip this and the run still launches — the fragments are simply
 missing from the assembled context, with an "N item(s) awaiting review" notice
-on stderr. (Content signed by a key you trust is exempt: `ctxloom-default` ships
-with a trusted signer, so it needs no review. A `community` or `team` remote
-does.)
+on stderr. (Content signed by a key you trust is exempt. The binary embeds
+ctxloom's publishing key, so `ctxloom-default` bundles signed with it need no
+review; unsigned content from any remote, `ctxloom-default` included, takes the
+review path. A `community` or `team` remote needs review unless you trust its
+publisher's key.)
 
 ### 5. Start Coding
 
@@ -77,8 +79,9 @@ ctxloom profile show default
 
 ### During Development
 
-Your context reaches the engine on its own, provided ctxloom's hooks are applied
-to it, the engine supports hooks, and the content has passed the trust gate. When
+Your context reaches the engine on its own in every `ctxloom run` session,
+provided the content has passed the trust gate. An engine you start directly
+gets it only after `ctxloom manage hooks install`. When
 it does not, the troubleshooting section below is where to look. For specific
 tasks:
 
@@ -324,7 +327,7 @@ ctxloom run -p reviewer -f query-optimization \
 Bind an engine and profiles under a named agent, then run it by name (see [Agents](/concepts/agents/)):
 
 ```bash
-ctxloom agent create reviewer --engine claude-code --profiles reviewer
+ctxloom agent create reviewer --llm claude-code --profiles reviewer
 ctxloom run --agent reviewer "review this change"
 ```
 
@@ -409,10 +412,9 @@ ctxloom run --dry-run
 # Check nothing is being withheld pending review
 ctxloom review --list
 
-# Check hooks are applied
+# Only for an engine you start directly, outside `ctxloom run`:
+# check hooks are applied, and reapply them
 cat .claude/settings.json | jq '.hooks'
-
-# Reapply hooks
 ctxloom manage hooks install
 ```
 

@@ -153,12 +153,14 @@ distilled forms present *at rejection time*. A moved copy later exposed in a dif
 under a different ref, can escape the content component in that form.
 
 **A publisher signature gates only content that travelled.** It decides exposure only for a
-bundle fetched from a remote. A bundle ctxloom reads from a local content directory is trusted
-by locality. Its signature is still checked, and one that no longer covers the bytes earns the
-author a warning, but neither result changes whether the content reaches the agent. So an
-organization cannot ship signed context through an MDM-style drop-in, and the gap does **not**
-fail safe: whatever lands in a local content directory is project content, allowed without
-review, signed or not. Protect those directories the way you protect the trust root.
+bundle fetched from a remote. A bundle in a local content directory is trusted because of where
+it is: someone with write access to your project or home put it there, and ctxloom treats that
+act as the approval. Its signature is still checked, and one that no longer covers the bytes
+earns the author a warning, but neither result changes whether the content reaches the agent.
+Two things follow. Signing a bundle adds nothing when you distribute it by copying it into
+place (an MDM-style drop-in), because the copy is what gets trusted. And anyone who can write
+to a local content directory decides what your agents read, so protect those directories the
+way you protect the trust root.
 
 **One key signs every ctxloom surface.** A single release key signs the default bundles, the
 companion loadouts and the released binaries, so its compromise radius is every signed surface

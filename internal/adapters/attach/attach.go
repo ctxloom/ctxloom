@@ -17,6 +17,7 @@ import (
 	"context"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/hostpty"
 )
@@ -45,18 +46,37 @@ func Start(ctx context.Context, cmd *exec.Cmd, name string, remove func()) (*Ses
 // Name is the container's name — the roster's handle on it.
 func (s *Session) Name() string { return s.name }
 
-// End removes the container by name, then ends the CLI, leaving the master
-// to its reader (hostpty.Session.End). Idempotent.
+// relayGrace bounds how long the run CLI may outlive End. It is a liveness
+// bound for a relay that never finishes (a wedged daemon), not the drain's
+// synchronization: a removed container ends the attach stream, and the CLI
+// exits on its own once it has written the container's last bytes.
+const relayGrace = 10 * time.Second
+
+// End ends the RUNNER — the container, removed by name — and leaves the run
+// CLI to finish relaying and the master to its reader. The pty's child here
+// is the relay, not the runner: the container's last bytes can still be in
+// the daemon's attach stream or the CLI when the runner reports its exit, and
+// ending the CLI then discards them. A CLI still alive relayGrace after End
+// is ended. Idempotent.
 func (s *Session) End() {
 	s.once.Do(func() {
 		if s.remove != nil {
 			s.remove()
 		}
+		go func() {
+			grace := time.NewTimer(relayGrace)
+			defer grace.Stop()
+			select {
+			case <-s.Exited():
+			case <-grace.C:
+				s.Session.End()
+			}
+		}()
 	})
-	s.Session.End()
 }
 
-// Kill is End, then releases the pty. Idempotent; safe after Wait.
+// Kill is End, then ends the CLI at once and releases the pty. Idempotent;
+// safe after Wait.
 func (s *Session) Kill() {
 	s.End()
 	s.Session.Kill()

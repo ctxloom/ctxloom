@@ -128,6 +128,9 @@ type Engine interface {
 	// no hooks returns a codec whose Decode refuses with ErrUnsupported —
 	// unreachable, since no payload arrives.
 	Hooks() HookCodec
+	// Wake is how an idle session of this engine is made to start a turn
+	// (see WakeSpec). An engine with an Interactive mode must decide it.
+	Wake() Declared[WakeSpec]
 }
 
 // Instance is one engine kind bound to one session.

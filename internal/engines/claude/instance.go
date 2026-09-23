@@ -132,6 +132,14 @@ func (c Claude) Transcripts() []engine.TranscriptReader { return c.transcripts }
 // Hooks is claude's hook codec.
 func (c Claude) Hooks() engine.HookCodec { return hookCodec{} }
 
+// Wake is claude's cross-session messaging socket, and it is NOT declared
+// yet: a bypass-permissions receiver may hold a post it cannot attribute to
+// its own child, and the runner is its parent. Until that is measured the
+// absence is the truth.
+func (c Claude) Wake() engine.Declared[engine.WakeSpec] {
+	return engine.Absent[engine.WakeSpec]("claude's wake is its cross-session messaging socket, which is not bound until a bypass-permissions session is measured to accept the runner's post")
+}
+
 // nativeHookEvents is claude's native event for each unified one. Two
 // unified events (pre_shell, post_file_edit) are claude's PreToolUse and
 // PostToolUse narrowed by a matcher, so decoding a native event yields the

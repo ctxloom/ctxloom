@@ -304,6 +304,13 @@ func (m Mock) Transcripts() []engine.TranscriptReader { return m.transcripts }
 // (hooks.go).
 func (m Mock) Hooks() engine.HookCodec { return hookCodec{m.Name} }
 
+// Wake types the wake into the mock's pane. Its input line is a cooked-mode
+// line buffer with no prompt glyph and no decorations, so it is empty
+// exactly when nothing is on it.
+func (m Mock) Wake() engine.Declared[engine.WakeSpec] {
+	return engine.Provide[engine.WakeSpec](engine.TypedWakeSpec{Composer: func(line string) bool { return line == "" }})
+}
+
 // Instance is where REQUIREDNESS is checked, loudly: the mock cannot run a
 // session without a context surface to carry the system prompt.
 func (m Mock) Instance(s engine.Session) (engine.Instance, error) {

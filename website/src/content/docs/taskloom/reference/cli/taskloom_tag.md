@@ -9,11 +9,12 @@ This page is generated from `taskloom tag --help`.
 
 ## taskloom tag
 
-Add and/or remove flat tags on a task
+Add and/or remove tags on a task
 
 ### Synopsis
 
-Add and/or remove flat tags on a task, keyed by its harp ID.
+Add and/or remove tags on a task, keyed by its harp ID. A tag is
+(namespace:)key(=value): "urgent" and "triage:kind=defect" are both tags.
 
 --add and --remove are each repeatable; at least one is required. --add is
 applied before --remove, so a tag named in both ends up removed. See the

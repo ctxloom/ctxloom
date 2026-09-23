@@ -54,7 +54,7 @@ taskloom add <text> [flags]
 ```
   -h, --help              help for add
       --status string     initial status (default: "To Do")
-      --tag stringArray   flat tag to set at creation (repeatable)
+      --tag stringArray   tag to set at creation, (namespace:)key(=value) (repeatable)
       --trigger string    revive condition for a Deferred task (required when --status Deferred)
 ```
 

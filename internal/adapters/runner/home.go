@@ -183,6 +183,9 @@ type HomeConfig struct {
 	// SpoolSweepInterval overrides the spool reconciliation cadence (0 = the
 	// built-in spoolSweepInterval) — see coord.Options.SpoolSweepInterval.
 	SpoolSweepInterval time.Duration
+	// RedialBackoff paces reconnect attempts for both channels (0 =
+	// HomeRedialBackoff). Redial preempts it.
+	RedialBackoff time.Duration
 	// Reporter receives every diagnostic this Home and the courier, doorbell
 	// and terminal injector built on it raise; the runner's composition
 	// chooses the sink. Nil discards.
@@ -194,7 +197,7 @@ type homePark struct {
 	done bool
 }
 
-// HomeRedialBackoff paces reconnect attempts for both channels.
+// HomeRedialBackoff is the default HomeConfig.RedialBackoff.
 const HomeRedialBackoff = 2 * time.Second
 
 // ErrCoordinatorUnreachable answers a plane-2 request that never got through:
@@ -262,6 +265,9 @@ func NewHome(ctx context.Context, cfg HomeConfig) (*Home, error) {
 	// stamped at bind.
 	if h.cfg.Mapper == nil {
 		h.cfg.Mapper = spool.NewHomeMapper()
+	}
+	if h.cfg.RedialBackoff == 0 {
+		h.cfg.RedialBackoff = HomeRedialBackoff
 	}
 	h.spoolOut = coord.NewSpoolWriterCache(h.cfg.Mapper, spool.DirOut, "")
 	h.spoolRefs = make(map[string]spool.Ref)
@@ -359,7 +365,10 @@ func (h *Home) Redial() {
 }
 
 // redialWake is the pending kick: a channel closed and replaced by Redial,
-// which a loop in its backoff selects on beside the timer.
+// which a loop in its backoff selects on beside the timer. A loop takes it
+// BEFORE it dials, not when the backoff starts: a kick that lands while a
+// doomed dial is in flight must still cut the backoff that follows, or the
+// caller who knows the endpoint is back pays the whole backoff anyway.
 func (h *Home) redialWake() <-chan struct{} {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -370,13 +379,14 @@ func (h *Home) redialWake() <-chan struct{} {
 // heartbeats + best-effort RunExited at Close).
 func (h *Home) runnerChannelLoop() {
 	for {
+		wake := h.redialWake()
 		link, err := DialRunner(h.ctx, h.rep, h.cfg.URL, h.cfg.Token, h.cfg.RunID, h.cfg.Harness, h.cfg.Version, h.cfg.Engine)
 		if err != nil {
 			h.rep.WarnOncef("runner dial-home failed (reconnecting; the coordinator synthesizes loss meanwhile): %v", err)
 			select {
-			case <-time.After(HomeRedialBackoff):
+			case <-time.After(h.cfg.RedialBackoff):
 				continue
-			case <-h.redialWake():
+			case <-wake:
 				continue
 			case <-h.ctx.Done():
 				return
@@ -392,8 +402,8 @@ func (h *Home) runnerChannelLoop() {
 			// current, so an unreleased predecessor is a leaked ClientConn.
 			h.releaseLink(link)
 			select {
-			case <-time.After(HomeRedialBackoff):
-			case <-h.redialWake():
+			case <-time.After(h.cfg.RedialBackoff):
+			case <-wake:
 			case <-h.ctx.Done():
 				return
 			}
@@ -412,12 +422,13 @@ func (h *Home) runChannelLoop() {
 		if h.ctx.Err() != nil {
 			return
 		}
+		wake := h.redialWake()
 		if err := h.runChannelOnce(client); err != nil && h.ctx.Err() == nil {
 			h.rep.WarnOncef("run channel down (reconnecting): %v", err)
 		}
 		select {
-		case <-time.After(HomeRedialBackoff):
-		case <-h.redialWake():
+		case <-time.After(h.cfg.RedialBackoff):
+		case <-wake:
 		case <-h.ctx.Done():
 			return
 		}

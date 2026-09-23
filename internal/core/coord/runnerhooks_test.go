@@ -81,6 +81,7 @@ type TestHomeConfig struct {
 	Harp               string
 	Mapper             spool.PathMapper
 	SpoolSweepInterval time.Duration
+	RedialBackoff      time.Duration
 	Reporter           report.Sink
 }
 
@@ -107,8 +108,6 @@ type TestRunnerHooks struct {
 	// ErrCoordinatorUnreachable is the Home's refusal of a request that
 	// never got through.
 	ErrCoordinatorUnreachable error
-	// HomeRedialBackoff is the Home's reconnect pace.
-	HomeRedialBackoff time.Duration
 }
 
 var runnerHooks TestRunnerHooks

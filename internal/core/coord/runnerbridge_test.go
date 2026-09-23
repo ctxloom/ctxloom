@@ -34,6 +34,7 @@ func init() {
 				Harp:               cfg.Harp,
 				Mapper:             cfg.Mapper,
 				SpoolSweepInterval: cfg.SpoolSweepInterval,
+				RedialBackoff:      cfg.RedialBackoff,
 				Reporter:           cfg.Reporter,
 			})
 			if h == nil {
@@ -59,7 +60,6 @@ func init() {
 		FrameCoordinatorMessage:   runner.FrameCoordinatorMessage,
 		CoordinatorFrameOpen:      runner.CoordinatorFrameOpen,
 		ErrCoordinatorUnreachable: runner.ErrCoordinatorUnreachable,
-		HomeRedialBackoff:         runner.HomeRedialBackoff,
 	})
 }
 

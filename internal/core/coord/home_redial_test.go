@@ -9,45 +9,48 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-// TestHome_RedialPreemptsThePendingBackoff pins the product's redial bound:
-// a Home whose coordinator is unreachable waits runnerHooks.HomeRedialBackoff between
-// attempts, and Redial makes the NEXT attempt happen now. Forced against a
-// listener that refuses every connection (each accept is one dial
-// attempt): after the first attempts have been refused and the loops are
-// in their backoff, a kick must produce further attempts well inside the
-// backoff — a restarted coordinator's re-adoption test drives the redial
-// this way instead of waiting on the timer.
+// TestHome_RedialPreemptsThePendingBackoff pins that Redial makes a Home's
+// NEXT dial attempt happen now instead of at the end of its backoff. Forced
+// against a server that fails every RPC (each RPC is one dial attempt by one
+// of the Home's loops), with a backoff so long that no test ever outlives it:
+// once the first attempts have failed and the loops are parked in their
+// backoff, any further attempt can only have come from the kick. The
+// assertion therefore needs no tight deadline.
+//
+// Attempts are counted as RPCs, not TCP accepts: grpc's ClientConn
+// reconnects a refused transport on its own backoff, so an accept count
+// rises with or without a kick and cannot tell the two apart.
 func TestHome_RedialPreemptsThePendingBackoff(t *testing.T) {
+	const redialBackoff = time.Hour
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	var accepts atomic.Int32
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			accepts.Add(1)
-			_ = conn.Close() // refused: the loop goes into its backoff
-		}
-	}()
+	var attempts atomic.Int32
+	srv := grpc.NewServer(grpc.UnknownServiceHandler(func(any, grpc.ServerStream) error {
+		attempts.Add(1)
+		return status.Error(codes.Unavailable, "refused: the loop goes into its backoff")
+	}))
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
 
 	h, err := runnerHooks.NewHome(context.Background(), TestHomeConfig{
 		Reporter: termSink(),
 		URL:      fmt.Sprintf("http://%s/mcp", ln.Addr().String()),
 		Token:    "t", RunID: "run-1", Harness: "mock", Version: "test",
+		RedialBackoff: redialBackoff,
 	})
 	require.NoError(t, err)
 	t.Cleanup(h.Crash)
 
 	// Both loops (RunnerChannel, RunChannel) have dialed once and been refused.
-	require.Eventually(t, func() bool { return accepts.Load() >= 2 }, conformanceWait, 5*time.Millisecond)
-	before := accepts.Load()
+	require.Eventually(t, func() bool { return attempts.Load() >= 2 }, conformanceWait, 5*time.Millisecond)
+	before := attempts.Load()
 
 	h.Redial()
-	require.Eventually(t, func() bool { return accepts.Load() > before }, runnerHooks.HomeRedialBackoff/4, 5*time.Millisecond,
-		"a kicked Home must redial now, not after runnerHooks.HomeRedialBackoff (%s)", runnerHooks.HomeRedialBackoff)
+	require.Eventually(t, func() bool { return attempts.Load() > before }, conformanceWait, 5*time.Millisecond,
+		"a kicked Home must redial now; without the kick the next attempt is %s away", redialBackoff)
 }

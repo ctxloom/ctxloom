@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -169,11 +169,11 @@ func withCtxloomCompanion(t *testing.T, cfg *Config) *Config {
 			Document: []byte("run:\n  version: 1.0.0\n  mcp:\n    ctxloom:\n      command: ctxloom\n      args: [mcp, serve]\n"),
 		}}}, nil
 	}
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	cat := bundles.Resolve(context.Background(), cfg.rep.Sink,
 		bundles.NewProjectReader(cfg.getFS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 		bundles.NewCompanionReader(probe, bundles.WithTrustRoot(root)))
-	cfg.bindGeneration(func() bundles.Catalog { return cat }, cfg.Trust())
+	cfg.bindCatalog(func() bundles.Catalog { return cat })
 	return cfg
 }
 

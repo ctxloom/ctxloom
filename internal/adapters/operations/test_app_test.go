@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // testApp opens the process composition over the real reader with opts
@@ -43,7 +44,7 @@ func (s fixtureSources) Read(context.Context) (*config.Config, []config.Warning,
 }
 
 func (s fixtureSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root)),
 	}
@@ -156,4 +157,27 @@ var packageDirAtStart, _ = os.Getwd()
 func withCtxloomLoadout(t *testing.T, cfg *config.Config) *config.Config {
 	t.Helper()
 	return publishedWith(t, cfg, ctxloomOwnLoadout(t))
+}
+
+// onDiskRoot is the trust root a generation read over appDir holds: the
+// embedded signers plus the user's and appDir's allowed_signers, minus any
+// distrusted — built by configload exactly as a process builds it.
+func onDiskRoot(t *testing.T, appDir string) trust.TrustRoot {
+	t.Helper()
+	cfg, err := configload.Load(configload.WithAppDir(appDir))
+	require.NoError(t, err)
+	return cfg.Trust().Root()
+}
+
+// withOnDiskRoot rebinds cfg's gate over the trust root a generation read over
+// appDir holds (onDiskRoot), keeping compositetest's review and retraction
+// records: for a fixture whose test trusts a publisher by writing its
+// allowed_signers, as a user would.
+func withOnDiskRoot(t *testing.T, cfg *config.Config, appDir string) *config.Config {
+	t.Helper()
+	_, records, retraction := compositetest.Ports()
+	tr, err := composite.NewTrust(onDiskRoot(t, appDir), records, retraction)
+	require.NoError(t, err)
+	cfg.BindTrustForTesting(tr)
+	return cfg
 }

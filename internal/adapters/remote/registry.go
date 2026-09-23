@@ -30,10 +30,13 @@ type Registry struct {
 // RegistryOption is a functional option for configuring a Registry.
 type RegistryOption func(*Registry)
 
-// WithRegistryFS sets a custom filesystem implementation (for testing).
+// WithRegistryFS reads and writes the registry through fs. A nil fs keeps the
+// OS filesystem, so a caller holding an optional filesystem passes it as-is.
 func WithRegistryFS(fs afero.Fs) RegistryOption {
 	return func(r *Registry) {
-		r.fs = fs
+		if fs != nil {
+			r.fs = fs
+		}
 	}
 }
 

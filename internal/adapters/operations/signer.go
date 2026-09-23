@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/core/config"
@@ -294,7 +295,7 @@ type SignerListing struct {
 	// "user"/"project" entries — removing one of those deletes the line
 	// outright, there is nothing left to tag. A suppressed embedded entry is
 	// still LISTED (visibility never regresses just because it was acted on)
-	// but config.TrustRoot() excludes it from the union, so it grants no
+	// but the config generation's Trust().Root() excludes it from the union, so it grants no
 	// trust even though `signer list`/`show` still shows it — the exact
 	// parallel to a removed user/project entry, which also stays visible in
 	// nothing but git history, never hidden.
@@ -320,7 +321,7 @@ func entryFingerprint(e allowedsigners.Entry) string {
 // (embedded defaults, user store, project store — spec §7), each tagged
 // with the store it came from. Malformed lines are silently omitted (they
 // grant no trust and Parse already reports them via clidiag warnings at
-// config load time — cfg.TrustRoot() is the load-bearing union; this
+// config load time — cfg.Trust().Root() is the load-bearing union; this
 // function is display-only and re-parses the same files to retain
 // per-entry Source tagging that Union collapses).
 //
@@ -331,21 +332,21 @@ func entryFingerprint(e allowedsigners.Entry) string {
 // binary — hiding it here was itself a defect (this function used to omit
 // it entirely, justified by a comment claiming the embedded root was "empty
 // today"; that stopped being true the moment a release key was actually
-// embedded). config.EmbeddedSigners() returns a READ view — the
+// embedded). configload.EmbeddedSigners() returns a READ view — the
 // Store type exposes no mutator — so
 // this enumerates entries with no mutation path opening up. An embedded entry
 // is NOT removable via this CLI (only a new binary changes the compiled-in
 // bytes) — RemoveSigner reports that honestly, and can instead persist a
-// local suppression (Suppressed above) that TrustRoot() subtracts.
+// local suppression (Suppressed above) that the trust root subtracts.
 func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	fs = getFS(fs)
 	var out []SignerListing
 
 	suppressed := map[string]bool{}
 	if cfg != nil {
-		suppressed = cfg.SuppressedEmbeddedPrincipals()
+		suppressed = configload.SuppressedEmbeddedPrincipals(cfg)
 	}
-	for _, e := range config.EmbeddedSigners().Entries() {
+	for _, e := range configload.EmbeddedSigners().Entries() {
 		out = append(out, SignerListing{
 			Entry:       e,
 			Fingerprint: entryFingerprint(e),
@@ -451,7 +452,7 @@ type RemoveSignerResult struct {
 	// on-disk line was deleted). The embedded key's compiled-in bytes are
 	// never touched —
 	// only a new binary changes those — but the suppression is REAL:
-	// config.TrustRoot() subtracts the matching embedded entry from the
+	// the config generation's Trust().Root() subtracts the matching embedded entry from the
 	// trust root on every subsequent decision, so content signed only by
 	// that key is withheld from here on (this machine, or this project when
 	// writing to the project store).
@@ -478,7 +479,7 @@ type RemoveSignerResult struct {
 // skipping the embedded check and leaving the embedded key trusted after the
 // on-disk line was gone. This is the practical equivalent of removal for a
 // root nothing can literally edit, and it is a REAL effect, not a message:
-// TrustRoot() (spec §7, §9.2) honors it on every subsequent decision.
+// the trust root (spec §7, §9.2) honors it from the next generation on.
 func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerResult, error) {
 	if req.Principal == "" {
 		return nil, fmt.Errorf("a principal is required")
@@ -593,14 +594,14 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 }
 
 // matchingEmbeddedEntry returns the first entry in ctxloom's compiled-in
-// trust root (config.EmbeddedSigners()) whose Principals pattern-list
+// trust root (configload.EmbeddedSigners()) whose Principals pattern-list
 // matches principal (Entry.MatchesPrincipal — ssh_config PATTERNS, may be a
 // glob), or nil if none does. Callers need the matched ENTRY, not just a
 // bool: suppressEmbeddedPrincipal must record what the entry's own
 // Principals actually say, not the (possibly glob-expanded) identity the
 // user typed — see its doc for why.
 func matchingEmbeddedEntry(principal string) *allowedsigners.Entry {
-	for _, e := range config.EmbeddedSigners().Entries() {
+	for _, e := range configload.EmbeddedSigners().Entries() {
 		if e.MatchesPrincipal(principal) {
 			entry := e
 			return &entry
@@ -625,7 +626,7 @@ func distrustedSignersStorePath(cfg *config.Config, project bool) (path string, 
 // suppressEmbeddedPrincipal persists a LOCAL record that entry — an embedded
 // entry matchingEmbeddedEntry matched by GLOB (Entry.MatchesPrincipal,
 // ssh_config PATTERNS) against the principal the user typed — is no longer
-// trusted. The subtraction config.TrustRoot() (via filterSuppressedPrincipals
+// trusted. The subtraction the config generation's Trust().Root() (via filterSuppressedPrincipals
 // -> Entry.MatchesAnyPrincipal) honors on every future decision is a LITERAL
 // membership check against the embedded entry's OWN Principals strings, not
 // a glob match. Recording the user-typed identity instead of entry's actual

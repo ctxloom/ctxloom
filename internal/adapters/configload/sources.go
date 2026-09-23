@@ -177,6 +177,7 @@ func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, e
 	}
 	appDir, source := s.target(fs)
 	b := config.NewBuilder(fs, injectedFS, appDir, source)
+	b.BindProfileResolvers(profileResolvers(fs, appDir))
 	if s.validatorErr != nil {
 		// A schema-compile failure means every config in this process loads
 		// with ZERO validation and every override is reclassified from
@@ -197,6 +198,30 @@ func (s *Sources) Read(ctx context.Context) (*config.Config, []config.Warning, e
 	return cfg, cfg.GetWarnings(), nil
 }
 
+// profileResolvers opens the remotes registry under appDir once for the read
+// and returns its two profile lookups: local profile name → short remote, and
+// remote alias → repository URL. Both are nil when the registry cannot be
+// read, which the profile loader treats as "no registry" (names and refs are
+// read verbatim).
+func profileResolvers(fs afero.Fs, appDir string) (remoteOf, urlOf func(string) string) {
+	registry, err := remote.NewRegistry(paths.RemotesPath(appDir), remote.WithRegistryFS(fs))
+	if err != nil {
+		return nil, nil
+	}
+	remoteOf = func(name string) string {
+		short, _ := registry.ResolveItemRemote(name)
+		return short
+	}
+	urlOf = func(alias string) string {
+		rem, err := registry.Get(alias)
+		if err != nil || rem == nil {
+			return ""
+		}
+		return rem.URL
+	}
+	return remoteOf, urlOf
+}
+
 // target is the bootstrap stage: WHICH .ctxloom directory this read layers
 // over. A pinned appDir that IS the user home is home acting alone, not an
 // arbitrary project — the write side (Save's layer-scope filter) keys on
@@ -212,11 +237,13 @@ func (s *Sources) target(fs afero.Fs) (string, config.ConfigSource) {
 }
 
 // Readers are the bundle sources of cfg's generation, in precedence order —
+// verifying against the generation's trust root, which the Owner binds
+// (TrustPorts runs first) before it asks for them —
 // a later reader wins a name collision, so pinned remote content shadows a
 // stale extracted copy on disk and a companion's own ref, which nothing else
 // can claim, comes last.
 func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Reader, error) {
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 	readers := []bundles.Reader{
 		bundles.NewProjectReader(cfg.FS(), cfg.BundleReaderDirs(), bundles.WithTrustRoot(root), bundles.WithReaderReporter(cfg.Reporter())),
 	}
@@ -234,7 +261,7 @@ func (s *Sources) Readers(_ context.Context, cfg *config.Config) ([]bundles.Read
 // out: a generation with a port missing is refused (composite.NewTrust), and
 // a listing that means "ungated" says so by name (composite.Ungated).
 func (s *Sources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root := cfg.TrustRoot()
+	root := signerFilesOf(cfg).trustStore()
 	fs := cfg.FS()
 	if fs == nil {
 		fs = afero.NewOsFs()

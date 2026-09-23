@@ -8,14 +8,13 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/report"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/convert"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/composite/compositetest"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/profiles"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -1265,35 +1264,6 @@ func TestFragmentRef_MarshalYAML(t *testing.T) {
 		assert.Equal(t, "prioritized", loaded[1].Name)
 		assert.Equal(t, 5, loaded[1].Priority)
 	})
-}
-
-// TestRewriteRetiredSeedParents verifies bundle-shipped profiles whose parents
-// were authored in the retired top-level "@profiles/" grammar are rewritten
-// in-memory to their bundle-shipped successor at seed time — seeded profiles
-// never pass through the loader's document upgrade pipeline, so the seed
-// post-pass owns this rewrite. Unmatched and ambiguous parents stay verbatim
-// (profiles/upgrade.go owns the discovery rule).
-func TestRewriteRetiredSeedParents(t *testing.T) {
-	const repo = "https://github.com/ctxloom/ctxloom-default"
-	loaded := map[string]*profiles.Profile{
-		repo + "@bundles/ai-developer#profiles/developer": {},
-		repo + "@bundles/kit#profiles/dev": {
-			Parents: []string{
-				repo + "@profiles/developer",    // retired, one successor → rewritten
-				repo + "@profiles/go-developer", // retired, no successor → verbatim
-				"local-parent",                  // local name → untouched
-			},
-		},
-	}
-
-	rewriteRetiredSeedParents(loaded)
-
-	got := loaded[repo+"@bundles/kit#profiles/dev"].Parents
-	assert.Equal(t, []string{
-		repo + "@bundles/ai-developer#profiles/developer",
-		repo + "@profiles/go-developer",
-		"local-parent",
-	}, got)
 }
 
 // Regression: Save round-trips the labeled-config registry, the role map, the

@@ -80,10 +80,13 @@ func (t Trust) Authorizer() bundles.Authorizer {
 func (t Trust) Gates() bool { return t.gate == nil || !t.gate.ungated }
 
 // Root is the generation's trust root, for the surfaces that verify a
-// signature themselves (the readers, companion admission).
+// signature themselves (the readers, companion admission). A Trust that holds
+// no root — zero, Ungated, Gated — answers with trust.NoSigners, which trusts
+// no key: a signature checked against a Trust no generation built fails
+// closed instead of dereferencing nil.
 func (t Trust) Root() TrustRoot {
-	if t.gate == nil {
-		return nil
+	if t.gate == nil || t.gate.root == nil {
+		return trust.NoSigners{}
 	}
 	return t.gate.root
 }

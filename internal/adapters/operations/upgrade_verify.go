@@ -78,7 +78,7 @@ func verifyAdvance(ctx context.Context, cfg *config.Config, factory remote.Fetch
 		return remote.Verified{}, nil
 	}
 	var v remote.Verified
-	_, v, err = bundles.ReadRemoteRef(ctx, factory, auth, ref, p.Hash, remotetree.PullTreeFetcher, cfg.TrustRoot())
+	_, v, err = bundles.ReadRemoteRef(ctx, factory, auth, ref, p.Hash, remotetree.PullTreeFetcher, cfg.Trust().Root())
 	switch {
 	case err == nil:
 	case errors.Is(err, errs.ErrRemoteContentNotFound) || errors.Is(err, content.ErrNotFound),

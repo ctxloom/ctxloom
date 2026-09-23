@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -69,6 +70,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		opts = composite.Options{DropWithheld: true, Static: static}
 	)
 	var versions bundles.BundleVersionResolver
+	var versionRoot trust.TrustRoot
 	if req.Pipeline != nil {
 		// An injected stage carries its own gate, links, form and versions.
 		opts.Pipeline = req.Pipeline
@@ -77,6 +79,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		tr = composite.Gated(gate)
 		cat = req.Pipeline.Loader().Catalog()
 		versions = req.Pipeline.Loader().VersionResolver()
+		versionRoot = req.Pipeline.Loader().VersionRoot()
 	} else {
 		// A generation with no gate cannot deliver: refused at entry, by
 		// sentinel.
@@ -88,6 +91,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		cat = cfg.Catalog()
 		opts.PreferDistilled = cfgPreferDistilled(cfg)
 		versions = cfg.VersionResolver()
+		versionRoot = tr.Root()
 		opts.Versions = versions
 	}
 
@@ -104,7 +108,7 @@ func AssemblePackage(ctx context.Context, cfg *config.Config, req PackageRequest
 		opts.Hooks = *managedhooks.AssembleFor(terminalReporter(), cfg, req.WorkDir, "", resolved).Wire()
 		opts.Statusline = managedStatuslineEnabled(cfg)
 	}
-	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions})
+	sel, err := composite.Select(resolved, cat, composite.SelectRequest{Fragments: req.Fragments, Tags: req.Tags, Versions: versions, VersionRoot: versionRoot})
 	if err != nil {
 		return composite.Package{}, err
 	}

@@ -53,7 +53,7 @@ func hashGate(allowed map[string]bool) Authorizer {
 // per-version fetch failure).
 func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle, gate Authorizer) *Pipeline {
 	t.Helper()
-	resolver := func(_canonical, commit string) (*Bundle, error) {
+	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*Bundle, error) {
 		b, ok := versions[commit]
 		if !ok {
 			return nil, fmt.Errorf("fake resolver: no commit %q", commit)
@@ -62,7 +62,7 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 		return &clone, nil
 	}
 	return NewPipeline(
-		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver),
+		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver, nil),
 		gate, LinksUnchecked(), true)
 }
 

@@ -44,7 +44,7 @@ func Assemble(ctx context.Context, cat bundles.Catalog, sel Selection, tr Trust,
 	if pipe == nil {
 		loader := bundles.LoaderOf(cat)
 		if opts.Versions != nil {
-			loader.WithVersionResolver(opts.Versions)
+			loader.WithVersionResolver(opts.Versions, tr.Root())
 		}
 		pipe = bundles.NewPipeline(loader, tr.Authorizer(), linkGrant(opts.MCP), opts.PreferDistilled)
 	}

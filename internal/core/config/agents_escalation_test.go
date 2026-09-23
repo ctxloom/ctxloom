@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

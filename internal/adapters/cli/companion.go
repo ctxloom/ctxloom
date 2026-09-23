@@ -20,7 +20,7 @@ func pinAdmittedCompanions() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return companions.PinAdmittedCompanions(store, loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot())
+	return companions.PinAdmittedCompanions(store, loadConfigOrFallback(GetConfig, os.Stderr).Trust().Root())
 }
 
 // The exec-consent CLI: the scriptable half of the trust-on-first-use decision
@@ -96,7 +96,7 @@ type companionListing struct {
 }
 
 func runCompanionListCmd(cmd *cobra.Command, _ []string) error {
-	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
+	root := loadConfigOrFallback(GetConfig, os.Stderr).Trust().Root()
 	// prompt=false: merely LOOKING at companion state must never itself run a
 	// foreign binary. AdmitCompanions decides without executing anything.
 	admissions := companions.AdmitCompanions(companions.DiscoverCompanions(), root)
@@ -151,7 +151,7 @@ type companionShow struct {
 func runCompanionShowCmd(cmd *cobra.Command, args []string) error {
 	// The trust root is CONFIG-provided, so this shows the decision the real
 	// probes would make on this machine rather than a second answer.
-	root := loadConfigOrFallback(GetConfig, os.Stderr).TrustRoot()
+	root := loadConfigOrFallback(GetConfig, os.Stderr).Trust().Root()
 	admissions := companions.AdmitCompanions([]string{args[0]}, root)
 	a := admissions[0]
 	payload := companionShow{Bin: a.Bin, Path: a.Path, SHA256: a.SHA256, Allowed: a.Allow, Reason: string(a.Reason)}

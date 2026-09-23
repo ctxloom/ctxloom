@@ -89,7 +89,7 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 // TestSetStatusline_PersistsPreference proves SetStatusline's SAVE serializes
 // the preference faithfully. Read back via ParseConfig (a single-document
 // parse, no layering) rather than a full the config read: config.statusline is
-// ScopeMachine (internal/adapters/configload/layerscope) — whether ctxloom may own THIS
+// ScopeMachine (internal/core/config/layerscope) — whether ctxloom may own THIS
 // terminal is a per-machine fact, so a committed PROJECT file (every clone's
 // copy, which is what SetStatusline writes to — there is no separate
 // machine-scoped project file yet) no longer has it take effect on a real

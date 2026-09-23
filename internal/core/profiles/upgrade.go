@@ -6,6 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
@@ -76,7 +77,7 @@ func rewriteCommandSelector(ref string) (string, bool) {
 // resolve, sync, or lock. The rewrite is discovery-based, not syntactic — which
 // bundle now ships the profile is unknowable from the ref alone — so it targets
 // the one seeded bundle profile the same repo ships under that name
-// (FindBundleProfileKey). An unmatched parent (successor bundle not yet pulled,
+// (findBundleProfileKey). An unmatched parent (successor bundle not yet pulled,
 // profile dropped upstream, or ambiguous) is left verbatim per the
 // fault-tolerance rule of this pipeline: persist the authored form and let the
 // resolver warn, rather than guess. Idempotent: successor-form ("#profiles/")
@@ -109,26 +110,35 @@ func (u retiredParentUpgrade) rewrite(ref string) (string, bool) {
 	if !ok {
 		return ref, false
 	}
-	successor, found := FindBundleProfileKey(u.seeded, url, name)
+	successor, found := findBundleProfileKey(u.seeded, url, name)
 	if !found {
 		return ref, false
 	}
 	return successor, true
 }
 
-// FindBundleProfileKey returns the canonical "<bundle>#profiles/<name>" key in
-// seeded for the profile shipped by repo url under the bare name, when exactly
-// one bundle from that repo ships it. Ambiguity — two bundles from the same
-// repo shipping the same profile name — yields false: a migration must not
-// guess between them. Exported so the config bundle-profile seed applies the
-// same retired-parent rewrite to profiles that arrive already parsed (inside
-// bundles) and never pass through the loader's document pipeline.
-func FindBundleProfileKey(seeded map[string]*Profile, url, name string) (string, bool) {
-	prefix := url + "@" + remote.ItemTypeBundle.DirName() + "/"
-	suffix := remote.ProfileSelector + name
+// findBundleProfileKey returns the key in seeded for the profile shipped by
+// repo url under the bare name, when exactly one bundle from that repo ships
+// it. Ambiguity — two bundles from the same repo shipping the same profile
+// name — yields false: a migration must not guess between them.
+//
+// A seeded key is the bundle's canonical identity plus "#profiles/<name>", and
+// url is however the retired ref spelled the repository (https, scp, file), so
+// the two are compared as REPOSITORIES — each parsed and normalized by the
+// repo-URL grammar — never as string prefixes.
+func findBundleProfileKey(seeded map[string]*Profile, url, name string) (string, bool) {
+	repo := refuri.NormalizeURL(url)
+	if repo == "" {
+		return "", false
+	}
 	var match string
 	for key := range seeded {
-		if !strings.HasPrefix(key, prefix) || !strings.HasSuffix(key, suffix) {
+		bundle, profile, ok := remote.SplitBundleProfileRef(key)
+		if !ok || profile != name {
+			continue
+		}
+		ref, err := remote.ParseReference(bundle)
+		if err != nil || ref.URL == "" || refuri.NormalizeURL(ref.URL) != repo {
 			continue
 		}
 		if match != "" {
@@ -291,4 +301,23 @@ func splitBundleSelector(ref string) (base, item string) {
 		}
 	}
 	return ref, ""
+}
+
+// RewriteRetiredParents rewrites, in place, every seeded profile parent
+// authored in the retired top-level "@profiles/" grammar to its bundle-shipped
+// successor: the one seeded bundle profile the repo ships under that name,
+// verbatim when unmatched or ambiguous. Seeded profiles arrive already parsed
+// and never pass through a loader's document pipeline, so the seed applies the
+// same rule (findBundleProfileKey) here. In-memory only: a seeded profile is
+// read-only and migrates at its source.
+func RewriteRetiredParents(seeded map[string]*Profile) {
+	for _, p := range seeded {
+		for i, parent := range p.Parents {
+			if url, name, ok := remote.SplitRetiredProfileRef(parent); ok {
+				if successor, found := findBundleProfileKey(seeded, url, name); found {
+					p.Parents[i] = successor
+				}
+			}
+		}
+	}
 }

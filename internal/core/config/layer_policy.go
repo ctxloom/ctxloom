@@ -3,7 +3,7 @@ package config
 import (
 	kmaps "github.com/knadh/koanf/maps"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/configload/layerscope"
+	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 )
 
 // scopePolicy is ctxloom's DefaultPolicy, resolved once — Policy is an

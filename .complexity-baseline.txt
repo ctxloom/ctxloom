@@ -126,7 +126,7 @@
 ./internal/core/config/config.go|loadLayeredConfig cfg * Config , homeConfigPath , projectConfigPath string , validator * schema . ConfigValidator , fs afero . Fs , product confload . Product , overrides confload . Overrides|1|12|loadLayeredConfig|1615-1667
 ./internal/core/config/config_migrate.go|(u agentProfileCanonicalizeUpgrade)Apply root * yaml . Node|1|11|Apply|79-107
 ./internal/core/config/fixture_alias_test.go|containerAliases v reflect . Value , path string , out map [ uintptr ] string|1|17|containerAliases|35-73
-./internal/adapters/configload/layerscope/schema_walk_test.go|walkSchemaLeavesDepth root , node map [ string ] any , path [ ] string , visit func path [ ] string , depth int|1|14|walkSchemaLeavesDepth|65-107
+./internal/core/config/layerscope/schema_walk_test.go|walkSchemaLeavesDepth root , node map [ string ] any , path [ ] string , visit func path [ ] string , depth int|1|14|walkSchemaLeavesDepth|65-107
 ./internal/core/config/unknown_keys.go|classifyValidationError configPath string , validator * schema . ConfigValidator , err error|1|11|classifyValidationError|91-131
 ./internal/adapters/confpatch/confpatch.go||1|18||139-228
 ./internal/adapters/confpatch/record.go|(s*Store)Last target string|1|11|Last|112-153

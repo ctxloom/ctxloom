@@ -56,13 +56,13 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -676,7 +676,7 @@ func j001600AssertReviewState(w *World, fragment, want string) error {
 // a principal nothing trusts any more, which passes for the wrong reason.
 func j001600EmbeddedPrincipals() []string {
 	var out []string
-	for _, e := range config.EmbeddedSigners().Entries() {
+	for _, e := range configload.EmbeddedSigners().Entries() {
 		out = append(out, e.Principals...)
 	}
 	return out

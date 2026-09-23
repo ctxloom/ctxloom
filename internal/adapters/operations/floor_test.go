@@ -30,7 +30,7 @@ func floorRepo(t *testing.T, firstVersion string) (baseDir, src, ref string, sig
 	ref = "file://" + src + "@bundles/demo"
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"\n")
 
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	_, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	lm := remote.NewLockfileManager(baseDir)
@@ -57,7 +57,7 @@ func floorEntry(t *testing.T, baseDir, ref string) remote.LockEntry {
 // floor refuses it, and the pin stays on the release it had.
 func TestUpgrade_ARollbackToAnOlderSignedReleaseIsRefused(t *testing.T) {
 	baseDir, src, ref, signer, first := floorRepo(t, "1.2.0")
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
 	res, err := UpgradeDependencies(context.Background(), cfg, nil)
@@ -71,7 +71,7 @@ func TestUpgrade_ARollbackToAnOlderSignedReleaseIsRefused(t *testing.T) {
 
 func TestUpgrade_AllowDowngradeNamingTheRefMovesItAndLowersTheFloor(t *testing.T) {
 	baseDir, src, ref, signer, _ := floorRepo(t, "1.2.0")
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	older := commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
 	res, err := UpgradeDependencies(context.Background(), cfg, []string{ref})
@@ -84,7 +84,7 @@ func TestUpgrade_AllowDowngradeNamingTheRefMovesItAndLowersTheFloor(t *testing.T
 
 func TestUpgrade_AllowDowngradeNamingAnotherRefDoesNotApply(t *testing.T) {
 	baseDir, src, ref, signer, first := floorRepo(t, "1.2.0")
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 
 	res, err := UpgradeDependencies(context.Background(), cfg, []string{"https://example.test/other@bundles/x"})
@@ -95,7 +95,7 @@ func TestUpgrade_AllowDowngradeNamingAnotherRefDoesNotApply(t *testing.T) {
 
 func TestUpgrade_AForwardMoveRecordsTheNewFloorAndPublisher(t *testing.T) {
 	baseDir, src, ref, signer, _ := floorRepo(t, "1.2.0")
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	newer := commitTree(t, src, demoTreeFilesAt(t, signer, "new\n", "1.3.0"), false)
 
 	res, err := UpgradeDependencies(context.Background(), cfg, nil)
@@ -109,7 +109,7 @@ func TestUpgrade_AForwardMoveRecordsTheNewFloorAndPublisher(t *testing.T) {
 
 func TestUpgrade_StrippingTheSignatureDoesNotEscapeTheFloor(t *testing.T) {
 	baseDir, src, ref, _, first := floorRepo(t, "1.2.0")
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	commitTree(t, src, demoTreeFilesAt(t, nil, "unsigned\n", "9.0.0"), false)
 
 	res, err := UpgradeDependencies(context.Background(), cfg, nil)
@@ -121,7 +121,7 @@ func TestUpgrade_StrippingTheSignatureDoesNotEscapeTheFloor(t *testing.T) {
 
 func TestLockDependencies_CarriesTheFloorForward(t *testing.T) {
 	baseDir, _, ref, _, _ := floorRepo(t, "1.2.0")
-	_, err := LockDependencies(context.Background(), testConfigWithSCMPath(baseDir), LockDependenciesRequest{FailOnConflict: true})
+	_, err := LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)
 	got := floorEntry(t, baseDir, ref)
 	assert.Equal(t, "1.2.0", got.SignedVersion)
@@ -138,13 +138,13 @@ func TestLockDependencies_RefusesToMoveAPinBelowItsFloor(t *testing.T) {
 	// A relock reads the clone cache as it stands; sync refreshes it first, and
 	// so does this test, so the older commit is actually readable and the
 	// refusal is the rollback rather than "not found, so not signed".
-	refreshRepoCaches(context.Background(), NewRepoCache(testConfigWithSCMPath(baseDir)), []string{"file://" + src})
+	refreshRepoCaches(context.Background(), NewRepoCache(withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)), []string{"file://" + src})
 
-	_, err := LockDependencies(context.Background(), testConfigWithSCMPath(baseDir), LockDependenciesRequest{FailOnConflict: true})
+	_, err := LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{FailOnConflict: true})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, release.ErrRollback), "got %v", err)
 
-	_, err = LockDependencies(context.Background(), testConfigWithSCMPath(baseDir), LockDependenciesRequest{})
+	_, err = LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{})
 	require.NoError(t, err, "the startup relock never blocks: it keeps the pin and warns")
 	got := floorEntry(t, baseDir, ref)
 	assert.Equal(t, first, got.SHA)
@@ -158,7 +158,7 @@ func TestLockDependencies_AnUnreadableLockfileFailsRatherThanStartingEmpty(t *te
 	lockPath := remote.NewLockfileManager(baseDir).Path()
 	require.NoError(t, os.WriteFile(lockPath, []byte("bundles: [this is not a map\n"), 0o644))
 
-	_, err := LockDependencies(context.Background(), testConfigWithSCMPath(baseDir), LockDependenciesRequest{})
+	_, err := LockDependencies(context.Background(), withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir), LockDependenciesRequest{})
 	require.Error(t, err)
 }
 

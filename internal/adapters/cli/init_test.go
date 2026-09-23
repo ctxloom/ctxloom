@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -65,15 +65,15 @@ func TestCtxloomDefaultTrusted(t *testing.T) {
 
 	t.Run("an unmodified trust root trusts ctxloom's embedded publishing key", func(t *testing.T) {
 		dir := t.TempDir()
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
-		cfg.SetFS(afero.NewMemMapFs())
+		cfg, err := configload.Load(configload.WithFS(afero.NewMemMapFs()), configload.WithAppDir(dir))
+		require.NoError(t, err)
 
 		assert.True(t, ctxloomDefaultTrusted(cfg),
 			"an unmodified trust root must still trust ctxloom's own embedded publishing key")
 	})
 
 	t.Run("a locally distrusted embedded principal is no longer trusted", func(t *testing.T) {
-		embedded := config.EmbeddedSigners().Entries()
+		embedded := configload.EmbeddedSigners().Entries()
 		require.NotEmpty(t, embedded, "the embedded trust root must ship at least one signer for this test to mean anything")
 		principal := embedded[0].Principals[0]
 
@@ -81,8 +81,8 @@ func TestCtxloomDefaultTrusted(t *testing.T) {
 		fs := afero.NewMemMapFs()
 		require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(dir), []byte(principal+"\n"), 0o644))
 
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{dir}})
-		cfg.SetFS(fs)
+		cfg, err := configload.Load(configload.WithFS(fs), configload.WithAppDir(dir))
+		require.NoError(t, err)
 
 		assert.False(t, ctxloomDefaultTrusted(cfg),
 			"a locally distrusted embedded principal must no longer be reported as trusted")

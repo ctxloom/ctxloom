@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -9,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -43,13 +44,16 @@ func TestSeedCompanionTrust_WritesTheGrantIntoAStoreThatCanRevokeIt(t *testing.T
 
 	// The grant must DECIDE the question, not merely appear in a file: a
 	// well-formed line naming the wrong key or namespace satisfies a substring
-	// check and still admits nothing.
+	// check and still admits nothing. The grant takes effect from the next
+	// generation, as it would for the next command.
+	_, err = App().Reload(context.Background())
+	require.NoError(t, err)
 	cfg, err := GetConfig()
 	require.NoError(t, err)
-	embedded := config.EmbeddedSigners().Entries()
+	embedded := configload.EmbeddedSigners().Entries()
 	require.NotEmpty(t, embedded, "the embedded root must ship a key for this to mean anything")
 	assert.True(t,
-		cfg.TrustRoot().TrustedForNamespace(embedded[0].PublicKey, signing.NamespaceCompanion, time.Now()).Trusted,
+		cfg.Trust().Root().TrustedForNamespace(embedded[0].PublicKey, signing.NamespaceCompanion, time.Now()).Trusted,
 		"after seeding, the trust root must authorize ctxloom's release key to sign the companions it ships")
 }
 
@@ -66,6 +70,9 @@ func TestSeedCompanionTrust_IsIdempotent(t *testing.T) {
 	store := seedCompanionTrust(true)
 	require.NotEmpty(t, store)
 
+	// A re-init is a new process, reading a new generation.
+	_, err := App().Reload(context.Background())
+	require.NoError(t, err)
 	assert.Empty(t, seedCompanionTrust(true),
 		"a re-init over an already-authorized project must write nothing at all")
 

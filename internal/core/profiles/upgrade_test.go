@@ -1,12 +1,14 @@
 package profiles
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -149,8 +151,8 @@ func TestBundleRefCanonicalize_NoContextNoOp(t *testing.T) {
 // "<bundle>#profiles/<name>" refs the config bundle-profile seed produces.
 func testBundleProfileSeed() map[string]*Profile {
 	return map[string]*Profile{
-		defaultURL + "@bundles/ai-developer#profiles/developer": {},
-		defaultURL + "@bundles/default#profiles/default":        {},
+		seedKey(defaultURL, "ai-developer", "developer"): {},
+		seedKey(defaultURL, "default", "default"):        {},
 	}
 }
 
@@ -164,7 +166,7 @@ func TestRetiredParentUpgrade_RewritesToBundleProfile(t *testing.T) {
 
 	require.NotEmpty(t, applied, "retired parent should fire the upgrade")
 	got := string(out)
-	assert.Contains(t, got, "- "+defaultURL+"@bundles/ai-developer#profiles/developer")
+	assert.Contains(t, got, "- "+seedKey(defaultURL, "ai-developer", "developer"))
 	assert.NotContains(t, got, "@profiles/", "no retired-grammar ref should remain")
 }
 
@@ -177,7 +179,7 @@ func TestRetiredParentUpgrade_DropsVersionPin(t *testing.T) {
 	out, applied := profileUpgrades(personalURL, testAliasToURL, testBundleProfileSeed()).Run(in)
 
 	require.NotEmpty(t, applied)
-	assert.Contains(t, string(out), "- "+defaultURL+"@bundles/ai-developer#profiles/developer")
+	assert.Contains(t, string(out), "- "+seedKey(defaultURL, "ai-developer", "developer"))
 }
 
 // TestRetiredParentUpgrade_UnmatchedLeftVerbatim verifies fault tolerance: a
@@ -198,7 +200,7 @@ func TestRetiredParentUpgrade_UnmatchedLeftVerbatim(t *testing.T) {
 // must not guess between them.
 func TestRetiredParentUpgrade_AmbiguousLeftVerbatim(t *testing.T) {
 	seed := testBundleProfileSeed()
-	seed[defaultURL+"@bundles/other-kit#profiles/developer"] = &Profile{}
+	seed[seedKey(defaultURL, "other-kit", "developer")] = &Profile{}
 	in := []byte("parents:\n  - " + defaultURL + "@profiles/developer\n")
 
 	out, applied := profileUpgrades(personalURL, testAliasToURL, seed).Run(in)
@@ -226,18 +228,18 @@ func TestRetiredParentUpgrade_Idempotent(t *testing.T) {
 func TestFindBundleProfileKey(t *testing.T) {
 	seed := testBundleProfileSeed()
 
-	key, ok := FindBundleProfileKey(seed, defaultURL, "developer")
+	key, ok := findBundleProfileKey(seed, defaultURL, "developer")
 	assert.True(t, ok)
-	assert.Equal(t, defaultURL+"@bundles/ai-developer#profiles/developer", key)
+	assert.Equal(t, seedKey(defaultURL, "ai-developer", "developer"), key)
 
-	_, ok = FindBundleProfileKey(seed, defaultURL, "missing")
+	_, ok = findBundleProfileKey(seed, defaultURL, "missing")
 	assert.False(t, ok, "unknown profile name must not match")
 
-	_, ok = FindBundleProfileKey(seed, personalURL, "developer")
+	_, ok = findBundleProfileKey(seed, personalURL, "developer")
 	assert.False(t, ok, "a different repo's profile must not match")
 
-	seed[defaultURL+"@bundles/other-kit#profiles/developer"] = &Profile{}
-	_, ok = FindBundleProfileKey(seed, defaultURL, "developer")
+	seed[seedKey(defaultURL, "other-kit", "developer")] = &Profile{}
+	_, ok = findBundleProfileKey(seed, defaultURL, "developer")
 	assert.False(t, ok, "ambiguity must not match")
 }
 
@@ -258,7 +260,7 @@ func TestLoad_RewritesRetiredParentViaSeed(t *testing.T) {
 	p, err := loader.Load("dev")
 	require.NoError(t, err)
 	require.Len(t, p.Parents, 1)
-	assert.Equal(t, defaultURL+"@bundles/ai-developer#profiles/developer", p.Parents[0])
+	assert.Equal(t, seedKey(defaultURL, "ai-developer", "developer"), p.Parents[0])
 	assert.NotEmpty(t, loader.PendingUpgrades(), "rewrite should be staged for consent")
 }
 
@@ -429,13 +431,13 @@ func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
 	// Discovered through the SEED registry: the retired @profiles/ parent is
 	// rewritten to the bundle-shipped successor the seed map ships, which a
 	// ledger with no view of the seed could not have found.
-	assert.Contains(t, string(pending[0].Data), defaultURL+"@bundles/ai-developer#profiles/developer")
+	assert.Contains(t, string(pending[0].Data), seedKey(defaultURL, "ai-developer", "developer"))
 
 	// Committed through the loader's OWN filesystem, not the OS one.
 	require.NoError(t, loader.CommitUpgrade(pending[0]))
 	data, err := afero.ReadFile(fs, path)
 	require.NoError(t, err)
-	assert.Contains(t, string(data), defaultURL+"@bundles/ai-developer#profiles/developer")
+	assert.Contains(t, string(data), seedKey(defaultURL, "ai-developer", "developer"))
 }
 
 // TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections pins which
@@ -467,4 +469,72 @@ func TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections(t *testing.T) {
 			assert.Equal(t, tt.wantItem, item)
 		})
 	}
+}
+
+// TestRewriteRetiredParents verifies bundle-shipped profiles whose parents
+// were authored in the retired top-level "@profiles/" grammar are rewritten
+// in-memory to their bundle-shipped successor at seed time — seeded profiles
+// never pass through the loader's document upgrade pipeline, so the seed
+// post-pass owns this rewrite. Unmatched and ambiguous parents stay verbatim
+// (findBundleProfileKey is the discovery rule).
+func TestRewriteRetiredParents(t *testing.T) {
+	const repo = "https://github.com/ctxloom/ctxloom-default"
+	loaded := map[string]*Profile{
+		seedKey(repo, "ai-developer", "developer"): {},
+		seedKey(repo, "kit", "dev"): {
+			Parents: []string{
+				repo + "@profiles/developer",    // retired, one successor → rewritten
+				repo + "@profiles/go-developer", // retired, no successor → verbatim
+				"local-parent",                  // local name → untouched
+			},
+		},
+	}
+
+	RewriteRetiredParents(loaded)
+
+	got := loaded[seedKey(repo, "kit", "dev")].Parents
+	assert.Equal(t, []string{
+		seedKey(repo, "ai-developer", "developer"),
+		repo + "@profiles/go-developer",
+		"local-parent",
+	}, got)
+}
+
+// The config seed keys a bundle's profiles on the bundle's CANONICAL identity
+// ("ctxloom+git://host/repo//bundles/<b>#profiles/<n>"), so the retired-parent
+// rewrite must find its successor under that shape, for every spelling a
+// retired parent can name the repository in.
+func TestRewriteRetiredParents_MatchesProductionSeedKeys(t *testing.T) {
+	cases := []struct {
+		name, bundle, profile, retired string
+	}{
+		{"https", defaultURL + "@bundles/ai-developer", "developer", defaultURL + "@profiles/developer"},
+		{"scp", defaultURL + "@bundles/ai-developer", "developer", "git@github.com:ctxloom/ctxloom-default@profiles/developer"},
+		{"file", "file:///srv/content@bundles/kit", "dev", "file:///srv/content@profiles/dev"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			successor, err := remote.BundleProfileRef(tc.bundle, tc.profile)
+			require.NoError(t, err)
+			require.True(t, strings.HasPrefix(successor, "ctxloom+"), "the fixture must be production-shaped: %s", successor)
+			seeded := map[string]*Profile{
+				successor:                        {},
+				"ctxloom+local:kid#profiles/kid": {Parents: []string{tc.retired}},
+			}
+
+			RewriteRetiredParents(seeded)
+
+			assert.Equal(t, successor, seeded["ctxloom+local:kid#profiles/kid"].Parents[0])
+		})
+	}
+}
+
+// seedKey is the key the config seed files a bundle profile under: the
+// bundle's canonical identity plus "#profiles/<name>".
+func seedKey(repoURL, bundle, profile string) string {
+	key, err := remote.BundleProfileRef(repoURL+"@bundles/"+bundle, profile)
+	if err != nil {
+		panic(err)
+	}
+	return key
 }

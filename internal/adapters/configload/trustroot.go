@@ -1,17 +1,17 @@
-package config
+package configload
 
 import (
 	"bufio"
 	_ "embed"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"os"
 	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/signing/allowedsigners"
+	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
-	"github.com/ctxloom/ctxloom/internal/core/trust"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // embeddedAllowedSigners is ctxloom's compiled-in trust root in the real
@@ -43,13 +43,36 @@ func EmbeddedSigners() *allowedsigners.Store {
 	return store
 }
 
-// TrustRoot returns the union of every allowed_signers location: ctxloom's
+// signerFiles is where one generation's trust root is read from: the
+// filesystem, the app directories whose project stores join the user ones, and
+// the reporter a degraded read is announced through. Sources.TrustPorts builds
+// it from the Config it is building a generation for (signerFilesOf).
+type signerFiles struct {
+	fs       afero.Fs
+	appPaths []string
+	rep      report.Reporter
+}
+
+// signerFilesOf is the signer store set cfg's generation reads.
+func signerFilesOf(cfg *config.Config) *signerFiles {
+	return &signerFiles{fs: cfg.FS(), appPaths: cfg.GetAppPaths(), rep: report.To(cfg.Reporter())}
+}
+
+// getFS is the filesystem the stores are read through; nil means the OS.
+func (c *signerFiles) getFS() afero.Fs {
+	if c.fs != nil {
+		return c.fs
+	}
+	return afero.NewOsFs()
+}
+
+// trustStore is the union of every allowed_signers location: ctxloom's
 // embedded defaults (MINUS any locally suppressed entry — see
-// SuppressedEmbeddedPrincipals/filterSuppressedPrincipals below), the user
-// store (~/.ctxloom/allowed_signers), and the project store
-// (.ctxloom/allowed_signers). All locations are unioned — a key counts for
-// the namespaces it lists wherever it is listed — because precedence lives in
-// the DECISION FUNCTION, never in the filesystem (spec §7, §9.2).
+// filterSuppressedPrincipals), the user store (~/.ctxloom/allowed_signers),
+// and the project store (.ctxloom/allowed_signers). All locations are unioned
+// — a key counts for the namespaces it lists wherever it is listed — because
+// precedence lives in the DECISION FUNCTION, never in the filesystem (spec
+// §7, §9.2).
 //
 // It never fails. A missing store is simply no keys; an unreadable or malformed
 // one warns and contributes whatever lines did parse. Every one of those
@@ -58,23 +81,13 @@ func EmbeddedSigners() *allowedsigners.Store {
 // reviews it (spec §10.5).
 //
 // "Never fails" is not "never lost anything": a location that existed but
-// could not be read is reported (report.KindTrust) as it is skipped, so a
-// silently-shortened root is never presented as the whole one. Degrading toward
-// fewer keys is safe; degrading toward fewer keys INVISIBLY is how a
-// revoked-looking signer gets diagnosed as a publishing bug.
+// could not be read is reported (report.KindTrust) as it is skipped and rides
+// on the union as a failed source, so a silently-shortened root is never
+// presented as the whole one.
 //
-// It returns the PORT (trust.TrustRoot), never the store: every consumer asks
-// the one policy question, and a concrete store in a signature is how a
-// caller comes to depend on a mutator or a listing the port does not promise.
-func (c *Config) TrustRoot() trust.TrustRoot {
-	return c.trustStore()
-}
-
-// trustStore is the union TrustRoot presents as the port, as the store — for
-// this package's own tests of what the union records (a location that could
-// not be read rides on it as a failed source). Nothing outside the package
-// gets the store: the port is the contract.
-func (c *Config) trustStore() *allowedsigners.Store {
+// Sources.TrustPorts hands it out as the port (trust.TrustRoot), once per
+// generation; every consumer reads it back as Config.Trust().Root().
+func (c *signerFiles) trustStore() *allowedsigners.Store {
 	fs := c.getFS()
 	stores := []*allowedsigners.Store{c.embeddedSignersTrusted()}
 	for _, path := range c.allowedSignersPaths() {
@@ -87,10 +100,10 @@ func (c *Config) trustStore() *allowedsigners.Store {
 // whose principal this machine has locally distrusted. The compiled-in
 // bytes never change — nothing here edits
 // embedded_signers.allowed_signers or the binary — this filters the STORE
-// value fresh on every call, so a suppression written mid-session (`signer
-// remove <embedded-principal>`) takes effect on the very next trust decision
-// with nothing to invalidate.
-func (c *Config) embeddedSignersTrusted() *allowedsigners.Store {
+// value each time a generation's root is built, so a suppression
+// (`signer remove <embedded-principal>`) takes effect from the next generation
+// (config.Owner.Reload) with nothing to invalidate.
+func (c *signerFiles) embeddedSignersTrusted() *allowedsigners.Store {
 	store := EmbeddedSigners()
 	suppressed, unreadable := c.suppressedEmbeddedPrincipals()
 	if unreadable {
@@ -107,9 +120,9 @@ func (c *Config) embeddedSignersTrusted() *allowedsigners.Store {
 
 // filterSuppressedPrincipals returns a copy of store with every entry whose
 // Principals list contains a suppressed principal removed. This is the actual
-// SUBTRACTION primitive needed here: allowedsigners.Store.decide()
-// (store.go:100) is purely additive with no negative-entry concept, and
-// Union (store.go:35) only ever concatenates — so this is new machinery, not
+// SUBTRACTION primitive needed here: allowedsigners.Store's decision is
+// purely additive with no negative-entry concept, and allowedsigners.Union
+// only ever concatenates — so this is new machinery, not
 // a reuse of the existing content-item REJECTION mechanism (that beats a
 // trusted publisher at the per-item decision, EffectiveTrust step 1; this
 // instead removes a KEY from the trust root itself, upstream of every
@@ -140,15 +153,15 @@ func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[stri
 // Never fails: a missing file simply contributes nothing. This reporting form
 // answers only "which principals are named", which is what ListSigners and
 // ShowSigner display; the trust root itself uses
-// Config.suppressedEmbeddedPrincipals, which also reports whether any of those
-// files was unreadable.
+// signerFiles.suppressedEmbeddedPrincipals, which also reports whether any of
+// those files was unreadable.
 //
 // Read/write of this store is written by operations.RemoveSigner (the only
 // production mutator — see docs/trust-model.md's CLI-only signer-management
-// boundary, ADR 0024); this method is the READ side TrustRoot() and
+// boundary, ADR 0024); this is the READ side the trust root and
 // ListSigners/ShowSigner both consult.
-func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
-	out, _ := c.suppressedEmbeddedPrincipals()
+func SuppressedEmbeddedPrincipals(cfg *config.Config) map[string]bool {
+	out, _ := signerFilesOf(cfg).suppressedEmbeddedPrincipals()
 	return out
 }
 
@@ -157,7 +170,7 @@ func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
 // suppression file EXISTS but could not be read in full. A caller that sees
 // true has no evidence the set it was handed is complete, and must not treat
 // it as a complete list of what was revoked.
-func (c *Config) suppressedEmbeddedPrincipals() (map[string]bool, bool) {
+func (c *signerFiles) suppressedEmbeddedPrincipals() (map[string]bool, bool) {
 	fs := c.getFS()
 	out := map[string]bool{}
 	unreadable := false
@@ -180,7 +193,7 @@ func (c *Config) suppressedEmbeddedPrincipals() (map[string]bool, bool) {
 // shape and differ only in which pair of path builders names the file, so the
 // shape lives here once: a change to the union order or the dedup rule cannot
 // reach one store and miss its counterpart.
-func (c *Config) signerStorePaths(homePath func() (string, error), projectPath func(string) string) []string {
+func (c *signerFiles) signerStorePaths(homePath func() (string, error), projectPath func(string) string) []string {
 	var out []string
 	if home, err := homePath(); err == nil {
 		out = append(out, home)
@@ -196,7 +209,7 @@ func (c *Config) signerStorePaths(homePath func() (string, error), projectPath f
 
 // distrustedSignersPaths lists the on-disk suppression files in union order —
 // the exact mirror of allowedSignersPaths.
-func (c *Config) distrustedSignersPaths() []string {
+func (c *signerFiles) distrustedSignersPaths() []string {
 	return c.signerStorePaths(paths.HomeDistrustedSignersPath, paths.DistrustedSignersPath)
 }
 
@@ -252,7 +265,7 @@ func readPrincipalLines(rep report.Reporter, fs afero.Fs, path string) (map[stri
 }
 
 // allowedSignersPaths lists the on-disk trust-root files in union order.
-func (c *Config) allowedSignersPaths() []string {
+func (c *signerFiles) allowedSignersPaths() []string {
 	return c.signerStorePaths(paths.HomeAllowedSignersPath, paths.AllowedSignersPath)
 }
 
@@ -269,7 +282,7 @@ func (c *Config) allowedSignersPaths() []string {
 // nothing on the Store to ask afterwards. It now warns and returns a
 // FailedSource, so the failure rides on the union as provenance for any
 // caller that needs to refuse rather than guess.
-func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.Store {
+func (c *signerFiles) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.Store {
 	f, err := fs.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -295,7 +308,9 @@ func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.S
 		return allowedsigners.FailedSource(path, err)
 	}
 	for _, pe := range parseErrs {
-		c.rep.Warnf("allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
+		// Once per file and line: the root is rebuilt by every reader of it, and
+		// a stray line is one fact however many times the file is parsed.
+		c.rep.WarnOncef("allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
 	}
 	return store.WithSource(path)
 }

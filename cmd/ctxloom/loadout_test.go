@@ -10,10 +10,10 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/cli"
 	"github.com/ctxloom/ctxloom/internal/adapters/companions/loadout"
+	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
-	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -56,8 +56,7 @@ func TestLoadout_SignedLoadoutVerifiesAsTrustedPublisher(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, loadout.Emit(&buf, "json", loadoutYAML, loadoutSig))
 
-	cfg := &config.Config{}
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
+	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
 	require.NoError(t, err)
 	assert.Equal(t, loadoutYAML, decoded)
 	assert.Equal(t, "ben+ctxloom@abbitt.me", signer, "ctxloom's loadout must verify as published by the ctxloom release key")
@@ -74,8 +73,7 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, loadout.Emit(&buf, "json", tampered, loadoutSig))
 
-	cfg := &config.Config{}
-	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), cfg.TrustRoot(), time.Now())
+	decoded, signer, err := signing.DecodeLoadoutEnvelope(buf.Bytes(), configload.EmbeddedSigners(), time.Now())
 	require.Error(t, err)
 	assert.Nil(t, decoded)
 	assert.Empty(t, signer)

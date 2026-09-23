@@ -183,7 +183,7 @@ func signTreeAndCommit(t *testing.T, repoDir, bundleName string, signer ssh.Sign
 // against.
 func TestLockDependencies_TreeFormParentExpandsTheClosure(t *testing.T) {
 	baseDir, _, parentBundleID, bundleID := setupRemoteParent(t)
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 
 	stderr := captureStderr(t, func() {
 		result, err := LockDependencies(context.Background(), cfg, LockDependenciesRequest{FailOnConflict: true})
@@ -256,7 +256,7 @@ func TestLockDependencies_UnsignedTreeParentIsRefusedNotSilentlyExpanded(t *test
 // existing entries under that subtree instead of erasing them, and warn.
 func TestLockDependencies_UnreachableParentPreservesEntries(t *testing.T) {
 	baseDir, src, parentBundleID, bundleID := setupRemoteParent(t)
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	ctx := context.Background()
 
 	// Healthy first lock: both the parent bundle and the bundle its profile
@@ -309,7 +309,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	refA := "file://" + srcA + "@bundles/demoA"
 	writeLocalProfile(t, baseDir, "otherprof", "bundles:\n  - "+refA+"\n")
 
-	cfg := testConfigWithSCMPath(baseDir)
+	cfg := withOnDiskRoot(t, testConfigWithSCMPath(baseDir), baseDir)
 	ctx := context.Background()
 	_, err := LockDependencies(ctx, cfg, LockDependenciesRequest{FailOnConflict: true})
 	require.NoError(t, err)

@@ -336,7 +336,7 @@ Every host-side launch enters through `launch.Resolve`
   composition of `core/coord`'s Spawner port (`ResolveBackend`, `LaunchDepsFor`, `StartEngine`).
   `internal/core/coord` itself does not import `operations`.
 - **Calls:** `internal/core/bundles`, `internal/core/config`, `internal/adapters/remote`, `internal/core/profiles`,
-  `internal/core/trust`, `internal/adapters/signing`, `internal/adapters/agents`, `internal/core/sessions`, `internal/lm/*`,
+  `internal/core/trust`, `internal/adapters/signing`, `internal/core/agents`, `internal/core/sessions`, `internal/lm/*`,
   `internal/adapters/git`, `internal/core/paths`, `internal/adapters/projectroot`, `internal/shared/*`.
 - **Injected downward:** the content gate into `internal/core/bundles`, the executable gate into
   `internal/core/config` — so neither domain package imports the trust decision.

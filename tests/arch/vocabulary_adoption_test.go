@@ -737,8 +737,8 @@ var vocabConversionAllowed = map[string]string{
 	"internal/adapters/transcript/history.go#entriesFromRecord#internal/core/agent.SessionEntryType":  "a stored record's string asserted into the entry-type enum; same unchecked-input shape as the grpc side",
 	"internal/adapters/transcript/history.go#entriesFromRecord#internal/core/agent.SessionSystemKind": "a stored record's string asserted into the system-kind enum; same unchecked-input shape as the grpc side",
 
-	"internal/adapters/operations/agents.go#SetAgent#internal/adapters/agents.DrivingMode":          "a user-set config value asserted into the driving-mode enum; internal/adapters/agents ships no parser for DrivingMode",
-	"internal/adapters/operations/agents.go#validateAgentAxes#internal/adapters/agents.DrivingMode": "same DrivingMode assertion inside the routine that is supposed to be VALIDATING the axes",
+	"internal/adapters/operations/agents.go#SetAgent#internal/core/agents.DrivingMode":          "a user-set config value asserted into the driving-mode enum; internal/core/agents ships no parser for DrivingMode",
+	"internal/adapters/operations/agents.go#validateAgentAxes#internal/core/agents.DrivingMode": "same DrivingMode assertion inside the routine that is supposed to be VALIDATING the axes",
 
 	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/adapters/signing.Form":  "same signing.Form assertion from the review side",
 	"internal/adapters/operations/review.go#reviewEnumerator.classify#internal/core/trust.ContentForm": "a stored string asserted into trust.ContentForm; internal/core/trust ships no parser for it",

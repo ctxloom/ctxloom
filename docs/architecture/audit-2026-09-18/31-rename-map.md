@@ -13,7 +13,7 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/agentcoord/mcpschema` | `internal/adapters/coordgrpc/mcpschema` | adapters | JUDGMENT: Part 4.1 row 10 folds mcpschema into adapters/coordgrpc; until then it sits beside the proto it binds |
 | `internal/agentcoord/mcpschema/gen` | `internal/adapters/coordgrpc/mcpschema/gen` | adapters | subpackage keeps its relative path under mcpschema |
 | `internal/agentcoord/spool` | `internal/core/spool` | core | rename paragraph: agentcoord/spool → core/spool |
-| `internal/agents` | `internal/adapters/agents` | adapters | JUDGMENT: imported by core (config, coord) only through edges unit A allowlists as leaving in slices 4 and 8; a domain type, so not toolbox → adapters |
+| `internal/agents` | `internal/core/agents` | core | RULED 2026-09-22 (§3.3): a pure domain package (the agent binding value, its enums and parsers; no I/O) that core/config carries, so it belongs in core — beside, not inside, core/agent, the engine-backend package |
 | `internal/archlint` | `internal/shared/archlint` | shared | JUDGMENT: domain-free leaf (go/analysis tooling; no in-repo imports) → toolbox |
 | `internal/buildpins` | `internal/shared/buildpins` | shared | JUDGMENT: domain-free leaf (test-only pin gates; no in-repo imports) → toolbox |
 | `internal/bundles` | `internal/core/bundles` | core | unit A core row (core-imports-only-core from list); package table core/bundles |
@@ -23,7 +23,7 @@ This table is CHECKED, not prose: `TestArch_RenameMap_LeftColumnGone` and `TestA
 | `internal/cli/tui` | `internal/adapters/cli/tui` | adapters | subpackage keeps its relative path under adapters/cli; package table cli/tui |
 | `internal/compression` | `internal/shared/compression` | shared | JUDGMENT: domain-free leaf (text/AST compression; imports only the toolbox) → toolbox |
 | `internal/config` | `internal/core/config` | core | unit A core row; package table core/config |
-| `internal/config/layerscope` | `internal/adapters/configload/layerscope` | adapters | rename paragraph: config/layerscope → adapters/configload/layerscope |
+| `internal/config/layerscope` | `internal/core/config/layerscope` | core | RULED 2026-09-22 (§3.3): pure policy over config keys that `config.Save`'s write-side scope filter consults, so it stays with the config it governs; the reader imports it from core |
 | `internal/confpatch` | `internal/adapters/confpatch` | adapters | unit A adapters row; package table adapters/confpatch |
 | `internal/content` | `internal/adapters/content` | adapters | JUDGMENT: imported by core only through edges unit A allowlists as leaving in slices 4 and 5 (readers become adapters); not domain-free → adapters |
 | `internal/content/archive` | `internal/adapters/content/archive` | adapters | subpackage keeps its relative path under adapters/content |

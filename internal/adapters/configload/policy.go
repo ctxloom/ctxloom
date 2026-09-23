@@ -6,8 +6,8 @@ import (
 
 	kmaps "github.com/knadh/koanf/maps"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/configload/layerscope"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 )
 

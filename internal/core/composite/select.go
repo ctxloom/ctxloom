@@ -29,7 +29,7 @@ func Select(resolved []profiles.ResolvedProfile, cat bundles.Catalog, req Select
 	}
 	loader := bundles.LoaderOf(cat)
 	if req.Versions != nil {
-		loader.WithVersionResolver(req.Versions)
+		loader.WithVersionResolver(req.Versions, req.VersionRoot)
 	}
 	var asks []FragmentAsk
 	seenBundle := map[string]bool{}

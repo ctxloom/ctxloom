@@ -20,15 +20,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// registryFSOptions threads the config's injected filesystem into a remote
-// registry constructor; empty for the OS default.
-func registryFSOptions(cfg *config.Config) []remote.RegistryOption {
-	if fs := cfg.FS(); fs != nil {
-		return []remote.RegistryOption{remote.WithRegistryFS(fs)}
-	}
-	return nil
-}
-
 // lockfileFSOptions threads the config's injected filesystem into a remote
 // lockfile manager so lockfile reads honor it alongside the registry reads.
 func lockfileFSOptions(cfg *config.Config) []remote.LockfileOption {
@@ -213,7 +204,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	}
 	baseDir := cfg.GetAppPaths()[0]
 
-	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), registryFSOptions(cfg)...)
+	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), remote.WithRegistryFS(cfg.FS()))
 	if err != nil {
 		// A real error here (corrupt remotes.yaml, unreadable dir) is not "no
 		// remotes registered" — the doc comment's nil-return case above — so it
@@ -247,7 +238,7 @@ func RemoteBundleReaders(cfg *config.Config) []bundles.Reader {
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole set and handed to every reader, so no two pinned bundles are
 	// judged against different roots.
-	root := cfg.TrustRoot()
+	root := cfg.Trust().Root()
 
 	// EVERY remote bundle is a TREE, so treeBundleReaders is the whole set.
 	//
@@ -297,7 +288,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		factory remote.FetcherFactory
 		auth    remote.AuthConfig
 	)
-	return func(canonicalRef, commit string) (*bundles.Bundle, error) {
+	return func(canonicalRef, commit string, root trust.TrustRoot) (*bundles.Bundle, error) {
 		ref, err := remote.ParseReference(canonicalRef)
 		if err != nil {
 			return nil, fmt.Errorf("parse %q: %w", canonicalRef, err)
@@ -329,7 +320,7 @@ func BundleVersionResolver(cfg *config.Config) bundles.BundleVersionResolver {
 		// and skills are FILES beside its bundle.yaml, so reading the manifest
 		// alone resolved every @<commit>-pinned tree bundle to a bundle with
 		// zero items — the real product bundle, silently empty.
-		b, _, err := bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, cfg.TrustRoot())
+		b, _, err := bundles.ReadRemoteRef(context.Background(), factory, auth, ref, commit, remotetree.PullTreeFetcher, root)
 		return b, err
 	}
 }

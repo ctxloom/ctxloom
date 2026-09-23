@@ -143,16 +143,7 @@ var LayeringRules = []LayeringRule{
 			"internal/core/bundles -> internal/shared/upgrade":              "the live schema-upgrade pipeline (upgrade.Pipeline), not slice 1a's deleted migrations — ruled 2026-09-19 (worrisome-subsidy, item 2): it moves with the reader to the adapter side (Part 1.0: slice 5); slice 5 landed without the move, which is still open",
 
 			// core/config
-			"internal/core/config -> internal/adapters/remote":                 "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/core/config -> internal/shared/admission":                "slice 5: admission is decided by composite.Trust",
-			"internal/core/config -> internal/adapters/signing/allowedsigners": "slice 5: trust ports behind Sources.TrustPorts",
-			"internal/core/config -> internal/adapters/agents":                 "measured: agents.Agent is the value type Config carries for an agent binding; Part 1.1 does not place agents, and no slice names this edge",
-			"internal/core/config -> internal/adapters/configload/layerscope":  "measured: the reader moved to configload in slice 4, but Save's write-side scope filter (DropLayerScopeViolations) still consults the layer policy; leaves when the policy is a value the reader hands the Config",
-
-			// core/launch/launchtest — the fixture declares agent bindings on a
-			// config.Fixture, whose Agents map is keyed by the same value type
-			// config carries (the edge above); it leaves with config's.
-			"internal/core/launch/launchtest -> internal/adapters/agents": "measured: config.Fixture.Agents is map[string]agents.Agent; leaves when config's own agents edge does",
+			"internal/core/config -> internal/shared/admission": "slice 5: admission is decided by composite.Trust",
 
 			// shared/agent → its contract half becomes core/engine. Part 1.0 also
 			// lists lockwait and iox, which Part 0 names as toolbox; the toolbox is
@@ -179,32 +170,32 @@ var LayeringRules = []LayeringRule{
 			"internal/engines",
 		},
 		Allowed: map[string]string{
-			"internal/adapters/configload -> internal/adapters/configload/layerscope": "sanctioned: a package's own subpackage",
 			// sanctioned (Part 1.1): the trust adapters compose each other at the
 			// root — config.Sources.TrustPorts builds the generation's three ports
 			// from the config's trust root (already the port), the countersignature
 			// stores and the lockfile.
-			"internal/adapters/configload -> internal/adapters/signing/countersign": "sanctioned: Sources.TrustPorts builds the generation's review records",
-			"internal/adapters/configload -> internal/adapters/remote":              "sanctioned: Sources.TrustPorts reads the generation's retraction records from the lockfile",
-			"internal/adapters/companions -> internal/adapters/companions/loadout":  "sanctioned: a package's own subpackage",
-			"internal/adapters/companions/loadout -> internal/adapters/signing":     "slice 5: the loadout envelope is signed and verified through the trust ports",
-			"internal/adapters/configload -> internal/adapters/projectroot":         "slice 7: launch.HostFacts carries the project root from cmd/*",
-			"internal/adapters/operations -> internal/adapters/configload":          "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
-			"internal/adapters/operations -> internal/adapters/companions":          "slice 7: the process is composed at cmd/*; the companion Prober is injected",
-			"internal/adapters/operations -> internal/adapters/fsstore":             "slice 15: the composition root hands operations its session-dir claim store; until then operations roots it itself, per session, after the mint (ForSession)",
-			"internal/adapters/operations -> internal/adapters/fsstatic":            "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
-			"internal/adapters/fsstatic -> internal/adapters/confpatch":             "sanctioned (Part 1.4): the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
-			"internal/adapters/cli -> internal/adapters/fsstatic":                   "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
-			"internal/adapters/cli -> internal/adapters/fsstore":                    "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
-			"internal/adapters/cli -> internal/adapters/runner":                     "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
-			"internal/adapters/cli -> internal/adapters/hostpty":                    "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
-			"internal/adapters/cli -> internal/adapters/attach":                     "composition root (cmd/*): the interactive owner's container runner is attached on its pty by spawn.Runtimes composed there; until then `ctxloom run` attaches it itself",
-			"internal/adapters/attach -> internal/adapters/hostpty":                 "sanctioned (Part 1.5): attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
-			"internal/adapters/runner -> internal/adapters/coordgrpc":               "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
-			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":            "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
-			"internal/adapters/cli -> internal/adapters/configload":                 "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
-			"internal/adapters/cli -> internal/adapters/companions":                 "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
-			"internal/adapters/cli -> internal/adapters/companions/loadout":         "ctxloom is its own companion: the CLI owns `ctxloom loadout`'s place in the documented tree while cmd/ctxloom owns the embedded bytes; removed when the companion-side loadout package (cobra + envelope encode, no other adapter) moves out of adapters",
+			"internal/adapters/configload -> internal/adapters/signing/countersign":    "sanctioned: Sources.TrustPorts builds the generation's review records",
+			"internal/adapters/configload -> internal/adapters/remote":                 "sanctioned: Sources.TrustPorts reads the generation's retraction records from the lockfile",
+			"internal/adapters/configload -> internal/adapters/signing/allowedsigners": "sanctioned: Sources.TrustPorts builds the generation's trust root from the embedded and on-disk allowed_signers stores",
+			"internal/adapters/companions -> internal/adapters/companions/loadout":     "sanctioned: a package's own subpackage",
+			"internal/adapters/companions/loadout -> internal/adapters/signing":        "slice 5: the loadout envelope is signed and verified through the trust ports",
+			"internal/adapters/configload -> internal/adapters/projectroot":            "slice 7: launch.HostFacts carries the project root from cmd/*",
+			"internal/adapters/operations -> internal/adapters/configload":             "slice 7: the process is composed at cmd/*; operations.App receives the Sources",
+			"internal/adapters/operations -> internal/adapters/companions":             "slice 7: the process is composed at cmd/*; the companion Prober is injected",
+			"internal/adapters/operations -> internal/adapters/fsstore":                "slice 15: the composition root hands operations its session-dir claim store; until then operations roots it itself, per session, after the mint (ForSession)",
+			"internal/adapters/operations -> internal/adapters/fsstatic":               "slice 14a: the composition root hands operations the static writer; until then operations composes the at-rest delivery itself (DeliverProject, RemoveProject)",
+			"internal/adapters/fsstatic -> internal/adapters/confpatch":                "sanctioned (Part 1.4): the ownership record diffs its structured reversals through confpatch's hew machinery; the record lives beside the static writer because the lean companions link confpatch and must not link the package model delivery carries",
+			"internal/adapters/cli -> internal/adapters/fsstatic":                      "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and composes the runner's static writer",
+			"internal/adapters/cli -> internal/adapters/fsstore":                       "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root and roots the runner's claim store",
+			"internal/adapters/cli -> internal/adapters/runner":                        "slice 14a: runner.Main is composed under cmd/*; until then the runner command stands for the composition root",
+			"internal/adapters/cli -> internal/adapters/hostpty":                       "composition root (cmd/*): the interactive owner's runner is started on its pty by spawn.Runtimes composed there; until then `ctxloom run` starts it itself",
+			"internal/adapters/cli -> internal/adapters/attach":                        "composition root (cmd/*): the interactive owner's container runner is attached on its pty by spawn.Runtimes composed there; until then `ctxloom run` attaches it itself",
+			"internal/adapters/attach -> internal/adapters/hostpty":                    "sanctioned (Part 1.5): attach is the container's shape of the SAME pty-held runner hostpty owns for the host; one master for the frontend, wherever the runner runs",
+			"internal/adapters/runner -> internal/adapters/coordgrpc":                  "slice 10: the runner's RunnerChannel client is coordgrpc's, which decodes the frame and calls runner.Execute; until then runner.Host decodes it",
+			"internal/adapters/runner -> internal/adapters/coordgrpc/pb":               "slice 10: the runner's RunnerChannel client is coordgrpc's; until then runner.Host sees the frame's Launch",
+			"internal/adapters/cli -> internal/adapters/configload":                    "slice 7: the process is composed at cmd/*; the CLI receives the composition (init's pinned target)",
+			"internal/adapters/cli -> internal/adapters/companions":                    "slice 7: the companion list/show/status commands drive the probe; composed at cmd/*",
+			"internal/adapters/cli -> internal/adapters/companions/loadout":            "ctxloom is its own companion: the CLI owns `ctxloom loadout`'s place in the documented tree while cmd/ctxloom owns the embedded bytes; removed when the companion-side loadout package (cobra + envelope encode, no other adapter) moves out of adapters",
 			// sanctioned (Part 1.1): the CLI is a frontend over operations; a
 			// package may import its own subpackage.
 			"internal/adapters/cli -> internal/adapters/operations":                                         "sanctioned: cli → operations is one of the two adapter-to-adapter edges Part 0 keeps",
@@ -232,7 +223,6 @@ var LayeringRules = []LayeringRule{
 			// edges the prefix form surfaced (packages unit A's explicit
 			// lists did not name); each MEASURED, with the slice that
 			// removes it where Part 1.1 names one
-			"internal/adapters/cli -> internal/adapters/agents":                         "slice 4: the adapters/configload split; the agent binding is read through operations.App's Snapshot (measured; Part 1.1 does not place agents)",
 			"internal/adapters/cli -> internal/adapters/contextmetrics":                 "measured; Part 1.1 does not place contextmetrics — no slice names this edge",
 			"internal/adapters/operations -> internal/adapters/coordgrpc/discover":      "slice 10 remainder: the endpoint file's reader (discover.List) becomes operations' when the servers leave core",
 			"internal/adapters/cli -> internal/adapters/coordgrpc/pb":                   "slice 13: allowlisted until then per Part 1.0",
@@ -249,7 +239,6 @@ var LayeringRules = []LayeringRule{
 			"internal/adapters/isolation -> internal/adapters/git":                      "measured; Part 1.1 does not place git — no slice names this edge",
 			"internal/adapters/isolation -> internal/adapters/gitignore":                "measured; Part 1.1 does not place gitignore — no slice names this edge",
 			"internal/adapters/mcp -> internal/adapters/contextmetrics":                 "the host relay's context_status handler reads contextmetrics (measured; Part 1.1 does not place contextmetrics)",
-			"internal/adapters/operations -> internal/adapters/agents":                  "slice 4: the adapters/configload split (measured; Part 1.1 does not place agents)",
 			"internal/adapters/operations -> internal/adapters/content":                 "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/convert":         "slice 5: readers become adapters behind bundles.Reader",
 			"internal/adapters/operations -> internal/adapters/content/remotetree":      "slice 5: readers become adapters behind bundles.Reader",
@@ -302,7 +291,6 @@ var LayeringRules = []LayeringRule{
 			// and a Runtimes port instead, both handed in at cmd/*.
 			"internal/adapters/spawn -> internal/adapters/operations": "slice 13: spawn holds launch.Deps and the session store, not the App; the launch trunk's operations are reached through them",
 			"internal/adapters/spawn -> internal/adapters/isolation":  "slice 13: spawn.Runtimes is the port; isolation implements it and is injected at cmd/*",
-			"internal/adapters/spawn -> internal/adapters/agents":     "measured: agents.DrivingMode/ValidateDriving on the binding; leaves when config's own agents edge does",
 
 			// runner/mcp — the session endpoint (delivery.Dynamic). The relay
 			// contract and the shared DTOs it advertises live in operations

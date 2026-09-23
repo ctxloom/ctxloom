@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/companions"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // cqVersionRef is the canonical bundle ref of the acme "cq" bundle used by these
@@ -36,7 +37,7 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 	cfg := gatedFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := &contentGate{cfg: cfg, records: records}
 
-	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
+	resolver := func(_canonical, commit string, _ trust.TrustRoot) (*bundles.Bundle, error) {
 		b, ok := versions[commit]
 		if !ok {
 			return nil, fmt.Errorf("fake resolver: no commit %q", commit)
@@ -46,7 +47,7 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 	}
 
 	pipe := bundles.NewPipeline(
-		seedLoader(t, map[string]*bundles.Bundle{cqVersionRef: def}).WithVersionResolver(resolver),
+		seedLoader(t, map[string]*bundles.Bundle{cqVersionRef: def}).WithVersionResolver(resolver, nil),
 		gate, bundles.LinksUnchecked(), true)
 	return pipe, cfg
 }

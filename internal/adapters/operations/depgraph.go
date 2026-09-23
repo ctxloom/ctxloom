@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/trust"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/gitutil"
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
 )
 
 // PinnedRef is one resolved dependency in a flattened closure: a manifest
@@ -184,7 +185,7 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(ProjectAppDir(cfg)).Load()
 	resolve := newConstraintResolver(ctx, active, factory, auth, false)
-	return flattenRootsWith(ctx, loader, factory, auth, cfg.TrustRoot(), roots, resolve)
+	return flattenRootsWith(ctx, loader, factory, auth, cfg.Trust().Root(), roots, resolve)
 }
 
 // flattenRootsWith walks the closure of roots using a caller-supplied hash
@@ -378,7 +379,7 @@ func (w *depWalker) recurseBundleProfile(bundleRef, profName string) {
 	if !hok {
 		return
 	}
-	guard := rec.LockKey() + remote.ProfileSelector + profName + "@" + hash
+	guard := rec.LockKey() + refuri.ProfileSelector + profName + "@" + hash
 	if _, seen := w.visited[guard]; seen {
 		return
 	}

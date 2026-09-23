@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/ctxloom/ctxloom/internal/shared/report"
 	"maps"
 	"os"
 	"path/filepath"
@@ -11,16 +10,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/refuri"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
+
 	"github.com/spf13/afero"
 	"gopkg.in/yaml.v3"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
-	"github.com/ctxloom/ctxloom/internal/adapters/remote"
 	"github.com/ctxloom/ctxloom/internal/core/agent"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/profiles"
+	"github.com/ctxloom/ctxloom/internal/core/trust"
 )
 
 // Re-export path constants for backwards compatibility
@@ -123,7 +125,7 @@ type Config struct {
 	// config-layer-scope design doc's "Consent leaves the chain": a config
 	// key is reachable from THREE channels an agent can write (a home file,
 	// an environment variable, an argv), and prior human consent needs a
-	// home with none. ScopeNever in internal/adapters/configload/layerscope names the
+	// home with none. ScopeNever in internal/core/config/layerscope names the
 	// scope this key would have needed and why no layer may carry it.
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
@@ -268,7 +270,7 @@ type Config struct {
 	rep report.Reporter
 
 	// trust is the generation's gate holder (composite.Trust), bound by the
-	// Owner (bindGeneration) before the Snapshot carrying this Config is
+	// Owner (bindTrust) before the Snapshot carrying this Config is
 	// published, so the bundle EXECUTABLE surfaces (ResolveBundleMCPServers,
 	// ResolveBundleHooks, LoadCommandExports) decide with the same gate the
 	// Snapshot carries. Zero for a fixture nobody bound: its nil authorizer
@@ -277,12 +279,19 @@ type Config struct {
 
 	// catalog and versionResolver are the generation's bundle view: the
 	// catalog resolved (once, on first use) from the Sources' readers, bound
-	// by the Owner (bindGeneration) before the Snapshot carrying this Config
+	// by the Owner (bindCatalog) before the Snapshot carrying this Config
 	// is published; the resolver, attached by the reader
 	// (Builder.BindVersionResolver), materializes a pinned historical
 	// version of a remote bundle on demand.
 	catalog         func() bundles.Catalog
 	versionResolver bundles.BundleVersionResolver
+
+	// profileRemote and profileRemoteURL are the generation's remotes
+	// registry lookups, attached by the reader (Builder.BindProfileResolvers)
+	// because the registry is an adapter's file. Nil for a Config no reader
+	// built: no registry, so profile names and refs are read verbatim.
+	profileRemote    func(string) string
+	profileRemoteURL func(string) string
 
 	// lmDefaultOverlay snapshots what OverlayDefaultRegistry overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
@@ -981,24 +990,20 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 		if bundle.ProfileCount() == 0 {
 			continue
 		}
-		// The read's display name is the bundle's full handle (the canonical
-		// ref for pinned remote content, the relative path for a local
-		// bundle); bundle.Name is only the file's base, so canonicalize from
-		// the display name.
-		bundleRef, err := remote.CanonicalBundleRef(read.DisplayName())
-		if err != nil {
-			// This bundle's profiles are dropped, and the drop is announced:
-			// a seed key built on an unparsed source would be a key nothing
-			// ever looks up, so the profiles would go missing either way —
-			// silently in the first case, diagnosably in this one.
-			c.rep.Warnf("bundle %q ships %d profile(s) that cannot be seeded: %v",
-				read.DisplayName(), bundle.ProfileCount(), err)
+		src := read.SourceRef()
+		bundleRef, ok := seedBundleRef(read, src)
+		if !ok {
+			// A seed key built on a source nobody can address would be a key
+			// no lookup reaches, so the profiles would go missing either way;
+			// announcing the drop is what makes it diagnosable.
+			c.rep.Warnf("bundle %q ships %d profile(s) that cannot be seeded: its source has no canonical identity",
+				read.DisplayName(), bundle.ProfileCount())
 			continue
 		}
-		sourceURL := bundleProfileSourceURL(bundleRef)
+		sourceURL := bundleProfileSourceURL(src)
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])
-			key := bundleRef + remote.ProfileSelector + profName
+			key := bundleRef + refuri.ProfileSelector + profName
 			// Resolve the profile's short same-repo leaf refs (bundles/fragments/
 			// prompts/bundle_items) against the bundle's own source, exactly as a
 			// seeded top-level remote profile does; a canonical "<bundle>#profiles/
@@ -1024,28 +1029,8 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(loaded) == 0 {
 		return nil
 	}
-	rewriteRetiredSeedParents(loaded)
+	profiles.RewriteRetiredParents(loaded)
 	return loaded
-}
-
-// rewriteRetiredSeedParents rewrites seeded bundle-profile parents authored in
-// the retired top-level "@profiles/" grammar to their bundle-shipped successor.
-// Seeded profiles arrive already parsed and never pass through the loader's
-// document upgrade pipeline, so this applies the same discovery-based rewrite
-// against the full seed: to the one seeded bundle profile the repo ships under
-// that name, verbatim when unmatched or ambiguous (profiles/upgrade.go owns the
-// rule). In-memory only — a seeded profile is read-only and migrates at its
-// source.
-func rewriteRetiredSeedParents(loaded map[string]*profiles.Profile) {
-	for _, p := range loaded {
-		for i, parent := range p.Parents {
-			if url, name, ok := remote.SplitRetiredProfileRef(parent); ok {
-				if successor, found := profiles.FindBundleProfileKey(loaded, url, name); found {
-					p.Parents[i] = successor
-				}
-			}
-		}
-	}
 }
 
 // cloneBundleProfile returns a copy of a bundle profile safe to mutate
@@ -1064,14 +1049,38 @@ func cloneBundleProfile(bp bundles.BundleProfile) bundles.BundleProfile {
 	return p
 }
 
-// bundleProfileSourceURL returns the source a bundle profile's short same-repo
-// refs resolve against: the bundle's repo URL for a remote bundle, or the
-// ctxloom:local token for a project-local bundle.
-func bundleProfileSourceURL(bundleRef string) string {
-	if ref, err := remote.ParseReference(bundleRef); err == nil && ref.URL != "" {
-		return ref.URL
+// seedBundleRef is the identity a bundle's profiles are seeded under: the
+// read's Key(), which the reader minted from where the bytes came from and on
+// which the bundle's item trust refs are built too, so a profile and its
+// leaves cannot key two ways. A project bundle whose name the URI grammar
+// refuses has no typed source; it seeds under its bare name, the identity a
+// profile ref naming it verbatim resolves to. Any other read without a typed
+// source is not seeded (ok false): nothing canonical addresses it.
+func seedBundleRef(read bundles.BundleRead, src trust.BundleRef) (string, bool) {
+	if src.Class != "" {
+		return string(read.Key()), true
 	}
-	return remote.LocalSource
+	name := refuri.NormalizeRef(read.DisplayName())
+	if name == "" || refuri.IsSelfContainedRef(name) {
+		return "", false
+	}
+	return name, true
+}
+
+// bundleProfileSourceURL returns the source a bundle profile's short same-repo
+// refs resolve against: the repository URL for a git or file bundle, the
+// companion token for a loadout, or the ctxloom:local token for project
+// content and for a read with no typed source.
+func bundleProfileSourceURL(src trust.BundleRef) string {
+	switch src.Class {
+	case trust.ClassGit:
+		return "https://" + src.Host + src.RepoPath
+	case trust.ClassFile:
+		return "file://" + src.RepoPath
+	case trust.ClassCompanion:
+		return refuri.CompanionSource
+	}
+	return refuri.LocalSource
 }
 
 // FS returns the injected filesystem, or nil for the OS default. It lets callers
@@ -1082,53 +1091,23 @@ func (c *Config) FS() afero.Fs {
 	return c.fs
 }
 
-// registryFSOptions threads the injected filesystem into a remote registry
-// constructor (matching the resolvers below). Empty for the OS default.
-func (c *Config) registryFSOptions() []remote.RegistryOption {
-	if c.fs != nil {
-		return []remote.RegistryOption{remote.WithRegistryFS(c.fs)}
-	}
-	return nil
-}
-
-// ProfileRemoteResolver returns a function mapping a profile's local name to the
-// short remote it was installed from, backed by the remotes registry. Nil when no
-// registry is available (the loader then reads profiles verbatim). Exposed so
-// other profile-loader factories (e.g. operations) wire the same qualification.
+// ProfileRemoteResolver maps a profile's local name to the short remote it was
+// installed from. The reader binds it once per generation from the remotes
+// registry (Builder.BindProfileResolvers); nil when no registry was bound — a
+// fixture, or an unreadable registry — and the loader then reads profiles
+// verbatim. Exposed so other profile-loader factories (e.g. operations) wire
+// the same qualification.
 func (c *Config) ProfileRemoteResolver() func(string) string {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.appPaths[0]), c.registryFSOptions()...)
-	if err != nil {
-		return nil
-	}
-	return func(name string) string {
-		short, _ := registry.ResolveItemRemote(name)
-		return short
-	}
+	return c.profileRemote
 }
 
-// ProfileRemoteURLResolver returns a function mapping a remote alias to its
-// canonical repo URL, backed by the remotes registry. Paired with
-// ProfileRemoteResolver, it lets the profile loader rewrite a legacy profile's
-// bare/alias bundle refs to their canonical URL form on load. Nil when no
-// registry is available (the loader then reads bundle refs verbatim).
+// ProfileRemoteURLResolver maps a remote alias to its canonical repo URL, bound
+// beside ProfileRemoteResolver from the same registry. It lets the profile
+// loader rewrite a legacy profile's bare/alias bundle refs to their canonical
+// URL form on load; nil when no registry was bound (bundle refs are then read
+// verbatim).
 func (c *Config) ProfileRemoteURLResolver() func(string) string {
-	if len(c.appPaths) == 0 {
-		return nil
-	}
-	registry, err := remote.NewRegistry(paths.RemotesPath(c.appPaths[0]), c.registryFSOptions()...)
-	if err != nil {
-		return nil
-	}
-	return func(alias string) string {
-		rem, err := registry.Get(alias)
-		if err != nil || rem == nil {
-			return ""
-		}
-		return rem.URL
-	}
+	return c.profileRemoteURL
 }
 
 // ParseConfig unmarshals raw YAML into a Config WITHOUT overlaying the embedded
@@ -1236,7 +1215,7 @@ func (c *Config) BundleReaderDirs() []string {
 func (c *Config) BundleLoader() *bundles.Loader {
 	loader := bundles.LoaderOf(c.Catalog())
 	if c.versionResolver != nil {
-		loader.WithVersionResolver(c.versionResolver)
+		loader.WithVersionResolver(c.versionResolver, c.trust.Root())
 	}
 	return loader
 }

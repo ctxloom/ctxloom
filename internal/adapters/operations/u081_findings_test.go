@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/adapters/configload"
 	"github.com/ctxloom/ctxloom/internal/adapters/remote"
+	"github.com/ctxloom/ctxloom/internal/core/agents"
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
@@ -59,7 +59,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read back via readAgentFromDisk (ParseConfig, no layering) rather than a
-	// full the config read: Runtime is ScopeMachine (internal/adapters/configload/layerscope),
+	// full the config read: Runtime is ScopeMachine (internal/core/config/layerscope),
 	// so a committed PROJECT file no longer has it take effect on a real
 	// Load — this test's concern is Save's field-preservation contract, which
 	// ParseConfig verifies independent of that load-time policy.

@@ -172,17 +172,6 @@ func SplitPromptVersion(ref string) (canonical, version string, err error) {
 	return bundle + sel, version, nil
 }
 
-// ProfileSelector is the selector prefix addressing a profile shipped INSIDE a
-// bundle ("<bundle>#profiles/<name>"). Profiles are an ungated, COMPOUND bundle
-// item kind — a profile composes leaves (fragments/commands/mcp/hooks/llm/parents/
-// variables) — so the selector is the profile counterpart to FragmentSelector /
-// CommandSelector, keeping the bundle-item grammar in one place. Unlike those,
-// there is no trust kind for profiles: a profile definition is orchestration/
-// config, carrying no review state and never gated. Its constituent leaves still gate at
-// their own chokes (fragments/commands at content assembly, mcp/hooks at the exec
-// choke) — only the profile definition itself is ungated.
-const ProfileSelector = "#profiles/"
-
 // BundleProfileRef builds the canonical reference to a profile shipped in a
 // bundle: "<CanonicalBundleRef(bundle)>#profiles/<name>". This is the identity
 // the profile loader resolves a bundle-sourced profile by (see the config
@@ -194,7 +183,7 @@ func BundleProfileRef(bundle, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return canonical + ProfileSelector + NormalizeRef(name), nil
+	return canonical + refuri.ProfileSelector + NormalizeRef(name), nil
 }
 
 // CanonicalProfileKey returns the version-less canonical identity of a
@@ -235,11 +224,11 @@ func CanonicalProfileKey(ref string) (string, bool) {
 // apart from the other two and attribute it back to its bundle.
 func SplitBundleProfileRef(ref string) (bundle, name string, ok bool) {
 	ref = NormalizeRef(ref)
-	i := strings.Index(ref, ProfileSelector)
+	i := strings.Index(ref, refuri.ProfileSelector)
 	if i == -1 {
 		return "", "", false
 	}
-	return ref[:i], ref[i+len(ProfileSelector):], true
+	return ref[:i], ref[i+len(refuri.ProfileSelector):], true
 }
 
 // RetiredProfileSelector is the item-type segment of the RETIRED top-level

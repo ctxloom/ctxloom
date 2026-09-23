@@ -94,7 +94,7 @@ func TestRemoteRev_DocumentFormIsRefused(t *testing.T) {
 
 	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"
 
-	b, err := resolve(canonical, rev1)
+	b, err := resolve(canonical, rev1, onDiskRoot(t, appDir))
 	require.Error(t, err, "a single-file remote bundle must not resolve")
 	assert.Nil(t, b, "and nothing may come back alongside the refusal")
 	assert.Contains(t, err.Error(), "document form is not readable",
@@ -185,12 +185,12 @@ func TestRemoteRev_ResolvesHistoricalVersionOfATreeBundle(t *testing.T) {
 
 	canonical := "file://" + filepath.ToSlash(repoDir) + "@bundles/go-tools"
 
-	b1, err := resolve(canonical, rev1)
+	b1, err := resolve(canonical, rev1, onDiskRoot(t, appDir))
 	require.NoError(t, err, "a directory-form bundle must resolve at a historical commit")
 	assert.Equal(t, "T1-BODY", b1.Fragments["fmt"].Content,
 		"the pinned rev serves the bytes committed at that rev, read out of the tree's bundle.yaml")
 
-	b2, err := resolve(canonical, rev2)
+	b2, err := resolve(canonical, rev2, onDiskRoot(t, appDir))
 	require.NoError(t, err)
 	assert.Equal(t, "T2-BODY", b2.Fragments["fmt"].Content, "a different rev is its own version")
 }

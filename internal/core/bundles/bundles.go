@@ -165,6 +165,14 @@ type Bundle struct {
 	// nobody can forge a signature. This is implementer trap #3.
 	signer string `yaml:"-"`
 
+	// readAsTree records that the reader assembled this value from a TREE
+	// (ReadTree), which is the form fsStore.Save must write it back in. It is
+	// taken at READ time on purpose: the bytes on disk cannot answer it at
+	// save time, because a verb may already have changed them (a skill
+	// scaffolded beside a metadata-only envelope makes that directory look
+	// like a tree it was never read as).
+	readAsTree bool `yaml:"-"`
+
 	// untrustedSignerFingerprint is the SHA256 fingerprint of the key that made
 	// a publish signature over this bundle's bytes WHEN THIS MACHINE DOES NOT
 	// TRUST THAT KEY — the case signer above cannot describe, because

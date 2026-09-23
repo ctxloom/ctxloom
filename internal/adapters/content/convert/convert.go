@@ -66,12 +66,9 @@ package convert
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/signing"
@@ -179,55 +176,25 @@ func (p *planner) addForms(kind trust.ItemKind, name, distilled string, s conten
 func (p *planner) fragments(b *bundles.Bundle) {
 	for _, name := range collections.SortedKeys(b.Fragments) {
 		f := b.Fragments[name]
-		// A fragment authors its applicability condition as `premise`; the
-		// tree format calls the same idea `description`, as it already does
-		// for commands and skills.
-		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{Name: name, ItemMeta: itemMeta(f.ItemBody, f.Premise)})
+		p.addForms(trust.KindFragment, name, f.Distilled, bundles.TreeFragment(name, f))
 	}
 }
 
 func (p *planner) commands(b *bundles.Bundle) error {
 	for _, name := range collections.SortedKeys(b.Commands) {
 		c := b.Commands[name]
-		exports, err := exportBlocks(c.Exports)
+		s, err := bundles.TreeCommand(name, c)
 		if err != nil {
-			return fmt.Errorf("command %q: %w", name, err)
+			return err
 		}
-		p.addForms(trust.KindPrompt, name, c.Distilled, content.Command{Name: name, ItemMeta: itemMeta(c.ItemBody, c.Description), Exports: exports})
+		p.addForms(trust.KindPrompt, name, c.Distilled, s)
 	}
 	return nil
 }
 
-// itemMeta carries across everything a fragment and a command hold alike —
-// the inverse of the tree reader's itemBody — so neither planner restates
-// the shared payload and the two cannot disagree about a field.
-func itemMeta(body bundles.ItemBody, description string) content.ItemMeta {
-	return content.ItemMeta{
-		Tags:         body.Tags,
-		Description:  description,
-		Notes:        body.Notes,
-		Installation: body.Installation,
-		ContentHash:  body.ContentHash,
-		Body:         body.Content,
-		NoDistill:    body.NoDistill,
-		Distilled:    body.Distilled,
-		DistilledBy:  body.DistilledBy,
-	}
-}
-
 func (p *planner) mcp(b *bundles.Bundle) {
 	for _, name := range collections.SortedKeys(b.MCP) {
-		m := b.MCP[name]
-		p.add(trust.KindMCP, name, signing.FormRaw, content.MCP{
-			Name:         name,
-			Command:      m.Command,
-			Args:         m.Args,
-			Env:          m.Env,
-			ServedBy:     m.ServedBy,
-			Notes:        m.Notes,
-			Installation: m.Installation,
-			ContentHash:  m.ContentHash,
-		})
+		p.add(trust.KindMCP, name, signing.FormRaw, bundles.TreeMCP(name, b.MCP[name]))
 	}
 }
 
@@ -284,7 +251,7 @@ func (p *planner) skills(b *bundles.Bundle, opts Options) error {
 		if err != nil {
 			return err
 		}
-		exports, err := exportBlocks(s.Exports)
+		exports, err := bundles.TreeExports(s.Exports)
 		if err != nil {
 			return fmt.Errorf("skill %q: %w", name, err)
 		}
@@ -368,21 +335,12 @@ func Convert(ctx context.Context, w content.Writer, id content.BundleID, b *bund
 // exactly one answer for each item — the file — and the envelope carries only
 // what is genuinely bundle-level.
 //
-// Clearing rather than hand-copying the six metadata fields is deliberate: a
-// field added to bundles.Bundle travels automatically, whereas a copy list is a
-// second place to forget it, and a forgotten field is silently dropped on
-// migration.
+// The rendering is bundles.TreeEnvelope, shared with fsStore.Save's tree
+// branch so a migrated tree and an edited one carry the same envelope.
 func writeEnvelope(ctx context.Context, w content.Writer, id content.BundleID, b *bundles.Bundle) error {
-	env := *b
-	env.Fragments = nil
-	env.Commands = nil
-	env.MCP = nil
-	env.Skills = nil
-	env.Profiles = nil
-	env.Hooks = bundles.BundleHooks{}
-	raw, err := yaml.Marshal(&env)
+	raw, err := bundles.TreeEnvelope(b)
 	if err != nil {
-		return fmt.Errorf("convert: rendering the %s envelope for %q: %w", bundles.DirectoryFormManifest, id, err)
+		return fmt.Errorf("convert: envelope for %q: %w", id, err)
 	}
 	if err := w.PutRootFile(ctx, id, bundles.DirectoryFormManifest, raw); err != nil {
 		return fmt.Errorf("convert: writing the envelope for %q: %w", id, err)
@@ -449,22 +407,4 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
-}
-
-// exportBlocks maps the bundle package's opaque per-engine blocks onto the
-// tree form's, block for block: neither side reads inside one, so nothing
-// is projected and nothing is lost. nil when the item declares none.
-func exportBlocks(blocks bundles.EngineBlocks) (content.EngineExports, error) {
-	if len(blocks) == 0 {
-		return nil, nil
-	}
-	out := make(content.EngineExports, len(blocks))
-	for engine, raw := range blocks {
-		var block content.EngineExport
-		if err := json.Unmarshal(raw, &block); err != nil {
-			return nil, fmt.Errorf("exports: engine %q: %w", engine, err)
-		}
-		out[engine] = block
-	}
-	return out, nil
 }

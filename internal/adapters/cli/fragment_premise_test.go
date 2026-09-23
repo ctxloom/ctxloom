@@ -4,15 +4,19 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/memory"
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 const (
@@ -280,4 +284,32 @@ func TestPremiseEditHeader_CarriesCritiqueAsComments(t *testing.T) {
 	got, err := parseEditedPremise(header + "premise: kept\n")
 	require.NoError(t, err)
 	assert.Equal(t, "kept", got.Premise)
+}
+
+// On a v2 TREE bundle, accepting writes the premise into that fragment's own
+// file and the bundle stays a tree.
+func TestDraftPremise_AcceptOnATreeBundleStaysATree(t *testing.T) {
+	resetApp()
+	t.Cleanup(resetApp)
+	cfg := setupEditProject(t)
+	_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{
+		Name: "demo", Tree: true,
+		Fragments: map[string]operations.BundleFragmentInput{
+			"x": {Content: "Never remove a worktree you did not create.", NoDistill: true},
+		},
+	})
+	require.NoError(t, err)
+	stubPremiseRunners(t)
+	setDraftPremiseFlags(t, true, false)
+	atTerminal(t, "a\n")
+
+	cmd, _ := formatCmd("text")
+	cmd.SetContext(context.Background())
+	require.NoError(t, runFragmentDraftPremise(cmd, []string{"demo#fragments/x"}))
+
+	assert.Equal(t, "You are about to delete a worktree.", fragmentX(t, cfg).Premise)
+	envelope := filepath.Join(paths.LocalBundlesPathFor(cfg.GetAppPaths()[0], paths.LayoutV2), "demo", bundles.DirectoryFormManifest)
+	isTree, err := bundles.IsTreeFormBundle(context.Background(), afero.NewOsFs(), envelope)
+	require.NoError(t, err)
+	assert.True(t, isTree, "accepting a premise must not turn the tree into a document")
 }

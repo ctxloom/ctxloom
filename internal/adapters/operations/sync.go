@@ -325,6 +325,9 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 			// and the entry's version floor before anything is checked out or
 			// recorded, with the same verifier every reader uses.
 			remote.WithTreeVerifier(bundles.TreeVerifier(cfg.TrustRoot())),
+			// Retractions are read only from the default branch's signed tip
+			// manifest, verified by the same trust root.
+			remote.WithManifestVerifier(bundles.ManifestVerifier(cfg.TrustRoot())),
 		)
 	}
 	return puller, nil

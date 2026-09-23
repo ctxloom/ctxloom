@@ -7,6 +7,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/adapters/content"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/attest"
 	"github.com/ctxloom/ctxloom/internal/adapters/content/remotetree"
@@ -190,3 +192,61 @@ func verifyRemoteTree(ctx context.Context, tree content.Bundle, root trust.Trust
 // not know. It is a different fact from ErrTreeBundleWithheld — nothing was
 // tampered with; nothing vouched for it either.
 var ErrTreeUnattested = errors.New("bundles: refusing to read remote tree bundle: unattested")
+
+// ManifestVerifier is the verifier the retraction check runs over the default
+// branch's tip manifest (remote.WithManifestVerifier), through
+// attest.VerifyManifest: a release retracts only when a key this trust root
+// authorizes to publish signed it.
+//
+// A tampered manifest is an error; an unsigned or untrusted one is
+// remote.Verified{} — both of which the retraction check treats as saying
+// nothing, never as "clean".
+func ManifestVerifier(root trust.TrustRoot) remote.ManifestVerifyFunc {
+	return func(raw []byte, sigFiles map[string][]byte) (remote.Verified, error) {
+		if root == nil {
+			return remote.Verified{}, errors.New("bundles: no trust root was supplied, so no manifest signature can be judged")
+		}
+		sigs, err := manifestSigSet(sigFiles)
+		if err != nil {
+			return remote.Verified{}, err
+		}
+		m, v := attest.VerifyManifest(raw, sigs, root, time.Now())
+		switch v.Status {
+		case attest.StatusManifestSigned:
+			return remote.Verified{Release: m.Release(), Publisher: v.Principal}, nil
+		case attest.StatusTampered:
+			return remote.Verified{}, fmt.Errorf("%w: tip manifest: %s", ErrTreeBundleWithheld, v.Detail)
+		default:
+			return remote.Verified{}, nil
+		}
+	}
+}
+
+// manifestSigSet files the fetched signature entries into a scratch store so
+// the content layer — the one owner of the .sigs/ naming — decides which of
+// them are signatures over the manifest.
+func manifestSigSet(sigFiles map[string][]byte) (content.SigSet, error) {
+	const root, id = "/tip", "manifest"
+	fsys := afero.NewMemMapFs()
+	dir := path.Join(root, id, content.SigDirName)
+	if err := fsys.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	for name, data := range sigFiles {
+		if name != path.Base(name) {
+			continue
+		}
+		if err := afero.WriteFile(fsys, path.Join(dir, name), data, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	st, err := content.NewTreeStore(fsys, root, content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, err
+	}
+	b, err := st.Open(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	return b.BundleSignatures(context.Background())
+}

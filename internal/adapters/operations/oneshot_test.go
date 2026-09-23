@@ -207,3 +207,21 @@ func TestResolveBackend(t *testing.T) {
 		assert.Equal(t, "opus", model)
 	})
 }
+
+// TestOneShot_InternalSourceDeclaresItsOwnPosture: an internal one-shot (the
+// distiller, trigger triage) runs headless on whatever label the project
+// names, and a label need not declare a posture. The floor refuses a
+// headless run it would have to widen, so the internal source declares its
+// posture itself rather than depend on a label or on a silent raise.
+func TestOneShot_InternalSourceDeclaresItsOwnPosture(t *testing.T) {
+	_, loader := setupContextTestFS(t)
+	cfg := cfgWithDirProfiles(t, afero.NewMemMapFs(), testBaseDir, nil, config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"plain": {Type: "mock"}},
+			Defaults: config.RoleDefaults{Primary: "plain", Fast: "plain"},
+		},
+	})
+	o, err := testOneShot(t, cfg, opPipe(cfg, loader), &stubEngine{out: "ok"}, InternalSource("plain", "", ""))
+	require.NoError(t, err, "an internal one-shot on a label declaring no posture must still launch")
+	assert.Equal(t, engine.PermissionBypass, o.Launch.Permission)
+}

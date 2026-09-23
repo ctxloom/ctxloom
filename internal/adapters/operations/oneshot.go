@@ -217,9 +217,13 @@ func (l *LazyOneShot) End() {
 }
 
 // InternalSource is the Source an internal one-shot asks with: no binding,
-// the label naming its engine (model overridden when the caller says so).
+// the label naming its engine (model overridden when the caller says so),
+// at bypass. An internal one-shot is headless and the label it rides need
+// not declare a posture, and the floor refuses a headless run rather than
+// widen it; so the posture is declared here, where ctxloom's own machinery
+// chooses it, and a caller that wants another overrides Permission.
 func InternalSource(label, model, workDir string) launch.Source {
-	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir}
+	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Permission: engine.PermissionBypass}
 }
 
 // StartInternalOneShot mints and resolves an internal one-shot over the

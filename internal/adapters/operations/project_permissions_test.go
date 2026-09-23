@@ -87,7 +87,7 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 			"the engine label's declared plan is nearer than the project default")
 	})
 
-	t.Run("a declared project default beats the claude-code host stopgap", func(t *testing.T) {
+	t.Run("a declared project default beats the engine host default", func(t *testing.T) {
 		cfg := projectPermConfig(root, "plan", map[string]agents.Agent{
 			"blank": {LLM: "primary", Profiles: []string{"p1"}},
 		}, nil)
@@ -95,17 +95,17 @@ func TestResolveAgent_EffectivePermissions_ProjectDefault(t *testing.T) {
 		res, err := ResolveAgent(context.Background(), cfg, "blank", "")
 		require.NoError(t, err)
 		assert.Equal(t, "plan", res.EffectivePermissions,
-			"the host stopgap stands in for a posture NOBODY stated; a project that stated one has answered it")
+			"the host default stands in for a posture NOBODY stated; a project that stated one has answered it")
 	})
 
-	t.Run("an undeclared project default leaves the stopgap standing", func(t *testing.T) {
+	t.Run("an undeclared project default leaves the engine host default standing", func(t *testing.T) {
 		cfg := projectPermConfig(root, "", map[string]agents.Agent{
 			"blank": {LLM: "primary", Profiles: []string{"p1"}},
 		}, nil)
 
 		res, err := ResolveAgent(context.Background(), cfg, "blank", "")
 		require.NoError(t, err)
-		assert.Equal(t, "bypass", res.EffectivePermissions,
-			"a project that declared nothing must behave exactly as it did before this key existed")
+		assert.Equal(t, "acceptEdits", res.EffectivePermissions,
+			"a project that declared nothing falls through to the engine's declared host default")
 	})
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/present"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Resolve is the ONE constructor. Refuses (typed) a zero identity, an agent
@@ -94,7 +95,7 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err != nil {
 		return Launch{}, err
 	}
-	perm, err := floorPermission(src, sel, labelPerm, cfg, def.Permissions)
+	perm, err := floorPermission(report.To(deps.Reporter), src, sel, labelPerm, cfg, def.Permissions)
 	if err != nil {
 		return Launch{}, err
 	}
@@ -347,13 +348,11 @@ func resolveDirtyTree(cfg *config.Config, src Source) (DirtyTreeHandler, error) 
 // engine's declared host default; a declaration that does not parse is
 // refused (--degraded narrows it to PermissionFloor, never widens). plan
 // collapses to default on an engine with no read-only tier. A Structured
-// run that would block on a prompt has no human at the engine: the
-// originator's own run (depth 0) is widened to bypass — the human invoked it
-// and owns the terminal — while a delegated child (depth > 0) is REFUSED
-// rather than widened, because nothing answers its engine and elevating a
-// posture nobody chose is worse than not launching; --degraded launches the
-// child at PermissionFloor.
-func floorPermission(src Source, sel selection, labelPerm string, cfg *config.Config, facts engine.PermissionFacts) (engine.PermissionMode, error) {
+// run that would block on a prompt has no human at the engine, whoever
+// launched it, so it is REFUSED rather than widened: elevating a posture
+// nobody chose is worse than not launching. --degraded launches it at
+// PermissionFloor instead, and says so through rep.
+func floorPermission(rep report.Reporter, src Source, sel selection, labelPerm string, cfg *config.Config, facts engine.PermissionFacts) (engine.PermissionMode, error) {
 	flag := ""
 	if src.Permission != engine.PermissionNotRequested {
 		flag = src.Permission.String()
@@ -378,16 +377,29 @@ func floorPermission(src Source, sel selection, labelPerm string, cfg *config.Co
 	}
 	mode = mode.CollapsePlanIfUnenforced(facts.ReadOnlyPlan)
 	if src.Mode == engine.Structured && !mode.SafeHeadless() {
-		if !src.Identity.IsChild() {
-			return engine.PermissionBypass, nil
-		}
 		if src.Degraded {
+			enforced := "read-only"
+			if !facts.ReadOnlyPlan {
+				enforced = "which this engine does NOT enforce as read-only"
+			}
+			rep.Warnf("--degraded: %q would block on an engine prompt that no human can answer in a headless run, so this run is launched at %s (%s) instead of refused", mode, engine.PermissionFloor, enforced)
 			return engine.PermissionFloor, nil
 		}
-		return 0, fmt.Errorf("%w: a delegated run has no human to answer an engine prompt and %q would block on one; declare permissions: %s|%s on agent %q",
-			ErrPermissionUnhonoured, mode, engine.PermissionPlan, engine.PermissionBypass, sel.agent)
+		return 0, fmt.Errorf("%w: a headless run has no human to answer an engine prompt and %q would block on one; %s",
+			ErrPermissionUnhonoured, mode, declareHeadlessPosture(sel.agent))
 	}
 	return mode, nil
+}
+
+// declareHeadlessPosture is the remedy a refused headless run is given, at
+// the door it was selected by: the agent binding when one was named, else
+// the run's own flag.
+func declareHeadlessPosture(agent string) string {
+	safe := engine.PermissionPlan.String() + "|" + engine.PermissionBypass.String()
+	if agent != "" {
+		return fmt.Sprintf("declare permissions: %s on agent %q", safe, agent)
+	}
+	return fmt.Sprintf("pass --permissions %s", safe)
 }
 
 // ImageConfigFor is the user's container-image configuration for the

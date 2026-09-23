@@ -147,8 +147,8 @@ func TestResolveAgent_MissingDefaultAgentDegrades(t *testing.T) {
 }
 
 // TestResolveAgent_EffectivePermissions pins the resolved posture surfaced by
-// `agent show`: a declared value wins; a blank claude-code agent resolves to the
-// host-bypass stopgap (not ""); a blank non-claude agent resolves to default.
+// `agent show`: a declared value wins; a blank agent resolves to its engine's
+// declared host default (not "").
 func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
@@ -158,9 +158,9 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 		"mock-blank":   {LLM: "fast", Profiles: []string{"p1"}},
 	})
 	cases := map[string]string{
-		"claude-blank": "bypass",  // claude-code host stopgap made visible
-		"mock-plan":    "plan",    // declared value surfaces
-		"mock-blank":   "default", // non-claude blank → prompt
+		"claude-blank": "acceptEdits", // claude-code's host default made visible
+		"mock-plan":    "plan",        // declared value surfaces
+		"mock-blank":   "default",     // non-claude blank → prompt
 	}
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {

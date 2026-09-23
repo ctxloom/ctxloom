@@ -61,15 +61,15 @@ func TestResolve_Refuses_TheIncompleteShapes(t *testing.T) {
 	require.ErrorContains(t, err, "nobody")
 
 	env = launchtest.Deps(t, launchtest.WithAgent("pty-only", launchtest.NoStructuredDrive()))
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "pty-only", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "pty-only", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 	require.ErrorIs(t, err, launch.ErrModeUnsupported) // fail loud where no native surface exists: Modes, read here, not a driver probe
 
 	env = launchtest.Deps(t, launchtest.WithAgent("boxed", launchtest.Runtime(launch.RuntimeRootful)), launchtest.RuntimesAvailable(launch.RuntimeRootless))
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "boxed", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "boxed", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 	require.ErrorIs(t, err, launch.ErrOwnershipMismatch) // fatal, never a substitution
 
 	env = launchtest.Deps(t, launchtest.WithAgent("imageless", launchtest.Runtime(launch.RuntimeRootless)), launchtest.RuntimesAvailable(launch.RuntimeRootless), launchtest.EngineWithoutContainer())
-	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "imageless", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "imageless", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 	var unsupported engine.ErrUnsupported
 	require.ErrorAs(t, err, &unsupported) // the engine's own Container() refused; Resolve passes it through untouched
 	require.Equal(t, "container", unsupported.Capability)
@@ -131,9 +131,9 @@ func TestResolve_Permission_HeadlessOneRule(t *testing.T) {
 func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	env.Deps.Endpoints = &launchtest.StableMinter{}
-	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	first, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
-	resumed, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, WorkDir: env.Project,
+	resumed, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, WorkDir: env.Project,
 		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: env.Identity.Harp, NativeKey: "k1"}}})
 	require.NoError(t, err)
 	require.Equal(t, first.MCP, resumed.MCP, "a resumed session keeps its endpoint and credential")
@@ -144,7 +144,7 @@ func TestResolve_MCPEndpoint_PerSession_StableAcrossResume(t *testing.T) {
 	require.Equal(t, first.MCP, entry.MCP, "the endpoint is bound on the session record")
 	require.Equal(t, string(first.Engine), entry.Backend, "the engine Resolve decided is recorded on the session")
 
-	rebound, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, WorkDir: env.Project,
+	rebound, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, WorkDir: env.Project,
 		Resume: launch.Resume{Ref: sessions.ResumeRef{Harp: env.Identity.Harp}, RebindEndpoint: true}})
 	require.NoError(t, err)
 	require.NotEqual(t, first.MCP.URL, rebound.MCP.URL, "an explicit rebind mints a fresh address")
@@ -343,12 +343,12 @@ func TestResolve_Carrier_ChosenBySize_RedeemsToTheSamePackage(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("dev"))
 	env.Deps.Inline, env.Deps.ClaimCheck = inline, claim
 	env.Deps.InlineMax = 1 << 20
-	small, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	small, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.Nil(t, small.Package.Claim, "under the ceiling the bytes ride the frame")
 
 	env.Deps.InlineMax = -1 // every package is above the ceiling
-	large, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+	large, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: "dev", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 	require.NoError(t, err)
 	require.NotNil(t, large.Package.Claim, "above the ceiling a claim rides the frame")
 

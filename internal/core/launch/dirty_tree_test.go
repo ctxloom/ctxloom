@@ -34,7 +34,7 @@ func TestResolve_DirtyTree_SettledOnce_RequestThenConfigThenBuiltIn(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			env := launchtest.Deps(t, launchtest.ProjectDirtyTree(tc.project))
 			l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-				Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
+				Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
 				Workspace: launch.WorkspaceWorktree, DirtyTree: tc.src,
 			})
 			require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestResolve_DirtyTree_SettledOnce_RequestThenConfigThenBuiltIn(t *testing.T
 func TestResolve_DirtyTree_UnusableProjectDefaultIsRefused(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.ProjectDirtyTree("comit"))
 	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
+		Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
 	})
 	require.Error(t, err)
 	require.ErrorContains(t, err, "dirty_tree_handler")

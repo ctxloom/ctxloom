@@ -89,10 +89,12 @@ func Build(opts ...Option) (engine.Engine, error) {
 		Permissions: engine.PermissionFacts{
 			Native:       []engine.PermissionMode{engine.PermissionDefault, engine.PermissionPlan, engine.PermissionAcceptEdits, engine.PermissionBypass},
 			ReadOnlyPlan: true, // --permission-mode plan is read-only
-			// The host stopgap: blanket auto-approval on the bare host, until
-			// the approval broker delivers prompts to a human.
-			HostDefault:       engine.PermissionBypass,
-			HostDefaultReason: "permissions bypassed on the host (claude-code stopgap)",
+			// Undeclared, the bare host auto-approves edits and prompts for
+			// everything else. It prompts, so it is not headless-safe: a
+			// headless run must declare its own posture, and bypass is only
+			// ever declared, never defaulted.
+			HostDefault:       engine.PermissionAcceptEdits,
+			HostDefaultReason: "edits auto-approved on the host, everything else prompts (acceptEdits)",
 		},
 		Context:  &contextApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelArgv}}},
 		MCP:      &mcpApproach{traits{present.Traits{Roots: shared, Channel: present.ChannelFile, Persists: true}}},

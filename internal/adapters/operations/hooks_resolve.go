@@ -8,6 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/adapters/operations/managedhooks"
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/wire"
+	"github.com/ctxloom/ctxloom/internal/shared/report"
 )
 
 // Hook source kinds, as reported by ResolvedHook.SourceKind. Each is a distinct
@@ -153,7 +154,7 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	// identity is an artefact of having asked the question is not inspection.
 	// Apply computes a real hash because it is about to write it down; this is
 	// not, and says so rather than faking one.
-	assembled := managedhooks.Assemble(terminalReporter(), cfg, workDir, "", req.Profiles)
+	assembled := managedhooks.Assemble(report.To(cfg.Reporter()), cfg, workDir, "", req.Profiles)
 
 	out := &ResolveHooksResult{}
 	for _, event := range resolvedHookEventOrder() {

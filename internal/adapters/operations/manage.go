@@ -159,7 +159,7 @@ type SurfaceCurrency struct {
 func HarnessStatus(ctx context.Context, cfg *config.Config, req HarnessStatusRequest) (*HarnessStatusResult, error) {
 	fs := getFS(req.FS)
 	workDir := manageWorkDir(req.WorkDir)
-	opts := []agent.SettingsOption{agent.WithSettingsFS(fs), agent.WithSettingsReporter(terminalReporter().Sink)}
+	opts := []agent.SettingsOption{agent.WithSettingsFS(fs), agent.WithSettingsReporter(cfg.Reporter())}
 
 	settings := cfg.GetSettings()
 	result := &HarnessStatusResult{

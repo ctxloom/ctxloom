@@ -13,20 +13,17 @@ Feature: The close-out — the end of a workstream
   assistant everything the team has ever written down, and nothing that
   Friday's work discovered.
 
-  The close-out routine is itself shipped content — a signed bundle command run
-  as `ctxloom run -r cleanup` — walking noun-homed leaves in order:
-  preconditions, then worktrees, then lessons, then retention. There is
-  deliberately no top-level `cleanup` verb; that question was settled by the
-  noun-verb convention and is not re-litigated here.
+  The one thing she runs at the end is `ctxloom session sweep`, and it is
+  deterministic: a fixed table decides every ended session of the project, and
+  each action goes through the same leaf, with the same refusals, that this
+  file specifies one at a time — worktrees, then reclaim, then retention. It
+  removes what it can prove is safe and reports the rest; the same sessions
+  give the same report. There is deliberately no top-level `cleanup` verb; the
+  sweep lives under the noun it tidies.
 
-  # NOTE ON SCOPE. `session worktrees`, `session purge` and doctor's checks
-  # ship. The `cleanup` routine does not, and its scenario is its acceptance
-  # definition. Every scenario here passes EXCEPT the one tagged @wip, which is
-  # red, and that is the deliverable rather than a defect in the file.
-  #
   # COMMAND SURFACES THIS FILE COVERS: `ctxloom doctor`, `session worktrees`
   # and its `purge` leaf, `session purge` and `session transcript purge`, and
-  # `ctxloom run -r`.
+  # `session sweep`.
   #
   # The lessons leg — four scenarios specifying
   # `session distill --skill --to-bundle` — is gone; that surface is ruled out.
@@ -50,11 +47,11 @@ Feature: The close-out — the end of a workstream
   # force-remove, no dirty or unmerged or unowned trees, no live session, no
   # sweeping an undistilled session, no touching vendor stores.
   #
-  # NOTE ON TAGS. Exactly one scenario carries @wip, and it states its own
-  # untag condition. Every other scenario passes today and says what closed it
-  # rather than being left silent. Keep that property true — whether anything
-  # here is still a wish is the first thing a reader needs, and a @wip tag is
-  # the only honest way to say so.
+  # NOTE ON TAGS. Every scenario passes and says what closed it rather than
+  # being left silent. A scenario added here as a wish carries @wip and states
+  # its own untag condition — whether anything here is still a wish is the
+  # first thing a reader needs, and a @wip tag is the only honest way to say
+  # so.
 
   Background:
     Given the feature shipped on Friday and Alice is closing the workstream out
@@ -305,19 +302,53 @@ Feature: The close-out — the end of a workstream
     Then the uncommitted work is still there, spared in place
     And the scratch worktree is still registered with git
 
-  # ---- The routine itself ------------------------------------------------
-  # The one-thing-you-run affordance, recovered through ctxloom's own
-  # mechanism rather than a new verb: a first-party signed bundle command
-  # reached by `run -r`, with the shipped `check-triggers` command as the
-  # existing precedent for a command orchestrating CLI and MCP calls in order.
-  # Honest cost, stated where it belongs: `run -r` is LLM-driven, so the
-  # routine is agentic rather than deterministic.
+  # ---- The sweep ----------------------------------------------------------
+  # One command ties the legs together, and nothing in it is decided by a
+  # model: `session sweep` turns each session's facts into rows by a fixed
+  # table (operations.DecideSweep) and acts only through the leaves above,
+  # each of which re-checks the session's lock under its own hold.
   #
-  # UNTAG WHEN: a first-party `cleanup` command ships and resolves. Expected
-  # RED. Note this asserts RESOLUTION, not a full agentic run — the four leaves
-  # it drives have their own scenarios above, and re-driving them through an
-  # LLM here would test the model rather than the product.
-  @wip
-  Scenario: The close-out is itself a piece of signed content she can read and edit
-    When I run "ctxloom run -r cleanup -n"
-    Then ctxloom resolves a shipped, signed cleanup routine
+  # Read-only default, the confirmation line's first rule: the report names
+  # what it would do to each session, and destroys nothing.
+  #
+  # Closed: `ctxloom session sweep`, reporting without --yes.
+  Scenario: The sweep reports every session's fate before it changes anything
+    Given a finished session "amber-quiet-heron" whose work is already distilled
+    And a finished session "brisk-copper-moth" that was never distilled
+    And every session has been idle for 120 days
+    When I run "ctxloom session sweep --purge-older-than 90d"
+    Then the sweep report names "amber-quiet-heron" and "brisk-copper-moth"
+    And every byte of every session is still on disk
+
+  # THE SWEEP INHERITS EVERY REFUSAL ABOVE, over a mixed fixture where each
+  # refusal has something real to refuse. A running session and one whose
+  # liveness nothing can prove are skipped whole. A scratch worktree holding
+  # uncommitted work is spared IN PLACE — read back by its own bytes — while
+  # its clean sibling goes, and its session is spared from purge. A distilled
+  # session past the purge age is emptied; a human's session nobody
+  # summarised is not, and the report names the distill that would lift the
+  # refusal. An internal one-shot is nobody's only record of anything, so it
+  # is emptied without one.
+  #
+  # Closed: `ctxloom session sweep --yes`.
+  Scenario: The sweep removes only what it can prove is safe, and says why it left the rest
+    Given a finished session "amber-quiet-heron" whose work is already distilled
+    And a finished session "brisk-copper-moth" that was never distilled
+    And an internal one-shot session "gray-oneshot-wisp" that was never distilled
+    And a finished session "olive-dirty-finch" whose work is already distilled
+    And session "olive-dirty-finch" left a clean scratch worktree
+    And session "olive-dirty-finch" left a scratch worktree holding uncommitted work
+    And a session "teal-running-wren" that is still running
+    And session "teal-running-wren" left a scratch worktree of its own
+    And a session "slate-unproven-vole" nothing can prove the liveness of
+    And session "slate-unproven-vole" left a scratch worktree of its own
+    And every session has been idle for 120 days
+    When I run "ctxloom session sweep --purge-older-than 90d --yes"
+    Then the sweep skipped "teal-running-wren" and "slate-unproven-vole" without touching either
+    And only the clean, provably-orphaned worktree is gone from disk
+    And the uncommitted work is still there, spared in place
+    And the report says why each spared worktree was left alone
+    And the machine-written bulk of "amber-quiet-heron" is gone
+    And the machine-written bulk of "gray-oneshot-wisp" is gone
+    And the sweep kept the transcript of "brisk-copper-moth" and named "ctxloom session distill brisk-copper-moth"
+    And the sweep kept the transcript of "olive-dirty-finch" and named "ctxloom-wt-wip"

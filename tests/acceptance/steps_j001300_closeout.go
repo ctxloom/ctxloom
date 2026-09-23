@@ -2,11 +2,9 @@
 
 // J001300: "the close-out" (j001300_closeout.feature) — FLOWS-UNIFIED.md's U11.
 //
-// ONE SCENARIO HERE STILL SPECIFIES A SURFACE THAT DOES NOT EXIST — the
-// `cleanup` routine — and that is the deliverable rather than a defect. A red
-// scenario naming a real gap is worth more than a green one that dodged the
-// assertion. Everything else drives shipped verbs: `ctxloom doctor`,
-// `session worktrees` and its `purge` leaf, and `session purge`.
+// Every scenario drives a shipped verb: `ctxloom doctor`, `session worktrees`
+// and its `purge` leaf, `session purge`, and `session sweep` — the
+// deterministic sweep that ties the leaves together.
 //
 // `session distill` takes NO --skill and NO --to-bundle. That leg was
 // specified here and rejected: extraction-into-a-bundle is not a close-out
@@ -45,10 +43,12 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cucumber/godog"
 )
@@ -68,6 +68,7 @@ type j001300Harp struct {
 	dir       string // absolute
 	essence   bool
 	authored  bool
+	origin    string // the sidecar's origin; "" is a human's session
 	worktrees []string // absolute scratch-worktree dirs under this harp
 }
 
@@ -171,6 +172,7 @@ func j001300WriteIndex(w *World) error {
 			StartedAt:      "2026-01-01T00:00:00Z",
 			EndedAt:        "2026-01-02T00:00:00Z",
 			TranscriptPath: filepath.Join(harpDirIn(w, name), "transcript.jsonl"),
+			Origin:         st.harps[name].origin,
 		}); err != nil {
 			return err
 		}
@@ -652,16 +654,105 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// --- The routine --------------------------------------------------------
+	// --- The sweep ----------------------------------------------------------
 
-	ctx.Step(`^ctxloom resolves a shipped, signed cleanup routine$`, func(c context.Context) error {
+	// An INTERNAL one-shot: the mint stamps origin "oneshot" on it, the one
+	// fact that lets a sweep empty it without an essence.
+	ctx.Step(`^an internal one-shot session "([^"]*)" that was never distilled$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
-		if strings.Contains(out, "not found") || strings.Contains(out, "no such command") || strings.Contains(out, "unknown command") {
-			return fmt.Errorf("no shipped `cleanup` command exists to run (exit %d). The one-thing-you-run affordance is recovered "+
-				"through ctxloom's own mechanism — a first-party signed bundle command reached by `run -r` — precisely so that no "+
-				"top-level cleanup verb has to be added. Output:\n%s", w.env.LastExitCode(), out)
+		if err := j001300SeedHarp(w, harp, false, false); err != nil {
+			return err
+		}
+		j001300Of(w).harps[harp].origin = "oneshot"
+		if err := j001300WriteIndex(w); err != nil {
+			return err
+		}
+		return seedDeadSession(w, harp)
+	})
+
+	// Age is a property of the fixture, not of how long the scenario ran:
+	// every mtime under every seeded harp directory is set back. Symlinks are
+	// skipped — the sweep's clock never reads them, and Chtimes would follow.
+	ctx.Step(`^every session has been idle for (\d+) days$`, func(c context.Context, days int) error {
+		w := worldFrom(c)
+		old := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		for _, h := range j001300Of(w).harps {
+			err := filepath.WalkDir(h.dir, func(p string, d fs.DirEntry, err error) error {
+				if err != nil || d.Type()&fs.ModeSymlink != 0 {
+					return err
+				}
+				return os.Chtimes(p, old, old)
+			})
+			if err != nil {
+				return fmt.Errorf("backdate %s: %w", h.name, err)
+			}
 		}
 		return nil
 	})
+
+	ctx.Step(`^the sweep report names "([^"]*)" and "([^"]*)"$`, func(c context.Context, a, b string) error {
+		w := worldFrom(c)
+		if err := j001300RanRealSurface(w); err != nil {
+			return err
+		}
+		return j001300Answered(w, w.env.LastStdout(), "`ctxloom session sweep`", a, b, "planned")
+	})
+
+	// A skipped session is asserted on its own bytes AND on the report's
+	// reason: a sweep that silently omitted it would leave the bytes too.
+	ctx.Step(`^the sweep skipped "([^"]*)" and "([^"]*)" without touching either$`, func(c context.Context, running, unproven string) error {
+		w := worldFrom(c)
+		if err := j001300RanRealSurface(w); err != nil {
+			return err
+		}
+		if w.env.LastExitCode() != 0 {
+			return fmt.Errorf("the sweep exited %d; leaving what it cannot prove safe is not a failure. Output:\n%s", w.env.LastExitCode(), w.env.LastOutput())
+		}
+		for _, name := range []string{running, unproven} {
+			if err := j001300Untouched(w, name); err != nil {
+				return err
+			}
+		}
+		return j001300Answered(w, w.env.LastStdout(), "the sweep report", "it is running",
+			"its liveness cannot be proven", "ctxloom session purge "+unproven+" --even-if-live")
+	})
+
+	ctx.Step(`^the sweep kept the transcript of "([^"]*)" and named "([^"]*)"$`, func(c context.Context, harp, named string) error {
+		w := worldFrom(c)
+		if err := j001300BulkIntact(w, harp); err != nil {
+			return err
+		}
+		return j001300Answered(w, w.env.LastStdout(), "the sweep report", harp, named)
+	})
+}
+
+// j001300Untouched asserts harp's machine-written bulk still carries its own
+// bytes and every scratch worktree seeded under it is still on disk.
+func j001300Untouched(w *World, name string) error {
+	if err := j001300BulkIntact(w, name); err != nil {
+		return err
+	}
+	for _, wt := range j001300Of(w).harps[name].worktrees {
+		if !j001300DirExists(wt) {
+			return fmt.Errorf("%s's scratch worktree %s was REMOVED by a sweep that should have left it. Output:\n%s", name, wt, w.env.LastOutput())
+		}
+	}
+	return nil
+}
+
+// j001300BulkIntact asserts harp's machine-written bulk still carries its own
+// bytes.
+func j001300BulkIntact(w *World, name string) error {
+	h, ok := j001300Of(w).harps[name]
+	if !ok {
+		return fmt.Errorf("harp %q was never seeded", name)
+	}
+	for _, rel := range []string{"transcript.jsonl", "persist/transcripts/turns.jsonl"} {
+		body, err := os.ReadFile(filepath.Join(h.dir, filepath.FromSlash(rel)))
+		if err != nil || !strings.Contains(string(body), j001300BulkMarker) {
+			return fmt.Errorf("%s's %s was destroyed or rewritten by a sweep that should have left it whole (exit %d). Output:\n%s",
+				name, rel, w.env.LastExitCode(), w.env.LastOutput())
+		}
+	}
+	return nil
 }

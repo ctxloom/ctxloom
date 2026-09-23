@@ -8,9 +8,9 @@ comply with it; where it doesn't, we coin a collision-free term and say so.
 
 ```
 control-plane  ──wire──►  runner  ──drives──►  engine ── (provider, model)
-  (user config,          (materializes,        (claude-code / codex /
-   isolation,             launches)             gemini-cli / direct API)
-   assembly)
+  (user config,          (materializes,        (an agentic CLI, e.g.
+   isolation,             launches)             claude-code, or a
+   assembly)                                    direct API)
 ```
 
 *The **control-plane** assembles a user's configuration into a **loadout** (the
@@ -27,7 +27,7 @@ and drives the **engine** (whose own **engine agents** we merely pass through).*
 | **wire** | The network-agnostic control-plane→runner transport. Carries **all** data the runner needs; assumes **no** shared filesystem (the runner may be remote). | gRPC (`SetupRequest`, plugin server) |
 | **virtualized-process-io (vpio)** | The host-side transport for an interactive agent **turn**, formalized behind one interface so the frontend (raw-terminal ownership, SIGWINCH→resize plumbing, the termui surround, stdin-close semantics, exit propagation) never touches a transport directly. Distinct from the **wire**: the wire carries the *loadout*, once, before the turn starts; vpio carries the *turn itself* (stdio + resize + signal + exit), for as long as it runs. Current (only) implementation: **go-plugin** — wraps the existing hashicorp/go-plugin-backed bidirectional `Run` RPC (`internal/lm/grpc`, `llm.proto`'s `Run`); the wire protocol is unchanged, only the host-side call shape is. Registered future swaps (not yet implemented): **docker-exec** (attach to an already-running container's process via `docker exec -it`, for the container-isolation runtime) and **host-pty** (a bare local pty-spawned process, for a non-plugin engine). | `internal/adapters/vpio` (`Launcher`/`Session`/`ProcessSpec`/`ExitStatus`); go-plugin impl `internal/vpio/goplugin`; consumers `internal/adapters/cli/run.go`, `internal/adapters/cli/init.go` |
 | **runner** | Everything after the wire: receives transmitted config/content, **materializes it locally** (the delivery seam), and drives the engine. Neutral about mechanism — it may spawn a process or call an API. | `internal/core/agent` (`LaunchBackend`) + the per-engine backends |
-| **engine** | What the runner drives to produce agent behavior — an agentic CLI product (claude-code, codex, gemini-cli) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / opencode backends |
+| **engine** | What the runner drives to produce agent behavior — an agentic CLI product (e.g. claude-code) **or** a direct-API integration. Coined: unclaimed at this layer (elsewhere "engine" means an inference server). Continuity with the existing `agent_engine` key. | claude / codex / opencode backends |
 | **provider** / **model** | Standard sub-terms *beneath* an engine, for the model/API layer: `provider` = the vendor (Anthropic/OpenAI), `model` = the specific LLM. Industry-standard pair (Vercel AI SDK, opencode, Goose, Cline, LiteLLM, OpenRouter) — do not coin here. | (config for API-backed engines) |
 | **loadout** | The full set of **surfaces** the control-plane assembles and the runner injects for a session — the composed delivery payload transmitted over the wire. | context assembly + `internal/lm/backends` (`AssembleManagedConfig`) |
 | **surface** | One managed deliverable within a loadout — WHAT is delivered (the **context**, MCP, hooks, commands, skills and settings deliverables; `SurfaceKind` enumerates those the delivery chain dispatches on). Contrast **channel**, which is *how* the engine reaches it. | `ManagedConfig` fields + framed context + `.mcp.json` / `.claude/*` |

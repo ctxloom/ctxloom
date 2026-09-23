@@ -6,10 +6,6 @@
 package compositetest
 
 import (
-	"time"
-
-	"golang.org/x/crypto/ssh"
-
 	"github.com/ctxloom/ctxloom/internal/core/bundles"
 	"github.com/ctxloom/ctxloom/internal/core/composite"
 	"github.com/ctxloom/ctxloom/internal/core/trust"
@@ -48,13 +44,7 @@ func Ports(opts ...Option) (composite.TrustRoot, composite.ReviewRecords, compos
 }
 
 // Root is a trust root that trusts no key.
-func Root() composite.TrustRoot { return root{} }
-
-type root struct{}
-
-func (root) TrustedForNamespace(ssh.PublicKey, string, time.Time) composite.SignerDecision {
-	return composite.SignerDecision{Reason: "compositetest: no key is trusted"}
-}
+func Root() composite.TrustRoot { return trust.NoSigners{} }
 
 // RejectWhen records a human rejection for every (ref, bytes) fn accepts.
 func RejectWhen(fn func(ref trust.Ref, payload []byte) bool) Option {

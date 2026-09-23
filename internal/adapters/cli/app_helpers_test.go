@@ -72,9 +72,16 @@ func (s probeSources) Readers(_ context.Context, cfg *config.Config) ([]bundles.
 	}, nil
 }
 
-func (s probeSources) TrustPorts(context.Context, *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
-	root, records, retraction := compositetest.Ports()
-	return root, records, retraction, nil
+// TrustPorts builds the root a generation read over the fixture's app dir
+// holds (its signer files, read now), over compositetest's review and
+// retraction records.
+func (s probeSources) TrustPorts(_ context.Context, cfg *config.Config) (composite.TrustRoot, composite.ReviewRecords, composite.RetractionRecords, error) {
+	read, err := configload.Load(configload.WithFS(cfg.FS()), configload.WithAppDir(cfg.GetAppPaths()[0]))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	_, records, retraction := compositetest.Ports()
+	return read.Trust().Root(), records, retraction, nil
 }
 
 // withCompanionProbe returns cfg as the generation a process would hold when

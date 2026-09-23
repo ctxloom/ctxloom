@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -43,7 +44,10 @@ func TestSeedCompanionTrust_WritesTheGrantIntoAStoreThatCanRevokeIt(t *testing.T
 
 	// The grant must DECIDE the question, not merely appear in a file: a
 	// well-formed line naming the wrong key or namespace satisfies a substring
-	// check and still admits nothing.
+	// check and still admits nothing. The grant takes effect from the next
+	// generation, as it would for the next command.
+	_, err = App().Reload(context.Background())
+	require.NoError(t, err)
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	embedded := configload.EmbeddedSigners().Entries()
@@ -66,6 +70,9 @@ func TestSeedCompanionTrust_IsIdempotent(t *testing.T) {
 	store := seedCompanionTrust(true)
 	require.NotEmpty(t, store)
 
+	// A re-init is a new process, reading a new generation.
+	_, err := App().Reload(context.Background())
+	require.NoError(t, err)
 	assert.Empty(t, seedCompanionTrust(true),
 		"a re-init over an already-authorized project must write nothing at all")
 

@@ -120,7 +120,7 @@ func TestVerifyPublisher_SuppressedPrincipal_NoLongerVerifies(t *testing.T) {
 // never forge a signature for, which is exactly why
 // TestVerifyPublisher_SuppressedPrincipal_NoLongerVerifies above uses a
 // synthetic key to prove the mechanism and this test only needs to prove the
-// WIRING: Config.TrustRoot() genuinely reads the on-disk distrusted_signers
+// WIRING: signerFiles.trustStore genuinely reads the on-disk distrusted_signers
 // file (via SuppressedEmbeddedPrincipals) and excludes the matching embedded
 // entry, using nothing but a public key (TrustedForNamespace never needs a
 // signature).
@@ -137,19 +137,19 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 
 	// Before any suppression: the embedded release key is trusted to publish,
 	// exactly as TestEmbeddedSigners_ReleaseKeyTrustedForPublishOnly proves for
-	// the raw embedded store — TrustRoot() must agree.
+	// the raw embedded store — the trust root must agree.
 	before := cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now)
 	assert.True(t, before.Trusted, "the embedded release key starts out trusted for publish")
 
 	// Write the SAME suppression record `signer remove <embedded-principal>
 	// --project` would (operations.RemoveSigner) directly to the project
-	// distrusted_signers file, to isolate the TrustRoot()-side read from the
+	// distrusted_signers file, to isolate the trust-root-side read from the
 	// CLI/operations write path (that round trip is proven separately in
 	// internal/adapters/operations).
 	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(appDir), []byte("ben+ctxloom@abbitt.me\n"), 0o600))
 
 	after := cfg.trustStore().TrustedForNamespace(key, signing.NamespacePublish, now)
-	assert.False(t, after.Trusted, "a locally suppressed embedded principal's key must no longer be trusted by TrustRoot()")
+	assert.False(t, after.Trusted, "a locally suppressed embedded principal's key must no longer be trusted by the trust root")
 
 	// A blank line and a `#`-comment line must never themselves suppress
 	// anything (only an exact principal line does) — guards against a

@@ -124,7 +124,7 @@ func (e Entry) MatchesPrincipal(identity string) bool {
 // MatchesAnyPrincipal reports whether any of e's OWN Principals (an exact,
 // literal string, never a glob expansion) is present in principals — the
 // set-membership counterpart to MatchesPrincipal's single-identity pattern
-// match. Shared by config.filterSuppressedPrincipals (TrustRoot()'s
+// match. Shared by configload.filterSuppressedPrincipals (the trust root's
 // subtraction of a locally-distrusted embedded principal) and
 // operations.entrySuppressed (the `signer list`/`show` Suppressed tag), so
 // the "does this entry name a principal in this set" check has one

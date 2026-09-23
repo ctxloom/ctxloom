@@ -333,7 +333,7 @@ func entryFingerprint(e allowedsigners.Entry) string {
 // this enumerates entries with no mutation path opening up. An embedded entry
 // is NOT removable via this CLI (only a new binary changes the compiled-in
 // bytes) — RemoveSigner reports that honestly, and can instead persist a
-// local suppression (Suppressed above) that TrustRoot() subtracts.
+// local suppression (Suppressed above) that the trust root subtracts.
 func ListSigners(cfg *config.Config, fs afero.Fs) ([]SignerListing, error) {
 	fs = getFS(fs)
 	var out []SignerListing
@@ -475,7 +475,7 @@ type RemoveSignerResult struct {
 // skipping the embedded check and leaving the embedded key trusted after the
 // on-disk line was gone. This is the practical equivalent of removal for a
 // root nothing can literally edit, and it is a REAL effect, not a message:
-// TrustRoot() (spec §7, §9.2) honors it on every subsequent decision.
+// the trust root (spec §7, §9.2) honors it from the next generation on.
 func RemoveSigner(cfg *config.Config, req RemoveSignerRequest) (*RemoveSignerResult, error) {
 	if req.Principal == "" {
 		return nil, fmt.Errorf("a principal is required")

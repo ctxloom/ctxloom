@@ -9,7 +9,7 @@
 // though it might look irrevocable and invisible, the key is
 // visible, and locally revocable — it is surfaced by `signer
 // list`/`show` (tagged embedded/not-removable) and `signer remove` aimed at
-// it persists a real local suppression TrustRoot() honors, though the
+// it persists a real local suppression the trust root honors, though the
 // compiled-in bytes themselves still only change via a new binary (see the
 // feature file's own comments for the full rationale).
 //

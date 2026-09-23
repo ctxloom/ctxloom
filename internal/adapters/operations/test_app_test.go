@@ -168,3 +168,16 @@ func onDiskRoot(t *testing.T, appDir string) trust.TrustRoot {
 	require.NoError(t, err)
 	return cfg.Trust().Root()
 }
+
+// withOnDiskRoot rebinds cfg's gate over the trust root a generation read over
+// appDir holds (onDiskRoot), keeping compositetest's review and retraction
+// records: for a fixture whose test trusts a publisher by writing its
+// allowed_signers, as a user would.
+func withOnDiskRoot(t *testing.T, cfg *config.Config, appDir string) *config.Config {
+	t.Helper()
+	_, records, retraction := compositetest.Ports()
+	tr, err := composite.NewTrust(onDiskRoot(t, appDir), records, retraction)
+	require.NoError(t, err)
+	cfg.BindTrustForTesting(tr)
+	return cfg
+}

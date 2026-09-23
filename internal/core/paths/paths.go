@@ -59,7 +59,7 @@ const (
 	// suppression record (without extension) — see DistrustedSignersPath. A
 	// plain one-principal-per-line list, deliberately NOT the OpenSSH
 	// allowed_signers format: this store asserts no trust of its own, only a
-	// negative record TrustRoot() subtracts from the embedded root.
+	// negative record the trust root (configload) subtracts from the embedded root.
 	DistrustedSignersFileName = "distrusted_signers"
 
 	// ApprovalsDirName is the name of the countersignature store directory

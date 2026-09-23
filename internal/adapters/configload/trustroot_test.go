@@ -340,6 +340,8 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 // trusted signer looks revoked — so the warning is asserted here too.
 func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
 	resetStrictness(t)
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
 	fs := afero.NewMemMapFs()
 	pub, keyLine := newTestKey(t)
 
@@ -363,6 +365,27 @@ func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
 		"the valid entries in the same file still load")
 	assert.Empty(t, strictness.Since(mark),
 		"a skipped line is not a corrupt trust store; escalating it would abort startup over one stray line")
+}
+
+// A malformed line is reported once per file and line, however many times the
+// root is built from that file in one process.
+func TestTrustRoot_MalformedLine_WarnsOncePerFileAndLine(t *testing.T) {
+	resetStrictness(t)
+	clidiag.ResetWarnOnce()
+	t.Cleanup(clidiag.ResetWarnOnce)
+	const appDir = ".ctxloom-warn-once"
+	fs := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(appDir), []byte("this-line-is-garbage-with-no-key\n"), 0o644))
+	cfg := &signerFiles{appPaths: []string{appDir}, fs: fs, rep: ledgerReporter()}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	for range 3 {
+		cfg.trustStore()
+	}
+	assert.Equal(t, 1, strings.Count(buf.String(), "ignored"), buf.String())
 }
 
 // ledgerReporter reports into the strictness ledger, so a test can assert the

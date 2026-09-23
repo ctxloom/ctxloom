@@ -308,7 +308,9 @@ func (c *signerFiles) parseAllowedSigners(fs afero.Fs, path string) *allowedsign
 		return allowedsigners.FailedSource(path, err)
 	}
 	for _, pe := range parseErrs {
-		c.rep.Warnf("allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
+		// Once per file and line: the root is rebuilt by every reader of it, and
+		// a stray line is one fact however many times the file is parsed.
+		c.rep.WarnOncef("allowed_signers %s:%d ignored: %v", path, pe.Line, pe.Err)
 	}
 	return store.WithSource(path)
 }

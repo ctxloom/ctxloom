@@ -5,7 +5,6 @@ package isolation
 import (
 	"context"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,23 +53,6 @@ func forEachRmRaceRuntime(t *testing.T, what, prefix string, body func(t *testin
 	}
 }
 
-// containersNamed lists every container, in any state, whose name is exactly
-// name — the leak this test is about is often a CREATED container that never
-// started, which `ps` without -a does not show.
-func containersNamed(t *testing.T, bin, name string) []string {
-	t.Helper()
-	out, err := exec.Command(bin, "ps", "-a", "--filter", "name="+name,
-		"--format", "{{.Names}} {{.Status}}").Output()
-	require.NoError(t, err)
-	var lines []string
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if f := strings.Fields(l); len(f) > 0 && strings.TrimPrefix(f[0], "/") == name {
-			lines = append(lines, l)
-		}
-	}
-	return lines
-}
-
 // TestStartDirectRunner_KillBeforeCreateLeavesNoContainer: a Kill whose remove
 // reaches the daemon BEFORE the launch's create does must still leave no
 // container behind. The remove answers "No such container" (benign-looking),
@@ -85,7 +67,7 @@ func TestStartDirectRunner_KillBeforeCreateLeavesNoContainer(t *testing.T) {
 		h.Kill()
 		_ = h.Wait()
 
-		require.Empty(t, containersNamed(t, rt.Binary(), name),
+		require.Empty(t, dockergate.ContainersNamed(t, rt.Binary(), name),
 			"Kill must not orphan a container whose create landed after its remove said \"No such container\"")
 	})
 }
@@ -105,7 +87,7 @@ func TestRunAttached_CloseBeforeCreateLeavesNoContainer(t *testing.T) {
 		ac.ShutdownGrace = time.Millisecond
 		_ = ac.Close()
 
-		require.Empty(t, containersNamed(t, rt.Binary(), name),
+		require.Empty(t, dockergate.ContainersNamed(t, rt.Binary(), name),
 			"Close must not orphan a container whose create landed after its remove said \"No such container\"")
 	})
 }

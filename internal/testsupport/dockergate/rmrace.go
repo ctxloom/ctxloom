@@ -3,7 +3,9 @@ package dockergate
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,4 +60,24 @@ exec %[4]q "$@"
 		t.Fatalf("write the rm-race wrapper: %v", err)
 	}
 	return path
+}
+
+// ContainersNamed lists every container, in any state, whose name is exactly
+// name, as "<name> <status>" lines — the leak a teardown race leaves is often a
+// CREATED container that never started, which `ps` without -a does not show.
+// bin is the runtime binary; the name filter is a substring match on both
+// docker and podman, so the exact match is made here.
+func ContainersNamed(t testing.TB, bin, name string) []string {
+	t.Helper()
+	out, err := exec.Command(bin, "ps", "-a", "--filter", "name="+name, "--format", "{{.Names}} {{.Status}}").Output()
+	if err != nil {
+		t.Fatalf("%s ps -a: %v", bin, err)
+	}
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if f := strings.Fields(l); len(f) > 0 && strings.TrimPrefix(f[0], "/") == name {
+			lines = append(lines, l)
+		}
+	}
+	return lines
 }

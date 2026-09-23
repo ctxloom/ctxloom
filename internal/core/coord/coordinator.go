@@ -403,6 +403,13 @@ type Coordinator struct {
 	// its answer, and parking here is what makes that ordering a fact rather
 	// than a scheduler coin flip. Nil in production (zero cost).
 	spawnDispatchedHook func(harp string)
+	// drainRequestHook, if set (tests only, same package), runs
+	// synchronously in runDrain's REQUEST phase between classifying a run as
+	// executing and marking it for exit (requestExit). It is the seam that
+	// lets a test land the child's turn boundary inside that window, which
+	// is the ordering the WAIT loop's idle arm exists to survive. Nil in
+	// production (zero cost).
+	drainRequestHook func(runID string)
 
 	closeOnce sync.Once
 	// closed is set at the START of Close, before it looks for listeners to

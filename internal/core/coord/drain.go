@@ -241,6 +241,9 @@ func (c *Coordinator) runDrain(d *Drain, bound time.Duration) {
 			c.drainPark(ch, p)
 		case StateExecuting:
 			c.audit("drain_request", ch.harp, map[string]string{"harp": ch.harp, "run_id": ch.runID})
+			if hook := c.drainRequestHook; hook != nil {
+				hook(ch.runID)
+			}
 			c.requestExit(ch.runID, p)
 		case StateIdle:
 			c.terminateRun(ch.runID, p.endCause, p.endDetail("between turns"))

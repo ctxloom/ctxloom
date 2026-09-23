@@ -125,11 +125,12 @@ var pristineHidden = func() map[string]bool {
 }()
 
 // undocumentedHidden are the top-level commands hidden from --help that are
-// also deliberately NOT documented: shell plumbing (completion), hook
-// endpoints ctxloom invokes on the user's behalf (hook), and internal helpers
-// (plan, util). They are the complement of Product.Unhide, and together the two
-// sets must account for every hidden top-level command.
+// also deliberately NOT documented -- shell plumbing, endpoints ctxloom invokes
+// on the user's behalf, internal helpers, and commands not yet usable. They are
+// the complement of Product.Unhide, and together the two sets must account for
+// every hidden top-level command.
 var undocumentedHidden = map[string]bool{
+	"attach":     true, // runAttach has no success path yet; documenting a command that always refuses would advertise it
 	"completion": true,
 	"hook":       true,
 	"plan":       true,

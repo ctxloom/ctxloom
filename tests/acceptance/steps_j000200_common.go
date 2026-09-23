@@ -189,7 +189,7 @@ func buildJ000200Config(label, engineType string) string {
 	b.WriteString("llm:\n  configs:\n")
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", label, engineType)
 	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", label, label)
-	fmt.Fprintf(&b, "agents:\n  default:\n    llm: %s\n    profiles:\n      - default\n", label)
+	fmt.Fprintf(&b, "agents:\n  default:\n    llm: %s\n    profiles:\n      - default\n    permissions: bypass\n", label)
 	b.WriteString("default_agent: default\n")
 	return b.String()
 }
@@ -255,7 +255,7 @@ func addMockAlongside(w *World) (recordFile string, err error) {
 	if !strings.Contains(body, "\nllm:\n") && !strings.HasPrefix(body, "llm:\n") {
 		return "", fmt.Errorf("config.yaml has no top-level llm: block to append alongside")
 	}
-	body = strings.Replace(body, "llm:\n  configs:\n", "llm:\n  configs:\n    mock:\n      type: mock\n", 1)
+	body = strings.Replace(body, "llm:\n  configs:\n", "llm:\n  configs:\n    mock:\n      type: mock\n      permissions: bypass\n", 1)
 	if err := w.env.WriteFile(".ctxloom/config.yaml", body); err != nil {
 		return "", fmt.Errorf("write config.yaml: %w", err)
 	}

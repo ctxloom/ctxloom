@@ -159,14 +159,13 @@ func TestWarnUnknownAxes_RuntimeFatal_WorkspaceBenign(t *testing.T) {
 	})
 }
 
-// TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded pins the
-// fail-loudly contract for an EXPLICITLY-requested container that can't be
-// satisfied: prepareChain still degrades to the host (the run always gets a
-// workspace), but in strict mode it records a fatal ClassIsolation finding for
-// the choke owner to abort on, while --degraded downgrades it to today's plain
-// host-degrade (no finding). A non-container (workspace-axis) degrade must never
-// record such a finding — only a LOST CONTAINER BOUNDARY is fatal.
-func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T) {
+// TestPrepareChain_RequestedContainerDegrade_Fatal pins the fail-loudly
+// contract for an EXPLICITLY-requested container that can't be satisfied:
+// prepareChain still resolves a workspace, but records a non-degradable
+// ClassIsolation finding the choke owner aborts on in both modes. A
+// non-container (workspace-axis) degrade must never record such a finding —
+// only a LOST CONTAINER BOUNDARY is fatal.
+func TestPrepareChain_RequestedContainerDegrade_Fatal(t *testing.T) {
 	// The chain chainFor builds ONLY for an explicitly-requested container: a
 	// container tier that fails to prepare (image absent / probe / auth),
 	// degrading to None.
@@ -174,12 +173,13 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 
 	t.Run("strict: records one fatal isolation finding and still degrades to the host", func(t *testing.T) {
 		resetStrictness(t)
+		stubRuntimeCandidates(t)
 		// The mark the run path's post-Prepare gate would anchor at, captured
 		// BEFORE the degrade so Since(mark) proves the finding lands inside the
 		// gate's scan window (not merely that some finding exists somewhere).
 		mark := strictness.Checkpoint()
 
-		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws, "the run always gets a workspace — the degrade never blocks the LLM")
 		assert.IsType(t, None{}, policy, "the boundary is lost, so the workspace falls back to the host")
 
@@ -211,6 +211,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 
 	t.Run("a ContainerWorktree that degrades to a bare worktree is a lost-boundary finding", func(t *testing.T) {
 		resetStrictness(t)
+		stubRuntimeCandidates(t)
 
 		// The {worktree, container} chain: the container-worktree tier fails to
 		// launch and degrades to the SURVIVING bare worktree. The container
@@ -218,7 +219,7 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 		// fatal — a container→non-container transition, not the benign
 		// worktree→none workspace-axis degrade.
 		chain := []Policy{failingPolicy{name: "container-worktree"}, passingPolicy{name: (Worktree{}).Name()}, None{}}
-		policy, ws := prepareChain(context.Background(), chain, "/project", "agent-a")
+		policy, ws := prepareChain(context.Background(), chain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.Equal(t, "worktree", policy.Name(), "the requested worktree survives the lost container boundary")
 
@@ -237,7 +238,8 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 	// surviving strictness.Actionable.
 	t.Run("degraded: the finding survives Actionable, so the run still refuses", func(t *testing.T) {
 		resetStrictness(t)
-		policy, ws := prepareChain(context.Background(), containerChain, "/project", "agent-a")
+		stubRuntimeCandidates(t)
+		policy, ws := prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
 		require.NotNil(t, ws)
 		assert.IsType(t, None{}, policy, "the chain still resolves a workspace; the GATE is what refuses")
 
@@ -248,11 +250,26 @@ func TestPrepareChain_RequestedContainerDegrade_FatalUnlessDegraded(t *testing.T
 			"the whole point: under --degraded this finding is STILL actionable, so the choke owner aborts")
 	})
 
+	t.Run("a container that fails to start names the other ownership this host CAN give", func(t *testing.T) {
+		resetStrictness(t)
+		stubRuntimeCandidates(t, ownedBy("docker", RuntimeContainerRootless), ownedBy("podman", RuntimeContainerRootful))
+
+		prepareChain(context.Background(), containerChain, RuntimeContainerRootless, "/project", "agent-a")
+		all := strictness.All()
+		require.Len(t, all, 1)
+		assert.Contains(t, all[0].Message, "container-rootful (podman)",
+			"the refusal names the reachable container other than the one that just failed")
+		assert.Contains(t, all[0].Message, "ctxloom agent edit <agent> --runtime container-rootful",
+			"and the explicit selection that opts into it")
+		assert.NotContains(t, all[0].Message, "container-rootless (docker)",
+			"the ownership that just failed to start is not offered back as the way out")
+	})
+
 	t.Run("a workspace-axis degrade (worktree→none) is not an isolation finding", func(t *testing.T) {
 		resetStrictness(t)
 
 		workspaceChain := []Policy{failingPolicy{name: (Worktree{}).Name()}, None{}}
-		policy, _ := prepareChain(context.Background(), workspaceChain, "/project", "agent-a")
+		policy, _ := prepareChain(context.Background(), workspaceChain, RuntimeHost, "/project", "agent-a")
 		assert.IsType(t, None{}, policy)
 		assert.Empty(t, strictness.All(),
 			"a lost worktree degrades gracefully — only a lost CONTAINER boundary is fatal")
@@ -294,13 +311,13 @@ func ownedBy(name string, owns RuntimeAxis) runtimeCandidate {
 	return runtimeCandidate{name: name, probe: func() (Runtime, RuntimeAxis) { return rt, owns }}
 }
 
-// TestChainFor_NoRuntime_FatalUnlessDegraded pins chainFor's no-runtime fatal
-// path hermetically (via the selectRuntimeProbe seam): an EXPLICITLY-requested
-// container with no reachable runtime records a fatal ClassIsolation finding in
-// strict mode — the choke owner aborts on it — while the chain still degrades
+// TestChainFor_NoRuntime_Fatal pins chainFor's no-runtime fatal path
+// hermetically (via the selectRuntimeProbe seam): an EXPLICITLY-requested
+// container with no reachable runtime records a non-degradable ClassIsolation
+// finding — the choke owner aborts on it in both modes — while the chain still degrades
 // so the run gets a workspace (never blocks). The workspace axis must survive
 // the runtime-axis degrade untouched.
-func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
+func TestChainFor_NoRuntime_Fatal(t *testing.T) {
 	t.Run("strict {none,container}: one fatal isolation finding; chain degrades to None", func(t *testing.T) {
 		resetStrictness(t)
 		stubRuntimeProbe(t, Host{})
@@ -319,6 +336,10 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 			"a requested container that cannot be provided refuses in both modes")
 		assert.NotContains(t, findings[0].FixIt, "--degraded",
 			"a non-degradable refusal must not offer --degraded as its remedy")
+		assert.Contains(t, findings[0].Message, "no container runtime is reachable on this host",
+			"with nothing to select, the refusal says so")
+		assert.Contains(t, findings[0].Message, "install docker or podman",
+			"and what to install or start")
 	})
 
 	t.Run("strict {worktree,container}: the finding fires but the worktree survives", func(t *testing.T) {
@@ -455,7 +476,7 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 	// all-failing chain still yields a workspace rather than a nil one.
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	policy, ws := prepareChain(cancelled, []Policy{failingPolicy{name: "worktree"}}, "/proj", "agent-a")
+	policy, ws := prepareChain(cancelled, []Policy{failingPolicy{name: "worktree"}}, RuntimeHost, "/proj", "agent-a")
 	assert.Equal(t, None{}.Name(), policy.Name())
 	require.NotNil(t, ws)
 	assert.Equal(t, "/proj", ws.Dir())

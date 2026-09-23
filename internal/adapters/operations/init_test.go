@@ -253,7 +253,7 @@ func TestBuildInitialConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := BuildInitialConfig(tt.engine, "")
+			data, err := BuildInitialConfig(tt.engine, "", "")
 			require.NoError(t, err)
 
 			// `role` is registry-only — it must be stripped from the written config.
@@ -304,4 +304,30 @@ func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
 	assert.Equal(t, "solo-engine", got.Defaults.Fast, "no fast-role entry exists, so fast must fall back to primary")
 	require.Contains(t, got.Configs, "solo-engine")
 	assert.Empty(t, got.Configs["solo-engine"].Role, "role is registry-only and must be stripped")
+}
+
+// TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent: the interview's
+// headless-posture answer becomes the default seed agent's `permissions:`.
+// Only a headless-safe posture is accepted — the answer exists so the
+// agent's headless runs are not refused — and no answer writes none.
+func TestBuildInitialConfig_HeadlessPostureOnTheSeedAgent(t *testing.T) {
+	seed := func(t *testing.T, posture string) agents.Agent {
+		t.Helper()
+		data, err := BuildInitialConfig("mock", "", posture)
+		require.NoError(t, err)
+		cfg, err := config.ParseConfig(data)
+		require.NoError(t, err)
+		a, ok := cfg.Agent(SeedProfileName)
+		require.True(t, ok)
+		return a
+	}
+	assert.Equal(t, "plan", seed(t, "plan").Permissions)
+	assert.Equal(t, "bypass", seed(t, "bypass").Permissions)
+	assert.Empty(t, seed(t, "").Permissions, "no answer declares nothing")
+
+	for _, bad := range []string{"acceptEdits", "default", "yolo"} {
+		_, err := BuildInitialConfig("mock", "", bad)
+		require.Error(t, err, "%q is not a headless posture", bad)
+		assert.ErrorContains(t, err, bad)
+	}
 }

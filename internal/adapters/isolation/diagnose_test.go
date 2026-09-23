@@ -186,3 +186,16 @@ func TestDiagnoseStaleness_NamesTheNotCheckedCases(t *testing.T) {
 			"an unverifiable image must say so rather than read as up to date")
 	})
 }
+
+// TestDiagnose_NoRuntimeGuidanceTellsTheTruthAboutDegraded: a requested
+// container with no reachable runtime is refused under --degraded too, so
+// the guidance must not offer the flag as a way onto the host.
+func TestDiagnose_NoRuntimeGuidanceTellsTheTruthAboutDegraded(t *testing.T) {
+	stubRuntimeCandidates(t)
+	d := Diagnose(context.Background(), "claude-code", ImageConfig{})
+	require.Equal(t, "none", d.Runtime)
+	require.NotEmpty(t, d.Guidance)
+	assert.NotContains(t, d.Guidance[0], "runs them on the host")
+	assert.Contains(t, d.Guidance[0], "even under --degraded")
+	assert.Contains(t, d.Guidance[0], "install docker or podman")
+}

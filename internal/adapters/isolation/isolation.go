@@ -81,7 +81,7 @@ import (
 // non-degradably, so naming the flag would hand the user a remedy that does
 // not work — which is worse than naming none. The remedy is to declare the
 // host axis, because that is the request the user actually has to make.
-const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait, the project `runtime:` default, or --runtime host)"
+const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or ask for a host run deliberately with `runtime: host` (the agent's runtime trait via `ctxloom agent edit <agent> --runtime host`, or the project `runtime:` default)"
 
 // Workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
@@ -503,6 +503,40 @@ func noRuntimeHint() string {
 	return ""
 }
 
+// containerSelectionHint is the way into a container this host CAN give,
+// appended to a refusal of the one that was asked for. It names every
+// container ownership mode other than refused that the run-path probe
+// (selectRuntimeProbe) can serve, with the explicit selection that opts into
+// it — never a substitution made for the user: the two ownership modes differ
+// in UID mapping, so choosing the other one is the user's decision, and
+// selecting it is how they make it. With nothing reachable it says what to
+// install or start.
+func containerSelectionHint(refused RuntimeAxis) string {
+	var reachable []string
+	var pick RuntimeAxis
+	for _, axis := range []RuntimeAxis{RuntimeContainerRootless, RuntimeContainerRootful} {
+		if axis == refused {
+			continue
+		}
+		rt := selectRuntimeProbe("", axis)
+		if _, isHost := rt.(Host); isHost {
+			continue
+		}
+		reachable = append(reachable, fmt.Sprintf("%s (%s)", axis, rt.Name()))
+		pick = axis
+	}
+	if len(reachable) == 0 {
+		// The refused ownership itself is reachable (it failed to START):
+		// nothing else to offer, and nothing to install.
+		if _, isHost := selectRuntimeProbe("", refused).(Host); !isHost {
+			return ""
+		}
+		return "; no container runtime is reachable on this host — install docker or podman and start it (its daemon, or the rootless service), then run again"
+	}
+	return fmt.Sprintf("; this host CAN give %s — select it explicitly with `ctxloom agent edit <agent> --runtime %s` (or `runtime: %s` on the binding or as the project default)",
+		strings.Join(reachable, ", "), pick, pick)
+}
+
 // warnUnknownAxes reports a broken/typo'd axis value. The two axes differ in
 // severity because their defaults differ in blast radius:
 //
@@ -594,10 +628,10 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		// degrade DOWN THE CHAIN — the exact host fallback being refused.
 		if axes.WantsWorktree() {
 			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
-				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s", axes.Runtime, noRuntimeHint())
+				"runtime: %s requested but no container runtime is available with that ownership; refusing to keep the worktree on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
 		} else {
 			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
-				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s", axes.Runtime, noRuntimeHint())
+				"runtime: %s requested but no container runtime is available with that ownership; refusing to run on the HOST without the container boundary that was asked for%s%s", axes.Runtime, containerSelectionHint(axes.Runtime), noRuntimeHint())
 		}
 	}
 	if axes.WantsWorktree() {
@@ -650,10 +684,10 @@ func IsContainerPolicyName(name string) bool {
 // the container policies' durable state mounts and the worktree's ephemeral
 // scratch home. Each degrade warns and the run always gets a workspace;
 // dropping a requested CONTAINER boundary is additionally a fatal finding
-// (ClassIsolation) the choke owner aborts on unless --degraded (a
+// (ClassIsolation) the choke owner aborts on, --degraded included (a
 // workspace-axis degrade stays a silent fallback).
 func Prepare(ctx context.Context, axes Axes, backend string, img ImageConfig, projectDir, agentID string, state SessionState) (Policy, Workspace) {
-	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), projectDir, agentID)
+	return prepareChain(ctx, withSessionState(chainFor(axes, backend, img), state), axes.Runtime, projectDir, agentID)
 }
 
 // withSessionState stamps the run's session identity onto every policy in the
@@ -709,7 +743,7 @@ func prepareWorkspace(ctx context.Context, p Policy, projectDir, agentID string)
 // that succeeds with its workspace, warning at each degrade. The chain always ends
 // in None (which never fails), so a member always gets a workspace; the trailing
 // fallback is defensive against an empty/all-failing chain.
-func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID string) (Policy, Workspace) {
+func prepareChain(ctx context.Context, chain []Policy, requested RuntimeAxis, projectDir, agentID string) (Policy, Workspace) {
 	for i, p := range chain {
 		ws, err := p.PrepareWorkspace(ctx, projectDir, agentID)
 		if err == nil {
@@ -747,7 +781,7 @@ func prepareChain(ctx context.Context, chain []Policy, projectDir, agentID strin
 		// the run is the non-degradable finding, not a missing workspace.
 		if IsContainerPolicyName(p.Name()) && !IsContainerPolicyName(next) {
 			strictness.FailAlways(strictness.ClassIsolation, isolationFixIt,
-				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v", agentID, err)
+				"container isolation was requested but could not start — refusing to run %q on the HOST without the container boundary that was asked for (this session would NOT be sandboxed): %v%s", agentID, err, containerSelectionHint(requested))
 			continue
 		}
 		clidiag.Warn("ctxloom", "isolation %q unavailable for member %q (%v); degrading to %q", p.Name(), agentID, err, next)

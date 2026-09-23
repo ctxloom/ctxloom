@@ -88,8 +88,7 @@ func TestWireMode(t *testing.T) {
 }
 
 // TestResolveDefault pins the shared base resolution: first declared source
-// wins; otherwise the engine's declared host default answers (bypass for an
-// engine with the host stopgap, prompt-per-call for one without).
+// wins; otherwise the engine's declared host default answers.
 func TestResolveDefault(t *testing.T) {
 	// First declared wins, in order.
 	mode, honoured := ResolveDefault(report.To(strictness.Sink("ctxloom")), []string{"plan", "bypass"}, PermissionBypass)

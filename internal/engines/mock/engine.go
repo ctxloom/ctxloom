@@ -244,13 +244,15 @@ func Build(name engine.Name, opts ...Option) (engine.Engine, error) {
 		Name:         name,
 		Distribution: engine.DistributionTestOnly,
 		Modes:        []engine.Mode{engine.Interactive, engine.Structured},
-		Permissions:  engine.PermissionFacts{Native: []engine.PermissionMode{engine.PermissionDefault, engine.PermissionBypass}, HostDefault: engine.PermissionDefault},
-		Context:      &contextFile{surface{"context-file", file}},
-		MCP:          &mcpFile{surface{"mcp-config", file}},
-		Settings:     &settingsFile{surface{"settings", file}},
-		Hooks:        &hooksFile{surface{"hooks-file", file}},
-		Commands:     &commandsDir{surface{"commands-dir", file}},
-		Skills:       &skillsDir{surface{"skills-dir", file}},
+		// ReadOnlyPlan: the mock never runs tools, so it is read-only by
+		// construction.
+		Permissions: engine.PermissionFacts{Native: []engine.PermissionMode{engine.PermissionDefault, engine.PermissionPlan, engine.PermissionBypass}, ReadOnlyPlan: true, HostDefault: engine.PermissionDefault},
+		Context:     &contextFile{surface{"context-file", file}},
+		MCP:         &mcpFile{surface{"mcp-config", file}},
+		Settings:    &settingsFile{surface{"settings", file}},
+		Hooks:       &hooksFile{surface{"hooks-file", file}},
+		Commands:    &commandsDir{surface{"commands-dir", file}},
+		Skills:      &skillsDir{surface{"skills-dir", file}},
 		CLI: []engine.CLIGrammar{
 			{Mode: engine.Interactive, Binary: "mock", Flags: flags},
 			{Mode: engine.Structured, Binary: "mock", Flags: flags},

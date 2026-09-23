@@ -25,22 +25,22 @@ func TestResolve_EngineHome_SessionByDefault_HostOnlyBySelection(t *testing.T) {
 		want launch.HomeMode
 	}{
 		{"a binding that declares nothing", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Agent: "silent", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, launch.HomeModeSession},
 		{"a binding restating session", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Agent: "session", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Agent: "session", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, launch.HomeModeSession},
 		{"a binding selecting the host home", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Agent: "host", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Agent: "host", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, launch.HomeModeHost},
 		{"an unparseable spelling under --degraded", func(env launchtest.Env) launch.Source {
 			return launch.Source{Identity: env.Identity, Agent: "typo", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true}
 		}, launch.HomeModeSession},
 		{"a launch with no binding (a profile set)", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Profiles: []string{"base"}, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, launch.HomeModeSession},
 		{"an internal one-shot", func(env launchtest.Env) launch.Source {
-			return launch.Source{Identity: env.Identity, Internal: true, Mode: engine.Structured, Prompt: "x", WorkDir: env.Project}
+			return launch.Source{Identity: env.Identity, Internal: true, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project}
 		}, launch.HomeModeSession},
 	}
 	for _, tc := range cases {
@@ -65,7 +65,7 @@ func TestResolve_EngineHome_SessionByDefault_HostOnlyBySelection(t *testing.T) {
 func TestResolve_EngineHome_UnparseableSpellingIsRefused(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("typo", launchtest.EngineHome("hostt")))
 	_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: env.Identity, Agent: "typo", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
+		Identity: env.Identity, Agent: "typo", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
 	})
 	require.Error(t, err)
 	require.ErrorContains(t, err, "hostt")
@@ -79,7 +79,7 @@ func TestResolve_EngineHome_UnparseableSpellingIsRefused(t *testing.T) {
 func TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts(t *testing.T) {
 	env := launchtest.Deps(t, launchtest.WithAgent("child", launchtest.Permissions("bypass")))
 	root, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
+		Identity: env.Identity, Agent: "setup", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), root) })
@@ -88,14 +88,14 @@ func TestResolve_Orchestrator_RootIsItsOwn_AnAgentNamesIts(t *testing.T) {
 	child := env.Identity
 	child.Depth = 1
 	l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: child, Agent: "child", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Orchestrator: "root-harp",
+		Identity: child, Agent: "child", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project, Orchestrator: "root-harp",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 	require.Equal(t, "root-harp", env.LastCellRequest().Orchestrator, "an agent's cell projects the orchestrator's credential")
 
 	_, err = launch.Resolve(context.Background(), env.Deps, launch.Source{
-		Identity: child, Agent: "child", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project,
+		Identity: child, Agent: "child", Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project,
 	})
 	require.ErrorIs(t, err, launch.ErrNoOrchestrator)
 }
@@ -115,7 +115,7 @@ func TestResolve_AHostHomeRunOfARelocatableEngineRoutesToTheProjectRoot(t *testi
 		launchtest.WithAgent("session", launchtest.EngineHome("session")),
 	)
 	roots := func(agent string) map[present.Kind]present.RootKind {
-		l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: agent, Mode: engine.Structured, Prompt: "x", WorkDir: env.Project})
+		l, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: env.Identity, Agent: agent, Mode: engine.Structured, Permission: engine.PermissionBypass, Prompt: "x", WorkDir: env.Project})
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
 		out := map[present.Kind]present.RootKind{}

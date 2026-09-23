@@ -236,11 +236,11 @@ type PermissionFacts struct {
 	// genuinely read-only, non-prompting mode; false = no such tier, and the
 	// resolver collapses plan to default.
 	ReadOnlyPlan bool
-	// HostDefault is the DEFAULT posture for an interactive host run when
-	// nothing named one.
+	// HostDefault is the posture a run takes when nothing declared one; a
+	// headless run refuses it unless it is SafeHeadless.
 	HostDefault PermissionMode
-	// HostDefaultReason is shown to the user when HostDefault is a posture
-	// worth surfacing; the stopgap's retirement condition lives beside it.
+	// HostDefaultReason is shown to the user (under -v) when HostDefault is
+	// the posture a run resolved to.
 	HostDefaultReason string
 }
 

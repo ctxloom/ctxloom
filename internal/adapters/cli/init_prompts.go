@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/ctxloom/ctxloom/internal/adapters/operations"
+	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/launch"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -224,22 +225,64 @@ func (p *initPrompts) promptDirtyTreeHandler() (handler string, ack bool, err er
 	}
 }
 
+// headlessPermissionsOptions maps promptHeadlessPermissions' menu numbers to
+// the seed agent's permissions value, in display order. Index 0 is what a bare
+// Enter picks; "" (none) declares nothing, so the agent's headless runs are
+// refused until one is declared.
+var headlessPermissionsOptions = []string{enginepkg.PermissionPlan.String(), enginepkg.PermissionBypass.String(), ""}
+
+// promptHeadlessPermissions asks which posture the default agent's headless
+// runs may use and returns the value for its `permissions:`. A headless run
+// has no human to answer a prompt, so without a headless-safe posture it is
+// refused; interactive runs keep the engine's host default either way.
+func (p *initPrompts) promptHeadlessPermissions() (string, error) {
+	fmt.Println()
+	fmt.Println("Your default agent sometimes runs HEADLESS — a one-shot (`ctxloom run --one-shot`)")
+	fmt.Println("or a delegated run — where no human is present to answer a permission prompt.")
+	fmt.Println("Interactive sessions are unaffected: they auto-approve file edits (acceptEdits)")
+	fmt.Println("and ask you before anything else. Which posture may the default agent's")
+	fmt.Println("headless runs use?")
+	fmt.Println()
+	fmt.Println("  1) plan — read-only: it can look and answer, but cannot change anything (Recommended)")
+	fmt.Println("  2) bypass — it may do anything, including edits and commands, without asking")
+	fmt.Println("  3) none — declare nothing now; headless runs of this agent are refused until")
+	fmt.Println("     you set `permissions:` on it (ctxloom agent edit default --permissions <plan|bypass>)")
+
+	for {
+		fmt.Print("\n> (1-3, Enter for recommended): ")
+		input, err := p.readCleanLine()
+		if err != nil {
+			return "", err
+		}
+		if input == "" {
+			return headlessPermissionsOptions[0], nil
+		}
+		num, convErr := strconv.Atoi(input)
+		if convErr != nil || num < 1 || num > len(headlessPermissionsOptions) {
+			fmt.Printf("Please enter a number between 1 and %d, or press Enter for recommended\n", len(headlessPermissionsOptions))
+			continue
+		}
+		return headlessPermissionsOptions[num-1], nil
+	}
+}
+
 // promptForEngineAndRepos runs the interactive engine selection, optional
 // personal-repo, and dirty-tree-handler prompts. errNoEngines propagates (the
 // prompt already explained it); other prompt failures warn and fall back
 // rather than aborting init. A failed dirty-tree prompt falls back to
 // ""/false — the same silent-default shape init had before this question
-// existed (built-in "commit" default, unacknowledged).
-func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, err error) {
+// existed (built-in "commit" default, unacknowledged). A failed
+// headless-posture prompt declares none, as the "none" answer does.
+func promptForEngineAndRepos() (engineName string, repos []string, dirtyTreeHandler string, dirtyTreeCommitAck bool, headlessPermissions string, err error) {
 	prompts := newInitPromptsFrom(os.Stdin)
 
-	engine, err = prompts.promptEngineSelection()
+	engineName, err = prompts.promptEngineSelection()
 	if err != nil {
 		if err == errNoEngines {
-			return "", nil, "", false, err
+			return "", nil, "", false, "", err
 		}
 		clidiag.Warn("ctxloom", "failed to read engine selection: %v", err)
-		engine = operations.DefaultEngineName()
+		engineName = operations.DefaultEngineName()
 	}
 
 	repos, repoErr := prompts.promptPersonalRepos()
@@ -254,5 +297,11 @@ func promptForEngineAndRepos() (engine string, repos []string, dirtyTreeHandler 
 		dirtyTreeHandler, dirtyTreeCommitAck = "", false
 	}
 
-	return engine, repos, dirtyTreeHandler, dirtyTreeCommitAck, nil
+	headlessPermissions, hpErr := prompts.promptHeadlessPermissions()
+	if hpErr != nil {
+		clidiag.Warn("ctxloom", "failed to read headless posture selection: %v", hpErr)
+		headlessPermissions = ""
+	}
+
+	return engineName, repos, dirtyTreeHandler, dirtyTreeCommitAck, headlessPermissions, nil
 }

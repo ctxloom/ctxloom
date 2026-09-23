@@ -29,9 +29,9 @@
 // Nothing here sets a flag the product does not offer, and nothing here
 // reaches around the resolver.
 //
-// AND THE ONE-SHOT INTERACTION MATTERS. The floor widens a Structured run
-// at depth 0 up to bypass when the resolved posture is not SafeHeadless — there is no human
-// to answer a prompt — which is why P5's approval probe cannot use this
+// AND THE ONE-SHOT INTERACTION MATTERS. The floor refuses a Structured run
+// whose resolved posture is not SafeHeadless — there is no human to answer a
+// prompt — which is why P5's approval probe cannot use this
 // invocation at all. Plan IS SafeHeadless (agent.PermissionMode.SafeHeadless),
 // and all four backends declare enforcesReadOnlyPlan TRUE, so
 // CollapsePlanIfUnenforced leaves it alone and the ONESHOT floor does not fire:

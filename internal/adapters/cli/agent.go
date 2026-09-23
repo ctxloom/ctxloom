@@ -251,7 +251,7 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 	}
 	w.Println()
 	// The posture an unflagged interactive run actually uses — so a blank-declared
-	// claude-code agent's real host-bypass is visible, not hidden behind "".
+	// agent's engine host default is visible, not hidden behind "".
 	if resolved.EffectivePermissions != "" {
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}

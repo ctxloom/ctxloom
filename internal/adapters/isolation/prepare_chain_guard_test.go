@@ -27,7 +27,7 @@ func TestPrepareChain_NonContainerDegradeRaisesNoFinding(t *testing.T) {
 
 	pol, ws := prepareChain(context.Background(),
 		[]Policy{failingPolicy{name: "worktree"}, passingPolicy{name: "none"}},
-		t.TempDir(), "member-a")
+		RuntimeHost, t.TempDir(), "member-a")
 
 	require.Equal(t, "none", pol.Name(), "the chain must degrade past the failed worktree")
 	require.NotNil(t, ws, "a degraded run still gets a workspace")
@@ -38,11 +38,12 @@ func TestPrepareChain_NonContainerDegradeRaisesNoFinding(t *testing.T) {
 // The firing side, asserted here too so the pair reads together and neither can
 // be weakened alone: losing a CONTAINER boundary IS a fatal isolation finding.
 func TestPrepareChain_LostContainerBoundaryRaisesIsolationFinding(t *testing.T) {
+	stubRuntimeCandidates(t)
 	mark := strictness.Checkpoint()
 
 	pol, ws := prepareChain(context.Background(),
 		[]Policy{failingPolicy{name: PolicyNameContainer}, passingPolicy{name: "none"}},
-		t.TempDir(), "member-a")
+		RuntimeContainerRootless, t.TempDir(), "member-a")
 
 	require.Equal(t, "none", pol.Name(), "the chain still degrades so the run gets a workspace")
 	require.NotNil(t, ws)

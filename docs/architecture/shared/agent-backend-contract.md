@@ -134,7 +134,7 @@ classDiagram
 | `ParsePermissionMode` | `internal/core/agent/permissions.go:61` | Lenient string → mode with an `ok` bool distinguishing unset from explicit-default. |
 | `PermissionModeNames` | `internal/core/agent/permissions.go:78` | The four CLI spellings, for flag help/completion. |
 | `WireMode` | `internal/core/agent/permissions.go:86` | `ParsePermissionMode` with `ok` discarded — the deliberate fail-safe-default policy. |
-| `ResolveDefault` | `internal/core/agent/permissions.go:98` | First parseable of the layered sources, else the claude-code bypass stopgap. |
+| `ResolveDefault` | `internal/core/agent/permissions.go:98` | First parseable of the layered sources, else the engine's declared host default. |
 | `PermissionMode.CollapsePlanIfUnenforced` | `internal/core/agent/permissions.go:116` | Downgrades `plan` → `default` when the engine cannot enforce plan mode. |
 | `PermissionMode.SafeHeadless` | `internal/core/agent/permissions.go:127` | Whether this posture can run with no human present. |
 | `ApplyLocalCLIConfig` | `internal/core/agent/localcli.go:9` | Applies per-backend binary/args/env overrides onto a `BaseBackend`. |

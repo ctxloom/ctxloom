@@ -217,9 +217,15 @@ func (l *LazyOneShot) End() {
 }
 
 // InternalSource is the Source an internal one-shot asks with: no binding,
-// the label naming its engine (model overridden when the caller says so).
+// the label naming its engine (model overridden when the caller says so),
+// at plan. An internal one-shot (distill, triage) only reads and answers,
+// and its payload can carry transcript text, so it must never run at a
+// posture that could act on what that text says. The posture rides the
+// flag rung, so no label or project declaration widens it; on an engine
+// that cannot enforce plan the run is refused. A caller that is not
+// distilling (the setup probe) overrides Permission.
 func InternalSource(label, model, workDir string) launch.Source {
-	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir}
+	return launch.Source{Internal: true, Label: label, Model: model, WorkDir: workDir, Permission: engine.PermissionPlan}
 }
 
 // StartInternalOneShot mints and resolves an internal one-shot over the

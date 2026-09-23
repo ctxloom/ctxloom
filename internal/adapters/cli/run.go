@@ -613,8 +613,8 @@ func (st *runState) resumedTranscript() []composite.Fragment {
 
 // warnPosture says out loud when the posture the run launches with is not
 // what the flag asked for, when a one-shot at plan has nobody to approve a
-// gated call, and (under -v) when the engine's declared host-bypass
-// stopgap is what decided it.
+// gated call, and (under -v) when the engine's declared host default is
+// what decided it.
 func (st *runState) warnPosture() {
 	if runPermissions != "" {
 		if requested, ok := agent.ParsePermissionMode(runPermissions); ok && requested != st.permMode {
@@ -625,16 +625,8 @@ func (st *runState) warnPosture() {
 		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
 	}
 	pf := operations.EnginePermissionFacts(st.backendName)
-	if runPermissions == "" && st.permMode == agent.PermissionBypass && pf.HostDefault == agent.PermissionBypass && runVerbosity > 0 {
+	if runPermissions == "" && runVerbosity > 0 && pf.HostDefaultReason != "" && st.permMode == pf.HostDefault {
 		clidiag.Warn("ctxloom", "%s", pf.HostDefaultReason)
-	}
-	// A container-requested run whose boundary degraded to the bare host
-	// still carries its configured bypass; that is intended for the engine
-	// that declares the host stopgap and worth saying for any other. A
-	// requested boundary that could not be provided refuses inside the
-	// resolver in strict mode, so this fires only under --degraded.
-	if st.launch.Axes.WantsContainer() && st.launch.Cell.Container == nil && st.permMode == agent.PermissionBypass && pf.HostDefault != agent.PermissionBypass {
-		clidiag.Warn("ctxloom", "container isolation unavailable; running %s with bypass on the host", st.backendName)
 	}
 }
 

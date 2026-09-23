@@ -17,8 +17,7 @@ import (
 // The project-default permission posture (`permissions:` at the top level of
 // config.yaml) is a PER-PROJECT CONSENT: "in THIS directory, this is the
 // posture an agent launches at by default". Its whole value comes from being
-// scoped to one project dir — a home-wide permissive default already exists as
-// the claude-code host stopgap, and a second one reachable from
+// scoped to one project dir — a home-wide permissive default reachable from
 // ~/.ctxloom/config.yaml would silently re-grant every project on the machine
 // the posture the human granted one of them. These tests are the layer pin
 // that keeps that from happening.
@@ -51,7 +50,7 @@ func TestProjectPermissions_HomeLayerIsIgnored(t *testing.T) {
 	)
 
 	assert.Equal(t, "", cfg.GetPermissions(),
-		"a HOME config must never grant a project's permission posture: per-project consent is the whole point, and a home-wide permissive default is a second host stopgap")
+		"a HOME config must never grant a project's permission posture: per-project consent is the whole point, and a home-wide permissive default re-grants every project on the machine")
 
 	// Dropped LOUDLY, never silently: the human who wrote it in the wrong file
 	// must be told which file it belongs in.

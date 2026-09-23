@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/adapters/agents"
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	enginepkg "github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -36,6 +37,12 @@ type InitializeProjectRequest struct {
 	// none).
 	DirtyTreeHandler   string `json:"dirty_tree_handler"`
 	DirtyTreeCommitAck bool   `json:"dirty_tree_commit_ack"`
+
+	// HeadlessPermissions is the init interview's answer for the posture the
+	// default seed agent's HEADLESS runs may use, written as that agent's
+	// `permissions:`. Empty writes none, and a headless run of the agent is
+	// then refused until one is declared.
+	HeadlessPermissions string `json:"headless_permissions"`
 
 	// FS is an optional filesystem (defaults to the OS filesystem).
 	FS afero.Fs `json:"-"`
@@ -92,7 +99,7 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 		}
 	}
 
-	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler)
+	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler, req.HeadlessPermissions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build config.yaml: %w", err)
 	}
@@ -172,7 +179,14 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // default). The interview's OTHER half, the commit acknowledgement, is never
 // part of this scaffold at all — see InitializeProject, which writes it to
 // paths.DirtyTreeCommitAckPath instead.
-func BuildInitialConfig(engine, dirtyTreeHandler string) ([]byte, error) {
+func BuildInitialConfig(engine, dirtyTreeHandler, headlessPermissions string) ([]byte, error) {
+	if headlessPermissions != "" {
+		m, ok := enginepkg.ParsePermissionMode(headlessPermissions)
+		if !ok || !m.SafeHeadless() {
+			return nil, fmt.Errorf("headless posture %q: the default agent's headless runs need %s or %s", headlessPermissions, enginepkg.PermissionPlan, enginepkg.PermissionBypass)
+		}
+		headlessPermissions = m.String()
+	}
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {
 		return nil, err
@@ -210,10 +224,11 @@ func BuildInitialConfig(engine, dirtyTreeHandler string) ([]byte, error) {
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
-			LLM:      primaryLabel,
-			Runtime:  "host",
-			HomeMode: string(agents.HomeModeSession),
-			Profiles: []string{SeedProfileName},
+			LLM:         primaryLabel,
+			Runtime:     "host",
+			HomeMode:    string(agents.HomeModeSession),
+			Profiles:    []string{SeedProfileName},
+			Permissions: headlessPermissions,
 		},
 	}
 	return config.NewFixture(f).Marshal()

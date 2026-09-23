@@ -144,7 +144,7 @@ func TestChainFor_NonContainer(t *testing.T) {
 // live-dir Container and degrades straight to None — it never grows a worktree
 // that wasn't requested. The no-runtime shape (the container tier dropped up
 // front) is pinned separately, also hermetically, in
-// TestChainFor_NoRuntime_FatalUnlessDegraded.
+// TestChainFor_NoRuntime_Fatal.
 func TestChainFor_Container(t *testing.T) {
 	resetStrictness(t)
 	stubRuntimeProbe(t, fakeRuntime{name: "docker", available: true})
@@ -172,6 +172,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// which records a fatal ClassIsolation finding (the lost container boundary);
 	// reset so those findings never bleed into a later test.
 	resetStrictness(t)
+	stubRuntimeCandidates(t)
 	ctx := context.Background()
 	common := t.TempDir() // stand-in .git common dir so the worktree exclude write succeeds
 
@@ -179,7 +180,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 	// worktree prepares → chain stops there.
 	failing := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, &git.Fake{CommonDirValue: common})
 	working := NewWorktree(&git.Fake{CommonDirValue: common})
-	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, "/proj", "m")
+	pol, ws := prepareChain(ctx, []Policy{failing, working, None{}}, RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws)
 	// Safety net registered BEFORE the assertions below can fail/panic and skip
 	// the manual, non-deferred ws.Cleanup() call at the end of this block (see
@@ -196,7 +197,7 @@ func TestPrepareChain_DegradesToFirstSuccess(t *testing.T) {
 			NewContainerWorktreeFor(fakeRuntime{name: "docker", available: false}, "mock", ImageConfig{Image: "img"}, nonRepo),
 			NewWorktree(nonRepo),
 			None{},
-		}, "/proj", "m")
+		}, RuntimeContainerRootless, "/proj", "m")
 	require.NotNil(t, ws2)
 	requireCleanWorkspace(t, ws2)
 	assert.Equal(t, "none", pol2.Name(), "worktree→none on a non-git repo")

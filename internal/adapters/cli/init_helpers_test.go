@@ -66,7 +66,7 @@ func TestSelectSoleEngine(t *testing.T) {
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "mock", "copy", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "copy", "", false); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestWriteInitialConfig(t *testing.T) {
 // config.SetDirtyTreeCommitAck).
 func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code", "commit", true); err != nil {
+	if err := writeInitialConfig(appDir, "claude-code", "commit", "", true); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
@@ -141,10 +141,10 @@ func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
 func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	// Re-running over an existing dir must not error (MkdirAll + overwrite).
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	if err := writeInitialConfig(appDir, "claude-code", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "claude-code", "", "", false); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "mock", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "mock", "", "", false); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
@@ -165,4 +165,20 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 // looks: the bundle resolves to nothing, and the command reports success.
 func authoredV1(appPath string) string {
 	return paths.LocalBundlesPathFor(appPath, paths.LayoutV2)
+}
+
+// TestWriteInitialConfig_HeadlessPosture: the interview's headless-posture
+// answer reaches config.yaml as the default seed agent's permissions.
+func TestWriteInitialConfig_HeadlessPosture(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), ".ctxloom")
+	if err := writeInitialConfig(appDir, "mock", "", "plan", false); err != nil {
+		t.Fatalf("writeInitialConfig: %v", err)
+	}
+	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	if !strings.Contains(string(cfg), "permissions: plan") {
+		t.Errorf("config.yaml should carry the headless posture on the seed agent; got:\n%s", cfg)
+	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -45,7 +46,7 @@ func TestLoadHarpEssence_ReadFailureIsNotReportedAsNeverDistilled(t *testing.T) 
 	// over chmod 0000 because it fails for root too.
 	require.NoError(t, os.MkdirAll(essencePath, 0o755))
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	_, out, err := s.loadHarpEssence(harp)
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -67,7 +68,7 @@ func TestLoadHarpEssence_MissingEssenceStillAdvisesCompaction(t *testing.T) {
 	proj := t.TempDir()
 	harp, _ := bindHarpForEssence(t, proj)
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	_, out, err := s.loadHarpEssence(harp)
 	require.NoError(t, err)
 	require.NotNil(t, out)

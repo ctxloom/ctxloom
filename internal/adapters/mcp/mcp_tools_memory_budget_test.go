@@ -20,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -106,7 +107,7 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 	}
 	defer func() { compactEntryFn = prev }()
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	entries := []sessions.Entry{{HarpName: e.HarpName, Backend: "claude-code"}}
 
 	// Deadline-less, as the coordinator's base context is.
@@ -150,7 +151,7 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 	}
 	defer func() { compactEntryFn = prev }()
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true, DistillMissing: true})
 	require.NoError(t, err)
 	require.Len(t, out.Sessions, 1)
@@ -195,7 +196,7 @@ func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testi
 	restore := clidiag.SetSink(&diagnostics)
 	defer restore()
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
 	s.distillMissingForList(context.Background(), []sessions.Entry{{HarpName: e.HarpName, Backend: "claude-code"}})
 
 	assert.Contains(t, diagnostics.String(), e.HarpName,

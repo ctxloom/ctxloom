@@ -46,8 +46,8 @@ func testLaunchDeps(t *testing.T, cfg *config.Config, pipe *bundles.Pipeline) la
 	return launch.Deps{
 		Snapshot:  &config.Snapshot{Config: cfg},
 		Engines:   engines.Registry(),
-		Assembler: &assembler{pipe: pipe},
-		Cells:     Cells{cfg: cfg},
+		Assembler: &assembler{pipe: pipe, engines: engines.Registry()},
+		Cells:     Cells{engines: engines.Registry(), cfg: cfg},
 		Endpoints: endpointMinter{},
 		Sessions:  sessions.NewMemStore(),
 		Host:      launch.HostFacts{Home: t.TempDir(), CtxloomHome: t.TempDir(), Binary: "ctxloom"},

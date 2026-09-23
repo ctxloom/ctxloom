@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/core/sessions"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -61,7 +62,7 @@ func TestPreviousSessionByHarp_ReturnsCachedEssenceFromHarpDir(t *testing.T) {
 	require.NoError(t, os.WriteFile(essPath, []byte(essenceBody), 0o644))
 	require.NoError(t, mgr.SetSourceEntries(harp, transcriptEntries))
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")})}
 	_, out, err := s.previousSessionByHarp(context.Background(), harp, "")
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -79,7 +80,7 @@ func TestPreviousSessionByHarp_UnknownHarpDegrades(t *testing.T) {
 	_, err := sessions.Open(nil)
 	require.NoError(t, err)
 
-	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(t.TempDir(), ".ctxloom")})}
+	s := &ctxServer{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(t.TempDir(), ".ctxloom")})}
 	_, out, err := s.previousSessionByHarp(context.Background(), "no-such-harp", "")
 	require.NoError(t, err)
 	require.NotNil(t, out)

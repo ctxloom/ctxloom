@@ -48,7 +48,7 @@ func TestCellsPrepare_WorktreeDeliversWorkspaceEnv(t *testing.T) {
 	req.Axes.Workspace = launch.WorkspaceWorktree
 	req.ProjectRoot = repo
 
-	cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cell.Cleanup() })
 
@@ -76,7 +76,7 @@ func TestCellsPrepare_InTreeAgentHome(t *testing.T) {
 		req.Axes.Workspace = workspace
 		req.Identity.Harp = harp
 		req.Env = map[string]string{sessions.EnvHarp: harp}
-		cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+		cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = cell.Cleanup() })
 		return cell
@@ -179,7 +179,7 @@ func TestCellsPrepare_ClaudeChildOfAMockOwnerAuthenticatesFromTheStoredToken(t *
 	req.HomeMode = launch.HomeModeSession
 	req.Identity = sessions.Identity{Harp: harpA, Depth: 1}
 	req.Env = map[string]string{sessions.EnvHarp: harpA}
-	cell, err := Cells{cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
+	cell, err := Cells{engines: engines.Registry(), cfg: config.NewFixture(config.Fixture{})}.Prepare(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cell.Cleanup() })
 

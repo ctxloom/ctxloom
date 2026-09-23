@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
 	"github.com/ctxloom/ctxloom/internal/core/coord"
+	"github.com/ctxloom/ctxloom/internal/engines"
 	tasksops "github.com/ctxloom/ctxloom/internal/shared/tasks/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
 )
@@ -26,7 +27,7 @@ func TestEvaluateTriggersHandler_NoDeferredTasks(t *testing.T) {
 	_, err := tasksops.AddTask(tc, "just working", "", "")
 	require.NoError(t, err)
 
-	s := &ctxServer{cfg: &config.Config{}, self: coord.Identity{ProjectDir: t.TempDir()}}
+	s := &ctxServer{engines: engines.Registry(), cfg: &config.Config{}, self: coord.Identity{ProjectDir: t.TempDir()}}
 	_, out, err := s.handleEvaluateTriggers(context.Background(), nil, evaluateTriggersInput{})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -49,7 +50,7 @@ func TestEvaluateTriggersHandler_RefreshFlagPlumbsThrough(t *testing.T) {
 	// No Deferred tasks: the handler still runs end-to-end regardless of the
 	// refresh flag's value, so this exercises the plumbing (a wired field
 	// with no effect on this input) without needing an LLM seam here.
-	s := &ctxServer{cfg: &config.Config{}, self: coord.Identity{ProjectDir: t.TempDir()}}
+	s := &ctxServer{engines: engines.Registry(), cfg: &config.Config{}, self: coord.Identity{ProjectDir: t.TempDir()}}
 	_, out, err := s.handleEvaluateTriggers(context.Background(), nil, evaluateTriggersInput{Refresh: true})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -70,7 +71,7 @@ func TestEvaluateTriggersHandler_RefreshFlagPlumbsThrough(t *testing.T) {
 func TestEvaluateTriggersTaskContext_PrefersCallScopedIdentityOverProcessEnv(t *testing.T) {
 	t.Setenv("CTXLOOM_SESSION_HARP", "host-process-own-harp-must-not-be-used")
 
-	s := &ctxServer{self: coord.Identity{Harp: "actual-calling-childs-harp"}}
+	s := &ctxServer{engines: engines.Registry(), self: coord.Identity{Harp: "actual-calling-childs-harp"}}
 	tc := evaluateTriggersTaskContext(s, "/some/repo")
 	assert.Equal(t, "actual-calling-childs-harp", tc.SessionHarp,
 		"SessionHarp must come from s.self (call-scoped identity), not process env — env is process-WIDE and would misattribute every relayed child's call to the host's own value")

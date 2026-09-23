@@ -135,6 +135,10 @@ func TestLockDependencies_RefusesToMoveAPinBelowItsFloor(t *testing.T) {
 	baseDir, src, ref, signer, first := floorRepo(t, "1.2.0")
 	older := commitTree(t, src, demoTreeFilesAt(t, signer, "old\n", "1.1.0"), false)
 	writeLocalProfile(t, baseDir, "default", "bundles:\n  - "+ref+"@"+older+"\n")
+	// A relock reads the clone cache as it stands; sync refreshes it first, and
+	// so does this test, so the older commit is actually readable and the
+	// refusal is the rollback rather than "not found, so not signed".
+	refreshRepoCaches(context.Background(), NewRepoCache(testConfigWithSCMPath(baseDir)), []string{"file://" + src})
 
 	_, err := LockDependencies(context.Background(), testConfigWithSCMPath(baseDir), LockDependenciesRequest{FailOnConflict: true})
 	require.Error(t, err)
@@ -156,4 +160,18 @@ func TestLockDependencies_AnUnreadableLockfileFailsRatherThanStartingEmpty(t *te
 
 	_, err := LockDependencies(context.Background(), testConfigWithSCMPath(baseDir), LockDependenciesRequest{})
 	require.Error(t, err)
+}
+
+func TestDowngradeSet_IsScopedToNamedRefs(t *testing.T) {
+	_, err := newDowngradeSet([]string{"not-a-ref"})
+	require.Error(t, err, "a name that cannot match any pin must not pass silently")
+
+	d, err := newDowngradeSet([]string{"https://example.test/r@bundles/a"})
+	require.NoError(t, err)
+	assert.True(t, d.allows("https://example.test/r@bundles/a"))
+	assert.True(t, d.allows("https://example.test/r@bundles/a@v1.2.0"), "the same ref at a version is the same pin")
+	assert.False(t, d.allows("https://example.test/r@bundles/b"))
+
+	var none downgradeSet
+	assert.False(t, none.allows("https://example.test/r@bundles/a"), "no names waives nothing")
 }

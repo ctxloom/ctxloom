@@ -56,8 +56,14 @@ Mirrors apt: 'deps check' reports what is out of date, 'deps upgrade' advances
 your pins to the newest commit. 'deps pull' installs exactly what is already
 pinned and never advances one.
 
+A pin is also NOT moved below the version its publisher signed at the last pin
+— a rollback to an older signed release — nor from signed to unsigned content.
+Name a ref with --allow-downgrade to accept that for it; the lower version then
+becomes its floor.
+
 Examples:
-  ctxloom deps upgrade                   # Advance pins to the latest available`,
+  ctxloom deps upgrade                   # Advance pins to the latest available
+  ctxloom deps upgrade --allow-downgrade <ref>   # Accept a lower signed version for <ref>`,
 	RunE: runDepsUpgradeCmd,
 }
 
@@ -83,7 +89,7 @@ func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error
 
 	fmt.Println("Resolving latest commits for pinned dependencies...")
 
-	res, err := operations.UpgradeDependencies(cmd.Context(), cfg)
+	res, err := operations.UpgradeDependencies(cmd.Context(), cfg, depsUpgradeAllowDowngrade)
 	if err != nil {
 		return err
 	}
@@ -164,6 +170,13 @@ func refusedExit() error {
 // answers "Nothing is pending review." and teaches them the message is noise.
 func reportRefusedAdvances(refused []operations.RefusedAdvance) {
 	for _, r := range refused {
+		if r.BelowFloor {
+			fmt.Printf("REFUSED to advance %s: the content at %s is not signed at or above the version this project last pinned (%s).\n",
+				r.Identity, shortSHA(r.ProposedSHA), r.Detail)
+			fmt.Printf("  Keeping the pin %s. Whoever controls the repository can re-serve an older signed release; if going back is what you intend, re-run with --allow-downgrade %s.\n",
+				shortSHA(r.KeptSHA), r.Identity)
+			continue
+		}
 		fmt.Printf("REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
 			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
 		fmt.Printf("  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
@@ -171,6 +184,10 @@ func reportRefusedAdvances(refused []operations.RefusedAdvance) {
 	}
 }
 
+var depsUpgradeAllowDowngrade []string
+
 func init() {
 	depsCmd.AddCommand(depsUpgradeCmd)
+	depsUpgradeCmd.Flags().StringArrayVar(&depsUpgradeAllowDowngrade, "allow-downgrade", nil,
+		"Accept a lower signed version (or unsigned content) for this ref, and record it as the new floor; repeat per ref")
 }

@@ -18,6 +18,7 @@ func TestBundleRead_KeyEqualsCanonicalBundleRefOfDisplayName(t *testing.T) {
 	remoteRefs := []string{
 		"https://example.test/repo@bundles/kit",
 		"ctxloom+git://example.test/repo//bundles/kit",
+		"git@example.test:repo@bundles/kit",
 	}
 	for _, ref := range remoteRefs {
 		t.Run(ref, func(t *testing.T) {
@@ -28,18 +29,6 @@ func TestBundleRead_KeyEqualsCanonicalBundleRefOfDisplayName(t *testing.T) {
 			assertKeyMatchesGrammar(t, reads[0])
 		})
 	}
-
-	// The scp spelling is where the two part: remote's grammar cannot render
-	// "git@host:repo" as a canonical URI and falls back to the fetch address,
-	// while the reader mints the canonical identity every other spelling of
-	// the same repository reaches. Key() is the one the trust gate keys on.
-	t.Run("ssh spelling mints the canonical identity", func(t *testing.T) {
-		tree := repoTree(t, "kit", readerTreeEnvelope, readerTreeFragments, nil)
-		reads, err := NewRepoFSReader(tree, "git@example.test:repo@bundles/kit", WithRepoURL(repoTreeURL)).Read(context.Background())
-		require.NoError(t, err)
-		require.Len(t, reads, 1)
-		assert.Equal(t, "ctxloom+git://example.test/repo//bundles/kit", string(reads[0].Key()))
-	})
 
 	t.Run("companion", func(t *testing.T) {
 		reads, err := NewCompanionReader(

@@ -375,3 +375,49 @@ func (m memStore) Put(ctx context.Context, digest [32]byte, b []byte) (string, e
 	return string(digest[:]), nil
 }
 func (m memStore) Get(ctx context.Context, loc string) ([]byte, error) { return m[loc], nil }
+
+// TestResolve_Permission_DegradedNeverLaunchesAnUnenforcedPlan: --degraded
+// drops a headless prompting run to plan only where plan IS read-only. On an
+// engine with no read-only tier that drop would be a promise nothing keeps,
+// so the run is refused, and the refusal names the only honest postures.
+func TestResolve_Permission_DegradedNeverLaunchesAnUnenforcedPlan(t *testing.T) {
+	env := launchtest.Deps(t, launchtest.WithAgent("silent"), launchtest.NoReadOnlyPlan())
+	child := env.Identity
+	child.Depth = 1
+	for _, id := range []sessions.Identity{env.Identity, child} {
+		_, err := launch.Resolve(context.Background(), env.Deps, launch.Source{Identity: id, Agent: "silent", Mode: engine.Structured, Prompt: "x", WorkDir: env.Project, Degraded: true, Orchestrator: env.Identity.Harp})
+		require.ErrorIs(t, err, launch.ErrPermissionUnhonoured, "depth %d", id.Depth)
+		require.ErrorContains(t, err, "does not enforce read-only plan")
+		require.ErrorContains(t, err, "bypass")
+	}
+}
+
+// TestResolve_Permission_DegradedUnparseableIsAnnounced: a declaration that
+// does not parse still drops to the floor under --degraded, but says so —
+// the bad value, the rung it came from, and the known postures.
+func TestResolve_Permission_DegradedUnparseableIsAnnounced(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		env   launchtest.Env
+		agent string
+		from  string
+		bad   string
+	}{
+		{"agent binding", launchtest.Deps(t, launchtest.WithAgent("typo", launchtest.Permissions("plann"))), "typo", `agent "typo"`, "plann"},
+		{"project config", launchtest.Deps(t, launchtest.WithAgent("dev"), launchtest.ProjectPermissions("yolo")), "dev", "project config", "yolo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got report.Findings
+			deps := tc.env.Deps
+			deps.Reporter = &got
+			l, err := launch.Resolve(context.Background(), deps, launch.Source{Identity: tc.env.Identity, Agent: tc.agent, Mode: engine.Interactive, Prompt: "x", WorkDir: tc.env.Project, Degraded: true})
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = launch.Discard(context.Background(), l) })
+			require.Equal(t, engine.PermissionPlan, l.Permission)
+			require.Len(t, got, 1, "the drop to the floor is announced, never silent")
+			require.Contains(t, got[0].Text, `"`+tc.bad+`"`)
+			require.Contains(t, got[0].Text, tc.from)
+			require.Contains(t, got[0].Text, "default|acceptEdits|plan|bypass")
+		})
+	}
+}

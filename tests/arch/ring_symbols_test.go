@@ -454,10 +454,9 @@ var envLiteralsOnceAllowed = map[string]string{
 	"internal/adapters/runner/panelaunch.go":      "the pane's capture directory is a scratch root the runner makes for the tmux host; no slice carries a temp root to the runner yet (measured)",
 
 	// isolation: handed HostFacts and a CellRequest
-	"internal/adapters/isolation/diagnose.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/adapters/isolation/imagebuild.go":      "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/adapters/isolation/provisionselect.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
-	"internal/adapters/isolation/worktree.go":        "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/diagnose.go":   "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/imagebuild.go": "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
+	"internal/adapters/isolation/worktree.go":   "slice 7: adapters/isolation implements launch.Cells over a CellRequest; temp and cwd arrive as values",
 
 	// a leaf adapter Part 1.1 does not permit: GitPublisher's working clone is
 	// os.MkdirTemp("", …) — a temp-root read; it takes its root as a value once

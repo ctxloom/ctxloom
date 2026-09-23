@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -57,13 +58,13 @@ func (r *recordingRunner) argvFor(sub string) []string {
 	return nil
 }
 
-// swapTmux points the launcher at a stub tmux lookup and runner for one test.
-func swapTmux(t *testing.T, lookup func() (string, error), r tmuxhost.Runner) {
+// swapTmux points the launcher at a stub runner for one test; a non-nil
+// buildErr is what building the runner reports instead (tmux missing).
+func swapTmux(t *testing.T, r tmuxhost.Runner, buildErr error) {
 	t.Helper()
-	oldLookup, oldRunner := resolveTmux, newPaneRunner
-	resolveTmux = lookup
-	newPaneRunner = func() tmuxhost.Runner { return r }
-	t.Cleanup(func() { resolveTmux, newPaneRunner = oldLookup, oldRunner })
+	old := newPaneRunner
+	newPaneRunner = func() (tmuxhost.Runner, error) { return r, buildErr }
+	t.Cleanup(func() { newPaneRunner = old })
 }
 
 // TestInteractiveLaunch_WithoutTmuxRefusesLoudlyAndStartsNothing is the
@@ -75,9 +76,8 @@ func TestInteractiveLaunch_WithoutTmuxRefusesLoudlyAndStartsNothing(t *testing.T
 	t.Cleanup(func() { strictness.Reset() })
 
 	r := &recordingRunner{}
-	swapTmux(t, func() (string, error) {
-		return "", errors.New(`exec: "tmux": executable file not found in $PATH`)
-	}, r)
+	swapTmux(t, r, fmt.Errorf("%w: %w", tmuxhost.ErrTmuxUnavailable,
+		errors.New(`exec: "tmux": executable file not found in $PATH`)))
 
 	code, err := RunLaunchSpec(context.Background(), agent.LaunchSpec{
 		BinaryPath:  "/opt/engine/claude",
@@ -86,7 +86,7 @@ func TestInteractiveLaunch_WithoutTmuxRefusesLoudlyAndStartsNothing(t *testing.T
 	}, nil, io.Discard, io.Discard, nil)
 
 	require.Error(t, err, "a missing hard dependency must not launch and must not be silent")
-	assert.Contains(t, err.Error(), "tmux")
+	assert.ErrorIs(t, err, tmuxhost.ErrTmuxUnavailable, "the refusal must stay matchable by identity")
 	assert.NotEqual(t, int32(0), code, "a refused launch must not report success")
 	assert.Zero(t, r.count(), "NOTHING may be launched when tmux is missing: there is no pty fallback")
 
@@ -106,7 +106,7 @@ func TestInteractiveLaunch_WithoutTmuxRefusesLoudlyAndStartsNothing(t *testing.T
 // that hosted the wrong command, or hosted nothing, would still return nil.
 func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 	r := &recordingRunner{}
-	swapTmux(t, func() (string, error) { return "/usr/bin/tmux", nil }, r)
+	swapTmux(t, r, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -177,7 +177,7 @@ func TestInteractiveLaunch_WithTmuxHostsTheEngineInAPane(t *testing.T) {
 // true and tells the user nothing about session naming having failed upstream.
 func TestInteractiveLaunch_UnnamedRunIsRefusedBeforeAnythingStarts(t *testing.T) {
 	r := &recordingRunner{}
-	swapTmux(t, func() (string, error) { return "/usr/bin/tmux", nil }, r)
+	swapTmux(t, r, nil)
 
 	code, err := RunLaunchSpec(context.Background(), agent.LaunchSpec{
 		BinaryPath:  "/opt/engine/claude",

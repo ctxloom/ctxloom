@@ -118,6 +118,8 @@ func TestEntrypoint_RefusesRootAfterFailedRemapWithOnlyGosu(t *testing.T) {
 	assert.Empty(t, stdout, "the engine never runs")
 	assert.Contains(t, stderr, "refusing to run the engine as root")
 	assert.Contains(t, stderr, "CTXLOOM_ALLOW_ROOT", "the refusal names the escape hatch")
+	assert.NotContains(t, stderr, "(ctxloom --degraded)",
+		"--degraded never bypasses this refusal (TestDegradedNeverBypassesIsolation); the message must not offer it as the way to")
 	_, err := os.Stat(gosuLog)
 	assert.True(t, os.IsNotExist(err))
 }
@@ -137,9 +139,10 @@ func TestEntrypoint_RefusesRootWithoutDropHelpers(t *testing.T) {
 	assert.Contains(t, stderr, "refusing to run the engine as root")
 }
 
-// TestEntrypoint_AllowRootEscapeHatch: CTXLOOM_ALLOW_ROOT=1 (set by the
-// isolation runtime in --degraded mode) downgrades the refusal to the old
-// warn-and-run-as-root behavior — degraded is the one warn-and-continue home.
+// TestEntrypoint_AllowRootEscapeHatch: CTXLOOM_ALLOW_ROOT=1 downgrades the
+// refusal to warn-and-run-as-root. ctxloom never passes it (identityEnvArgs;
+// TestDegradedNeverBypassesIsolation), so only a hand-started container reaches
+// this branch.
 func TestEntrypoint_AllowRootEscapeHatch(t *testing.T) {
 	stdout, stderr, code := entrypointRun(t, map[string]string{
 		"id":       rootID,

@@ -16,8 +16,9 @@ import (
 )
 
 // SignCompanionForTesting makes the binary at path executable by ctxloom: it
-// signs the bytes with a freshly minted key and trusts that key, for the
-// companion namespace only, in allowedSigners.
+// writes the binary's release statement (CompanionReleaseStatement), signs it
+// with a freshly minted key and trusts that key, for the companion namespace
+// only, in allowedSigners.
 //
 // It exists because companion admission is answered by a SIGNATURE, so a test
 // that wants its fake companion to run has to do what a publisher does. There
@@ -43,11 +44,15 @@ func SignCompanionForTesting(t testing.TB, path, allowedSigners string) {
 		t.Fatalf("wrap the companion signing key: %v", err)
 	}
 
-	payload, err := os.ReadFile(path) //nolint:gosec // a path this test just wrote
+	binary, err := os.ReadFile(path) //nolint:gosec // a path this test just wrote
 	if err != nil {
 		t.Fatalf("read %s to sign it: %v", path, err)
 	}
-	sig, err := signing.Sign(payload, signer, signing.NamespaceCompanion)
+	statement := CompanionReleaseStatement(filepath.Base(path), "1.0.0", binary)
+	if err := iox.WriteFileAtomic(path+".release", statement, 0o600); err != nil {
+		t.Fatalf("write the release statement for %s: %v", path, err)
+	}
+	sig, err := signing.Sign(statement, signer, signing.NamespaceCompanion)
 	if err != nil {
 		t.Fatalf("sign %s: %v", path, err)
 	}

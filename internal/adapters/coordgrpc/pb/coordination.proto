@@ -1203,7 +1203,7 @@ enum MessageKind {
 // mesh, one policy chokepoint, and offline targets get queued delivery.
 message PeerSendRequest {
   option (message_schema) = {
-    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored."
+    doc: "Send a message to another agent session. Coordinators address their children by harp (to_agent_id) — delivery completes a waiting agent_recv, starts a new turn on an idle child, queues mid-turn for the next boundary, or resumes an ended session. Delegated children may only address to_role: \"parent\"; peer messaging routes via the coordinator. Queued delivery is durable (at-least-once): a message to an offline session survives coordinator restarts. `kind` is REQUIRED and its vocabulary is CLOSED: you may send MESSAGE_KIND_MESSAGE, MESSAGE_KIND_RESULT, MESSAGE_KIND_ERROR, or MESSAGE_KIND_QUESTION, and any other value — a coordinator-reserved one, or one this build does not know — is REFUSED rather than accepted-and-ignored. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
   };
 
   // or...
@@ -2082,7 +2082,7 @@ enum ArtifactKind {
 
 message Summary {
   option (message_schema) = {
-    doc: "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report."
+    doc: "File a structured report as a durable, journaled fact: PROGRESS (rolling status), CHECKPOINT (resumable synthesis of everything so far — supersedes prior checkpoints), or FINAL (the deliverable summary; file one before finishing). Reports feed the coordinator's roster and seed projections. Session-dir plan files (*.plan.md) are stamped as artifact manifests automatically on every report. Lead with the most important point and the evidence for it. Write the rest in decreasing order of importance. Only the first 8 KiB is shown inline; anything longer is attached as an artifact the reader opens with \"keep reading for more detail\", so put nothing essential below the fold."
   };
 
   enum Scope {

@@ -1,6 +1,6 @@
 {
   "name": "agent_fetch_artifact",
-  "description": "Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it.",
+  "description": "Retrieve a reported artifact's bytes (e.g. a child's plan manifest) and write them to a local path, content-hash-verified BEFORE placement. Fetch your own artifacts (agent_id = this session), a direct child's (lineage-checked), or — for a read-only consumer — any artifact visible to it. A message whose inline text ends at a \"keep reading for more detail\" marker names the agent_id and artifact_id that hold its full text; fetch those to read the rest.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {

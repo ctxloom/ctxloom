@@ -114,21 +114,15 @@ func TestFormatEntry_RejectsNamespaceTheGrammarCannotCarry(t *testing.T) {
 	}
 }
 
-func TestFormatEntry_UnrestrictedWhenNamespacesNil(t *testing.T) {
-	pub := testPublicKey(t)
-	e := Entry{
-		Principals: []string{"ben@abbitt.me"},
-		PublicKey:  pub,
+// TestFormatEntry_RefusesAnEntryWithoutNamespaces: ctxloom's only writer never
+// emits a line without namespaces= (which Parse refuses) or with an empty one
+// (which grants nothing): either would report success for a signer that is
+// trusted nowhere.
+func TestFormatEntry_RefusesAnEntryWithoutNamespaces(t *testing.T) {
+	for name, ns := range map[string][]string{"nil": nil, "empty": {}} {
+		_, err := FormatEntry(Entry{Principals: []string{"ben@abbitt.me"}, Namespaces: ns, PublicKey: testPublicKey(t)})
+		assert.Error(t, err, name)
 	}
-	line, err := FormatEntry(e)
-	require.NoError(t, err)
-	assert.NotContains(t, line, "namespaces=")
-
-	store, perrs, err := Parse(strings.NewReader(line + "\n"))
-	require.NoError(t, err)
-	require.Empty(t, perrs)
-	require.Len(t, store.Entries(), 1)
-	assert.Nil(t, store.Entries()[0].Namespaces)
 }
 
 func TestFormatEntry_RequiresPrincipalAndKey(t *testing.T) {

@@ -203,10 +203,6 @@ func (s *progressSpawner) Start(ctx context.Context, l launch.Launch, reach sess
 	return &coord.EngineSpawn{Kill: kill}, nil
 }
 
-func (s *progressSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {
-	return nil, nil
-}
-
 // startDark launches a live container from the SAME image that never runs the
 // runner — the injected fault. Hand-rolled `docker run` is correct here
 // precisely because this path is not meant to exercise the production starter:

@@ -74,7 +74,7 @@ against installed `claude 2.1.220`: `--dangerously-skip-permissions`,
 | One-shot / resume | **Supported.** In both `resumeCapableBackends` and `oneShotSupportedBackends` (`internal/core/coord/spawner.go:225`, `:248`). This adapter's only session-identity lever is `--name <harp>` (display name only) |
 | Transcript | **No scrape.** `SessionHistory` is `nil`; the `~/.claude/projects/<encoded-cwd>/*.jsonl` scraper was deleted (`capabilities.go:17-27`) after its cwd→slug encoder produced non-existent dirs for any path with a dot, underscore, or space. An opt-in vendor reader exists for the interactive-pty gap (`internal/adapters/operations/vendorreader.go:71`) |
 | Model + auth | `--model` emitted when non-empty; empty lets the CLI pick (`claudecode.go:263-266`). Auth is **ambient subscription** by default |
-| Isolation | **Supported, no auth gap.** Scoped host env passthrough plus a **copy-then-mount-read-write** of `~/.claude/.credentials.json` — RW because claude refreshes its OAuth token in place (`internal/adapters/isolation/auth.go:423-468`). `~/.claude.json` is deliberately not copied. Additionally, claude is the one engine that can isolate a *shared* cwd without a container, via the out-of-cwd flag trio |
+| Isolation | **Supported, no auth gap.** Authenticates from `CLAUDE_CODE_OAUTH_TOKEN` (the `claude setup-token` token `ctxloom auth set-token` stored) or an API-key var, passed through by name; no credential file is copied or mounted (`isolation.resolveDeclaredAuth`, `isolation.ExportStoredTokens`). `~/.claude.json` is never copied. Additionally, claude is the one engine that can isolate a *shared* cwd without a container, via the out-of-cwd flag trio |
 | Status | **Supported — the exercised default** |
 
 ## Invariants

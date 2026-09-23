@@ -35,14 +35,6 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	if err := src.Identity.Validate(); err != nil {
 		return Launch{}, fmt.Errorf("%w: %v", ErrNoIdentity, err)
 	}
-	if src.Identity.IsChild() && src.Orchestrator == "" {
-		return Launch{}, ErrNoOrchestrator
-	}
-	if !src.Identity.IsChild() {
-		// The root is its own orchestrator: it seeds whole from the host and
-		// is the one refresher. Nothing above it to project from.
-		src.Orchestrator = ""
-	}
 	cfg := deps.Snapshot.Config
 
 	sel, err := selectSource(cfg, src)
@@ -110,18 +102,17 @@ func Resolve(ctx context.Context, deps Deps, src Source) (Launch, error) {
 	env := sessions.HookEnv(src.Identity)
 	maps.Copy(env, passthrough)
 	cell, err := deps.Cells.Prepare(ctx, CellRequest{
-		Axes:         axes,
-		Engine:       eng,
-		Identity:     src.Identity,
-		ProjectRoot:  src.WorkDir,
-		SessionDir:   filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
-		DirtyTree:    dirty,
-		Image:        ImageConfigFor(cfg, def.Name),
-		Host:         deps.Host,
-		Degraded:     src.Degraded,
-		HomeMode:     sel.homeMode,
-		Orchestrator: src.Orchestrator,
-		Env:          env,
+		Axes:        axes,
+		Engine:      eng,
+		Identity:    src.Identity,
+		ProjectRoot: src.WorkDir,
+		SessionDir:  filepath.Join(deps.Host.CtxloomHome, paths.SessionsDir, src.Identity.Harp),
+		DirtyTree:   dirty,
+		Image:       ImageConfigFor(cfg, def.Name),
+		Host:        deps.Host,
+		Degraded:    src.Degraded,
+		HomeMode:    sel.homeMode,
+		Env:         env,
 	})
 	if err != nil {
 		return Launch{}, err

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -33,95 +32,48 @@ func (c Claude) Instance(s engine.Session) (engine.Instance, error) {
 	return &instance{c: c, s: s}, nil
 }
 
-// Home: CLAUDE_CONFIG_DIR relocates config AND credentials, so a session
-// home is seeded with .credentials.json and its own .claude.json — the
-// latter through claudeInstanceConfig, which carries the account identity
-// and the onboarding answers across by name and nothing else (the host's
-// own mcpServers registrations and history never cross).
-//
-// WHO REFRESHES (ruled 2026-09-21): the refresh token is SINGLE-USE and
-// rotating — whichever holder refreshes consumes the grant — so exactly one
-// ctxloom-side holder may hold it: the ORCHESTRATOR, the root session,
-// whose copy is whole and kept two-way with the host file by replication.
-// Every AGENT holds this seed's PROJECTION of the orchestrator's copy
-// (projectCredential: claudeAiOauth.refreshToken stripped — claude's own
-// precedent, the temp config dir it makes for a resumed SDK session,
-// 2.1.278), read-only, re-projected whenever the orchestrator's changes.
-// A mount is not accepted: it shares by identity and cannot project, so it
-// would hand an agent the very field the seed withholds.
+// Home: CLAUDE_CONFIG_DIR relocates claude's config into a session home,
+// which gets its own .claude.json through claudeInstanceConfig (the account
+// identity and the onboarding answers, carried across by name and nothing
+// else). No credential is placed there: the run authenticates from the
+// setup-token in CLAUDE_CODE_OAUTH_TOKEN, which outranks any credentials
+// file, or from an API key, a gateway token or a cloud provider instead.
 func (c Claude) Home() engine.HomeSpec {
 	return engine.HomeSpec{
 		Vars: []engine.HomeVar{{Name: ConfigDirEnv, Subdir: HomeLeaf}},
-		Credentials: engine.Provide(engine.CredentialSeed{
-			Subdir: HomeLeaf,
-			// CLAUDE_CODE_OAUTH_TOKEN is an access token in the env: it
-			// outranks every credential store and needs no file (2.1.278),
-			// so it is the first bypass a refusal names.
-			EnvTriggers: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
-			LoginHint:   "claude login",
-			Files: []engine.SeedFile{{
-				HostRelHome: credentialRelHome(),
-				DestName:    CredentialsFileName,
-				Required:    true,
-				Project:     projectCredential,
-			}},
-			Accept: []engine.MaterialDelivery{engine.MaterialDeliveryReplicated},
-			// macOS: the store is the login Keychain, not the file (2.1.278):
-			// the default config dir's item is "Claude Code-credentials", a
-			// relocated dir's is that name suffixed with the dir's hash, and
-			// a relocated dir does NOT see the default item — so the seed
-			// there is the session's own item, projected the same way.
-			Keychain: &engine.KeychainStore{Service: KeychainService, Project: projectCredential},
+		Auth: engine.Provide(engine.TokenAuth{
+			TokenVar:    OAuthTokenEnv,
+			EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"},
+			MintHint:    "claude setup-token",
 		}),
 		InstanceConfig: claudeInstanceConfig{},
 	}
-}
-
-// credentialRelHome is the host credential file, relative to the real home.
-func credentialRelHome() string {
-	return filepath.ToSlash(filepath.Join(ConfigDirName, CredentialsFileName))
 }
 
 // Container: no official image (ghcr.io/anthropics/claude-code appears in
 // docs but does not resolve publicly), so the composed install fragment,
 // which fetches the most recent claude, is the build source.
 func (c Claude) Container() (engine.ContainerSpec, error) {
-	rel := credentialRelHome()
 	return engine.ContainerSpec{
 		Install:         installFragment,
 		ValidateCommand: "claude --version",
 		Auth: engine.Provide(engine.ContainerAuth{
 			// ANTHROPIC_AUTH_TOKEN is a trigger too: a gateway host
 			// authenticates with AUTH_TOKEN+BASE_URL and carries no API key.
-			EnvTriggers: []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
+			EnvTriggers: []string{OAuthTokenEnv, "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 			EnvPassthrough: []string{
+				OAuthTokenEnv,
 				"ANTHROPIC_API_KEY",
 				"ANTHROPIC_AUTH_TOKEN",
 				"ANTHROPIC_BASE_URL",
 				"ANTHROPIC_MODEL",
 				"ANTHROPIC_SMALL_FAST_MODEL",
 			},
-			// READ-WRITE, and the REAL host file: the refresh token is
-			// single-use and rotating (see Home), so any COPY that refreshes
-			// invalidates the host's own login. Mounting the one real file
-			// keeps host and container on the same rotating token.
-			CredentialFiles: []engine.CredentialFile{{HostRelHome: rel, ContainerRelHome: rel}},
-			Hint:            containerAuthHint(),
+			Hint: "no " + OAuthTokenEnv + ", ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN to authenticate the in-container engine: run `claude setup-token`, then store what it prints with `ctxloom auth set-token`",
 		}),
 		OverlayDirs:        []string{ConfigDirName},
 		TranscriptStoreRel: filepath.Join(ConfigDirName, TranscriptsDirName),
 	}, nil
-}
-
-// containerAuthHint is platform-aware because the fallback credential path
-// differs by OS. On darwin, a subscription login keeps its OAuth token in the
-// macOS Keychain, NOT ~/.claude/.credentials.json — naming that file there is
-// unfollowable advice, so the darwin hint names the env var instead.
-func containerAuthHint() string {
-	if runtime.GOOS == "darwin" {
-		return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN to authenticate the in-container engine (a macOS Keychain-held subscription login cannot be mounted — set ANTHROPIC_API_KEY for a containerized run on Mac)"
-	}
-	return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN and no ~/.claude credentials to authenticate the in-container engine"
 }
 
 // Transcripts are the readers the constructor was handed (WithTranscripts):

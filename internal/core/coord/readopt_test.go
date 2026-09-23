@@ -81,7 +81,6 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 		"the live runner must re-Hello the restarted coordinator")
 	assert.NotEqual(t, StateEnded, rosterState(second, out.Harp), "a run whose runner re-Hello'd is re-adopted, not orphaned")
 	assert.Equal(t, "", runCause(second, out.RunID))
-	assert.Equal(t, []string{out.Harp}, sp.adopted(), "re-adoption gives the run its cell owner back (the replicator's release)")
 
 	// Mail reaches the SAME runner: no new spawn, the same run id.
 	_, err = second.AgentSend(ownerIdentity(), out.Harp, KindMessage, "still there", nil, "")
@@ -91,10 +90,6 @@ func TestReadopt_ARestartedCoordinatorReadoptsALiveRunner(t *testing.T) {
 	assert.Equal(t, 1, sp.spawnCount())
 	assert.Equal(t, out.RunID, currentRunID(second, out.Harp))
 
-	// The run's end releases what re-adoption acquired.
-	second.terminateRun(out.RunID, CauseStopped, "test")
-	require.Eventually(t, func() bool { return len(sp.adoptReleased()) == 1 }, conformanceWait, 10*time.Millisecond,
-		"ending a re-adopted run releases the ownership re-adoption took")
 }
 
 // TestReadopt_ARunnerThatNeverReturns_IsRunnerLoss: the grace window is

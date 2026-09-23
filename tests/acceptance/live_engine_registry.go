@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/core/config"
+	"github.com/ctxloom/ctxloom/internal/core/paths"
 )
 
 // realHomeDir is the user's actual home, captured in TestMain (acceptance_test.go)
@@ -72,27 +73,10 @@ type liveAgent struct {
 	// proves nothing extra while costing real money on every run.
 	config string
 	// mapCreds returns the env-var-to-real-directory pointers that make this
-	// engine read AND WRITE its REAL credential files from inside an
-	// otherwise-isolated run — the MAPPED half of the mapped-or-API-key
-	// policy (task erased-collar). Non-nil only for engines whose own
-	// config-home var relocates CREDENTIALS (the descriptor's
-	// engine.HomeSpec.Credentials is Provided: claude's CLAUDE_CONFIG_DIR,
-	// say). It NEVER
-	// writes, copies, moves
-	// or chmods a credential file: it only points at directories, and errors
-	// loudly when the real credential material is absent.
-	//
-	// WHY MAPPING, NOT COPYING (task jovial-employee): a copy into a
-	// throwaway HOME is strictly one-way. The engine refreshes inside the
-	// copy, the provider ROTATES the refresh token and invalidates the old
-	// one SERVER-SIDE, the rotated value dies with the temp dir, and the
-	// host's file is left holding a token the provider considers consumed —
-	// measured as `401 refresh_token_reused`, which costs the
-	// human a manual re-login. A read-only copy does NOT fix this: the
-	// damage is the server-side consumption, not the local mutation. A
-	// symlink does not fix it either — credential files are written with an
-	// atomic temp-file-plus-rename, which replaces the symlink with a
-	// regular file and leaves the real credential stale.
+	// engine authenticate from inside an otherwise-isolated run by setting
+	// env vars on the child (claude: its stored setup-token). It NEVER
+	// writes, copies, moves or chmods a credential file, and errors loudly
+	// when the real credential material is absent.
 	mapCreds func(realHome string) ([]credentialMapping, error)
 	// copyCreds is the LEGACY copy path. It copies just the auth files from
 	// the real HOME into the isolated one, and errors when it copied zero
@@ -125,7 +109,7 @@ var liveAgentOrder = []string{"claude"}
 var liveAgents = map[string]liveAgent{
 	"claude": {
 		binary:     "claude",
-		apiKeyEnvs: []string{"ANTHROPIC_API_KEY"},
+		apiKeyEnvs: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
 		credDir:    ".claude",
 		config: fmt.Sprintf("version: %d\n", config.CurrentConfigVersion) + `llm:
   configs:
@@ -343,58 +327,30 @@ func authCheckClaude(realHome string) (bool, string) {
 	return true, "claude auth status: logged in"
 }
 
-// credentialMapping is one env-var-to-directory pointer: setting EnvVar to Dir
-// on the child process makes the engine resolve its credential material from
-// Dir, the REAL host directory, rather than from the scenario's isolated HOME.
-// Nothing is copied and nothing is written by ctxloom — the engine reads and
-// writes the real file itself, so a provider-side rotation lands on the host
-// and is simply picked up next time.
+// credentialMapping is one env var set on the child process so the engine
+// authenticates. Nothing is copied and nothing is written.
 type credentialMapping struct {
 	EnvVar string
-	Dir    string
+	Value  string
 }
 
-// mapCredentialHome builds the single mapping for an engine whose config-home
-// env var relocates credentials, and FAILS LOUD when the real credential
-// material is not there: dir must exist and be a directory, and every
-// required file (relative to dir) must exist. This is the mapping-path
-// equivalent of the copiers' "copied 0 files" error — a caller that mapped an
-// engine at nothing must not be indistinguishable from one that mapped it
-// correctly, or the run comes back mysteriously unauthenticated.
-//
-// It only ever calls os.Stat. It never reads a credential's contents, and
-// never creates, writes, moves, chmods or removes anything.
-func mapCredentialHome(engine, envVar, dir string, required ...string) ([]credentialMapping, error) {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return nil, fmt.Errorf("map %s credentials: %s would point at %s, which is not there: %w", engine, envVar, dir, err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("map %s credentials: %s would point at %s, which is not a directory", engine, envVar, dir)
-	}
-	for _, rel := range required {
-		p := filepath.Join(dir, rel)
-		if _, serr := os.Stat(p); serr != nil {
-			return nil, fmt.Errorf("map %s credentials: required credential file %s is missing: %w", engine, p, serr)
-		}
-	}
-	return []credentialMapping{{EnvVar: envVar, Dir: dir}}, nil
-}
-
-// mapClaudeCredentials points CLAUDE_CONFIG_DIR at the REAL ~/.claude.
-// claude's descriptor declares its home var relocates both config AND
-// credentials (engine.HomeSpec.Credentials) and marks .credentials.json the
-// one REQUIRED source file, so that file's absence is
-// the loud failure here too.
-//
-// COST, ACCEPTED AND STATED (erased-collar's "decide per engine and say where
-// it lands"): the whole config-home is mapped, so claude's run state written
-// under it during a live scenario — history/projects, and the .claude.json it
-// auto-creates inside CLAUDE_CONFIG_DIR when the var is set — lands in the
-// human's real ~/.claude rather than in a temp dir. That is the price of the
-// engine writing a rotated token where the host can see it.
+// mapClaudeCredentials hands a live claude the developer's STORED setup-token
+// (what `ctxloom auth set-token` wrote under the real HOME) as
+// CLAUDE_CODE_OAUTH_TOKEN. Every ctxloom-launched claude authenticates from
+// that one token; it never refreshes, so the run can share it with the
+// developer's own sessions without consuming anything. It FAILS LOUD when no
+// token is stored, naming the file and the fix. It only reads.
 func mapClaudeCredentials(realHome string) ([]credentialMapping, error) {
-	return mapCredentialHome("claude", "CLAUDE_CONFIG_DIR", filepath.Join(realHome, ".claude"), ".credentials.json")
+	p := filepath.Join(realHome, paths.AppDirName, paths.HomeAuthDirName, "claude-code"+paths.EngineTokenExt)
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("map claude credentials: no stored setup-token at %s (run `claude setup-token`, then `ctxloom auth set-token`): %w", p, err)
+	}
+	tok := strings.TrimSpace(string(raw))
+	if tok == "" {
+		return nil, fmt.Errorf("map claude credentials: the stored setup-token at %s is empty", p)
+	}
+	return []credentialMapping{{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Value: tok}}, nil
 }
 
 // seedLiveCredentials is THE single door every @live scenario gate goes
@@ -434,7 +390,7 @@ func seedLiveCredentials(name string, a liveAgent, realHome, fakeHome string, se
 			return fmt.Errorf("seed %s credentials: mapper returned no env-var mappings", name)
 		}
 		for _, m := range mappings {
-			setEnv(m.EnvVar, m.Dir)
+			setEnv(m.EnvVar, m.Value)
 		}
 		return nil
 	}

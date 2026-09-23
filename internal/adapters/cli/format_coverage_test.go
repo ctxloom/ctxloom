@@ -250,6 +250,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// this harness — the empty-store rendering is exactly what we want the
 	// five encodings to agree on.
 	"companion list": {extraArgs: noExtraArgs},
+	"auth status":    {extraArgs: noExtraArgs},
+	"auth set-token": {skip: "reads a secret from stdin; covered by auth_test.go"},
 	// Both mutate the personal consent record and need a real binary on PATH
 	// to resolve and hash; exercised end to end in trust_cli.feature instead.
 	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},

@@ -21,8 +21,6 @@ package acceptance
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -168,86 +166,9 @@ func registerP6SteerEchoSteps(ctx *godog.ScenarioContext) {
 				}
 			}
 
-			// CREDENTIALS DIVERGE BY RUNTIME, and the container half is why this
-			// cell took four live runs to reach the bus.
-			//
-			// HOST: seedLiveCredentials MAPS the engine at its real credential
-			// directory by exporting CLAUDE_CONFIG_DIR (the engine's declared
-			// home var) into the fake home. A host engine reads that var.
-			//
-			// CONTAINER: it cannot, and not by oversight.
-			// isolation.claudeAuthEnvVars — the ONLY env allowed to cross into a
-			// container — is the five ANTHROPIC_* vars; CLAUDE_CONFIG_DIR is
-			// deliberately absent. A container authenticates by BIND-MOUNTING
-			// the host's own ~/.claude/.credentials.json into the per-agent home
-			// (isolation.claudeCredentialMountsAt), READ-WRITE, because the engine
-			// ROTATES that credential and the refreshed token must land back on
-			// the host file.
-			//
-			// COPYING IS THEREFORE NOT A SUBSTITUTE: a copy takes the rotation
-			// with it and the host credential goes stale. A SYMLINK is, and that
-			// is what this does. isolation.hostHomeDir is os.UserHomeDir, so the
-			// mount resolves under the harness's fake $HOME; linking the real
-			// credential into it makes fileExists() true and hands the mount the
-			// link path, which the runtime resolves host-side to the real file.
-			// MEASURED: a write from inside the container lands on the real host
-			// file, so rotation survives.
-			//
-			// Repointing $HOME at the real home would also work and is what P0's
-			// container cells do — but P0 runs a subprocess it fully controls,
-			// while this cell's coordinator is a long-lived session whose own
-			// machine-scoped config (the mail plane, the image pin) lives in the
-			// fake home. Repointing would silently drop those and read the
-			// developer's real ~/.ctxloom/config.yaml instead.
-			// WHICH CELLS NEED THE LINK: any run whose credential is resolved
-			// from $HOME rather than from an env var, for two different
-			// mechanisms:
-			//
-			//   container            -> isolation.claudeCredentialMountsAt
-			//                           BIND-MOUNTS ~/.claude/.credentials.json
-			//                           into the container's own home
-			//   engine_home: session -> isolation.CopyAmbient SEEDS the same
-			//                           file into the session's controlled
-			//                           home, on whichever cell the run landed
-			//
-			// Both take their source path from isolation.hostHomeDir
-			// (os.UserHomeDir), so both are blind to the CLAUDE_CONFIG_DIR that
-			// seedLiveCredentials exports. Only a run that keeps the host home
-			// reads that var and so only it works without the link.
-			//
-			// MEASURED: gating this on runtime alone left host/worktree failing
-			// with "no host claude credentials found to seed the per-agent
-			// config-home — the agent would start logged out". Neither extreme
-			// corner could catch it: host/none seeds no per-agent home, and
-			// container/worktree was already covered by the runtime gate. That
-			// is precisely what the mixed corners exist to find.
-			if (runtime != "" && runtime != "host") || workspace == "worktree" {
-				if realHomeDir == "" {
-					return fmt.Errorf("p6: an isolated cell needs the real host home to resolve the credential (mounted for a container, seeded for a worktree), and none was captured — refusing rather than running a cell that would report an engine failure that is the harness's own doing")
-				}
-				src := filepath.Join(realHomeDir, ".claude", ".credentials.json")
-				if _, err := os.Stat(src); err != nil {
-					return fmt.Errorf("p6: container cell needs %s to mount into the per-agent home (isolation.claudeCredentialMountsAt), and it is not readable: %w", src, err)
-				}
-				dstDir := filepath.Join(w.env.HomeDir, ".claude")
-				if err := os.MkdirAll(dstDir, 0o755); err != nil {
-					return err
-				}
-				dst := filepath.Join(dstDir, ".credentials.json")
-				_ = os.Remove(dst)
-				if err := os.Symlink(src, dst); err != nil {
-					return fmt.Errorf("p6: link the real claude credential into the fixture home: %w", err)
-				}
-				if workspace != "worktree" {
-					return nil
-				}
-				// host+worktree still wants the env mapping as well: the seed
-				// path reads the linked file, and the engine itself reads the
-				// exported var. Falling through gives it both.
-			}
-
-			// Subscription path: MAP this engine at its real credential
-			// directory, never copy — see seedLiveCredentials.
+			// Every cell, host or container, authenticates from the stored
+			// setup-token seedLiveCredentials sets on the child env; a
+			// container receives it by name. Nothing is linked or copied.
 			return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
 		})
 

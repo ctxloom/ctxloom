@@ -87,10 +87,10 @@ expensive in time and complexity" means in practice.
   seconds or thirty minutes.
 - **A credential story you have to solve on purpose.** An isolated engine still has to
   authenticate somehow, and "isolated from the host" and "has the host's credentials" pull in
-  opposite directions. ctxloom hands the container either the engine's API-key environment or
-  its credential files, mounted into the container's fresh home. When it can resolve neither,
-  it refuses to launch rather than start an engine that cannot log in. Plan for that before
-  the run, not during it.
+  opposite directions. ctxloom hands the container the engine's auth vars by name (for claude,
+  the `CLAUDE_CODE_OAUTH_TOKEN` that `ctxloom auth set-token` stored, or an API key) and never
+  mounts a credential file. When none is set it refuses to launch rather than start an engine
+  that cannot log in. Plan for that before the run, not during it.
 - **Debugging across a boundary.** When something goes wrong inside a container, "what does
   the filesystem actually look like right now" is no longer a question your host shell answers
   for free.

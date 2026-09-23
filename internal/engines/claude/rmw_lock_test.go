@@ -18,7 +18,7 @@ import (
 
 // TestWriteInstanceConfig_SerializesAgainstConcurrentWriter pins the invariant
 // that claudeInstanceConfig.WriteInstanceConfig used to rely entirely on ITS CALLER's project lock
-// (isolation.CopyAmbient's lockInstanceHome) — a second, unenforced lock
+// (isolation.PrepareInstanceHome's lockInstanceHome) — a second, unenforced lock
 // idiom over an engine config file, invisible to anyone reading this writer
 // in isolation and silently absent for any OTHER caller. It now takes its
 // OWN agent.WithFileLock around the whole load-modify-write cycle, at dest
@@ -28,7 +28,7 @@ import (
 // would take (paths.HomePathFor(dest)) DIRECTLY, standing in for a
 // concurrent writer already mid-critical-section (a second in-tree
 // delegated child sharing this instance, racing THIS PROCESS rather than
-// isolation.CopyAmbient's caller-side lock — which is a different lock
+// isolation.PrepareInstanceHome's caller-side lock — which is a different lock
 // namespace and path entirely, see WriteInstanceConfig's doc). Writer B (a
 // real WriteInstanceConfig call, on a goroutine) must block until A
 // releases. The seam is deterministic (A holds the lock before B is
@@ -75,7 +75,7 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 }
 
 // TestWriteInstanceConfig_LockIsDistinctFromCallersProjectLock proves the
-// nesting claim in WriteInstanceConfig's doc: isolation.CopyAmbient's caller
+// nesting claim in WriteInstanceConfig's doc: isolation.PrepareInstanceHome's caller
 // -side lock (paths.ProjectPathFor(InstanceHome), taken on the instance
 // home directory itself) and this function's own lock
 // (paths.HomePathFor(dest), taken on the generated .claude.json file) are
@@ -86,13 +86,13 @@ func TestWriteInstanceConfig_SerializesAgainstConcurrentWriter(t *testing.T) {
 // This is a same-process regression guard, not a cross-process one: it
 // demonstrates the two derived paths never collide for a real instance home,
 // which is what makes holding both locks from one goroutine (as
-// isolation.CopyAmbient does) safe rather than a self-deadlock waiting to
+// isolation.PrepareInstanceHome does) safe rather than a self-deadlock waiting to
 // happen.
 func TestWriteInstanceConfig_LockIsDistinctFromCallersProjectLock(t *testing.T) {
 	testsupport.Isolate(t)
 	root := t.TempDir()
 	// A real instance home lives under a .ctxloom tree — see
-	// isolation.CopyAmbient's doc ("project's own .ctxloom/state/<harp>/home"
+	// isolation.PrepareInstanceHome's doc ("project's own .ctxloom/state/<harp>/home"
 	// or the home-rooted worktree fallback under ~/.ctxloom/sessions).
 	instance := filepath.Join(root, ".ctxloom", "state", "harp", "home")
 	require.NoError(t, os.MkdirAll(instance, 0o700))

@@ -67,7 +67,7 @@ type ambientConfigKey struct {
 // it and cannot. oauthAccount and primaryApiKey are what claude's own seeding
 // of a temp config dir copies out of the host file (2.1.278): the identity
 // it shows and checks for a subscription token, and the credential of an
-// API-key login, which has no .credentials.json to seed beside it.
+// API-key login, which keeps no .credentials.json.
 var ambientConfigKeys = []ambientConfigKey{
 	{name: "hasCompletedOnboarding", fallback: true, expected: true},
 	{name: "lastOnboardingVersion", expected: true},
@@ -112,7 +112,7 @@ var projectTrustKeys = map[string]any{
 // claudeInstanceConfig is claude's instance-config generator — the
 // engine-owned writer of `<CLAUDE_CONFIG_DIR>/.claude.json` for a session
 // home ctxloom provisioned, declared on Engine.Home. It is claude's half of
-// the engine write-config directive: isolation.CopyAmbient decides that
+// the engine write-config directive: isolation.PrepareInstanceHome decides that
 // claude contributes a generated config at all, this decides what a single
 // byte of it says.
 type claudeInstanceConfig struct{}
@@ -137,7 +137,7 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 // load-modify-write cycle below runs inside its OWN agent.WithFileLock, at
 // dest (the .claude.json path itself) — NOT reliance on a caller's lock.
 //
-// This does NOT double-acquire with isolation.CopyAmbient's caller-side lock
+// This does NOT double-acquire with isolation.PrepareInstanceHome's caller-side lock
 // (isolation.lockInstanceHome): that lock is paths.ProjectPathFor(instanceHome)
 // — a DIFFERENT lock namespace (project-tree-relative) at a DIFFERENT path
 // (InstanceHome itself, not InstanceHome/claude/.claude.json) than the
@@ -150,8 +150,8 @@ var _ engine.InstanceConfigWriter = claudeInstanceConfig{}
 // lock is the ONLY guarantee in that fallback case. No ledger is added here:
 // unlike a shared settings.json, ctxloom owns the WHOLE file, so there is no
 // foreign content to distinguish from ctxloom's own and nothing for a ledger
-// to record beyond "this file exists" — see the CopyAmbient/InstanceConfigWriter
-// doc's ONE WAY invariant.
+// to record beyond "this file exists" — see PrepareInstanceHome's doc: the
+// real home is read, never written.
 func (w claudeInstanceConfig) WriteInstanceConfig(req engine.InstanceConfigRequest, fs afero.Fs) (engine.InstanceConfigReport, error) {
 	var rep engine.InstanceConfigReport
 	if req.InstanceHome == "" {

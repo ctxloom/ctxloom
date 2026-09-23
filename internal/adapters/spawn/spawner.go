@@ -300,14 +300,13 @@ func (s *spawner) ResolveLaunch(ctx context.Context, plan *coord.SpawnPlan, star
 		workspace = launch.WorkspaceWorktree
 	}
 	src := launch.Source{
-		Identity:     start.Identity,
-		Orchestrator: start.Orchestrator,
-		Agent:        plan.AgentName,
-		Mode:         launch.StructuredMode(),
-		Prompt:       start.Prompt,
-		WorkDir:      s.projectDir,
-		Workspace:    workspace,
-		DirtyTree:    plan.DirtyTreeHandler,
+		Identity:  start.Identity,
+		Agent:     plan.AgentName,
+		Mode:      launch.StructuredMode(),
+		Prompt:    start.Prompt,
+		WorkDir:   s.projectDir,
+		Workspace: workspace,
+		DirtyTree: plan.DirtyTreeHandler,
 	}
 	if start.Resumed || start.Rebind {
 		src.Resume = launch.Resume{Ref: sessions.ResumeRef{Harp: start.Identity.Harp, NativeKey: start.ResumeKey}, RebindEndpoint: start.Rebind}
@@ -347,31 +346,6 @@ func (r cellRuntime) Start(ctx context.Context, l launch.Launch, env map[string]
 		return coord.RunnerHandle{}, err
 	}
 	return coord.RunnerHandle{Kill: proc.Kill, Wait: proc.Wait, StderrTail: proc.StderrTail}, nil
-}
-
-// Adopt re-acquires a re-adopted run's cell ownership: for a run whose
-// binding asked for a per-session engine home, the home is re-bound —
-// re-seeded from the host's current credential and its replicator started
-// in THIS process — and the returned release ends it when the run ends. The
-// previous coordinator held that replicator; without this, a live engine
-// would sit on a token the host has since rotated, or a released instance
-// would never be cleaned. A run with no session home owns nothing to
-// re-acquire.
-func (s *spawner) Adopt(_ context.Context, rec coord.RunRecord) (func() error, error) {
-	if rec.HomeMode != string(agents.HomeModeSession) {
-		return nil, nil
-	}
-	res := operations.ResolveInTreeAgentHome(operations.InTreeAgentHome{
-		Backend:      rec.Engine,
-		Cwd:          rec.WorkDir,
-		Harp:         rec.Harp,
-		HomeMode:     agents.HomeModeSession,
-		Orchestrator: rec.Orchestrator,
-	})
-	if res.Absent != "" {
-		return nil, fmt.Errorf("re-bind the session home of %s: %s", rec.Harp, res.Absent)
-	}
-	return res.Release, nil
 }
 
 func (s *spawner) ResumeHistory(ctx context.Context, harp string) string {

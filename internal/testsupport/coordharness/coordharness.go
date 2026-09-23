@@ -36,9 +36,6 @@ func (NopSpawner) ResolveLaunch(context.Context, *coord.SpawnPlan, coord.SpawnSt
 func (NopSpawner) Start(context.Context, launch.Launch, sessions.Endpoint) (*coord.EngineSpawn, error) {
 	return nil, context.Canceled
 }
-func (NopSpawner) Adopt(context.Context, coord.RunRecord) (func() error, error) {
-	return func() error { return nil }, nil
-}
 func (NopSpawner) ResumeHistory(context.Context, string) string { return "" }
 func (NopSpawner) MarkSessionEnded(string)                      {}
 

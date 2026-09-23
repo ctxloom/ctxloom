@@ -419,60 +419,41 @@ func treeSnapshot(t *testing.T, root string) map[string]string {
 	return out
 }
 
+const fakeStoredToken = "sk-ant-oat01-fake-for-this-test"
+
 // seedFakeRealHome builds a throwaway stand-in for the developer's real HOME
-// carrying the one credential file each mappable engine requires.
+// carrying the stored setup-token each mappable engine requires, and clears
+// the vars that would take the env path instead.
 func seedFakeRealHome(t *testing.T) string {
 	t.Helper()
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	realHome := t.TempDir()
-	for rel, body := range map[string]string{
-		filepath.Join(".claude", ".credentials.json"): `{"claudeAiOauth":{"refreshToken":"real"}}`,
-	} {
-		p := filepath.Join(realHome, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	p := filepath.Join(realHome, ".ctxloom", "auth", "claude-code.token")
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(fakeStoredToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	return realHome
 }
 
-// TestMapCredentials_PointAtTheRealDirectory is the core of the mapped-not-copied
-// policy: each mappable engine's own config-home env var is set to the REAL
-// host directory, by exact name and exact value. Copying is what consumed the
-// human's single-use refresh token; mapping lets the engine rotate the REAL
-// file in place.
-func TestMapCredentials_PointAtTheRealDirectory(t *testing.T) {
+// The mapper hands the child the STORED setup-token under the engine's token
+// var, by exact name and exact value.
+func TestMapCredentials_HandTheStoredTokenToTheChild(t *testing.T) {
 	realHome := seedFakeRealHome(t)
-	cases := []struct {
-		engine  string
-		wantVar string
-		wantDir string
-	}{
-		// claude declares CLAUDE_CONFIG_DIR relocates config AND credentials.
-		{"claude", "CLAUDE_CONFIG_DIR", filepath.Join(realHome, ".claude")},
+	mappings, err := liveAgents["claude"].mapCreds(realHome)
+	if err != nil {
+		t.Fatalf("mapCreds: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.engine, func(t *testing.T) {
-			a := liveAgents[tc.engine]
-			if a.mapCreds == nil {
-				t.Fatalf("%s must have a credential mapper", tc.engine)
-			}
-			mappings, err := a.mapCreds(realHome)
-			if err != nil {
-				t.Fatalf("mapCreds: %v", err)
-			}
-			assert.Equal(t, []credentialMapping{{EnvVar: tc.wantVar, Dir: tc.wantDir}}, mappings)
-		})
-	}
+	assert.Equal(t, []credentialMapping{{EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Value: fakeStoredToken}}, mappings)
 }
 
-// TestSeedLiveCredentials_SetsTheMappedVarOnTheChild pins the whole gate path
-// end to end: the value that lands on the child env is the REAL directory, and
-// nothing whatsoever is written — not into the isolated HOME, not into the real
-// one. A copy-based seed would fail both halves.
-func TestSeedLiveCredentials_SetsTheMappedVarOnTheChild(t *testing.T) {
+// The whole gate path end to end: the stored token lands on the child env,
+// and nothing whatsoever is written — not into the isolated HOME, not into
+// the real one.
+func TestSeedLiveCredentials_SetsTheStoredTokenOnTheChild(t *testing.T) {
 	realHome := seedFakeRealHome(t)
 	fakeHome := t.TempDir()
 	before := treeSnapshot(t, realHome)
@@ -482,83 +463,41 @@ func TestSeedLiveCredentials_SetsTheMappedVarOnTheChild(t *testing.T) {
 		t.Fatalf("seedLiveCredentials: %v", err)
 	}
 
-	assert.Equal(t, map[string]string{"CLAUDE_CONFIG_DIR": filepath.Join(realHome, ".claude")}, got,
-		"the engine must be MAPPED at its real credential home, by that exact var and value")
-	assert.Empty(t, treeSnapshot(t, fakeHome),
-		"mapping must write NOTHING into the isolated HOME — a copy there is the jovial-employee bug")
-	assert.Equal(t, before, treeSnapshot(t, realHome),
-		"mapping must not write, move, truncate or delete anything in the real HOME")
+	assert.Equal(t, map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": fakeStoredToken}, got)
+	assert.Empty(t, treeSnapshot(t, fakeHome), "nothing is copied into the isolated HOME")
+	assert.Equal(t, before, treeSnapshot(t, realHome), "nothing in the real HOME is written, moved or removed")
 }
 
-// TestSeedLiveCredentials_APIKeyPathMapsAndCopiesNothing pins the second of the
-// policy's two permitted paths: an API key rides the inherited env, so no var
-// is set and no byte is written.
-func TestSeedLiveCredentials_APIKeyPathMapsAndCopiesNothing(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "sk-fake-for-this-test")
-	realHome := seedFakeRealHome(t)
-	fakeHome := t.TempDir()
-
-	got, setEnv := recordEnv()
-	if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
-		t.Fatalf("seedLiveCredentials: %v", err)
-	}
-	assert.Empty(t, got, "the API-key path must set no credential mapping at all")
-	assert.Empty(t, treeSnapshot(t, fakeHome), "the API-key path must copy nothing")
-}
-
-// TestSeedLiveCredentials_MissingCredentialIsLoud preserves the copiers' own
-// "copied 0 files" loudness on the mapping path: a real credential directory
-// or file that is not there must produce a NAMED failure, never a silent skip
-// that yields a mysteriously unauthenticated run — and must set no env var,
-// so a half-mapped child can never happen.
-func TestSeedLiveCredentials_MissingCredentialIsLoud(t *testing.T) {
-	cases := []struct {
-		engine   string
-		wantText string // the exact directory the failure must name
-	}{
-		{"claude", ".claude"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.engine, func(t *testing.T) {
-			realHome := t.TempDir() // deliberately empty: no credential material
+// An exported token or API key rides the inherited env, so no var is set and
+// no byte is written.
+func TestSeedLiveCredentials_EnvPathMapsAndCopiesNothing(t *testing.T) {
+	for _, v := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		t.Run(v, func(t *testing.T) {
+			realHome := seedFakeRealHome(t)
+			t.Setenv(v, "fake-for-this-test")
 			fakeHome := t.TempDir()
 			got, setEnv := recordEnv()
-			err := seedLiveCredentials(tc.engine, liveAgents[tc.engine], realHome, fakeHome, setEnv)
-			assert.Error(t, err, "an absent real credential directory must fail loudly")
-			assert.Contains(t, err.Error(), tc.engine, "the failure must name the engine")
-			assert.Contains(t, err.Error(), tc.wantText, "the failure must name the credential that is missing")
-			assert.Empty(t, got, "a failed mapping must leave no env var set on the child")
+			if err := seedLiveCredentials("claude", liveAgents["claude"], realHome, fakeHome, setEnv); err != nil {
+				t.Fatalf("seedLiveCredentials: %v", err)
+			}
+			assert.Empty(t, got, "the env path sets nothing")
+			assert.Empty(t, treeSnapshot(t, fakeHome), "the env path copies nothing")
 		})
 	}
 }
 
-// TestMapCredentialHome_RequiredFileMissingNamesIt covers the half
-// TestSeedLiveCredentials_MissingCredentialIsLoud cannot: the directory EXISTS
-// but the credential file inside it does not — the "logged out, stale dir left
-// behind" case, which a mere directory-presence check would wave through.
-func TestMapCredentialHome_RequiredFileMissingNamesIt(t *testing.T) {
-	realHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(realHome, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, err := mapClaudeCredentials(realHome)
-	assert.Error(t, err, "an existing credential home with no credential file must fail loudly")
-	assert.Contains(t, err.Error(), filepath.Join(realHome, ".claude", ".credentials.json"))
-}
-
-// TestMapCredentialHome_NotADirectoryIsRejected pins that a FILE at the
-// mapping target is refused. Mapping is a directory contract: bind-mounting or
-// pointing at a single file does not survive the atomic temp-file-plus-rename
-// that credential writers use.
-func TestMapCredentialHome_NotADirectoryIsRejected(t *testing.T) {
-	realHome := t.TempDir()
-	p := filepath.Join(realHome, ".claude")
-	if err := os.WriteFile(p, []byte("not a directory"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := mapClaudeCredentials(realHome)
+// No stored token is a NAMED failure naming the file and the fix, never a
+// silent skip that yields a mysteriously unauthenticated run, and it sets no
+// env var.
+func TestSeedLiveCredentials_NoStoredTokenIsLoud(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	got, setEnv := recordEnv()
+	err := seedLiveCredentials("claude", liveAgents["claude"], t.TempDir(), t.TempDir(), setEnv)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not a directory")
+	assert.Contains(t, err.Error(), "claude-code.token")
+	assert.Contains(t, err.Error(), "ctxloom auth set-token")
+	assert.Empty(t, got)
 }
 
 // TestSeedLiveCredentials_NoRealHomeIsLoud: reaching the seed with no captured

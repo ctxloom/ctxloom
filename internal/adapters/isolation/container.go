@@ -48,17 +48,16 @@ const (
 // (the container replaces the in-engine prompt as the safety net). For the
 // top-level run it bind-mounts the live project at its identical absolute path
 // (cwd + .git resolve unchanged, WIP intact, edits land in the real files) with a
-// fresh $HOME (engine global state isolated, "fresh except mounted creds" — see
-// below). Any inability to launch returns an error the caller catches and
+// fresh $HOME (engine global state isolated; no credential file is mounted into
+// it — see below). Any inability to launch returns an error the caller catches and
 // degrades down the chain to None; because a container tier is only ever built
 // for an EXPLICIT request, that lost boundary is a fatal finding (ClassIsolation)
 // the choke owner aborts on unless --degraded (CLAUDE.md fail-loudly).
 //
 // AUTH crosses the boundary deliberately and scoped (PrepareWorkspace → the
-// spec's resolveAuth): the container gets the engine's scoped env passthrough
-// (claude: ANTHROPIC_* when ANTHROPIC_API_KEY is set) or the
-// engine's credentials bind-mounted into the fresh HOME (claude subscription
-// OAuth, read-WRITE — see credentialFileMounts). No resolvable auth →
+// spec's resolveAuth): the container gets the engine's scoped env passthrough,
+// by name (claude: CLAUDE_CODE_OAUTH_TOKEN, the setup-token, or an API key).
+// No resolvable auth →
 // PrepareWorkspace errors → the caller degrades down the chain to None — a
 // fatal finding (ClassIsolation) the choke owner aborts on unless --degraded,
 // since the container was EXPLICITLY requested. The owner's run and every
@@ -284,7 +283,6 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		dir:          dir,
 		projectDir:   projectDir,
 		scratchRoot:  sc.root,
-		authMounts:   sc.auth.mounts,
 		stateMounts:  sc.stateMounts,
 		scratchEnv:   sc.runEnv(),
 		authMode:     sc.auth.mode,
@@ -292,7 +290,6 @@ func (c Container) ResolveWorkspace(ctx context.Context, projectDir, agentID str
 		baseCleanup:  baseCleanup,
 		runtime:      c.runtime,
 		instanceHome: c.instanceHome,
-		engineSpec:   c.engineSpec,
 	}, nil
 }
 
@@ -319,15 +316,14 @@ func (c Container) Mount(ctx context.Context, ws Workspace) (MountPlan, error) {
 		return MountPlan{}, err
 	}
 	// Order is inert (SD4): every mount targets a distinct in-container path and
-	// renders as an independent --mount. auth + scoped state ride every axis; the
+	// renders as an independent --mount. Scoped state rides every axis; the
 	// base mounts (overlays/gitdir mirror, or the worktree .git mirror) layer on.
-	mounts := append(append(append([]Mount(nil), cw.authMounts...), cw.stateMounts...), baseMounts...)
+	mounts := append(append([]Mount(nil), cw.stateMounts...), baseMounts...)
 	// The shared-filesystem probe runs HERE — now that every real mount root is
 	// known: cw.dir (the project dir, or the worktree checkout resolveBase
-	// created), cw.scratchRoot (covers the socket dir, config overlays,
-	// session-state mounts, and any copy-based credential mount), and every OTHER
-	// mount's host path (a direct credential-file mount, or a linked worktree's
-	// gitdir mirror). Probing a synthetic tempdir elsewhere (the prior behavior)
+	// created), cw.scratchRoot (covers the socket dir, config overlays and
+	// session-state mounts), and every OTHER mount's host path (a linked
+	// worktree's gitdir mirror). Probing a synthetic tempdir elsewhere (the prior behavior)
 	// only ever proved THAT directory's sharing status — a standing false
 	// positive on a partially-shared Docker Desktop file-sharing list, exactly
 	// the platform this probe exists to protect. A mismatch on ANY root means
@@ -710,13 +706,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 	// config overlays, gitdir mirror) is prepared, so it can probe the ACTUAL
 	// mount set (see mountProbeRoots) instead.
 	//
-	// The host-side scratch root is created BEFORE auth resolution and passed to
-	// resolveAuth, historically because a resolver could COPY a credential into
-	// it and mount that copy read-write. No resolver does that anymore — claude's
-	// token-refresh case bind-mounts the REAL host credential read-write
-	// (auth.go's credentialFileMounts), so the scratch dir it is handed goes
-	// unused there — but the root is the tree Cleanup removes, so its creation
-	// stays here.
+	// The host-side scratch root is the tree Cleanup removes.
 	root, err := os.MkdirTemp(containerScratchBase(), "ctxloom-iso-")
 	if err != nil {
 		// root is normally "" here (MkdirTemp itself failed) — defensive
@@ -725,7 +715,7 @@ func (c Container) prepareContainerScratch(ctx context.Context) (containerScratc
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container scratch: %w", err)
 	}
-	auth, ok := c.engineSpec.resolveAuth(c.home, root)
+	auth, ok := c.engineSpec.resolveAuth()
 	if !ok {
 		_ = os.RemoveAll(root)
 		return containerScratch{}, fmt.Errorf("container auth: %s", c.engineSpec.authHint)
@@ -1009,15 +999,14 @@ type containerWorkspace struct {
 	// Identical to dir for the host base.
 	projectDir  string
 	scratchRoot string // host scratch tree removed by Cleanup
-	// authMounts/stateMounts/scratchEnv are the scratch's contributions to the
+	// stateMounts/scratchEnv are the scratch's contributions to the
 	// mapping, resolved when the workspace was resolved and consumed by Mount.
 	// They are held apart from extraEnv/extraMounts because those two are the
 	// MAPPING's output, not its input: they are empty until Mount runs.
-	authMounts  []Mount           // read-only engine credential mounts
 	stateMounts []Mount           // scoped RW session-state mounts
 	scratchEnv  []string          // scoped auth passthrough + host terminal description
 	extraEnv    []string          // Mount's env plan (scratch env + scoped git identity)
-	extraMounts []Mount           // Mount's mount plan (auth + state + base mounts)
+	extraMounts []Mount           // Mount's mount plan (state + base mounts)
 	authMode    containerAuthMode // how auth was resolved (diagnostics; no secrets)
 	agentID     string
 	// mountCleanup undoes what the MAPPING created — the host base's overlay
@@ -1037,10 +1026,6 @@ type containerWorkspace struct {
 	// mounted under (Container.instanceHome) — what ContainerInstanceHome
 	// hands the resolver.
 	instanceHome string
-	// engineSpec is the engine's container spec (Container.engineSpec),
-	// consulted after Mount for the credential a relocated engine home needs
-	// mounted over its seeded copy (MountEngineHome).
-	engineSpec engineContainerSpec
 }
 
 // Dir returns the identical-path cwd (the container mounts it there so cwd + .git

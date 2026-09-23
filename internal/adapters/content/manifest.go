@@ -10,17 +10,37 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+
+	"github.com/Masterminds/semver/v3"
+
+	"github.com/ctxloom/ctxloom/internal/core/release"
+)
+
+// ManifestVersionMarker is the first line of a bundle manifest. It is NOT
+// DigestVersionMarker, and the difference is load-bearing: a per-form content
+// digest has the same entry-line shape, so if the two shared a marker a
+// signature over a form digest could be replayed as a bundle manifest. A
+// manifest parser refuses the digest marker; a digest is never parsed as one.
+const ManifestVersionMarker = "# ctxloom-bundle-manifest/1"
+
+// The release header's line prefixes, in the one order they may appear.
+const (
+	headerName      = "# name: "
+	headerVersion   = "# version: "
+	headerRetracts  = "# retracts: "
+	headerWithdrawn = "# withdrawn: "
 )
 
 // ManifestPath is the bundle-relative path of the tree manifest: the ONE
 // bundle-level object that says "these paths, with these hashes, are what I
 // published".
 //
-// It is named SHA256SUMS and rendered in exactly the format Digest produces, so
-// a consumer with no ctxloom at all can check a pulled tree with stock
-// `sha256sum -c SHA256SUMS`. That interoperability is the reason the format was
-// adopted rather than invented, and it is why the manifest and a form's content
-// digest share one renderer instead of two that could drift.
+// It is named SHA256SUMS and its entry lines are the coreutils shape Digest
+// also produces, so a consumer with no ctxloom at all can check a pulled tree
+// with stock `sha256sum -c SHA256SUMS`. That interoperability is the reason the
+// format was adopted rather than invented. Everything else the manifest says —
+// the release header — rides on `#` lines, which that tool skips.
 //
 // The manifest is a FIRST-CLASS BUNDLE-LEVEL OBJECT, deliberately NOT an item.
 // Manifest-as-reserved-item was considered and rejected: it would make the
@@ -79,15 +99,31 @@ type ManifestEntry struct {
 // hash -> signatures map. Keeping them separate is what lets the manifest be
 // the link (path -> hash -> signature) with no second, drift-prone pointer.
 //
+// It also carries the RELEASE the publisher is signing: the bundle's name, its
+// version, and the earlier versions it withdraws. Those are signed for the same
+// reason the hashes are — a name the signature does not cover lets a trusted
+// tree be served as another bundle, a version it does not cover lets an old
+// signed tree be served as current, and retractions it does not cover can be
+// stripped by whoever controls the repository.
+//
 // The zero Manifest is empty and carries no claims; use IsZero to tell it from
 // a loaded one.
 type Manifest struct {
+	rel     release.Release
 	entries []ManifestEntry
 	index   map[string]string
 }
 
-// NewManifest builds a manifest from entries, sorting and validating them.
-func NewManifest(entries []ManifestEntry) (Manifest, error) {
+// NewManifest builds a manifest for rel from entries, sorting and validating
+// both. Retractions are sorted by version.
+func NewManifest(rel release.Release, entries []ManifestEntry) (Manifest, error) {
+	rel, err := canonicalRelease(rel)
+	if err != nil {
+		return Manifest{}, err
+	}
+	if len(entries) == 0 {
+		return Manifest{}, fmt.Errorf("%w: a manifest must cover at least one file", ErrManifestFormat)
+	}
 	cloned := make([]ManifestEntry, len(entries))
 	copy(cloned, entries)
 	sort.Slice(cloned, func(i, j int) bool { return cloned[i].Path < cloned[j].Path })
@@ -104,7 +140,74 @@ func NewManifest(entries []ManifestEntry) (Manifest, error) {
 		}
 		index[e.Path] = e.SHA256
 	}
-	return Manifest{entries: cloned, index: index}, nil
+	return Manifest{rel: rel, entries: cloned, index: index}, nil
+}
+
+// canonicalRelease validates a release for rendering and returns a copy with
+// its retractions sorted. Every field lands on one header line, so each must be
+// a single line with nothing a strict re-render would normalise away.
+func canonicalRelease(rel release.Release) (release.Release, error) {
+	if err := validateBundleID(BundleID(rel.Name)); err != nil {
+		return release.Release{}, fmt.Errorf("%w: release name: %w", ErrManifestFormat, err)
+	}
+	if err := headerField("name", rel.Name); err != nil {
+		return release.Release{}, err
+	}
+	if rel.Version == nil {
+		return release.Release{}, fmt.Errorf("%w: release %q has no version", ErrManifestFormat, rel.Name)
+	}
+	out := release.Release{Name: rel.Name, Version: rel.Version, Withdrawn: rel.Withdrawn}
+	out.Retracts = make([]release.Retraction, len(rel.Retracts))
+	copy(out.Retracts, rel.Retracts)
+	for _, r := range out.Retracts {
+		if r.Version == nil {
+			return release.Release{}, fmt.Errorf("%w: a retraction names no version", ErrManifestFormat)
+		}
+		if err := headerField("retraction reason", r.Reason); err != nil {
+			return release.Release{}, err
+		}
+	}
+	sort.SliceStable(out.Retracts, func(i, j int) bool { return out.Retracts[i].Version.LessThan(out.Retracts[j].Version) })
+	for i := 1; i < len(out.Retracts); i++ {
+		if out.Retracts[i].Version.Equal(out.Retracts[i-1].Version) {
+			return release.Release{}, fmt.Errorf("%w: version %s is retracted twice", ErrManifestFormat, out.Retracts[i].Version)
+		}
+	}
+	if rel.Withdrawn != "" {
+		if err := headerField("withdrawal reason", rel.Withdrawn); err != nil {
+			return release.Release{}, err
+		}
+	}
+	return out, nil
+}
+
+// headerField refuses a value that cannot sit on one header line and survive a
+// strict re-render: empty, multi-line, containing any control character, or
+// padded with whitespace.
+func headerField(what, v string) error {
+	if v == "" {
+		return fmt.Errorf("%w: empty %s", ErrManifestFormat, what)
+	}
+	if strings.TrimSpace(v) != v {
+		return fmt.Errorf("%w: %s %q has surrounding whitespace", ErrManifestFormat, what, v)
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("%w: %s %q is not a single line", ErrManifestFormat, what, v)
+		}
+	}
+	return nil
+}
+
+// parseStrictVersion reads a header version. Strict semver only: a loose form
+// ("v1.2", "1.2") would render back differently and break byte equality, and a
+// version floor compared across two spellings of one version is not a floor.
+func parseStrictVersion(s string) (*semver.Version, error) {
+	v, err := semver.StrictNewVersion(s)
+	if err != nil {
+		return nil, fmt.Errorf("%w: version %q is not strict semver: %w", ErrManifestFormat, s, err)
+	}
+	return v, nil
 }
 
 var hexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -118,44 +221,117 @@ var hexSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // So a trailing space, a CRLF, an out-of-order line or a single-space separator
 // is refused rather than normalised.
 func ParseManifest(raw []byte) (Manifest, error) {
-	marker, rest, ok := bytes.Cut(raw, []byte("\n"))
-	if !ok {
-		return Manifest{}, fmt.Errorf("%w: no version marker line", ErrManifestFormat)
+	lines := strings.SplitAfter(string(raw), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
-	if string(marker) != DigestVersionMarker {
-		return Manifest{}, fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, marker, DigestVersionMarker)
-	}
-	var entries []ManifestEntry
-	for _, line := range strings.SplitAfter(string(rest), "\n") {
-		if line == "" {
-			continue
-		}
-		body, ok := strings.CutSuffix(line, "\n")
+	body := make([]string, len(lines))
+	for i, line := range lines {
+		b, ok := strings.CutSuffix(line, "\n")
 		if !ok {
 			return Manifest{}, fmt.Errorf("%w: last line %q is not newline-terminated", ErrManifestFormat, line)
 		}
-		hash, path, ok := strings.Cut(body, "  ")
+		body[i] = b
+	}
+	if len(body) == 0 || body[0] != ManifestVersionMarker {
+		first := ""
+		if len(body) > 0 {
+			first = body[0]
+		}
+		return Manifest{}, fmt.Errorf("%w: version marker is %q, this build understands only %q", ErrManifestFormat, first, ManifestVersionMarker)
+	}
+	rel, rest, err := parseReleaseHeader(body[1:])
+	if err != nil {
+		return Manifest{}, err
+	}
+	entries := make([]ManifestEntry, 0, len(rest))
+	for _, line := range rest {
+		hash, path, ok := strings.Cut(line, "  ")
 		if !ok {
-			return Manifest{}, fmt.Errorf("%w: line %q is not %q", ErrManifestFormat, body, "<hash><two spaces><path>")
+			return Manifest{}, fmt.Errorf("%w: line %q is not %q", ErrManifestFormat, line, "<hash><two spaces><path>")
 		}
 		entries = append(entries, ManifestEntry{Path: path, SHA256: hash})
 	}
-	m, err := NewManifest(entries)
+	m, err := NewManifest(rel, entries)
 	if err != nil {
 		return Manifest{}, err
 	}
 	if !bytes.Equal(m.Bytes(), raw) {
-		return Manifest{}, fmt.Errorf("%w: not in canonical form (entries must be sorted by path, separated by two spaces, LF-terminated)", ErrManifestFormat)
+		return Manifest{}, fmt.Errorf("%w: not in canonical form (header in order name, version, retracts sorted by version, withdrawn; entries sorted by path, separated by two spaces, LF-terminated)", ErrManifestFormat)
 	}
 	return m, nil
+}
+
+// parseReleaseHeader reads the header lines in their one legal order and
+// returns the release and the lines after it. Any other `#` line — an unknown
+// key, or a known one out of place — is refused rather than skipped: a header
+// field this build ignores is a claim the signature covers and nobody checks.
+func parseReleaseHeader(lines []string) (release.Release, []string, error) {
+	var rel release.Release
+	i := 0
+	next := func(prefix string) (string, bool) {
+		if i < len(lines) {
+			if v, ok := strings.CutPrefix(lines[i], prefix); ok {
+				i++
+				return v, true
+			}
+		}
+		return "", false
+	}
+	name, ok := next(headerName)
+	if !ok {
+		return release.Release{}, nil, fmt.Errorf("%w: missing %q line", ErrManifestFormat, strings.TrimSpace(headerName))
+	}
+	rel.Name = name
+	ver, ok := next(headerVersion)
+	if !ok {
+		return release.Release{}, nil, fmt.Errorf("%w: missing %q line after the name", ErrManifestFormat, strings.TrimSpace(headerVersion))
+	}
+	v, err := parseStrictVersion(ver)
+	if err != nil {
+		return release.Release{}, nil, err
+	}
+	rel.Version = v
+	for {
+		r, ok := next(headerRetracts)
+		if !ok {
+			break
+		}
+		vs, reason, _ := strings.Cut(r, " ")
+		rv, err := parseStrictVersion(vs)
+		if err != nil {
+			return release.Release{}, nil, err
+		}
+		rel.Retracts = append(rel.Retracts, release.Retraction{Version: rv, Reason: reason})
+	}
+	if w, ok := next(headerWithdrawn); ok {
+		rel.Withdrawn = w
+	}
+	rest := lines[i:]
+	for _, line := range rest {
+		if strings.HasPrefix(line, "#") {
+			return release.Release{}, nil, fmt.Errorf("%w: header line %q is unknown or out of order", ErrManifestFormat, line)
+		}
+	}
+	return rel, rest, nil
 }
 
 // Bytes renders the manifest in canonical form — the bytes a bundle signature
 // covers.
 func (m Manifest) Bytes() []byte {
 	var buf bytes.Buffer
-	buf.WriteString(DigestVersionMarker)
+	buf.WriteString(ManifestVersionMarker)
 	buf.WriteByte('\n')
+	if m.rel.Version != nil {
+		buf.WriteString(headerName + m.rel.Name + "\n")
+		buf.WriteString(headerVersion + m.rel.Version.String() + "\n")
+		for _, r := range m.rel.Retracts {
+			buf.WriteString(headerRetracts + r.Version.String() + " " + r.Reason + "\n")
+		}
+		if m.rel.Withdrawn != "" {
+			buf.WriteString(headerWithdrawn + m.rel.Withdrawn + "\n")
+		}
+	}
 	for _, e := range m.entries {
 		buf.WriteString(e.SHA256)
 		buf.WriteString("  ")
@@ -163,6 +339,13 @@ func (m Manifest) Bytes() []byte {
 		buf.WriteByte('\n')
 	}
 	return buf.Bytes()
+}
+
+// Release is the release the manifest's signature covers.
+func (m Manifest) Release() release.Release {
+	out := m.rel
+	out.Retracts = append([]release.Retraction(nil), m.rel.Retracts...)
+	return out
 }
 
 // Entries returns the covered entries, sorted by path.
@@ -221,7 +404,14 @@ func ManifestCovers(p string) bool {
 // claims at the BUNDLE root (a README, a LICENSE): coverage is total by path,
 // not by recognisability, because a manifest that only covered recognised items
 // would leave exactly the unrecognised ones as the laundering channel.
-func BuildManifest(ctx context.Context, b Bundle) (Manifest, error) {
+//
+// It refuses a release named for any bundle but b: the name is what stops a
+// signed tree from verifying under another bundle's path, so signing one tree
+// under another's name is never what a publisher meant.
+func BuildManifest(ctx context.Context, b Bundle, rel release.Release) (Manifest, error) {
+	if rel.Name != string(b.ID()) {
+		return Manifest{}, fmt.Errorf("content: refusing to build a manifest for bundle %q under the release name %q", b.ID(), rel.Name)
+	}
 	files, err := b.Files(ctx)
 	if err != nil {
 		return Manifest{}, err
@@ -243,7 +433,7 @@ func BuildManifest(ctx context.Context, b Bundle) (Manifest, error) {
 		// bundle, so one bundle's signature would verify another's. Refuse.
 		return Manifest{}, fmt.Errorf("content: bundle %q has no files a manifest could cover", b.ID())
 	}
-	return NewManifest(entries)
+	return NewManifest(rel, entries)
 }
 
 // ContentsError is the two-directional result of VerifyContents. Each list is

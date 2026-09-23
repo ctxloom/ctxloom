@@ -23,20 +23,20 @@ import "fmt"
 // The refusal is the honest failure, not a fallback: shortening the prompt to
 // fit would run the turn, answer a question nobody asked, and report success.
 
-// singleArgLimit reports the largest byte length ONE argv element may carry on
-// goos with pageSize-byte pages, or 0 when the platform declares no
-// per-argument cap — in which case nothing is refused here and a launch that
+// singleArgLimit reports the largest byte length ONE argv element may carry
+// with pageSize-byte pages, or 0 when the platform declares no per-argument
+// cap (capped false) — in which case nothing is refused here and a launch that
 // is too big for the platform's TOTAL argv budget still surfaces as os/exec's
 // own error.
 //
-// goos and pageSize are parameters rather than runtime.GOOS/os.Getpagesize()
-// read inline, so the platform gate is unit-testable.
+// capped and pageSize are parameters rather than perArgCapped and
+// os.Getpagesize() read inline, so the platform gate is unit-testable.
 //
 // Only Linux is capped per-argument. macOS limits the total (ARG_MAX) and has
 // no MAX_ARG_STRLEN equivalent, so a prompt that Linux refuses can genuinely
 // exec there; refusing it anyway would break runs that work.
-func singleArgLimit(goos string, pageSize int) int {
-	if goos != "linux" || pageSize <= 0 {
+func singleArgLimit(capped bool, pageSize int) int {
+	if !capped || pageSize <= 0 {
 		return 0
 	}
 	// -1: MAX_ARG_STRLEN counts the NUL the kernel appends, so the longest

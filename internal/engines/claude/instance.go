@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/agent"
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/present"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
 
 // This file is the INSTANCE half of the port for claude: one kind bound to
@@ -118,7 +118,7 @@ func (c Claude) Container() (engine.ContainerSpec, error) {
 // macOS Keychain, NOT ~/.claude/.credentials.json — naming that file there is
 // unfollowable advice, so the darwin hint names the env var instead.
 func containerAuthHint() string {
-	if runtime.GOOS == "darwin" {
+	if platform.KeychainCredentials {
 		return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN to authenticate the in-container engine (a macOS Keychain-held subscription login cannot be mounted — set ANTHROPIC_API_KEY for a containerized run on Mac)"
 	}
 	return "no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN and no ~/.claude credentials to authenticate the in-container engine"

@@ -12,9 +12,9 @@ import (
 // kernel counts; every other platform declares no per-argument cap, so the
 // check is disabled there rather than refusing prompts that genuinely exec.
 func TestSingleArgLimit_OnlyLinuxCapsOneArgument(t *testing.T) {
-	assert.Equal(t, 131071, singleArgLimit("linux", 4096))
-	assert.Zero(t, singleArgLimit("darwin", 4096))
-	assert.Zero(t, singleArgLimit("linux", 0), "an unknown page size must disable the check, not cap at -1")
+	assert.Equal(t, 131071, singleArgLimit(true, 4096))
+	assert.Zero(t, singleArgLimit(false, 4096))
+	assert.Zero(t, singleArgLimit(true, 0), "an unknown page size must disable the check, not cap at -1")
 }
 
 // A prompt one byte over the limit is refused BY NAME, as the prompt, with its

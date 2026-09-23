@@ -177,8 +177,8 @@ func TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan(t *testing.T
 //     (production code, correctly conservative for a real developer); tests
 //     that deliberately dirty their own throwaway checkout must not rely on
 //     that guard clearing it.
-//   - *containerWorkspace: ONLY scratchRoot (the host socket/config-overlay
-//     scratch from containerScratchBase(), always OS-temp on Linux regardless
+//   - *containerWorkspace: ONLY scratchRoot (the host config-overlay
+//     scratch from platform.TempBase, always OS-temp on Linux regardless
 //     of session/harp scoping). Dir() is intentionally EXCLUDED here: for a
 //     container workspace it is the *identical-path* live project directory
 //     (or a composed worktree checkout, itself already handled by the

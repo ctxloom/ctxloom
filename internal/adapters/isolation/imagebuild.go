@@ -7,12 +7,12 @@ import (
 	"debug/elf"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +21,7 @@ import (
 	containerfiles "github.com/ctxloom/ctxloom/container"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -1227,8 +1228,8 @@ func buildExplicitFromSources(ctx context.Context, rt Runtime, image string, sou
 // an ABI mismatch fails the build and degrades instead of shipping a broken
 // image. Non-linux / non-ELF errors so the caller degrades up front.
 func selfLinuxExe() (string, error) {
-	if runtime.GOOS != "linux" {
-		return "", fmt.Errorf("host is %s and the agent image needs a linux ctxloom (build it ahead of time via the container-build just recipes)", runtime.GOOS)
+	if !platform.LinuxHost {
+		return "", errors.New("host is not linux and the agent image needs a linux ctxloom (build it ahead of time via the container-build just recipes)")
 	}
 	exe, err := os.Executable()
 	if err != nil {

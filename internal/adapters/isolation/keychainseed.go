@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/core/engine"
 	"github.com/ctxloom/ctxloom/internal/core/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 )
 
 // The macOS credential arm.
@@ -69,7 +69,7 @@ const keychainNotFoundExit = 44
 
 // keychainPlatform reports whether the keychain arm applies. A seam so the
 // arm can be built and tested on a host that is not a Mac.
-var keychainPlatform = func() bool { return runtime.GOOS == "darwin" }
+var keychainPlatform = func() bool { return platform.KeychainCredentials }
 
 // keychainTool is the `security` binary. A seam for the fake.
 var keychainTool = "security"

@@ -21,11 +21,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/platform"
 	"github.com/ctxloom/ctxloom/internal/shared/stderrtail"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 )
@@ -168,7 +168,7 @@ const (
 // convention to recover here). $SHELL empty (the "GUI launch didn't even set
 // $SHELL" case) falls back to /bin/bash, same as the TS resolver.
 func probeLoginShellPath() (string, error) {
-	if runtime.GOOS == "windows" {
+	if !platform.LoginShell {
 		return "", errors.New("login-shell PATH resolution is POSIX-only")
 	}
 	shell := os.Getenv("SHELL")

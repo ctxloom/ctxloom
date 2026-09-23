@@ -13,31 +13,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestAdvertiseHostFor pins the per-(GOOS, container-runtime) dial-home
-// decision from ensureWide's doc: darwin/windows advertise the Docker-
+// TestAdvertiseHostFor pins the per-(VM, container-runtime) dial-home
+// decision from ensureWide's doc: a VM-hosted runtime advertises the Docker-
 // Desktop/Podman-Machine magic hostname against the existing loopback
-// listener; any other GOOS (Linux today) falls back to the
+// listener; a runtime on this kernel falls back to the
 // bridge-gateway/primary-outbound-IP path, signaled by "".
 func TestAdvertiseHostFor(t *testing.T) {
 	cases := []struct {
 		name        string
-		goos        string
+		inVM        bool
 		runtimeName string
 		want        string
 	}{
-		{"darwin docker", "darwin", "docker", "host.docker.internal"},
-		{"darwin podman", "darwin", "podman", "host.containers.internal"},
-		{"windows docker", "windows", "docker", "host.docker.internal"},
-		{"windows podman", "windows", "podman", "host.containers.internal"},
-		{"darwin unknown runtime defaults to docker", "darwin", "", "host.docker.internal"},
-		{"linux docker: bridge-gateway path, not a magic hostname", "linux", "docker", ""},
-		{"linux podman: bridge-gateway path, not a magic hostname", "linux", "podman", ""},
+		{"vm docker", true, "docker", "host.docker.internal"},
+		{"vm podman", true, "podman", "host.containers.internal"},
+		{"vm unknown runtime defaults to docker", true, "", "host.docker.internal"},
+		{"same-kernel docker: bridge-gateway path, not a magic hostname", false, "docker", ""},
+		{"same-kernel podman: bridge-gateway path, not a magic hostname", false, "podman", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := advertiseHostFor(tc.goos, tc.runtimeName)
+			got := advertiseHostFor(tc.inVM, tc.runtimeName)
 			if got != tc.want {
-				t.Errorf("advertiseHostFor(%q, %q) = %q, want %q", tc.goos, tc.runtimeName, got, tc.want)
+				t.Errorf("advertiseHostFor(%v, %q) = %q, want %q", tc.inVM, tc.runtimeName, got, tc.want)
 			}
 		})
 	}

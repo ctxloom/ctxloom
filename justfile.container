@@ -348,7 +348,7 @@ test:
 # justfile `test-default` recipe instead of reporting a raw,
 # generated-file-diluted figure.
 #
-# Carries no `-tags arch`, so the 38 TestArch_ gates do NOT run here; `test-arch`
+# Carries no `-tags arch`, so the TestArch_ gates do NOT run here; `test-arch`
 # is their execution path and `test` runs both.
 test-default:
     #!/usr/bin/env bash

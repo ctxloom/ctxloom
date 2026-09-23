@@ -12,14 +12,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// A published TREE bundle is ONE listed item.
+// A published TREE bundle is ONE listed item, and a file is none.
 //
-// Both listings harvest ".yaml at any depth", and a tree's items are .yaml —
-// profiles/, mcp/, a skill's sidecars. So a listing that descends offers
-// "<bundle>/profiles/<x>" as an installable name, and the ones that then fail
-// to resolve are indistinguishable from a publisher's genuine bundles. The
-// manifest itself is the same defect wearing a different name: "<bundle>/bundle"
-// resolves to nothing either.
+// A tree's items are files and directories — profiles/, mcp/, a skill's
+// package. A listing that descends into a tree offers "<bundle>/profiles/<x>"
+// as an installable name, and the ones that then fail to resolve are
+// indistinguishable from a publisher's genuine bundles. A stray .yaml beside
+// the trees is not a bundle either.
 //
 // The assertions are exact SETS. The failure ADDS names, so a Contains or a
 // length would pass with the boundary deleted — the shape that already let this
@@ -57,8 +56,8 @@ func TestGitForgeVCS_ListItems_TreeBundleIsOneItem(t *testing.T) {
 	items, err := vcs.ListItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 
-	require.Equal(t, []string{"agent-ensemble", "solo"}, items,
-		"a tree bundle lists as itself; its profiles/*.yaml are its ITEMS, and %q is not a bundle anyone can install",
+	require.Equal(t, []string{"agent-ensemble"}, items,
+		"a tree bundle lists as itself; its profiles/*.yaml are its ITEMS, %q is not a bundle anyone can install, and neither is solo.yaml",
 		"agent-ensemble/profiles/coordinator")
 }
 
@@ -84,6 +83,6 @@ func TestFSVCS_ListItems_TreeBundleIsOneItem(t *testing.T) {
 	items, err := vcs.ListItems(context.Background(), ItemTypeBundle)
 	require.NoError(t, err)
 
-	require.Equal(t, []string{"agent-ensemble", "solo"}, items,
-		"nothing beneath a tree bundle is a bundle, at any depth")
+	require.Equal(t, []string{"agent-ensemble"}, items,
+		"nothing beneath a tree bundle is a bundle, at any depth, and a stray .yaml is not one")
 }

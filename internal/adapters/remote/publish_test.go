@@ -2,15 +2,12 @@ package remote
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // mockPublisher is a test double for Publisher.
@@ -39,16 +36,6 @@ func newMockPublisher() *mockPublisher {
 		branches:     make([]string, 0),
 		pullRequests: make([]mockPR, 0),
 	}
-}
-
-func (m *mockPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, path, branch, message string, content []byte) (string, error) {
-	if m.createFileErr != nil {
-		return "", m.createFileErr
-	}
-	m.createdFiles[path] = content
-	sha := "newsha123"
-	m.files[path] = sha
-	return sha, nil
 }
 
 func (m *mockPublisher) CreateOrUpdateFiles(ctx context.Context, owner, repo, branch, message string, files map[string][]byte) (string, error) {
@@ -103,112 +90,67 @@ func TestNewPublishManager(t *testing.T) {
 	t.Run("creates with defaults", func(t *testing.T) {
 		pm := NewPublishManager(registry, AuthConfig{})
 		assert.NotNil(t, pm)
-		assert.NotNil(t, pm.fs)
 		assert.NotNil(t, pm.publisherFactory)
 		assert.NotNil(t, pm.fetcherFactory)
 	})
 
 	t.Run("accepts custom options", func(t *testing.T) {
-		customFS := afero.NewMemMapFs()
 		mp := newMockPublisher()
 		mf := newMockFetcher()
 
 		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(customFS),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
 
-		assert.Equal(t, customFS, pm.fs)
+		p, err := pm.publisherFactory("https://github.com/alice/ctxloom", AuthConfig{})
+		require.NoError(t, err)
+		assert.Same(t, mp, p)
 	})
 }
 
-// mybundleRemotePath is where every "/local/mybundle.yaml" fixture below
-// publishes to. Publish no longer derives the remote path from the local
-// filename — the caller computes it once, with PublishPath, and hands the same
-// string to publish and to whatever reports the destination.
-const mybundleRemotePath = ".ctxloom/content/bundles/v2/mybundle.yaml"
+// mybundleRemotePath is the tree root every fixture below publishes to. The
+// caller computes it once, with PublishPath, and hands the same string to
+// publish and to whatever reports the destination.
+const mybundleRemotePath = ".ctxloom/content/bundles/v2/mybundle"
 
-func TestPublishManager_Publish(t *testing.T) {
+// mockPublishManager is a PublishManager over a mock publisher and fetcher,
+// with the remote "alice" registered.
+func mockPublishManager(t *testing.T) (*PublishManager, *mockPublisher, *mockFetcher) {
+	t.Helper()
+	registry, _ := NewRegistry("", WithRegistryFS(afero.NewMemMapFs()))
+	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	mp := newMockPublisher()
+	mf := newMockFetcher()
+	mf.defaultBranch = "main"
+	pm := NewPublishManager(registry, AuthConfig{},
+		WithPublisherFactory(mockPublisherFactory(mp)),
+		WithPublishFetcherFactory(mockFetcherFactory(mf)),
+	)
+	return pm, mp, mf
+}
+
+func TestPublishManager_PublishTree(t *testing.T) {
 	t.Run("publishes bundle successfully", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
+		pm, mp, _ := mockPublishManager(t)
 
-		// Create local bundle file
-		bundleContent := "description: Test bundle\nfragments:\n  test:\n    content: hello\n"
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", bundleContent, 0644)
-
-		// Create registry with remote
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		// Create mock publisher and fetcher
-		mp := newMockPublisher()
-		mf := newMockFetcher()
-		mf.defaultBranch = "main"
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+		result, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte("description: Test bundle\n")}, "alice", PublishOptions{
 			ItemType:   ItemTypeBundle,
 			RemotePath: mybundleRemotePath,
 			Branch:     "main",
 		})
 
 		require.NoError(t, err)
-		assert.NotNil(t, result)
-		assert.Equal(t, ".ctxloom/content/bundles/v2/mybundle.yaml", result.Path)
+		assert.Equal(t, mybundleRemotePath, result.Path)
 		assert.Equal(t, "newsha123", result.SHA)
-		assert.True(t, result.Created)
-
-		// Verify file was created
-		assert.Contains(t, mp.createdFiles, ".ctxloom/content/bundles/v2/mybundle.yaml")
-	})
-
-	t.Run("creates PR when requested", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0644)
-
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		mp := newMockPublisher()
-		mf := newMockFetcher()
-		mf.refs["main"] = "basesha123"
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType:   ItemTypeBundle,
-			RemotePath: mybundleRemotePath,
-			Branch:     "main",
-			CreatePR:   true,
-		})
-
-		require.NoError(t, err)
-		assert.NotEmpty(t, result.PRURL)
-		assert.Len(t, mp.branches, 1)
-		assert.Len(t, mp.pullRequests, 1)
+		assert.Contains(t, mp.createdFiles, mybundleRemotePath+"/bundle.yaml")
 	})
 
 	t.Run("returns error for missing remote", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "test\n", 0644)
+		registry, _ := NewRegistry("", WithRegistryFS(afero.NewMemMapFs()))
+		pm := NewPublishManager(registry, AuthConfig{})
 
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
-
-		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "nonexistent", PublishOptions{
+		_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte("x\n")}, "nonexistent", PublishOptions{
 			ItemType:   ItemTypeBundle,
 			RemotePath: mybundleRemotePath,
 		})
@@ -216,10 +158,40 @@ func TestPublishManager_Publish(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "remote not found")
 	})
+
+	// A 0-byte file would overwrite whatever real content already exists at
+	// the remote path with nothing — success reported, SHA returned, content
+	// silently destroyed.
+	t.Run("refuses to publish an empty file", func(t *testing.T) {
+		pm, mp, _ := mockPublishManager(t)
+
+		_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": nil}, "alice", PublishOptions{
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
+			Branch:     "main",
+		})
+
+		require.Error(t, err, "publishing a 0-byte file must be refused, not overwrite the remote with nothing")
+		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
+	})
+
+	// RemotePath is REQUIRED: a zero value would address the repo root, and
+	// the publish would report success for files nobody meant to write.
+	t.Run("refuses to publish with no remote path", func(t *testing.T) {
+		pm, mp, _ := mockPublishManager(t)
+
+		_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte("x\n")}, "alice", PublishOptions{
+			ItemType: ItemTypeBundle,
+			Branch:   "main",
+		})
+
+		require.Error(t, err, "an unset RemotePath must be refused, not guessed")
+		assert.Contains(t, err.Error(), "RemotePath")
+		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
+	})
 }
 
-// TestPublishManager_PublishTree_ViaPR is PublishManager_Publish's "creates PR
-// when requested" case, for the whole-tree path: a feature branch, ONE
+// TestPublishManager_PublishTree_ViaPR: a feature branch, ONE
 // CreateOrUpdateFiles call carrying every file, then a pull request — never a
 // content commit plus a separate signature commit, since a tree has no
 // separate signature artifact to write.
@@ -233,7 +205,6 @@ func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 	mf.refs["main"] = "basesha123"
 
 	pm := NewPublishManager(registry, AuthConfig{},
-		WithPublishFS(fs),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -267,153 +238,6 @@ func TestPublishManager_PublishTree_ViaPR(t *testing.T) {
 		assert.Contains(t, path, ".ctxloom/content/bundles/v2/atelier/")
 		assert.NotEmpty(t, sha)
 	}
-}
-
-// TestPublishManager_Publish_EdgeCases continues TestPublishManager_Publish's
-// t.Run sequence: single-file publish edge cases, unaffected by the
-// whole-tree PublishTree work above.
-func TestPublishManager_Publish_EdgeCases(t *testing.T) {
-	t.Run("returns error for missing local file", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
-
-		_, err := pm.Publish(context.Background(), "/nonexistent.yaml", "alice", PublishOptions{
-			ItemType:   ItemTypeBundle,
-			RemotePath: mybundleRemotePath,
-		})
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to read local file")
-	})
-
-	// loadPublishContent had no emptiness guard, so a 0-byte local
-	// file published straight through, overwriting whatever real content
-	// already existed at the remote path with nothing — success reported,
-	// SHA returned, content silently destroyed. (The SIGNED half of this —
-	// "a valid publisher signature over zero bytes" — is already
-	// closed independently by signing.Sign's own floor; this pins
-	// the UNSIGNED publish path, which Sign's floor cannot reach at all.)
-	t.Run("refuses to publish an empty local file", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "", 0o644)
-
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		mp := newMockPublisher()
-		mf := newMockFetcher()
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType:   ItemTypeBundle,
-			RemotePath: mybundleRemotePath,
-			Branch:     "main",
-		})
-
-		require.Error(t, err, "publishing a 0-byte file must be refused, not overwrite the remote with nothing")
-		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
-	})
-
-	// preparePublish used to swallow the error from GetFileSHA, silently
-	// reinterpreting "the forge failed to answer" as "the file doesn't exist"
-	// — flipping a genuine update into an "Add …" commit subject/PR title.
-	t.Run("a GetFileSHA failure aborts the publish instead of being read as absent", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0o644)
-
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		mp := newMockPublisher()
-		mp.getFileSHAErr = fmt.Errorf("forge unavailable")
-		mf := newMockFetcher()
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType:   ItemTypeBundle,
-			RemotePath: mybundleRemotePath,
-			Branch:     "main",
-		})
-
-		require.Error(t, err, "a GetFileSHA failure must not be silently treated as \"file doesn't exist\"")
-		assert.Empty(t, mp.createdFiles, "nothing must reach the remote when the existing-file check fails")
-	})
-
-	t.Run("detects update vs create", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0o644)
-
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		mp := newMockPublisher()
-		mp.files[".ctxloom/content/bundles/v2/mybundle.yaml"] = "existingsha" // File already exists
-		mf := newMockFetcher()
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType:   ItemTypeBundle,
-			RemotePath: mybundleRemotePath,
-			Branch:     "main",
-		})
-
-		require.NoError(t, err)
-		assert.False(t, result.Created)
-	})
-
-	// RemotePath is REQUIRED. Publish used to derive it from the local
-	// filename, so there was no way to omit it; now that the caller supplies
-	// it, a caller who forgets must be told rather than have a destination
-	// guessed for them — a zero value here would address the repo root, and the
-	// publish would report success for a file nobody meant to write.
-	t.Run("refuses to publish with no remote path", func(t *testing.T) {
-		fs := afero.NewMemMapFs()
-		require.NoError(t, fs.MkdirAll("/local", 0755))
-		testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", "description: Test\n", 0o644)
-
-		registry, _ := NewRegistry("", WithRegistryFS(fs))
-		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-		mp := newMockPublisher()
-		mf := newMockFetcher()
-		mf.defaultBranch = "main"
-
-		pm := NewPublishManager(registry, AuthConfig{},
-			WithPublishFS(fs),
-			WithPublisherFactory(mockPublisherFactory(mp)),
-			WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		)
-
-		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
-		})
-
-		require.Error(t, err, "an unset RemotePath must be refused, not guessed")
-		assert.Contains(t, err.Error(), "RemotePath")
-		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
-	})
 }
 
 func TestPublishPath(t *testing.T) {
@@ -458,37 +282,18 @@ func TestPublishPath_MatchesFetchSideRefResolution(t *testing.T) {
 
 // --- Exact-bytes publishing (signature-envelope spec §3.0, §3.1) -----------
 
-// publishOnce runs a single publish of content through a fresh mock publisher
-// and returns the bytes that landed at the remote bundle path.
-func publishOnce(t *testing.T, content string, opts ...func(*PublishOptions)) []byte {
+// publishOnce publishes content as a one-file tree through a fresh mock
+// publisher and returns the bytes that landed at the remote.
+func publishOnce(t *testing.T, content string) []byte {
 	t.Helper()
-	fs := afero.NewMemMapFs()
-	require.NoError(t, fs.MkdirAll("/local", 0755))
-	testsupport.WriteFileString(t, fs, "/local/mybundle.yaml", content, 0644)
-
-	registry, _ := NewRegistry("", WithRegistryFS(fs))
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
-
-	mp := newMockPublisher()
-	mf := newMockFetcher()
-	mf.defaultBranch = "main"
-
-	pm := NewPublishManager(registry, AuthConfig{},
-		WithPublishFS(fs),
-		WithPublisherFactory(mockPublisherFactory(mp)),
-		WithPublishFetcherFactory(mockFetcherFactory(mf)),
-	)
-
-	po := PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath, Branch: "main"}
-	for _, o := range opts {
-		o(&po)
-	}
-	_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", po)
+	pm, mp, _ := mockPublishManager(t)
+	_, err := pm.PublishTree(context.Background(), map[string][]byte{"bundle.yaml": []byte(content)}, "alice",
+		PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath, Branch: "main"})
 	require.NoError(t, err)
-	return mp.createdFiles[".ctxloom/content/bundles/v2/mybundle.yaml"]
+	return mp.createdFiles[mybundleRemotePath+"/bundle.yaml"]
 }
 
-func TestPublishManager_Publish_WritesLocalBytesVerbatim(t *testing.T) {
+func TestPublishManager_PublishTree_WritesLocalBytesVerbatim(t *testing.T) {
 	// Comments, key order, blank lines, trailing whitespace: every byte of the
 	// author's file must reach the remote untouched. Nothing prepended,
 	// appended, or normalized (spec §3.0, §3.1).
@@ -500,7 +305,7 @@ func TestPublishManager_Publish_WritesLocalBytesVerbatim(t *testing.T) {
 		"publish must write the local file's bytes verbatim — no metadata injection, no re-serialization")
 }
 
-func TestPublishManager_Publish_IsReproducible(t *testing.T) {
+func TestPublishManager_PublishTree_IsReproducible(t *testing.T) {
 	// Publishing the same unchanged bundle twice must produce IDENTICAL bytes.
 	// A wall-clock stamp in the body (the old `_published` block) broke this,
 	// and with it any consumer's ability to check the remote against the
@@ -518,19 +323,6 @@ func TestPublishManager_Publish_IsReproducible(t *testing.T) {
 
 	assert.Equal(t, string(first), string(second),
 		"two publishes of an unchanged bundle must produce byte-identical remote content")
-}
-
-func TestPublishManager_Publish_LocalFileBytesArePublishedVerbatim(t *testing.T) {
-	// The invariant: the bytes that land in the remote are the LOCAL file's
-	// bytes, verbatim (spec §3.0), so a signature made over the local tree
-	// verifies against what was published. It only can if they are the same
-	// bytes.
-	content := "description: Test bundle\nfragments:\n  test:\n    content: hello\n"
-
-	published := publishOnce(t, content, func(*PublishOptions) {})
-
-	assert.Equal(t, content, string(published),
-		"the published bytes must be the local file's exact bytes")
 }
 
 func TestNewPublisher(t *testing.T) {

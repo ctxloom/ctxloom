@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/spf13/afero"
 )
 
 // Publisher handles publishing items to remote repositories.
@@ -54,18 +52,10 @@ type PublishManager struct {
 	auth             AuthConfig
 	publisherFactory PublisherFactory
 	fetcherFactory   FetcherFactory
-	fs               afero.Fs
 }
 
 // PublishManagerOption configures a PublishManager.
 type PublishManagerOption func(*PublishManager)
-
-// WithPublishFS sets a custom filesystem for the publish manager.
-func WithPublishFS(fs afero.Fs) PublishManagerOption {
-	return func(pm *PublishManager) {
-		pm.fs = fs
-	}
-}
 
 // WithPublisherFactory sets a custom publisher factory (for testing).
 func WithPublisherFactory(pf PublisherFactory) PublishManagerOption {
@@ -88,7 +78,6 @@ func NewPublishManager(registry *Registry, auth AuthConfig, opts ...PublishManag
 		auth:             auth,
 		publisherFactory: defaultPublisherFactory,
 		fetcherFactory:   DefaultFetcherFactory,
-		fs:               afero.NewOsFs(),
 	}
 
 	// Apply options

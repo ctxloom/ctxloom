@@ -22,10 +22,10 @@ import (
 // migration that adds a next format moves these tests with it instead of
 // leaving them asserting a root nothing writes.
 
-// treeFileRef is the single-file path the tree probe derives its candidate
+// treeFileRef is the reference path the tree probe derives its candidate
 // from, and treeBundleName the bare bundle name underneath the format root.
 const (
-	treeFileRef    = ".ctxloom/content/bundles/atelier.yaml"
+	treeFileRef    = ".ctxloom/content/bundles/atelier"
 	treeBundleName = "atelier"
 )
 
@@ -67,7 +67,7 @@ func TestBundleTreeRoots_NamesExactlyTheFormatV2Root(t *testing.T) {
 // candidate composed in the repo family would name a path that does not exist
 // for such a reader.
 func TestBundleTreeRoots_ComposesCandidatesInThePathsOwnPrefixFamily(t *testing.T) {
-	contentPath := path.Join(paths.ContentBundlesPrefixFor(paths.LayoutV2), treeBundleName+".yaml")
+	contentPath := path.Join(paths.ContentBundlesPrefixFor(paths.LayoutV2), treeBundleName)
 
 	roots := BundleTreeRoots(contentPath)
 
@@ -84,7 +84,7 @@ func TestBundleTreeRoots_ComposesCandidatesInThePathsOwnPrefixFamily(t *testing.
 // already under a format root yields the same bare name rather than one that
 // composes the segment twice.
 func TestBundleTreeRoots_ReducesAPathThatAlreadyCarriesAFormatSegment(t *testing.T) {
-	v2Path := path.Join(paths.RepoBundlesPrefixFor(paths.LayoutV2), treeBundleName+".yaml")
+	v2Path := path.Join(paths.RepoBundlesPrefixFor(paths.LayoutV2), treeBundleName)
 
 	assert.Equal(t, BundleTreeRoots(treeFileRef), BundleTreeRoots(v2Path),
 		"the same bundle must yield the same candidate roots however its path was spelled")
@@ -116,7 +116,7 @@ func TestFetchItemBytes_ResolvesATreeAtTheFormatV2Root(t *testing.T) {
 		treeAt(map[string]map[string]TreeFile{formatV2TreeRoot(): manifestTree("current")}, &seen))
 
 	content, tree, treeRoot, err := p.fetchItemBytes(t.Context(), NewMockFetcher(), "trent", "atelier",
-		"https://github.com/trent/atelier", treeRef(t), treeFileRef, treeTestSHA, PullOptions{ItemType: ItemTypeBundle})
+		"https://github.com/trent/atelier", treeRef(t), treeFileRef, treeTestSHA)
 
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "marker: current", "the manifest of the tree at the format root must be what pulls")

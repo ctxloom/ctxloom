@@ -16,12 +16,9 @@
 package remote
 
 import (
-	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,33 +29,12 @@ import (
 // the state in which publishing must work.
 func registeredRemoteFixture(t *testing.T) *publishFixture {
 	t.Helper()
-	gitEnv(t)
-	url, bare := bareRemote(t, "main")
-
-	work := t.TempDir()
-	local := filepath.Join(work, "mybundle.yaml")
-	require.NoError(t, os.WriteFile(local, []byte("description: registered\n"), 0o644))
-
-	fs := afero.NewOsFs()
-	registry, err := NewRegistry(filepath.Join(work, "remotes.yaml"), WithRegistryFS(fs))
-	require.NoError(t, err)
-	require.NoError(t, registry.Add("shared", url))
-
-	return &publishFixture{
-		pm:        NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs)),
-		localPath: local,
-		remoteURL: url,
-		bare:      bare,
-	}
+	return newPublishFixture(t, "main")
 }
 
 func (f *publishFixture) publishToShared(t *testing.T) (*PublishResult, error) {
 	t.Helper()
-	return f.pm.Publish(context.Background(), f.localPath, "shared", PublishOptions{
-		ItemType:   ItemTypeBundle,
-		RemotePath: mybundleRemotePath,
-		Branch:     "main",
-	})
+	return f.publishEnvelope(t, "description: registered\n", PublishOptions{Branch: "main"})
 }
 
 // The whole claim, on a generic-git remote — the forge that carried the gate.
@@ -68,7 +44,7 @@ func TestPublish_ARegisteredRemoteNeedsNoSecondBlessing(t *testing.T) {
 	_, err := f.publishToShared(t)
 
 	require.NoError(t, err, "a registered remote is a chosen remote; publishing to it is not gated")
-	assert.Equal(t, "description: registered", f.remoteFile(t, "main", mybundleRemotePath),
+	assert.Equal(t, "description: registered", f.remoteFile(t, "main", mybundleEnvelope),
 		"the bytes reach the remote — success with nothing written is this project's characteristic bug")
 }
 
@@ -81,11 +57,10 @@ func TestPublish_RepublishingToTheSameRemoteIsTheSameEvent(t *testing.T) {
 	_, err := f.publishToShared(t)
 	require.NoError(t, err)
 
-	require.NoError(t, os.WriteFile(f.localPath, []byte("description: registered v2\n"), 0o644))
-	_, err = f.publishToShared(t)
+	_, err = f.publishEnvelope(t, "description: registered v2\n", PublishOptions{Branch: "main"})
 
 	require.NoError(t, err)
-	assert.Equal(t, "description: registered v2", f.remoteFile(t, "main", mybundleRemotePath))
+	assert.Equal(t, "description: registered v2", f.remoteFile(t, "main", mybundleEnvelope))
 }
 
 // Publishing consults nothing under the user's home. A ledger reintroduced at
@@ -99,5 +74,5 @@ func TestPublish_ConsultsNothingUnderHome(t *testing.T) {
 	_, err := f.publishToShared(t)
 
 	require.NoError(t, err, "publish reads no per-user grant, so an absent home decides nothing")
-	assert.Equal(t, "description: registered", f.remoteFile(t, "main", mybundleRemotePath))
+	assert.Equal(t, "description: registered", f.remoteFile(t, "main", mybundleEnvelope))
 }

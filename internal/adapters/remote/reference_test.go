@@ -3,6 +3,8 @@ package remote
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // The short "repo/path" form has been eliminated: ParseReference rejects any
@@ -362,34 +364,10 @@ func TestReference_BuildFilePath(t *testing.T) {
 	}
 }
 
-func TestReference_LocalPath(t *testing.T) {
-	tests := []struct {
-		name     string
-		ref      Reference
-		baseDir  string
-		itemType ItemType
-		want     string
-	}{
-		{
-			name: "canonical HTTPS bundle",
-			ref: Reference{
-				URL:      "https://github.com/ctxloom/ctxloom-github",
-				ItemType: ItemTypeBundle,
-				Path:     "core-practices",
-			},
-			baseDir:  ".ctxloom",
-			itemType: ItemTypeBundle, // Passed item type is ignored for canonical
-			want:     ".ctxloom/cache/bundles/github.com/ctxloom/ctxloom-github/core-practices.yaml",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ref.LocalPath(tt.baseDir, tt.itemType); got != tt.want {
-				t.Errorf("LocalPath() = %q, want %q", got, tt.want)
-			}
-		})
-	}
+func TestReference_LocalWorktreePath(t *testing.T) {
+	ref := Reference{URL: "https://github.com/ctxloom/ctxloom-github", ItemType: ItemTypeBundle, Path: "core-practices"}
+	assert.Equal(t, ".ctxloom/cache/bundles/github.com/ctxloom/ctxloom-github/core-practices"+WorktreeDirSuffix,
+		ref.LocalWorktreePath(".ctxloom"))
 }
 
 func TestReference_LocalRemoteName(t *testing.T) {
